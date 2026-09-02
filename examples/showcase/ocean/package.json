@@ -1,0 +1,13 @@
+{
+    "name": "ocean",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": { "build": "vite build", "gate": "bunx shallot verify . --screenshot ocean.png" },
+    "dependencies": {
+        "@dylanebert/shallot": "workspace:*",
+        "@dylanebert/shallot-ocean": "workspace:*",
+        "typegpu": "~0.12.4"
+    },
+    "devDependencies": { "unplugin-typegpu": "~0.12.3", "vite": "^8.0.16" }
+}

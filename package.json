@@ -12,7 +12,7 @@
         "build": "bun run --cwd packages/shallot build",
         "check": "tsc && biome check && eslint . --max-warnings=0 && bun run scripts/check-versions.ts && bun run scripts/check-imports.ts && bun run scripts/check-boundary.ts && bun run scripts/check-tui-boundary.ts && bun run scripts/check-docs.ts && bun run scripts/check-pack.ts && bun run scripts/check-scripts.ts && bun run scripts/check-exports.ts && bun run scripts/check-node-import.ts && bun run scripts/check-site.ts && bun run scripts/check-tumble-fp.ts && bun run scripts/format.ts --check",
         "format": "biome check --write && bun run scripts/format.ts",
-        "test": "bun test packages/shallot packages/shallot-ocean packages/shallot-tui scripts evals site examples/showcase/visualization/test",
+        "test": "bun test packages/shallot packages/shallot-ocean packages/shallot-tui scripts evals site examples/showcase/visualization/test examples/showcase/ocean/test",
         "test:install": "bun run scripts/install-test.ts",
         "test:ocean-realization": "bun test ./packages/shallot-ocean/tests/realization.oracle.ts",
         "test:ocean-slope": "bun test ./packages/shallot-ocean/tests/slope.oracle.ts",
