@@ -14,7 +14,15 @@
 // the spectral representation, with no finite-difference spacing factor. `spectrum.ts` defines the
 // represented bands, while the package tests cover cross-resolution behavior.
 
-import { Compute, type Plugin, RenderPlugin, type State, type System } from "@dylanebert/shallot";
+import {
+    Compute,
+    PartPlugin,
+    type Plugin,
+    RenderPlugin,
+    SearPlugin,
+    type State,
+    type System,
+} from "@dylanebert/shallot";
 import { BeginFrameSystem, Frame, Render } from "@dylanebert/shallot/render/core";
 import { PrepassSystem } from "@dylanebert/shallot/sear/core";
 import { idiv } from "@dylanebert/shallot/utils/core";
@@ -24,6 +32,7 @@ import * as std from "typegpu/std";
 import { getFftKernels } from "./gpu-fft";
 import { buildSlopes, slopeCompute, teardownSlopes } from "./slope";
 import { CASCADE_CONFIGS, type CascadeConfig, generateH0 } from "./spectrum";
+import { registerOceanSurface } from "./surface";
 
 // Re-export the cascade configuration alongside the plugin API.
 export { CASCADE_CONFIGS, type CascadeConfig };
@@ -1047,8 +1056,9 @@ function teardown(): void {
 
 export const OceanPlugin: Plugin = {
     name: "Ocean",
-    dependencies: [RenderPlugin],
+    dependencies: [PartPlugin, RenderPlugin, SearPlugin],
     systems: [oceanCompute, slopeCompute],
+    initialize: registerOceanSurface,
     warm() {
         build();
         buildSlopes();

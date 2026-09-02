@@ -132,6 +132,7 @@ import "./mesh-fixture";
 import "./motion-locks";
 import "./motor";
 import "./ocean-fold";
+import "./ocean-shading";
 import "./ocean-slope";
 import "./orbit-touch";
 import "./outline";

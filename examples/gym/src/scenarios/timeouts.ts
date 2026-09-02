@@ -189,6 +189,10 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
         covers: ["packages/shallot/src/standard/avbd/**/*.ts"],
     },
 
+    "ocean-shading": {
+        covers: ["packages/shallot-ocean/src/**/*.ts"],
+    },
+
     // ── everything below is a tumble (CPU wasm) scenario: no `covers`, deliberately. Tumble physics is
     // bit-exact-gated by `bun test` + the committed fixtures/gold corpus (`tumble.md`), not by this
     // check's GPU-src population, which excludes `standard/tumble` for exactly that reason. Registered
