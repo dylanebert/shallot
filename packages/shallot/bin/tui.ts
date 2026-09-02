@@ -572,7 +572,8 @@ export async function runTui(
         console.error(noShallotTuiMessage());
         return EXIT_NO_SHALLOT_TUI;
     }
-    const { ALT_SCREEN_ENTER, detectTier, Encoder, installTeardown, makeGrid, onResize } = shallotTui;
+    const { ALT_SCREEN_ENTER, detectTier, Encoder, installTeardown, makeGrid, onResize } =
+        shallotTui;
 
     const bunWebgpu = await importBunWebgpu(bunWebgpuLoader);
     if (!bunWebgpu) {
@@ -730,7 +731,14 @@ export async function runTui(
             await staging.mapAsync(GPUMapMode.READ, 0, raw.size);
             const bytes = staging.getMappedRange(0, raw.size).slice(0);
             staging.destroy();
-            const tuiGrid = cellsBytesToGrid(bytes, COLS, ROWS, unpackCell, cellGlyphChar, makeGrid);
+            const tuiGrid = cellsBytesToGrid(
+                bytes,
+                COLS,
+                ROWS,
+                unpackCell,
+                cellGlyphChar,
+                makeGrid,
+            );
             write(encoder.encode(tuiGrid));
         }
         frame++;

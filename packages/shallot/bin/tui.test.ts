@@ -1,6 +1,6 @@
-import { makeGrid } from "@dylanebert/shallot-tui";
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
+import { makeGrid } from "@dylanebert/shallot-tui";
 import {
     cellsBytesToGrid,
     createQuitGuard,
@@ -167,7 +167,14 @@ describe("cellsBytesToGrid", () => {
     const fakeGlyphChar = (glyph: number) => (glyph === 1 ? "#" : ".");
 
     test("decodes glyph + fg/bg (dropping alpha) into the shallot-tui Grid shape", () => {
-        const grid = cellsBytesToGrid(new ArrayBuffer(0), 2, 1, fakeUnpack, fakeGlyphChar, makeGrid);
+        const grid = cellsBytesToGrid(
+            new ArrayBuffer(0),
+            2,
+            1,
+            fakeUnpack,
+            fakeGlyphChar,
+            makeGrid,
+        );
         expect(grid).toEqual({
             width: 2,
             height: 1,
@@ -247,10 +254,8 @@ describe("importShallotTui / runTui — missing @dylanebert/shallot-tui", () => 
     });
 
     test("runTui exits EXIT_NO_SHALLOT_TUI (never throws) when its shallot-tui loader rejects", async () => {
-        const code = await runTui(
-            [RECIPE_DIR],
-            undefined,
-            () => Promise.reject(new Error("Cannot find module '@dylanebert/shallot-tui'")),
+        const code = await runTui([RECIPE_DIR], undefined, () =>
+            Promise.reject(new Error("Cannot find module '@dylanebert/shallot-tui'")),
         );
         expect(code).toBe(EXIT_NO_SHALLOT_TUI);
     });
