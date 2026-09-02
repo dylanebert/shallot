@@ -47,8 +47,9 @@ export const GPU_MODULE_GLOBS: readonly string[] = [
  *  is what keeps that from happening: every immediate subdirectory of `src/extras/` is either matched by the
  *  globs or listed here. */
 export const NON_GPU_EXTRAS: Record<string, string> = {
+    animation:
+        "pure numeric timing/easing atoms driving ECS fields — no device, buffer, or WGSL surface",
     orbit: "CPU camera math + a DOM overlay (mountOverlay) — no device, buffer, or WGSL surface",
-    tween: "pure numeric timing/easing atoms driving ECS fields — no device, buffer, or WGSL surface",
 };
 
 /** `true`: `coverage.test.ts` runs the two completeness assertions against the real table —
