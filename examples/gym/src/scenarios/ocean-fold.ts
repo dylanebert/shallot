@@ -5,14 +5,28 @@
 // runs the ACTUAL production compute pipeline (`createCascadeState` + `encodeCascadePasses`, the
 // same functions the per-frame render loop uses) at an arbitrary one-off config and time, off the
 // persistent `cascades[]` array, and reads back the per-texel `ProbeData.negDetCount`/`totalCount`
-// `postKernel` already writes. COMPOSED here means the same pooled (population-weighted, both
-// displacement cascades summed) reading `fold-anchor.oracle.ts` derives λ against — see that file's
-// header for why "composed" means cross-cascade pooling rather than per-cascade.
+// `postKernel` already writes.
+//
+// TWO DIFFERENT "COMPOSED" READINGS, on purpose, per the spec's own escape hatch (`fold-anchor.
+// oracle.ts`'s composed-world-grid superposition has no GPU-side counterpart — `measureFoldFraction`
+// reads each cascade's OWN native texel grid, no cross-cascade world-point interpolation or
+// composition on the GPU):
+//   (1) SUBSTRATE agreement (per-cascade Jacobian, CPU vs GPU) — `cpuPooledFold`/`gpuPooledFold`
+//       below, comparing each cascade's own closed-form det-J texel count between the two pipelines.
+//       This is the arm that actually gates CPU/GPU agreement in this file.
+//   (2) COMPOSED statistic (world-grid-superposed, CPU-only) — `composeWorldGrid`/`foldFractionAt`
+//       (`@dylanebert/shallot-ocean`, the exact functions `fold-anchor.oracle.ts` solves λ with),
+//       read and printed at the same >= 8 phases, never compared to a GPU reading since none exists
+//       to compare it to. This is the statistic `fold-anchor.oracle.ts` actually gates λ against;
+//       this scenario reads it here only to confirm it stays reachable off the device-agnostic CPU
+//       reference at these phases, not to re-derive λ.
 //
 // `measureFoldFraction`'s GPU cascade always seeds with `generateH0(config, 0)` (`createCascadeState`'s
-// own hardcoded seed, matching the persistent render-loop cascades) — the CPU comparison side below
-// uses the identical seed so both sides read the same realization, differing only in which pipeline
-// (WGSL f32 compute vs `cpu-reference.ts`'s transcribed CPU arithmetic) computed it.
+// own hardcoded seed, matching the persistent render-loop cascades) — every CPU reading below (both
+// the substrate and the composed one) uses the identical seed so every side reads the same
+// realization, differing only in which pipeline (WGSL f32 compute vs `cpu-reference.ts`'s
+// transcribed CPU arithmetic) computed it, or whether cascades are pooled per-texel or composed on
+// one world grid.
 //
 // `bun bench` itself already skips loudly (`scripts/bench.ts`'s `skipReason()`) when the seat has no
 // real GPU adapter, before any scenario boots — this file adds no second adapter check.
@@ -20,21 +34,45 @@ import { RenderPlugin, run, SlabPlugin, type State, TransformsPlugin } from "@dy
 import { ProfilePlugin } from "@dylanebert/shallot/extras";
 import {
     CASCADE_CONFIGS,
+    type CascadeGradientField,
+    composeWorldGrid,
+    foldFractionAt,
     generateH0,
     measureFoldFraction,
     OceanPlugin,
+    realPart,
     runCpuPipeline,
+    worldGridSpec,
 } from "@dylanebert/shallot-ocean";
 import { type Check, register, type Scenario } from "../gym";
 
 const [CFG0, CFG1] = CASCADE_CONFIGS;
 const TOTAL_TEXELS = CFG0.N * CFG0.N + CFG1.N * CFG1.N;
+const WORLD_GRID = worldGridSpec(CASCADE_CONFIGS);
 
 // >= 8 phases, declared before the reading (spec Validation: "reads at least 8 phases"). Fold
 // fraction is time-invariant for this stationary field (`mesh-inversion-sweep.oracle.ts`'s own
 // header), so any 8 distinct times exercise the same claim; these are plain integer seconds for
 // readability, never chosen to land on anything special.
 const PHASES = [0, 1, 2, 3, 4, 5, 6, 7];
+
+/** The composed-world-grid reading at one phase, seed 0 (matching `measureFoldFraction`'s own
+ *  hardcoded GPU seed) — CPU-only, no GPU comparison (this file's own header). */
+function cpuComposedFold(time: number): number {
+    const fieldFor = (cfg: (typeof CASCADE_CONFIGS)[number]): CascadeGradientField => {
+        const h0 = generateH0(cfg, 0);
+        const cpu = runCpuPipeline(h0, cfg, time);
+        return {
+            N: cfg.N,
+            L: cfg.L,
+            gxx: realPart(cpu.gxxHeight, cfg.N),
+            gxz: realPart(cpu.gxzHeight, cfg.N),
+            gzz: realPart(cpu.gzzHeight, cfg.N),
+        };
+    };
+    const composed = composeWorldGrid([fieldFor(CFG0), fieldFor(CFG1)], WORLD_GRID);
+    return foldFractionAt(composed, CFG0.lambda);
+}
 
 interface PhaseReading {
     time: number;
@@ -44,6 +82,8 @@ interface PhaseReading {
     cpuCount1: number;
     gpuCount0: number;
     gpuCount1: number;
+    /** the composed-world-grid reading (CPU-only — this file's own header). */
+    cpuComposed: number;
 }
 
 function cpuPooledFold(time: number): { pooled: number; count0: number; count1: number } {
@@ -85,6 +125,7 @@ async function runChecks(_state: State): Promise<Check[]> {
     for (const time of PHASES) {
         const cpu = cpuPooledFold(time);
         const gpu = await gpuPooledFold(time);
+        const cpuComposed = cpuComposedFold(time);
         readings.push({
             time,
             cpuPooled: cpu.pooled,
@@ -93,8 +134,17 @@ async function runChecks(_state: State): Promise<Check[]> {
             cpuCount1: cpu.count1,
             gpuCount0: gpu.count0,
             gpuCount1: gpu.count1,
+            cpuComposed,
         });
     }
+
+    checks.push({
+        name: `composed-world-grid reading is reachable off the CPU reference at every declared phase (${WORLD_GRID.gridN}x${WORLD_GRID.gridN} points, spacing=${WORLD_GRID.spacing.toFixed(4)}m, extent=${WORLD_GRID.extent.toFixed(2)}m)`,
+        pass: readings.every((r) => Number.isFinite(r.cpuComposed) && r.cpuComposed >= 0),
+        detail: readings
+            .map((r) => `t=${r.time}s composed=${(r.cpuComposed * 100).toFixed(4)}%`)
+            .join(", "),
+    });
 
     // Per-phase, per-cascade texel-count agreement: CPU and GPU compute the SAME closed-form
     // Jacobian arithmetic (no reconstruction kernel, no discretization choice — see this stage's
@@ -114,16 +164,17 @@ async function runChecks(_state: State): Promise<Check[]> {
             Math.abs(r.cpuCount1 - r.gpuCount1),
         );
         checks.push({
-            name: `t=${r.time}s composed fold: CPU vs GPU`,
+            name: `t=${r.time}s substrate (per-cascade pooled) fold: CPU vs GPU`,
             pass: true, // printed reading; the aggregate check below is what gates
             detail:
                 `CPU pooled=${(r.cpuPooled * 100).toFixed(4)}% (counts ${r.cpuCount0}+${r.cpuCount1}) ` +
-                `GPU pooled=${(r.gpuPooled * 100).toFixed(4)}% (counts ${r.gpuCount0}+${r.gpuCount1})`,
+                `GPU pooled=${(r.gpuPooled * 100).toFixed(4)}% (counts ${r.gpuCount0}+${r.gpuCount1}) ` +
+                `— CPU composed (world-grid, no GPU counterpart)=${(r.cpuComposed * 100).toFixed(4)}%`,
         });
     }
 
     checks.push({
-        name: "CPU and GPU composed fold-texel counts agree across every declared phase",
+        name: "CPU and GPU substrate (per-cascade Jacobian) fold-texel counts agree across every declared phase",
         pass: maxAbsCascadeDelta === 0,
         detail:
             `totalCpuCount=${totalCpuCount} totalGpuCount=${totalGpuCount} ` +
