@@ -16,6 +16,7 @@ const usage = `
     run       Build and run
     verify    Boot the project in a headless browser and check it renders (shallot verify --help)
     recipe    Copy an example recipe out of the package (bare: list them)
+    tui       Boot the project headless and render its cell grid to this terminal (shallot tui --help)
 
   Options
     --target <platform>   web (default), windows, mac, linux. Native release builds download a prebuilt
@@ -40,7 +41,7 @@ const usage = `
 `;
 
 export type CliArgs =
-    | { kind: "delegate"; cmd: "verify" | "recipe"; rest: string[] }
+    | { kind: "delegate"; cmd: "verify" | "recipe" | "tui"; rest: string[] }
     | { kind: "usage"; exitCode: 0 | 1 }
     | {
           kind: "run";
@@ -62,6 +63,7 @@ export type CliArgs =
 export function parseCliArgs(raw: string[]): CliArgs {
     if (raw[0] === "verify") return { kind: "delegate", cmd: "verify", rest: raw.slice(1) };
     if (raw[0] === "recipe") return { kind: "delegate", cmd: "recipe", rest: raw.slice(1) };
+    if (raw[0] === "tui") return { kind: "delegate", cmd: "tui", rest: raw.slice(1) };
 
     const positionalArgs: string[] = [];
     let target: string | undefined;
@@ -146,9 +148,12 @@ if (import.meta.main) {
         if (parsed.cmd === "verify") {
             const { runVerify } = await import("./verify");
             process.exit(await runVerify(parsed.rest));
-        } else {
+        } else if (parsed.cmd === "recipe") {
             const { runRecipe } = await import("./recipe");
             process.exit(await runRecipe(parsed.rest));
+        } else {
+            const { runTui } = await import("./tui");
+            process.exit(await runTui(parsed.rest));
         }
     } else if (parsed.kind === "usage") {
         console.log(usage);
