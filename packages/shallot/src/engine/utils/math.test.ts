@@ -540,6 +540,12 @@ describe("perspective", () => {
         expect(() => math.perspective(60, 1, 100, 100)).toThrow("Invalid depth planes");
     });
 
+    // RED witnessed: before the near-plane guard, the function returned a matrix instead of
+    // throwing for perspective(60, 1, 0, 100) → exit 1 (168 pass, 1 fail).
+    test("throws with an attributable diagnostic on near = 0", () => {
+        expect(() => math.perspective(60, 1, 0, 100)).toThrow(/near/i);
+    });
+
     test("throws on NaN fov/aspect/near/far (NaN <= 0 and NaN === far are both false)", () => {
         expect(() => math.perspective(NaN, 1, 0.1, 100)).toThrow();
         expect(() => math.perspective(60, NaN, 0.1, 100)).toThrow();
