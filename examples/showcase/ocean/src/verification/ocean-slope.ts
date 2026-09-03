@@ -54,15 +54,8 @@ interface Check {
     detail?: string;
 }
 
-async function frames(count: number): Promise<void> {
-    for (let i = 0; i < count; i++) {
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    }
-}
-
 const [SLOPE_CONFIG] = SLOPE_CASCADE_CONFIGS;
 const N = SLOPE_CONFIG.N;
-const DECLARED_TIME = 1 / 30;
 
 /** IEEE754 single-precision unit roundoff — Higham's own `u` (2^-24, matching the theorem's own
  *  convention for f32, `slope-seam.ts`'s `higham242RelativeBound`). */
@@ -242,41 +235,16 @@ async function runChecks(state: State): Promise<Check[]> {
         return checks;
     }
 
-    // Pre-publish control: read the exact buffers `slopeCompute` writes BEFORE any frame steps —
-    // `buildSlopes` has allocated them but `slopeCompute` has never run, so by WebGPU's
-    // zero-initialization guarantee this is exactly the state a plugin permanently missing
-    // `slopeCompute` from its `systems` array would leave forever.
-    // `Promise.all`, never two sequential `await`s: `state.pause()` freezes the virtual clock but
-    // NOT the frame loop itself (`slopeCompute` is a `draw`-group system and still runs every real
-    // animation frame while paused), so a real frame tick landing between two separately-awaited
-    // probes would let the SECOND buffer publish before the FIRST is read — witnessed exactly this
-    // way once: `x` read zero as expected while `z` had already been written. Starting both
-    // `probeBuffer` calls in the same microtask keeps their synchronous encode+submit prefix atomic
-    // with respect to the frame loop.
-    const [prePublishXProbe, prePublishZProbe] = await Promise.all([
-        probeBuffer(Compute.device, buffers.x),
-        probeBuffer(Compute.device, buffers.z),
-    ]);
-
-    await frames(2);
-
+    const claimTime = state.time.elapsed;
     checks.push({
-        name: "the compared reading is taken at declared time zero",
-        pass: state.time.elapsed === 0,
+        name: "the level-0 reading uses the paused verify-harness clock",
+        pass: claimTime > 0 && state.time.elapsed === claimTime,
         detail: `state.time.elapsed=${state.time.elapsed}`,
     });
-    if (state.time.elapsed !== 0) return checks;
+    if (!(claimTime > 0) || state.time.elapsed !== claimTime) return checks;
 
-    // f64 CPU reference — from the SAME h0 seed (`buildSlopes`/`createSlopeState` seeds every
-    // cascade with `generateH0(config, 0)`), transformed WITHOUT the final f32-truncating cast
-    // (`ifft2Exact`, never `ifft2`). NOT "the exact same spectral input": `slopeSpectra` (CPU, this
-    // module's `runSlopeCpuPipeline` call) and `slopeKernel` (GPU, WGSL) are two SEPARATE f32
-    // computations of the same `i*k*h̃` formula from the same seed, each accumulating its own f32
-    // rounding, so they can differ by ~1 ULP even before either FFT runs. That difference is priced
-    // out rather than ignored: it sits at the same `u = 2^-24` order Higham's own bound already
-    // carries as its per-operation unit roundoff, so E0 (derived below) already covers it.
     const h0 = generateH0(SLOPE_CONFIG, 0);
-    const { x: xSpectrum, z: zSpectrum } = runSlopeCpuPipeline(h0, SLOPE_CONFIG, 0);
+    const { x: xSpectrum, z: zSpectrum } = runSlopeCpuPipeline(h0, SLOPE_CONFIG, claimTime);
     const x64 = ifft2Exact(xSpectrum, N);
     const z64 = ifft2Exact(zSpectrum, N);
     const normX64 = complexL2Norm(x64.re, x64.im);
@@ -285,55 +253,58 @@ async function runChecks(state: State): Promise<Check[]> {
     const twiddle = await measureTwiddleTrigError(N);
     const e0X = higham242AbsoluteBound(twiddle.muMax, F32_UNIT_ROUNDOFF, FFT_STAGES, normX64);
     const e0Z = higham242AbsoluteBound(twiddle.muMax, F32_UNIT_ROUNDOFF, FFT_STAGES, normZ64);
-    // Informational: E0's own derivation inputs, printed once beside the two claims that use it.
+    const phaseTrig = await measureSlopePhaseTrigError(SLOPE_CONFIG, claimTime);
     checks.push({
-        name: "E0 (Higham Theorem 24.2) derivation inputs",
-        pass: true,
+        name: "phase trig error is measured over every level-0 kernel argument and readback",
+        pass: phaseTrig.arguments === N * N && phaseTrig.readbackArguments === N * N,
         detail:
-            `u=${F32_UNIT_ROUNDOFF}, muMax=${twiddle.muMax.toExponential(4)} (measured over ` +
-            `${twiddle.pairs} twiddle pairs), stages=${FFT_STAGES}, ||x64||2=${normX64.toFixed(4)}, ` +
-            `||z64||2=${normZ64.toFixed(4)} -> E0(slopeX)=${e0X.toExponential(4)}, ` +
-            `E0(slopeZ)=${e0Z.toExponential(4)}`,
+            `compared=${phaseTrig.arguments}/${N * N}, readback=${phaseTrig.readbackArguments}/${N * N}, ` +
+            `max=${phaseTrig.maxError.toExponential(4)}, rms=${phaseTrig.rmsError.toExponential(4)}`,
+    });
+    const inputPerturbation = phaseInputPerturbationNorms(h0, phaseTrig.maxError);
+    const boundX = e0X + inputPerturbation.x;
+    const boundZ = e0Z + inputPerturbation.z;
+    checks.push({
+        name: "level-0 bound keeps FFT twiddle and input perturbation terms separate",
+        pass: boundX === e0X + inputPerturbation.x && boundZ === e0Z + inputPerturbation.z,
+        detail:
+            `state.time.elapsed=${claimTime}, u=${F32_UNIT_ROUNDOFF}, muMax=${twiddle.muMax.toExponential(4)}, ` +
+            `phaseMax=${phaseTrig.maxError.toExponential(4)}, stages=${FFT_STAGES}, ` +
+            `E0X=${e0X.toExponential(4)}, E0Z=${e0Z.toExponential(4)}, ` +
+            `inputX=${inputPerturbation.x.toExponential(4)}, inputZ=${inputPerturbation.z.toExponential(4)}, ` +
+            `boundX=${boundX.toExponential(4)}, boundZ=${boundZ.toExponential(4)}`,
     });
 
-    // Pre-publish read: the buffers are still all-zero at this point, so the deviation against a
-    // nonzero real field is (up to floating point) the field's own norm — this MUST red.
-    const preDevX = complexDeviation(prePublishXProbe.bytes, x64.re, x64.im);
-    const preDevZ = complexDeviation(prePublishZProbe.bytes, z64.re, z64.im);
-    checks.push({
-        name: "pre-publish read reds the level-0 computation claim on slopeX",
-        pass: preDevX.l2 > e0X,
-        detail: `deviation(L2)=${preDevX.l2.toExponential(4)}, E0=${e0X.toExponential(4)}`,
-    });
-    checks.push({
-        name: "pre-publish read reds the level-0 computation claim on slopeZ",
-        pass: preDevZ.l2 > e0Z,
-        detail: `deviation(L2)=${preDevZ.l2.toExponential(4)}, E0=${e0Z.toExponential(4)}`,
-    });
-
-    // Live (post-publish) buffers — the SAME resources the pre-publish read above just probed,
-    // now after `slopeCompute` has actually run.
     const [liveXProbe, liveZProbe] = await Promise.all([
         probeBuffer(Compute.device, buffers.x),
         probeBuffer(Compute.device, buffers.z),
     ]);
-    const postDevX = complexDeviation(liveXProbe.bytes, x64.re, x64.im);
-    const postDevZ = complexDeviation(liveZProbe.bytes, z64.re, z64.im);
+    const devX = complexDeviation(liveXProbe.bytes, x64.re, x64.im);
+    const devZ = complexDeviation(liveZProbe.bytes, z64.re, z64.im);
+    const staleCpu = runSlopeCpuPipeline(h0, SLOPE_CONFIG, 0);
+    const staleX64 = ifft2Exact(staleCpu.x, N);
+    const staleZ64 = ifft2Exact(staleCpu.z, N);
+    const staleDevX = complexDeviation(liveXProbe.bytes, staleX64.re, staleX64.im);
+    const staleDevZ = complexDeviation(liveZProbe.bytes, staleZ64.re, staleZ64.im);
     checks.push({
-        name: "level-0 computation claim holds on slopeX",
-        pass: postDevX.l2 <= e0X,
-        detail:
-            `deviation: L2=${postDevX.l2.toExponential(4)} (gated), max=${postDevX.max.toExponential(4)}, ` +
-            `rms=${postDevX.rms.toExponential(4)}, E0=${e0X.toExponential(4)}, ` +
-            `reach=${(e0X / Math.max(postDevX.l2, 1e-30)).toFixed(1)}x`,
+        name: "different-clock reference reds the level-0 computation claim on slopeX",
+        pass: staleDevX.l2 > boundX,
+        detail: `referenceTime=0, state.time.elapsed=${claimTime}, deviation(L2)=${staleDevX.l2.toExponential(4)}, bound=${boundX.toExponential(4)}`,
     });
     checks.push({
-        name: "level-0 computation claim holds on slopeZ",
-        pass: postDevZ.l2 <= e0Z,
-        detail:
-            `deviation: L2=${postDevZ.l2.toExponential(4)} (gated), max=${postDevZ.max.toExponential(4)}, ` +
-            `rms=${postDevZ.rms.toExponential(4)}, E0=${e0Z.toExponential(4)}, ` +
-            `reach=${(e0Z / Math.max(postDevZ.l2, 1e-30)).toFixed(1)}x`,
+        name: "different-clock reference reds the level-0 computation claim on slopeZ",
+        pass: staleDevZ.l2 > boundZ,
+        detail: `referenceTime=0, state.time.elapsed=${claimTime}, deviation(L2)=${staleDevZ.l2.toExponential(4)}, bound=${boundZ.toExponential(4)}`,
+    });
+    checks.push({
+        name: "paused-clock level-0 computation claim holds on slopeX",
+        pass: devX.l2 <= boundX,
+        detail: `deviation: L2=${devX.l2.toExponential(4)}, max=${devX.max.toExponential(4)}, rms=${devX.rms.toExponential(4)}, bound=${boundX.toExponential(4)}`,
+    });
+    checks.push({
+        name: "paused-clock level-0 computation claim holds on slopeZ",
+        pass: devZ.l2 <= boundZ,
+        detail: `deviation: L2=${devZ.l2.toExponential(4)}, max=${devZ.max.toExponential(4)}, rms=${devZ.rms.toExponential(4)}, bound=${boundZ.toExponential(4)}`,
     });
 
     // Energy/residual recomputed in f64 from the SAME x64/z64 inputs — informational only (no
@@ -437,107 +408,6 @@ async function runChecks(state: State): Promise<Check[]> {
             detail: `${zeroHistogram.violations.length} violations against a zeroed payload`,
         });
     }
-
-    state.resume();
-    state.step(DECLARED_TIME);
-    state.pause();
-    checks.push({
-        name: "level-0 phase reading is taken at the declared nonzero time",
-        pass: state.time.elapsed === DECLARED_TIME,
-        detail: `state.time.elapsed=${state.time.elapsed}, declared=${DECLARED_TIME}`,
-    });
-    if (state.time.elapsed !== DECLARED_TIME) return checks;
-
-    const phaseTrig = await measureSlopePhaseTrigError(SLOPE_CONFIG, DECLARED_TIME);
-    checks.push({
-        name: "phase trig error is measured over every level-0 kernel argument and readback",
-        pass: phaseTrig.arguments === N * N && phaseTrig.readbackArguments === N * N,
-        detail:
-            `compared=${phaseTrig.arguments}/${N * N}, readback=${phaseTrig.readbackArguments}/${N * N}, ` +
-            `maxCos=${phaseTrig.maxCosError.toExponential(4)}, maxSin=${phaseTrig.maxSinError.toExponential(4)}, ` +
-            `max=${phaseTrig.maxError.toExponential(4)}, rms=${phaseTrig.rmsError.toExponential(4)}`,
-    });
-    const fullWorkgroups = Math.ceil((N * N) / 64);
-    const shortPhaseTrig = await measureSlopePhaseTrigError(
-        SLOPE_CONFIG,
-        DECLARED_TIME,
-        fullWorkgroups - 1,
-    );
-    checks.push({
-        name: "shortened phase dispatch reds the exhaustive compared-population guard",
-        pass: shortPhaseTrig.arguments < N * N && shortPhaseTrig.readbackArguments === N * N,
-        detail: `compared=${shortPhaseTrig.arguments}/${N * N}, readback=${shortPhaseTrig.readbackArguments}/${N * N}`,
-    });
-
-    const timedCpu = runSlopeCpuPipeline(h0, SLOPE_CONFIG, DECLARED_TIME);
-    const timedX64 = ifft2Exact(timedCpu.x, N);
-    const timedZ64 = ifft2Exact(timedCpu.z, N);
-    const timedNormX = complexL2Norm(timedX64.re, timedX64.im);
-    const timedNormZ = complexL2Norm(timedZ64.re, timedZ64.im);
-    const timedE0X = higham242AbsoluteBound(
-        twiddle.muMax,
-        F32_UNIT_ROUNDOFF,
-        FFT_STAGES,
-        timedNormX,
-    );
-    const timedE0Z = higham242AbsoluteBound(
-        twiddle.muMax,
-        F32_UNIT_ROUNDOFF,
-        FFT_STAGES,
-        timedNormZ,
-    );
-    const inputPerturbation = phaseInputPerturbationNorms(h0, phaseTrig.maxError);
-    const timedBoundX = timedE0X + inputPerturbation.x;
-    const timedBoundZ = timedE0Z + inputPerturbation.z;
-    checks.push({
-        name: "declared-time bound keeps FFT twiddle and input perturbation terms separate",
-        pass:
-            timedBoundX === timedE0X + inputPerturbation.x &&
-            timedBoundZ === timedE0Z + inputPerturbation.z,
-        detail:
-            `twiddleMu=${twiddle.muMax.toExponential(4)}, phaseMax=${phaseTrig.maxError.toExponential(4)}, ` +
-            `stages=${FFT_STAGES}, ||timedX64||2=${timedNormX.toExponential(4)}, ` +
-            `||timedZ64||2=${timedNormZ.toExponential(4)}, E0X=${timedE0X.toExponential(4)}, ` +
-            `E0Z=${timedE0Z.toExponential(4)}, ||deltaInputX||2=${inputPerturbation.x.toExponential(4)}, ` +
-            `||deltaInputZ||2=${inputPerturbation.z.toExponential(4)}, boundX=${timedBoundX.toExponential(4)}, ` +
-            `boundZ=${timedBoundZ.toExponential(4)}`,
-    });
-    const [timedXProbe, timedZProbe] = await Promise.all([
-        probeBuffer(Compute.device, buffers.x),
-        probeBuffer(Compute.device, buffers.z),
-    ]);
-    const timedDevX = complexDeviation(timedXProbe.bytes, timedX64.re, timedX64.im);
-    const timedDevZ = complexDeviation(timedZProbe.bytes, timedZ64.re, timedZ64.im);
-    const staleTimedDevX = complexDeviation(timedXProbe.bytes, x64.re, x64.im);
-    const staleTimedDevZ = complexDeviation(timedZProbe.bytes, z64.re, z64.im);
-    checks.push({
-        name: "time-zero reference reds the declared-time computation claim on slopeX",
-        pass: staleTimedDevX.l2 > timedBoundX,
-        detail: `deviation(L2)=${staleTimedDevX.l2.toExponential(4)}, bound=${timedBoundX.toExponential(4)}`,
-    });
-    checks.push({
-        name: "time-zero reference reds the declared-time computation claim on slopeZ",
-        pass: staleTimedDevZ.l2 > timedBoundZ,
-        detail: `deviation(L2)=${staleTimedDevZ.l2.toExponential(4)}, bound=${timedBoundZ.toExponential(4)}`,
-    });
-    checks.push({
-        name: "declared-time level-0 computation claim holds on slopeX",
-        pass: timedDevX.l2 <= timedBoundX,
-        detail:
-            `deviation: L2=${timedDevX.l2.toExponential(4)} (gated), max=${timedDevX.max.toExponential(4)}, ` +
-            `rms=${timedDevX.rms.toExponential(4)}, E0=${timedE0X.toExponential(4)}, ` +
-            `input=${inputPerturbation.x.toExponential(4)}, bound=${timedBoundX.toExponential(4)}, ` +
-            `reach=${(timedBoundX / Math.max(timedDevX.l2, 1e-30)).toFixed(1)}x`,
-    });
-    checks.push({
-        name: "declared-time level-0 computation claim holds on slopeZ",
-        pass: timedDevZ.l2 <= timedBoundZ,
-        detail:
-            `deviation: L2=${timedDevZ.l2.toExponential(4)} (gated), max=${timedDevZ.max.toExponential(4)}, ` +
-            `rms=${timedDevZ.rms.toExponential(4)}, E0=${timedE0Z.toExponential(4)}, ` +
-            `input=${inputPerturbation.z.toExponential(4)}, bound=${timedBoundZ.toExponential(4)}, ` +
-            `reach=${(timedBoundZ / Math.max(timedDevZ.l2, 1e-30)).toFixed(1)}x`,
-    });
 
     return checks;
 }

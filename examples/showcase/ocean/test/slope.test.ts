@@ -134,6 +134,14 @@ describe("capillary slope cascade", () => {
         expect(mutatedDeviation).toBeGreaterThan(bound);
     });
 
+    test("CPU level-0 reference discriminates a different clock", () => {
+        const h0 = generateH0(config, 0);
+        const atZero = runSlopeCpuPipeline(h0, config, 0);
+        const paused = runSlopeCpuPipeline(h0, config, 6);
+        expect(paused.x).not.toEqual(atZero.x);
+        expect(paused.z).not.toEqual(atZero.z);
+    });
+
     test("CPU reference emits only slope fields and no displacement field", () => {
         const result = runSlopeCpuPipeline(generateH0(config, 0), config);
         expect(result.xField.length).toBe(config.N * config.N * 2);
