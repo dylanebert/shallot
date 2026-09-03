@@ -1,5 +1,5 @@
 {
-    "oracleRevision": "shallot-ocean-look/S8",
+    "oracleRevision": "shallot-ocean-look/S10",
     "provenance": {
         "horizonRows": "210/720",
         "absoluteRelationRows": { "t26": "277/540", "t43": "267/540" },
@@ -70,6 +70,13 @@
         "horizonValueStepMargin": "1/255 display quantization above t26",
         "fadeExtentMin": 199,
         "nearBlueRedRatioMin": 1.0,
+        "normalResponse": {
+            "midRowDeviationMin": 12,
+            "nearRowDeviationMin": 8,
+            "nearMeanChromaMax": 30,
+            "chromaWeightedWaterSkyHueDistanceMax": 72.75044911177616,
+            "brightWaterFraction": { "min": 0.01, "max": 0.09 }
+        },
         "skyAnchorsLinear": {
             "zenith": [0.354, 0.296, 0.367],
             "horizon": [0.162, 0.122, 0.169],
