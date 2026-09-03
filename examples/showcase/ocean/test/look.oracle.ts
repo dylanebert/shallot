@@ -404,6 +404,23 @@ function inside(value: number, range: { min: number; max: number }): boolean {
     return Number.isFinite(value) && value >= range.min && value <= range.max;
 }
 
+export type ReferenceRelation =
+    | "horizonWidth"
+    | "horizonContinuity"
+    | "farWaterSkyHueDistance"
+    | "lowerBandBrightSpecks"
+    | "foamNearCoverage"
+    | "waterSkyLumaRatio0"
+    | "waterSkyLumaRatio1"
+    | "waterSkyLumaRatio2"
+    | "waterSkyLumaRatio3"
+    | "horizonValueStep"
+    | "fadeExtent"
+    | "nearBlueRedRatio"
+    | "nearMeanChroma";
+
+type Interval = { min: number; max: number };
+
 type RelationReading = {
     farWaterSkyHueDistance: number;
     lowerBandBrightSpecks: number;
@@ -414,6 +431,57 @@ type RelationReading = {
     foam: LookReading["foam"];
     normalResponse: LookReading["normalResponse"];
 };
+
+export function referenceRelationResults(
+    reading: RelationReading,
+    relations: typeof fixture.relations = fixture.relations,
+): Record<ReferenceRelation, boolean> {
+    return {
+        horizonWidth: inside(reading.horizon.transitionWidth, relations.horizonWidth),
+        horizonContinuity: reading.horizon.continuity >= relations.horizonContinuityMin,
+        farWaterSkyHueDistance: inside(
+            reading.farWaterSkyHueDistance,
+            relations.farWaterSkyHueDistance,
+        ),
+        lowerBandBrightSpecks: inside(
+            reading.lowerBandBrightSpecks,
+            relations.lowerBandBrightSpecks,
+        ),
+        foamNearCoverage: inside(reading.foam.nearCoverage, relations.foamNearCoverage),
+        waterSkyLumaRatio0: inside(
+            reading.duskBalance.waterSkyLumaRatios[0]!,
+            relations.waterSkyLumaRatios[0]!,
+        ),
+        waterSkyLumaRatio1: inside(
+            reading.duskBalance.waterSkyLumaRatios[1]!,
+            relations.waterSkyLumaRatios[1]!,
+        ),
+        waterSkyLumaRatio2: inside(
+            reading.duskBalance.waterSkyLumaRatios[2]!,
+            relations.waterSkyLumaRatios[2]!,
+        ),
+        waterSkyLumaRatio3: inside(
+            reading.duskBalance.waterSkyLumaRatios[3]!,
+            relations.waterSkyLumaRatios[3]!,
+        ),
+        horizonValueStep: inside(reading.horizon.valueStep, relations.horizonValueStep),
+        fadeExtent: inside(reading.duskBalance.fadeExtent, relations.fadeExtent),
+        nearBlueRedRatio: inside(reading.duskBalance.nearBlueRedRatio, relations.nearBlueRedRatio),
+        nearMeanChroma: inside(reading.normalResponse.nearMeanChroma, relations.nearMeanChroma),
+    };
+}
+
+function distance(value: number, interval: Interval): number {
+    if (value < interval.min) return interval.min - value;
+    if (value > interval.max) return value - interval.max;
+    return 0;
+}
+
+export function satisfiesPriorGoodFloor(fresh: number, prior: number, interval: Interval): boolean {
+    const priorDistance = distance(prior, interval);
+    const freshDistance = distance(fresh, interval);
+    return priorDistance === 0 ? freshDistance === 0 : freshDistance < priorDistance;
+}
 
 export function satisfiesReferenceRelations(
     reading: RelationReading,
