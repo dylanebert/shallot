@@ -9,6 +9,7 @@ import {
     RUM_INJECTION_MARKER,
 } from "../site/rum-config";
 import { readStamp, STAMP_FILE, staleDemos } from "../site/site-stamp";
+import { nonWorkspaceShallotDependencies } from "./build-site";
 
 // `bun run scripts/check-site.ts` — the site membership gate, wired into `bun check`. Seven
 // clauses, and a freshness precondition standing in front of the four (4-7) that read the built
@@ -112,16 +113,18 @@ for (const { slug } of ROSTER) {
     const demoPkg = (await Bun.file(resolve(dir, "package.json")).json()) as {
         dependencies?: Record<string, string>;
     };
-    const dep = demoPkg.dependencies?.["@dylanebert/shallot"];
-    if (!dep) {
+    const dependencies = demoPkg.dependencies ?? {};
+    const engine = dependencies["@dylanebert/shallot"];
+    if (!engine) {
         badVersion.push(`${slug}: no @dylanebert/shallot dependency`);
-    } else if (dep !== "workspace:*") {
-        badVersion.push(`${slug}: @dylanebert/shallot is "${dep}", not "workspace:*"`);
+    }
+    for (const [name, pin] of nonWorkspaceShallotDependencies(demoPkg)) {
+        badVersion.push(`${slug}: ${name} is "${pin}", not "workspace:*"`);
     }
 }
 
 if (badVersion.length > 0) {
-    console.error(`✗ showcase package.json @dylanebert/shallot pin(s) not in workspace form:\n`);
+    console.error(`✗ showcase package.json Shallot dependency pin(s) not in workspace form:\n`);
     for (const s of badVersion) console.error(`  ${s}`);
     console.error(
         "\nThe in-repo form must be `workspace:*`; the build script rewrites it to the release" +

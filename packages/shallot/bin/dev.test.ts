@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { searchForWorkspaceRoot } from "vite";
@@ -14,6 +14,17 @@ describe("synthIndex", () => {
         expect(html).toContain('from "virtual:project"');
         // the build's resolved plugin set is authoritative — re-adding defaults would resurrect a disabled one
         expect(html).toContain("defaults: false");
+        expect(html).toContain("pixelRatio: project.pixelRatio ?? undefined");
+    });
+
+    test("build and dev share the synthesized run call", () => {
+        const buildSource = readFileSync(join(import.meta.dir, "build.ts"), "utf8");
+        const devSource = readFileSync(join(import.meta.dir, "dev.ts"), "utf8");
+        expect(buildSource.match(/pixelRatio: project\.pixelRatio \?\? undefined/g)).toHaveLength(
+            1,
+        );
+        expect(devSource).toContain('import { synthIndex } from "./build";');
+        expect(devSource).toContain("synthIndex(name)");
     });
 });
 

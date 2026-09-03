@@ -14,7 +14,7 @@ bunx shallot verify [dir]   # headless-browser gate, exit 0/nonzero (below)
 
 The check is `bunx tsc --noEmit` — run it after every change. Native builds (`bunx shallot build --target windows|mac|linux`, `--portable` for bundled Chromium) download a prebuilt shell from GitHub Releases when available (no Rust toolchain needed); on a miss, compiles from source, needing the Rust toolchain plus per-target system dependencies. If you author TGSL, add `eslint-plugin-typegpu` too; the engine runs its recommended rules with zero warnings allowed.
 
-A project is pure data: `shallot.json` (the manifest: scene + plugin enablement) + `public/scenes/*.scene` + plugin modules under `src/`. No index.html, no vite config — the CLI supplies the scaffolding.
+A project is pure data: `shallot.json` (scene + plugins, optionally capacity + pixel ratio) + `public/scenes/*.scene` + plugin modules under `src/`. No index.html, no vite config — the CLI supplies the scaffolding.
 
 ## Philosophy
 
@@ -35,9 +35,9 @@ Shallot is data-oriented, ECS, declarative. Code shaped this way composes with t
 ## Imports
 
 - `@dylanebert/shallot` — public API: components, types, plugins, shape factories. The default plugins (`RenderPlugin`, `SearPlugin`, `GlazePlugin`, `TransformsPlugin`, `PartPlugin`, `InputPlugin`, `SlabPlugin`) auto-register; components register through `Plugin.components`, parse-time metadata via `Plugin.traits`. The orbit camera is opt-in (`OrbitPlugin`, in `extras`)
-- `@dylanebert/shallot/extras` — opt-in plugins not in the default set: `lines`, `orbit`, `outline`, `text`, `tween`, `sprite`, `sky`, `profile`, `gltf`, `skin` (also reachable on the bare barrel). `audio` and `mirror` are on the bare barrel only (`AudioPlugin`, `MirrorPlugin`)
+- `@dylanebert/shallot/extras` — opt-in plugins not in the default set: `lines`, `orbit`, `outline`, `text`, `animation`, `sprite`, `sky`, `profile`, `gltf`, `skin` (also reachable on the bare barrel). `audio` and `mirror` are on the bare barrel only (`AudioPlugin`, `MirrorPlugin`)
 - `@dylanebert/shallot/runtime` — platform layer (`now`, `requestFrame`, `readFile`) plus the adopted TypeGPU root (`Compute.root`), build check (`checkTgsl`), pipeline warm queue (`precompile`), and GPU probes
-- `@dylanebert/shallot/{render,sear,bvh,audio,tween,ecs,skin,utils}/core` + `/glaze` — extension API for custom render producers, compute passes, diagnostics. Schemas, TGSL/WGSL chunks, typed surface contracts, GPU buffer layouts
+- `@dylanebert/shallot/{render,sear,bvh,audio,animation,ecs,skin,utils}/core` + `/glaze` — extension API for custom render producers, compute passes, diagnostics. Schemas, TGSL/WGSL chunks, typed surface contracts, GPU buffer layouts
 
 Don't deep-import from `src/`. If something you need isn't in a barrel or `*/core` subpath, file an issue.
 

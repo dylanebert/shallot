@@ -76,7 +76,14 @@ test("visualization showcase — every demo loads clean, one orbits by touch", a
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(String(error)));
     page.on("console", (message) => {
-        if (message.type() === "error") errors.push(`[console.error] ${message.text()}`);
+        // "loads clean" includes the engine's degraded-boot warnings (a dropped plugin, an
+        // unregistered scene attribute), which are warning-typed and leave the canvas rendering
+        if (
+            message.type() === "error" ||
+            /Missing plugin dependency|is not registered/i.test(message.text())
+        ) {
+            errors.push(`[console.${message.type()}] ${message.text()}`);
+        }
     });
 
     for (const demo of demos) {

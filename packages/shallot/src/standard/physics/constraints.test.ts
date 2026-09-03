@@ -18,7 +18,7 @@ import {
 } from "./index";
 
 // Spring / Joint scene authoring (Phase 6.6): a constraint is a standalone `<a spring|joint="…">` entity
-// that references its two bodies by `@name`, the consumer-shaped relation (like `Tween.target`). This is the
+// that references its two bodies by `@name`, the consumer-shaped relation (like `Animation.target`). This is the
 // "components just work in scene files" contract — pure scene-parse + load, no device: `@name` → eid, the
 // vec3 anchors → lanes, the trait defaults, and the fixed-joint `∞` parse hook. The solve itself (warmstart
 // across an authored set) is the gym `constraints` scenario (real GPU); this is the authoring half.

@@ -301,7 +301,7 @@ describe("XML", () => {
             expect(str).toBe("");
         });
 
-        // a NaN sentinel default (Tween.from = "capture at runtime") must elide like any other default.
+        // a NaN sentinel default (Animation.from = "capture at runtime") must elide like any other default.
         // NaN !== NaN, so a plain `value === default` check missed it and emitted `from: NaN` — a scene
         // that throws on re-parse. The field at its NaN default drops out and re-defaults on load.
         test("omits a field sitting at its NaN sentinel default", () => {

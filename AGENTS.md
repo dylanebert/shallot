@@ -2,7 +2,7 @@
 
 WebGPU game engine. The repo is the documentation: readable source with JSDoc contracts on every public export, a problem-indexed examples corpus, and this file plus `.claude/rules/` as the behavioral contract. There is no docs site and no editor — agents and humans both read the source, the examples index (`examples/AGENTS.md`), and `packages/shallot/AGENTS.md` (the consumer-facing contract — how to build games on Shallot: ECS, plugins, GPU, render, physics, testing — shipped with the npm package). This file covers engine-internal layout and commands; behavioral constraints live in `.claude/rules/`.
 
-**Layout:** `packages/shallot/` (engine — `src/engine/`, `src/standard/`, `src/extras/`, `src/project/` (manifest/generate/vite toolchain behind the CLI)), `packages/create-shallot/` (the `bun create shallot` scaffold), `packages/vscode-shallot/` (the VS Code extension), `evals/` (the eval harness), `examples/` (standalone projects).
+**Layout:** `packages/shallot/` (engine — `src/engine/`, `src/standard/`, `src/extras/`, `src/project/` (manifest/generate/vite toolchain behind the CLI)), `packages/create-shallot/` (the `bun create shallot` scaffold), `evals/` (the eval harness), `examples/` (standalone projects).
 
 Code is source of truth — elegant first, document what's non-obvious.
 
@@ -14,11 +14,11 @@ Code is source of truth — elegant first, document what's non-obvious.
 - `packages/shallot/src/standard/avbd/**/*.ts`, `packages/shallot/tests/avbd/**/*.ts` → `.claude/rules/avbd.md`
 - `packages/shallot/src/engine/**/*.ts`, `packages/shallot/src/standard/**/*.ts`, `packages/shallot/src/extras/**/*.ts`, `examples/**/*.scene`, `examples/**/*.ts` → `.claude/rules/ecs.md`
 - `examples/**/*.ts`, `examples/**/*.scene`, `examples/AGENTS.md` → `.claude/rules/examples.md`
-- `packages/shallot/src/**/*.ts`, `packages/shallot/package.json`, `packages/shallot-ocean/**` → `.claude/rules/exports.md`
-- `packages/shallot/src/engine/runtime/**/*.ts`, `packages/shallot/src/engine/utils/encode.ts`, `packages/shallot/src/standard/render/**/*.ts`, `packages/shallot/src/standard/sear/**/*.ts`, `packages/shallot/src/standard/part/**/*.ts`, `packages/shallot/src/standard/slab/**/*.ts`, `packages/shallot/src/standard/bvh/**/*.ts`, `packages/shallot/src/extras/{cells,gltf,lines,outline,profile,skin,sky,sprite,text}/**/*.ts`, `packages/shallot-ocean/**` → `.claude/rules/gpu.md`
+- `packages/shallot/src/**/*.ts`, `packages/shallot/package.json`, `examples/showcase/ocean/src/ocean/**` → `.claude/rules/exports.md`
+- `packages/shallot/src/engine/runtime/**/*.ts`, `packages/shallot/src/engine/utils/encode.ts`, `packages/shallot/src/standard/render/**/*.ts`, `packages/shallot/src/standard/sear/**/*.ts`, `packages/shallot/src/standard/part/**/*.ts`, `packages/shallot/src/standard/slab/**/*.ts`, `packages/shallot/src/standard/bvh/**/*.ts`, `packages/shallot/src/extras/{cells,gltf,lines,outline,profile,skin,sky,sprite,text}/**/*.ts`, `examples/showcase/ocean/src/ocean/**` → `.claude/rules/gpu.md`
 - `packages/shallot/src/standard/physics/**/*.ts`, `packages/shallot/src/standard/character/**/*.ts`, `packages/shallot/src/standard/player/**/*.ts` → `.claude/rules/physics.md`
 - `packages/shallot/src/standard/render/**/*.ts`, `packages/shallot/src/standard/sear/**/*.ts`, `packages/shallot/src/standard/glaze/**/*.ts`, `packages/shallot/src/standard/part/**/*.ts` → `.claude/rules/render.md`
-- `packages/shallot/src/**/*.test.ts`, `packages/shallot/tests/**/*.ts`, `packages/shallot/bin/*.test.ts`, `packages/shallot/bin/*.probes.ts`, `scripts/install-test.ts`, `packages/shallot/scripts/build-tooling.ts`, `packages/shallot-ocean/**/*.test.ts`, `packages/shallot-ocean/**/*.oracle.ts` → `.claude/rules/testing.md`
+- `packages/shallot/src/**/*.test.ts`, `packages/shallot/tests/**/*.ts`, `packages/shallot/bin/*.test.ts`, `packages/shallot/bin/*.probes.ts`, `scripts/install-test.ts`, `packages/shallot/scripts/build-tooling.ts`, `examples/showcase/ocean/test/**/*.test.ts`, `examples/showcase/ocean/test/**/*.oracle.ts` → `.claude/rules/testing.md`
 - `packages/shallot/src/standard/tumble/**/*.ts`, `packages/shallot/rust/tumble/**`, `packages/shallot/tests/tumble/**`, `packages/shallot/scripts/build-tumble-kernel.ts`, `packages/shallot/scripts/run-tumble-fixtures.ts`, `packages/shallot/scripts/gen-tumble-fixtures.ts`, `packages/shallot/scripts/gen-tumble-gold.ts`, `packages/shallot/scripts/gen-tumble-sample-golds.ts`, `packages/shallot/scripts/tumble-exit-test.ts`, `examples/gym/src/tumble-*.ts`, `examples/gym/src/scenarios/**`, `scripts/bench-tumble.ts`, `scripts/tumble-interaction.ts`, `scripts/tumble-repro*`, `scripts/check-tumble-fp.ts` → `.claude/rules/tumble.md`
 - `examples/**/*.html` → `.claude/rules/visual-identity.md`
 

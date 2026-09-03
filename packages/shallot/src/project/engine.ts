@@ -26,6 +26,7 @@ export const SUBPATH_PLUGIN_MODULES: Record<string, string> = {
 // warns on a `name: true` outside the union below (an unknown engine plugin, otherwise a cryptic esbuild
 // "no export named ${name}Plugin" at bundle time).
 export const EXTRA_PLUGIN_NAMES = [
+    "Animation",
     "Audio",
     "Cells",
     "Character",
@@ -43,7 +44,7 @@ export const EXTRA_PLUGIN_NAMES = [
     "Sprite",
     "Text",
     "Tumble",
-    "Tween",
+    "Animation",
 ] as const;
 
 /** every engine plugin name a manifest may enable with a bool — the union the toolchain validates against. */

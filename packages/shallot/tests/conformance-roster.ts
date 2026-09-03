@@ -20,11 +20,11 @@ import {
 } from "../src";
 import { clear, entries } from "../src/engine/ecs/core";
 import { Compute } from "../src/engine/runtime";
+import { AnimationPlugin } from "../src/extras/animation";
 import { LinesPlugin } from "../src/extras/lines";
 import { OrbitPlugin } from "../src/extras/orbit";
 import { LiveSkin, Skin, SkinPlugin } from "../src/extras/skin";
 import { SpritePlugin } from "../src/extras/sprite";
-import { TweenPlugin } from "../src/extras/tween";
 import { Avbd, AvbdPlugin } from "../src/standard/avbd";
 import { CharacterPlugin } from "../src/standard/character";
 import { GlazePlugin } from "../src/standard/glaze";
@@ -324,8 +324,8 @@ export const roster: Record<string, Conformance> = {
         </scene>`,
         probe: () => ({ backend: Physics.backend !== null, eidCap: Avbd.step?.eidCap ?? 0 }),
     },
-    Tween: {
-        plugins: [SlabPlugin, TransformsPlugin, TweenPlugin],
+    Animation: {
+        plugins: [SlabPlugin, TransformsPlugin, AnimationPlugin],
         scene: `<scene><a id="thing" transform tween="field: transform.pos.y; to: 3; duration: 1" /></scene>`,
     },
     Lines: {
@@ -362,7 +362,7 @@ export const roster: Record<string, Conformance> = {
  * AVBD solver's compute pipeline set and binds the device at the entry's threaded capacity (its
  * headless build cost is measured in `tests/avbd/headless.tier.ts`'s header — Physics/Character would
  * blow the 5000 ms per-file cap on a cold adapter, the same straddle that split this tier).
- * Entries with neither (Project, Mirror, Input, Slab+Transforms, Orbit, Tween) are cheap and stay
+ * Entries with neither (Project, Mirror, Input, Slab+Transforms, Orbit, Animation) are cheap and stay
  * in the default-tier sentinel.
  */
 export const isPipelineCompiling = (entry: Conformance): boolean =>

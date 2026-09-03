@@ -1,49 +1,26 @@
 #!/usr/bin/env bun
-// `shallot tui <dir>` — boot a project headless under a dynamically imported `bun-webgpu`, drive the
-// frame loop, own raw-mode stdin and clean teardown, and feed the cell grid to the `@dylanebert/
-// shallot-tui` encoder each frame. The terminal sink named in `specs/shallot-tui.md`'s Goal: the same
-// cell grid S3's web sink draws, read back over a headless GPU instead of composited to a canvas.
-//
-// **Strong precedent, reused rather than re-derived.** `scripts/dump-cells-ascii.ts` first proved this
-// shape: `setupGlobals()`, the TGSL bun-plugin preload (registered before any engine import — the
-// `bunfig.toml [test]` preload only reaches `bun test`, never a plain `bun run`), a canvas-shaped mock
-// `BeginFrameSystem` needs (`attachCanvas` configures `STORAGE_BINDING` usage it never actually uses off
-// `GlazePlugin`, which this command also drops), and a `cellsGridFor` + staging-buffer readback. This
-// file generalizes that one-shot diagnostic into a command that boots ANY project's own `shallot.json`
-// (via `../src/project/generate.ts`'s `plan()` — the same manifest → plugin-name classifier the browser
-// build's `virtual:project` generator uses, reused rather than hand-copying a fixed plugin list) and
-// drives it continuously, not once.
-//
-// **The bun-webgpu AND @dylanebert/shallot-tui imports are late and guarded, not top-level (N-1).**
-// `bin/gpu-globals.ts`'s own docblock names the bun-webgpu reason: the shipped CLI must not statically
-// depend on `bun-webgpu`'s native wgpu bindings, or a browser consumer's `bun add @dylanebert/shallot`
-// would pull in a package no browser user wants installed. `@dylanebert/shallot-tui` (`packages/shallot/
-// package.json`'s `optionalDependencies`) needs the identical treatment for a different reason: it's an
-// optional dependency, so its own install can fail non-fatally on a real registry install, and a static
-// top-level import of a package that may not be on disk would crash this whole module at load time with a
-// raw `Cannot find module` rather than the named remedy criterion 7's shape requires. So this module's own
-// top-level imports stay engine-free, GPU-free, AND shallot-tui-free — `parseTuiArgs`, `importBunWebgpu`,
-// `importShallotTui`, and the exit-code/remedy-message helpers below are pure and DI-friendly, safely
-// importable (and unit-testable) with no GPU, no `bun-webgpu`, no `@dylanebert/shallot-tui`, and no TGSL
-// transform in the process. Every engine-touching, bun-webgpu-touching, or shallot-tui-touching step lives
-// inside {@link runTui}, reached only once the relevant optional dependency has already resolved — so a
-// test exercising a "missing dependency" exit path never registers the TGSL bun-plugin at all, and never
-// risks the double-registration `tests/tgsl.ts` warns against (exactly one instance may run per process; a
-// second pass re-wraps the emitted metadata and corrupts it). `cellsBytesToGrid` below takes `makeGrid` as
-// a DI parameter (alongside its existing `unpack`/`glyphChar` params) rather than importing it directly,
-// for the same reason.
+// `shallot tui <dir>` boots a project headless, drives the frame loop, and encodes its cell grid.
 
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-// type-only — erased at compile time, so this carries no runtime import and no shallot-tui touch (unlike a
-// value import, verified already at this file's own module doc: `verify.ts` does the same with
-// `GpuDiagnostics`/`ShaderArtifact`).
-import type { RGB, Tier, Cell as TuiCell, Grid as TuiGrid } from "@dylanebert/shallot-tui";
 // type-only — erased at compile time, so this carries no runtime import and no GPU touch (unlike a
 // value import, verified already at this file's own module doc: `verify.ts` does the same with
 // `GpuDiagnostics`/`ShaderArtifact`).
 import type { Plugin } from "../src/engine";
 import { requireProject } from "./toolchain";
+import type { RGB, Tier, Cell as TuiCell, Grid as TuiGrid } from "./tui/index";
+// type-only — erased at compile time, so this carries no runtime import and no encoder touch (unlike a
+// value import, verified already at this file's own module doc: `verify.ts` does the same with
+// `GpuDiagnostics`/`ShaderArtifact`).
+import {
+    ALT_SCREEN_ENTER,
+    detectTier,
+    Encoder,
+    installTeardown,
+    makeGrid,
+    onResize,
+    terminalSize,
+} from "./tui/index";
 
 const PACKAGE_ROOT = resolve(import.meta.dir, "..");
 
@@ -53,7 +30,7 @@ export const usage = `
   Boots the project the same way \`shallot dev\`/\`shallot build\` do (its shallot.json manifest), minus
   the swapchain compositor (GlazePlugin never runs headless) — the project must enable "Cells": true.
   Drives the frame loop itself (no browser, no rAF) and feeds the cell grid to the
-  @dylanebert/shallot-tui encoder every frame. On a real terminal, arrow keys drive any project system
+  private encoder every frame. On a real terminal, arrow keys drive any project system
   reading Inputs.isKeyDown the normal way (KeyboardEvent.code) — mouse/pointer input is out of scope
   (specs/shallot-tui.md).
 
@@ -242,51 +219,6 @@ export async function importBunWebgpu(
     }
 }
 
-export const EXIT_NO_SHALLOT_TUI = 4; // @dylanebert/shallot-tui isn't installed (optionalDependencies)
-
-const INSTALL_SHALLOT_TUI = "bun install";
-
-/** the refusal diagnostic for a missing `@dylanebert/shallot-tui` — names an install command that works,
- *  never a stack trace, the same shape {@link noBunWebgpuMessage} uses. `@dylanebert/shallot-tui` is an
- *  `optionalDependencies` entry on `@dylanebert/shallot` (`packages/shallot/package.json`), not a hard
- *  dependency: a real registry install tolerates it failing (unpublished, platform mismatch, `--omit=
- *  optional`), which is exactly the case this message exists to name instead of a raw module-resolution
- *  crash. `@dylanebert/shallot-tui` isn't published to npm — this unit authors the package and its
- *  release metadata but does not publish (`specs/shallot-tui.md`'s Out of scope) — so `bun add
- *  @dylanebert/shallot-tui` 404s against the registry rather than fixing anything; the reader this
- *  message can actually help today is a developer inside the shallot repo, where the package already
- *  exists as a workspace member (`packages/shallot-tui`), and running {@link INSTALL_SHALLOT_TUI} from
- *  the repo root links it (verified: `bun install` there resolves `node_modules/@dylanebert/shallot-tui`
- *  to a symlink onto `packages/shallot-tui`). */
-export function noShallotTuiMessage(): string {
-    return (
-        `shallot tui needs @dylanebert/shallot-tui to encode the cell grid, but it isn't installed. ` +
-        `It isn't published to the public npm registry yet, so \`bun add\` 404s against it — inside ` +
-        `the shallot repo, run \`${INSTALL_SHALLOT_TUI}\` from its root to link the workspace package ` +
-        `instead.`
-    );
-}
-
-/**
- * resolve the optional `@dylanebert/shallot-tui` module, or `null` when it isn't installed — the caller
- * then prints {@link noShallotTuiMessage} and exits {@link EXIT_NO_SHALLOT_TUI} rather than letting a bare
- * `Cannot find module` stack trace reach the user. `loader` is DI'd (default: the real dynamic import),
- * mirroring {@link importBunWebgpu} exactly: a `loader` that resolves proves the success path reaches the
- * encoder, and a `loader` that rejects proves the exit code + message rather than a thrown stack trace
- * (`bin/tui.test.ts`). The genuine-absence arm (a real project with no `@dylanebert/shallot-tui` installed
- * at all) lives in `scripts/install-test.ts`, mirroring its existing bun-webgpu-absence check.
- */
-export async function importShallotTui(
-    loader: () => Promise<typeof import("@dylanebert/shallot-tui")> = () =>
-        import("@dylanebert/shallot-tui"),
-): Promise<typeof import("@dylanebert/shallot-tui") | null> {
-    try {
-        return await loader();
-    } catch {
-        return null;
-    }
-}
-
 // ---------------------------------------------------------------------------------------------------
 // headless DOM shim — the minimum surface `InputSystem` (`standard/input/index.ts`) and `attachCanvas`
 // (`standard/render/view.ts`) read to bind keyboard + a canvas-shaped render target with no browser.
@@ -354,7 +286,7 @@ class TuiCanvas {
         this._texture?.destroy();
         if (!this._device) throw new Error("TuiCanvas: getCurrentTexture before configure");
         this._texture = this._device.createTexture({
-            label: "shallot-tui-swapchain",
+            label: "tui-swapchain",
             size: { width: this.width, height: this.height },
             format: this._format,
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
@@ -523,11 +455,11 @@ function installStdinBridge(win: EventTarget, onQuit: () => void): { stop: () =>
 // that file's own locked contract, so the encoder reads these bytes directly with no conversion.
 // ---------------------------------------------------------------------------------------------------
 
-/** decode a raw cell-grid readback into the `@dylanebert/shallot-tui` `Grid` shape the encoder consumes.
- *  Pure — no GPU, no engine import, no `@dylanebert/shallot-tui` import (only the three functions passed
+/** decode a raw cell-grid readback into the `private encoder` `Grid` shape the encoder consumes.
+ *  Pure — no GPU, no engine import, no `private encoder` import (only the three functions passed
  *  in), so this is unit-testable against a hand-built buffer with neither optional dependency installed.
  *  `unpack`/`glyphChar`/`makeGrid` are all DI'd rather than imported at module top, keeping this module's
- *  own top-level import-free of the engine and of `@dylanebert/shallot-tui` (see the module doc's N-1
+ *  own top-level import-free of the engine and of `private encoder` (see the module doc's N-1
  *  note). */
 export function cellsBytesToGrid(
     bytes: ArrayBuffer,
@@ -613,25 +545,17 @@ export function terminalGridSize(size: { width: number; height: number }): {
 }
 
 /**
- * `shallot tui [dir]` — the real entry, reached only past {@link importShallotTui}'s and
- * {@link importBunWebgpu}'s success. Returns the process exit code rather than calling `process.exit`
+ * `shallot tui [dir]` — the real entry, reached only past  {@link importBunWebgpu}'s success. Returns the process exit code rather than calling `process.exit`
  * itself (mirrors `runVerify`/`runRecipe`; `cli.ts` calls `process.exit(await runTui(...))`), except for
  * `requireProject` — reused verbatim from `toolchain.ts`, and like `dev.ts`/`build.ts` already do, it
  * exits the process directly on a missing project rather than threading a second return convention through
  * this one command.
  *
- * `shallotTuiLoader`/`bunWebgpuLoader` forward to {@link importShallotTui}/{@link importBunWebgpu} —
- * undefined (the real production call from `cli.ts`) takes the real dynamic import; a test overrides
- * either to prove this function's own exit-code + message wiring on rejection without needing a real
- * absence of either optional dependency (`bin/tui.test.ts`). The `@dylanebert/shallot-tui` check runs
- * first: it's the lighter, cheaper-to-resolve optional dependency of the two, and checking it before
- * committing to the heavier `bun-webgpu` boot means a project missing both reports the encoder's own named
- * remedy rather than always reporting the engine's.
+ * `bunWebgpuLoader` forwards to {@link importBunWebgpu}; tests can inject its absence.
  */
 export async function runTui(
     argv: string[],
     bunWebgpuLoader?: () => Promise<typeof import("bun-webgpu")>,
-    shallotTuiLoader?: () => Promise<typeof import("@dylanebert/shallot-tui")>,
 ): Promise<number> {
     let args: TuiArgs;
     try {
@@ -647,21 +571,6 @@ export async function runTui(
 
     const projectDir = resolve(args.dir);
     requireProject(projectDir); // exits the process on a missing project (toolchain.ts's own contract)
-
-    const shallotTui = await importShallotTui(shallotTuiLoader);
-    if (!shallotTui) {
-        console.error(noShallotTuiMessage());
-        return EXIT_NO_SHALLOT_TUI;
-    }
-    const {
-        ALT_SCREEN_ENTER,
-        detectTier,
-        Encoder,
-        installTeardown,
-        makeGrid,
-        onResize,
-        terminalSize,
-    } = shallotTui;
 
     const bunWebgpu = await importBunWebgpu(bunWebgpuLoader);
     if (!bunWebgpu) {
@@ -819,12 +728,12 @@ export async function runTui(
                 if (grid) {
                     const raw = engine.Compute.root.unwrap(grid.buffer);
                     const staging = engine.Compute.device.createBuffer({
-                        label: "shallot-tui-staging",
+                        label: "tui-staging",
                         size: raw.size,
                         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
                     });
                     const cmd = engine.Compute.device.createCommandEncoder({
-                        label: "shallot-tui-readback",
+                        label: "tui-readback",
                     });
                     cmd.copyBufferToBuffer(raw, 0, staging, 0, raw.size);
                     engine.Compute.device.queue.submit([cmd.finish()]);

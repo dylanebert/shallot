@@ -51,7 +51,7 @@
         "./gltf/core": "./src/extras/gltf/core.ts",
         "./skin/core": "./src/extras/skin/core.ts",
         "./text/core": "./src/extras/text/core.ts",
-        "./tween/core": "./src/extras/tween/core.ts",
+        "./animation/core": "./src/extras/animation/core.ts",
         "./runtime": "./src/engine/runtime/index.ts",
         "./src/*": "./src/*"
     },
@@ -112,7 +112,6 @@
         }
     },
     "optionalDependencies": {
-        "@dylanebert/shallot-tui": "0.0.0",
         "pngjs": "^7.0.0"
     },
     "devDependencies": {

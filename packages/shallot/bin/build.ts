@@ -37,9 +37,9 @@ export const synthIndex = (name: string) => `<!doctype html>
             import project from "virtual:project";
             // project.plugins is the manifest's complete resolved set (enabled defaults + extras + locals),
             // so defaults: false — re-adding DEFAULT_PLUGINS would resurrect a manifest-disabled default.
-            // capacity is the manifest's (null → the engine default), so a build honors the same fixed
-            // capacity dev does — one source of truth across dev + shipped build.
-            await run({ plugins: project.plugins, scene: project.scene ?? undefined, defaults: false, capacity: project.capacity ?? undefined });
+            // capacity and pixel ratio are the manifest's (null → the engine defaults), so a build
+            // honors the same invariants dev does — one source of truth across dev + shipped build.
+            await run({ plugins: project.plugins, scene: project.scene ?? undefined, defaults: false, capacity: project.capacity ?? undefined, pixelRatio: project.pixelRatio ?? undefined });
         </script>
     </body>
 </html>

@@ -134,6 +134,48 @@ function injectRum(dir: string, runtimeBundle: string, mode: "prod" | "staging")
     }
 }
 
+type DemoPackage = {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+    [key: string]: unknown;
+};
+
+/** Workspace extensions are local site inputs even in production mode. The engine itself is
+ * deliberately excluded: production continues to install its published release. */
+export function shallotDependencies(pkg: DemoPackage): [string, string][] {
+    return Object.entries(pkg.dependencies ?? {})
+        .filter(
+            ([name]) => name === "@dylanebert/shallot" || name.startsWith("@dylanebert/shallot-"),
+        )
+        .sort(([a], [b]) => a.localeCompare(b));
+}
+
+export function nonWorkspaceShallotDependencies(pkg: DemoPackage): [string, string][] {
+    return shallotDependencies(pkg).filter(([, pin]) => pin !== "workspace:*");
+}
+
+export function workspaceExtensionDependencies(pkg: DemoPackage): string[] {
+    return shallotDependencies(pkg)
+        .filter(([name, pin]) => name !== "@dylanebert/shallot" && pin === "workspace:*")
+        .map(([name]) => name);
+}
+
+export function rewriteSiteDependencies(
+    pkg: DemoPackage,
+    enginePin: string,
+    extensionPins: ReadonlyMap<string, string>,
+): DemoPackage {
+    const dependencies = pkg.dependencies;
+    if (!dependencies) return pkg;
+    if (dependencies["@dylanebert/shallot"]) dependencies["@dylanebert/shallot"] = enginePin;
+    for (const name of workspaceExtensionDependencies(pkg)) {
+        const pin = extensionPins.get(name);
+        if (!pin) throw new Error(`no packed tarball for workspace extension ${name}`);
+        dependencies[name] = pin;
+    }
+    return pkg;
+}
+
 async function main(): Promise<void> {
     const args = process.argv.slice(2);
     if (args.includes("--help") || args.includes("-h")) {
@@ -180,30 +222,39 @@ Options:
 
     const rumRuntimeBundle = await buildRumRuntimeBundle();
 
-    // `--staging`: pack the engine once, ahead of the demo loop, into a scratch dir that outlives
-    // every demo's own ejection — every demo pins the same tarball, so it must still exist when the
-    // last demo installs. `scripts/install-test.ts`'s `pack()` is the in-repo reference for this
-    // exact `bun pm pack --destination` shape.
+    // Discover and pack workspace extensions once, before any demo is ejected. Unlike the engine,
+    // extensions are packed in both modes because unpublished workspace extensions cannot be
+    // installed by an outside consumer.
+    const extensionNames = new Set<string>();
+    for (const demo of demos) {
+        const demoPkg = (await Bun.file(
+            resolve(showcaseDir, demo.slug, "package.json"),
+        ).json()) as DemoPackage;
+        for (const name of workspaceExtensionDependencies(demoPkg)) extensionNames.add(name);
+    }
+
     let enginePin = version;
-    let packDest: string | undefined;
-    if (staging) {
-        packDest = mkdtempSync(join(tmpdir(), "shallot-site-pack-"));
-        console.log(`\npacking @dylanebert/shallot for staging...`);
-        const packResult = Bun.spawnSync(["bun", "pm", "pack", "--destination", packDest], {
-            cwd: resolve(root, "packages/shallot"),
+    const packDest = mkdtempSync(join(tmpdir(), "shallot-site-pack-"));
+    const extensionPins = new Map<string, string>();
+    const pack = (name: string, packageDir: string): string => {
+        const destination = resolve(packDest, packageDir);
+        mkdirSync(destination, { recursive: true });
+        console.log(`\npacking ${name}...`);
+        const result = Bun.spawnSync(["bun", "pm", "pack", "--destination", destination], {
+            cwd: resolve(root, "packages", packageDir),
             stdout: "inherit",
             stderr: "inherit",
         });
-        if (packResult.exitCode !== 0) {
-            console.error(`✗ \`bun pm pack\` failed for packages/shallot`);
-            process.exit(1);
-        }
-        const tgz = readdirSync(packDest).find((f) => f.endsWith(".tgz") && !f.startsWith("."));
-        if (!tgz) {
-            console.error(`✗ no tarball produced in ${packDest}`);
-            process.exit(1);
-        }
-        enginePin = `file:${resolve(packDest, tgz)}`;
+        if (result.exitCode !== 0)
+            throw new Error(`\`bun pm pack\` failed for packages/${packageDir}`);
+        const tgz = readdirSync(destination).find((f) => f.endsWith(".tgz") && !f.startsWith("."));
+        if (!tgz) throw new Error(`no tarball produced in ${destination}`);
+        return `file:${resolve(destination, tgz)}`;
+    };
+    if (staging) enginePin = pack("@dylanebert/shallot", "shallot");
+    for (const name of [...extensionNames].sort()) {
+        const packageDir = name.slice("@dylanebert/".length);
+        extensionPins.set(name, pack(name, packageDir));
     }
 
     const sizes: { slug: string; size: string }[] = [];
@@ -242,14 +293,10 @@ Options:
 
                 // rewrite package.json: pin @dylanebert/shallot to the release version (prod) or the
                 // packed workspace tarball (staging), carry every other dep over as authored
-                const demoPkg = (await Bun.file(resolve(scratch, "package.json")).json()) as {
-                    dependencies?: Record<string, string>;
-                    devDependencies?: Record<string, string>;
-                    [key: string]: unknown;
-                };
-                if (demoPkg.dependencies?.["@dylanebert/shallot"]) {
-                    demoPkg.dependencies["@dylanebert/shallot"] = enginePin;
-                }
+                const demoPkg = (await Bun.file(
+                    resolve(scratch, "package.json"),
+                ).json()) as DemoPackage;
+                rewriteSiteDependencies(demoPkg, enginePin, extensionPins);
                 writeFileSync(
                     resolve(scratch, "package.json"),
                     `${JSON.stringify(demoPkg, null, 4)}\n`,
@@ -302,7 +349,7 @@ Options:
             }
         }
     } finally {
-        if (packDest) rmSync(packDest, { recursive: true, force: true });
+        rmSync(packDest, { recursive: true, force: true });
     }
 
     // emit the site index — always lists the full roster so a single-demo build's index

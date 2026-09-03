@@ -33,12 +33,6 @@ export type Violation = { file: string; script: string; detail: string };
 // check-docs' doc scan). Mutation proof: adding a tracked `evals/<new>.ts` reds this arm (not
 // cited in AGENTS.md or .claude/rules/*.md), witnessed 2026-08-25, exit 1; removing it greens.
 //
-// Stated exemption: `packages/vscode-shallot/build.sh` is a shell script invoked by `bash`, not
-// `bun run`, so the gate's citation-check mechanism (which matches `bun <path>` citations) does
-// not apply. Extending the gate to cover shell scripts would be a new gate, which is out of scope
-// for this unit. The file's reachability is a different mechanism (a `.sh` file's invocation is
-// `bash <path>`, not `bun run <path>`), and this gate's three directions all scope to `bun`-
-// invoked surfaces.
 //
 // Empty-population guard: a tree with no `evals/` dir (a fixture root) yields no entry points,
 // which is valid — the gate's other arms still run. A tree with `evals/` where `git ls-files`

@@ -23,6 +23,15 @@ describe("normalize", () => {
         expect(normalize(`{ "capacity": "lots" }`).capacity).toBeUndefined();
     });
 
+    test("parses positive numeric and auto pixel ratios, rejecting other values", () => {
+        expect(normalize(`{ "pixelRatio": 1 }`).pixelRatio).toBe(1);
+        expect(normalize(`{ "pixelRatio": 0.5 }`).pixelRatio).toBe(0.5);
+        expect(normalize(`{ "pixelRatio": "auto" }`).pixelRatio).toBe("auto");
+        expect(normalize(`{ "pixelRatio": 0 }`).pixelRatio).toBeUndefined();
+        expect(normalize(`{ "pixelRatio": -1 }`).pixelRatio).toBeUndefined();
+        expect(normalize(`{ "pixelRatio": "device" }`).pixelRatio).toBeUndefined();
+    });
+
     test("preserves $schema (the IDE pointer)", () => {
         const schema = "./node_modules/@dylanebert/shallot/shallot.schema.json";
         expect(normalize(`{ "$schema": "${schema}", "plugins": { "Orbit": true } }`).$schema).toBe(

@@ -80,10 +80,13 @@ describe("generateModule", () => {
         expect(src).toContain(`import { SlabPlugin,`);
     });
 
-    test("capacity threads into the project object — the manifest's value, else null", () => {
-        expect(generateModule({ capacity: 512 }, DIR, [])).toContain(`const capacity = 512;`);
+    test("capacity and pixel ratio thread into the project object — manifest values, else null", () => {
+        const configured = generateModule({ capacity: 512, pixelRatio: "auto" }, DIR, []);
+        expect(configured).toContain(`const capacity = 512;`);
+        expect(configured).toContain(`const pixelRatio = "auto";`);
         expect(generateModule({}, DIR, [])).toContain(`const capacity = null;`);
-        // it rides the project object the boot reads, beside scene
-        expect(generateModule({ capacity: 512 }, DIR, [])).toContain(`scene, capacity, scenes`);
+        expect(generateModule({}, DIR, [])).toContain(`const pixelRatio = null;`);
+        // they ride the project object the boot reads, beside scene
+        expect(configured).toContain(`scene, capacity, pixelRatio, scenes`);
     });
 });

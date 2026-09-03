@@ -97,11 +97,13 @@
         },
         {
             "includes": [
-                "packages/shallot-ocean/src/spectrum.ts",
-                "packages/shallot-ocean/src/cpu-reference.ts",
-                "packages/shallot-ocean/src/ocean.ts",
-                "packages/shallot-ocean/src/clipmap.ts",
-                "packages/shallot-ocean/tests/mesh-inversion-sweep.oracle.ts"
+                "examples/showcase/ocean/src/ocean/spectrum.ts",
+                "examples/showcase/ocean/src/ocean/cpu-reference.ts",
+                "examples/showcase/ocean/src/ocean/ocean.ts",
+                "examples/showcase/ocean/src/ocean/clipmap.ts",
+                "examples/showcase/ocean/src/ocean/composed-fold.ts",
+                "examples/showcase/ocean/test/mesh-inversion-sweep.oracle.ts",
+                "examples/showcase/ocean/test/fold-anchor.oracle.ts"
             ],
             "linter": { "rules": { "style": { "useNamingConvention": "off" } } }
         }

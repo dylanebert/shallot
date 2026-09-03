@@ -2,7 +2,8 @@ import { resolve } from "node:path";
 import typegpu from "unplugin-typegpu/vite";
 
 // multi-page: the gallery plus one page per demo (each iframe loads its own page, its own engine
-// instance — the multi-canvas flow). Every demo HTML is a rollup entry so the build emits them all.
+// instance — the multi-canvas flow). Every demo HTML is a rolldown entry so the build emits them all.
+// `import.meta.dirname`, not `__dirname`: vite's native config loader (the coming default) has no CJS globals.
 export default {
     // an ejected project declares the typegpu transform itself (the engine's TGSL kernels have no
     // runtime fallback); exactly one instance may run, a second pass corrupts the metadata
@@ -13,14 +14,14 @@ export default {
         target: "esnext",
         outDir: "dist",
         emptyOutDir: true,
-        rollupOptions: {
+        rolldownOptions: {
             input: {
-                main: resolve(__dirname, "index.html"),
-                immediate: resolve(__dirname, "demos/immediate.html"),
-                retained: resolve(__dirname, "demos/retained.html"),
-                wireframe: resolve(__dirname, "demos/wireframe.html"),
-                text: resolve(__dirname, "demos/text.html"),
-                tween: resolve(__dirname, "demos/tween.html"),
+                main: resolve(import.meta.dirname, "index.html"),
+                immediate: resolve(import.meta.dirname, "demos/immediate.html"),
+                retained: resolve(import.meta.dirname, "demos/retained.html"),
+                wireframe: resolve(import.meta.dirname, "demos/wireframe.html"),
+                text: resolve(import.meta.dirname, "demos/text.html"),
+                animation: resolve(import.meta.dirname, "demos/animation.html"),
             },
         },
     },

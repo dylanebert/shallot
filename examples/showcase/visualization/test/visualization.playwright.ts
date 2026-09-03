@@ -39,7 +39,12 @@ test("visualization showcase — every demo renders a positive canvas", async ({
         const text = message.text();
         if (
             message.type() === "error" ||
-            /draw .* skipped|GPUValidationError|WebGPU.*(?:error|failed)/i.test(text)
+            // the engine's degraded-boot warnings ride `console.warn`: a demo plugin dropped for a
+            // missing dependency or a scene attribute nothing registered still renders a canvas, so
+            // the pixel law alone reads green while the demo's headline behaviour is gone
+            /draw .* skipped|GPUValidationError|WebGPU.*(?:error|failed)|Missing plugin dependency|is not registered/i.test(
+                text,
+            )
         ) {
             errors.push(`[console.${message.type()}] ${text}`);
         }

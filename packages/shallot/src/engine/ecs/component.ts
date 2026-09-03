@@ -69,7 +69,7 @@ export const u32: Type<Uint32Array> & { readonly lanes: 1 } = {
 };
 
 /**
- * a u32 that holds an entity id, a `@name` reference in scene files (`Tween.target`,
+ * a u32 that holds an entity id, a `@name` reference in scene files (`Animation.target`,
  * `Joint.a`). Storage is identical to {@link u32}; the distinct descriptor lets the field
  * declare itself a ref, so `serialize` round-trips it by the target's scene id rather than the
  * recycled, creation-order eid, with no side list to keep in sync. {@link refs} enumerates them.

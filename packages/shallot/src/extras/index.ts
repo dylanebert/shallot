@@ -1,4 +1,5 @@
 // the extras barrel star-exports every module — each module's index.ts owns its clean public API.
+export * from "./animation";
 export * from "./cells";
 export * from "./gltf";
 export * from "./lines";
@@ -9,4 +10,3 @@ export * from "./skin";
 export * from "./sky";
 export * from "./sprite";
 export * from "./text";
-export * from "./tween";

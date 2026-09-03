@@ -19,6 +19,13 @@
             "minimum": 1,
             "description": "Fixed entity capacity for the session (a build-time invariant). Omit for the engine default (65536)."
         },
+        "pixelRatio": {
+            "oneOf": [
+                { "type": "number", "exclusiveMinimum": 0 },
+                { "const": "auto" }
+            ],
+            "description": "Render pixel ratio. Use a positive number or \"auto\"; omit for the engine default."
+        },
         "identifier": {
             "type": "string",
             "description": "The bundle identifier for native builds (mac CFBundleIdentifier). Omit for the default com.shallot.<basename>."

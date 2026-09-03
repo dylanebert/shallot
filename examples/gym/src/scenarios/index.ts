@@ -91,10 +91,7 @@
 // a ramp and steps, shoving crates; the drive lives in `update()`), with more
 // landing as the tumble-inline sample set is ported;
 // the full list + the shared gold-match test live in `tumble-registry.ts` / `tumble-golds.test.ts`. The tier doctrine — targeted real-device tier run per-scenario, triple-duty
-// atoms, in-flight dogfoods — is `CLAUDE.md` Examples + `testing.md`. `ocean-slope` (`@dylanebert/shallot-ocean`'s I3g)
-// reads the published slope-cascade product texture per mip level and channel against a CPU
-// reference, deriving its comparison bound from the rgba16float storage quantum and WGSL's own
-// trig-accuracy bound rather than an authored constant.
+// atoms, in-flight dogfoods — is `CLAUDE.md` Examples + `testing.md`.
 import "./accel";
 import "./arch";
 import "./backend";
@@ -127,7 +124,6 @@ import "./joint-break";
 import "./mesh-fixture";
 import "./motion-locks";
 import "./motor";
-import "./ocean-slope";
 import "./orbit-touch";
 import "./outline";
 import "./overlap-box";

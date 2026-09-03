@@ -32,7 +32,7 @@ One minimal project per problem a game developer actually has.
 - **annotate the world** — `recipes/annotate-the-world/` — world-space text labels plus debug lines and arrows (retained components and the immediate `box` / `arrow` API).
 - **billboards and sprites** — `recipes/billboards-and-sprites/` — camera-facing sprites, the billboard modes, a radial meter.
 - **play sound** — `recipes/play-sound/` — spatial audio: a listener and positioned sound sources.
-- **animate with tweens** — `recipes/animate-with-tweens/` — the `Tween` component, easing a transform and color over time.
+- **animate with clips** — `recipes/animate-with-clips/` — registered keyframe, script, and mixer playables driving `Animator`.
 - **overlay DOM UI / embed in a page** — `recipes/overlay-ui/` — `mountOverlay` for a canvas-bounded HUD, and the `run()` embedding path.
 - **save and restore** — `recipes/save-and-restore/` — `serialize` the world to scene XML, persist it to `localStorage`, restore it in place via `parse` → `load` (or `run({ scene })` at app boot).
 - **measure performance** — `recipes/measure-performance/` — `showProfiler()` surfaces the profiler HUD on open, reading `Profile.gpu` per-frame and `window.__benchmark` for aggregated timing.
@@ -72,7 +72,8 @@ code link to its source pinned to the version it was built from.
 
 - **ascii** — `showcase/ascii/` — the cell-grid cube seeded on the web sink, the same scene `shallot tui` renders in a terminal.
 - **collapse** — `showcase/collapse/` — an AVBD rigidbody structure collapsing, profiled.
+- **ocean** — `showcase/ocean/` — a full-screen multi-cascade FFT ocean at pinned camera, sun, time, and capture conditions.
 - **roads** — `showcase/roads/` — a road network editor across terrain (capture, edit, re-drive corridors) that owns its own Playwright gate.
 - **sandbox** — `showcase/sandbox/` — a playable physics sandbox (character + AVBD + modal-synthesis audio).
-- **visualization** — `showcase/visualization/` — a multi-canvas gallery of the debug-draw primitives (lines, text, tweens, wireframe).
+- **visualization** — `showcase/visualization/` — a multi-canvas gallery of the debug-draw primitives (lines, text, written animations, wireframe).
 - **voxel** — `showcase/voxel/` — a voxel editor (carve tools + a greedy mesher) that owns its own Playwright gate.

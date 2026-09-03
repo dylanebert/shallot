@@ -416,11 +416,10 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
         reason:
             "parseTuiArgs, decodeStdinChunk, cellsBytesToGrid, createQuitGuard, buildDisposeAll, " +
             "runLoopWithTeardown, noBunWebgpuMessage, importBunWebgpu, noShallotTuiMessage, and " +
-            "importShallotTui (each DI'd loader, success and rejection) are all directly asserted by " +
+            "importBunWebgpu (its DI.d loader, success and rejection) are all directly asserted by " +
             "tui.test.ts, along with runTui's bad-flag path (EXIT_SETUP), its missing-bun-webgpu path " +
             "(EXIT_NO_BUN_WEBGPU + the remedy message, not a thrown stack trace) via a rejecting loader " +
-            "override, its missing-shallot-tui path (EXIT_NO_SHALLOT_TUI, same shape), and the " +
-            "shallot-tui-checked-before-bun-webgpu ordering — no real device needed for any of it. Two " +
+            "override. Two " +
             "regressions are covered against the exact production composition, not a hand-copied stand-" +
             "in (S3/S4 batch review round 2, 2026-09-01). First, the q/Ctrl-C quit fix: requestStop and " +
             "disposeOnce used to be one shared `stopped` boolean, so a quit request satisfied " +
@@ -440,10 +439,9 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "(plan()), the engine build, the per-frame GPU cell-grid readback, and the encoder wiring — " +
             "is exercised end to end by bin/tui.probes.ts (a real subprocess boot, hashed determinism " +
             "across two independent runs plus a --tier byte-stream differential — criterion 6, " +
-            "specs/shallot-tui.md) and by scripts/install-test.ts's real bun-webgpu-absence and " +
-            "shallot-tui-absence checks on a freshly scaffolded project (criterion 7, mirroring its " +
-            "existing playwright-absence rung, plus the item-8 optional-dependency guard it now covers " +
-            "the same way). Reached by nothing under any tier: every interactive/real-tty-only path — " +
+            "specs/shallot-tui.md) and by scripts/install-test.ts's real bun-webgpu-absence " +
+            "check on a freshly scaffolded project (criterion 7). Reached by nothing under any tier: " +
+            "every interactive/real-tty-only path — " +
             "installStdinBridge's raw-mode listener actually receiving live input (including " +
             "requestStop's own real q/Ctrl-C call site inside that listener), installTeardown's SIGINT/" +
             "SIGTERM exit callback, onResize's live callback, and the real ALT_SCREEN_ENTER/EXIT " +

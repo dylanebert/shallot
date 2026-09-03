@@ -33,7 +33,7 @@ import {
     staleDemos,
     writeStamp,
 } from "../site/site-stamp";
-import { datadogInitSnippet } from "./build-site";
+import { datadogInitSnippet, nonWorkspaceShallotDependencies } from "./build-site";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const checkSite = resolve(repoRoot, "scripts/check-site.ts");
@@ -48,6 +48,22 @@ const releaseVersion = (
 ).version;
 const PROD_MODE: SiteMode = { kind: "prod", version: releaseVersion };
 const STAGING_MODE: SiteMode = { kind: "staging", pin: "file:/tmp/dylanebert-shallot-0.0.0.tgz" };
+
+test("check-site clause 2 — rejects a fixed workspace extension version", () => {
+    expect(
+        nonWorkspaceShallotDependencies({
+            dependencies: {
+                "@dylanebert/shallot": "workspace:*",
+                "@dylanebert/shallot-wave": "0.1.0",
+            },
+        }),
+    ).toEqual([["@dylanebert/shallot-wave", "0.1.0"]]);
+    expect(
+        nonWorkspaceShallotDependencies({
+            dependencies: { "@dylanebert/shallot-wave": "workspace:*" },
+        }),
+    ).toEqual([]);
+});
 
 /** A built-site fixture that clears clauses 4 and 5 and fails clause 6 — every demo root page
  * carries the pre-fix scratch-shaped <title> the site build used to synthesize. */
@@ -153,7 +169,13 @@ function fixtureRepo(): string {
     mkdirSync(resolve(dir, "scripts"), { recursive: true });
     mkdirSync(resolve(dir, "site"), { recursive: true });
     mkdirSync(resolve(dir, "packages/shallot"), { recursive: true });
+    mkdirSync(resolve(dir, "packages/shallot-wave/src"), { recursive: true });
     writeFileSync(resolve(dir, "examples/showcase/demo/index.html"), "<html></html>\n");
+    writeFileSync(
+        resolve(dir, "examples/showcase/demo/package.json"),
+        `{"dependencies":{"@dylanebert/shallot-wave":"workspace:*"}}\n`,
+    );
+    writeFileSync(resolve(dir, "packages/shallot-wave/src/index.ts"), "export const wave = 1;\n");
     writeFileSync(resolve(dir, "scripts/build-site.ts"), "// builder\n");
     writeFileSync(resolve(dir, "site/rum-config.ts"), "// rum\n");
     writeFileSync(resolve(dir, "packages/shallot/package.json"), `{"version":"0.1.0"}\n`);
@@ -179,6 +201,18 @@ test("site-stamp — the fingerprint moves on a demo source, a builder, and the 
         writeFileSync(resolve(dir, "scripts/build-site.ts"), "// builder v2\n");
         expect(fp()).not.toBe(base);
         writeFileSync(resolve(dir, "scripts/build-site.ts"), "// builder\n");
+
+        // source from the workspace extension packed for this demo
+        writeFileSync(
+            resolve(dir, "packages/shallot-wave/src/index.ts"),
+            "export const wave = 2;\n",
+        );
+        expect(fp()).not.toBe(base);
+        writeFileSync(
+            resolve(dir, "packages/shallot-wave/src/index.ts"),
+            "export const wave = 1;\n",
+        );
+        expect(fp()).toBe(base);
 
         // the release version the ejected package.json is pinned to
         writeFileSync(resolve(dir, "packages/shallot/package.json"), `{"version":"0.2.0"}\n`);
