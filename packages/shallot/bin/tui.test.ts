@@ -13,6 +13,7 @@ import {
     runLoopWithTeardown,
     runTui,
     type TuiArgs,
+    terminalCellGeometry,
     terminalGridSize,
     usage,
 } from "./tui";
@@ -30,10 +31,38 @@ import { makeGrid } from "./tui/index";
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const RECIPE_DIR = resolve(REPO_ROOT, "examples/recipes/render-to-a-terminal");
 
+describe("terminal cell geometry", () => {
+    test("measures each axis from the tty pixel and cell extents", () => {
+        expect(
+            terminalCellGeometry({ columns: 120, rows: 40, pixelWidth: 960, pixelHeight: 640 }),
+        ).toEqual({ width: 8, height: 16 });
+    });
+
+    test("an injected absence takes the documented 1:2 fallback", () => {
+        expect(terminalCellGeometry({ columns: 120, rows: 40 })).toEqual({ width: 1, height: 2 });
+        expect(
+            terminalCellGeometry({ columns: 120, rows: 40, pixelWidth: 0, pixelHeight: 640 }),
+        ).toEqual({ width: 1, height: 2 });
+    });
+});
+
 describe("terminalGridSize", () => {
-    test("uses the terminal dimensions until the measured bandwidth ceiling", () => {
-        expect(terminalGridSize({ width: 120, height: 40 })).toEqual({ width: 120, height: 40 });
-        expect(terminalGridSize({ width: 320, height: 90 })).toEqual({ width: 200, height: 50 });
+    test("uses the terminal dimensions below the 10,000-cell budget", () => {
+        expect(terminalGridSize({ width: 120, height: 40 })).toEqual({
+            width: 120,
+            height: 40,
+            col: 0,
+            row: 0,
+        });
+    });
+
+    test("uniformly downscales and centers both terminal axes above the budget", () => {
+        const fit = terminalGridSize({ width: 320, height: 90 });
+        expect(fit).toEqual({ width: 188, height: 53, col: 66, row: 18 });
+        expect(fit.width * fit.height).toBeLessThanOrEqual(10_000);
+        expect(fit.width / fit.height).toBeCloseTo(320 / 90, 1);
+        expect(320 - fit.width - fit.col).toBe(fit.col);
+        expect(Math.abs(90 - fit.height - fit.row - fit.row)).toBeLessThanOrEqual(1);
     });
 });
 

@@ -110,7 +110,15 @@ const CellsSystem: System = {
                 break;
             }
             drawnEid = eid;
-            const { cols, rows } = deriveCellGridSize(view.width, view.height);
+            const cellGeometry = view.canvas as
+                | (HTMLCanvasElement & { cellWidth?: number; cellHeight?: number })
+                | null;
+            const { cols, rows } = deriveCellGridSize(
+                view.width,
+                view.height,
+                cellGeometry?.cellWidth,
+                cellGeometry?.cellHeight,
+            );
             const grid = gridFor(eid, cols, rows);
             // the camera's own empty-background reference, raw linear — recordSelect tonemaps it the
             // same way it tonemaps every scene sample before comparing, so a cell whose source region
