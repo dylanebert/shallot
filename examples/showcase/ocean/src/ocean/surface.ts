@@ -273,6 +273,18 @@ export const meanFresnel = tgpu.fn(
 /** Minimum slope variance whose reciprocal remains below the f32 precision-noise scale. */
 export const BECKMANN_VARIANCE_FLOOR = Math.sqrt(2 ** -23);
 
+/** Demo-local radial aerial-perspective density. */
+export const AERIAL_DENSITY = 0.0005;
+
+/** Exponential radial aerial-perspective weight. */
+export const aerialFade = tgpu.fn(
+    [d.f32, d.f32],
+    d.f32,
+)((density, distance) => {
+    "use gpu";
+    return 1 - std.exp(-std.max(density, 0) * std.max(distance, 0));
+});
+
 /** Smith masking term for the Beckmann slope distribution. */
 export const beckmannLambda = tgpu.fn(
     [d.f32, d.f32],
@@ -356,7 +368,15 @@ export const oceanSurfaceFs = tgpu.fn(
         std.max(slope.w, BECKMANN_VARIANCE_FLOOR),
     );
     const sun = engineLayout.$.lighting.sunColor.xyz;
-    return d.vec4f(std.add(std.mix(body, sky, fresnel), std.mul(glitter, sun)), 1);
+    const water = std.add(std.mix(body, sky, fresnel), std.mul(glitter, sun));
+    const horizontalView = std.normalize(d.vec3f(-view.x, 0, -view.z));
+    const aerialSky = sampleSky(
+        DuskSkyGpu(oceanSurfaceLayout.$.duskSky),
+        horizontalView,
+        engineLayout.$.lighting.sunDirection.xyz,
+    );
+    const distance = std.length(std.sub(eye, ctx.worldPos));
+    return d.vec4f(std.mix(water, aerialSky, aerialFade(AERIAL_DENSITY, distance)), 1);
 });
 
 /** registers the consolidated ocean surface and its clipmap mesh. */

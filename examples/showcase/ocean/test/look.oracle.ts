@@ -223,12 +223,12 @@ if (import.meta.main) {
     const capture = process.argv[2];
     if (!capture) throw new Error("usage: bun look.oracle.ts <capture.png> [t26.jpg] [t43.jpg]");
     const compareIndex = process.argv.indexOf("--compare");
+    const priorIndex = process.argv.indexOf("--prior");
     const compare = compareIndex >= 0 ? process.argv[compareIndex + 1] : undefined;
+    const prior = priorIndex >= 0 ? process.argv[priorIndex + 1] : undefined;
     const references = [
-        process.argv[compareIndex >= 0 ? compareIndex + 2 : 3] ??
-            resolve("../research/water-surface/oracle-dusk/frames/t26.jpg"),
-        process.argv[compareIndex >= 0 ? compareIndex + 3 : 4] ??
-            resolve("../research/water-surface/oracle-dusk/frames/t43.jpg"),
+        resolve("../research/water-surface/oracle-dusk/frames/t26.jpg"),
+        resolve("../research/water-surface/oracle-dusk/frames/t43.jpg"),
     ];
     let ok = true;
     const captureImage = await load(capture);
@@ -252,6 +252,41 @@ if (import.meta.main) {
             ok = false;
     }
     const referenceSpecks = referenceReadings.map((reading) => reading.lowerBandBrightSpecks);
+    const referenceWidths = referenceReadings.map((reading) => reading.horizon.transitionWidth);
+    const referenceContinuity = referenceReadings.map((reading) => reading.horizon.continuity);
+    const referenceHueDistance = referenceReadings.map((reading) => reading.farWaterSkyHueDistance);
+    const widthMin = Math.min(...referenceWidths) * 0.5;
+    const widthMax = Math.max(...referenceWidths) * 1.5;
+    console.log(
+        `  aerial gate width=${captureReading.horizon.transitionWidth} referenceRange=${widthMin}..${widthMax} continuity=${captureReading.horizon.continuity.toFixed(3)} referenceFloor=${Math.min(...referenceContinuity).toFixed(3)} hue=${captureReading.farWaterSkyHueDistance.toFixed(1)} referenceMax=${Math.max(...referenceHueDistance).toFixed(1)}`,
+    );
+    ok &&=
+        captureReading.horizon.transitionWidth >= widthMin &&
+        captureReading.horizon.transitionWidth <= widthMax;
+    ok &&= captureReading.horizon.continuity >= Math.min(...referenceContinuity);
+    ok &&= captureReading.farWaterSkyHueDistance <= Math.max(...referenceHueDistance);
+    if (prior) {
+        const priorReading = analyze(await load(prior));
+        const baselineNear = await Promise.all(
+            [1, 2, 3].map(async (index) =>
+                analyze(
+                    await load(
+                        resolve(
+                            `examples/showcase/ocean/test/baseline/ocean-baseline-${index}.png`,
+                        ),
+                    ),
+                ),
+            ),
+        );
+        const nearFloor =
+            Math.max(...baselineNear.map((reading) => reading.bands.nearWater!.luma)) -
+            Math.min(...baselineNear.map((reading) => reading.bands.nearWater!.luma));
+        console.log(
+            `  S4 near-band floor capture=${captureReading.bands.nearWater!.luma.toFixed(6)} prior=${priorReading.bands.nearWater!.luma.toFixed(6)} tolerance=${nearFloor.toFixed(6)}`,
+        );
+        ok &&=
+            captureReading.bands.nearWater!.luma >= priorReading.bands.nearWater!.luma - nearFloor;
+    }
     const referenceMin = Math.min(...referenceSpecks) / 10;
     const referenceMax = Math.max(...referenceSpecks) * 10;
     console.log(

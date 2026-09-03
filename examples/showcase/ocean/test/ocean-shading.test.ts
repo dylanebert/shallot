@@ -7,6 +7,8 @@ import { composedSlopePsd, slopeMipSize } from "../src/ocean/slope";
 import { f16NextDown, f16NextUp, f16Round } from "../src/ocean/slope-seam";
 import { CASCADE_CONFIGS, SLOPE_CASCADE_CONFIGS } from "../src/ocean/spectrum";
 import {
+    AERIAL_DENSITY,
+    aerialFade,
     BECKMANN_VARIANCE_FLOOR,
     beckmannSunRadiance,
     meanFresnel,
@@ -20,6 +22,27 @@ import {
 } from "../src/ocean/vertex-displacement";
 
 const controls = [1.25, -0.75, 2.5, 4.125];
+
+describe("radial aerial perspective", () => {
+    test("uses the exponential distance law", () => {
+        expect(AERIAL_DENSITY).toBeGreaterThan(0);
+        for (const distance of [0, 1, 18, 100, 1_000]) {
+            expect(aerialFade(AERIAL_DENSITY, distance)).toBeCloseTo(
+                1 - Math.exp(-AERIAL_DENSITY * distance),
+                6,
+            );
+        }
+    });
+
+    test("starts clear and approaches the horizontal sky sample monotonically", () => {
+        expect(aerialFade(AERIAL_DENSITY, 0)).toBe(0);
+        const distances = [1, 10, 100, 10_000];
+        const weights = distances.map((distance) => aerialFade(AERIAL_DENSITY, distance));
+        for (let i = 1; i < weights.length; i++) expect(weights[i]).toBeGreaterThan(weights[i - 1]);
+        expect(weights.at(-1)).toBeLessThan(1);
+        expect(weights.at(-1)).toBeGreaterThan(0.95);
+    });
+});
 
 describe("variance-driven Beckmann sun glitter", () => {
     test("derives the variance floor from f32 precision", () => {
