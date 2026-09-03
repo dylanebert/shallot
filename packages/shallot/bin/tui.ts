@@ -372,12 +372,10 @@ function installHeadlessDom(
 
 // ---------------------------------------------------------------------------------------------------
 // raw-mode stdin → KeyboardEvent.code bridge. A terminal reports key PRESSES only (no release byte), so
-// "held" is approximated by OS key-repeat: a code stays "down" while repeats keep arriving inside a short
-// quiet window, and releases once they stop — the standard TUI approximation (blessed/ink-style readers
-// use the same shape). Arrow keys (CSI cursor sequences) map to the same `KeyboardEvent.code` values a
-// browser would report, so any project system reading `Inputs.isKeyDown` (the recipe's own KeyOrbit,
-// `examples/recipes/render-to-a-terminal/src/keys.ts`) drives identically off either input source — this
-// bridge is general, not special-cased to that one recipe.
+// "held" is approximated by OS key-repeat. The release window covers the platform's delay-before-repeat,
+// keeping a held key continuous from its first byte through later repeats. Arrow keys map to the same
+// `KeyboardEvent.code` values the browser reports, so the standard InputPlugin and OrbitPlugin consume
+// both sources through one production composition.
 // ---------------------------------------------------------------------------------------------------
 
 const ARROW_CODES: Readonly<Record<string, string>> = {
@@ -387,7 +385,9 @@ const ARROW_CODES: Readonly<Record<string, string>> = {
     D: "ArrowLeft",
 };
 
-const KEY_HOLD_MS = 150; // quiet window before a code with no repeat reads as released
+// macOS's default delay-before-repeat is about 375 ms. The 500 ms window clears that gap while remaining
+// short enough for a terminal, which cannot distinguish a tap release from a held key before repeat starts.
+export const KEY_RELEASE_MS = 500;
 
 /** one decoded raw-stdin byte chunk: the `KeyboardEvent.code` values it named (arrow keys only today —
  *  WASD/other printable-key mapping is a natural follow-on, not required by this unit's own criteria),
@@ -405,6 +405,10 @@ export function decodeStdinChunk(chunk: string): { codes: string[]; quit: boolea
             quit = true;
             continue;
         }
+        if (c >= "1" && c <= "6") {
+            codes.push(`Digit${c}`);
+            continue;
+        }
         if (c === "\x1b" && chunk[i + 1] === "[" && chunk[i + 2] in ARROW_CODES) {
             codes.push(ARROW_CODES[chunk[i + 2]]);
             i += 2;
@@ -417,24 +421,41 @@ export function decodeStdinChunk(chunk: string): { codes: string[]; quit: boolea
  *  installed on a real tty (`runTui` guards it) — a piped/non-tty stdin has no raw mode to enter and no
  *  keys to read, which is also what keeps the deterministic-into-a-pipe path (criterion 6) free of any
  *  input nondeterminism. */
-function installStdinBridge(win: EventTarget, onQuit: () => void): { stop: () => void } {
+export function createKeyRepeatBridge(
+    win: EventTarget,
+    schedule: (release: () => void, delay: number) => ReturnType<typeof setTimeout> = setTimeout,
+    cancel: (timer: ReturnType<typeof setTimeout>) => void = clearTimeout,
+): { press: (code: string) => void; stop: () => void } {
     const held = new Map<string, ReturnType<typeof setTimeout>>();
-    const release = (code: string) => {
-        held.delete(code);
-        win.dispatchEvent(new TuiKeyEvent("keyup", code));
-    };
     const press = (code: string) => {
         const existing = held.get(code);
-        if (existing) clearTimeout(existing);
+        if (existing) cancel(existing);
         else win.dispatchEvent(new TuiKeyEvent("keydown", code));
         held.set(
             code,
-            setTimeout(() => release(code), KEY_HOLD_MS),
+            schedule(() => {
+                held.delete(code);
+                win.dispatchEvent(new TuiKeyEvent("keyup", code));
+            }, KEY_RELEASE_MS),
         );
     };
+    return {
+        press,
+        stop() {
+            for (const [code, timer] of held) {
+                cancel(timer);
+                win.dispatchEvent(new TuiKeyEvent("keyup", code));
+            }
+            held.clear();
+        },
+    };
+}
+
+function installStdinBridge(win: EventTarget, onQuit: () => void): { stop: () => void } {
+    const keys = createKeyRepeatBridge(win);
     const onData = (chunk: string) => {
         const { codes, quit } = decodeStdinChunk(chunk);
-        for (const code of codes) press(code);
+        for (const code of codes) keys.press(code);
         if (quit) onQuit();
     };
     // only ever installed on a real tty (`runTui`'s own guard), so unconditionally entering/leaving raw
@@ -446,11 +467,7 @@ function installStdinBridge(win: EventTarget, onQuit: () => void): { stop: () =>
     return {
         stop() {
             process.stdin.off("data", onData);
-            for (const [code, timer] of held) {
-                clearTimeout(timer);
-                win.dispatchEvent(new TuiKeyEvent("keyup", code));
-            }
-            held.clear();
+            keys.stop();
             process.stdin.setRawMode(false);
             process.stdin.pause();
         },
