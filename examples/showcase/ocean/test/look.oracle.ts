@@ -30,6 +30,10 @@ export interface LookReading {
         chromaWeightedWaterSkyHueDistance: number;
         brightWaterFraction: number;
     };
+    reflection: {
+        signedSkyTracking: [number, number, number, number];
+        scaleNormalizedStructure: number;
+    };
     lumaRange: number;
 }
 
@@ -360,6 +364,7 @@ export function analyze(image: Pixels): LookReading {
     const hueDelta = Math.abs(skyHue - waterHue);
     const allLuma = Object.values(bands).map((band) => band.luma);
     const balance = duskBalance(image, horizonReading.row, horizonReading.means);
+    const response = normalResponse(image, bands.sky?.luma ?? 0, ranges);
     return {
         bands,
         farWaterSkyHueDistance: Math.min(hueDelta, 360 - hueDelta),
@@ -372,7 +377,19 @@ export function analyze(image: Pixels): LookReading {
         },
         duskBalance: balance,
         foam: foam(image, bands.nearWater?.luma ?? 0, ranges),
-        normalResponse: normalResponse(image, bands.sky?.luma ?? 0, ranges),
+        normalResponse: response,
+        reflection: (() => {
+            const sky = (bands.sky?.srgb[2] ?? 0) - (bands.sky?.srgb[0] ?? 0);
+            const water = ["horizon", "farWater", "midWater", "nearWater"].map((name) => {
+                const rgb = bands[name]?.srgb ?? [0, 0, 0];
+                return rgb[2] - rgb[0] - sky;
+            }) as [number, number, number, number];
+            return {
+                signedSkyTracking: water,
+                scaleNormalizedStructure:
+                    response.midRowDeviation / Math.max((bands.midWater?.luma ?? 0) * 255, 1),
+            };
+        })(),
         lumaRange: Math.max(...allLuma) - Math.min(...allLuma),
     };
 }
@@ -477,6 +494,45 @@ function distance(value: number, interval: Interval): number {
     return 0;
 }
 
+export function satisfiesS16Relations(
+    reading: Pick<LookReading, "normalResponse" | "reflection">,
+    relations: typeof fixture.relations = fixture.relations,
+): boolean {
+    return (
+        reading.reflection.signedSkyTracking.every((value, index) =>
+            inside(value, relations.signedSkyTracking[index]!),
+        ) &&
+        inside(reading.normalResponse.nearMeanChroma, relations.nearMeanChroma) &&
+        inside(reading.reflection.scaleNormalizedStructure, relations.scaleNormalizedStructure)
+    );
+}
+
+export function satisfiesS16Floor(
+    fresh: Pick<LookReading, "normalResponse" | "reflection">,
+    prior: Pick<LookReading, "normalResponse" | "reflection">,
+    relations: typeof fixture.relations = fixture.relations,
+): boolean {
+    return (
+        fresh.reflection.signedSkyTracking.every((value, index) =>
+            satisfiesPriorGoodFloor(
+                value,
+                prior.reflection.signedSkyTracking[index]!,
+                relations.signedSkyTracking[index]!,
+            ),
+        ) &&
+        satisfiesPriorGoodFloor(
+            fresh.normalResponse.nearMeanChroma,
+            prior.normalResponse.nearMeanChroma,
+            relations.nearMeanChroma,
+        ) &&
+        satisfiesPriorGoodFloor(
+            fresh.reflection.scaleNormalizedStructure,
+            prior.reflection.scaleNormalizedStructure,
+            relations.scaleNormalizedStructure,
+        )
+    );
+}
+
 export function satisfiesPriorGoodFloor(fresh: number, prior: number, interval: Interval): boolean {
     const priorDistance = distance(prior, interval);
     const freshDistance = distance(fresh, interval);
@@ -543,6 +599,9 @@ function print(path: string, reading: LookReading): void {
     console.log(
         `  normal response mid=${reading.normalResponse.midRowDeviation.toFixed(1)} near=${reading.normalResponse.nearRowDeviation.toFixed(1)} chroma=${reading.normalResponse.nearMeanChroma.toFixed(1)} weightedHue=${reading.normalResponse.chromaWeightedWaterSkyHueDistance.toFixed(1)}° bright=${(reading.normalResponse.brightWaterFraction * 100).toFixed(2)}%`,
     );
+    console.log(
+        `  signed sky tracking ${reading.reflection.signedSkyTracking.map((value) => value.toFixed(2)).join(", ")}  scale-normalized structure=${reading.reflection.scaleNormalizedStructure.toFixed(4)}`,
+    );
 }
 
 if (import.meta.main) {
@@ -604,9 +663,14 @@ if (import.meta.main) {
     if (condition !== undefined && condition !== "sun-facing")
         throw new Error(`unknown look-oracle condition: ${condition}`);
     printBounds();
-    ok &&= satisfiesReferenceRelations(captureReading);
+    ok &&= satisfiesS16Relations(captureReading);
+    const s9 = analyze(
+        await load(resolve("examples/showcase/ocean/test/fixtures/look/s9-prior-good.png")),
+    );
+    const floor = satisfiesS16Floor(captureReading, s9);
+    ok &&= floor;
     console.log(
-        `  reference relations ${ok ? "PASS" : "FAIL"}: hue=${captureReading.farWaterSkyHueDistance.toFixed(1)} chroma=${captureReading.normalResponse.nearMeanChroma.toFixed(1)} fade=${captureReading.duskBalance.fadeExtent}px`,
+        `  S16 reference relations ${ok ? "PASS" : "FAIL"}: tracking=${captureReading.reflection.signedSkyTracking.map((value) => value.toFixed(2)).join(",")} chroma=${captureReading.normalResponse.nearMeanChroma.toFixed(1)} structure=${captureReading.reflection.scaleNormalizedStructure.toFixed(4)} S9Floor=${floor ? "PASS" : "FAIL"}`,
     );
     if (prior) {
         const priorReading = analyze(await load(prior));
