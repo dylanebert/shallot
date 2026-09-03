@@ -13,11 +13,13 @@ import {
     aerialFade,
     BECKMANN_VARIANCE_FLOOR,
     beckmannSunRadiance,
+    declaredFoamStrength,
     meanFresnel,
     registerOceanSurface,
     surfaceCatmullRom1D,
     surfaceCatmullRomDerivative1D,
     surfaceWrapIndex,
+    troughFoam,
 } from "../src/ocean/surface";
 import {
     catmullRom1D as vertexCatmullRom1D,
@@ -63,6 +65,21 @@ describe("radial aerial perspective", () => {
     });
 });
 
+describe("fragment trough foam", () => {
+    test("is black-pointed outside compressed troughs and wind-stretched within them", () => {
+        expect(declaredFoamStrength()).toBeGreaterThan(0);
+        expect(declaredFoamStrength()).toBeLessThan(0.2);
+        expect(troughFoam(1, -1, d.vec2f(10, 20))).toBe(0);
+        expect(troughFoam(0.4, 1, d.vec2f(10, 20))).toBe(0);
+        const along = Array.from({ length: 80 }, (_, i) => troughFoam(0.35, -2, d.vec2f(i, 0)));
+        const across = Array.from({ length: 80 }, (_, i) => troughFoam(0.35, -2, d.vec2f(0, i)));
+        const transitions = (values: number[]) =>
+            values.slice(1).filter((value, i) => value > 0 !== (values[i] ?? 0) > 0).length;
+        expect(transitions(along)).toBeGreaterThan(transitions(across));
+        expect(along.some((value) => value > 0)).toBe(true);
+    });
+});
+
 describe("variance-driven Beckmann sun glitter", () => {
     test("derives the variance floor from f32 precision", () => {
         expect(BECKMANN_VARIANCE_FLOOR).toBe(Math.sqrt(2 ** -23));
@@ -70,11 +87,10 @@ describe("variance-driven Beckmann sun glitter", () => {
     });
 
     test("hemisphere-integrated reflected energy stays at most one", () => {
-        const stepsTheta = 240;
-        const stepsPhi = 480;
-        const dTheta = (Math.PI * 0.5) / stepsTheta;
-        const dPhi = (Math.PI * 2) / stepsPhi;
-        for (const sigma of [0.035, 0.12, 0.3]) {
+        const integrate = (sigma: number, stepsTheta: number) => {
+            const stepsPhi = stepsTheta * 2;
+            const dTheta = (Math.PI * 0.5) / stepsTheta;
+            const dPhi = (Math.PI * 2) / stepsPhi;
             let integral = 0;
             const view = d.vec3f(0, 1, 0);
             for (let ti = 0; ti < stepsTheta; ti++) {
@@ -95,7 +111,20 @@ describe("variance-driven Beckmann sun glitter", () => {
                         dPhi;
                 }
             }
-            console.log(`beckmann hemisphere sigma=${sigma} integral=${integral}`);
+            return integral;
+        };
+        for (const sigma of [0.035, 0.12, 0.3]) {
+            let steps = 15;
+            let prior = integrate(sigma, steps);
+            let integral = prior;
+            do {
+                steps *= 2;
+                integral = integrate(sigma, steps);
+                if (Math.abs(integral - prior) <= 2 ** -10) break;
+                prior = integral;
+            } while (steps < 240);
+            console.log(`beckmann hemisphere sigma=${sigma} steps=${steps} integral=${integral}`);
+            expect(Math.abs(integral - prior)).toBeLessThanOrEqual(2 ** -10);
             expect(integral).toBeLessThanOrEqual(1);
             expect(integral).toBeGreaterThan(0);
         }
