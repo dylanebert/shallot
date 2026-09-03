@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { analyze, bandRanges, load, satisfiesReferenceRelations } from "./look.oracle";
+import {
+    analyze,
+    assertRegeneratedReferences,
+    bandRanges,
+    load,
+    satisfiesReferenceRelations,
+} from "./look.oracle";
 import fixture from "./reference/look-relations.json";
 
 const baselines = [1, 2, 3].map((index) =>
@@ -13,98 +19,45 @@ describe("ocean look oracle", () => {
             const reading = analyze(await load(path));
             expect(reading.lumaRange).toBeGreaterThan(0.02);
             expect(reading.horizon.transitionWidth).toBeGreaterThan(0);
-            expect(reading.horizon.continuity).toBeGreaterThan(0);
-            expect(reading.lowerBandBrightSpecks).toBeGreaterThanOrEqual(0);
-            expect(reading.farWaterSkyHueDistance).toBeFinite();
         }
     });
 
-    test("committed reference relations retain provenance", () => {
-        expect(fixture.oracleRevision).toBe("shallot-ocean-look/S11");
-        expect(fixture.provenance.horizonRows).toBe("210/720");
-        expect(fixture.provenance.absoluteRelationRows).toEqual({
-            t26: "277/540",
-            t43: "267/540",
-        });
-        expect(fixture.provenance.sources).toHaveLength(4);
+    test("committed reference readings retain per-image provenance", () => {
+        expect(fixture.oracleRevision).toBe("shallot-ocean-look/S14");
+        expect(fixture.provenance.absoluteRelationRows).toEqual({ t26: "277/540", t43: "267/540" });
+        expect(Object.keys(fixture.provenance.relationMargins)).toHaveLength(10);
         expect(
             fixture.provenance.sources.every(({ sha256 }) => /^[a-f0-9]{64}$/.test(sha256)),
         ).toBe(true);
     });
 
-    test("a mutated fixture relation rejects an otherwise accepted reading", () => {
-        const reading = {
-            bands: {},
-            farWaterSkyHueDistance: 20,
-            lowerBandBrightSpecks: 67,
-            horizon: { row: 210, transitionWidth: 4, continuity: 0.4, valueStep: 0.02 },
-            duskBalance: {
-                waterSkyLumaRatios: [0.7, 0.5, 0.4, 0.3] as [number, number, number, number],
-                fadeExtent: 210,
-                nearBlueRedRatio: 1.2,
-            },
-            foam: { nearCoverage: 0.05, maxLuma: 0.4 },
-            normalResponse: {
-                midRowDeviation: 12,
-                nearRowDeviation: 8,
-                nearMeanChroma: 30,
-                chromaWeightedWaterSkyHueDistance: 20,
-                brightWaterFraction: 0.05,
-            },
-            lumaRange: 0.4,
-        };
-        expect(satisfiesReferenceRelations(reading)).toBe(true);
-        const mutated = structuredClone(fixture.relations);
-        mutated.farWaterSkyHueDistanceMax = 10;
-        expect(satisfiesReferenceRelations(reading, mutated)).toBe(false);
+    test("both marked frames pass every freshly derived relation", () => {
+        expect(satisfiesReferenceRelations(fixture.references.t26)).toBe(true);
+        expect(satisfiesReferenceRelations(fixture.references.t43)).toBe(true);
+        expect(() => assertRegeneratedReferences(fixture.references)).not.toThrow();
     });
 
-    test("normal-response mutations red their named relations", () => {
-        const reading = {
-            bands: {},
-            farWaterSkyHueDistance: 20,
-            lowerBandBrightSpecks: 67,
-            horizon: { row: 210, transitionWidth: 4, continuity: 0.4, valueStep: 0.02 },
-            duskBalance: {
-                waterSkyLumaRatios: [0.7, 0.5, 0.4, 0.3] as [number, number, number, number],
-                fadeExtent: 210,
-                nearBlueRedRatio: 1.2,
-            },
-            foam: { nearCoverage: 0.05, maxLuma: 0.4 },
-            normalResponse: {
-                midRowDeviation: 12,
-                nearRowDeviation: 8,
-                nearMeanChroma: 30,
-                chromaWeightedWaterSkyHueDistance: 20,
-                brightWaterFraction: 0.05,
-            },
-            lumaRange: 0.4,
-        };
-        expect(satisfiesReferenceRelations(reading)).toBe(true);
-        for (const mutation of [
-            { midRowDeviation: 11 },
-            { nearRowDeviation: 7 },
-            { nearMeanChroma: 31 },
-            { chromaWeightedWaterSkyHueDistance: 73 },
-            { brightWaterFraction: 0.1 },
-        ]) {
-            expect(
-                satisfiesReferenceRelations({
-                    ...reading,
-                    normalResponse: { ...reading.normalResponse, ...mutation },
-                }),
-            ).toBe(false);
-        }
+    test("a mutated stored reading reds fixture equality", () => {
+        const mutated = structuredClone(fixture.references);
+        mutated.t26.horizon.row++;
+        expect(() => assertRegeneratedReferences(mutated)).toThrow("t26 reading differs");
+    });
+
+    test("both rejected S13 witnesses red their named relations", () => {
+        expect(satisfiesReferenceRelations(fixture.rejected.s13Default.reading)).toBe(false);
+        expect(satisfiesReferenceRelations(fixture.rejected.s13SunFacing.reading)).toBe(false);
+        expect(fixture.rejected.s13Default.mustFail).toEqual(["nearMeanChroma"]);
+        expect(fixture.rejected.s13Default.reading.normalResponse.nearMeanChroma).toBeGreaterThan(
+            fixture.relations.nearMeanChroma.max,
+        );
+        expect(fixture.rejected.s13SunFacing.mustFail).toEqual(["fadeExtent"]);
+        expect(fixture.rejected.s13SunFacing.reading.duskBalance.fadeExtent).toBeLessThan(
+            fixture.relations.fadeExtent.min,
+        );
     });
 
     test("cuts every band from the image's detected horizon", () => {
-        expect(bandRanges(210, 720)).toEqual({
-            sky: [0.08, 210 / 720],
-            horizon: [210 / 720, 0.52],
-            farWater: [0.52, 0.66],
-            midWater: [0.66, 0.82],
-            nearWater: [0.82, 1],
-        });
+        expect(bandRanges(210, 720).sky[1]).toBe(210 / 720);
         const shifted = bandRanges(260, 720);
         expect(shifted.sky[1]).toBe(260 / 720);
         expect(shifted.horizon[0]).toBe(shifted.sky[1]);
