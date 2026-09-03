@@ -276,6 +276,27 @@ export const BECKMANN_VARIANCE_FLOOR = Math.sqrt(2 ** -23);
 /** Demo-local radial aerial-perspective density. */
 export const AERIAL_DENSITY = 0.0005;
 
+/** Maximum fragment-foam contribution before distance attenuation. */
+export const FOAM_STRENGTH = 0.14;
+const FOAM_WIND_X = Math.cos(CASCADE_CONFIGS[0].windDir);
+const FOAM_WIND_Y = Math.sin(CASCADE_CONFIGS[0].windDir);
+
+/** Black-pointed trough-foam mask from compression and wind-stretched noise. */
+export const troughFoam = tgpu.fn(
+    [d.f32, d.f32, d.vec2f],
+    d.f32,
+)((jacobian, height, samplePos) => {
+    "use gpu";
+    const wind = d.vec2f(FOAM_WIND_X, FOAM_WIND_Y);
+    const across = d.vec2f(-wind.y, wind.x);
+    const stretched = d.vec2f(std.dot(samplePos, wind) * 0.055, std.dot(samplePos, across) * 0.22);
+    const cell = std.floor(stretched);
+    const noise = std.fract(std.sin(std.dot(cell, d.vec2f(12.9898, 78.233))) * 43758.547);
+    const compression = std.clamp((0.72 - jacobian) / 0.34, 0, 1);
+    const trough = std.clamp(-height * 0.7, 0, 1);
+    return std.smoothstep(0.76, 0.94, compression * trough * noise);
+});
+
 /** Exponential radial aerial-perspective weight. */
 export const aerialFade = tgpu.fn(
     [d.f32, d.f32],
@@ -368,14 +389,27 @@ export const oceanSurfaceFs = tgpu.fn(
         std.max(slope.w, BECKMANN_VARIANCE_FLOOR),
     );
     const sun = engineLayout.$.lighting.sunColor.xyz;
-    const water = std.add(std.mix(body, sky, fresnel), std.mul(glitter, sun));
+    const baseWater = std.add(std.mix(body, sky, fresnel), std.mul(glitter, sun));
+    const du = std.add(
+        std.mul(estimate.g0.du, estimate.scale0),
+        std.mul(estimate.g1.du, estimate.scale1),
+    );
+    const dv = std.add(
+        std.mul(estimate.g0.dv, estimate.scale0),
+        std.mul(estimate.g1.dv, estimate.scale1),
+    );
+    const jacobian = (1 + du.x) * (1 + dv.z) - du.z * dv.x;
+    const foamMask = troughFoam(jacobian, estimate.g0.value.y + estimate.g1.value.y, s);
+    const distance = std.length(std.sub(eye, ctx.worldPos));
+    const foamAttenuation = std.exp(-0.002 * distance);
+    const foamLight = std.add(std.mul(sky, 0.65), std.mul(sun, 0.35));
+    const water = std.mix(baseWater, foamLight, foamMask * FOAM_STRENGTH * foamAttenuation);
     const horizontalView = std.normalize(d.vec3f(-view.x, 0, -view.z));
     const aerialSky = sampleSky(
         DuskSkyGpu(oceanSurfaceLayout.$.duskSky),
         horizontalView,
         engineLayout.$.lighting.sunDirection.xyz,
     );
-    const distance = std.length(std.sub(eye, ctx.worldPos));
     return d.vec4f(std.mix(water, aerialSky, aerialFade(AERIAL_DENSITY, distance)), 1);
 });
 

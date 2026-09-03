@@ -14,6 +14,7 @@ export interface LookReading {
     farWaterSkyHueDistance: number;
     lowerBandBrightSpecks: number;
     horizon: { transitionWidth: number; continuity: number };
+    foam: { nearCoverage: number; maxLuma: number };
     lumaRange: number;
 }
 
@@ -165,6 +166,28 @@ function horizon(image: Pixels): { transitionWidth: number; continuity: number }
     return { transitionWidth: hi - lo + 1, continuity: 1 / (1 + deviation) };
 }
 
+function foam(image: Pixels, nearMean: number): { nearCoverage: number; maxLuma: number } {
+    const y0 = Math.floor(image.height * BAND_RANGES.nearWater[0]);
+    let marked = 0;
+    let count = 0;
+    let maxLuma = 0;
+    for (let y = y0; y < image.height; y++) {
+        for (let x = 0; x < image.width; x++) {
+            const i = (y * image.width + x) * 4;
+            const r = image.data[i] ?? 0;
+            const g = image.data[i + 1] ?? 0;
+            const b = image.data[i + 2] ?? 0;
+            const value = luma(r, g, b);
+            if (value >= nearMean + 20 / 255 && Math.max(r, g, b) - Math.min(r, g, b) <= 48) {
+                marked++;
+                maxLuma = Math.max(maxLuma, value);
+            }
+            count++;
+        }
+    }
+    return { nearCoverage: marked / count, maxLuma };
+}
+
 export function analyze(image: Pixels): LookReading {
     const bands = Object.fromEntries(
         Object.entries(BAND_RANGES).map(([name, [from, to]]) => [name, mean(image, from, to)]),
@@ -178,6 +201,7 @@ export function analyze(image: Pixels): LookReading {
         farWaterSkyHueDistance: Math.min(hueDelta, 360 - hueDelta),
         lowerBandBrightSpecks: brightSpecks(image),
         horizon: horizon(image),
+        foam: foam(image, bands.nearWater?.luma ?? 0),
         lumaRange: Math.max(...allLuma) - Math.min(...allLuma),
     };
 }
@@ -216,6 +240,9 @@ function print(path: string, reading: LookReading): void {
     console.log(`  lower-band bright specks ${reading.lowerBandBrightSpecks}`);
     console.log(
         `  horizon transition ${reading.horizon.transitionWidth}px  continuity ${reading.horizon.continuity.toFixed(3)}`,
+    );
+    console.log(
+        `  trough foam coverage ${(reading.foam.nearCoverage * 100).toFixed(2)}%  max luma ${(reading.foam.maxLuma * 255).toFixed(1)}`,
     );
 }
 
@@ -282,11 +309,32 @@ if (import.meta.main) {
             Math.max(...baselineNear.map((reading) => reading.bands.nearWater!.luma)) -
             Math.min(...baselineNear.map((reading) => reading.bands.nearWater!.luma));
         console.log(
-            `  S4 near-band floor capture=${captureReading.bands.nearWater!.luma.toFixed(6)} prior=${priorReading.bands.nearWater!.luma.toFixed(6)} tolerance=${nearFloor.toFixed(6)}`,
+            `  foam treatment coverage capture=${(captureReading.foam.nearCoverage * 100).toFixed(3)}% prior=${(priorReading.foam.nearCoverage * 100).toFixed(3)}%`,
+        );
+        console.log(
+            `  S5 mid-band floor capture=${captureReading.bands.midWater!.luma.toFixed(6)} prior=${priorReading.bands.midWater!.luma.toFixed(6)} tolerance=${nearFloor.toFixed(6)}`,
         );
         ok &&=
-            captureReading.bands.nearWater!.luma >= priorReading.bands.nearWater!.luma - nearFloor;
+            Math.abs(captureReading.bands.midWater!.luma - priorReading.bands.midWater!.luma) <=
+            nearFloor;
+        for (const band of ["sky", "horizon", "farWater"] as const) {
+            const floor =
+                Math.max(...baselineNear.map((reading) => reading.bands[band]!.luma)) -
+                Math.min(...baselineNear.map((reading) => reading.bands[band]!.luma));
+            const delta = Math.abs(
+                captureReading.bands[band]!.luma - priorReading.bands[band]!.luma,
+            );
+            console.log(
+                `  untouched ${band} delta=${delta.toFixed(6)} S1Floor=${floor.toFixed(6)}`,
+            );
+            ok &&= delta <= floor;
+        }
     }
+    console.log(
+        `  foam gate coverage=${(captureReading.foam.nearCoverage * 100).toFixed(2)}% max=${(captureReading.foam.maxLuma * 255).toFixed(1)} sky=${(captureReading.bands.sky!.luma * 255).toFixed(1)}`,
+    );
+    ok &&= captureReading.foam.nearCoverage >= 0.01 && captureReading.foam.nearCoverage <= 0.1;
+    ok &&= captureReading.foam.maxLuma <= captureReading.bands.sky!.luma;
     const referenceMin = Math.min(...referenceSpecks) / 10;
     const referenceMax = Math.max(...referenceSpecks) * 10;
     console.log(
