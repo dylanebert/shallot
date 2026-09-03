@@ -11,6 +11,7 @@ import { Xform } from "@dylanebert/shallot/utils/core";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import { DuskSkyGpu, sampleSky } from "../sky";
 import { buildClipmapMesh, OCEAN_CLIP_LEVELS } from "./clipmap";
 import { CASCADE_CONFIGS, SLOPE_CASCADE_CONFIGS } from "./spectrum";
 
@@ -22,6 +23,7 @@ export const oceanSurfaceLayout = surfaceLayout({
     displace1: { type: "texture-2d" },
     slope0: { type: "texture-2d" },
     slopeSampler: { type: "sampler" },
+    duskSky: { type: "uniform", struct: DuskSkyGpu },
 });
 // The device oracle executes the exact texture-reading estimator through this layout in compute;
 // render keeps the same group and bindings, while the extra visibility changes no shader interface.
@@ -258,6 +260,16 @@ export const oceanFragmentNormal = tgpu.fn(
     return d.vec4f(normal, std.sqrt(std.max(0, slope.w)));
 });
 
+/** variance-averaged Schlick factor from Bruneton's ocean lighting model. */
+export const meanFresnel = tgpu.fn(
+    [d.f32, d.f32],
+    d.f32,
+)((cosTheta, sigma) => {
+    "use gpu";
+    const exponent = 5 * std.exp(-2.69 * sigma);
+    return std.pow(1 - std.clamp(cosTheta, 0, 1), exponent) / (1 + 22.7 * std.pow(sigma, 1.5));
+});
+
 /** displacement normal plus the published high-frequency slope product. */
 export const oceanSurfaceFs = tgpu.fn(
     [fsCtxSchema(oceanSurfaceVaryings)],
@@ -284,13 +296,20 @@ export const oceanSurfaceFs = tgpu.fn(
         slope,
     );
     const normal = normalRoughness.xyz;
-    const varianceRoughness = normalRoughness.w;
+    const sigma = normalRoughness.w;
     const eye = engineLayout.$.view.eye.xyz;
     const view = std.normalize(std.sub(eye, ctx.worldPos));
-    const fresnel = 0.02 + 0.98 * std.pow(1 - std.max(std.dot(normal, view), 0), 5);
-    const sun = std.max(std.dot(normal, std.neg(engineLayout.$.lighting.sunDirection.xyz)), 0);
-    const water = std.mix(d.vec3f(0.005, 0.04, 0.055), d.vec3f(0.12, 0.22, 0.3), fresnel);
-    return d.vec4f(std.mul(water, 0.35 + sun * (1 - varianceRoughness)), 1);
+    const reflected = std.reflect(std.neg(view), normal);
+    const skyDirection = std.normalize(d.vec3f(reflected.x, std.max(reflected.y, 0), reflected.z));
+    const sky = sampleSky(
+        DuskSkyGpu(oceanSurfaceLayout.$.duskSky),
+        skyDirection,
+        engineLayout.$.lighting.sunDirection.xyz,
+    );
+    const factor = meanFresnel(std.max(std.dot(normal, view), 0), sigma);
+    const fresnel = 0.02 + 0.98 * factor;
+    const body = d.vec3f(0.004, 0.025, 0.032);
+    return d.vec4f(std.mix(body, sky, fresnel), 1);
 });
 
 /** registers the consolidated ocean surface and its clipmap mesh. */

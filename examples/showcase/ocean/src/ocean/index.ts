@@ -141,6 +141,7 @@ export {
     U10,
 } from "./spectrum";
 export {
+    meanFresnel,
     OceanDisplacementEstimate,
     OceanSampleGradient,
     OceanSurfacePlugin,
