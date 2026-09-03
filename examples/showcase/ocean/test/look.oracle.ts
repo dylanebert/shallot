@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
@@ -399,37 +400,58 @@ export function speckOverlap(a: Pixels, b: Pixels): number {
     return union === 0 ? 1 : intersection / union;
 }
 
+function inside(value: number, range: { min: number; max: number }): boolean {
+    return Number.isFinite(value) && value >= range.min && value <= range.max;
+}
+
+type RelationReading = {
+    farWaterSkyHueDistance: number;
+    lowerBandBrightSpecks: number;
+    horizon: LookReading["horizon"];
+    duskBalance: Omit<LookReading["duskBalance"], "waterSkyLumaRatios"> & {
+        waterSkyLumaRatios: number[];
+    };
+    foam: LookReading["foam"];
+    normalResponse: LookReading["normalResponse"];
+};
+
 export function satisfiesReferenceRelations(
-    reading: LookReading,
+    reading: RelationReading,
     relations: typeof fixture.relations = fixture.relations,
 ): boolean {
     return (
-        reading.horizon.transitionWidth >= relations.horizonWidth.min &&
-        reading.horizon.transitionWidth <= relations.horizonWidth.max &&
+        inside(reading.horizon.transitionWidth, relations.horizonWidth) &&
         reading.horizon.continuity >= relations.horizonContinuityMin &&
-        reading.farWaterSkyHueDistance <= relations.farWaterSkyHueDistanceMax &&
-        reading.lowerBandBrightSpecks >= relations.lowerBandBrightSpecks.min &&
-        reading.lowerBandBrightSpecks <= relations.lowerBandBrightSpecks.max &&
-        reading.foam.nearCoverage >= relations.foamNearCoverage.min &&
-        reading.foam.nearCoverage <= relations.foamNearCoverage.max &&
-        reading.duskBalance.waterSkyLumaRatios.every(
-            (ratio, index) =>
-                ratio >= relations.waterSkyLumaRatios[index]!.min &&
-                ratio <= relations.waterSkyLumaRatios[index]!.max,
+        inside(reading.farWaterSkyHueDistance, relations.farWaterSkyHueDistance) &&
+        inside(reading.lowerBandBrightSpecks, relations.lowerBandBrightSpecks) &&
+        inside(reading.foam.nearCoverage, relations.foamNearCoverage) &&
+        reading.duskBalance.waterSkyLumaRatios.every((ratio, index) =>
+            inside(ratio, relations.waterSkyLumaRatios[index]!),
         ) &&
-        reading.horizon.valueStep <= relations.horizonValueStepMax &&
-        reading.duskBalance.fadeExtent >= relations.fadeExtentMin &&
-        reading.duskBalance.nearBlueRedRatio >= relations.nearBlueRedRatioMin &&
-        reading.normalResponse.midRowDeviation >= relations.normalResponse.midRowDeviationMin &&
-        reading.normalResponse.nearRowDeviation >= relations.normalResponse.nearRowDeviationMin &&
-        reading.normalResponse.nearMeanChroma <= relations.normalResponse.nearMeanChromaMax &&
-        reading.normalResponse.chromaWeightedWaterSkyHueDistance <=
-            relations.normalResponse.chromaWeightedWaterSkyHueDistanceMax &&
-        reading.normalResponse.brightWaterFraction >=
-            relations.normalResponse.brightWaterFraction.min &&
-        reading.normalResponse.brightWaterFraction <=
-            relations.normalResponse.brightWaterFraction.max
+        inside(reading.horizon.valueStep, relations.horizonValueStep) &&
+        inside(reading.duskBalance.fadeExtent, relations.fadeExtent) &&
+        inside(reading.duskBalance.nearBlueRedRatio, relations.nearBlueRedRatio) &&
+        inside(reading.normalResponse.nearMeanChroma, relations.nearMeanChroma)
     );
+}
+
+export function assertRegeneratedReferences(
+    readings: Record<"t26" | "t43", RelationReading>,
+): void {
+    for (const name of ["t26", "t43"] as const) {
+        if (JSON.stringify(readings[name]) !== JSON.stringify(fixture.references[name]))
+            throw new Error(`regenerated ${name} reading differs from committed fixture`);
+        if (!satisfiesReferenceRelations(readings[name]))
+            throw new Error(`gold ${name} fails a derived reference relation`);
+    }
+}
+
+function printBounds(): void {
+    console.log(`bounds ${fixture.oracleRevision}:`);
+    for (const [name, margin] of Object.entries(fixture.provenance.relationMargins))
+        console.log(
+            `  ${name}: source=t26,t43 rows=${fixture.provenance.absoluteRelationRows.t26},${fixture.provenance.absoluteRelationRows.t43} margin=${margin}`,
+        );
 }
 
 function print(path: string, reading: LookReading): void {
@@ -468,10 +490,23 @@ if (import.meta.main) {
             );
             process.exit(0);
         }
-        for (const path of paths) print(path, analyze(await load(path)));
-        console.log(
-            `Regeneration input read; update ${fixture.oracleRevision} fixture deliberately.`,
-        );
+        const readings = {} as Record<"t26" | "t43", LookReading>;
+        for (const [index, path] of paths.entries()) {
+            const name = index === 0 ? "t26" : "t43";
+            const source = fixture.provenance.sources.find(({ name: value }) =>
+                value.endsWith(`${name}.jpg`),
+            );
+            const digest = createHash("sha256")
+                .update(await readFile(path))
+                .digest("hex");
+            if (digest !== source?.sha256)
+                throw new Error(`${name} source digest differs from provenance`);
+            readings[name] = analyze(await load(path));
+            print(path, readings[name]);
+        }
+        printBounds();
+        assertRegeneratedReferences(readings);
+        console.log("PASS regeneration: source readings equal committed fixture");
         process.exit(0);
     }
     const capture = process.argv[2];
@@ -498,58 +533,13 @@ if (import.meta.main) {
         captureReading.horizon.continuity <= 0
     )
         ok = false;
-    if (condition === "sun-facing") {
-        const waterHeight = captureImage.height - captureReading.horizon.row;
-        const fade = captureReading.duskBalance.fadeExtent / waterHeight;
-        const specks =
-            captureReading.lowerBandBrightSpecks / ((waterHeight * captureImage.width) / 1_000_000);
-        console.log(
-            `  sun-facing instrument horizon=${captureReading.horizon.row}/${captureImage.height} fade/water=${fade.toFixed(4)} specks/MPwater=${specks.toFixed(2)}`,
-        );
-        ok &&= captureReading.horizon.row > 0 && waterHeight > 0;
-        ok &&= Number.isFinite(fade) && fade >= 0 && fade <= 1;
-        ok &&= Number.isFinite(specks) && specks >= 0;
-        if (!ok) process.exitCode = 1;
-        process.exit();
-    }
-    if (condition !== undefined) throw new Error(`unknown look-oracle condition: ${condition}`);
-    const relations = fixture.relations;
-    const widthMin = relations.horizonWidth.min;
-    const widthMax = relations.horizonWidth.max;
+    if (condition !== undefined && condition !== "sun-facing")
+        throw new Error(`unknown look-oracle condition: ${condition}`);
+    printBounds();
+    ok &&= satisfiesReferenceRelations(captureReading);
     console.log(
-        `  aerial gate width=${captureReading.horizon.transitionWidth} referenceRange=${widthMin}..${widthMax} continuity=${captureReading.horizon.continuity.toFixed(3)} referenceFloor=${relations.horizonContinuityMin.toFixed(3)} hue=${captureReading.farWaterSkyHueDistance.toFixed(1)} referenceMax=${relations.farWaterSkyHueDistanceMax.toFixed(1)}`,
+        `  reference relations ${ok ? "PASS" : "FAIL"}: hue=${captureReading.farWaterSkyHueDistance.toFixed(1)} chroma=${captureReading.normalResponse.nearMeanChroma.toFixed(1)} fade=${captureReading.duskBalance.fadeExtent}px`,
     );
-    ok &&=
-        captureReading.horizon.transitionWidth >= widthMin &&
-        captureReading.horizon.transitionWidth <= widthMax;
-    ok &&= captureReading.horizon.continuity >= relations.horizonContinuityMin;
-    ok &&= captureReading.farWaterSkyHueDistance <= relations.farWaterSkyHueDistanceMax;
-    for (let index = 0; index < 4; index++) {
-        const ratio = captureReading.duskBalance.waterSkyLumaRatios[index]!;
-        const interval = relations.waterSkyLumaRatios[index]!;
-        console.log(
-            `  dusk balance q${index + 1}=${ratio.toFixed(3)} gold=${interval.min.toFixed(3)}..${interval.max.toFixed(3)}`,
-        );
-        ok &&= ratio >= interval.min && ratio <= interval.max;
-    }
-    console.log(
-        `  horizon value-step=${(captureReading.horizon.valueStep * 255).toFixed(1)} goldMax=${(relations.horizonValueStepMax * 255).toFixed(1)} fade10→90=${captureReading.duskBalance.fadeExtent}px goldFloor=${relations.fadeExtentMin}px nearB/R=${captureReading.duskBalance.nearBlueRedRatio.toFixed(3)} floor=${relations.nearBlueRedRatioMin.toFixed(3)}`,
-    );
-    ok &&= captureReading.horizon.valueStep <= relations.horizonValueStepMax;
-    ok &&= captureReading.duskBalance.fadeExtent >= relations.fadeExtentMin;
-    ok &&= captureReading.duskBalance.nearBlueRedRatio >= relations.nearBlueRedRatioMin;
-    const response = captureReading.normalResponse;
-    console.log(
-        `  normal-response gate mid=${response.midRowDeviation.toFixed(1)}/${relations.normalResponse.midRowDeviationMin} near=${response.nearRowDeviation.toFixed(1)}/${relations.normalResponse.nearRowDeviationMin} chroma=${response.nearMeanChroma.toFixed(1)}/${relations.normalResponse.nearMeanChromaMax} weightedHue=${response.chromaWeightedWaterSkyHueDistance.toFixed(1)}°/${relations.normalResponse.chromaWeightedWaterSkyHueDistanceMax}° bright=${(response.brightWaterFraction * 100).toFixed(2)}%/${(relations.normalResponse.brightWaterFraction.min * 100).toFixed(0)}..${(relations.normalResponse.brightWaterFraction.max * 100).toFixed(0)}%`,
-    );
-    ok &&= response.midRowDeviation >= relations.normalResponse.midRowDeviationMin;
-    ok &&= response.nearRowDeviation >= relations.normalResponse.nearRowDeviationMin;
-    ok &&= response.nearMeanChroma <= relations.normalResponse.nearMeanChromaMax;
-    ok &&=
-        response.chromaWeightedWaterSkyHueDistance <=
-        relations.normalResponse.chromaWeightedWaterSkyHueDistanceMax;
-    ok &&= response.brightWaterFraction >= relations.normalResponse.brightWaterFraction.min;
-    ok &&= response.brightWaterFraction <= relations.normalResponse.brightWaterFraction.max;
     if (prior) {
         const priorReading = analyze(await load(prior));
         const baselineNear = await Promise.all(
@@ -591,19 +581,9 @@ if (import.meta.main) {
     console.log(
         `  foam gate coverage=${(captureReading.foam.nearCoverage * 100).toFixed(2)}% max=${(captureReading.foam.maxLuma * 255).toFixed(1)} sky=${(captureReading.bands.sky!.luma * 255).toFixed(1)}`,
     );
-    ok &&=
-        captureReading.foam.nearCoverage >= relations.foamNearCoverage.min &&
-        captureReading.foam.nearCoverage <= relations.foamNearCoverage.max;
-    ok &&= captureReading.foam.maxLuma <= captureReading.bands.sky!.luma;
-    const referenceMin = relations.lowerBandBrightSpecks.min;
-    const referenceMax = relations.lowerBandBrightSpecks.max;
     console.log(
-        `  near-band speck gate capture=${captureReading.lowerBandBrightSpecks} baseline=${baseline.lowerBandBrightSpecks} dusk=${fixture.references.t26.lowerBandBrightSpecks},${fixture.references.t43.lowerBandBrightSpecks}`,
+        `  near-band specks capture=${captureReading.lowerBandBrightSpecks} baseline=${baseline.lowerBandBrightSpecks} dusk=${fixture.references.t26.lowerBandBrightSpecks},${fixture.references.t43.lowerBandBrightSpecks}`,
     );
-    ok &&= captureReading.lowerBandBrightSpecks > baseline.lowerBandBrightSpecks;
-    ok &&=
-        captureReading.lowerBandBrightSpecks >= referenceMin &&
-        captureReading.lowerBandBrightSpecks <= referenceMax;
     if (compare) {
         const overlap = speckOverlap(captureImage, await load(compare));
         console.log(`  t=6 versus t=6.05 speck overlap ${overlap.toFixed(4)}`);

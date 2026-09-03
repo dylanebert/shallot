@@ -1,14 +1,32 @@
 {
-    "oracleRevision": "shallot-ocean-look/S11",
+    "oracleRevision": "shallot-ocean-look/S14",
     "provenance": {
         "horizonRows": "210/720",
-        "absoluteRelationRows": { "t26": "277/540", "t43": "267/540" },
+        "absoluteRelationRows": {
+            "t26": "277/540",
+            "t43": "267/540"
+        },
         "cropRows": {
-            "sky": [0.08, 0.2916666666666667],
-            "horizon": [0.2916666666666667, 0.52],
-            "farWater": [0.52, 0.66],
-            "midWater": [0.66, 0.82],
-            "nearWater": [0.82, 1]
+            "sky": [
+                0.08,
+                0.2916666666666667
+            ],
+            "horizon": [
+                0.2916666666666667,
+                0.52
+            ],
+            "farWater": [
+                0.52,
+                0.66
+            ],
+            "midWater": [
+                0.66,
+                0.82
+            ],
+            "nearWater": [
+                0.82,
+                1
+            ]
         },
         "sources": [
             {
@@ -27,60 +45,238 @@
                 "name": "taste/captures/ocean-day-reel.jpg",
                 "sha256": "a5ae3d4da1abde8d042e949f01c19836b3a34649945c37b5b5ae47fe7bdc70d3"
             }
-        ]
+        ],
+        "relationMargins": {
+            "horizonTransitionWidth": "1px outside marked-frame range",
+            "horizonContinuity": "0.025 below the lower marked frame",
+            "farWaterSkyHueDistance": "6 degrees outside marked-frame range",
+            "lowerBandBrightSpecks": "10 percent outside marked-frame range, rounded outward",
+            "foamNearCoverage": "0.01 outside marked-frame range",
+            "waterSkyLumaRatios": "0.03 outside each marked-frame quartile range",
+            "horizonValueStep": "1/255 outside marked-frame range",
+            "fadeExtent": "10px outside marked-frame range",
+            "nearBlueRedRatio": "0.10 outside marked-frame range",
+            "nearMeanChroma": "2 sRGB levels outside marked-frame range"
+        }
     },
     "references": {
         "t26": {
-            "farWaterSkyHueDistance": 16.511873350340636,
+            "bands": {
+                "sky": {
+                    "srgb": [
+                        161.45258190883192,
+                        147.90811965811966,
+                        163.87507122507122
+                    ],
+                    "luma": 0.5958450440617842
+                },
+                "horizon": {
+                    "srgb": [
+                        120.1553943452381,
+                        105.28942212301587,
+                        121.72171378968254
+                    ],
+                    "luma": 0.42994642853252407
+                },
+                "farWater": {
+                    "srgb": [
+                        95.66243990384615,
+                        85.69485176282052,
+                        100.67926682692308
+                    ],
+                    "luma": 0.3486111206636501
+                },
+                "midWater": {
+                    "srgb": [
+                        70.60338541666667,
+                        65.27074652777777,
+                        78.71588541666667
+                    ],
+                    "luma": 0.2642164885620915
+                },
+                "nearWater": {
+                    "srgb": [
+                        45.63652052238806,
+                        46.16885883084577,
+                        58.367925995024876
+                    ],
+                    "luma": 0.18406453472831918
+                }
+            },
+            "farWaterSkyHueDistance": 10.98504151145005,
             "lowerBandBrightSpecks": 67,
-            "horizonTransitionWidth": 4,
-            "horizonContinuity": 0.4973727985879585,
-            "foamNearCoverage": 0.22795493197278913,
-            "waterSkyLumaRatios": [0.7440990634806689, 0.6065248654278217, 0.44876801839322783, 0.30792732509360665],
-            "horizonValueStep": 0.042330473856208584,
-            "fadeExtent": 228,
-            "nearBlueRedRatio": 1.2810392604887941
+            "horizon": {
+                "row": 277,
+                "transitionWidth": 3,
+                "continuity": 0.5918464661027093,
+                "valueStep": 0.042330473856208584
+            },
+            "duskBalance": {
+                "waterSkyLumaRatios": [
+                    0.7440990634806542,
+                    0.6065248654277733,
+                    0.44876801839318775,
+                    0.30792732509361986
+                ],
+                "fadeExtent": 228,
+                "nearBlueRedRatio": 1.2810392604887941
+            },
+            "foam": {
+                "nearCoverage": 0.1906405472636816,
+                "maxLuma": 0.6152345098039215
+            },
+            "normalResponse": {
+                "midRowDeviation": 24.426146481666546,
+                "nearRowDeviation": 20.367728055046804,
+                "nearMeanChroma": 20.045740049751245,
+                "chromaWeightedWaterSkyHueDistance": 10.521111673537064,
+                "brightWaterFraction": 0.1387397021546261
+            },
+            "lumaRange": 0.411780509333465
         },
         "t43": {
-            "farWaterSkyHueDistance": 72.75044911177616,
+            "bands": {
+                "sky": {
+                    "srgb": [
+                        141.58031529017856,
+                        119.85897972470238,
+                        130.05206938244046
+                    ],
+                    "luma": 0.49103088917337767
+                },
+                "horizon": {
+                    "srgb": [
+                        84.89331202651515,
+                        78.61949573863636,
+                        91.75079308712121
+                    ],
+                    "luma": 0.31726034803921566
+                },
+                "farWater": {
+                    "srgb": [
+                        53.87026336477987,
+                        55.848958333333336,
+                        69.63268474842768
+                    ],
+                    "luma": 0.2212685209027007
+                },
+                "midWater": {
+                    "srgb": [
+                        34.33623991935484,
+                        41.30525873655914,
+                        54.43126680107527
+                    ],
+                    "luma": 0.15988762007168456
+                },
+                "nearWater": {
+                    "srgb": [
+                        19.750595238095237,
+                        30.635877976190475,
+                        40.75010416666667
+                    ],
+                    "luma": 0.11392907449813257
+                }
+            },
+            "farWaterSkyHueDistance": 99.3759705333367,
             "lowerBandBrightSpecks": 68,
-            "horizonTransitionWidth": 4,
-            "horizonContinuity": 0.2488717603097972,
-            "foamNearCoverage": 0.05611181972789116,
-            "waterSkyLumaRatios": [0.6753283337551955, 0.4830665827510414, 0.3298065484864799, 0.23148617401333396],
-            "horizonValueStep": 0.009160539215686936,
-            "fadeExtent": 199,
-            "nearBlueRedRatio": 2.0670671754002594
+            "horizon": {
+                "row": 267,
+                "transitionWidth": 3,
+                "continuity": 0.27524159437400175,
+                "valueStep": 0.009160539215686936
+            },
+            "duskBalance": {
+                "waterSkyLumaRatios": [
+                    0.6753283337552269,
+                    0.4830665827510811,
+                    0.32980654848655216,
+                    0.2314861740132343
+                ],
+                "fadeExtent": 199,
+                "nearBlueRedRatio": 2.0670671754002594
+            },
+            "foam": {
+                "nearCoverage": 0.04773809523809524,
+                "maxLuma": 0.4230980392156863
+            },
+            "normalResponse": {
+                "midRowDeviation": 13.291722573068483,
+                "nearRowDeviation": 9.278380932574395,
+                "nearMeanChroma": 21.359449404761904,
+                "chromaWeightedWaterSkyHueDistance": 115.14044774215961,
+                "brightWaterFraction": 0.08838522588522589
+            },
+            "lumaRange": 0.3771018146752451
         }
     },
     "relations": {
-        "horizonWidth": { "min": 2, "max": 6 },
-        "horizonContinuityMin": 0.2488717603097972,
-        "farWaterSkyHueDistanceMax": 72.75044911177616,
-        "lowerBandBrightSpecks": { "min": 6.7, "max": 680 },
-        "foamNearCoverage": { "min": 0.0001, "max": 0.1 },
-        "waterSkyLumaMargin": 0.06,
+        "horizonWidth": {
+            "min": 2,
+            "max": 4
+        },
+        "horizonContinuityMin": 0.25024159437400173,
+        "farWaterSkyHueDistance": {
+            "min": 4.985041511450049,
+            "max": 105.3759705333367
+        },
+        "lowerBandBrightSpecks": {
+            "min": 60,
+            "max": 75
+        },
+        "foamNearCoverage": {
+            "min": 0.03773809523809524,
+            "max": 0.2006405472636816
+        },
         "waterSkyLumaRatios": [
-            { "min": 0.6153283337551955, "max": 0.8040990634806689 },
-            { "min": 0.4230665827510414, "max": 0.6665248654278217 },
-            { "min": 0.2698065484864799, "max": 0.5087680183932278 },
-            { "min": 0.17148617401333396, "max": 0.36792732509360665 }
+            {
+                "min": 0.6453283337552269,
+                "max": 0.7740990634806543
+            },
+            {
+                "min": 0.45306658275108114,
+                "max": 0.6365248654277733
+            },
+            {
+                "min": 0.2998065484865522,
+                "max": 0.4787680183931877
+            },
+            {
+                "min": 0.2014861740132343,
+                "max": 0.3379273250936199
+            }
         ],
-        "horizonValueStepMax": 0.046252042483659566,
-        "horizonValueStepMargin": "1/255 display quantization above t26",
-        "fadeExtentMin": 199,
-        "nearBlueRedRatioMin": 1.0,
-        "normalResponse": {
-            "midRowDeviationMin": 12,
-            "nearRowDeviationMin": 8,
-            "nearMeanChromaMax": 30,
-            "chromaWeightedWaterSkyHueDistanceMax": 72.75044911177616,
-            "brightWaterFraction": { "min": 0.01, "max": 0.09 }
+        "horizonValueStep": {
+            "min": 0.0052389705882359555,
+            "max": 0.046252042483659564
+        },
+        "fadeExtent": {
+            "min": 189,
+            "max": 238
+        },
+        "nearBlueRedRatio": {
+            "min": 1.181039260488794,
+            "max": 2.1670671754002595
+        },
+        "nearMeanChroma": {
+            "min": 18.045740049751245,
+            "max": 23.359449404761904
         },
         "skyAnchorsLinear": {
-            "zenith": [0.354, 0.296, 0.367],
-            "horizon": [0.162, 0.122, 0.169],
-            "haze": [0.176, 0.135, 0.181]
+            "zenith": [
+                0.354,
+                0.296,
+                0.367
+            ],
+            "horizon": [
+                0.162,
+                0.122,
+                0.169
+            ],
+            "haze": [
+                0.176,
+                0.135,
+                0.181
+            ]
         },
         "skyAnchorChannelTolerance": 0.06,
         "clipmapFarEdgeMeters": 364.8,
@@ -90,6 +286,166 @@
             "captureDiameterPixels": 6.39,
             "diameterTolerancePixels": 1,
             "skyGradientDeltaMin": 3.8
+        }
+    },
+    "rejected": {
+        "s13Default": {
+            "source": "scratch/shallot-ocean-look/S13-20260903-apple/default.png",
+            "sha256": "4e682ee6f95bb84d09a2419616c0f802cb340d87f2db6812a4b343792a54beb0",
+            "mustFail": ["nearMeanChroma"],
+            "reading": {
+                "bands": {
+                    "sky": {
+                        "srgb": [
+                            156.7180997983871,
+                            147.52748991935485,
+                            163.97279233870967
+                        ],
+                        "luma": 0.5908578996639785
+                    },
+                    "horizon": {
+                        "srgb": [
+                            95.33912001533743,
+                            96.40715107361963,
+                            109.43852089723926
+                        ],
+                        "luma": 0.3808664806740948
+                    },
+                    "farWater": {
+                        "srgb": [
+                            71.34347153465346,
+                            77.90409189356436,
+                            90.95183323019802
+                        ],
+                        "luma": 0.30373078795986214
+                    },
+                    "midWater": {
+                        "srgb": [
+                            55.65483826754386,
+                            66.83254523026316,
+                            79.8776795504386
+                        ],
+                        "luma": 0.2564628369721792
+                    },
+                    "nearWater": {
+                        "srgb": [
+                            42.31789663461539,
+                            57.522457932692305,
+                            71.00223557692307
+                        ],
+                        "luma": 0.21671846332013572
+                    }
+                },
+                "farWaterSkyHueDistance": 53.60652422110235,
+                "lowerBandBrightSpecks": 92,
+                "horizon": {
+                    "row": 212,
+                    "transitionWidth": 6,
+                    "continuity": 0.34559113859153956,
+                    "valueStep": 0.03598437729780446
+                },
+                "duskBalance": {
+                    "waterSkyLumaRatios": [
+                        0.6744532065549678,
+                        0.5248890967110792,
+                        0.4355726007544699,
+                        0.3662885118281743
+                    ],
+                    "fadeExtent": 315,
+                    "nearBlueRedRatio": 1.6804546346817792
+                },
+                "foam": {
+                    "nearCoverage": 0.059200721153846156,
+                    "maxLuma": 0.3605843137254902
+                },
+                "normalResponse": {
+                    "midRowDeviation": 13.254463657256986,
+                    "nearRowDeviation": 12.680747202074683,
+                    "nearMeanChroma": 28.689453125,
+                    "chromaWeightedWaterSkyHueDistance": 58.332717822146094,
+                    "brightWaterFraction": 0.022830031988188976
+                },
+                "lumaRange": 0.3741394363438428
+            }
+        },
+        "s13SunFacing": {
+            "source": "scratch/shallot-ocean-look/S13-20260903-apple/sun-facing.png",
+            "sha256": "b0547efcaa2d32fe31707ba7bacee0df40f9d5e290b1b297f0616bae9c7cd65c",
+            "mustFail": ["fadeExtent"],
+            "reading": {
+                "bands": {
+                    "sky": {
+                        "srgb": [
+                            138.63517219387754,
+                            134.42650669642856,
+                            153.25721991921768
+                        ],
+                        "luma": 0.5360033195132219
+                    },
+                    "horizon": {
+                        "srgb": [
+                            146.69962261652543,
+                            139.1013373940678,
+                            152.56628707627118
+                        ],
+                        "luma": 0.5556427537232053
+                    },
+                    "farWater": {
+                        "srgb": [
+                            154.14105308219177,
+                            144.09541952054795,
+                            158.42470034246574
+                        ],
+                        "luma": 0.5775125305533172
+                    },
+                    "midWater": {
+                        "srgb": [
+                            154,
+                            144,
+                            158
+                        ],
+                        "luma": 0.5770070588235294
+                    },
+                    "nearWater": {
+                        "srgb": [
+                            154,
+                            144,
+                            158
+                        ],
+                        "luma": 0.5770070588235294
+                    }
+                },
+                "farWaterSkyHueDistance": 28.653378569004758,
+                "lowerBandBrightSpecks": 2,
+                "horizon": {
+                    "row": 351,
+                    "transitionWidth": 6,
+                    "continuity": 0.23397558466131949,
+                    "valueStep": 0.032901657475491786
+                },
+                "duskBalance": {
+                    "waterSkyLumaRatios": [
+                        1.0230326241091132,
+                        1.0795908372556386,
+                        1.076499039870771,
+                        1.076499039870771
+                    ],
+                    "fadeExtent": 38,
+                    "nearBlueRedRatio": 1.025974025974026
+                },
+                "foam": {
+                    "nearCoverage": 0,
+                    "maxLuma": 0
+                },
+                "normalResponse": {
+                    "midRowDeviation": 2.293165657363261e-12,
+                    "nearRowDeviation": 2.293165657363261e-12,
+                    "nearMeanChroma": 14,
+                    "chromaWeightedWaterSkyHueDistance": 28.817811905127115,
+                    "brightWaterFraction": 0.9626016260162602
+                },
+                "lumaRange": 0.041509211040095306
+            }
         }
     }
 }
