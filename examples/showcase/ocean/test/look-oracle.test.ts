@@ -12,6 +12,8 @@ import {
     referenceRelationResults,
     satisfiesPriorGoodFloor,
     satisfiesReferenceRelations,
+    satisfiesS16Floor,
+    satisfiesS16Relations,
 } from "./look.oracle";
 import fixture from "./reference/look-relations.json";
 
@@ -49,7 +51,7 @@ describe("ocean look oracle", () => {
     test("committed reference readings retain per-image provenance", () => {
         expect(fixture.oracleRevision).toBe("shallot-ocean-look/S14");
         expect(fixture.provenance.absoluteRelationRows).toEqual({ t26: "277/540", t43: "267/540" });
-        expect(Object.keys(fixture.provenance.relationMargins)).toHaveLength(10);
+        expect(Object.keys(fixture.provenance.relationMargins)).toHaveLength(12);
         expect(
             fixture.provenance.sources.every(({ sha256 }) => /^[a-f0-9]{64}$/.test(sha256)),
         ).toBe(true);
@@ -91,6 +93,32 @@ describe("ocean look oracle", () => {
                     `${name} must keep unrelated ${relation} green`,
                 ).toBe(true);
         }
+    });
+
+    test("S16 gold intervals reject both S13 fixtures and improve from S9", () => {
+        const gold = [fixture.references.t26, fixture.references.t43].map((reading) => ({
+            normalResponse: reading.normalResponse,
+            reflection: {
+                signedSkyTracking: (["horizon", "farWater", "midWater", "nearWater"] as const).map(
+                    (band) =>
+                        reading.bands[band].srgb[2] -
+                        reading.bands[band].srgb[0] -
+                        (reading.bands.sky.srgb[2] - reading.bands.sky.srgb[0]),
+                ) as [number, number, number, number],
+                scaleNormalizedStructure:
+                    reading.normalResponse.midRowDeviation / (reading.bands.midWater.luma * 255),
+            },
+        }));
+        for (const reading of gold) expect(satisfiesS16Relations(reading)).toBe(true);
+        const clampedReflection = structuredClone(gold[0]!);
+        clampedReflection.reflection.signedSkyTracking[2] = 0;
+        expect(satisfiesS16Relations(clampedReflection)).toBe(false);
+        const oldBody = structuredClone(gold[0]!);
+        oldBody.normalResponse.nearMeanChroma = 31;
+        expect(satisfiesS16Relations(oldBody)).toBe(false);
+        expect(satisfiesS16Relations(witnessReadings.s13Default)).toBe(false);
+        expect(satisfiesS16Relations(witnessReadings.s13SunFacing)).toBe(false);
+        expect(satisfiesS16Floor(gold[0]!, witnessReadings.s9PriorGood)).toBe(true);
     });
 
     test("the S9 floor stays in-range or moves strictly toward the gold interval", () => {

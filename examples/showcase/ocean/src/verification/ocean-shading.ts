@@ -5,7 +5,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { oceanEstimateDisplacement, oceanFragmentNormal, oceanSurfaceLayout } from "../ocean/index";
-import { OceanFoamGpu } from "../ocean/surface";
+import { OceanFoamGpu, writeBodyStrength, writeReflectionStrength } from "../ocean/surface";
 import { DuskSkyGpu } from "../sky";
 
 interface Check {
@@ -176,6 +176,36 @@ export function oceanSurfaceRegistered(): boolean {
     return Surfaces.has("ocean");
 }
 
+async function pixels(canvas: HTMLCanvasElement): Promise<Uint8ClampedArray> {
+    const bitmap = await createImageBitmap(canvas);
+    const copy = new OffscreenCanvas(canvas.width, canvas.height);
+    const context = copy.getContext("2d", { willReadFrequently: true });
+    if (!context) throw new Error("2d shading capture context unavailable");
+    context.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    return context.getImageData(0, 0, canvas.width, canvas.height).data;
+}
+
+function bandDelta(
+    declared: Uint8ClampedArray,
+    ablated: Uint8ClampedArray,
+    width: number,
+    from: number,
+    to: number,
+): number {
+    let sum = 0;
+    let count = 0;
+    for (let y = from; y < to; y++) {
+        for (let x = 0; x < width; x++) {
+            const index = (y * width + x) * 4;
+            for (let channel = 0; channel < 3; channel++)
+                sum += Math.abs((declared[index + channel] ?? 0) - (ablated[index + channel] ?? 0));
+            count += 3;
+        }
+    }
+    return sum / count;
+}
+
 export async function runDeviceClaim(state: State): Promise<Check[]> {
     state.pause();
     const reference = expected(false);
@@ -189,6 +219,31 @@ export async function runDeviceClaim(state: State): Promise<Check[]> {
     const published = ["displace0", "displace1", "slope0"].every((name) =>
         Compute.textures.has(name),
     );
+    const canvas = document.querySelector("canvas");
+    let reflectionFar = 0;
+    let reflectionMid = 0;
+    let bodyFar = 0;
+    let bodyMid = 0;
+    if (canvas instanceof HTMLCanvasElement) {
+        writeReflectionStrength(1);
+        writeBodyStrength(1);
+        state.step(0);
+        const declared = await pixels(canvas);
+        writeReflectionStrength(0);
+        state.step(0);
+        const noReflection = await pixels(canvas);
+        writeReflectionStrength(1);
+        writeBodyStrength(0);
+        state.step(0);
+        const noBody = await pixels(canvas);
+        writeBodyStrength(1);
+        const far = [Math.floor(canvas.height * 0.52), Math.floor(canvas.height * 0.66)] as const;
+        const mid = [Math.floor(canvas.height * 0.66), Math.floor(canvas.height * 0.82)] as const;
+        reflectionFar = bandDelta(declared, noReflection, canvas.width, ...far);
+        reflectionMid = bandDelta(declared, noReflection, canvas.width, ...mid);
+        bodyFar = bandDelta(declared, noBody, canvas.width, ...far);
+        bodyMid = bandDelta(declared, noBody, canvas.width, ...mid);
+    }
     return [
         {
             name: "ocean surface registration is bound against published textures",
@@ -204,6 +259,11 @@ export async function runDeviceClaim(state: State): Promise<Check[]> {
             name: "zeroed texture payload reds the same estimator comparison",
             pass: witness > bound,
             detail: `zeroedDeviation=${witness} sharedBound=${bound}`,
+        },
+        {
+            name: "reflected sky dominates body energy in far and mid water",
+            pass: reflectionFar > bodyFar && reflectionMid > bodyMid,
+            detail: `reflectionFar=${reflectionFar} bodyFar=${bodyFar} reflectionMid=${reflectionMid} bodyMid=${bodyMid} elapsed=${state.time.elapsed}`,
         },
     ];
 }

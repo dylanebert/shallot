@@ -15,7 +15,9 @@ import { DuskSkyGpu, sampleSky } from "../sky";
 import { buildClipmapMesh, OCEAN_CLIP_LEVELS } from "./clipmap";
 import { CASCADE_CONFIGS, SLOPE_CASCADE_CONFIGS } from "./spectrum";
 
-export const OceanFoamGpu = d.struct({ strength: d.f32 }).$name("OceanFoamGpu");
+export const OceanFoamGpu = d
+    .struct({ strength: d.f32, reflectionStrength: d.f32, bodyStrength: d.f32 })
+    .$name("OceanFoamGpu");
 
 /** all resources consumed by the ocean vertex and fragment stages. */
 export const oceanSurfaceLayout = surfaceLayout({
@@ -279,25 +281,43 @@ export const BECKMANN_VARIANCE_FLOOR = Math.sqrt(2 ** -23);
 /** Demo-local radial aerial-perspective density. */
 export const AERIAL_DENSITY = 0.0014;
 /** Bounded blue-teal body radiance revealed below the reflected sky. */
-export const WATER_BODY = [0.035, 0.052, 0.065] as const;
+export const WATER_BODY = [0.014, 0.017, 0.02] as const;
 /** Ambient sky share lighting the faint foam treatment. */
 export const WATER_AMBIENT = 0.72;
 
 const FOAM_STRENGTH = 0.14;
 let foamStrength: (TgpuBuffer<typeof OceanFoamGpu> & UniformFlag) | undefined;
+let reflectionStrength = 1;
+let bodyStrength = 1;
+
+function writeOceanStrengths(): void {
+    foamStrength?.write({ strength: FOAM_STRENGTH, reflectionStrength, bodyStrength });
+}
 
 export function declaredFoamStrength(): number {
     return FOAM_STRENGTH;
 }
 
 export function writeFoamStrength(value: number): void {
-    foamStrength?.write({ strength: value });
+    foamStrength?.write({ strength: value, reflectionStrength, bodyStrength });
+}
+
+export function writeReflectionStrength(value: number): void {
+    reflectionStrength = value;
+    writeOceanStrengths();
+}
+
+export function writeBodyStrength(value: number): void {
+    bodyStrength = value;
+    writeOceanStrengths();
 }
 
 export function buildFoamStrength(): void {
     foamStrength?.destroy();
     foamStrength = Compute.root.createBuffer(OceanFoamGpu).$usage("uniform");
-    foamStrength.write({ strength: FOAM_STRENGTH });
+    reflectionStrength = 1;
+    bodyStrength = 1;
+    writeOceanStrengths();
     Compute.buffers.set("foam", foamStrength.buffer);
     Compute.typed.set("foam", foamStrength);
 }
@@ -406,11 +426,13 @@ export const oceanSurfaceFs = tgpu.fn(
         skyDirection,
         engineLayout.$.lighting.sunDirection.xyz,
     );
-    const reflectedElevation = std.max(reflected.y, 0);
-    const sky = std.mul(reflectedSky, 0.45 + 2.4 * reflectedElevation);
+    const sky = std.mul(reflectedSky, oceanSurfaceLayout.$.foam.reflectionStrength);
     const factor = meanFresnel(std.max(std.dot(normal, view), 0), sigma);
     const fresnel = 0.02 + 0.98 * factor;
-    const body = d.vec3f(WATER_BODY[0], WATER_BODY[1], WATER_BODY[2]);
+    const body = std.mul(
+        d.vec3f(WATER_BODY[0], WATER_BODY[1], WATER_BODY[2]),
+        oceanSurfaceLayout.$.foam.bodyStrength,
+    );
     const sunDirection = std.neg(engineLayout.$.lighting.sunDirection.xyz);
     const glitter = beckmannSunRadiance(
         normal,
@@ -419,11 +441,7 @@ export const oceanSurfaceFs = tgpu.fn(
         std.max(slope.w, BECKMANN_VARIANCE_FLOOR),
     );
     const sun = engineLayout.$.lighting.sunColor.xyz;
-    const reflectionContrast = d.vec3f(0.19 * (reflectedElevation - std.max(view.y, 0)));
-    const reflectedWater = std.max(
-        d.vec3f(0),
-        std.add(std.mix(body, sky, fresnel), reflectionContrast),
-    );
+    const reflectedWater = std.mix(body, sky, fresnel);
     const baseWater = std.add(reflectedWater, std.mul(glitter, sun));
     const du = std.add(
         std.mul(estimate.g0.du, estimate.scale0),

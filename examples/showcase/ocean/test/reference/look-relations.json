@@ -56,7 +56,9 @@
             "horizonValueStep": "1/255 outside marked-frame range",
             "fadeExtent": "10px outside marked-frame range",
             "nearBlueRedRatio": "0.10 outside marked-frame range",
-            "nearMeanChroma": "2 sRGB levels outside marked-frame range"
+            "nearMeanChroma": "2 sRGB levels outside marked-frame range",
+            "signedSkyTracking": "2 sRGB levels outside each marked-frame band range",
+            "scaleNormalizedStructure": "0.04 outside the marked-frame coefficient range"
         }
     },
     "references": {
@@ -260,6 +262,16 @@
         "nearMeanChroma": {
             "min": 18.045740049751245,
             "max": 23.359449404761904
+        },
+        "signedSkyTracking": [
+            { "min": -2.8561698717948616, "max": 20.38572696834416 },
+            { "min": 0.5943376068376267, "max": 29.2906672913859 },
+            { "min": 3.69001068376069, "max": 33.623272789458525 },
+            { "min": 8.308916156397508, "max": 34.527754836309526 }
+        ],
+        "scaleNormalizedStructure": {
+            "min": 0.2860064927100532,
+            "max": 0.40253910667469595
         },
         "skyAnchorsLinear": {
             "zenith": [
