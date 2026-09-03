@@ -7,9 +7,10 @@ const CapturePlugin: Plugin = {
     initialize(state) {
         const harness = installHarness(state);
         harness.run = async () => {
-            const requestedTime = Number(new URLSearchParams(location.search).get("time"));
+            const requestedTime = new URLSearchParams(location.search).get("time");
+            const parsedTime = requestedTime === null ? Number.NaN : Number(requestedTime);
             const captureTime =
-                Number.isFinite(requestedTime) && requestedTime >= 0 ? requestedTime : CAPTURE.time;
+                Number.isFinite(parsedTime) && parsedTime >= 0 ? parsedTime : CAPTURE.time;
             while (state.time.elapsed < captureTime) {
                 await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
             }
