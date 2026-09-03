@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { State } from "@dylanebert/shallot";
 import { Surfaces } from "@dylanebert/shallot/sear/core";
 import * as d from "typegpu/data";
+import { OCEAN_CLIP_CONFIG } from "../src/ocean/clipmap";
 import { catmullRom1D as reference } from "../src/ocean/reconstruction";
 import { composedSlopePsd, slopeMipSize } from "../src/ocean/slope";
 import { f16NextDown, f16NextUp, f16Round } from "../src/ocean/slope-seam";
@@ -20,12 +21,15 @@ import {
     surfaceCatmullRomDerivative1D,
     surfaceWrapIndex,
     troughFoam,
+    WATER_AMBIENT,
+    WATER_BODY,
 } from "../src/ocean/surface";
 import {
     catmullRom1D as vertexCatmullRom1D,
     wrapIndex as vertexWrapIndex,
 } from "../src/ocean/vertex-displacement";
 import { oceanSurfaceRegistered } from "../src/verification/ocean-shading";
+import fixture from "./reference/look-relations.json";
 
 const controls = [1.25, -0.75, 2.5, 4.125];
 
@@ -62,6 +66,32 @@ describe("radial aerial perspective", () => {
         for (let i = 1; i < weights.length; i++) expect(weights[i]).toBeGreaterThan(weights[i - 1]);
         expect(weights.at(-1)).toBeLessThan(1);
         expect(weights.at(-1)).toBeGreaterThan(0.95);
+    });
+
+    test("the framed clipmap reaches the dusk fade floor", () => {
+        expect(Number(OCEAN_CLIP_CONFIG.totalHalfExtent)).toBe(
+            fixture.relations.clipmapFarEdgeMeters,
+        );
+        const farEdge = aerialFade(AERIAL_DENSITY, OCEAN_CLIP_CONFIG.totalHalfExtent);
+        console.log(
+            `aerial far-edge=${farEdge.toFixed(4)} at ${OCEAN_CLIP_CONFIG.totalHalfExtent}m required=${fixture.relations.clipmapFarEdgeFadeMin.toFixed(4)}`,
+        );
+        expect(farEdge).toBeGreaterThanOrEqual(fixture.relations.clipmapFarEdgeFadeMin);
+        expect(aerialFade(AERIAL_DENSITY / 2, OCEAN_CLIP_CONFIG.totalHalfExtent)).toBeLessThan(
+            fixture.relations.clipmapFarEdgeFadeMin,
+        );
+    });
+
+    test("the near-band body term carries a blue-teal register", () => {
+        expect(WATER_BODY[0]).toBeGreaterThan(0);
+        expect(WATER_BODY[2] / WATER_BODY[0]).toBeGreaterThanOrEqual(
+            fixture.relations.nearBlueRedRatioMin,
+        );
+        expect(WATER_AMBIENT).toBeGreaterThan(0.5);
+        const zeroed = [0, 0, 0] as const;
+        expect(
+            zeroed[0] > 0 && zeroed[2] / zeroed[0] >= fixture.relations.nearBlueRedRatioMin,
+        ).toBe(false);
     });
 });
 

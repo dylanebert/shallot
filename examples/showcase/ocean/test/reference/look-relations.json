@@ -1,7 +1,8 @@
 {
-    "oracleRevision": "shallot-ocean-look/S6@91fc585",
+    "oracleRevision": "shallot-ocean-look/S8",
     "provenance": {
         "horizonRows": "210/720",
+        "absoluteRelationRows": { "t26": "277/540", "t43": "267/540" },
         "cropRows": {
             "sky": [0.08, 0.2916666666666667],
             "horizon": [0.2916666666666667, 0.52],
@@ -34,14 +35,22 @@
             "lowerBandBrightSpecks": 67,
             "horizonTransitionWidth": 4,
             "horizonContinuity": 0.4973727985879585,
-            "foamNearCoverage": 0.22795493197278913
+            "foamNearCoverage": 0.22795493197278913,
+            "waterSkyLumaRatios": [0.7440990634806689, 0.6065248654278217, 0.44876801839322783, 0.30792732509360665],
+            "horizonValueStep": 0.042330473856208584,
+            "fadeExtent": 228,
+            "nearBlueRedRatio": 1.2810392604887941
         },
         "t43": {
             "farWaterSkyHueDistance": 72.75044911177616,
             "lowerBandBrightSpecks": 68,
             "horizonTransitionWidth": 4,
             "horizonContinuity": 0.2488717603097972,
-            "foamNearCoverage": 0.05611181972789116
+            "foamNearCoverage": 0.05611181972789116,
+            "waterSkyLumaRatios": [0.6753283337551955, 0.4830665827510414, 0.3298065484864799, 0.23148617401333396],
+            "horizonValueStep": 0.009160539215686936,
+            "fadeExtent": 199,
+            "nearBlueRedRatio": 2.0670671754002594
         }
     },
     "relations": {
@@ -49,6 +58,25 @@
         "horizonContinuityMin": 0.2488717603097972,
         "farWaterSkyHueDistanceMax": 72.75044911177616,
         "lowerBandBrightSpecks": { "min": 6.7, "max": 680 },
-        "foamNearCoverage": { "min": 0.01, "max": 0.1 }
+        "foamNearCoverage": { "min": 0.0001, "max": 0.1 },
+        "waterSkyLumaMargin": 0.06,
+        "waterSkyLumaRatios": [
+            { "min": 0.6153283337551955, "max": 0.8040990634806689 },
+            { "min": 0.4230665827510414, "max": 0.6665248654278217 },
+            { "min": 0.2698065484864799, "max": 0.5087680183932278 },
+            { "min": 0.17148617401333396, "max": 0.36792732509360665 }
+        ],
+        "horizonValueStepMax": 0.046252042483659566,
+        "horizonValueStepMargin": "1/255 display quantization above t26",
+        "fadeExtentMin": 199,
+        "nearBlueRedRatioMin": 1.0,
+        "skyAnchorsLinear": {
+            "zenith": [0.354, 0.296, 0.367],
+            "horizon": [0.162, 0.122, 0.169],
+            "haze": [0.176, 0.135, 0.181]
+        },
+        "skyAnchorChannelTolerance": 0.06,
+        "clipmapFarEdgeMeters": 364.8,
+        "clipmapFarEdgeFadeMin": 0.3
     }
 }

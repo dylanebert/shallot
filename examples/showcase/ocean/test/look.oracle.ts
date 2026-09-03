@@ -15,7 +15,12 @@ export interface LookReading {
     bands: Record<string, { srgb: [number, number, number]; luma: number }>;
     farWaterSkyHueDistance: number;
     lowerBandBrightSpecks: number;
-    horizon: { transitionWidth: number; continuity: number };
+    horizon: { row: number; transitionWidth: number; continuity: number; valueStep: number };
+    duskBalance: {
+        waterSkyLumaRatios: [number, number, number, number];
+        fadeExtent: number;
+        nearBlueRedRatio: number;
+    };
     foam: { nearCoverage: number; maxLuma: number };
     lumaRange: number;
 }
@@ -118,7 +123,13 @@ function brightSpecks(image: Pixels): number {
     return components;
 }
 
-function horizon(image: Pixels): { transitionWidth: number; continuity: number } {
+function horizon(image: Pixels): {
+    row: number;
+    transitionWidth: number;
+    continuity: number;
+    valueStep: number;
+    means: number[];
+} {
     const means: number[] = [];
     const fromX = Math.floor(image.width * 0.1);
     const toX = Math.floor(image.width * 0.9);
@@ -139,10 +150,10 @@ function horizon(image: Pixels): { transitionWidth: number; continuity: number }
         value: 0,
     });
     const cutoff = peak.value * 0.2;
-    let lo = peak.y;
-    let hi = peak.y;
-    while (lo > 1 && (gradients[lo - 1]?.value ?? 0) >= cutoff) lo--;
-    while (hi < gradients.length && (gradients[hi]?.value ?? 0) >= cutoff) hi++;
+    let lo = peak.y - 1;
+    let hi = peak.y - 1;
+    while (lo > 0 && (gradients[lo - 1]?.value ?? 0) >= cutoff) lo--;
+    while (hi + 1 < gradients.length && (gradients[hi + 1]?.value ?? 0) >= cutoff) hi++;
     const crossings: number[] = [];
     for (let x = fromX; x < toX; x += Math.max(1, Math.floor(image.width / 80))) {
         let bestY = lo;
@@ -165,7 +176,52 @@ function horizon(image: Pixels): { transitionWidth: number; continuity: number }
     const deviation = Math.sqrt(
         crossings.reduce((sum, value) => sum + (value - crossingMean) ** 2, 0) / crossings.length,
     );
-    return { transitionWidth: hi - lo + 1, continuity: 1 / (1 + deviation) };
+    return {
+        row: peak.y,
+        transitionWidth: hi - lo + 1,
+        continuity: 1 / (1 + deviation),
+        valueStep: peak.value,
+        means,
+    };
+}
+
+function duskBalance(image: Pixels, row: number, means: number[]): LookReading["duskBalance"] {
+    const sky = mean(image, 0.08, row / image.height);
+    const water = Array.from({ length: 4 }, (_, index) =>
+        mean(
+            image,
+            (row + ((image.height - row) * index) / 4) / image.height,
+            (row + ((image.height - row) * (index + 1)) / 4) / image.height,
+        ),
+    );
+    const start = means[row] ?? 0;
+    const end = means.at(-1) ?? start;
+    const delta = Math.abs(end - start);
+    let y10 = row;
+    let y90 = row;
+    for (let y = row; y < means.length; y++) {
+        if (Math.abs((means[y] ?? start) - start) >= delta * 0.1) {
+            y10 = y;
+            break;
+        }
+    }
+    for (let y = y10; y < means.length; y++) {
+        if (Math.abs((means[y] ?? start) - start) >= delta * 0.9) {
+            y90 = y;
+            break;
+        }
+    }
+    const near = water[3]?.srgb ?? [0, 0, 0];
+    return {
+        waterSkyLumaRatios: water.map((band) => band.luma / sky.luma) as [
+            number,
+            number,
+            number,
+            number,
+        ],
+        fadeExtent: y90 - y10,
+        nearBlueRedRatio: near[2] / Math.max(near[0], 1 / 255),
+    };
 }
 
 function foam(image: Pixels, nearMean: number): { nearCoverage: number; maxLuma: number } {
@@ -198,11 +254,19 @@ export function analyze(image: Pixels): LookReading {
     const waterHue = hue(bands.farWater?.srgb ?? [0, 0, 0]);
     const hueDelta = Math.abs(skyHue - waterHue);
     const allLuma = Object.values(bands).map((band) => band.luma);
+    const horizonReading = horizon(image);
+    const balance = duskBalance(image, horizonReading.row, horizonReading.means);
     return {
         bands,
         farWaterSkyHueDistance: Math.min(hueDelta, 360 - hueDelta),
         lowerBandBrightSpecks: brightSpecks(image),
-        horizon: horizon(image),
+        horizon: {
+            row: horizonReading.row,
+            transitionWidth: horizonReading.transitionWidth,
+            continuity: horizonReading.continuity,
+            valueStep: horizonReading.valueStep,
+        },
+        duskBalance: balance,
         foam: foam(image, bands.nearWater?.luma ?? 0),
         lumaRange: Math.max(...allLuma) - Math.min(...allLuma),
     };
@@ -243,7 +307,15 @@ export function satisfiesReferenceRelations(
         reading.lowerBandBrightSpecks >= relations.lowerBandBrightSpecks.min &&
         reading.lowerBandBrightSpecks <= relations.lowerBandBrightSpecks.max &&
         reading.foam.nearCoverage >= relations.foamNearCoverage.min &&
-        reading.foam.nearCoverage <= relations.foamNearCoverage.max
+        reading.foam.nearCoverage <= relations.foamNearCoverage.max &&
+        reading.duskBalance.waterSkyLumaRatios.every(
+            (ratio, index) =>
+                ratio >= relations.waterSkyLumaRatios[index]!.min &&
+                ratio <= relations.waterSkyLumaRatios[index]!.max,
+        ) &&
+        reading.horizon.valueStep <= relations.horizonValueStepMax &&
+        reading.duskBalance.fadeExtent >= relations.fadeExtentMin &&
+        reading.duskBalance.nearBlueRedRatio >= relations.nearBlueRedRatioMin
     );
 }
 
@@ -257,7 +329,10 @@ function print(path: string, reading: LookReading): void {
     console.log(`  far-water/sky hue distance ${reading.farWaterSkyHueDistance.toFixed(1)}°`);
     console.log(`  lower-band bright specks ${reading.lowerBandBrightSpecks}`);
     console.log(
-        `  horizon transition ${reading.horizon.transitionWidth}px  continuity ${reading.horizon.continuity.toFixed(3)}`,
+        `  horizon row ${reading.horizon.row}/${reading.bands.sky ? "image" : "?"} transition ${reading.horizon.transitionWidth}px  continuity ${reading.horizon.continuity.toFixed(3)} value-step ${(reading.horizon.valueStep * 255).toFixed(1)}`,
+    );
+    console.log(
+        `  water/sky luma quartiles ${reading.duskBalance.waterSkyLumaRatios.map((value) => value.toFixed(3)).join(", ")}  fade 10→90 ${reading.duskBalance.fadeExtent}px  near B/R ${reading.duskBalance.nearBlueRedRatio.toFixed(3)}`,
     );
     console.log(
         `  trough foam coverage ${(reading.foam.nearCoverage * 100).toFixed(2)}%  max luma ${(reading.foam.maxLuma * 255).toFixed(1)}`,
@@ -316,6 +391,20 @@ if (import.meta.main) {
         captureReading.horizon.transitionWidth <= widthMax;
     ok &&= captureReading.horizon.continuity >= relations.horizonContinuityMin;
     ok &&= captureReading.farWaterSkyHueDistance <= relations.farWaterSkyHueDistanceMax;
+    for (let index = 0; index < 4; index++) {
+        const ratio = captureReading.duskBalance.waterSkyLumaRatios[index]!;
+        const interval = relations.waterSkyLumaRatios[index]!;
+        console.log(
+            `  dusk balance q${index + 1}=${ratio.toFixed(3)} gold=${interval.min.toFixed(3)}..${interval.max.toFixed(3)}`,
+        );
+        ok &&= ratio >= interval.min && ratio <= interval.max;
+    }
+    console.log(
+        `  horizon value-step=${(captureReading.horizon.valueStep * 255).toFixed(1)} goldMax=${(relations.horizonValueStepMax * 255).toFixed(1)} fade10→90=${captureReading.duskBalance.fadeExtent}px goldFloor=${relations.fadeExtentMin}px nearB/R=${captureReading.duskBalance.nearBlueRedRatio.toFixed(3)} floor=${relations.nearBlueRedRatioMin.toFixed(3)}`,
+    );
+    ok &&= captureReading.horizon.valueStep <= relations.horizonValueStepMax;
+    ok &&= captureReading.duskBalance.fadeExtent >= relations.fadeExtentMin;
+    ok &&= captureReading.duskBalance.nearBlueRedRatio >= relations.nearBlueRedRatioMin;
     if (prior) {
         const priorReading = analyze(await load(prior));
         const baselineNear = await Promise.all(

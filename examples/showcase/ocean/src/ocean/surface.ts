@@ -277,7 +277,11 @@ export const meanFresnel = tgpu.fn(
 export const BECKMANN_VARIANCE_FLOOR = Math.sqrt(2 ** -23);
 
 /** Demo-local radial aerial-perspective density. */
-export const AERIAL_DENSITY = 0.0005;
+export const AERIAL_DENSITY = 0.0014;
+/** Blue-teal body radiance revealed below the reflected sky. */
+export const WATER_BODY = [0.013, 0.052, 0.085] as const;
+/** Ambient sky share lighting the faint foam treatment. */
+export const WATER_AMBIENT = 0.72;
 
 const FOAM_STRENGTH = 0.14;
 let foamStrength: (TgpuBuffer<typeof OceanFoamGpu> & UniformFlag) | undefined;
@@ -406,7 +410,7 @@ export const oceanSurfaceFs = tgpu.fn(
     );
     const factor = meanFresnel(std.max(std.dot(normal, view), 0), sigma);
     const fresnel = 0.02 + 0.98 * factor;
-    const body = d.vec3f(0.001, 0.006, 0.008);
+    const body = d.vec3f(WATER_BODY[0], WATER_BODY[1], WATER_BODY[2]);
     const sunDirection = std.neg(engineLayout.$.lighting.sunDirection.xyz);
     const glitter = beckmannSunRadiance(
         normal,
@@ -428,7 +432,7 @@ export const oceanSurfaceFs = tgpu.fn(
     const foamMask = troughFoam(jacobian, estimate.g0.value.y + estimate.g1.value.y, s);
     const distance = std.length(std.sub(eye, ctx.worldPos));
     const foamAttenuation = std.exp(-0.002 * distance);
-    const foamLight = std.add(std.mul(sky, 0.65), std.mul(sun, 0.35));
+    const foamLight = std.add(std.mul(sky, WATER_AMBIENT), std.mul(sun, 1 - WATER_AMBIENT));
     const water = std.mix(
         baseWater,
         foamLight,
