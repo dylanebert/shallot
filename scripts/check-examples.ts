@@ -51,6 +51,9 @@ export function checkExamples(root: string, registry: ExampleGate[]): string[] {
         }
         if (!existsSync(smoke))
             errors.push(`recipe has neither src/smoke.ts nor static reason: ${recipe}`);
+        const expectedGate = `bun run recipes --recipe ${recipe}`;
+        if (row && row.gate !== expectedGate)
+            errors.push(`smoked recipe gate must use selector "${expectedGate}": ${recipe}`);
         const manifestPath = resolve(dir, "shallot.json");
         const manifest = existsSync(manifestPath) ? text(manifestPath) : "";
         if (!/["']?\.\/src\/smoke(?:\.ts)?["']?/.test(manifest))

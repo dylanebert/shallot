@@ -83,13 +83,35 @@ test("moving recipes require smoke, manifest wiring, and a CHECKS row", () => {
             dir: "examples/recipes/moving",
             tier: "recipes" as const,
             covers: ["examples/recipes/moving/**"],
-            gate: "bunx shallot verify examples/recipes/moving",
+            gate: "bun run recipes --recipe moving",
         },
     ];
     const errors = checkExamples(root, rows).join("\n");
     expect(errors).toContain("recipe has neither src/smoke.ts nor static reason: moving");
     expect(errors).toContain("recipe manifest does not wire src/smoke.ts: moving");
     expect(errors).not.toContain("recipe has no CHECKS entry: moving");
+});
+
+test("smoked recipe rows must use the recipe selector", () => {
+    const root = make();
+    mkdirSync(resolve(root, "examples/recipes/moving/src"), { recursive: true });
+    writeFileSync(resolve(root, "examples/recipes/moving/src/smoke.ts"), "export default {};\n");
+    writeFileSync(
+        resolve(root, "examples/recipes/moving/shallot.json"),
+        '{"plugins":["./src/smoke.ts"]}\n',
+    );
+    const rows = [
+        ...registry(),
+        {
+            dir: "examples/recipes/moving",
+            tier: "recipes" as const,
+            covers: ["examples/recipes/moving/**"],
+            gate: "bunx shallot verify examples/recipes/moving",
+        },
+    ];
+    expect(checkExamples(root, rows)).toContain(
+        'smoked recipe gate must use selector "bun run recipes --recipe moving": moving',
+    );
 });
 
 test("every showcase Playwright spec imports the degraded-boot predicate", () => {
