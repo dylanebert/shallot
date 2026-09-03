@@ -1,5 +1,11 @@
 import { DUSK_SKY_DEFAULTS } from "./sky";
 
+/** Sun-facing capture condition measured by the solar-energy claim. */
+export const SUN_FACING = {
+    name: "sun-facing",
+    camera: { yaw: Math.PI + 0.35, pitch: 0 },
+} as const;
+
 /** matched showcase capture conditions. */
 export const CAPTURE = {
     width: 1280,

@@ -1,5 +1,5 @@
 {
-    "oracleRevision": "shallot-ocean-look/S10",
+    "oracleRevision": "shallot-ocean-look/S11",
     "provenance": {
         "horizonRows": "210/720",
         "absoluteRelationRows": { "t26": "277/540", "t43": "267/540" },
@@ -84,6 +84,12 @@
         },
         "skyAnchorChannelTolerance": 0.06,
         "clipmapFarEdgeMeters": 364.8,
-        "clipmapFarEdgeFadeMin": 0.3
+        "clipmapFarEdgeFadeMin": 0.3,
+        "solar": {
+            "angularDiameterDegrees": 0.533,
+            "captureDiameterPixels": 6.39,
+            "diameterTolerancePixels": 1,
+            "skyGradientDeltaMin": 3.8
+        }
     }
 }

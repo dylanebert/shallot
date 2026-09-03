@@ -32,13 +32,30 @@ export interface LookReading {
     lumaRange: number;
 }
 
+const DEFAULT_HORIZON = 210 / 720;
 const BAND_RANGES = {
-    sky: [0.08, 210 / 720],
-    horizon: [210 / 720, 0.52],
+    sky: [0.08, DEFAULT_HORIZON],
+    horizon: [DEFAULT_HORIZON, 0.52],
     farWater: [0.52, 0.66],
     midWater: [0.66, 0.82],
     nearWater: [0.82, 1],
 } as const;
+
+type BandRanges = Record<keyof typeof BAND_RANGES, readonly [number, number]>;
+
+export function bandRanges(horizonRow: number, height: number): BandRanges {
+    if (horizonRow / height === DEFAULT_HORIZON) return BAND_RANGES;
+    const horizon = horizonRow / height;
+    const map = (value: number) =>
+        horizon + ((value - DEFAULT_HORIZON) * (1 - horizon)) / (1 - DEFAULT_HORIZON);
+    return {
+        sky: [0.08, horizon],
+        horizon: [horizon, map(0.52)],
+        farWater: [map(0.52), map(0.66)],
+        midWater: [map(0.66), map(0.82)],
+        nearWater: [map(0.82), 1],
+    };
+}
 
 function luma(r: number, g: number, b: number): number {
     return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
@@ -231,7 +248,11 @@ function duskBalance(image: Pixels, row: number, means: number[]): LookReading["
     };
 }
 
-function normalResponse(image: Pixels, skyMean: number): LookReading["normalResponse"] {
+function normalResponse(
+    image: Pixels,
+    skyMean: number,
+    ranges: BandRanges,
+): LookReading["normalResponse"] {
     const deviation = (range: readonly [number, number]): number => {
         const y0 = Math.floor(image.height * range[0]);
         const y1 = Math.floor(image.height * range[1]);
@@ -271,11 +292,11 @@ function normalResponse(image: Pixels, skyMean: number): LookReading["normalResp
         }
         return sum.map((value) => value / Math.max(weight, 1)) as [number, number, number];
     };
-    const skyHue = hue(weighted(...BAND_RANGES.sky));
-    const waterHue = hue(weighted(BAND_RANGES.horizon[0], 1));
+    const skyHue = hue(weighted(...ranges.sky));
+    const waterHue = hue(weighted(ranges.horizon[0], 1));
     const hueDelta = Math.abs(skyHue - waterHue);
-    const nearY = Math.floor(image.height * BAND_RANGES.nearWater[0]);
-    const waterY = Math.floor(image.height * BAND_RANGES.horizon[0]);
+    const nearY = Math.floor(image.height * ranges.nearWater[0]);
+    const waterY = Math.floor(image.height * ranges.horizon[0]);
     let nearChroma = 0;
     let nearCount = 0;
     let bright = 0;
@@ -293,16 +314,20 @@ function normalResponse(image: Pixels, skyMean: number): LookReading["normalResp
         }
     }
     return {
-        midRowDeviation: deviation(BAND_RANGES.midWater),
-        nearRowDeviation: deviation(BAND_RANGES.nearWater),
+        midRowDeviation: deviation(ranges.midWater),
+        nearRowDeviation: deviation(ranges.nearWater),
         nearMeanChroma: nearChroma / nearCount,
         chromaWeightedWaterSkyHueDistance: Math.min(hueDelta, 360 - hueDelta),
         brightWaterFraction: bright / waterCount,
     };
 }
 
-function foam(image: Pixels, nearMean: number): { nearCoverage: number; maxLuma: number } {
-    const y0 = Math.floor(image.height * BAND_RANGES.nearWater[0]);
+function foam(
+    image: Pixels,
+    nearMean: number,
+    ranges: BandRanges,
+): { nearCoverage: number; maxLuma: number } {
+    const y0 = Math.floor(image.height * ranges.nearWater[0]);
     let marked = 0;
     let count = 0;
     let maxLuma = 0;
@@ -324,14 +349,15 @@ function foam(image: Pixels, nearMean: number): { nearCoverage: number; maxLuma:
 }
 
 export function analyze(image: Pixels): LookReading {
+    const horizonReading = horizon(image);
+    const ranges = bandRanges(horizonReading.row, image.height);
     const bands = Object.fromEntries(
-        Object.entries(BAND_RANGES).map(([name, [from, to]]) => [name, mean(image, from, to)]),
+        Object.entries(ranges).map(([name, [from, to]]) => [name, mean(image, from, to)]),
     );
     const skyHue = hue(bands.sky?.srgb ?? [0, 0, 0]);
     const waterHue = hue(bands.farWater?.srgb ?? [0, 0, 0]);
     const hueDelta = Math.abs(skyHue - waterHue);
     const allLuma = Object.values(bands).map((band) => band.luma);
-    const horizonReading = horizon(image);
     const balance = duskBalance(image, horizonReading.row, horizonReading.means);
     return {
         bands,
@@ -344,8 +370,8 @@ export function analyze(image: Pixels): LookReading {
             valueStep: horizonReading.valueStep,
         },
         duskBalance: balance,
-        foam: foam(image, bands.nearWater?.luma ?? 0),
-        normalResponse: normalResponse(image, bands.sky?.luma ?? 0),
+        foam: foam(image, bands.nearWater?.luma ?? 0, ranges),
+        normalResponse: normalResponse(image, bands.sky?.luma ?? 0, ranges),
         lumaRange: Math.max(...allLuma) - Math.min(...allLuma),
     };
 }

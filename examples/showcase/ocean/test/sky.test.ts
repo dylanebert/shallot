@@ -3,11 +3,13 @@ import { unpackColor } from "@dylanebert/shallot";
 import * as d from "typegpu/data";
 import {
     DuskSkyGpu,
+    SOLAR_ANGULAR_RADIUS,
     sampleCloud,
     sampleElevation,
     sampleHaze,
     sampleSky,
     sampleSun,
+    solarDiskProfile,
 } from "../src/sky";
 import fixture from "./reference/look-relations.json";
 
@@ -39,7 +41,7 @@ describe("demo-local dusk sky", () => {
             elevation: values(sampleElevation(sky, dir)),
             haze: values(sampleHaze(sky, dir)),
             cloud: values(sampleCloud(sky, dir)),
-            sun: values(sampleSun(sky, dir, sun)),
+            sun: values(sampleSun(sky, d.vec3f(-sun.x, -sun.y, -sun.z), sun)),
         });
         const unchanged = channels(base());
         const mutations = [
@@ -74,6 +76,16 @@ describe("demo-local dusk sky", () => {
         exposed.forEach((value, i) => {
             expect(value).toBeCloseTo(unexposed[i] * 1.5, 5);
         });
+    });
+
+    test("solar profile has a finite angular edge and a limb-darkened core", () => {
+        expect(SOLAR_ANGULAR_RADIUS).toBeCloseTo(0.00465, 6);
+        expect(solarDiskProfile(Math.cos(SOLAR_ANGULAR_RADIUS + 1e-5))).toBe(0);
+        const limb = solarDiskProfile(Math.cos(SOLAR_ANGULAR_RADIUS * 0.8));
+        const core = solarDiskProfile(1);
+        expect(limb).toBeGreaterThan(0);
+        expect(core).toBeGreaterThan(limb);
+        expect(core).toBeCloseTo(1, 6);
     });
 
     test("stays finite and continuous across the horizon", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { analyze, load, satisfiesReferenceRelations } from "./look.oracle";
+import { analyze, bandRanges, load, satisfiesReferenceRelations } from "./look.oracle";
 import fixture from "./reference/look-relations.json";
 
 const baselines = [1, 2, 3].map((index) =>
@@ -20,7 +20,7 @@ describe("ocean look oracle", () => {
     });
 
     test("committed reference relations retain provenance", () => {
-        expect(fixture.oracleRevision).toBe("shallot-ocean-look/S10");
+        expect(fixture.oracleRevision).toBe("shallot-ocean-look/S11");
         expect(fixture.provenance.horizonRows).toBe("210/720");
         expect(fixture.provenance.absoluteRelationRows).toEqual({
             t26: "277/540",
@@ -95,6 +95,20 @@ describe("ocean look oracle", () => {
                 }),
             ).toBe(false);
         }
+    });
+
+    test("cuts every band from the image's detected horizon", () => {
+        expect(bandRanges(210, 720)).toEqual({
+            sky: [0.08, 210 / 720],
+            horizon: [210 / 720, 0.52],
+            farWater: [0.52, 0.66],
+            midWater: [0.66, 0.82],
+            nearWater: [0.82, 1],
+        });
+        const shifted = bandRanges(260, 720);
+        expect(shifted.sky[1]).toBe(260 / 720);
+        expect(shifted.horizon[0]).toBe(shifted.sky[1]);
+        expect(shifted.nearWater[1]).toBe(1);
     });
 
     test("rejects a synthetic zero-contrast frame", () => {
