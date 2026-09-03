@@ -4,7 +4,7 @@
         directional-light="direction: -0.3254907 -0.3145666 -0.8916858; color: 0xfff3dc; intensity: 1.2"
     />
     <a
-        sky="zenith: 0x5f8fbd; horizon: 0xb8c8d3; sun-glow: 0.7; cloud-coverage: 0.45; haze-density: 0.004"
+        sky="zenith: 0x31577e; horizon: 0xd5a6a0; haze: 0xe8b5a4; haze-strength: 0.16; cloud: 0x715f78; cloud-strength: 0.18; sun: 0xffd5a0; sun-strength: 0.42; exposure: 1.05"
     />
     <a camera sear backdrop="name: sky" orbit="distance: 18; yaw: 0; pitch: 0.24" transform />
     <a part="mesh: oceanGrid; surface: ocean" transform />
