@@ -293,7 +293,7 @@ export const FACADE_BAND_LUMAS: readonly number[] = [0.52, 0.56, 0.6];
 /**
  * the reference's own per-pixel ink threshold (rule 3's fill-treatment amendment): a facade pixel counts
  * as ink once its rendered luma clears 18%, the exact quantity the reference's own three facade crops
- * were measured against (`research/ascii-city-reference/`'s readings: 13.2%, 32.5%, 21.3%) — a per-pixel
+ * were measured against (`https://ascii-city-p1-k7m4k5.grownowgames.workers.dev/`'s readings: 13.2%, 32.5%, 21.3%) — a per-pixel
  * threshold count, never a per-glyph coverage average, which is a different quantity the reference was
  * never measured against and which the prior version of this measurement used instead.
  */
@@ -315,7 +315,7 @@ export const FACADE_PIXEL_LUMA_THRESHOLD = 0.18;
  * renders bracket the band reading, showing the probe can tell a dense glyph from an empty one at all. The
  * real reading this band is checked against — the facade band render at {@link FACADE_BAND_LUMAS} —
  * measures ~12.8% of pixels above {@link FACADE_PIXEL_LUMA_THRESHOLD}, against the reference's own
- * 13.2/21.3/32.5% crops (`research/ascii-city-reference/`), so this pipeline sits just below the reference's
+ * 13.2/21.3/32.5% crops (`https://ascii-city-p1-k7m4k5.grownowgames.workers.dev/`), so this pipeline sits just below the reference's
  * lower reading: this face's SDF outlines cannot clear the reference's ink density. The band here pins this
  * pipeline's own reachable range rather than meeting the reference's. Not reachable
  * by any glyph-geometry lever: the SDF ink dilation this measurement used to previously clear 35%

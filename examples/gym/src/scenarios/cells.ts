@@ -1074,7 +1074,7 @@ const FacadePlugin: Plugin = {
 // `assertMonoRamp`'s per-glyph readback (a continuous per-glyph coverage fraction) over the whole fill
 // ramp's own `[0, 1]` luma domain — not a facade (a facade never selects the ramp's blank or densest
 // glyphs) and not the reference's own quantity (the reference's three facade crops were measured as a
-// per-pixel threshold count, `research/ascii-city-reference/`'s own readings: 13.2%, 32.5%, 21.3% of
+// per-pixel threshold count, `https://ascii-city-p1-k7m4k5.grownowgames.workers.dev/`'s own readings: 13.2%, 32.5%, 21.3% of
 // pixels above 18% luma — {@link FACADE_PIXEL_LUMA_THRESHOLD}). This arm reads that same quantity, over a
 // real facade region rendered through the real draw pipeline: a grid of cells all carrying a fill glyph
 // {@link fillIndexForLuma} selects at a facade-representative luma ({@link FACADE_BAND_LUMAS}, hand-picked
