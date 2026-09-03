@@ -8,6 +8,7 @@ import {
     CELL_GLYPH_COUNT,
     CELL_U32S,
     createCellGrid,
+    deriveCellGridSize,
     dispatchSelect,
     drawCells,
     FACADE_BAND_LUMAS,
@@ -77,6 +78,22 @@ const ROWS = 6;
 // is a measured constant for this fixture, checked directly against the two production formulas above,
 // not a structural pattern that would hold at other grid sizes.
 const EXPECTED_TIE_DIVERGENCES = 60;
+
+function assertSurfaceGridSize(): Check {
+    const small = deriveCellGridSize(640, 360);
+    const large = deriveCellGridSize(1280, 720);
+    const cellWidths = [640 / small.cols, 1280 / large.cols];
+    const cellHeights = [360 / small.rows, 720 / large.rows];
+    const pass =
+        small.cols !== large.cols &&
+        small.rows !== large.rows &&
+        [...cellWidths, ...cellHeights].every((size) => size >= 10 && size <= 12);
+    return {
+        name: "criterion 11: the web grid tracks its device-pixel surface at a 10-12px cell size",
+        pass,
+        detail: `${small.cols}x${small.rows} at 640x360 (${cellWidths[0].toFixed(2)}x${cellHeights[0].toFixed(2)}px cells); ${large.cols}x${large.rows} at 1280x720 (${cellWidths[1].toFixed(2)}x${cellHeights[1].toFixed(2)}px cells)`,
+    };
+}
 
 let grid: ReturnType<typeof createCellGrid> | null = null;
 let gridMirror: Mirror | null = null;
@@ -1441,6 +1458,7 @@ const scenario: Scenario = {
             await assertMonoRamp(),
             await assertFacadeInk(),
             await assertFrameIsGrid(),
+            assertSurfaceGridSize(),
         ];
     },
     live(): string {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Compute } from "../../engine";
 import { CELL_BYTES } from "./cell";
-import { createCellGrid, fillCellGrid, gridWgsl, resetPipeline } from "./grid";
+import { createCellGrid, deriveCellGridSize, fillCellGrid, gridWgsl, resetPipeline } from "./grid";
 
 afterEach(() => {
     Object.assign(Compute, { root: undefined, device: undefined });
@@ -20,6 +20,18 @@ describe("cell grid compute-pass contract (device-free structural)", () => {
         // the fill kernel calls the same packCell body cell.test.ts pins on the CPU — one source, both
         // sides, gpu.md rule 6's lattice-drift property
         expect(wgsl).toContain("fn packCell(");
+    });
+});
+
+describe("deriveCellGridSize", () => {
+    test("tracks each device-pixel axis near the 11px target", () => {
+        expect(deriveCellGridSize(640, 360)).toEqual({ cols: 58, rows: 33 });
+        expect(deriveCellGridSize(1280, 720)).toEqual({ cols: 116, rows: 65 });
+    });
+
+    test("rejects unusable surface dimensions instead of allocating a plausible grid", () => {
+        expect(() => deriveCellGridSize(0, 360)).toThrow(/finite and positive/);
+        expect(() => deriveCellGridSize(640, Number.NaN)).toThrow(/finite and positive/);
     });
 });
 

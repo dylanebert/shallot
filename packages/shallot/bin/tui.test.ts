@@ -13,6 +13,7 @@ import {
     runLoopWithTeardown,
     runTui,
     type TuiArgs,
+    terminalGridSize,
     usage,
 } from "./tui";
 import { makeGrid } from "./tui/index";
@@ -28,6 +29,13 @@ import { makeGrid } from "./tui/index";
 //     bun test ./packages/shallot/bin/tui.probes.ts
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const RECIPE_DIR = resolve(REPO_ROOT, "examples/recipes/render-to-a-terminal");
+
+describe("terminalGridSize", () => {
+    test("uses the terminal dimensions until the measured bandwidth ceiling", () => {
+        expect(terminalGridSize({ width: 120, height: 40 })).toEqual({ width: 120, height: 40 });
+        expect(terminalGridSize({ width: 320, height: 90 })).toEqual({ width: 200, height: 50 });
+    });
+});
 
 describe("parseTuiArgs", () => {
     test("bare invocation defaults dir to '.', fps to 30, no frames bound", () => {
