@@ -1321,3 +1321,101 @@ describe("OrbitOverlayPlugin lifecycle", () => {
         expect(div.removed).toBe(true);
     });
 });
+
+describe("OrbitSystem keyboard orbit", () => {
+    let state: State;
+    let canvas: HTMLCanvasElement;
+    let windowTracker: ListenerTracker;
+    let savedWindow: typeof globalThis.window;
+    let savedDocument: typeof globalThis.document;
+
+    beforeEach(() => {
+        clear();
+        windowTracker = new ListenerTracker();
+        (windowTracker as unknown as { focus: () => void }).focus = () => {};
+        savedWindow = globalThis.window;
+        savedDocument = globalThis.document;
+        globalThis.window = windowTracker as unknown as typeof window;
+        canvas = mockCanvas();
+        globalThis.document = {
+            pointerLockElement: null,
+            querySelectorAll: (selector: string) => (selector === "canvas" ? [canvas] : []),
+        } as unknown as typeof document;
+
+        state = new State();
+        register("Transform", Transform, TransformsPlugin.traits?.Transform);
+        register("Orbit", Orbit, OrbitPlugin.traits?.Orbit);
+        for (const [name, component] of Object.entries(InputPlugin.components ?? {}))
+            register(name, component, InputPlugin.traits?.[name]);
+        Slab.collect();
+        attach(state, InputPlugin);
+        attach(state, OrbitPlugin);
+        state.step(1 / 60);
+    });
+
+    afterEach(() => {
+        state.dispose();
+        globalThis.window = savedWindow;
+        globalThis.document = savedDocument;
+    });
+
+    const dispatch = (type: "keydown" | "keyup", code: string): void => {
+        windowTracker.added.find(([event]) => event === type)![1]({ code });
+    };
+
+    test("held arrows accelerate to the component rate through the production composition", () => {
+        const cam = state.create();
+        state.add(cam, Transform);
+        state.add(cam, Orbit);
+        Orbit.yaw.set(cam, 0);
+        Orbit.pitch.set(cam, 0);
+        Orbit.keyRate.set(cam, 1);
+        Orbit.keyAcceleration.set(cam, 2);
+        state.step(1 / 60);
+
+        dispatch("keydown", "ArrowRight");
+        for (let frame = 0; frame < 60; frame++) state.step(1 / 60);
+
+        expect(OrbitSmooth.keyYawVelocity.get(cam)).toBeCloseTo(1, 5);
+        expect(Orbit.yaw.get(cam)).toBeCloseTo(0.7583, 3);
+        expect(Orbit.pitch.get(cam)).toBeCloseTo(0, 5);
+    });
+
+    test("ArrowUp moves the production camera above its target", () => {
+        const cam = state.create();
+        state.add(cam, Transform);
+        state.add(cam, Orbit);
+        Orbit.pitch.set(cam, 0);
+        Orbit.distance.set(cam, 5);
+        Orbit.keyRate.set(cam, 3);
+        Orbit.keyAcceleration.set(cam, 30);
+        state.step(1 / 60);
+
+        const before = Transform.pos.y.get(cam);
+        dispatch("keydown", "ArrowUp");
+        for (let frame = 0; frame < 6; frame++) state.step(1 / 60);
+
+        expect(Orbit.pitch.get(cam)).toBeGreaterThan(0);
+        expect(Transform.pos.y.get(cam)).toBeGreaterThan(before);
+    });
+
+    test("release damping decays velocity instead of stopping on the key-up frame", () => {
+        const cam = state.create();
+        state.add(cam, Transform);
+        state.add(cam, Orbit);
+        Orbit.yaw.set(cam, 0);
+        Orbit.keyRate.set(cam, 1);
+        Orbit.keyAcceleration.set(cam, 60);
+        Orbit.keyDamping.set(cam, 6);
+        state.step(1 / 60);
+
+        dispatch("keydown", "ArrowLeft");
+        state.step(1 / 60);
+        const heldYaw = Orbit.yaw.get(cam);
+        dispatch("keyup", "ArrowLeft");
+        state.step(1 / 60);
+
+        expect(Orbit.yaw.get(cam)).toBeLessThan(heldYaw);
+        expect(OrbitSmooth.keyYawVelocity.get(cam)).toBeCloseTo(-Math.exp(-0.1), 5);
+    });
+});

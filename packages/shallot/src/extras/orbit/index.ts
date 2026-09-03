@@ -70,6 +70,12 @@ export const Orbit = {
     sensitivity: sparse(f32),
     /** fly look speed (yaw/pitch), radians per pixel; separate so fly look reads calmer than orbit */
     flySensitivity: sparse(f32),
+    /** held-arrow orbit speed, radians per second */
+    keyRate: sparse(f32),
+    /** held-arrow acceleration toward keyRate, radians per second squared */
+    keyAcceleration: sparse(f32),
+    /** released-arrow velocity damping, inverse seconds; higher stops sooner */
+    keyDamping: sparse(f32),
     /** zoom factor applied per scroll-wheel notch */
     zoomSpeed: sparse(f32),
     /** mouse button that orbits: 0 left, 1 middle, 2 right */
@@ -127,6 +133,8 @@ const OrbitSystem: System = {
             OrbitSmooth.pitch.set(eid, Orbit.pitch.get(eid));
             OrbitSmooth.distance.set(eid, Orbit.distance.get(eid));
             OrbitSmooth.size.set(eid, Orbit.size.get(eid));
+            OrbitSmooth.keyYawVelocity.set(eid, 0);
+            OrbitSmooth.keyPitchVelocity.set(eid, 0);
             // sparse storage survives destroy — a recycled eid could inherit a stale latch
             OrbitSmooth.flyActive.set(eid, 0);
             OrbitSmooth.orbitLatch.set(eid, 0);
@@ -163,6 +171,8 @@ const OrbitSystem: System = {
             let pitchS = OrbitSmooth.pitch.get(eid);
             let distS = OrbitSmooth.distance.get(eid);
             let sizeS = OrbitSmooth.size.get(eid);
+            let keyYawVelocity = OrbitSmooth.keyYawVelocity.get(eid);
+            let keyPitchVelocity = OrbitSmooth.keyPitchVelocity.get(eid);
 
             const hasCamera = state.has(eid, Camera);
             const isOrtho = hasCamera && Camera.mode.get(eid) === CameraMode.Orthographic;
@@ -207,6 +217,28 @@ const OrbitSystem: System = {
             if (!locked && looking && !suppressed) {
                 yawO -= input.mouse.deltaX * lookSpeed;
                 pitchO = clamp(pitchO + input.mouse.deltaY * lookSpeed, minPitch, maxPitch);
+            }
+
+            const keyRate = Orbit.keyRate.get(eid);
+            const keyAcceleration = Orbit.keyAcceleration.get(eid);
+            const keyDamping = Orbit.keyDamping.get(eid);
+            const keyYaw =
+                Number(input.isKeyDown("ArrowRight")) - Number(input.isKeyDown("ArrowLeft"));
+            const keyPitch =
+                Number(input.isKeyDown("ArrowUp")) - Number(input.isKeyDown("ArrowDown"));
+            const accelerate = (velocity: number, direction: number): number => {
+                if (direction === 0) return velocity * Math.exp(-keyDamping * dt);
+                const target = direction * keyRate;
+                const step = keyAcceleration * dt;
+                return velocity < target
+                    ? Math.min(target, velocity + step)
+                    : Math.max(target, velocity - step);
+            };
+            keyYawVelocity = accelerate(keyYawVelocity, locked ? 0 : keyYaw);
+            keyPitchVelocity = accelerate(keyPitchVelocity, locked ? 0 : keyPitch);
+            if (!locked) {
+                yawO += keyYawVelocity * dt;
+                pitchO = clamp(pitchO + keyPitchVelocity * dt, minPitch, maxPitch);
             }
 
             if (!flying && panHeld) {
@@ -392,6 +424,8 @@ const OrbitSystem: System = {
             OrbitSmooth.pitch.set(eid, pitchS);
             OrbitSmooth.distance.set(eid, distS);
             OrbitSmooth.size.set(eid, sizeS);
+            OrbitSmooth.keyYawVelocity.set(eid, keyYawVelocity);
+            OrbitSmooth.keyPitchVelocity.set(eid, keyPitchVelocity);
         }
     },
 };
@@ -423,6 +457,9 @@ export const OrbitPlugin: Plugin = {
                 flySmoothness: 0.6,
                 sensitivity: 0.005,
                 flySensitivity: 0.003,
+                keyRate: 3,
+                keyAcceleration: 30,
+                keyDamping: 30,
                 zoomSpeed: 0.025,
                 orbitButton: 0,
                 panButton: 1,
@@ -448,3 +485,4 @@ export const OrbitPlugin: Plugin = {
 };
 
 export { OrbitOverlayPlugin } from "./overlay";
+export { OrbitTuningPlugin } from "./tuning";

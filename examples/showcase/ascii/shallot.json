@@ -2,7 +2,7 @@
   "scene": "scenes/ascii.scene",
   "plugins": {
     "Orbit": true,
-    "Cells": true,
-    "KeyOrbit": "./src/keys"
+    "OrbitTuning": true,
+    "Cells": true
   }
 }
