@@ -20,8 +20,16 @@ import {
     catmullRom1D as vertexCatmullRom1D,
     wrapIndex as vertexWrapIndex,
 } from "../src/ocean/vertex-displacement";
+import { oceanSurfaceCompiled } from "../src/verification/ocean-shading";
 
 const controls = [1.25, -0.75, 2.5, 4.125];
+
+describe("ocean surface device claim", () => {
+    test("the compile half follows the ocean surface pipeline registration", () => {
+        expect(oceanSurfaceCompiled({ has: (name) => name === "ocean" })).toBe(true);
+        expect(oceanSurfaceCompiled({ has: () => false })).toBe(false);
+    });
+});
 
 describe("radial aerial perspective", () => {
     test("uses the exponential distance law", () => {
