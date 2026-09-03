@@ -875,6 +875,57 @@ describe("XML", () => {
             expect(() => load(nodes, new State())).toThrow("Invalid number");
         });
 
+        test("rejects a hexadecimal token with a junk suffix", () => {
+            const Comp = { value: [] as number[] };
+            register("comp", Comp, { defaults: () => ({ value: 0 }) });
+
+            const nodes = parse(`<scene><a comp="value: 0x10junk" /></scene>`);
+            expect(() => load(nodes, new State())).toThrow(/Invalid number.*0x10junk/);
+        });
+
+        test("rejects a decimal token with a junk suffix while accepting the numeric grammar", () => {
+            const Comp = { a: [] as number[], b: [] as number[], c: [] as number[] };
+            register("comp", Comp, { defaults: () => ({ a: 0, b: 0, c: 0 }) });
+
+            const valid = parse(`<scene><a comp="a: +1.; b: -.5; c: 2e-3" /></scene>`);
+            const map = load(valid, new State());
+            const eid = map.get(valid[0])!;
+            expect(Comp.a[eid]).toBe(1);
+            expect(Comp.b[eid]).toBe(-0.5);
+            expect(Comp.c[eid]).toBeCloseTo(0.002);
+
+            const invalid = parse(`<scene><a comp="a: 1junk" /></scene>`);
+            expect(() => load(invalid, new State())).toThrow(/Invalid number.*1junk/);
+        });
+
+        test("rejects a numeric token with a CSS-like unit suffix", () => {
+            const Comp = { value: [] as number[] };
+            register("comp", Comp, { defaults: () => ({ value: 0 }) });
+
+            const nodes = parse(`<scene><a comp="value: 12px" /></scene>`);
+            expect(() => load(nodes, new State())).toThrow(/Invalid number.*12px/);
+        });
+
+        test("rejects non-finite numeric tokens with joined diagnostics", () => {
+            const Comp = { a: [] as number[], b: [] as number[] };
+            register("comp", Comp, { defaults: () => ({ a: 0, b: 0 }) });
+
+            const nodes = parse(`<scene><a comp="a: 1e999; b: Infinity" /></scene>`);
+            expect(() => load(nodes, new State())).toThrow(
+                /Invalid number.*1e999.*Invalid number.*Infinity/s,
+            );
+        });
+
+        test("rejects duplicate author IDs before resolving an ambiguous reference", () => {
+            const Comp = { value: [] as number[], target: [] as number[] };
+            register("comp", Comp, { defaults: () => ({ value: 0, target: 0 }) });
+
+            const nodes = parse(
+                `<scene><a id="dup" comp="value: 1" /><a id="dup" comp="value: 2" /><a comp="target: @dup" /></scene>`,
+            );
+            expect(() => load(nodes, new State())).toThrow('Duplicate entity id: "dup"');
+        });
+
         // Member 3: several legacy top-level ref attributes on one node: only the first
         // is reported, siblings dropped from an already-error path.
         test("multiple top-level ref attrs all report, not just the first", () => {
