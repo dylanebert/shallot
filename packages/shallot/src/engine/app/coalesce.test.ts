@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { coalesce, median } from "./coalesce";
+import { coalesce, frameDelta, median } from "./coalesce";
 
 describe("median", () => {
     test("an empty window is 0", () => {
@@ -45,5 +45,18 @@ describe("coalesce (rAF double-fire)", () => {
     test("the threshold scales with the cadence — a 240Hz desktop renders its 4ms frames", () => {
         expect(coalesce(1004.17, 1000, 1000 / 240)).toBe(false); // a whole 240Hz frame
         expect(coalesce(1001, 1000, 1000 / 240)).toBe(true); // a sub-half-interval double-fire
+    });
+});
+
+describe("frameDelta (the sim dt from rAF timestamps)", () => {
+    test("the first frame steps 0 rather than a delta against a wall-clock seed", () => {
+        expect(frameDelta(1000.2, -1)).toBe(0);
+    });
+    test("a vsync-aligned timestamp earlier than the last render never goes negative", () => {
+        // the no-walls red: `step received -0.000205` from a rAF start preceding a now() seed
+        expect(frameDelta(1000.0, 1000.205)).toBe(0);
+    });
+    test("a normal interval converts ms to seconds", () => {
+        expect(frameDelta(1016.7, 1000)).toBeCloseTo(0.0167, 6);
     });
 });

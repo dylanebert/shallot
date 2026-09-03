@@ -69,9 +69,15 @@ export function displayGateMessage(hardware: string): string {
 }
 
 // Match real failure signatures only — "adapter limits" / "requestAdapter" are normal startup chatter.
-// Salvaged verbatim from harness/core/page.ts (the proven signature set).
-const ERR_HINT =
-    /\b(?:wgsl|shader compilation|pipeline.*invalid|destroyed|validation error|device.*lost|uncaptured|GPUValidationError|GPUInternalError|exceeds the max|crashed)\b/i;
+// Salvaged verbatim from harness/core/page.ts (the proven signature set), plus the engine's own
+// degraded-boot warnings: `build` drops a plugin whose dependency isn't in the plugin list ("Missing
+// plugin dependency"), and the scene codec skips an attribute no loaded plugin registered ("is not
+// registered"). Both are `console.warn`, both leave the canvas rendering static geometry, and both
+// went unseen when the visualization demos lost their animation — a warning-typed message has to match
+// here to reach `errors`, so these two are named.
+/** @internal exported for the signature test only. */
+export const ERR_HINT =
+    /\b(?:wgsl|shader compilation|pipeline.*invalid|destroyed|validation error|device.*lost|uncaptured|GPUValidationError|GPUInternalError|exceeds the max|crashed|Missing plugin dependency|is not registered)\b/i;
 
 const INSTALL_PLAYWRIGHT = "bun add -d playwright && bunx playwright install chromium";
 

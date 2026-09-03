@@ -31,6 +31,7 @@ import {
     displayGateExit,
     displayGateMessage,
     driveHarness,
+    ERR_HINT,
     EXIT_NO_DISPLAY,
     type FrameSample,
     failureArtifacts,
@@ -95,6 +96,30 @@ const cacheDir = (prefix: string): string => {
     mkdirSync(base, { recursive: true });
     return mkdtempSync(join(base, prefix));
 };
+
+describe("ERR_HINT — the console signatures verify promotes to errors", () => {
+    // Regression: the visualization demos booted with `Missing plugin dependency: CurveClips requires
+    // Animation` and `[shallot] "animator" is not registered`, rendered a static canvas, and every gate
+    // stayed green because both are warning-typed console messages. They must match here.
+    test("degraded-boot warnings match", () => {
+        expect(ERR_HINT.test("Missing plugin dependency: CurveClips requires Animation")).toBe(
+            true,
+        );
+        expect(ERR_HINT.test('[shallot] "animator" is not registered')).toBe(true);
+        expect(ERR_HINT.test('[shallot] "ring" is not registered, did you mean "line"?')).toBe(
+            true,
+        );
+    });
+    test("routine chatter does not", () => {
+        expect(ERR_HINT.test("[vite] connected.")).toBe(false);
+        expect(ERR_HINT.test("adapter limits: maxBufferSize 268435456")).toBe(false);
+        expect(
+            ERR_HINT.test(
+                "⚠️ [implicit-conversion] Implicit conversions from [ r: struct:vertexVsOut ] to struct are supported, but not recommended.",
+            ),
+        ).toBe(false);
+    });
+});
 
 describe("parseVerifyArgs", () => {
     test("defaults: dir '.', dev boot, 60s budget", () => {
