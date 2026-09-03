@@ -270,6 +270,9 @@ export const meanFresnel = tgpu.fn(
     return std.pow(1 - std.clamp(cosTheta, 0, 1), exponent) / (1 + 22.7 * std.pow(sigma, 1.5));
 });
 
+/** Minimum slope variance whose reciprocal remains below the f32 precision-noise scale. */
+export const BECKMANN_VARIANCE_FLOOR = Math.sqrt(2 ** -23);
+
 /** Smith masking term for the Beckmann slope distribution. */
 export const beckmannLambda = tgpu.fn(
     [d.f32, d.f32],
@@ -296,7 +299,7 @@ export const beckmannSunRadiance = tgpu.fn(
     const noH = std.max(std.dot(normal, half), 0.0001);
     const voH = std.max(std.dot(view, half), 0);
     const tanSquared = std.max(0, 1 - noH * noH) / (noH * noH);
-    const variance = std.max(sigmaSquared, 0.0004);
+    const variance = std.max(sigmaSquared, BECKMANN_VARIANCE_FLOOR);
     const distribution =
         std.exp(-tanSquared / (2 * variance)) / (2 * Math.PI * variance * noH * noH * noH * noH);
     const smith = 1 / (1 + beckmannLambda(noV, variance) + beckmannLambda(noL, variance));
@@ -346,7 +349,12 @@ export const oceanSurfaceFs = tgpu.fn(
     const fresnel = 0.02 + 0.98 * factor;
     const body = d.vec3f(0.001, 0.006, 0.008);
     const sunDirection = std.neg(engineLayout.$.lighting.sunDirection.xyz);
-    const glitter = beckmannSunRadiance(normal, view, sunDirection, std.max(slope.w, 0.0004));
+    const glitter = beckmannSunRadiance(
+        normal,
+        view,
+        sunDirection,
+        std.max(slope.w, BECKMANN_VARIANCE_FLOOR),
+    );
     const sun = engineLayout.$.lighting.sunColor.xyz;
     return d.vec4f(std.add(std.mix(body, sky, fresnel), std.mul(glitter, sun)), 1);
 });

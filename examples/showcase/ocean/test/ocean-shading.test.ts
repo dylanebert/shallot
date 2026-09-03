@@ -7,6 +7,7 @@ import { composedSlopePsd, slopeMipSize } from "../src/ocean/slope";
 import { f16NextDown, f16NextUp, f16Round } from "../src/ocean/slope-seam";
 import { CASCADE_CONFIGS, SLOPE_CASCADE_CONFIGS } from "../src/ocean/spectrum";
 import {
+    BECKMANN_VARIANCE_FLOOR,
     beckmannSunRadiance,
     meanFresnel,
     surfaceCatmullRom1D,
@@ -21,6 +22,11 @@ import {
 const controls = [1.25, -0.75, 2.5, 4.125];
 
 describe("variance-driven Beckmann sun glitter", () => {
+    test("derives the variance floor from f32 precision", () => {
+        expect(BECKMANN_VARIANCE_FLOOR).toBe(Math.sqrt(2 ** -23));
+        expect(BECKMANN_VARIANCE_FLOOR).toBeGreaterThan(0);
+    });
+
     test("hemisphere-integrated reflected energy stays at most one", () => {
         const stepsTheta = 240;
         const stepsPhi = 480;
