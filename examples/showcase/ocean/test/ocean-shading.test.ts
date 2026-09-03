@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { State } from "@dylanebert/shallot";
+import { Surfaces } from "@dylanebert/shallot/sear/core";
 import * as d from "typegpu/data";
 import { catmullRom1D as reference } from "../src/ocean/reconstruction";
 import { composedSlopePsd, slopeMipSize } from "../src/ocean/slope";
@@ -12,6 +14,7 @@ import {
     BECKMANN_VARIANCE_FLOOR,
     beckmannSunRadiance,
     meanFresnel,
+    registerOceanSurface,
     surfaceCatmullRom1D,
     surfaceCatmullRomDerivative1D,
     surfaceWrapIndex,
@@ -20,8 +23,24 @@ import {
     catmullRom1D as vertexCatmullRom1D,
     wrapIndex as vertexWrapIndex,
 } from "../src/ocean/vertex-displacement";
+import { oceanSurfaceRegistered } from "../src/verification/ocean-shading";
 
 const controls = [1.25, -0.75, 2.5, 4.125];
+
+describe("ocean surface device claim", () => {
+    test("the registration half follows registerOceanSurface", () => {
+        Surfaces.clear();
+        const state = new State();
+        try {
+            expect(oceanSurfaceRegistered()).toBe(false);
+            registerOceanSurface(state);
+            expect(oceanSurfaceRegistered()).toBe(true);
+        } finally {
+            state.dispose();
+            Surfaces.clear();
+        }
+    });
+});
 
 describe("radial aerial perspective", () => {
     test("uses the exponential distance law", () => {

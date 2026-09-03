@@ -7,7 +7,8 @@
 // the same offscreen target — same pipeline, one pass earlier than glaze's tonemap + present. No author
 // component: every camera composites through cells the same way, the way every camera composites through
 // glaze's postfx chain by default (`standard/glaze`'s own zero-config shape). Each sink sizes the grid
-// from its output surface; the web path uses the camera framebuffer's device-pixel dimensions.
+// from its output surface; the web path uses canvas CSS dimensions while the framebuffer stays in
+// device pixels.
 
 import type { Plugin, State, System } from "../../engine";
 import { Compute, unpackColor } from "../../engine";
@@ -110,7 +111,27 @@ const CellsSystem: System = {
                 break;
             }
             drawnEid = eid;
-            const { cols, rows } = deriveCellGridSize(view.width, view.height);
+            const cellGeometry = view.canvas as
+                | (HTMLCanvasElement & {
+                      cellWidth?: number;
+                      cellHeight?: number;
+                      cellCols?: number;
+                      cellRows?: number;
+                  })
+                | null;
+            const terminalGeometry =
+                cellGeometry?.cellWidth !== undefined && cellGeometry.cellHeight !== undefined;
+            const rect = terminalGeometry ? null : cellGeometry?.getBoundingClientRect();
+            const { cols, rows } = deriveCellGridSize(
+                rect?.width ?? view.width,
+                rect?.height ?? view.height,
+                cellGeometry?.cellWidth,
+                cellGeometry?.cellHeight,
+            );
+            if (cellGeometry) {
+                cellGeometry.cellCols = cols;
+                cellGeometry.cellRows = rows;
+            }
             const grid = gridFor(eid, cols, rows);
             // the camera's own empty-background reference, raw linear — recordSelect tonemaps it the
             // same way it tonemaps every scene sample before comparing, so a cell whose source region

@@ -252,15 +252,20 @@ class TuiCanvas {
     width: number;
     height: number;
     readonly style: Record<string, string> = {};
+
+    constructor(
+        width: number,
+        height: number,
+        readonly cellWidth: number,
+        readonly cellHeight: number,
+    ) {
+        this.width = width;
+        this.height = height;
+    }
     private _device: GPUDevice | null = null;
     private _format: GPUTextureFormat = "bgra8unorm";
     private _texture: GPUTexture | null = null;
     private readonly _resizeListeners = new Set<() => void>();
-
-    constructor(width: number, height: number) {
-        this.width = width;
-        this.height = height;
-    }
 
     resize(width: number, height: number): void {
         this.width = width;
@@ -327,8 +332,10 @@ class TuiCanvas {
 function installHeadlessDom(
     width: number,
     height: number,
+    cellWidth: number,
+    cellHeight: number,
 ): { canvas: TuiCanvas; window: EventTarget } {
-    const canvas = new TuiCanvas(width, height);
+    const canvas = new TuiCanvas(width, height, cellWidth, cellHeight);
     const g = globalThis as unknown as {
         document?: unknown;
         window?: unknown;
@@ -528,19 +535,48 @@ async function resolveLocalPlugin(name: string, path: string): Promise<Plugin> {
     return plugin;
 }
 
-// The measured terminal payload ceiling: at 200x50 the worst-case truecolor frame is 182 KiB, or
-// 5.3 MB/s at 30 fps. Web has no equivalent cap because it never reads the grid back.
-const TERMINAL_MAX_COLS = 200;
-const TERMINAL_MAX_ROWS = 50;
-const TERMINAL_CELL_DEVICE_PX = 11;
+const TERMINAL_CELL_BUDGET = 10_000;
+const FALLBACK_CELL_GEOMETRY = { width: 1, height: 2 } as const;
 
-export function terminalGridSize(size: { width: number; height: number }): {
+export interface TerminalGeometrySource {
+    columns?: number;
+    rows?: number;
+    pixelWidth?: number;
+    pixelHeight?: number;
+}
+
+/** Measure one terminal cell in pixels when the tty exposes its pixel extent, else use 1:2. */
+export function terminalCellGeometry(source: TerminalGeometrySource): {
     width: number;
     height: number;
 } {
+    const values = [source.columns, source.rows, source.pixelWidth, source.pixelHeight];
+    if (!values.every((value) => Number.isFinite(value) && (value ?? 0) > 0)) {
+        return FALLBACK_CELL_GEOMETRY;
+    }
     return {
-        width: Math.min(size.width, TERMINAL_MAX_COLS),
-        height: Math.min(size.height, TERMINAL_MAX_ROWS),
+        width: source.pixelWidth! / source.columns!,
+        height: source.pixelHeight! / source.rows!,
+    };
+}
+
+export interface TerminalGridPlacement {
+    width: number;
+    height: number;
+    col: number;
+    row: number;
+}
+
+/** Fit the bandwidth budget with one uniform scale, leaving any remainder centered. */
+export function terminalGridSize(size: { width: number; height: number }): TerminalGridPlacement {
+    const scale = Math.min(1, Math.sqrt(TERMINAL_CELL_BUDGET / (size.width * size.height)));
+    const width = Math.max(1, Math.floor(size.width * scale));
+    const height = Math.max(1, Math.floor(size.height * scale));
+    return {
+        width,
+        height,
+        col: Math.floor((size.width - width) / 2),
+        row: Math.floor((size.height - height) / 2),
     };
 }
 
@@ -591,12 +627,14 @@ export async function runTui(
 
     await bunWebgpu.setupGlobals();
 
-    const outputSize = terminalGridSize(
-        terminalSize(process.stdout as unknown as Parameters<typeof terminalSize>[0]),
-    );
+    const terminal = terminalSize(process.stdout as unknown as Parameters<typeof terminalSize>[0]);
+    const outputSize = terminalGridSize(terminal);
+    const cell = terminalCellGeometry(process.stdout as unknown as TerminalGeometrySource);
     const { canvas, window: win } = installHeadlessDom(
-        outputSize.width * TERMINAL_CELL_DEVICE_PX,
-        outputSize.height * TERMINAL_CELL_DEVICE_PX,
+        outputSize.width * cell.width,
+        outputSize.height * cell.height,
+        cell.width,
+        cell.height,
     );
 
     // `cellsGridFor` rides the main barrel (`extras/cells/index.ts`'s author-facing
@@ -667,7 +705,8 @@ export async function runTui(
     // which is what keeps that path free of any input/timing nondeterminism.
     const interactive = !!process.stdin.isTTY;
     const tier = args.tier ?? detectTier({ isTTY: !!process.stdout.isTTY, env: process.env });
-    const encoder = new Encoder(tier);
+    const tierSource = args.tier === undefined ? "auto-detected" : "forced";
+    const encoder = new Encoder(tier, { row: outputSize.row, col: outputSize.col });
     const write = (s: string) => {
         if (s.length > 0) process.stdout.write(s);
     };
@@ -709,11 +748,8 @@ export async function runTui(
             process.stdout as unknown as Parameters<typeof onResize>[0],
             (size) => {
                 const next = terminalGridSize(size);
-                canvas.resize(
-                    next.width * TERMINAL_CELL_DEVICE_PX,
-                    next.height * TERMINAL_CELL_DEVICE_PX,
-                );
-                encoder.invalidate();
+                canvas.resize(next.width * cell.width, next.height * cell.height);
+                encoder.place({ row: next.row, col: next.col });
             },
         );
     }
@@ -758,6 +794,7 @@ export async function runTui(
         teardown,
         disposeAll,
     );
+    console.error(`shallot tui: color tier ${tier} (${tierSource})`);
     return EXIT_PASS;
 }
 
