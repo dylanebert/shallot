@@ -179,7 +179,9 @@ export function perspective(
     if (!Number.isFinite(fov) || fov <= 0) throw new Error(`Invalid FOV: ${fov} (must be > 0)`);
     if (!Number.isFinite(aspect) || aspect <= 0)
         throw new Error(`Invalid aspect ratio: ${aspect} (must be > 0)`);
-    if (!Number.isFinite(near) || !Number.isFinite(far) || near === far)
+    if (!Number.isFinite(near) || near <= 0)
+        throw new Error(`Invalid near plane: ${near} (must be > 0)`);
+    if (!Number.isFinite(far) || near === far)
         throw new Error(`Invalid depth planes: near === far (${near})`);
     if (!out) out = new Float32Array(16);
     const f = 1 / Math.tan((fov * Math.PI) / 360);
