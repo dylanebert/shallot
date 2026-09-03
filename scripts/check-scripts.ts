@@ -202,6 +202,7 @@ export async function checkDocs(
 // already asserts is clean, plus every `.ts`/`.mjs` file under the trees a `scripts/*` file's
 // citation could realistically live in. Keyed by repo-relative path so a candidate can exclude
 // its own text (a file's self-reference to its own name doesn't count as a citation).
+// `scripts/test-changed.ts` is the changed-path selector wired into stage-close and release gates.
 export async function loadCorpus(rootDir: string): Promise<Map<string, string>> {
     const files = new Map<string, string>();
     const docTargets = [
