@@ -39,7 +39,7 @@ function degrees(value: number): number {
 function cameraToSun(yaw: number, pitch: number): number {
     const view = [
         -Math.sin(yaw) * Math.cos(pitch),
-        Math.sin(pitch),
+        -Math.sin(pitch),
         -Math.cos(yaw) * Math.cos(pitch),
     ];
     const light = sunDirection(CAPTURE.sunAzimuthOffset, CAPTURE.sunElevation);
