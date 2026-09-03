@@ -7,6 +7,7 @@ import { composedSlopePsd, slopeMipSize } from "../src/ocean/slope";
 import { f16NextDown, f16NextUp, f16Round } from "../src/ocean/slope-seam";
 import { CASCADE_CONFIGS, SLOPE_CASCADE_CONFIGS } from "../src/ocean/spectrum";
 import {
+    meanFresnel,
     surfaceCatmullRom1D,
     surfaceCatmullRomDerivative1D,
     surfaceWrapIndex,
@@ -17,6 +18,22 @@ import {
 } from "../src/ocean/vertex-displacement";
 
 const controls = [1.25, -0.75, 2.5, 4.125];
+
+describe("mean ocean Fresnel", () => {
+    test("recovers the Schlick factor at zero slope deviation", () => {
+        for (const cosine of [0, 0.2, 0.5, 0.8, 1]) {
+            expect(meanFresnel(cosine, 0)).toBeCloseTo((1 - cosine) ** 5, 6);
+        }
+    });
+
+    test("decreases as slope deviation widens the reflected sky", () => {
+        for (const cosine of [0.05, 0.2]) {
+            const smooth = meanFresnel(cosine, 0.08);
+            const rough = meanFresnel(cosine, 0.24);
+            expect(rough).toBeLessThan(smooth);
+        }
+    });
+});
 
 function closedDerivative(p0: number, p1: number, p2: number, p3: number, t: number): number {
     const a = -0.5 * p0 + 1.5 * p1 - 1.5 * p2 + 0.5 * p3;
