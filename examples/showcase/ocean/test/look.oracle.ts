@@ -19,8 +19,8 @@ export interface LookReading {
 }
 
 const BAND_RANGES = {
-    sky: [0.08, 0.3],
-    horizon: [0.38, 0.52],
+    sky: [0.08, 210 / 720],
+    horizon: [210 / 720, 0.52],
     farWater: [0.52, 0.66],
     midWater: [0.66, 0.82],
     nearWater: [0.82, 1],

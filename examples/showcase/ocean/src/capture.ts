@@ -23,9 +23,10 @@ const CapturePlugin: Plugin = {
                           fold: () => import("./verification/ocean-fold"),
                           shading: () => import("./verification/ocean-shading"),
                           slope: () => import("./verification/ocean-slope"),
+                          foam: () => import("./verification/ocean-foam"),
                       } as const
                   )
-                      [claim as "fold" | "shading" | "slope"]?.()
+                      [claim as "fold" | "shading" | "slope" | "foam"]?.()
                       .then((module) => module.runDeviceClaim(state))
                 : [];
             const checks = [

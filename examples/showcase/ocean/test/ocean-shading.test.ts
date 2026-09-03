@@ -13,7 +13,7 @@ import {
     aerialFade,
     BECKMANN_VARIANCE_FLOOR,
     beckmannSunRadiance,
-    FOAM_STRENGTH,
+    declaredFoamStrength,
     meanFresnel,
     registerOceanSurface,
     surfaceCatmullRom1D,
@@ -67,8 +67,8 @@ describe("radial aerial perspective", () => {
 
 describe("fragment trough foam", () => {
     test("is black-pointed outside compressed troughs and wind-stretched within them", () => {
-        expect(FOAM_STRENGTH).toBeGreaterThan(0);
-        expect(FOAM_STRENGTH).toBeLessThan(0.2);
+        expect(declaredFoamStrength()).toBeGreaterThan(0);
+        expect(declaredFoamStrength()).toBeLessThan(0.2);
         expect(troughFoam(1, -1, d.vec2f(10, 20))).toBe(0);
         expect(troughFoam(0.4, 1, d.vec2f(10, 20))).toBe(0);
         const along = Array.from({ length: 80 }, (_, i) => troughFoam(0.35, -2, d.vec2f(i, 0)));
