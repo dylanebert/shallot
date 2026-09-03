@@ -22,6 +22,13 @@ export interface LookReading {
         nearBlueRedRatio: number;
     };
     foam: { nearCoverage: number; maxLuma: number };
+    normalResponse: {
+        midRowDeviation: number;
+        nearRowDeviation: number;
+        nearMeanChroma: number;
+        chromaWeightedWaterSkyHueDistance: number;
+        brightWaterFraction: number;
+    };
     lumaRange: number;
 }
 
@@ -224,6 +231,76 @@ function duskBalance(image: Pixels, row: number, means: number[]): LookReading["
     };
 }
 
+function normalResponse(image: Pixels, skyMean: number): LookReading["normalResponse"] {
+    const deviation = (range: readonly [number, number]): number => {
+        const y0 = Math.floor(image.height * range[0]);
+        const y1 = Math.floor(image.height * range[1]);
+        let sum = 0;
+        let count = 0;
+        for (let y = y0; y < y1; y++) {
+            let row = 0;
+            for (let x = 0; x < image.width; x++) {
+                const i = (y * image.width + x) * 4;
+                row += luma(image.data[i] ?? 0, image.data[i + 1] ?? 0, image.data[i + 2] ?? 0);
+            }
+            row /= image.width;
+            for (let x = 0; x < image.width; x++) {
+                const i = (y * image.width + x) * 4;
+                const delta =
+                    luma(image.data[i] ?? 0, image.data[i + 1] ?? 0, image.data[i + 2] ?? 0) - row;
+                sum += delta * delta;
+                count++;
+            }
+        }
+        return Math.sqrt(sum / count) * 255;
+    };
+    const weighted = (from: number, to: number): [number, number, number] => {
+        const y0 = Math.floor(image.height * from);
+        const y1 = Math.floor(image.height * to);
+        const sum = [0, 0, 0];
+        let weight = 0;
+        for (let y = y0; y < y1; y++) {
+            for (let x = 0; x < image.width; x++) {
+                const i = (y * image.width + x) * 4;
+                const rgb = [image.data[i] ?? 0, image.data[i + 1] ?? 0, image.data[i + 2] ?? 0];
+                const chroma = Math.max(...rgb) - Math.min(...rgb);
+                for (let channel = 0; channel < 3; channel++)
+                    sum[channel]! += rgb[channel]! * chroma;
+                weight += chroma;
+            }
+        }
+        return sum.map((value) => value / Math.max(weight, 1)) as [number, number, number];
+    };
+    const skyHue = hue(weighted(...BAND_RANGES.sky));
+    const waterHue = hue(weighted(BAND_RANGES.horizon[0], 1));
+    const hueDelta = Math.abs(skyHue - waterHue);
+    const nearY = Math.floor(image.height * BAND_RANGES.nearWater[0]);
+    const waterY = Math.floor(image.height * BAND_RANGES.horizon[0]);
+    let nearChroma = 0;
+    let nearCount = 0;
+    let bright = 0;
+    let waterCount = 0;
+    for (let y = waterY; y < image.height; y++) {
+        for (let x = 0; x < image.width; x++) {
+            const i = (y * image.width + x) * 4;
+            const rgb = [image.data[i] ?? 0, image.data[i + 1] ?? 0, image.data[i + 2] ?? 0];
+            if (luma(rgb[0]!, rgb[1]!, rgb[2]!) > 0.8 * skyMean) bright++;
+            waterCount++;
+            if (y >= nearY) {
+                nearChroma += Math.max(...rgb) - Math.min(...rgb);
+                nearCount++;
+            }
+        }
+    }
+    return {
+        midRowDeviation: deviation(BAND_RANGES.midWater),
+        nearRowDeviation: deviation(BAND_RANGES.nearWater),
+        nearMeanChroma: nearChroma / nearCount,
+        chromaWeightedWaterSkyHueDistance: Math.min(hueDelta, 360 - hueDelta),
+        brightWaterFraction: bright / waterCount,
+    };
+}
+
 function foam(image: Pixels, nearMean: number): { nearCoverage: number; maxLuma: number } {
     const y0 = Math.floor(image.height * BAND_RANGES.nearWater[0]);
     let marked = 0;
@@ -268,6 +345,7 @@ export function analyze(image: Pixels): LookReading {
         },
         duskBalance: balance,
         foam: foam(image, bands.nearWater?.luma ?? 0),
+        normalResponse: normalResponse(image, bands.sky?.luma ?? 0),
         lumaRange: Math.max(...allLuma) - Math.min(...allLuma),
     };
 }
@@ -315,7 +393,16 @@ export function satisfiesReferenceRelations(
         ) &&
         reading.horizon.valueStep <= relations.horizonValueStepMax &&
         reading.duskBalance.fadeExtent >= relations.fadeExtentMin &&
-        reading.duskBalance.nearBlueRedRatio >= relations.nearBlueRedRatioMin
+        reading.duskBalance.nearBlueRedRatio >= relations.nearBlueRedRatioMin &&
+        reading.normalResponse.midRowDeviation >= relations.normalResponse.midRowDeviationMin &&
+        reading.normalResponse.nearRowDeviation >= relations.normalResponse.nearRowDeviationMin &&
+        reading.normalResponse.nearMeanChroma <= relations.normalResponse.nearMeanChromaMax &&
+        reading.normalResponse.chromaWeightedWaterSkyHueDistance <=
+            relations.normalResponse.chromaWeightedWaterSkyHueDistanceMax &&
+        reading.normalResponse.brightWaterFraction >=
+            relations.normalResponse.brightWaterFraction.min &&
+        reading.normalResponse.brightWaterFraction <=
+            relations.normalResponse.brightWaterFraction.max
     );
 }
 
@@ -336,6 +423,9 @@ function print(path: string, reading: LookReading): void {
     );
     console.log(
         `  trough foam coverage ${(reading.foam.nearCoverage * 100).toFixed(2)}%  max luma ${(reading.foam.maxLuma * 255).toFixed(1)}`,
+    );
+    console.log(
+        `  normal response mid=${reading.normalResponse.midRowDeviation.toFixed(1)} near=${reading.normalResponse.nearRowDeviation.toFixed(1)} chroma=${reading.normalResponse.nearMeanChroma.toFixed(1)} weightedHue=${reading.normalResponse.chromaWeightedWaterSkyHueDistance.toFixed(1)}° bright=${(reading.normalResponse.brightWaterFraction * 100).toFixed(2)}%`,
     );
 }
 
@@ -405,6 +495,18 @@ if (import.meta.main) {
     ok &&= captureReading.horizon.valueStep <= relations.horizonValueStepMax;
     ok &&= captureReading.duskBalance.fadeExtent >= relations.fadeExtentMin;
     ok &&= captureReading.duskBalance.nearBlueRedRatio >= relations.nearBlueRedRatioMin;
+    const response = captureReading.normalResponse;
+    console.log(
+        `  normal-response gate mid=${response.midRowDeviation.toFixed(1)}/${relations.normalResponse.midRowDeviationMin} near=${response.nearRowDeviation.toFixed(1)}/${relations.normalResponse.nearRowDeviationMin} chroma=${response.nearMeanChroma.toFixed(1)}/${relations.normalResponse.nearMeanChromaMax} weightedHue=${response.chromaWeightedWaterSkyHueDistance.toFixed(1)}°/${relations.normalResponse.chromaWeightedWaterSkyHueDistanceMax}° bright=${(response.brightWaterFraction * 100).toFixed(2)}%/${(relations.normalResponse.brightWaterFraction.min * 100).toFixed(0)}..${(relations.normalResponse.brightWaterFraction.max * 100).toFixed(0)}%`,
+    );
+    ok &&= response.midRowDeviation >= relations.normalResponse.midRowDeviationMin;
+    ok &&= response.nearRowDeviation >= relations.normalResponse.nearRowDeviationMin;
+    ok &&= response.nearMeanChroma <= relations.normalResponse.nearMeanChromaMax;
+    ok &&=
+        response.chromaWeightedWaterSkyHueDistance <=
+        relations.normalResponse.chromaWeightedWaterSkyHueDistanceMax;
+    ok &&= response.brightWaterFraction >= relations.normalResponse.brightWaterFraction.min;
+    ok &&= response.brightWaterFraction <= relations.normalResponse.brightWaterFraction.max;
     if (prior) {
         const priorReading = analyze(await load(prior));
         const baselineNear = await Promise.all(

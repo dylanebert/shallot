@@ -82,16 +82,22 @@ describe("radial aerial perspective", () => {
         );
     });
 
-    test("the near-band body term carries a blue-teal register", () => {
+    test("the near-band body term carries bounded blue support", () => {
         expect(WATER_BODY[0]).toBeGreaterThan(0);
         expect(WATER_BODY[2] / WATER_BODY[0]).toBeGreaterThanOrEqual(
             fixture.relations.nearBlueRedRatioMin,
         );
+        expect(Math.max(...WATER_BODY) - Math.min(...WATER_BODY)).toBeLessThan(0.04);
+        expect(WATER_BODY).not.toEqual([0.013, 0.052, 0.085]);
         expect(WATER_AMBIENT).toBeGreaterThan(0.5);
-        const zeroed = [0, 0, 0] as const;
-        expect(
-            zeroed[0] > 0 && zeroed[2] / zeroed[0] >= fixture.relations.nearBlueRedRatioMin,
-        ).toBe(false);
+        const neutralized = [WATER_BODY[0], WATER_BODY[1], WATER_BODY[0]];
+        expect(neutralized[2] / neutralized[0]).toBe(fixture.relations.nearBlueRedRatioMin);
+    });
+
+    test("reflection rejects only below-horizon rays", () => {
+        const source = readFileSync(join(import.meta.dir, "../src/ocean/surface.ts"), "utf8");
+        expect(source).toContain("std.max(reflected.y, 0)");
+        expect(source).not.toContain("std.clamp(reflected.y, 0, 0.05)");
     });
 });
 

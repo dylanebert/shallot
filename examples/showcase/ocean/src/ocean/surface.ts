@@ -278,8 +278,8 @@ export const BECKMANN_VARIANCE_FLOOR = Math.sqrt(2 ** -23);
 
 /** Demo-local radial aerial-perspective density. */
 export const AERIAL_DENSITY = 0.0014;
-/** Blue-teal body radiance revealed below the reflected sky. */
-export const WATER_BODY = [0.013, 0.052, 0.085] as const;
+/** Bounded blue-teal body radiance revealed below the reflected sky. */
+export const WATER_BODY = [0.035, 0.052, 0.065] as const;
 /** Ambient sky share lighting the faint foam treatment. */
 export const WATER_AMBIENT = 0.72;
 
@@ -400,14 +400,14 @@ export const oceanSurfaceFs = tgpu.fn(
     const eye = engineLayout.$.view.eye.xyz;
     const view = std.normalize(std.sub(eye, ctx.worldPos));
     const reflected = std.reflect(std.neg(view), normal);
-    const skyDirection = std.normalize(
-        d.vec3f(reflected.x, std.clamp(reflected.y, 0, 0.05), reflected.z),
-    );
-    const sky = sampleSky(
+    const skyDirection = std.normalize(d.vec3f(reflected.x, std.max(reflected.y, 0), reflected.z));
+    const reflectedSky = sampleSky(
         DuskSkyGpu(oceanSurfaceLayout.$.duskSky),
         skyDirection,
         engineLayout.$.lighting.sunDirection.xyz,
     );
+    const reflectedElevation = std.max(reflected.y, 0);
+    const sky = std.mul(reflectedSky, 0.45 + 2.4 * reflectedElevation);
     const factor = meanFresnel(std.max(std.dot(normal, view), 0), sigma);
     const fresnel = 0.02 + 0.98 * factor;
     const body = d.vec3f(WATER_BODY[0], WATER_BODY[1], WATER_BODY[2]);
@@ -419,7 +419,12 @@ export const oceanSurfaceFs = tgpu.fn(
         std.max(slope.w, BECKMANN_VARIANCE_FLOOR),
     );
     const sun = engineLayout.$.lighting.sunColor.xyz;
-    const baseWater = std.add(std.mix(body, sky, fresnel), std.mul(glitter, sun));
+    const reflectionContrast = d.vec3f(0.19 * (reflectedElevation - std.max(view.y, 0)));
+    const reflectedWater = std.max(
+        d.vec3f(0),
+        std.add(std.mix(body, sky, fresnel), reflectionContrast),
+    );
+    const baseWater = std.add(reflectedWater, std.mul(glitter, sun));
     const du = std.add(
         std.mul(estimate.g0.du, estimate.scale0),
         std.mul(estimate.g1.du, estimate.scale1),
