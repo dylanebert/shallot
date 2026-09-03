@@ -12,6 +12,8 @@ export const OrbitSmooth = {
     pitch: sparse(f32),
     distance: sparse(f32),
     size: sparse(f32),
+    keyYawVelocity: sparse(f32),
+    keyPitchVelocity: sparse(f32),
     flyActive: sparse(u8),
     // contextual-orbit latch for the orbit button's current drag, a 3-state machine that carries both the
     // previous-button state (the down-edge signal, since mouse buttons expose no pressed-this-frame edge)

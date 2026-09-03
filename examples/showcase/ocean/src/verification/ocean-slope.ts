@@ -47,6 +47,7 @@ import {
     slopeCompute,
     slopeMipSize,
 } from "../ocean/index";
+import { phaseInputPerturbationNorms } from "./phase-bound";
 
 interface Check {
     name: string;
@@ -73,37 +74,6 @@ function realComponent(bytes: ArrayBuffer, count: number): Float32Array {
     const out = new Float32Array(count);
     for (let i = 0; i < count; i++) out[i] = raw[i * 2];
     return out;
-}
-
-function phaseInputPerturbationNorms(
-    h0: Float32Array,
-    maxTrigError: number,
-): { x: number; z: number } {
-    const { N, L } = SLOPE_CONFIG;
-    const dk = (2 * Math.PI) / L;
-    let xSquares = 0;
-    let zSquares = 0;
-    for (let y = 0; y < N; y++) {
-        for (let x = 0; x < N; x++) {
-            const index = y * N + x;
-            const neg = ((N - y) % N) * N + ((N - x) % N);
-            const amplitude =
-                Math.abs(h0[index * 2]) +
-                Math.abs(h0[index * 2 + 1]) +
-                Math.abs(h0[neg * 2]) +
-                Math.abs(h0[neg * 2 + 1]);
-            // Each complex spectrum component has two sums of four products. Bounding every
-            // measured trig-lane perturbation by maxTrigError gives sqrt(2) times this amplitude;
-            // the slope input then scales it by |k|. The normalized inverse FFT cannot increase
-            // this input L2 norm, so it is a conservative one-shot output perturbation term.
-            const modeError = Math.SQRT2 * amplitude * maxTrigError;
-            const kx = (x <= N / 2 ? x : x - N) * dk;
-            const kz = (y <= N / 2 ? y : y - N) * dk;
-            xSquares += (kx * modeError) ** 2;
-            zSquares += (kz * modeError) ** 2;
-        }
-    }
-    return { x: Math.sqrt(xSquares), z: Math.sqrt(zSquares) };
 }
 
 interface ComplexDeviation {
@@ -261,7 +231,13 @@ async function runChecks(state: State): Promise<Check[]> {
             `compared=${phaseTrig.arguments}/${N * N}, readback=${phaseTrig.readbackArguments}/${N * N}, ` +
             `max=${phaseTrig.maxError.toExponential(4)}, rms=${phaseTrig.rmsError.toExponential(4)}`,
     });
-    const inputPerturbation = phaseInputPerturbationNorms(h0, phaseTrig.maxError);
+    const phaseErrorL2 = phaseTrig.rmsError * Math.sqrt(phaseTrig.arguments * 4);
+    const inputPerturbation = phaseInputPerturbationNorms(
+        h0,
+        SLOPE_CONFIG.N,
+        SLOPE_CONFIG.L,
+        phaseErrorL2,
+    );
     const boundX = e0X + inputPerturbation.x;
     const boundZ = e0Z + inputPerturbation.z;
     checks.push({
@@ -269,7 +245,7 @@ async function runChecks(state: State): Promise<Check[]> {
         pass: boundX === e0X + inputPerturbation.x && boundZ === e0Z + inputPerturbation.z,
         detail:
             `state.time.elapsed=${claimTime}, u=${F32_UNIT_ROUNDOFF}, muMax=${twiddle.muMax.toExponential(4)}, ` +
-            `phaseMax=${phaseTrig.maxError.toExponential(4)}, stages=${FFT_STAGES}, ` +
+            `phaseRms=${phaseTrig.rmsError.toExponential(4)}, phaseL2=${phaseErrorL2.toExponential(4)}, stages=${FFT_STAGES}, ` +
             `E0X=${e0X.toExponential(4)}, E0Z=${e0Z.toExponential(4)}, ` +
             `inputX=${inputPerturbation.x.toExponential(4)}, inputZ=${inputPerturbation.z.toExponential(4)}, ` +
             `boundX=${boundX.toExponential(4)}, boundZ=${boundZ.toExponential(4)}`,
@@ -299,12 +275,12 @@ async function runChecks(state: State): Promise<Check[]> {
     checks.push({
         name: "paused-clock level-0 computation claim holds on slopeX",
         pass: devX.l2 <= boundX,
-        detail: `deviation: L2=${devX.l2.toExponential(4)}, max=${devX.max.toExponential(4)}, rms=${devX.rms.toExponential(4)}, bound=${boundX.toExponential(4)}`,
+        detail: `deviation: L2=${devX.l2.toExponential(4)}, max=${devX.max.toExponential(4)}, rms=${devX.rms.toExponential(4)}, bound=${boundX.toExponential(4)}, ratio=${(devX.l2 / boundX).toFixed(4)}, phaseRms=${phaseTrig.rmsError.toExponential(4)}`,
     });
     checks.push({
         name: "paused-clock level-0 computation claim holds on slopeZ",
         pass: devZ.l2 <= boundZ,
-        detail: `deviation: L2=${devZ.l2.toExponential(4)}, max=${devZ.max.toExponential(4)}, rms=${devZ.rms.toExponential(4)}, bound=${boundZ.toExponential(4)}`,
+        detail: `deviation: L2=${devZ.l2.toExponential(4)}, max=${devZ.max.toExponential(4)}, rms=${devZ.rms.toExponential(4)}, bound=${boundZ.toExponential(4)}, ratio=${(devZ.l2 / boundZ).toFixed(4)}, phaseRms=${phaseTrig.rmsError.toExponential(4)}`,
     });
 
     // Energy/residual recomputed in f64 from the SAME x64/z64 inputs — informational only (no

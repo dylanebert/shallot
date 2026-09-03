@@ -32,7 +32,7 @@ import * as std from "typegpu/std";
 import { getFftKernels } from "./gpu-fft";
 import { buildSlopes, slopeCompute, teardownSlopes } from "./slope";
 import { CASCADE_CONFIGS, type CascadeConfig, generateH0 } from "./spectrum";
-import { registerOceanSurface } from "./surface";
+import { buildFoamStrength, registerOceanSurface, teardownFoamStrength } from "./surface";
 
 // Re-export the cascade configuration alongside the plugin API.
 export { CASCADE_CONFIGS, type CascadeConfig };
@@ -1060,12 +1060,14 @@ export const OceanPlugin: Plugin = {
     systems: [oceanCompute, slopeCompute],
     initialize: registerOceanSurface,
     warm() {
+        buildFoamStrength();
         build();
         buildSlopes();
     },
     dispose() {
         teardown();
         teardownSlopes();
+        teardownFoamStrength();
     },
 };
 

@@ -2,8 +2,8 @@
   "scene": "scenes/render-to-a-terminal.scene",
   "plugins": {
     "Orbit": true,
+    "OrbitTuning": true,
     "Cells": true,
-    "KeyOrbit": "./src/keys",
     "Smoke": "./src/smoke"
   }
 }

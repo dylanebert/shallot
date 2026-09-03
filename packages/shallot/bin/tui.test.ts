@@ -3,10 +3,12 @@ import { resolve } from "node:path";
 import {
     buildDisposeAll,
     cellsBytesToGrid,
+    createKeyRepeatBridge,
     createQuitGuard,
     decodeStdinChunk,
     EXIT_NO_BUN_WEBGPU,
     EXIT_SETUP,
+    frameWait,
     importBunWebgpu,
     noBunWebgpuMessage,
     parseTuiArgs,
@@ -145,9 +147,107 @@ describe("decodeStdinChunk", () => {
         });
     });
 
+    test("digits 1–6 reach the shared orbit tuning controls", () => {
+        expect(decodeStdinChunk("135")).toEqual({
+            codes: ["Digit1", "Digit3", "Digit5"],
+            quit: false,
+        });
+    });
+
     test("an unrecognized escape sequence and plain text produce no codes and no quit", () => {
         expect(decodeStdinChunk("\x1b[Z")).toEqual({ codes: [], quit: false });
         expect(decodeStdinChunk("hello")).toEqual({ codes: [], quit: false });
+    });
+});
+
+describe("interactive frame cadence", () => {
+    test("readback time consumes the frame budget instead of being followed by another full period", () => {
+        const frameMs = 1000 / 30;
+        const workMs = 20;
+        expect(frameWait(frameMs, workMs)).toBeCloseTo(frameMs - workMs, 8);
+        expect(workMs + frameWait(frameMs, workMs)).toBeCloseTo(frameMs, 8);
+    });
+
+    test("an over-budget frame starts its successor without adding avoidable latency", () => {
+        expect(frameWait(1000 / 30, 40)).toBe(0);
+    });
+});
+
+describe("createKeyRepeatBridge", () => {
+    test("keeps one production keydown continuous across a 375 ms delay-before-repeat", () => {
+        const events: string[] = [];
+        const win = new EventTarget();
+        win.addEventListener("keydown", (event) =>
+            events.push(`down:${(event as unknown as { code: string }).code}`),
+        );
+        win.addEventListener("keyup", (event) =>
+            events.push(`up:${(event as unknown as { code: string }).code}`),
+        );
+        let now = 0;
+        let next = 0;
+        const timers = new Map<number, { at: number; fn: () => void }>();
+        const bridge = createKeyRepeatBridge(
+            win,
+            (fn, delay) => {
+                const id = ++next;
+                timers.set(id, { at: now + delay, fn });
+                return id as unknown as ReturnType<typeof setTimeout>;
+            },
+            (id) => timers.delete(id as unknown as number),
+        );
+        const advance = (ms: number) => {
+            now += ms;
+            for (const [id, timer] of [...timers]) {
+                if (timer.at <= now) {
+                    timers.delete(id);
+                    timer.fn();
+                }
+            }
+        };
+
+        bridge.press("ArrowRight");
+        advance(375);
+        bridge.press("ArrowRight");
+        expect(events).toEqual(["down:ArrowRight"]);
+        advance(79);
+        expect(events).toEqual(["down:ArrowRight"]);
+        advance(1);
+        expect(events).toEqual(["down:ArrowRight", "up:ArrowRight"]);
+    });
+
+    test("uses the long window again for a fresh press after release", () => {
+        const events: string[] = [];
+        const win = new EventTarget();
+        win.addEventListener("keydown", () => events.push("down"));
+        win.addEventListener("keyup", () => events.push("up"));
+        let now = 0;
+        let next = 0;
+        const timers = new Map<number, { at: number; fn: () => void }>();
+        const bridge = createKeyRepeatBridge(
+            win,
+            (fn, delay) => {
+                const id = ++next;
+                timers.set(id, { at: now + delay, fn });
+                return id as unknown as ReturnType<typeof setTimeout>;
+            },
+            (id) => timers.delete(id as unknown as number),
+        );
+        const advance = (ms: number) => {
+            now += ms;
+            for (const [id, timer] of [...timers]) {
+                if (timer.at <= now) {
+                    timers.delete(id);
+                    timer.fn();
+                }
+            }
+        };
+
+        bridge.press("ArrowRight");
+        advance(500);
+        bridge.press("ArrowRight");
+        advance(375);
+        bridge.press("ArrowRight");
+        expect(events).toEqual(["down", "up", "down"]);
     });
 });
 

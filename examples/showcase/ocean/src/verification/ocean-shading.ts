@@ -5,6 +5,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { oceanEstimateDisplacement, oceanFragmentNormal, oceanSurfaceLayout } from "../ocean/index";
+import { OceanFoamGpu } from "../ocean/surface";
 import { DuskSkyGpu } from "../sky";
 
 interface Check {
@@ -128,6 +129,7 @@ async function dispatch(zeroed: boolean): Promise<Float32Array> {
     const transforms = Compute.root.createBuffer(d.arrayOf(Xform, 1)).$usage("storage");
     const vertices = Compute.root.createBuffer(d.arrayOf(d.vec4u, 1)).$usage("storage");
     const duskSky = Compute.root.createBuffer(DuskSkyGpu).$usage("uniform");
+    const foam = Compute.root.createBuffer(OceanFoamGpu).$usage("uniform");
     const surfaceGroup = Compute.root.createBindGroup(oceanSurfaceLayout, {
         eids,
         transforms,
@@ -136,6 +138,7 @@ async function dispatch(zeroed: boolean): Promise<Float32Array> {
         slope0: slope0.createView(),
         slopeSampler: Compute.device.createSampler({ minFilter: "linear", mipmapFilter: "linear" }),
         duskSky,
+        foam,
         vertices,
     });
     const params = Compute.root.createBuffer(ProbeParams).$usage("uniform");
@@ -161,7 +164,7 @@ async function dispatch(zeroed: boolean): Promise<Float32Array> {
     Compute.device.queue.submit([encoder.finish()]);
     const result = new Float32Array((await probeBuffer(Compute.device, output)).bytes);
     for (const resource of [displace0, displace1, slope0]) resource.destroy();
-    for (const resource of [eids, transforms, vertices, duskSky, params]) resource.destroy();
+    for (const resource of [eids, transforms, vertices, duskSky, foam, params]) resource.destroy();
     output.destroy();
     return result;
 }

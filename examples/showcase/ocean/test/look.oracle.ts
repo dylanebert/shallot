@@ -1,7 +1,9 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
 import { decode as decodeJpeg } from "jpeg-js";
 import { PNG } from "pngjs";
+import fixture from "./reference/look-relations.json";
 
 export interface Pixels {
     width: number;
@@ -14,12 +16,13 @@ export interface LookReading {
     farWaterSkyHueDistance: number;
     lowerBandBrightSpecks: number;
     horizon: { transitionWidth: number; continuity: number };
+    foam: { nearCoverage: number; maxLuma: number };
     lumaRange: number;
 }
 
 const BAND_RANGES = {
-    sky: [0.08, 0.3],
-    horizon: [0.38, 0.52],
+    sky: [0.08, 210 / 720],
+    horizon: [210 / 720, 0.52],
     farWater: [0.52, 0.66],
     midWater: [0.66, 0.82],
     nearWater: [0.82, 1],
@@ -165,6 +168,28 @@ function horizon(image: Pixels): { transitionWidth: number; continuity: number }
     return { transitionWidth: hi - lo + 1, continuity: 1 / (1 + deviation) };
 }
 
+function foam(image: Pixels, nearMean: number): { nearCoverage: number; maxLuma: number } {
+    const y0 = Math.floor(image.height * BAND_RANGES.nearWater[0]);
+    let marked = 0;
+    let count = 0;
+    let maxLuma = 0;
+    for (let y = y0; y < image.height; y++) {
+        for (let x = 0; x < image.width; x++) {
+            const i = (y * image.width + x) * 4;
+            const r = image.data[i] ?? 0;
+            const g = image.data[i + 1] ?? 0;
+            const b = image.data[i + 2] ?? 0;
+            const value = luma(r, g, b);
+            if (value >= nearMean + 20 / 255 && Math.max(r, g, b) - Math.min(r, g, b) <= 48) {
+                marked++;
+                maxLuma = Math.max(maxLuma, value);
+            }
+            count++;
+        }
+    }
+    return { nearCoverage: marked / count, maxLuma };
+}
+
 export function analyze(image: Pixels): LookReading {
     const bands = Object.fromEntries(
         Object.entries(BAND_RANGES).map(([name, [from, to]]) => [name, mean(image, from, to)]),
@@ -178,6 +203,7 @@ export function analyze(image: Pixels): LookReading {
         farWaterSkyHueDistance: Math.min(hueDelta, 360 - hueDelta),
         lowerBandBrightSpecks: brightSpecks(image),
         horizon: horizon(image),
+        foam: foam(image, bands.nearWater?.luma ?? 0),
         lumaRange: Math.max(...allLuma) - Math.min(...allLuma),
     };
 }
@@ -205,6 +231,22 @@ export function speckOverlap(a: Pixels, b: Pixels): number {
     return union === 0 ? 1 : intersection / union;
 }
 
+export function satisfiesReferenceRelations(
+    reading: LookReading,
+    relations: typeof fixture.relations = fixture.relations,
+): boolean {
+    return (
+        reading.horizon.transitionWidth >= relations.horizonWidth.min &&
+        reading.horizon.transitionWidth <= relations.horizonWidth.max &&
+        reading.horizon.continuity >= relations.horizonContinuityMin &&
+        reading.farWaterSkyHueDistance <= relations.farWaterSkyHueDistanceMax &&
+        reading.lowerBandBrightSpecks >= relations.lowerBandBrightSpecks.min &&
+        reading.lowerBandBrightSpecks <= relations.lowerBandBrightSpecks.max &&
+        reading.foam.nearCoverage >= relations.foamNearCoverage.min &&
+        reading.foam.nearCoverage <= relations.foamNearCoverage.max
+    );
+}
+
 function print(path: string, reading: LookReading): void {
     console.log(`\n${basename(path)}`);
     for (const [name, band] of Object.entries(reading.bands)) {
@@ -217,54 +259,63 @@ function print(path: string, reading: LookReading): void {
     console.log(
         `  horizon transition ${reading.horizon.transitionWidth}px  continuity ${reading.horizon.continuity.toFixed(3)}`,
     );
+    console.log(
+        `  trough foam coverage ${(reading.foam.nearCoverage * 100).toFixed(2)}%  max luma ${(reading.foam.maxLuma * 255).toFixed(1)}`,
+    );
 }
 
 if (import.meta.main) {
+    const regenerateIndex = process.argv.indexOf("--regenerate");
+    if (regenerateIndex >= 0) {
+        const sourceRoot = resolve(
+            process.argv[regenerateIndex + 1] ?? "../scratch/water-surface/oracle-dusk/frames",
+        );
+        const paths = ["t26.jpg", "t43.jpg"].map((name) => resolve(sourceRoot, name));
+        if (paths.some((path) => !existsSync(path))) {
+            console.log(
+                `SKIP regeneration: optional dusk source images absent under ${sourceRoot}`,
+            );
+            process.exit(0);
+        }
+        for (const path of paths) print(path, analyze(await load(path)));
+        console.log(
+            `Regeneration input read; update ${fixture.oracleRevision} fixture deliberately.`,
+        );
+        process.exit(0);
+    }
     const capture = process.argv[2];
-    if (!capture) throw new Error("usage: bun look.oracle.ts <capture.png> [t26.jpg] [t43.jpg]");
+    if (!capture)
+        throw new Error(
+            "usage: bun look.oracle.ts <capture.png> [--compare path] [--prior path] [--regenerate source-dir]",
+        );
     const compareIndex = process.argv.indexOf("--compare");
     const priorIndex = process.argv.indexOf("--prior");
     const compare = compareIndex >= 0 ? process.argv[compareIndex + 1] : undefined;
     const prior = priorIndex >= 0 ? process.argv[priorIndex + 1] : undefined;
-    const references = [
-        resolve("../research/water-surface/oracle-dusk/frames/t26.jpg"),
-        resolve("../research/water-surface/oracle-dusk/frames/t43.jpg"),
-    ];
     let ok = true;
     const captureImage = await load(capture);
     const captureReading = analyze(captureImage);
     const baseline = analyze(
         await load(resolve("examples/showcase/ocean/test/baseline/ocean-baseline-1.png")),
     );
-    const referenceReadings = await Promise.all(
-        references.map(async (path) => analyze(await load(path))),
-    );
-    for (const [path, reading] of [
-        [capture, captureReading] as const,
-        ...references.map((path, i) => [path, referenceReadings[i]!] as const),
-    ]) {
-        print(path, reading);
-        if (
-            reading.lumaRange < 0.02 ||
-            reading.horizon.transitionWidth < 1 ||
-            reading.horizon.continuity <= 0
-        )
-            ok = false;
-    }
-    const referenceSpecks = referenceReadings.map((reading) => reading.lowerBandBrightSpecks);
-    const referenceWidths = referenceReadings.map((reading) => reading.horizon.transitionWidth);
-    const referenceContinuity = referenceReadings.map((reading) => reading.horizon.continuity);
-    const referenceHueDistance = referenceReadings.map((reading) => reading.farWaterSkyHueDistance);
-    const widthMin = Math.min(...referenceWidths) * 0.5;
-    const widthMax = Math.max(...referenceWidths) * 1.5;
+    print(capture, captureReading);
+    if (
+        captureReading.lumaRange < 0.02 ||
+        captureReading.horizon.transitionWidth < 1 ||
+        captureReading.horizon.continuity <= 0
+    )
+        ok = false;
+    const relations = fixture.relations;
+    const widthMin = relations.horizonWidth.min;
+    const widthMax = relations.horizonWidth.max;
     console.log(
-        `  aerial gate width=${captureReading.horizon.transitionWidth} referenceRange=${widthMin}..${widthMax} continuity=${captureReading.horizon.continuity.toFixed(3)} referenceFloor=${Math.min(...referenceContinuity).toFixed(3)} hue=${captureReading.farWaterSkyHueDistance.toFixed(1)} referenceMax=${Math.max(...referenceHueDistance).toFixed(1)}`,
+        `  aerial gate width=${captureReading.horizon.transitionWidth} referenceRange=${widthMin}..${widthMax} continuity=${captureReading.horizon.continuity.toFixed(3)} referenceFloor=${relations.horizonContinuityMin.toFixed(3)} hue=${captureReading.farWaterSkyHueDistance.toFixed(1)} referenceMax=${relations.farWaterSkyHueDistanceMax.toFixed(1)}`,
     );
     ok &&=
         captureReading.horizon.transitionWidth >= widthMin &&
         captureReading.horizon.transitionWidth <= widthMax;
-    ok &&= captureReading.horizon.continuity >= Math.min(...referenceContinuity);
-    ok &&= captureReading.farWaterSkyHueDistance <= Math.max(...referenceHueDistance);
+    ok &&= captureReading.horizon.continuity >= relations.horizonContinuityMin;
+    ok &&= captureReading.farWaterSkyHueDistance <= relations.farWaterSkyHueDistanceMax;
     if (prior) {
         const priorReading = analyze(await load(prior));
         const baselineNear = await Promise.all(
@@ -282,15 +333,38 @@ if (import.meta.main) {
             Math.max(...baselineNear.map((reading) => reading.bands.nearWater!.luma)) -
             Math.min(...baselineNear.map((reading) => reading.bands.nearWater!.luma));
         console.log(
-            `  S4 near-band floor capture=${captureReading.bands.nearWater!.luma.toFixed(6)} prior=${priorReading.bands.nearWater!.luma.toFixed(6)} tolerance=${nearFloor.toFixed(6)}`,
+            `  foam treatment coverage capture=${(captureReading.foam.nearCoverage * 100).toFixed(3)}% prior=${(priorReading.foam.nearCoverage * 100).toFixed(3)}%`,
+        );
+        console.log(
+            `  S5 mid-band floor capture=${captureReading.bands.midWater!.luma.toFixed(6)} prior=${priorReading.bands.midWater!.luma.toFixed(6)} tolerance=${nearFloor.toFixed(6)}`,
         );
         ok &&=
-            captureReading.bands.nearWater!.luma >= priorReading.bands.nearWater!.luma - nearFloor;
+            Math.abs(captureReading.bands.midWater!.luma - priorReading.bands.midWater!.luma) <=
+            nearFloor;
+        for (const band of ["sky", "horizon", "farWater"] as const) {
+            const floor =
+                Math.max(...baselineNear.map((reading) => reading.bands[band]!.luma)) -
+                Math.min(...baselineNear.map((reading) => reading.bands[band]!.luma));
+            const delta = Math.abs(
+                captureReading.bands[band]!.luma - priorReading.bands[band]!.luma,
+            );
+            console.log(
+                `  untouched ${band} delta=${delta.toFixed(6)} S1Floor=${floor.toFixed(6)}`,
+            );
+            ok &&= delta <= floor;
+        }
     }
-    const referenceMin = Math.min(...referenceSpecks) / 10;
-    const referenceMax = Math.max(...referenceSpecks) * 10;
     console.log(
-        `  near-band speck gate capture=${captureReading.lowerBandBrightSpecks} baseline=${baseline.lowerBandBrightSpecks} dusk=${referenceSpecks.join(",")}`,
+        `  foam gate coverage=${(captureReading.foam.nearCoverage * 100).toFixed(2)}% max=${(captureReading.foam.maxLuma * 255).toFixed(1)} sky=${(captureReading.bands.sky!.luma * 255).toFixed(1)}`,
+    );
+    ok &&=
+        captureReading.foam.nearCoverage >= relations.foamNearCoverage.min &&
+        captureReading.foam.nearCoverage <= relations.foamNearCoverage.max;
+    ok &&= captureReading.foam.maxLuma <= captureReading.bands.sky!.luma;
+    const referenceMin = relations.lowerBandBrightSpecks.min;
+    const referenceMax = relations.lowerBandBrightSpecks.max;
+    console.log(
+        `  near-band speck gate capture=${captureReading.lowerBandBrightSpecks} baseline=${baseline.lowerBandBrightSpecks} dusk=${fixture.references.t26.lowerBandBrightSpecks},${fixture.references.t43.lowerBandBrightSpecks}`,
     );
     ok &&= captureReading.lowerBandBrightSpecks > baseline.lowerBandBrightSpecks;
     ok &&=
