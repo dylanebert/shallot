@@ -1,10 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import witnesses from "./fixtures/look/provenance.json";
 import {
     analyze,
     assertRegeneratedReferences,
     bandRanges,
     load,
+    type ReferenceRelation,
+    referenceRelationResults,
+    satisfiesPriorGoodFloor,
     satisfiesReferenceRelations,
 } from "./look.oracle";
 import fixture from "./reference/look-relations.json";
@@ -43,17 +49,51 @@ describe("ocean look oracle", () => {
         expect(() => assertRegeneratedReferences(mutated)).toThrow("t26 reading differs");
     });
 
-    test("both rejected S13 witnesses red their named relations", () => {
-        expect(satisfiesReferenceRelations(fixture.rejected.s13Default.reading)).toBe(false);
-        expect(satisfiesReferenceRelations(fixture.rejected.s13SunFacing.reading)).toBe(false);
-        expect(fixture.rejected.s13Default.mustFail).toEqual(["nearMeanChroma"]);
-        expect(fixture.rejected.s13Default.reading.normalResponse.nearMeanChroma).toBeGreaterThan(
-            fixture.relations.nearMeanChroma.max,
-        );
-        expect(fixture.rejected.s13SunFacing.mustFail).toEqual(["fadeExtent"]);
-        expect(fixture.rejected.s13SunFacing.reading.duskBalance.fadeExtent).toBeLessThan(
-            fixture.relations.fadeExtent.min,
-        );
+    test("tracked witnesses retain provenance and their declared red and green relations", async () => {
+        expect(witnesses.oracleRevision).toBe("shallot-ocean-look/S15");
+        for (const witness of Object.values(witnesses.fixtures)) {
+            const path = resolve(import.meta.dir, "fixtures/look", witness.file);
+            const digest = createHash("sha256")
+                .update(await readFile(path))
+                .digest("hex");
+            expect(digest).toBe(witness.sha256);
+            expect(witness.source).toStartWith("scratch/shallot-ocean-look/");
+            expect(witness.capture).toContain("Apple Metal");
+        }
+
+        for (const name of ["s13Default", "s13SunFacing"] as const) {
+            const witness = witnesses.fixtures[name];
+            const reading = analyze(
+                await load(resolve(import.meta.dir, "fixtures/look", witness.file)),
+            );
+            const results = referenceRelationResults(reading);
+            for (const relation of witness.mustRed)
+                expect(results[relation as ReferenceRelation], `${name} must red ${relation}`).toBe(
+                    false,
+                );
+            for (const relation of witness.mustGreen)
+                expect(
+                    results[relation as ReferenceRelation],
+                    `${name} must keep unrelated ${relation} green`,
+                ).toBe(true);
+        }
+    });
+
+    test("the S9 floor stays in-range or moves strictly toward the gold interval", async () => {
+        const witness = witnesses.fixtures.s9PriorGood;
+        const prior = analyze(await load(resolve(import.meta.dir, "fixtures/look", witness.file)));
+        const chroma = prior.normalResponse.nearMeanChroma;
+        const chromaGold = fixture.relations.nearMeanChroma;
+        expect(chroma).toBeGreaterThan(chromaGold.max);
+        expect(satisfiesPriorGoodFloor(chroma - 1, chroma, chromaGold)).toBe(true);
+        expect(satisfiesPriorGoodFloor(chroma, chroma, chromaGold)).toBe(false);
+        expect(satisfiesPriorGoodFloor(chroma + 1, chroma, chromaGold)).toBe(false);
+
+        const hue = prior.farWaterSkyHueDistance;
+        const hueGold = fixture.relations.farWaterSkyHueDistance;
+        expect(hue).toBeWithin(hueGold.min, hueGold.max);
+        expect(satisfiesPriorGoodFloor(hueGold.min, hue, hueGold)).toBe(true);
+        expect(satisfiesPriorGoodFloor(hueGold.max + 0.001, hue, hueGold)).toBe(false);
     });
 
     test("cuts every band from the image's detected horizon", () => {

@@ -1,0 +1,34 @@
+{
+    "oracleRevision": "shallot-ocean-look/S15",
+    "fixtures": {
+        "s13Default": {
+            "file": "s13-default.png",
+            "source": "scratch/shallot-ocean-look/S13-20260903-apple/default.png",
+            "sha256": "4e682ee6f95bb84d09a2419616c0f802cb340d87f2db6812a4b343792a54beb0",
+            "capture": "S13 rejected default camera, Apple Metal, 2026-09-03",
+            "mustRed": ["nearMeanChroma"],
+            "mustGreen": [
+                "horizonContinuity",
+                "farWaterSkyHueDistance",
+                "foamNearCoverage",
+                "horizonValueStep",
+                "nearBlueRedRatio"
+            ]
+        },
+        "s13SunFacing": {
+            "file": "s13-sun-facing.png",
+            "source": "scratch/shallot-ocean-look/S13-20260903-apple/sun-facing.png",
+            "sha256": "b0547efcaa2d32fe31707ba7bacee0df40f9d5e290b1b297f0616bae9c7cd65c",
+            "capture": "S13 rejected sun-facing camera, Apple Metal, 2026-09-03",
+            "mustRed": ["fadeExtent"],
+            "mustGreen": ["farWaterSkyHueDistance", "horizonValueStep"]
+        },
+        "s9PriorGood": {
+            "file": "s9-prior-good.png",
+            "source": "scratch/shallot-ocean-look/S9-20260903-apple/ocean-s9.png",
+            "sha256": "b102e79f7843af558fb3ecdf1be40aefe5389aea749797d27e0d3706eb41cbd5",
+            "capture": "S9 prior-good fixed default camera, Apple Metal, 2026-09-03",
+            "floor": "inside a gold interval stays inside; outside moves strictly closer to that interval"
+        }
+    }
+}
