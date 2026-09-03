@@ -80,7 +80,16 @@ export class Encoder {
     private _cursorRow = -1;
     private _cursorCol = -1;
 
-    constructor(private readonly _tier: Tier) {}
+    constructor(
+        private readonly _tier: Tier,
+        private _origin: { row: number; col: number } = { row: 0, col: 0 },
+    ) {}
+
+    /** Move the grid within the terminal and force a repaint at the new origin. */
+    place(origin: { row: number; col: number }): void {
+        this._origin = origin;
+        this.invalidate();
+    }
 
     /**
      * Forces the next `encode()` call to be an unconditional full repaint, regardless of whether
@@ -110,22 +119,24 @@ export class Encoder {
         if (runsOrResize === "resize") {
             out += CLEAR_SCREEN + CURSOR_HOME;
             for (let y = 0; y < grid.height; y++) {
-                out += cursorTo(y, 0);
+                out += cursorTo(y + this._origin.row, this._origin.col);
                 const rendered = encodeRun(grid.cells[y], this._tier);
                 out += rendered;
                 if (this._tier !== "glyph" && grid.width > 0) wroteColor = true;
             }
-            this._cursorRow = grid.height - 1;
-            this._cursorCol = grid.width;
+            this._cursorRow = grid.height - 1 + this._origin.row;
+            this._cursorCol = grid.width + this._origin.col;
         } else {
             for (const run of runsOrResize) {
-                if (this._cursorRow !== run.row || this._cursorCol !== run.col) {
-                    out += cursorTo(run.row, run.col);
+                const row = run.row + this._origin.row;
+                const col = run.col + this._origin.col;
+                if (this._cursorRow !== row || this._cursorCol !== col) {
+                    out += cursorTo(row, col);
                 }
                 out += encodeRun(run.cells, this._tier);
                 if (this._tier !== "glyph" && run.cells.length > 0) wroteColor = true;
-                this._cursorRow = run.row;
-                this._cursorCol = run.col + run.cells.length;
+                this._cursorRow = row;
+                this._cursorCol = col + run.cells.length;
             }
         }
 

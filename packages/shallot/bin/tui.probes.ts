@@ -29,9 +29,10 @@ try {
     hasBunWebgpu = false;
 }
 
-function runPiped(extra: string[] = []) {
+function runPiped(extra: string[] = [], env: NodeJS.ProcessEnv = process.env) {
     return spawnSync("bun", [CLI, "tui", RECIPE_DIR, "--frames", "4", "--fps", "30", ...extra], {
         cwd: REPO_ROOT,
+        env,
         stdio: ["ignore", "pipe", "pipe"],
         timeout: 60_000,
     });
@@ -47,6 +48,23 @@ function skipReason(result: ReturnType<typeof runPiped>): string | null {
     }
     return null;
 }
+
+describe("shallot tui — selected color tier observability (criterion 15)", () => {
+    test.skipIf(!hasBunWebgpu)(
+        "forced and auto-detected runs selecting truecolor report distinct sources after teardown",
+        () => {
+            const forced = runPiped(["--tier", "truecolor"]);
+            const skip = skipReason(forced);
+            if (skip) return;
+            const auto = runPiped([], { ...process.env, FORCE_COLOR: "3" });
+            expect(forced.status).toBe(EXIT_PASS);
+            expect(auto.status).toBe(EXIT_PASS);
+            expect(forced.stderr.toString()).toContain("color tier truecolor (forced)");
+            expect(auto.stderr.toString()).toContain("color tier truecolor (auto-detected)");
+        },
+        30_000,
+    );
+});
 
 describe("shallot tui — deterministic into a pipe (criterion 6, real subprocess)", () => {
     // Two-sided by construction: the hash is pinned against a second live run of the same command, not

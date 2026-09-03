@@ -20,18 +20,23 @@ export interface CellGridSize {
     readonly rows: number;
 }
 
-/** Derive a grid from an output surface measured in device pixels. */
+/** Derive a grid from an output surface and the physical width and height of one cell. */
 export function deriveCellGridSize(
     width: number,
     height: number,
-    target = CELL_TARGET_DEVICE_PX,
+    cellWidth = CELL_TARGET_DEVICE_PX,
+    cellHeight = cellWidth,
 ): CellGridSize {
-    if (![width, height, target].every((value) => Number.isFinite(value) && value > 0)) {
-        throw new Error(`[cells] grid surface and target must be finite and positive`);
+    if (
+        ![width, height, cellWidth, cellHeight].every(
+            (value) => Number.isFinite(value) && value > 0,
+        )
+    ) {
+        throw new Error(`[cells] grid surface and cell dimensions must be finite and positive`);
     }
     return {
-        cols: Math.max(1, Math.round(width / target)),
-        rows: Math.max(1, Math.round(height / target)),
+        cols: Math.max(1, Math.round(width / cellWidth)),
+        rows: Math.max(1, Math.round(height / cellHeight)),
     };
 }
 

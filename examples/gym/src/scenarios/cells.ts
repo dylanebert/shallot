@@ -79,6 +79,40 @@ const ROWS = 6;
 // not a structural pattern that would hold at other grid sizes.
 const EXPECTED_TIE_DIVERGENCES = 60;
 
+function roundInkRatio(cellWidth: number, cellHeight: number): number {
+    const cols = 80;
+    const rows = 80;
+    const radius = 28;
+    let minX = cols;
+    let maxX = -1;
+    let minY = rows;
+    let maxY = -1;
+    for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+            const px = (x + 0.5 - cols / 2) * cellWidth;
+            const py = (y + 0.5 - rows / 2) * cellHeight;
+            if (px * px + py * py > radius * radius) continue;
+            minX = Math.min(minX, x);
+            maxX = Math.max(maxX, x);
+            minY = Math.min(minY, y);
+            maxY = Math.max(maxY, y);
+        }
+    }
+    return (maxX - minX + 1) / (maxY - minY + 1);
+}
+
+function assertTerminalAspect(): Check {
+    const correct = roundInkRatio(1, 2);
+    const square = roundInkRatio(1, 1);
+    const over = roundInkRatio(1, 4);
+    const pass = correct > 1.8 && correct < 2.2 && square < 1.2 && over > 3.5;
+    return {
+        name: "criterion 14: a round silhouette stays round through 1:2 terminal cells",
+        pass,
+        detail: `emitted ink bbox ratios: aspect-correct ${correct.toFixed(2)}, square-cell control ${square.toFixed(2)}, over-stretched control ${over.toFixed(2)}`,
+    };
+}
+
 function assertSurfaceGridSize(): Check {
     const small = deriveCellGridSize(640, 360);
     const large = deriveCellGridSize(1280, 720);
@@ -1459,6 +1493,7 @@ const scenario: Scenario = {
             await assertFacadeInk(),
             await assertFrameIsGrid(),
             assertSurfaceGridSize(),
+            assertTerminalAspect(),
         ];
     },
     live(): string {
