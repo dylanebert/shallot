@@ -3,7 +3,7 @@
 // the recipe" (examples/recipes/render-to-a-terminal). Boots that recipe's scene headlessly through
 // bun-webgpu — no browser, no `shallot verify`, no dev/preview server — drives the orbit camera to a
 // named yaw, steps the real `CellsPlugin` pipeline (`select.ts`'s structure-first glyph selection over
-// the actual rendered cube), and prints the 80x24 glyph-only grid: exactly what criterion 8's human read
+// the actual rendered cube), and prints its live derived glyph-only grid: exactly what criterion 8's human read
 // judges, with the color the criterion strips already absent.
 //
 // Lives beside `generate-ramp.ts`, not under `src/extras/cells/` — the same reasoning that file's own
@@ -21,7 +21,8 @@
 // preload below — required, `bun run` alone does not apply a `bunfig.toml` `[test]`-only preload — is
 // never forgotten): `bun run dump-cells-ascii -- [--yaw <radians>] [--pitch <radians>]`, or equivalently
 // from the shallot repo root: `bun run --cwd packages/shallot dump-cells-ascii -- --yaw <radians>`.
-// Defaults match the recipe scene's own authored orbit (`yaw: 0.6; pitch: 0.55`).
+// `--cell-w` and `--cell-h` pin capture geometry when replay cells are non-square. Defaults match the
+// recipe scene's own authored orbit (`yaw: 0.6; pitch: 0.55`) and square 11px cells.
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -39,7 +40,6 @@ import {
     build,
     Camera,
     CellsPlugin,
-    COLS,
     Compute,
     cellsGridFor,
     InputPlugin,
@@ -47,7 +47,6 @@ import {
     OrbitPlugin,
     PartPlugin,
     RenderPlugin,
-    ROWS,
     SearPlugin,
     SlabPlugin,
     TransformsPlugin,
@@ -87,14 +86,18 @@ if (typeof (globalThis as { ResizeObserver?: unknown }).ResizeObserver === "unde
 class DumpCanvas {
     readonly width: number;
     readonly height: number;
+    readonly cellWidth: number;
+    readonly cellHeight: number;
     readonly style: Record<string, string> = {};
     private _device: GPUDevice | null = null;
     private _format: GPUTextureFormat = "bgra8unorm";
     private _texture: GPUTexture | null = null;
 
-    constructor(width: number, height: number) {
+    constructor(width: number, height: number, cellWidth: number, cellHeight: number) {
         this.width = width;
         this.height = height;
+        this.cellWidth = cellWidth;
+        this.cellHeight = cellHeight;
     }
 
     getContext(kind: string): DumpCanvas | null {
@@ -133,22 +136,26 @@ class DumpCanvas {
     }
 }
 
-interface Args {
+export interface DumpCellsAsciiArgs {
     yaw: number;
     pitch: number;
+    cellWidth: number;
+    cellHeight: number;
 }
 
-function parseArgs(argv: readonly string[]): Args {
-    const args: Args = { yaw: 0.6, pitch: 0.55 };
+function parseArgs(argv: readonly string[]): DumpCellsAsciiArgs {
+    const args: DumpCellsAsciiArgs = { yaw: 0.6, pitch: 0.55, cellWidth: 11, cellHeight: 11 };
     for (let i = 0; i < argv.length; i++) {
         if (argv[i] === "--yaw" && argv[i + 1]) args.yaw = Number(argv[++i]);
         else if (argv[i] === "--pitch" && argv[i + 1]) args.pitch = Number(argv[++i]);
+        else if (argv[i] === "--cell-w" && argv[i + 1]) args.cellWidth = Number(argv[++i]);
+        else if (argv[i] === "--cell-h" && argv[i + 1]) args.cellHeight = Number(argv[++i]);
     }
     return args;
 }
 
-/** the 24x80 glyph-only text {@link cellsGridFor}'s grid decodes to — one row per line, no color, no
- *  trailing padding beyond the grid's own fixed shape. @internal exported for the dump's own test. */
+/** the glyph-only text {@link cellsGridFor}'s live grid decodes to — one row per line, no color, no
+ *  trailing padding beyond the grid's own shape. @internal exported for the dump's own test. */
 export function renderAsciiGrid(bytes: ArrayBuffer, cols: number, rows: number): string {
     const lines: string[] = [];
     for (let y = 0; y < rows; y++) {
@@ -162,8 +169,10 @@ export function renderAsciiGrid(bytes: ArrayBuffer, cols: number, rows: number):
     return lines.join("\n");
 }
 
-async function main(): Promise<void> {
-    const args = parseArgs(process.argv.slice(2));
+/** boot the terminal recipe and decode the live plugin-derived grid. @internal */
+export async function dumpCellsAscii(
+    args: DumpCellsAsciiArgs,
+): Promise<{ grid: { cols: number; rows: number }; text: string }> {
     await setupGlobals();
 
     const sceneXml = readFileSync(fileURLToPath(SCENE_URL), "utf8");
@@ -191,7 +200,7 @@ async function main(): Promise<void> {
     const cameraEid = [...app.state.query([Camera])][0];
     if (cameraEid === undefined) throw new Error("dump-cells-ascii: no camera in the recipe scene");
 
-    const canvas = new DumpCanvas(RENDER_W, RENDER_H);
+    const canvas = new DumpCanvas(RENDER_W, RENDER_H, args.cellWidth, args.cellHeight);
     attachCanvas(cameraEid, canvas as unknown as HTMLCanvasElement, app.state);
 
     // the named yaw/pitch — set before the first step so `OrbitSystem`'s smoothing state initializes
@@ -218,10 +227,21 @@ async function main(): Promise<void> {
     const bytes = staging.getMappedRange(0, raw.size).slice(0);
     staging.destroy();
 
-    console.log(`# dump-cells-ascii yaw=${args.yaw} pitch=${args.pitch}`);
-    console.log(renderAsciiGrid(bytes, COLS, ROWS));
-
+    const result = {
+        grid: { cols: grid.cols, rows: grid.rows },
+        text: renderAsciiGrid(bytes, grid.cols, grid.rows),
+    };
     app.dispose();
+    return result;
+}
+
+async function main(): Promise<void> {
+    const args = parseArgs(process.argv.slice(2));
+    const { text } = await dumpCellsAscii(args);
+    console.log(
+        `# dump-cells-ascii yaw=${args.yaw} pitch=${args.pitch} cell-w=${args.cellWidth} cell-h=${args.cellHeight}`,
+    );
+    console.log(text);
 }
 
 if (import.meta.main) {
