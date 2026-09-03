@@ -477,12 +477,14 @@ if (import.meta.main) {
     const capture = process.argv[2];
     if (!capture)
         throw new Error(
-            "usage: bun look.oracle.ts <capture.png> [--compare path] [--prior path] [--regenerate source-dir]",
+            "usage: bun look.oracle.ts <capture.png> [--condition sun-facing] [--compare path] [--prior path] [--regenerate source-dir]",
         );
     const compareIndex = process.argv.indexOf("--compare");
     const priorIndex = process.argv.indexOf("--prior");
+    const conditionIndex = process.argv.indexOf("--condition");
     const compare = compareIndex >= 0 ? process.argv[compareIndex + 1] : undefined;
     const prior = priorIndex >= 0 ? process.argv[priorIndex + 1] : undefined;
+    const condition = conditionIndex >= 0 ? process.argv[conditionIndex + 1] : undefined;
     let ok = true;
     const captureImage = await load(capture);
     const captureReading = analyze(captureImage);
@@ -496,6 +498,21 @@ if (import.meta.main) {
         captureReading.horizon.continuity <= 0
     )
         ok = false;
+    if (condition === "sun-facing") {
+        const waterHeight = captureImage.height - captureReading.horizon.row;
+        const fade = captureReading.duskBalance.fadeExtent / waterHeight;
+        const specks =
+            captureReading.lowerBandBrightSpecks / ((waterHeight * captureImage.width) / 1_000_000);
+        console.log(
+            `  sun-facing instrument horizon=${captureReading.horizon.row}/${captureImage.height} fade/water=${fade.toFixed(4)} specks/MPwater=${specks.toFixed(2)}`,
+        );
+        ok &&= captureReading.horizon.row > 0 && waterHeight > 0;
+        ok &&= Number.isFinite(fade) && fade >= 0 && fade <= 1;
+        ok &&= Number.isFinite(specks) && specks >= 0;
+        if (!ok) process.exitCode = 1;
+        process.exit();
+    }
+    if (condition !== undefined) throw new Error(`unknown look-oracle condition: ${condition}`);
     const relations = fixture.relations;
     const widthMin = relations.horizonWidth.min;
     const widthMax = relations.horizonWidth.max;
