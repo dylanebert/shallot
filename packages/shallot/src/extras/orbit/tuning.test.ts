@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { attach } from "../../../tests/helpers";
-import { InputPlugin, Orbit, OrbitTuningPlugin, State } from "../..";
+import { InputPlugin, Orbit, OrbitPlugin, OrbitTuningPlugin, State } from "../..";
 import { clear, register } from "../../engine/ecs/core";
 
 // biome-ignore lint/complexity/noBannedTypes: DOM listener mock accepts browser callbacks
@@ -73,7 +73,7 @@ describe("OrbitTuningPlugin", () => {
         } as unknown as typeof document;
 
         state = new State();
-        register("Orbit", Orbit, OrbitTuningPlugin.traits?.Orbit);
+        register("Orbit", Orbit, OrbitPlugin.traits?.Orbit);
         for (const [name, component] of Object.entries(InputPlugin.components ?? {}))
             register(name, component, InputPlugin.traits?.[name]);
         attach(state, InputPlugin);
@@ -92,13 +92,13 @@ describe("OrbitTuningPlugin", () => {
     test("a production digit event mutates Orbit and updates the mounted readout", () => {
         const overlay = canvasParent.children[0];
         const readout = overlay.children[0].children[0];
-        expect(readout.textContent).toContain("rate 1.0 rad/s");
+        expect(readout.textContent).toContain("rate 1.2 rad/s");
 
         windowListeners.get("keydown")!({ code: "Digit2" });
         state.step();
 
         const eid = [...state.query([Orbit])][0];
-        expect(Orbit.keyRate.get(eid)).toBeCloseTo(1.1);
-        expect(readout.textContent).toContain("rate 1.1 rad/s");
+        expect(Orbit.keyRate.get(eid)).toBeCloseTo(1.3);
+        expect(readout.textContent).toContain("rate 1.3 rad/s");
     });
 });
