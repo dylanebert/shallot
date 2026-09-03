@@ -308,7 +308,7 @@ export const oceanSurfaceFs = tgpu.fn(
     );
     const factor = meanFresnel(std.max(std.dot(normal, view), 0), sigma);
     const fresnel = 0.02 + 0.98 * factor;
-    const body = d.vec3f(0.004, 0.025, 0.032);
+    const body = d.vec3f(0.001, 0.006, 0.008);
     return d.vec4f(std.mix(body, sky, fresnel), 1);
 });
 
