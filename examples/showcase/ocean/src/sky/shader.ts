@@ -33,7 +33,9 @@ export const sampleElevation = tgpu
     )((sky, dir) => {
         "use gpu";
         const elevation = std.smoothstep(0, 1, std.max(dir.y, 0));
-        return d.vec3f(std.mix(sky.horizon.xyz, sky.zenith.xyz, elevation));
+        return d.vec3f(
+            std.mul(std.mix(sky.horizon.xyz, sky.zenith.xyz, elevation), d.vec3f(0.52, 0.8, 1.05)),
+        );
     })
     .$name("sampleDuskElevation");
 
@@ -45,7 +47,7 @@ export const sampleHaze = tgpu
     )((sky, dir) => {
         "use gpu";
         const band = std.exp(-std.abs(dir.y) * 18) * sky.haze.w;
-        return d.vec3f(std.mul(sky.haze.xyz, band));
+        return d.vec3f(std.mul(std.mul(sky.haze.xyz, band), d.vec3f(0.52, 0.8, 1.05)));
     })
     .$name("sampleDuskHaze");
 
@@ -58,7 +60,12 @@ export const sampleCloud = tgpu
         "use gpu";
         const wave = 0.5 + 0.5 * std.sin(dir.x * 11 + dir.z * 7 + dir.y * 3);
         const altitude = std.smoothstep(-0.02, 0.18, dir.y);
-        return d.vec3f(std.mul(sky.cloud.xyz, wave * altitude * sky.cloud.w));
+        return d.vec3f(
+            std.mul(
+                std.mul(sky.cloud.xyz, wave * altitude * sky.cloud.w),
+                d.vec3f(0.52, 0.8, 1.05),
+            ),
+        );
     })
     .$name("sampleDuskCloud");
 
@@ -71,7 +78,7 @@ export const sampleSun = tgpu
         "use gpu";
         const alignment = std.max(std.dot(dir, std.neg(lightDirection)), 0);
         const glow = std.pow(alignment, 48) * sky.sun.w;
-        return d.vec3f(std.mul(sky.sun.xyz, glow));
+        return d.vec3f(std.mul(std.mul(sky.sun.xyz, glow), d.vec3f(0.52, 0.8, 1.05)));
     })
     .$name("sampleDuskSun");
 

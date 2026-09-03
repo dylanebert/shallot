@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { unpackColor } from "@dylanebert/shallot";
 import * as d from "typegpu/data";
 import {
-    DUSK_SKY_DEFAULTS,
     DuskSkyGpu,
     sampleCloud,
     sampleElevation,
@@ -9,6 +9,7 @@ import {
     sampleSky,
     sampleSun,
 } from "../src/sky";
+import fixture from "./reference/look-relations.json";
 
 const base = (overrides: Partial<d.Infer<typeof DuskSkyGpu>> = {}) =>
     DuskSkyGpu({
@@ -89,17 +90,54 @@ describe("demo-local dusk sky", () => {
         });
     });
 
-    test("pins reference-shaped sane defaults", () => {
-        expect(DUSK_SKY_DEFAULTS).toEqual({
-            zenith: 0x31577e,
-            horizon: 0xd5a6a0,
-            haze: 0xe8b5a4,
-            hazeStrength: 0.16,
-            cloud: 0x715f78,
-            cloudStrength: 0.18,
-            sun: 0xffd5a0,
-            sunStrength: 0.42,
-            exposure: 1.05,
-        });
+    test("CPU sky recipe reaches the marked dusk anchors", () => {
+        const rgb = (hex: number) => {
+            const value = unpackColor(hex);
+            return d.vec3f(value.r, value.g, value.b);
+        };
+        const anchorCarriers = { zenith: 0xd7a4a0, horizon: 0x976d70, haze: 0xa8797b };
+        const samples = {
+            zenith: values(
+                sampleElevation(
+                    base({ zenith: d.vec4f(rgb(anchorCarriers.zenith), 0) }),
+                    d.vec3f(0, 1, 0),
+                ),
+            ),
+            horizon: values(
+                sampleElevation(
+                    base({ horizon: d.vec4f(rgb(anchorCarriers.horizon), 0) }),
+                    d.vec3f(1, 0, 0),
+                ),
+            ),
+            haze: values(
+                sampleSky(
+                    base({
+                        horizon: d.vec4f(rgb(anchorCarriers.horizon), 0),
+                        haze: d.vec4f(rgb(anchorCarriers.haze), 0.08),
+                        cloud: d.vec4f(0),
+                        sun: d.vec4f(0),
+                        exposure: d.vec4f(1, 0, 0, 0),
+                    }),
+                    d.vec3f(1, 0, 0),
+                    sun,
+                ),
+            ),
+        };
+        for (const name of ["zenith", "horizon", "haze"] as const) {
+            samples[name].forEach((value, channel) => {
+                expect(
+                    Math.abs(value - fixture.relations.skyAnchorsLinear[name][channel]!),
+                ).toBeLessThanOrEqual(fixture.relations.skyAnchorChannelTolerance);
+            });
+        }
+
+        const revertedZenith = rgb(0x31577e);
+        expect(
+            values(revertedZenith).some(
+                (value, channel) =>
+                    Math.abs(value - fixture.relations.skyAnchorsLinear.zenith[channel]!) >
+                    fixture.relations.skyAnchorChannelTolerance,
+            ),
+        ).toBe(true);
     });
 });

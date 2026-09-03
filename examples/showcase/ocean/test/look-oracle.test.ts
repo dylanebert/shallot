@@ -20,8 +20,12 @@ describe("ocean look oracle", () => {
     });
 
     test("committed reference relations retain provenance", () => {
-        expect(fixture.oracleRevision).toBe("shallot-ocean-look/S6@91fc585");
+        expect(fixture.oracleRevision).toBe("shallot-ocean-look/S8");
         expect(fixture.provenance.horizonRows).toBe("210/720");
+        expect(fixture.provenance.absoluteRelationRows).toEqual({
+            t26: "277/540",
+            t43: "267/540",
+        });
         expect(fixture.provenance.sources).toHaveLength(4);
         expect(
             fixture.provenance.sources.every(({ sha256 }) => /^[a-f0-9]{64}$/.test(sha256)),
@@ -33,7 +37,12 @@ describe("ocean look oracle", () => {
             bands: {},
             farWaterSkyHueDistance: 20,
             lowerBandBrightSpecks: 67,
-            horizon: { transitionWidth: 4, continuity: 0.4 },
+            horizon: { row: 210, transitionWidth: 4, continuity: 0.4, valueStep: 0.02 },
+            duskBalance: {
+                waterSkyLumaRatios: [0.7, 0.5, 0.4, 0.3] as [number, number, number, number],
+                fadeExtent: 210,
+                nearBlueRedRatio: 1.2,
+            },
             foam: { nearCoverage: 0.05, maxLuma: 0.4 },
             lumaRange: 0.4,
         };
