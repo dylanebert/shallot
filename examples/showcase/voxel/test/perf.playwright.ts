@@ -1,3 +1,4 @@
+import { isDegradedBootMessage } from "@dylanebert/shallot/harness";
 import { expect, test } from "@playwright/test";
 import { adapterName, SOFTWARE } from "./gpu-adapter";
 
@@ -44,6 +45,11 @@ test("structural — emit dispatch scope tracks touched-chunk volume, not the fu
 }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(String(e)));
+    page.on("console", (message) => {
+        if (message.type() === "error" || isDegradedBootMessage(message.text())) {
+            errors.push(`[console.${message.type()}] ${message.text()}`);
+        }
+    });
 
     await page.goto("/");
 

@@ -1,3 +1,4 @@
+import { isDegradedBootMessage } from "@dylanebert/shallot/harness";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { deriveDemosFromIframeSrcs } from "./demos";
 import { classifyRendered } from "./rendered";
@@ -54,12 +55,8 @@ test("visualization showcase — every demo renders a positive canvas", async ({
         const text = message.text();
         if (
             message.type() === "error" ||
-            // the engine's degraded-boot warnings ride `console.warn`: a demo plugin dropped for a
-            // missing dependency or a scene attribute nothing registered still renders a canvas, so
-            // the pixel law alone reads green while the demo's headline behaviour is gone
-            /draw .* skipped|GPUValidationError|WebGPU.*(?:error|failed)|Missing plugin dependency|is not registered|names no clip/i.test(
-                text,
-            )
+            isDegradedBootMessage(text) ||
+            /draw .* skipped|WebGPU.*(?:error|failed)/i.test(text)
         ) {
             errors.push(`[console.${message.type()}] ${text}`);
         }

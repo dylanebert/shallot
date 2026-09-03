@@ -8,6 +8,7 @@ import type { GpuLog } from "../src/engine/runtime/log";
 import type { BenchmarkCompileStats } from "../src/extras/profile/benchmark";
 import type { Check, PixelProbe, Verdict } from "../src/harness";
 import { REAL_GPU_LAUNCH } from "../src/harness/browser";
+import { degradedBootHint } from "../src/harness/degraded-boot";
 import { pixelProbePass, probePixels } from "../src/harness/pixels";
 import { CROSS_ORIGIN_ISOLATION } from "../src/project/vite";
 import { devConfig } from "./dev";
@@ -76,8 +77,7 @@ export function displayGateMessage(hardware: string): string {
 // went unseen when the visualization demos lost their animation — a warning-typed message has to match
 // here to reach `errors`, so these two are named.
 /** @internal exported for the signature test only. */
-export const ERR_HINT =
-    /\b(?:wgsl|shader compilation|pipeline.*invalid|destroyed|validation error|device.*lost|uncaptured|GPUValidationError|GPUInternalError|exceeds the max|crashed|Missing plugin dependency|is not registered|names no clip)\b/i;
+export const ERR_HINT = degradedBootHint;
 
 const INSTALL_PLAYWRIGHT = "bun add -d playwright && bunx playwright install chromium";
 

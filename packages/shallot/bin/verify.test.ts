@@ -18,6 +18,7 @@ import { parsePhases, parseResources, parseTransformLine } from "../../../script
 import { verifyDiagnostic } from "../../../scripts/install-test";
 import type { ShaderArtifactSummary, VerifyResult } from "../../../scripts/verify";
 import { initialFrameSamplerState, sampleFrame } from "../../../site/rum-sampler";
+import { isDegradedBootMessage } from "../src/harness";
 import {
     ATTRIBUTION_INIT_SCRIPT,
     batchPass,
@@ -101,14 +102,17 @@ describe("ERR_HINT — the console signatures verify promotes to errors", () => 
     // Regression: the visualization demos booted with `Missing plugin dependency: CurveClips requires
     // Animation` and `[shallot] "animator" is not registered`, rendered a static canvas, and every gate
     // stayed green because both are warning-typed console messages. They must match here.
-    test("degraded-boot warnings match", () => {
-        expect(ERR_HINT.test("Missing plugin dependency: CurveClips requires Animation")).toBe(
-            true,
-        );
-        expect(ERR_HINT.test('[shallot] "animator" is not registered')).toBe(true);
-        expect(ERR_HINT.test('[shallot] "ring" is not registered, did you mean "line"?')).toBe(
-            true,
-        );
+    test("the CLI matcher and published predicate agree on every degraded-boot signature", () => {
+        const messages = [
+            "Missing plugin dependency: CurveClips requires Animation",
+            '[shallot] "animator" is not registered',
+            '[shallot] animator "walk" names no clip',
+            "GPUValidationError: pipeline layout is invalid",
+        ];
+        for (const message of messages) {
+            expect(ERR_HINT.test(message)).toBe(true);
+            expect(isDegradedBootMessage(message)).toBe(ERR_HINT.test(message));
+        }
     });
     test("routine chatter does not", () => {
         expect(ERR_HINT.test("[vite] connected.")).toBe(false);

@@ -1,3 +1,4 @@
+import { isDegradedBootMessage } from "@dylanebert/shallot/harness";
 import { expect, test } from "@playwright/test";
 import { adapterName, SOFTWARE } from "./gpu-adapter";
 
@@ -15,6 +16,11 @@ interface Check {
 test("voxel mesher gate — watertight, deterministic, carve (real GPU)", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(String(e)));
+    page.on("console", (message) => {
+        if (message.type() === "error" || isDegradedBootMessage(message.text())) {
+            errors.push(`[console.${message.type()}] ${message.text()}`);
+        }
+    });
 
     // standalone runtime — the gate only touches GPU buffers, no editor/scene writes.
     await page.goto("/");
