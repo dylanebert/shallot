@@ -1,0 +1,54 @@
+{
+    "oracleRevision": "shallot-ocean-look/S6@91fc585",
+    "provenance": {
+        "horizonRows": "210/720",
+        "cropRows": {
+            "sky": [0.08, 0.2916666666666667],
+            "horizon": [0.2916666666666667, 0.52],
+            "farWater": [0.52, 0.66],
+            "midWater": [0.66, 0.82],
+            "nearWater": [0.82, 1]
+        },
+        "sources": [
+            {
+                "name": "oracle-dusk/frames/t26.jpg",
+                "sha256": "136d9a248c5c8264626a5d0a9d51e8db152672efbb796cd3bd7abc029f493a3b"
+            },
+            {
+                "name": "oracle-dusk/frames/t43.jpg",
+                "sha256": "9d0f1e1b84d67da0b5e6f6af95a6bfd0413992625f263359d6527c73499f846c"
+            },
+            {
+                "name": "taste/captures/ocean-dusk-reel.jpg",
+                "sha256": "ccc596e06a54047fd20fce3dad84a4b0d6daa1cff1cdef32b28e043ac8b1b013"
+            },
+            {
+                "name": "taste/captures/ocean-day-reel.jpg",
+                "sha256": "a5ae3d4da1abde8d042e949f01c19836b3a34649945c37b5b5ae47fe7bdc70d3"
+            }
+        ]
+    },
+    "references": {
+        "t26": {
+            "farWaterSkyHueDistance": 16.511873350340636,
+            "lowerBandBrightSpecks": 67,
+            "horizonTransitionWidth": 4,
+            "horizonContinuity": 0.4973727985879585,
+            "foamNearCoverage": 0.22795493197278913
+        },
+        "t43": {
+            "farWaterSkyHueDistance": 72.75044911177616,
+            "lowerBandBrightSpecks": 68,
+            "horizonTransitionWidth": 4,
+            "horizonContinuity": 0.2488717603097972,
+            "foamNearCoverage": 0.05611181972789116
+        }
+    },
+    "relations": {
+        "horizonWidth": { "min": 2, "max": 6 },
+        "horizonContinuityMin": 0.2488717603097972,
+        "farWaterSkyHueDistanceMax": 72.75044911177616,
+        "lowerBandBrightSpecks": { "min": 6.7, "max": 680 },
+        "foamNearCoverage": { "min": 0.01, "max": 0.1 }
+    }
+}
