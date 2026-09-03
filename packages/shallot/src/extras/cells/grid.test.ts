@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { dumpCellsAscii } from "../../../scripts/dump-cells-ascii";
 import { Compute } from "../../engine";
 import { CELL_BYTES } from "./cell";
 import { createCellGrid, deriveCellGridSize, fillCellGrid, gridWgsl, resetPipeline } from "./grid";
@@ -20,6 +21,21 @@ describe("cell grid compute-pass contract (device-free structural)", () => {
         // the fill kernel calls the same packCell body cell.test.ts pins on the CPU — one source, both
         // sides, gpu.md rule 6's lattice-drift property
         expect(wgsl).toContain("fn packCell(");
+    });
+});
+
+describe("dump-cells-ascii", () => {
+    test("boots the recipe and dumps the live cellsGridFor shape", async () => {
+        const { grid, text } = await dumpCellsAscii({
+            yaw: 0.6,
+            pitch: 0.55,
+            cellWidth: 11,
+            cellHeight: 18.333,
+        });
+        const lines = text.split("\n");
+
+        expect(lines).toHaveLength(grid.rows);
+        expect(lines.every((line) => line.length === grid.cols)).toBe(true);
     });
 });
 
