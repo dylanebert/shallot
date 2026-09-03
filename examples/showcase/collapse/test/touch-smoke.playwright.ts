@@ -1,3 +1,4 @@
+import { isDegradedBootMessage } from "@dylanebert/shallot/harness";
 import { expect, test } from "@playwright/test";
 import { adapterName, SOFTWARE } from "./gpu-adapter";
 import { oneFingerDrag } from "./touch-drag";
@@ -45,7 +46,9 @@ test("collapse showcase — loads clean and orbits by touch", async ({ page }) =
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(String(e)));
     page.on("console", (m) => {
-        if (m.type() === "error") errors.push(`[console.error] ${m.text()}`);
+        if (m.type() === "error" || isDegradedBootMessage(m.text())) {
+            errors.push(`[console.${m.type()}] ${m.text()}`);
+        }
     });
 
     await page.goto("/");

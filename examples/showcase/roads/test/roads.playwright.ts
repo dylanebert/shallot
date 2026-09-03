@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDegradedBootMessage } from "@dylanebert/shallot/harness";
 import { expect, type Page, test } from "@playwright/test";
 import { generateNetwork } from "../src/overlay/network";
 import { ROAD_ALBEDO } from "../src/overlay/stroke";
@@ -82,6 +83,11 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
 }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(String(e)));
+    page.on("console", (message) => {
+        if (message.type() === "error" || isDegradedBootMessage(message.text())) {
+            errors.push(`[console.${message.type()}] ${message.text()}`);
+        }
+    });
 
     // standalone runtime — the gate only touches GPU buffers, no editor/scene writes.
     await page.goto("/");

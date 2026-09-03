@@ -1,3 +1,4 @@
+import { isDegradedBootMessage } from "@dylanebert/shallot/harness";
 import { pixelProbePass, probePixels } from "@dylanebert/shallot/harness/pixels";
 import { expect, test } from "@playwright/test";
 import { PNG } from "pngjs";
@@ -13,7 +14,9 @@ test("ascii showcase — the cell grid reaches the compositor", async ({ page })
     const warnings: string[] = [];
     page.on("pageerror", (error) => errors.push(String(error)));
     page.on("console", (message) => {
-        if (message.type() === "error") errors.push(`[console.error] ${message.text()}`);
+        if (message.type() === "error" || isDegradedBootMessage(message.text())) {
+            errors.push(`[console.${message.type()}] ${message.text()}`);
+        }
         if (message.type() === "warning" && !KNOWN_PREEXISTING_WARNING.test(message.text())) {
             warnings.push(`[console.warning] ${message.text()}`);
         }
