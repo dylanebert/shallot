@@ -12,6 +12,29 @@ import { Cell, packCell } from "./cell";
 
 const WG = 8; // 2D workgroup — matches the grid's own 2D shape rather than a flattened 1D index
 
+/** Target device-pixel cell edge for a web surface. Eleven keeps rounding within the locked 10–12px band. */
+export const CELL_TARGET_DEVICE_PX = 11;
+
+export interface CellGridSize {
+    readonly cols: number;
+    readonly rows: number;
+}
+
+/** Derive a grid from an output surface measured in device pixels. */
+export function deriveCellGridSize(
+    width: number,
+    height: number,
+    target = CELL_TARGET_DEVICE_PX,
+): CellGridSize {
+    if (![width, height, target].every((value) => Number.isFinite(value) && value > 0)) {
+        throw new Error(`[cells] grid surface and target must be finite and positive`);
+    }
+    return {
+        cols: Math.max(1, Math.round(width / target)),
+        rows: Math.max(1, Math.round(height / target)),
+    };
+}
+
 /** the fill pass's dims: grid width/height + the glyph ramp length the test pattern wraps against.
  *  @internal */
 export const GridParams = d.struct({ cols: d.u32, rows: d.u32, glyphCount: d.u32 });

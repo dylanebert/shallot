@@ -6,9 +6,8 @@
 // `ramp.ts`'s Locked-decision contract), and an instanced draw (`draw.ts`) renders that grid back into
 // the same offscreen target — same pipeline, one pass earlier than glaze's tonemap + present. No author
 // component: every camera composites through cells the same way, the way every camera composites through
-// glaze's postfx chain by default (`standard/glaze`'s own zero-config shape). A fixed 80×24 grid — the
-// terminal default the spec's own two-seat measurement table centers on — no per-camera resize surface
-// yet; that's an author-facing knob for a later unit, not this one's contract.
+// glaze's postfx chain by default (`standard/glaze`'s own zero-config shape). Each sink sizes the grid
+// from its output surface; the web path uses the camera framebuffer's device-pixel dimensions.
 
 import type { Plugin, State, System } from "../../engine";
 import { Compute, unpackColor } from "../../engine";
@@ -30,11 +29,11 @@ import {
     type GlyphSizeBuffer,
     type GlyphUvBuffer,
 } from "./glyphs";
-import { type CellGrid, createCellGrid } from "./grid";
+import { type CellGrid, createCellGrid, deriveCellGridSize } from "./grid";
 import { CELL_GLYPH_COUNT, cellGlyphString } from "./ramp";
 import { recordSelect, resetSelectPipelines } from "./select";
 
-/** the fixed cell-grid shape (module doc above). @internal */
+/** legacy fixture dimensions for headless producer examples; the live sink derives its own shape. @internal */
 export const COLS = 80;
 /** @internal */
 export const ROWS = 24;
@@ -49,10 +48,11 @@ let _glyphSize: GlyphSizeBuffer | null = null;
 let _sampler: GPUSampler | null = null;
 const _grids = new Map<number, CellGrid>();
 
-function gridFor(eid: number): CellGrid {
+function gridFor(eid: number, cols: number, rows: number): CellGrid {
     const cached = _grids.get(eid);
-    if (cached) return cached;
-    const grid = createCellGrid(COLS, ROWS, CELL_GLYPH_COUNT);
+    if (cached?.cols === cols && cached.rows === rows) return cached;
+    cached?.buffer.destroy();
+    const grid = createCellGrid(cols, rows, CELL_GLYPH_COUNT);
     _grids.set(eid, grid);
     return grid;
 }
@@ -110,7 +110,8 @@ const CellsSystem: System = {
                 break;
             }
             drawnEid = eid;
-            const grid = gridFor(eid);
+            const { cols, rows } = deriveCellGridSize(view.width, view.height);
+            const grid = gridFor(eid, cols, rows);
             // the camera's own empty-background reference, raw linear — recordSelect tonemaps it the
             // same way it tonemaps every scene sample before comparing, so a cell whose source region
             // is untouched clear color selects the blank fill glyph instead of whatever non-zero index
@@ -119,8 +120,8 @@ const CellsSystem: System = {
             recordSelect(
                 encoder,
                 grid.buffer,
-                COLS,
-                ROWS,
+                cols,
+                rows,
                 view.framebuffer,
                 view.width,
                 view.height,
@@ -134,8 +135,8 @@ const CellsSystem: System = {
                 _glyphSize,
                 _atlas.textureView,
                 _sampler,
-                COLS,
-                ROWS,
+                cols,
+                rows,
                 view.width,
                 view.height,
             );

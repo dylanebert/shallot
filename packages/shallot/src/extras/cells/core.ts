@@ -51,7 +51,14 @@ export {
     MISSING_GLYPH_SIZE,
     MISSING_GLYPH_UV,
 } from "./glyphs";
-export { type CellGrid, createCellGrid, fillCellGrid } from "./grid";
+export {
+    CELL_TARGET_DEVICE_PX,
+    type CellGrid,
+    type CellGridSize,
+    createCellGrid,
+    deriveCellGridSize,
+    fillCellGrid,
+} from "./grid";
 export {
     CELL_DIRECTIONAL_GLYPHS,
     CELL_FILL_GLYPHS,

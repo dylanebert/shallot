@@ -317,16 +317,28 @@ class TuiKeyEvent extends Event {
  * sit unused).
  */
 class TuiCanvas {
-    readonly width: number;
-    readonly height: number;
+    width: number;
+    height: number;
     readonly style: Record<string, string> = {};
     private _device: GPUDevice | null = null;
     private _format: GPUTextureFormat = "bgra8unorm";
     private _texture: GPUTexture | null = null;
+    private readonly _resizeListeners = new Set<() => void>();
 
     constructor(width: number, height: number) {
         this.width = width;
         this.height = height;
+    }
+
+    resize(width: number, height: number): void {
+        this.width = width;
+        this.height = height;
+        for (const listener of this._resizeListeners) listener();
+    }
+
+    observeResize(listener: () => void): () => void {
+        this._resizeListeners.add(listener);
+        return () => this._resizeListeners.delete(listener);
     }
 
     getContext(kind: string): TuiCanvas | null {
@@ -402,11 +414,18 @@ function installHeadlessDom(
         win = new EventTarget();
         g.window = win;
     }
-    // `BeginFrameSystem` calls `new ResizeObserver(...)` on attach; this canvas never resizes.
+    // Feed the render view's normal ResizeObserver seam when terminal dimensions change.
     if (typeof g.ResizeObserver === "undefined") {
         g.ResizeObserver = class {
-            observe(): void {}
-            disconnect(): void {}
+            private _unsubscribe: (() => void) | null = null;
+            constructor(private readonly _callback: () => void) {}
+            observe(target: TuiCanvas): void {
+                this._unsubscribe = target.observeResize(this._callback);
+            }
+            disconnect(): void {
+                this._unsubscribe?.();
+                this._unsubscribe = null;
+            }
         };
     }
     return { canvas, window: win };
@@ -577,12 +596,21 @@ async function resolveLocalPlugin(name: string, path: string): Promise<Plugin> {
     return plugin;
 }
 
-// the render resolution CellsPlugin's compute pass block-samples down to the fixed 80x24 grid — same
-// constant `dump-cells-ascii.ts` uses; the grid itself is fixed-size (`COLS`/`ROWS`, `extras/cells/
-// index.ts`'s own module doc: "no per-camera resize surface yet"), so this only affects supersampling
-// detail, never the terminal output's shape.
-const RENDER_W = 640;
-const RENDER_H = 360;
+// The measured terminal payload ceiling: at 200x50 the worst-case truecolor frame is 182 KiB, or
+// 5.3 MB/s at 30 fps. Web has no equivalent cap because it never reads the grid back.
+const TERMINAL_MAX_COLS = 200;
+const TERMINAL_MAX_ROWS = 50;
+const TERMINAL_CELL_DEVICE_PX = 11;
+
+export function terminalGridSize(size: { width: number; height: number }): {
+    width: number;
+    height: number;
+} {
+    return {
+        width: Math.min(size.width, TERMINAL_MAX_COLS),
+        height: Math.min(size.height, TERMINAL_MAX_ROWS),
+    };
+}
 
 /**
  * `shallot tui [dir]` — the real entry, reached only past {@link importShallotTui}'s and
@@ -625,8 +653,15 @@ export async function runTui(
         console.error(noShallotTuiMessage());
         return EXIT_NO_SHALLOT_TUI;
     }
-    const { ALT_SCREEN_ENTER, detectTier, Encoder, installTeardown, makeGrid, onResize } =
-        shallotTui;
+    const {
+        ALT_SCREEN_ENTER,
+        detectTier,
+        Encoder,
+        installTeardown,
+        makeGrid,
+        onResize,
+        terminalSize,
+    } = shallotTui;
 
     const bunWebgpu = await importBunWebgpu(bunWebgpuLoader);
     if (!bunWebgpu) {
@@ -647,13 +682,19 @@ export async function runTui(
 
     await bunWebgpu.setupGlobals();
 
-    const { canvas, window: win } = installHeadlessDom(RENDER_W, RENDER_H);
+    const outputSize = terminalGridSize(
+        terminalSize(process.stdout as unknown as Parameters<typeof terminalSize>[0]),
+    );
+    const { canvas, window: win } = installHeadlessDom(
+        outputSize.width * TERMINAL_CELL_DEVICE_PX,
+        outputSize.height * TERMINAL_CELL_DEVICE_PX,
+    );
 
-    // `COLS`/`ROWS`/`cellsGridFor` ride the main barrel (`extras/cells/index.ts`'s author-facing
+    // `cellsGridFor` rides the main barrel (`extras/cells/index.ts`'s author-facing
     // surface); `unpackCell`/`cellGlyphChar` are the `*/core` subpath's decode functions
     // (`dump-cells-ascii.ts`'s own import split, mirrored here).
     const engine = await import("../src");
-    const { COLS, ROWS, cellsGridFor } = engine;
+    const { cellsGridFor } = engine;
     const { attachCanvas } = await import("../src/standard/render/core");
     const { unpackCell, cellGlyphChar } = await import("../src/extras/cells/core");
     const { readManifest } = await import("../src/project/assets");
@@ -757,7 +798,14 @@ export async function runTui(
         });
         unsubscribeResize = onResize(
             process.stdout as unknown as Parameters<typeof onResize>[0],
-            () => encoder.invalidate(),
+            (size) => {
+                const next = terminalGridSize(size);
+                canvas.resize(
+                    next.width * TERMINAL_CELL_DEVICE_PX,
+                    next.height * TERMINAL_CELL_DEVICE_PX,
+                );
+                encoder.invalidate();
+            },
         );
     }
 
@@ -786,8 +834,8 @@ export async function runTui(
                     staging.destroy();
                     const tuiGrid = cellsBytesToGrid(
                         bytes,
-                        COLS,
-                        ROWS,
+                        grid.cols,
+                        grid.rows,
                         unpackCell,
                         cellGlyphChar,
                         makeGrid,
