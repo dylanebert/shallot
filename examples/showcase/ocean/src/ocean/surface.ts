@@ -270,6 +270,43 @@ export const meanFresnel = tgpu.fn(
     return std.pow(1 - std.clamp(cosTheta, 0, 1), exponent) / (1 + 22.7 * std.pow(sigma, 1.5));
 });
 
+/** Minimum slope variance whose reciprocal remains below the f32 precision-noise scale. */
+export const BECKMANN_VARIANCE_FLOOR = Math.sqrt(2 ** -23);
+
+/** Smith masking term for the Beckmann slope distribution. */
+export const beckmannLambda = tgpu.fn(
+    [d.f32, d.f32],
+    d.f32,
+)((cosTheta, sigmaSquared) => {
+    "use gpu";
+    const cosine = std.clamp(cosTheta, 0.0001, 1);
+    const tangent = std.sqrt(std.max(0, 1 - cosine * cosine)) / cosine;
+    const a = 1 / std.max(std.sqrt(2 * sigmaSquared) * tangent, 0.0001);
+    if (a >= 1.6) return 0;
+    return (1 - 1.259 * a + 0.396 * a * a) / (3.535 * a + 2.181 * a * a);
+});
+
+/** Bruneton analytic Beckmann sun radiance with separable Smith shadowing. */
+export const beckmannSunRadiance = tgpu.fn(
+    [d.vec3f, d.vec3f, d.vec3f, d.f32],
+    d.f32,
+)((normal, view, light, sigmaSquared) => {
+    "use gpu";
+    const noV = std.max(std.dot(normal, view), 0);
+    const noL = std.max(std.dot(normal, light), 0);
+    if (noV <= 0 || noL <= 0) return 0;
+    const half = std.normalize(std.add(view, light));
+    const noH = std.max(std.dot(normal, half), 0.0001);
+    const voH = std.max(std.dot(view, half), 0);
+    const tanSquared = std.max(0, 1 - noH * noH) / (noH * noH);
+    const variance = std.max(sigmaSquared, BECKMANN_VARIANCE_FLOOR);
+    const distribution =
+        std.exp(-tanSquared / (2 * variance)) / (2 * Math.PI * variance * noH * noH * noH * noH);
+    const smith = 1 / (1 + beckmannLambda(noV, variance) + beckmannLambda(noL, variance));
+    const fresnel = 0.02 + 0.98 * std.pow(1 - voH, 5);
+    return (fresnel * distribution * smith) / (4 * noV);
+});
+
 /** displacement normal plus the published high-frequency slope product. */
 export const oceanSurfaceFs = tgpu.fn(
     [fsCtxSchema(oceanSurfaceVaryings)],
@@ -311,7 +348,15 @@ export const oceanSurfaceFs = tgpu.fn(
     const factor = meanFresnel(std.max(std.dot(normal, view), 0), sigma);
     const fresnel = 0.02 + 0.98 * factor;
     const body = d.vec3f(0.001, 0.006, 0.008);
-    return d.vec4f(std.mix(body, sky, fresnel), 1);
+    const sunDirection = std.neg(engineLayout.$.lighting.sunDirection.xyz);
+    const glitter = beckmannSunRadiance(
+        normal,
+        view,
+        sunDirection,
+        std.max(slope.w, BECKMANN_VARIANCE_FLOOR),
+    );
+    const sun = engineLayout.$.lighting.sunColor.xyz;
+    return d.vec4f(std.add(std.mix(body, sky, fresnel), std.mul(glitter, sun)), 1);
 });
 
 /** registers the consolidated ocean surface and its clipmap mesh. */

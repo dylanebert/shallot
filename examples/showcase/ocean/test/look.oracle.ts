@@ -66,7 +66,7 @@ function hue([r8, g8, b8]: [number, number, number]): number {
     return 60 * ((r - g) / delta + 4);
 }
 
-function brightSpecks(image: Pixels): number {
+function brightSpeckMask(image: Pixels): Uint8Array {
     const y0 = Math.floor(image.height * 0.7);
     const values: number[] = [];
     for (let y = y0; y < image.height; y++) {
@@ -87,6 +87,12 @@ function brightSpecks(image: Pixels): number {
                 hot[y * image.width + x] = 1;
         }
     }
+    return hot;
+}
+
+function brightSpecks(image: Pixels): number {
+    const hot = brightSpeckMask(image);
+    const y0 = Math.floor(image.height * 0.7);
     let components = 0;
     const stack: number[] = [];
     for (let i = y0 * image.width; i < hot.length; i++) {
@@ -186,6 +192,19 @@ export async function load(path: string): Promise<Pixels> {
     return { width: jpeg.width, height: jpeg.height, data: jpeg.data };
 }
 
+export function speckOverlap(a: Pixels, b: Pixels): number {
+    if (a.width !== b.width || a.height !== b.height) return 0;
+    const left = brightSpeckMask(a);
+    const right = brightSpeckMask(b);
+    let intersection = 0;
+    let union = 0;
+    for (let i = 0; i < left.length; i++) {
+        if (left[i] || right[i]) union++;
+        if (left[i] && right[i]) intersection++;
+    }
+    return union === 0 ? 1 : intersection / union;
+}
+
 function print(path: string, reading: LookReading): void {
     console.log(`\n${basename(path)}`);
     for (const [name, band] of Object.entries(reading.bands)) {
@@ -203,13 +222,27 @@ function print(path: string, reading: LookReading): void {
 if (import.meta.main) {
     const capture = process.argv[2];
     if (!capture) throw new Error("usage: bun look.oracle.ts <capture.png> [t26.jpg] [t43.jpg]");
+    const compareIndex = process.argv.indexOf("--compare");
+    const compare = compareIndex >= 0 ? process.argv[compareIndex + 1] : undefined;
     const references = [
-        process.argv[3] ?? resolve("../research/water-surface/oracle-dusk/frames/t26.jpg"),
-        process.argv[4] ?? resolve("../research/water-surface/oracle-dusk/frames/t43.jpg"),
+        process.argv[compareIndex >= 0 ? compareIndex + 2 : 3] ??
+            resolve("../research/water-surface/oracle-dusk/frames/t26.jpg"),
+        process.argv[compareIndex >= 0 ? compareIndex + 3 : 4] ??
+            resolve("../research/water-surface/oracle-dusk/frames/t43.jpg"),
     ];
     let ok = true;
-    for (const path of [capture, ...references]) {
-        const reading = analyze(await load(path));
+    const captureImage = await load(capture);
+    const captureReading = analyze(captureImage);
+    const baseline = analyze(
+        await load(resolve("examples/showcase/ocean/test/baseline/ocean-baseline-1.png")),
+    );
+    const referenceReadings = await Promise.all(
+        references.map(async (path) => analyze(await load(path))),
+    );
+    for (const [path, reading] of [
+        [capture, captureReading] as const,
+        ...references.map((path, i) => [path, referenceReadings[i]!] as const),
+    ]) {
         print(path, reading);
         if (
             reading.lumaRange < 0.02 ||
@@ -217,6 +250,20 @@ if (import.meta.main) {
             reading.horizon.continuity <= 0
         )
             ok = false;
+    }
+    const referenceSpecks = referenceReadings.map((reading) => reading.lowerBandBrightSpecks);
+    const referenceMin = Math.min(...referenceSpecks) / 10;
+    const referenceMax = Math.max(...referenceSpecks) * 10;
+    console.log(
+        `  near-band speck gate capture=${captureReading.lowerBandBrightSpecks} baseline=${baseline.lowerBandBrightSpecks} dusk=${referenceSpecks.join(",")}`,
+    );
+    ok &&= captureReading.lowerBandBrightSpecks > baseline.lowerBandBrightSpecks;
+    ok &&=
+        captureReading.lowerBandBrightSpecks >= referenceMin &&
+        captureReading.lowerBandBrightSpecks <= referenceMax;
+    if (compare) {
+        const overlap = speckOverlap(captureImage, await load(compare));
+        console.log(`  t=6 versus t=6.05 speck overlap ${overlap.toFixed(4)}`);
     }
     if (!ok) {
         console.error("FAIL: zero-contrast or discontinuous horizon input");

@@ -7,6 +7,8 @@ import { composedSlopePsd, slopeMipSize } from "../src/ocean/slope";
 import { f16NextDown, f16NextUp, f16Round } from "../src/ocean/slope-seam";
 import { CASCADE_CONFIGS, SLOPE_CASCADE_CONFIGS } from "../src/ocean/spectrum";
 import {
+    BECKMANN_VARIANCE_FLOOR,
+    beckmannSunRadiance,
     meanFresnel,
     surfaceCatmullRom1D,
     surfaceCatmullRomDerivative1D,
@@ -18,6 +20,45 @@ import {
 } from "../src/ocean/vertex-displacement";
 
 const controls = [1.25, -0.75, 2.5, 4.125];
+
+describe("variance-driven Beckmann sun glitter", () => {
+    test("derives the variance floor from f32 precision", () => {
+        expect(BECKMANN_VARIANCE_FLOOR).toBe(Math.sqrt(2 ** -23));
+        expect(BECKMANN_VARIANCE_FLOOR).toBeGreaterThan(0);
+    });
+
+    test("hemisphere-integrated reflected energy stays at most one", () => {
+        const stepsTheta = 240;
+        const stepsPhi = 480;
+        const dTheta = (Math.PI * 0.5) / stepsTheta;
+        const dPhi = (Math.PI * 2) / stepsPhi;
+        for (const sigma of [0.035, 0.12, 0.3]) {
+            let integral = 0;
+            const view = d.vec3f(0, 1, 0);
+            for (let ti = 0; ti < stepsTheta; ti++) {
+                const theta = (ti + 0.5) * dTheta;
+                const sinTheta = Math.sin(theta);
+                const cosTheta = Math.cos(theta);
+                for (let pi = 0; pi < stepsPhi; pi++) {
+                    const phi = (pi + 0.5) * dPhi;
+                    const light = d.vec3f(
+                        sinTheta * Math.cos(phi),
+                        cosTheta,
+                        sinTheta * Math.sin(phi),
+                    );
+                    integral +=
+                        beckmannSunRadiance(d.vec3f(0, 1, 0), view, light, sigma * sigma) *
+                        sinTheta *
+                        dTheta *
+                        dPhi;
+                }
+            }
+            console.log(`beckmann hemisphere sigma=${sigma} integral=${integral}`);
+            expect(integral).toBeLessThanOrEqual(1);
+            expect(integral).toBeGreaterThan(0);
+        }
+    });
+});
 
 describe("mean ocean Fresnel", () => {
     test("recovers the Schlick factor at zero slope deviation", () => {

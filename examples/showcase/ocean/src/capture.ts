@@ -7,7 +7,11 @@ const CapturePlugin: Plugin = {
     initialize(state) {
         const harness = installHarness(state);
         harness.run = async () => {
-            while (state.time.elapsed < CAPTURE.time) {
+            const requestedTime = new URLSearchParams(location.search).get("time");
+            const parsedTime = requestedTime === null ? Number.NaN : Number(requestedTime);
+            const captureTime =
+                Number.isFinite(parsedTime) && parsedTime >= 0 ? parsedTime : CAPTURE.time;
+            while (state.time.elapsed < captureTime) {
                 await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
             }
             state.pause();
@@ -30,7 +34,11 @@ const CapturePlugin: Plugin = {
                     ok: innerWidth === CAPTURE.width && innerHeight === CAPTURE.height,
                     detail: `${innerWidth}x${innerHeight}`,
                 },
-                { name: "matched ocean time reached", ok: state.time.elapsed >= CAPTURE.time },
+                {
+                    name: "matched ocean time reached",
+                    ok: state.time.elapsed >= captureTime,
+                    detail: `${state.time.elapsed} >= ${captureTime}`,
+                },
                 { name: "ocean canvas rendered", ok: Boolean(canvas?.width && canvas.height) },
                 ...(
                     deviceChecks ?? [{ name: `known ocean device claim: ${claim}`, pass: false }]
