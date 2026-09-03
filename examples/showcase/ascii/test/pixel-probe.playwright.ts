@@ -1,4 +1,4 @@
-import { isDegradedBootMessage } from "@dylanebert/shallot/harness";
+import { assertMotion, isDegradedBootMessage } from "@dylanebert/shallot/harness";
 import { pixelProbePass, probePixels } from "@dylanebert/shallot/harness/pixels";
 import { expect, test } from "@playwright/test";
 import { PNG } from "pngjs";
@@ -68,6 +68,10 @@ test("ascii showcase — the cell grid reaches the compositor", async ({ page })
         pixelProbePass(result, swatch),
         `matched ${result.pixels} px, span ${result.width}x${result.height}`,
     ).toBe(true);
+    const before = PNG.sync.read(await canvas.screenshot()).data;
+    await page.waitForTimeout(500);
+    const after = PNG.sync.read(await canvas.screenshot()).data;
+    assertMotion(before, after, 0.1);
     expect(errors, `page errors: ${errors.join("\n")}`).toEqual([]);
     expect(warnings, `page console warnings: ${warnings.join("\n")}`).toEqual([]);
 });

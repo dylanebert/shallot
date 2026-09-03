@@ -2,6 +2,7 @@
   "scene": "scenes/overlay-ui.scene",
   "plugins": {
     "Orbit": true,
-    "Hud": "./src/hud"
+    "Hud": "./src/hud",
+    "Smoke": "./src/smoke"
   }
 }

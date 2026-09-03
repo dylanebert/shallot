@@ -3,6 +3,7 @@
   "plugins": {
     "Sprite": true,
     "Orbit": true,
-    "Icons": "./src/icons"
+    "Icons": "./src/icons",
+    "Smoke": "./src/smoke"
   }
 }

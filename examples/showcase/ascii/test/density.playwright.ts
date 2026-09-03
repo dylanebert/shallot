@@ -1,3 +1,4 @@
+import { isDegradedBootMessage } from "@dylanebert/shallot/harness";
 import { type Browser, expect, test } from "@playwright/test";
 import { PNG } from "pngjs";
 import { adapterName, SOFTWARE } from "./gpu-adapter";
@@ -24,6 +25,13 @@ async function capture(
         deviceScaleFactor,
     });
     const page = await context.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(String(error)));
+    page.on("console", (message) => {
+        if (message.type() === "error" || isDegradedBootMessage(message.text())) {
+            errors.push(`[console.${message.type()}] ${message.text()}`);
+        }
+    });
     await page.goto("/");
 
     const adapter = await adapterName(page);
@@ -59,6 +67,7 @@ async function capture(
         };
     });
     const png = PNG.sync.read(await canvas.screenshot());
+    expect(errors, `page errors: ${errors.join("\n")}`).toEqual([]);
     await context.close();
     return {
         ...geometry,

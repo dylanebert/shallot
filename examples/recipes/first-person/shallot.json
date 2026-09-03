@@ -5,6 +5,7 @@
     "Character": true,
     "Player": true,
     "Text": true,
-    "Demo": "./src/demo"
+    "Demo": "./src/demo",
+    "Smoke": "./src/smoke"
   }
 }

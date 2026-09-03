@@ -1,4 +1,4 @@
-import { isDegradedBootMessage } from "@dylanebert/shallot/harness";
+import { assertMotion, isDegradedBootMessage } from "@dylanebert/shallot/harness";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { deriveDemosFromIframeSrcs } from "./demos";
 import { classifyRendered } from "./rendered";
@@ -29,12 +29,6 @@ const MOTION_WINDOW_MS = 1000;
 // over 700 ms, the animation demo's five cubes several times that, and a parked scene ~0 — so the
 // bar sits an order below the slowest shipped demo and well above a still frame's sampling noise.
 const MOTION_THRESHOLD = 0.08;
-
-function meanAbsDiff(a: number[], b: number[]): number {
-    let sum = 0;
-    for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
-    return sum / a.length;
-}
 
 test("visualization showcase — every demo renders a positive canvas", async ({ page }) => {
     // Derive the demo list from the built index.html iframes so a partially-added
@@ -89,7 +83,7 @@ test("visualization showcase — every demo renders a positive canvas", async ({
             const before = await sampleGrid(page, canvas);
             await page.waitForTimeout(MOTION_WINDOW_MS);
             const after = await sampleGrid(page, canvas);
-            const diff = meanAbsDiff(before, after);
+            const diff = assertMotion(before, after, MOTION_THRESHOLD);
             expect(
                 diff,
                 `${demo}: canvas unchanged across ${MOTION_WINDOW_MS}ms (mean abs diff ${diff.toFixed(2)}, need > ${MOTION_THRESHOLD})`,

@@ -3,6 +3,7 @@
   "plugins": {
     "Outline": true,
     "Orbit": true,
-    "Selector": "./src/select"
+    "Selector": "./src/select",
+    "Smoke": "./src/smoke"
   }
 }
