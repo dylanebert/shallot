@@ -1,3 +1,5 @@
+import { DUSK_SKY_DEFAULTS } from "./sky";
+
 /** matched showcase capture conditions. */
 export const CAPTURE = {
     width: 1280,
@@ -6,6 +8,7 @@ export const CAPTURE = {
     camera: { distance: 18, yaw: 0, pitch: 0.24 },
     sunAzimuthOffset: 0.35,
     sunElevation: 0.32,
+    sky: DUSK_SKY_DEFAULTS,
 } as const;
 
 /** light-travel direction derived from the declared sun angles. */
