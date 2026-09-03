@@ -14,6 +14,7 @@
         "format": "biome check --write && bun run scripts/format.ts",
         "test": "bun test packages/shallot examples/showcase/ocean/src/ocean scripts evals site examples/showcase/visualization/test examples/showcase/ocean/test",
         "test:install": "bun run scripts/install-test.ts",
+        "test:changed": "bun run scripts/test-changed.ts",
         "test:ocean-realization": "bun test ./examples/showcase/ocean/test/realization.oracle.ts",
         "test:ocean-slope": "bun test ./examples/showcase/ocean/test/slope.oracle.ts",
         "test:ocean-mesh-inversion": "bun test ./examples/showcase/ocean/test/mesh-inversion-sweep.oracle.ts",
