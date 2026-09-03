@@ -38,13 +38,27 @@ export const Animator = {
     loop: sparse(u8),
 };
 
+/** authored clip names interned to the `Animator.clip` id lane, `0` reserved for "no clip". Interning is
+ *  independent of `Playables` registration on purpose: a scene is parsed and formatted (`scripts/format.ts`)
+ *  with no plugin initialized, and an id that only existed once its playable was registered formatted back
+ *  to "" — which is how every shipped animator lost its `clip:` and parked on a green gate. The name
+ *  resolves against `Playables` at step time, where an unknown one warns. */
+const clipNames: string[] = [];
+const clipIds = new Map<string, number>();
+
 function clipId(name: string): number {
-    const id = Playables.id(name);
-    return id === undefined ? 0 : id + 1;
+    if (name === "") return 0;
+    let id = clipIds.get(name);
+    if (id === undefined) {
+        clipNames.push(name);
+        id = clipNames.length;
+        clipIds.set(name, id);
+    }
+    return id;
 }
 
 function clipName(id: number): string {
-    return id === 0 ? "" : (Playables.name(id - 1) ?? "");
+    return id === 0 ? "" : (clipNames[id - 1] ?? "");
 }
 
 function resolveSetter(path: string): Single | null {
@@ -61,6 +75,8 @@ function resolveSetter(path: string): Single | null {
 
 const pose = new Pose();
 const setters = new Map<string, Single | null>();
+/** animators already warned for an unresolved clip, so the warning is per animator rather than per frame. */
+const warned = new Set<number>();
 
 /** advances animator playheads, evaluates their playables, and writes resolved component lanes. */
 export const AnimationSystem: System = {
@@ -68,8 +84,23 @@ export const AnimationSystem: System = {
     group: "simulation",
     update(state) {
         for (const eid of state.query([Animator])) {
-            const entry = Playables.get(clipName(Animator.clip.get(eid)));
-            if (!entry) continue;
+            const name = clipName(Animator.clip.get(eid));
+            const entry = Playables.get(name);
+            if (!entry) {
+                // an animator that resolves no playable is a scene defect, never a quiet no-op: the
+                // visualization and clips-recipe scenes shipped `animator="loop: 1; target: @x"` with no
+                // `clip:` and every gate stayed green on a static canvas. Warn once per animator, in the
+                // `is not registered` form `shallot verify` promotes to an error.
+                if (!warned.has(eid)) {
+                    warned.add(eid);
+                    console.warn(
+                        name === ""
+                            ? `[animation] animator on entity ${eid} names no clip — set clip: <registered playable>`
+                            : `[animation] animator clip "${name}" is not registered`,
+                    );
+                }
+                continue;
+            }
 
             let time = Animator.time.get(eid);
             if (Animator.state.get(eid) === AnimationState.Playing) {
@@ -121,6 +152,7 @@ export const AnimationPlugin: Plugin = {
     initialize() {
         Playables.clear();
         setters.clear();
+        warned.clear();
     },
 };
 

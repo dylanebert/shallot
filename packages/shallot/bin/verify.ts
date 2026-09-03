@@ -77,7 +77,7 @@ export function displayGateMessage(hardware: string): string {
 // here to reach `errors`, so these two are named.
 /** @internal exported for the signature test only. */
 export const ERR_HINT =
-    /\b(?:wgsl|shader compilation|pipeline.*invalid|destroyed|validation error|device.*lost|uncaptured|GPUValidationError|GPUInternalError|exceeds the max|crashed|Missing plugin dependency|is not registered)\b/i;
+    /\b(?:wgsl|shader compilation|pipeline.*invalid|destroyed|validation error|device.*lost|uncaptured|GPUValidationError|GPUInternalError|exceeds the max|crashed|Missing plugin dependency|is not registered|names no clip)\b/i;
 
 const INSTALL_PLAYWRIGHT = "bun add -d playwright && bunx playwright install chromium";
 
@@ -870,6 +870,11 @@ export interface Result {
      *  `booted: false` result names its own cause instead of leaving the reader a bare `samples: 0`. */
     diagnosis?: string;
     errors: string[];
+    /** every warning-typed console message the page emitted that did not already promote to `errors` —
+     *  typegpu's `[implicit-conversion]`, Dawn chatter, the engine's own `console.warn`. Never fails a
+     *  run on its own; carried so a warning the human sees in devtools is in the verdict a script or an
+     *  agent reads, rather than visible only to whoever opens the browser. */
+    warnings?: string[];
     pass: boolean;
     /** `--attribution` only. `compile` is `window.__benchmark.measure(0, 1)`'s compile section, read
      *  the moment the boot wait concludes (null without a ProfilePlugin project); `compileAfterIdle` is
@@ -1896,10 +1901,12 @@ function reportError(message: string, json: boolean): void {
 // wire a page's console/error/crash events into a fresh errors array — the same capture the single-run
 // path and every batch run install per page, factored so a batch run's fresh page gets its own array
 // rather than one shared (and leaking) across runs.
-function attachErrorCapture(page: Page): string[] {
+function attachErrorCapture(page: Page): { errors: string[]; warnings: string[] } {
     const errors: string[] = [];
+    const warnings: string[] = [];
     const record = (kind: string, text: string) => {
         if (kind === "err" || kind === "page-error" || ERR_HINT.test(text)) errors.push(text);
+        else if (kind === "warn") warnings.push(text);
     };
     page.on("console", (msg: { type(): string; text(): string }) => {
         const type = msg.type();
@@ -1907,7 +1914,7 @@ function attachErrorCapture(page: Page): string[] {
     });
     page.on("pageerror", (err: Error) => record("page-error", `${err.name}: ${err.message}`));
     page.on("crash", () => record("page-error", "page crashed"));
-    return errors;
+    return { errors, warnings };
 }
 
 /** run `shallot verify` from the CLI's remaining args. Returns the process exit code, only once every
@@ -2038,7 +2045,7 @@ async function verifyCommand(raw: string[]): Promise<number> {
         if (args.run.length === 0) {
             const context = await browser.newContext();
             const page = await context.newPage();
-            const errors = attachErrorCapture(page);
+            const { errors, warnings } = attachErrorCapture(page);
             result = await drive(
                 page,
                 projectDir,
@@ -2048,6 +2055,7 @@ async function verifyCommand(raw: string[]): Promise<number> {
                 errors,
                 checkpoints,
                 probes,
+                warnings,
             );
         } else {
             const queries = resolveBatchQueries(args.query, args.run);
@@ -2068,7 +2076,7 @@ async function verifyCommand(raw: string[]): Promise<number> {
                 try {
                     context = await browser.newContext();
                     const page = await context.newPage();
-                    const errors = attachErrorCapture(page);
+                    const { errors, warnings } = attachErrorCapture(page);
                     runResult = await drive(
                         page,
                         projectDir,
@@ -2078,6 +2086,7 @@ async function verifyCommand(raw: string[]): Promise<number> {
                         errors,
                         runCheckpoints,
                         runProbes,
+                        warnings,
                     );
                 } catch (err) {
                     // a failure, timeout, or crash in this run must not poison the rest of the batch — it
@@ -2092,6 +2101,7 @@ async function verifyCommand(raw: string[]): Promise<number> {
                         booted: false,
                         rendered: false,
                         errors: [err instanceof Error ? err.message : String(err)],
+                        warnings: [],
                         pass: false,
                     };
                 } finally {
@@ -2151,6 +2161,7 @@ async function drive(
     errors: string[],
     checkpoints: Checkpoint[],
     probes: TimingProbes,
+    warnings: string[] = [],
 ): Promise<Result> {
     const base: Omit<Result, "pass"> = {
         project: projectDir,
@@ -2162,6 +2173,7 @@ async function drive(
         booted: false,
         rendered: false,
         errors,
+        warnings,
     };
 
     // Presence is the opt-in for both GPU log and shader artifact capture, before any app shader resolves.
@@ -2667,6 +2679,10 @@ export function report(result: Result, json: boolean): void {
     if (result.errors.length) {
         console.log(`  errors:`);
         for (const e of result.errors.slice(0, 5)) console.log(`    ${e.split("\n")[0]}`);
+    }
+    if (result.warnings?.length) {
+        console.log(`  warnings (${result.warnings.length}):`);
+        for (const w of result.warnings.slice(0, 8)) console.log(`    ${w.split("\n")[0]}`);
     }
     if (result.artifacts) {
         console.log(`  shader artifacts:`);

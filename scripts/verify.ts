@@ -47,6 +47,8 @@ export interface VerifyResult {
     verdict?: Verdict;
     memory?: Memory | null;
     errors?: string[];
+    /** warning-typed console messages that did not promote to `errors` (`bin/verify.ts` Result). */
+    warnings?: string[];
     booted?: boolean;
     /** `true` rendered structure, `false` blank, `"opt-out"` when the harness declared `noRender`
      *  (renders nothing by design — the pixel gate was skipped). */
@@ -309,7 +311,24 @@ export async function verify(
     quiet = false,
 ): Promise<VerifyResult | null> {
     const { stdout, exitCode } = await spawnVerify(dir, extra, quiet);
-    return applyExitCodeGate(extractResult(stdout), exitCode);
+    const result = applyExitCodeGate(extractResult(stdout), exitCode);
+    if (!quiet) reportWarnings(result);
+    return result;
+}
+
+/** print a run's non-fatal console warnings after its verdict, so `bun run flows` / `bun run recipes` /
+ *  `bun bench` show the same noise a human sees in devtools — the typegpu `[implicit-conversion]`
+ *  stream sat in every example's console for weeks while every wrapper here printed nothing. */
+export function reportWarnings(result: VerifyResult | null): void {
+    const warnings = result?.warnings ?? [];
+    if (warnings.length === 0) return;
+    const counts = new Map<string, number>();
+    for (const w of warnings) {
+        const line = w.split("\n")[0];
+        counts.set(line, (counts.get(line) ?? 0) + 1);
+    }
+    console.log(`  ⚠ ${warnings.length} console warning(s):`);
+    for (const [line, n] of counts) console.log(`    ${n > 1 ? `×${n} ` : ""}${line}`);
 }
 
 /** what `verifyBatch` actually observed on stdout: `results` is null when no line parsed to an array —

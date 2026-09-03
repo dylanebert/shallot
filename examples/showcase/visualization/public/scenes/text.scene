@@ -5,7 +5,7 @@
 
     <!-- the title animation writes through the Transform slab the glyph shader samples -->
     <a id="title" text="anchor: 0.5; color: 0xffd089" transform="pos: 0 2.6 0" />
-    <a animator="loop: 1; target: @title" />
+    <a animator="clip: bob; loop: 1; target: @title" />
 
     <!-- a dim cube the captions orbit, for depth reference -->
     <a part transform="scale: 1.2 1.2 1.2" color="rgba: 0.42 0.46 0.52" />

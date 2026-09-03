@@ -32,6 +32,32 @@ describe("AnimationPlugin", () => {
         expect(Playables.size).toBe(0);
     });
 
+    test("an animator whose clip resolves to nothing warns once, in the form verify promotes to an error", () => {
+        // the visualization and clips-recipe scenes shipped `animator="loop: 1; target: @x"` with no
+        // `clip:`; the system skipped them silently and every gate stayed green on a static frame
+        const warned: string[] = [];
+        const original = console.warn;
+        console.warn = (...args: unknown[]) => warned.push(args.map(String).join(" "));
+        try {
+            const state = new State();
+            load(
+                parse(
+                    `<scene><a animator="target: @coin" /><a animator="clip: nope; target: @coin" /><a id="coin" position /></scene>`,
+                ),
+                state,
+            );
+            state.addSystem(AnimationSystem);
+            state.step(0);
+            state.step(0);
+        } finally {
+            console.warn = original;
+        }
+        // stepping twice proves the per-animator once
+        expect(warned).toHaveLength(2);
+        expect(warned.some((w) => /names no clip/.test(w))).toBe(true);
+        expect(warned.some((w) => /"nope" is not registered/.test(w))).toBe(true);
+    });
+
     test("scene clip names and @name targets bind a seeked pose", () => {
         const state = new State();
         load(
@@ -84,13 +110,16 @@ describe("AnimationPlugin", () => {
         );
         const xml = stringify(serialize(state));
         expect(xml).toContain("target: @coin");
+        // the clip survives as its NAME, not an id: the interned id is process-order and the formatter
+        // (`scripts/format.ts`) round-trips scenes with no playable registered at all
+        expect(xml).toContain("clip: bounce");
 
         const reloaded = new State();
         load(parse(xml), reloaded);
         const animator = reloaded.only([Animator]);
         const coin = reloaded.only([Position]);
         expect(Animator.target.get(animator)).toBe(coin);
-        expect(Animator.clip.get(animator)).toBe(1);
+        expect(Animator.clip.get(animator)).toBe(Animator.clip.get(state.only([Animator])));
         expect(Animator.time.get(animator)).toBe(0.5);
         expect(Animator.scale.get(animator)).toBe(2);
         expect(Animator.loop.get(animator)).toBe(1);

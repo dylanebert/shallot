@@ -36,12 +36,32 @@ for (const plugin of PLUGINS) {
     }
 }
 
+/** the `key` set of a `k: v; k2: v2` attribute value. */
+function attrKeys(value: string): string[] {
+    return value
+        .split(";")
+        .map((pair) => pair.split(":")[0]?.trim() ?? "")
+        .filter((k) => k !== "");
+}
+
 function normalizeNodes(nodes: Node[]) {
     for (const node of nodes) {
         for (const attr of node.attrs) {
             if (!attr.value) continue;
             const normalized = normalizeAttr(attr.name, attr.value);
             if (normalized !== null) {
+                // a normalization is a parse→format round trip, and a field whose parser needs
+                // runtime state the formatter doesn't have formats back to its default and drops off
+                // the line: every shipped `animator` lost its `clip:` this way, silently, and parked on a
+                // green gate. Refuse rather than write — the fix is the component's parse/format pair.
+                const before = attrKeys(attr.value);
+                const after = new Set(attrKeys(normalized));
+                const dropped = before.filter((k) => !after.has(k));
+                if (dropped.length > 0) {
+                    throw new Error(
+                        `formatting "${attr.name}" would drop ${dropped.map((k) => `"${k}"`).join(", ")} (from \`${attr.value}\`) — the component's parse/format pair doesn't round-trip without runtime state; fix it rather than format`,
+                    );
+                }
                 attr.value = normalized;
             }
         }
