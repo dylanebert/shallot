@@ -134,6 +134,15 @@
                 "chromaWeightedWaterSkyHueDistance": 10.521111673537064,
                 "brightWaterFraction": 0.1387397021546261
             },
+            "reflection": {
+                "signedSkyTracking": [
+                    -0.8561698717948616,
+                    2.5943376068376267,
+                    5.69001068376069,
+                    10.308916156397508
+                ],
+                "scaleNormalizedStructure": 0.36253910667469597
+            },
             "lumaRange": 0.411780509333465
         },
         "t43": {
@@ -207,6 +216,15 @@
                 "nearMeanChroma": 21.359449404761904,
                 "chromaWeightedWaterSkyHueDistance": 115.14044774215961,
                 "brightWaterFraction": 0.08838522588522589
+            },
+            "reflection": {
+                "signedSkyTracking": [
+                    18.38572696834416,
+                    27.2906672913859,
+                    31.623272789458525,
+                    32.527754836309526
+                ],
+                "scaleNormalizedStructure": 0.3260064927100532
             },
             "lumaRange": 0.3771018146752451
         }
