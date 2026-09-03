@@ -18,13 +18,26 @@ function declaredFrame(source: string) {
     };
 }
 
-function expectDeclaredFrame(source: string) {
+function declaredSky(source: string) {
+    const declaration = source.match(/sky="([^"]+)"/)?.[1];
+    if (!declaration) throw new Error("ocean scene is missing its declared sky");
+    return Object.fromEntries(
+        declaration.split(";").map((entry) => {
+            const [name, raw] = entry.trim().split(": ");
+            const key = name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
+            return [key, Number(raw)];
+        }),
+    );
+}
+
+function expectDeclaredConditions(source: string) {
     const frame = declaredFrame(source);
     const sun = sunDirection(CAPTURE.sunAzimuthOffset, CAPTURE.sunElevation);
     for (let i = 0; i < sun.length; i++) expect(frame.direction[i]).toBeCloseTo(sun[i], 6);
     expect(frame.camera.distance).toBeCloseTo(CAPTURE.camera.distance, 6);
     expect(frame.camera.yaw).toBeCloseTo(CAPTURE.camera.yaw, 6);
     expect(frame.camera.pitch).toBeCloseTo(CAPTURE.camera.pitch, 6);
+    expect(declaredSky(source)).toEqual(CAPTURE.sky);
 }
 
 describe("ocean showcase capture", () => {
@@ -53,11 +66,16 @@ describe("ocean showcase capture", () => {
         ).toBeCloseTo(1, 12);
     });
 
-    test("scene declares the capture light and camera", () => {
-        expectDeclaredFrame(scene);
+    test("scene declares the capture light, camera, and sky", () => {
+        expectDeclaredConditions(scene);
     });
 
-    test("scene oracle rejects a perturbed component", () => {
-        expect(() => expectDeclaredFrame(scene.replace("pitch: 0.24", "pitch: 0.25"))).toThrow();
+    test("scene oracle rejects perturbed camera and sky parameters", () => {
+        expect(() =>
+            expectDeclaredConditions(scene.replace("pitch: 0.24", "pitch: 0.25")),
+        ).toThrow();
+        expect(() =>
+            expectDeclaredConditions(scene.replace("exposure: 1.05", "exposure: 1.06")),
+        ).toThrow();
     });
 });

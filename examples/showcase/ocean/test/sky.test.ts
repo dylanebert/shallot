@@ -34,32 +34,42 @@ describe("demo-local dusk sky", () => {
     });
 
     test("each parameter moves only its named channel", () => {
-        const sky = base();
-        const channels = {
-            zenith: () => sampleElevation(sky, dir),
-            horizon: () => sampleElevation(sky, dir),
-            haze: () => sampleHaze(sky, dir),
-            cloud: () => sampleCloud(sky, dir),
-            sun: () => sampleSun(sky, dir, sun),
-        };
-        for (const [name, sample] of Object.entries(channels)) {
-            const before = values(sample());
-            const changed = base({
-                [name]: d.vec4f(0.9, 0.8, 0.7, name === "zenith" || name === "horizon" ? 0 : 0.5),
-            });
-            const after = values(
-                name === "haze"
-                    ? sampleHaze(changed, dir)
-                    : name === "cloud"
-                      ? sampleCloud(changed, dir)
-                      : name === "sun"
-                        ? sampleSun(changed, dir, sun)
-                        : sampleElevation(changed, dir),
+        const channels = (sky: d.Infer<typeof DuskSkyGpu>) => ({
+            elevation: values(sampleElevation(sky, dir)),
+            haze: values(sampleHaze(sky, dir)),
+            cloud: values(sampleCloud(sky, dir)),
+            sun: values(sampleSun(sky, dir, sun)),
+        });
+        const unchanged = channels(base());
+        const mutations = [
+            ["zenith", "elevation"],
+            ["horizon", "elevation"],
+            ["haze", "haze"],
+            ["cloud", "cloud"],
+            ["sun", "sun"],
+        ] as const;
+        for (const [parameter, target] of mutations) {
+            const changed = channels(
+                base({
+                    [parameter]: d.vec4f(
+                        0.9,
+                        0.8,
+                        0.7,
+                        parameter === "zenith" || parameter === "horizon" ? 0 : 0.5,
+                    ),
+                }),
             );
-            expectChanged(before, after);
+            for (const channel of Object.keys(unchanged) as (keyof typeof unchanged)[]) {
+                if (channel === target) expectChanged(unchanged[channel], changed[channel]);
+                else expect(changed[channel]).toEqual(unchanged[channel]);
+            }
         }
+
+        const sky = base();
+        const exposedSky = base({ exposure: d.vec4f(1.5, 0, 0, 0) });
+        expect(channels(exposedSky)).toEqual(channels(sky));
         const unexposed = values(sampleSky(sky, dir, sun));
-        const exposed = values(sampleSky(base({ exposure: d.vec4f(1.5, 0, 0, 0) }), dir, sun));
+        const exposed = values(sampleSky(exposedSky, dir, sun));
         exposed.forEach((value, i) => {
             expect(value).toBeCloseTo(unexposed[i] * 1.5, 5);
         });
