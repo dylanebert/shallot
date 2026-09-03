@@ -37,11 +37,11 @@ function text(eid: number): string {
 }
 
 let cleanup: (() => void) | null = null;
+let readout: HTMLDivElement | null = null;
 let last = "";
 
 const TuningSystem: System = {
     group: "draw",
-    last: true,
     update(state: State) {
         const eid = [...state.query([Orbit])][0];
         if (eid === undefined) return;
@@ -59,7 +59,9 @@ const TuningSystem: System = {
         const hasDom =
             typeof document !== "undefined" && typeof document.createElement === "function";
         if (value !== last) {
-            if (!hasDom) console.error(`orbit tuning: ${value}`);
+            if (hasDom) {
+                if (readout) readout.textContent = value;
+            } else console.error(`orbit tuning: ${value}`);
             last = value;
         }
         if (cleanup || !hasDom) return;
@@ -75,7 +77,7 @@ const TuningSystem: System = {
             font: "11px 'JetBrains Mono', monospace",
             pointerEvents: "auto",
         });
-        const readout = document.createElement("div");
+        readout = document.createElement("div");
         readout.textContent = value;
         root.append(readout);
         for (const control of controls()) {
@@ -94,7 +96,7 @@ const TuningSystem: System = {
                             eid,
                             Math.max(0, control.field.get(eid) + direction * control.step),
                         );
-                        readout.textContent = text(eid);
+                        if (readout) readout.textContent = text(eid);
                     },
                     { signal: state.signal },
                 );
@@ -103,7 +105,10 @@ const TuningSystem: System = {
             root.append(row);
         }
         parent.append(root);
-        cleanup = () => parent.remove();
+        cleanup = () => {
+            parent.remove();
+            readout = null;
+        };
         state.onDispose(cleanup);
     },
 };
@@ -115,11 +120,13 @@ export const OrbitTuningPlugin: Plugin = {
     warm() {
         cleanup?.();
         cleanup = null;
+        readout = null;
         last = "";
     },
     dispose() {
         cleanup?.();
         cleanup = null;
+        readout = null;
         last = "";
     },
 };

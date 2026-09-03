@@ -385,9 +385,10 @@ const ARROW_CODES: Readonly<Record<string, string>> = {
     D: "ArrowLeft",
 };
 
-// macOS's default delay-before-repeat is about 375 ms. The 500 ms window clears that gap while remaining
-// short enough for a terminal, which cannot distinguish a tap release from a held key before repeat starts.
-export const KEY_RELEASE_MS = 500;
+// macOS's default delay-before-repeat is about 375 ms. Once a repeat arrives, subsequent repeats are
+// frequent enough for a short quiet window to expose release damping promptly.
+export const KEY_FIRST_REPEAT_MS = 500;
+export const KEY_REPEAT_RELEASE_MS = 80;
 
 /** one decoded raw-stdin byte chunk: the `KeyboardEvent.code` values it named (arrow keys only today —
  *  WASD/other printable-key mapping is a natural follow-on, not required by this unit's own criteria),
@@ -431,13 +432,15 @@ export function createKeyRepeatBridge(
         const existing = held.get(code);
         if (existing) cancel(existing);
         else win.dispatchEvent(new TuiKeyEvent("keydown", code));
-        held.set(
-            code,
-            schedule(() => {
+        const repeated = existing !== undefined;
+        const timer = schedule(
+            () => {
                 held.delete(code);
                 win.dispatchEvent(new TuiKeyEvent("keyup", code));
-            }, KEY_RELEASE_MS),
+            },
+            repeated ? KEY_REPEAT_RELEASE_MS : KEY_FIRST_REPEAT_MS,
         );
+        held.set(code, timer);
     };
     return {
         press,

@@ -195,10 +195,45 @@ describe("createKeyRepeatBridge", () => {
         advance(375);
         bridge.press("ArrowRight");
         expect(events).toEqual(["down:ArrowRight"]);
-        advance(499);
+        advance(79);
         expect(events).toEqual(["down:ArrowRight"]);
         advance(1);
         expect(events).toEqual(["down:ArrowRight", "up:ArrowRight"]);
+    });
+
+    test("uses the long window again for a fresh press after release", () => {
+        const events: string[] = [];
+        const win = new EventTarget();
+        win.addEventListener("keydown", () => events.push("down"));
+        win.addEventListener("keyup", () => events.push("up"));
+        let now = 0;
+        let next = 0;
+        const timers = new Map<number, { at: number; fn: () => void }>();
+        const bridge = createKeyRepeatBridge(
+            win,
+            (fn, delay) => {
+                const id = ++next;
+                timers.set(id, { at: now + delay, fn });
+                return id as unknown as ReturnType<typeof setTimeout>;
+            },
+            (id) => timers.delete(id as unknown as number),
+        );
+        const advance = (ms: number) => {
+            now += ms;
+            for (const [id, timer] of [...timers]) {
+                if (timer.at <= now) {
+                    timers.delete(id);
+                    timer.fn();
+                }
+            }
+        };
+
+        bridge.press("ArrowRight");
+        advance(500);
+        bridge.press("ArrowRight");
+        advance(375);
+        bridge.press("ArrowRight");
+        expect(events).toEqual(["down", "up", "down"]);
     });
 });
 
