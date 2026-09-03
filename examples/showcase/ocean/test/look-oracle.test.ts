@@ -40,6 +40,14 @@ const witnessReadings = Object.fromEntries(
     ),
 ) as Record<keyof typeof witnesses.fixtures, ReturnType<typeof analyze>>;
 
+function deepKeyPaths(value: unknown, prefix = ""): string[] {
+    if (Array.isArray(value)) return prefix ? [prefix] : [];
+    if (!value || typeof value !== "object") return prefix ? [prefix] : [];
+    return Object.entries(value)
+        .flatMap(([key, child]) => deepKeyPaths(child, prefix ? `${prefix}.${key}` : key))
+        .sort();
+}
+
 describe("ocean look oracle", () => {
     test("reads the three-capture floor without optional source images", () => {
         for (const reading of baselineReadings) {
@@ -55,6 +63,19 @@ describe("ocean look oracle", () => {
         expect(
             fixture.provenance.sources.every(({ sha256 }) => /^[a-f0-9]{64}$/.test(sha256)),
         ).toBe(true);
+    });
+
+    test("stored marked readings carry every deep key emitted for a tracked image", () => {
+        const emittedPaths = deepKeyPaths(baselineReadings[0]);
+        for (const reading of Object.values(fixture.references))
+            expect(deepKeyPaths(reading)).toEqual(emittedPaths);
+
+        const missing = structuredClone(fixture.references.t26) as Record<string, unknown>;
+        delete missing.reflection;
+        expect(deepKeyPaths(missing)).not.toEqual(emittedPaths);
+        const added = structuredClone(fixture.references.t26) as Record<string, unknown>;
+        added.unexpected = 1;
+        expect(deepKeyPaths(added)).not.toEqual(emittedPaths);
     });
 
     test("both marked frames pass every freshly derived relation", () => {
