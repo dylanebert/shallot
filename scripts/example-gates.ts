@@ -5,6 +5,8 @@ export interface ExampleGate {
     tier: ExampleTier;
     covers: string[];
     gate: string;
+    /** Why a recipe has no runtime observable. Mutually exclusive with src/smoke.ts. */
+    static?: string;
     motion?: boolean;
 }
 
@@ -40,6 +42,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         tier: "recipes",
         covers: ["examples/recipes/build-a-scene/**", "packages/shallot/src/**"],
         gate: "bunx shallot verify examples/recipes/build-a-scene",
+        static: "authored scene structure has no runtime behavior",
     },
     {
         dir: "examples/recipes/compute-and-readback",
@@ -52,6 +55,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         tier: "recipes",
         covers: ["examples/recipes/custom-material/**", "packages/shallot/src/**"],
         gate: "bunx shallot verify examples/recipes/custom-material",
+        static: "material appearance is static",
     },
     {
         dir: "examples/recipes/day-night-sky",
@@ -76,6 +80,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         tier: "recipes",
         covers: ["examples/recipes/fog-and-light-shafts/**", "packages/shallot/src/**"],
         gate: "bunx shallot verify examples/recipes/fog-and-light-shafts",
+        static: "fog and light-shaft appearance is static",
     },
     {
         dir: "examples/recipes/game-loop",
@@ -94,6 +99,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         tier: "recipes",
         covers: ["examples/recipes/import-a-model/**", "packages/shallot/src/**"],
         gate: "bunx shallot verify examples/recipes/import-a-model",
+        static: "model import appearance is static",
     },
     {
         dir: "examples/recipes/joints",
@@ -118,6 +124,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         tier: "recipes",
         covers: ["examples/recipes/orbit-camera/**", "packages/shallot/src/**"],
         gate: "bunx shallot verify examples/recipes/orbit-camera",
+        static: "camera movement is user-driven rather than autonomous",
     },
     {
         dir: "examples/recipes/overlay-ui",

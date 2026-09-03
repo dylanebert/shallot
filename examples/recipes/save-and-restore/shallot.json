@@ -3,6 +3,7 @@
   "plugins": {
     "Orbit": true,
     "Text": true,
-    "Persist": "./src/persist"
+    "Persist": "./src/persist",
+    "Smoke": "./src/smoke"
   }
 }

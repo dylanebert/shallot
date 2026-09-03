@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import { EXAMPLE_GATES, type ExampleGate } from "./example-gates";
 
 const text = (path: string): string => readFileSync(path, "utf8");
@@ -40,23 +40,25 @@ export function checkExamples(root: string, registry: ExampleGate[]): string[] {
         : "";
     for (const recipe of childDirs(resolve(root, "examples/recipes"))) {
         const dir = resolve(root, "examples/recipes", recipe);
+        const row = registry.find((entry) => entry.dir === `examples/recipes/${recipe}`);
         const scenes = files(dir, ".scene").map(text).join("\n");
-        const modules = files(resolve(dir, "src"), ".ts")
-            .filter((path) => basename(path) !== "smoke.ts")
-            .map(text)
-            .join("\n");
-        const moving = /\banimator\s*=|\bbody\s*=/.test(scenes) || /\bsystems\s*:/.test(modules);
-        if (!moving) continue;
         const smoke = resolve(dir, "src/smoke.ts");
-        if (!existsSync(smoke)) errors.push(`moving recipe has no src/smoke.ts: ${recipe}`);
+        if (row?.static) {
+            if (/\banimator\s*=|\bbody\s*=/.test(scenes))
+                errors.push(`static recipe scene declares animator or body: ${recipe}`);
+            if (existsSync(smoke)) errors.push(`static recipe also has src/smoke.ts: ${recipe}`);
+            continue;
+        }
+        if (!existsSync(smoke))
+            errors.push(`recipe has neither src/smoke.ts nor static reason: ${recipe}`);
         const manifestPath = resolve(dir, "shallot.json");
         const manifest = existsSync(manifestPath) ? text(manifestPath) : "";
         if (!/["']?\.\/src\/smoke(?:\.ts)?["']?/.test(manifest))
-            errors.push(`moving recipe manifest does not wire src/smoke.ts: ${recipe}`);
+            errors.push(`recipe manifest does not wire src/smoke.ts: ${recipe}`);
         const checksBlock =
             recipesSource.match(/const CHECKS[^=]*=\s*\{([\s\S]*?)\n\};/)?.[1] ?? "";
         if (!new RegExp(`(?:["']${recipe}["']|\\b${recipe}\\b)\\s*:`).test(checksBlock))
-            errors.push(`moving recipe has no CHECKS entry: ${recipe}`);
+            errors.push(`recipe has no CHECKS entry: ${recipe}`);
     }
 
     for (const scene of files(resolve(root, "examples"), ".scene")) {

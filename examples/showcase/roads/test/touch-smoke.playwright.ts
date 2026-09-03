@@ -1,4 +1,4 @@
-import { isDegradedBootMessage } from "@dylanebert/shallot/harness";
+import { assertMotion, isDegradedBootMessage } from "@dylanebert/shallot/harness";
 import { expect, type Page, test } from "@playwright/test";
 import { oneFingerDrag } from "./touch-drag";
 
@@ -47,12 +47,6 @@ async function sampleCanvas(page: Page): Promise<number[]> {
     }, screenshot.toString("base64"));
 }
 
-function meanAbsDiff(a: number[], b: number[]): number {
-    let sum = 0;
-    for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i]);
-    return sum / a.length;
-}
-
 test("roads showcase — loads clean and orbits by touch", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(String(e)));
@@ -90,7 +84,7 @@ test("roads showcase — loads clean and orbits by touch", async ({ page }) => {
     // poll instead of a fixed sleep — the orbit's smoothed pose (`smoothLerp`, extras/orbit) settles
     // over a few frames, not instantly, so wait on the condition itself: the sampled frame diverging.
     await expect
-        .poll(async () => meanAbsDiff(before, await sampleCanvas(page)), {
+        .poll(async () => assertMotion(before, await sampleCanvas(page), FrameChangeThreshold), {
             message: "a one-finger drag should visibly rotate the orbit camera",
         })
         .toBeGreaterThan(FrameChangeThreshold);

@@ -3,6 +3,7 @@
   "plugins": {
     "Sky": true,
     "Orbit": true,
-    "SkyTune": "./src/tune"
+    "SkyTune": "./src/tune",
+    "Smoke": "./src/smoke"
   }
 }

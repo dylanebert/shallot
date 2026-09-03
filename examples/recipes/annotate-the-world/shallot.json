@@ -4,6 +4,7 @@
     "Text": true,
     "Lines": true,
     "Orbit": true,
-    "Annotate": "./src/annotate"
+    "Annotate": "./src/annotate",
+    "Smoke": "./src/smoke"
   }
 }

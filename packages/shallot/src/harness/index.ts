@@ -5,6 +5,7 @@ import type { PixelProbe } from "./pixels";
 
 export { REAL_GPU_LAUNCH, type RealGpuLaunch } from "./browser";
 export { isDegradedBootMessage } from "./degraded-boot";
+export { assertMotion } from "./motion";
 export { type PixelProbe, type PixelProbeResult, pixelProbePass, probePixels } from "./pixels";
 
 // The published verification protocol. A project installs `window.__harness` so `shallot verify`

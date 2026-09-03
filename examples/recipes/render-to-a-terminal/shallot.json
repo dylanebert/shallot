@@ -3,6 +3,7 @@
   "plugins": {
     "Orbit": true,
     "Cells": true,
-    "KeyOrbit": "./src/keys"
+    "KeyOrbit": "./src/keys",
+    "Smoke": "./src/smoke"
   }
 }

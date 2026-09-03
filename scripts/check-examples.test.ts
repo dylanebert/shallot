@@ -34,6 +34,7 @@ const registry = (motion = false): ExampleGate[] => [
         tier: "recipes",
         covers: ["examples/recipes/static/**"],
         gate: "bunx shallot verify examples/recipes/static",
+        static: "fixture has no runtime behavior",
     },
     {
         dir: "examples/flows/flow",
@@ -86,9 +87,9 @@ test("moving recipes require smoke, manifest wiring, and a CHECKS row", () => {
         },
     ];
     const errors = checkExamples(root, rows).join("\n");
-    expect(errors).toContain("moving recipe has no src/smoke.ts: moving");
-    expect(errors).toContain("moving recipe manifest does not wire src/smoke.ts: moving");
-    expect(errors).not.toContain("moving recipe has no CHECKS entry: moving");
+    expect(errors).toContain("recipe has neither src/smoke.ts nor static reason: moving");
+    expect(errors).toContain("recipe manifest does not wire src/smoke.ts: moving");
+    expect(errors).not.toContain("recipe has no CHECKS entry: moving");
 });
 
 test("every showcase Playwright spec imports the degraded-boot predicate", () => {
@@ -102,13 +103,15 @@ test("every showcase Playwright spec imports the degraded-boot predicate", () =>
     );
 });
 
-test("every animator attribute names a clip", () => {
+test("every animator attribute names a clip and cannot use the static opt-out", () => {
     const root = make();
     writeFileSync(
         resolve(root, "examples/recipes/static/public/scenes/main.scene"),
         '<entity animator="loop: 1; target: @ball" />\n',
     );
-    expect(checkExamples(root, registry()).join("\n")).toContain("animator names no clip");
+    const errors = checkExamples(root, registry()).join("\n");
+    expect(errors).toContain("animator names no clip");
+    expect(errors).toContain("static recipe scene declares animator or body: static");
 });
 
 test("autonomous showcase rows require an imported assertMotion arm", () => {
