@@ -53,4 +53,4 @@ const RingPlugin: Plugin = {
     traits: { Ring: { requires: [Transform], defaults: () => ({ phase: 0 }) } },
 };
 
-await start([TextPlugin, RingPlugin], "../scenes/text.scene");
+await start([TextPlugin, AnimationPlugin, RingPlugin], "../scenes/text.scene");

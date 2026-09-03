@@ -12,7 +12,7 @@ import {
 } from "../runtime";
 import { diagnose, load, parse } from "../scene";
 import { preload } from "../scene/core";
-import { coalesce, median } from "./coalesce";
+import { coalesce, frameDelta, median } from "./coalesce";
 
 /**
  * bundle of components, systems, and lifecycle hooks: the unit of behavior a project enables.
@@ -441,7 +441,10 @@ export async function run(config: Config): Promise<App> {
     state.onDispose(() => {
         disposed = true;
     });
-    let lastTime = now();
+    // seeded by the first frame's own timestamp (`frameDelta` steps 0 there), never by `now()` here: a
+    // rAF timestamp is the frame's vsync-aligned start and can precede a wall-clock seed, which stepped
+    // a negative dt into the scheduler's throw
+    let lastTime = -1;
     let pendingFenceWaitMs = 0;
     // recent raw-callback intervals + a reused sort scratch, feeding the double-fire coalescer's median
     let lastCallback = -1;
@@ -479,7 +482,7 @@ export async function run(config: Config): Promise<App> {
         // since `onSubmittedWorkDone` is present-gated and a tighter cap would drop frames Chrome is ready to
         // present (a 60Hz fullscreen throttle reads ~3 in flight with the GPU idle).
         if ((Compute.pending?.() ?? 0) >= MAX_FRAMES_IN_FLIGHT) return;
-        const dt = (t - lastTime) / 1000;
+        const dt = frameDelta(t, lastTime);
         lastTime = t;
         state.fenceWait(pendingFenceWaitMs);
         pendingFenceWaitMs = 0;
