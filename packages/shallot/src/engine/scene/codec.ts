@@ -113,7 +113,13 @@ export function load(nodes: Node[], state: State): Map<Node, number> {
 
     for (const node of nodes) {
         const eid = state.create();
-        if (node.id) nameToEntity.set(node.id, eid);
+        if (node.id) {
+            if (nameToEntity.has(node.id)) {
+                errors.push({ message: `Duplicate entity id: "${node.id}"` });
+            } else {
+                nameToEntity.set(node.id, eid);
+            }
+        }
         nodeToEntity.set(node, eid);
         state.identity.author(eid, node.id);
     }
@@ -379,13 +385,10 @@ export function setFieldValue(
     }
 }
 
+const NUMBER_TOKEN = /^[+-]?(?:0[xX][0-9a-fA-F]+|(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)$/;
+
 function parseNumber(value: string): number | null {
     value = value.trim();
-
-    if (value.startsWith("0x") || value.startsWith("0X")) {
-        const n = parseInt(value, 16);
-        return Number.isNaN(n) ? null : n;
-    }
 
     if (value.startsWith("#")) {
         const hex = value.slice(1);
@@ -414,9 +417,12 @@ function parseNumber(value: string): number | null {
 
     if (value === "true") return 1;
     if (value === "false") return 0;
+    if (!NUMBER_TOKEN.test(value)) return null;
 
-    const num = parseFloat(value);
-    return Number.isNaN(num) ? null : num;
+    const sign = value[0] === "-" ? -1 : 1;
+    const unsigned = value[0] === "+" || value[0] === "-" ? value.slice(1) : value;
+    const num = /^0[xX]/.test(unsigned) ? sign * parseInt(unsigned.slice(2), 16) : Number(value);
+    return Number.isFinite(num) ? num : null;
 }
 
 function parseValues(valueStr: string): (number | null)[] {
