@@ -169,8 +169,8 @@ async function dispatch(zeroed: boolean): Promise<Float32Array> {
 const F32_U = 2 ** -24;
 const ESTIMATOR_OPS = 640;
 
-export function oceanSurfaceCompiled(surfaces: Pick<typeof Surfaces, "has">): boolean {
-    return surfaces.has("ocean");
+export function oceanSurfaceRegistered(): boolean {
+    return Surfaces.has("ocean");
 }
 
 export async function runDeviceClaim(state: State): Promise<Check[]> {
@@ -182,13 +182,13 @@ export async function runDeviceClaim(state: State): Promise<Check[]> {
     const gamma = (ESTIMATOR_OPS * F32_U) / (1 - ESTIMATOR_OPS * F32_U);
     const bound = gamma * Math.max(1, ...reference.map(Math.abs));
     const witness = Math.max(...reference.map((value, i) => Math.abs(value - zero[i])));
-    const compiled = oceanSurfaceCompiled(Surfaces);
+    const compiled = oceanSurfaceRegistered();
     const published = ["displace0", "displace1", "slope0"].every((name) =>
         Compute.textures.has(name),
     );
     return [
         {
-            name: "registered ocean surface compiled and bound against published textures",
+            name: "ocean surface registration is bound against published textures",
             pass: compiled && published,
             detail: `compiled=${compiled} published=${published}`,
         },
