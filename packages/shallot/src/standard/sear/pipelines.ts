@@ -828,18 +828,19 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
     // `view.viewProj * world` after the chunk, so displacing `world` still projects
     const screen = !!surface.screen;
     const layout = surface.layout;
-    const OutStruct = d
-        .struct({
-            pos: d.vec4f,
-            worldNormal: d.vec3f,
-            eid: d.u32,
-            world: d.vec3f,
-            ...fragmentFields,
-            // no type-directed `@interpolate(flat)` insertion — an INTEGER varying is unsupported and
-            // fails loudly at resolve/device compile; every shipped varying is float-typed.
-            ...varyings,
-        })
-        .$name(`${surface.name}VsOut`);
+    // explicit interstage locations from VARYING_BASE up: the fs entry carries the varying under the
+    // fixed internal name `v0`, which typegpu's pipeline connection can't match to the vs side's real
+    // name — an unmatched fs field auto-assigns from 0 and collides with the matched fixed fields.
+    // Pinning both sides to the same explicit slot makes the location, not the name, the contract
+    // (auto-assignment skips explicitly-taken locations)
+    const located = Object.fromEntries(
+        Object.entries(varyings).map(([k, s], i) => [k, d.location(VARYING_BASE + i, s)]),
+    );
+    // one struct on the wire: the entry is the raw WGSL body itself, so its `Out` is the IO struct
+    // typegpu mints for `out` and there is no second struct to convert into. A thin TGSL entry that
+    // returned a separate copier's struct made typegpu convert one into the other at every resolve and
+    // warn (`[implicit-conversion] … r: struct:<surface>VsOut`), one line per typed surface on every
+    // boot. `pipelines.test.ts` spies the resolve for the warning.
     const assigns = Object.keys(varyings)
         .map((k) => `    out.${k} = patched.${k};`)
         .join("\n");
@@ -853,7 +854,6 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
     const engine = engineLayout.$;
     const shadowG = shadowLayout.$;
     const uses: Record<string, unknown> = {
-        Out: OutStruct,
         bound,
         engine,
         decodePos,
@@ -874,12 +874,21 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
         uses.xformPoint = xformPoint;
         uses.xformNormal = xformNormal;
     }
-    const copier = tgpu
-        .fn(
-            [d.u32, d.u32],
-            OutStruct,
-        )(/* wgsl */ `(vidx: u32, iid: u32) -> Out {
-    let v = bound.vertices[vidx];
+    return tgpu
+        .vertexFn({
+            in: { vidx: d.builtin.vertexIndex, iid: d.builtin.instanceIndex },
+            out: {
+                pos: d.builtin.position,
+                worldNormal: d.vec3f,
+                eid: d.interpolate("flat", d.u32),
+                world: d.vec3f,
+                ...fragmentFields,
+                // no type-directed `@interpolate(flat)` insertion — an INTEGER varying is unsupported
+                // and fails loudly at resolve/device compile; every shipped varying is float-typed.
+                ...located,
+            },
+        })(/* wgsl */ `{
+    let v = bound.vertices[in.vidx];
     let mq = engine.meshQuant[meshIdOf(v.y)];
     let localPos = decodePos(v.x, v.y, mq);
     let localNormal = octDecodeNormal(v.z);
@@ -890,7 +899,7 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
     var worldNormal = vec3f(localNormal);
 ${
     instanced
-        ? `    eid = bound.eids[iid];
+        ? `    eid = bound.eids[in.iid];
     xform = bound.transforms[eid];
     world = vec4f(xformPoint(xform, world.xyz), world.w);
     worldNormal = vec3f(xformNormal(xform, worldNormal));
@@ -914,34 +923,6 @@ ${assigns}
     return out;
 }`)
         .$uses(uses)
-        .$name(`${surface.name}${suffix}Copier`);
-
-    // explicit interstage locations from VARYING_BASE up: the fs entry carries the varying under the
-    // fixed internal name `v0`, which typegpu's pipeline connection can't match to the vs side's real
-    // name — an unmatched fs field auto-assigns from 0 and collides with the matched fixed fields.
-    // Pinning both sides to the same explicit slot makes the location, not the name, the contract
-    // (auto-assignment skips explicitly-taken locations)
-    const located = Object.fromEntries(
-        Object.entries(varyings).map(([k, s], i) => [k, d.location(VARYING_BASE + i, s)]),
-    );
-    return tgpu
-        .vertexFn({
-            in: { vidx: d.builtin.vertexIndex, iid: d.builtin.instanceIndex },
-            out: {
-                pos: d.builtin.position,
-                worldNormal: d.vec3f,
-                eid: d.interpolate("flat", d.u32),
-                world: d.vec3f,
-                ...fragmentFields,
-                // same awareness as the copier's `OutStruct` above — no flat-interpolate insertion, so an
-                // integer varying is unsupported.
-                ...located,
-            },
-        })((input) => {
-            "use gpu";
-            const r = copier(input.vidx, input.iid);
-            return r;
-        })
         .$name(`${surface.name}${suffix}Vs`);
 }
 

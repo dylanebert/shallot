@@ -3,6 +3,7 @@
   "plugins": {
     "Animation": true,
     "Orbit": true,
-    "Bouncer": "./src/bounce"
+    "Bouncer": "./src/bounce",
+    "ClipsSmoke": "./src/smoke"
   }
 }

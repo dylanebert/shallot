@@ -6,9 +6,9 @@
 
     <!-- A mixer sequences two keyframe clips; the Animator is the scene's only timeline contact. -->
     <a id="ball" part transform="pos: -1.3 0.6 0" color="rgba: 0.4 0.6 0.95" />
-    <a animator="loop: 1; target: @ball" />
+    <a animator="clip: lift; loop: 1; target: @ball" />
 
     <!-- Script clips use the same registered-playable and Animator contract. -->
     <a id="coin" bounce part transform="pos: 1.3 0.6 0" color="rgba: 0.95 0.75 0.35" />
-    <a animator="loop: 1; target: @coin" />
+    <a animator="clip: bounce; loop: 1; target: @coin" />
 </scene>

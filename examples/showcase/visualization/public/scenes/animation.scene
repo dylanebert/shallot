@@ -5,13 +5,13 @@
     <a line="offset: 8 0 0; thickness: 1.5; color: 0x4a4640" transform="pos: -4 1.5 0" />
 
     <a id="c0" part transform="pos: -3.2 -1.5 0" color="rgba: 0.35 0.55 0.95" />
-    <a animator="loop: 1; target: @c0" />
+    <a animator="clip: curve-0; loop: 1; target: @c0" />
     <a id="c1" part transform="pos: -1.6 -1.5 0" color="rgba: 0.4875 0.55 0.825" />
-    <a animator="loop: 1; target: @c1" />
+    <a animator="clip: curve-1; loop: 1; target: @c1" />
     <a id="c2" part transform="pos: 0 -1.5 0" color="rgba: 0.625 0.55 0.7" />
-    <a animator="loop: 1; target: @c2" />
+    <a animator="clip: curve-2; loop: 1; target: @c2" />
     <a id="c3" part transform="pos: 1.6 -1.5 0" color="rgba: 0.7625 0.55 0.575" />
-    <a animator="loop: 1; target: @c3" />
+    <a animator="clip: curve-3; loop: 1; target: @c3" />
     <a id="c4" part transform="pos: 3.2 -1.5 0" color="rgba: 0.9 0.55 0.45" />
-    <a animator="loop: 1; target: @c4" />
+    <a animator="clip: curve-4; loop: 1; target: @c4" />
 </scene>

@@ -1017,6 +1017,25 @@ describe("typedVaryingFs — the 1-to-4 varying arity dispatch (gpu.md rule 9's 
             fs: fs4,
         });
 
+    test("resolving a varyings surface emits no typegpu `[implicit-conversion]` warning", () => {
+        // the thin vertex entry returned the raw copier's `Out` struct into a `vertexFn` whose `out`
+        // was a second, structurally different struct; typegpu converted one into the other at every
+        // resolve and warned about it — one line per typed surface on every example boot, for weeks,
+        // visible only in a devtools console. Declaring the entry's `out` as the copier's own struct
+        // removes the conversion; this arm keeps it removed at the resolve seam, no device needed.
+        const warned: string[] = [];
+        const original = console.warn;
+        console.warn = (...args: unknown[]) => warned.push(args.map(String).join(" "));
+        try {
+            wgsl2();
+            wgsl3();
+            wgsl4();
+        } finally {
+            console.warn = original;
+        }
+        expect(warned.filter((w) => w.includes("implicit-conversion"))).toEqual([]);
+    });
+
     test("every varying pins to its own slot from VARYING_BASE up, on BOTH sides — the authored name on the vs, the fixed v<i> on the fs", () => {
         for (const [wgsl, types] of [
             [wgsl2(), ["vec4f", "vec2f"]],
@@ -1050,9 +1069,11 @@ describe("typedVaryingFs — the 1-to-4 varying arity dispatch (gpu.md rule 9's 
         );
     });
 
-    test("the vs copier assigns every authored varying from the patch, in declaration order", () => {
-        expect(wgsl2()).toContain("fn arity2Copier(");
-        const copier4 = body(wgsl4(), "fn arity4Copier(");
+    test("the raw vs entry assigns every authored varying from the patch, in declaration order", () => {
+        // the raw body IS the entry now (no separate copier struct to convert into — the
+        // `[implicit-conversion]` arm above), so the signature is the `@vertex` entry's own
+        expect(wgsl2()).toContain("@vertex fn arity2Vs(");
+        const copier4 = body(wgsl4(), "@vertex fn arity4Vs(");
         const order = ["out.a = patched.a;", "out.b = patched.b;", "out.c = patched.c;"];
         let at = -1;
         for (const line of [...order, "out.e = patched.e;"]) {
@@ -1198,7 +1219,7 @@ describe("screen surfaces — the vs chunk's patch.clip IS the clip position", (
             fs: varyFs,
             screen: true,
         });
-        expect(body(wgsl, "fn screenVaryCopier(")).toContain("out.pos = patched.clip;");
+        expect(body(wgsl, "@vertex fn screenVaryVs(")).toContain("out.pos = patched.clip;");
         expect(wgsl).not.toContain("view.viewProj * world");
     });
 

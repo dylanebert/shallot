@@ -25,6 +25,7 @@ interface Recipe {
 // runs with empty checks (still gated on verify pass + verdict.ok, just without named-check assertions).
 const CHECKS: Record<string, string[]> = {
     "moving-platform": ["platform slides"],
+    "animate-with-clips": ["both clips move their targets"],
     joints: ["joints hold their load"],
     "breakable-joints": ["a joint breaks under load"],
     "surface-friction": ["friction rates differ"],
