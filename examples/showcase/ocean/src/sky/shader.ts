@@ -69,16 +69,35 @@ export const sampleCloud = tgpu
     })
     .$name("sampleDuskCloud");
 
-/** The sun disk and glow channel. */
+/** Mean apparent solar angular radius at one astronomical unit, in radians. */
+export const SOLAR_ANGULAR_RADIUS = 0.00465;
+/** Hestroffer-Magnan visible-continuum power-law exponent for solar limb darkening. */
+export const SOLAR_LIMB_EXPONENT = 0.5;
+
+/** Finite solar disk with a power-law limb profile. */
+export const solarDiskProfile = tgpu
+    .fn(
+        [d.f32],
+        d.f32,
+    )((alignment) => {
+        "use gpu";
+        const edge = std.cos(SOLAR_ANGULAR_RADIUS);
+        const radial = std.clamp((alignment - edge) / (1 - edge), 0, 1);
+        return std.pow(std.sqrt(radial), SOLAR_LIMB_EXPONENT);
+    })
+    .$name("solarDiskProfile");
+
+/** The physically bounded sun-disk channel. */
 export const sampleSun = tgpu
     .fn(
         [DuskSkyGpu, d.vec3f, d.vec3f],
         d.vec3f,
     )((sky, dir, lightDirection) => {
         "use gpu";
-        const alignment = std.max(std.dot(dir, std.neg(lightDirection)), 0);
-        const glow = std.pow(alignment, 48) * sky.sun.w;
-        return d.vec3f(std.mul(std.mul(sky.sun.xyz, glow), d.vec3f(0.52, 0.8, 1.05)));
+        const toSun = std.neg(lightDirection);
+        const alignment = std.max(std.dot(dir, toSun), 0);
+        const disk = solarDiskProfile(alignment) * sky.sun.w * 16;
+        return d.vec3f(std.mul(std.mul(sky.sun.xyz, disk), d.vec3f(0.52, 0.8, 1.05)));
     })
     .$name("sampleDuskSun");
 

@@ -118,9 +118,12 @@ export const SkyPlugin: Plugin = {
 
 export {
     DuskSkyGpu,
+    SOLAR_ANGULAR_RADIUS,
+    SOLAR_LIMB_EXPONENT,
     sampleCloud,
     sampleElevation,
     sampleHaze,
     sampleSky,
     sampleSun,
+    solarDiskProfile,
 } from "./shader";

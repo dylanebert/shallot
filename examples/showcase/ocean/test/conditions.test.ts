@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CAPTURE, sunDirection } from "../src/conditions";
+import { CAPTURE, SUN_FACING, sunDirection } from "../src/conditions";
 
 const scene = readFileSync(join(import.meta.dir, "../public/scenes/ocean.scene"), "utf8");
 
@@ -64,6 +64,10 @@ describe("ocean showcase capture", () => {
         expect(
             Math.hypot(...sunDirection(CAPTURE.sunAzimuthOffset, CAPTURE.sunElevation)),
         ).toBeCloseTo(1, 12);
+        expect(SUN_FACING).toEqual({
+            name: "sun-facing",
+            camera: { yaw: Math.PI + CAPTURE.sunAzimuthOffset, pitch: 0 },
+        });
     });
 
     test("scene declares the capture light, camera, and sky", () => {

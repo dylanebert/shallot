@@ -1,13 +1,20 @@
-import type { Plugin } from "@dylanebert/shallot";
+import { Orbit, type Plugin } from "@dylanebert/shallot";
 import { installHarness } from "@dylanebert/shallot/harness";
-import { CAPTURE } from "./conditions";
+import { CAPTURE, SUN_FACING } from "./conditions";
 
 const CapturePlugin: Plugin = {
     name: "Capture",
     initialize(state) {
         const harness = installHarness(state);
         harness.run = async () => {
-            const requestedTime = new URLSearchParams(location.search).get("time");
+            const query = new URLSearchParams(location.search);
+            const condition = query.get("condition");
+            if (condition === SUN_FACING.name) {
+                const camera = state.only([Orbit]);
+                Orbit.yaw.set(camera, SUN_FACING.camera.yaw);
+                Orbit.pitch.set(camera, SUN_FACING.camera.pitch);
+            }
+            const requestedTime = query.get("time");
             const parsedTime = requestedTime === null ? Number.NaN : Number(requestedTime);
             const captureTime =
                 Number.isFinite(parsedTime) && parsedTime >= 0 ? parsedTime : CAPTURE.time;
@@ -16,7 +23,7 @@ const CapturePlugin: Plugin = {
             }
             state.pause();
             const canvas = document.querySelector("canvas");
-            const claim = new URLSearchParams(location.search).get("claim");
+            const claim = query.get("claim");
             const deviceChecks = claim
                 ? await (
                       {
@@ -24,9 +31,10 @@ const CapturePlugin: Plugin = {
                           shading: () => import("./verification/ocean-shading"),
                           slope: () => import("./verification/ocean-slope"),
                           foam: () => import("./verification/ocean-foam"),
+                          solar: () => import("./verification/ocean-solar"),
                       } as const
                   )
-                      [claim as "fold" | "shading" | "slope" | "foam"]?.()
+                      [claim as "fold" | "shading" | "slope" | "foam" | "solar"]?.()
                       .then((module) => module.runDeviceClaim(state))
                 : [];
             const checks = [
@@ -39,6 +47,11 @@ const CapturePlugin: Plugin = {
                     name: "matched ocean time reached",
                     ok: state.time.elapsed >= captureTime,
                     detail: `${state.time.elapsed} >= ${captureTime}`,
+                },
+                {
+                    name: "named capture condition is known",
+                    ok: condition === null || condition === SUN_FACING.name,
+                    detail: condition ?? "default",
                 },
                 { name: "ocean canvas rendered", ok: Boolean(canvas?.width && canvas.height) },
                 ...(
