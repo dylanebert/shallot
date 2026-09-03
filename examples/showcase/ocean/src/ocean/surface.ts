@@ -300,7 +300,9 @@ export const oceanSurfaceFs = tgpu.fn(
     const eye = engineLayout.$.view.eye.xyz;
     const view = std.normalize(std.sub(eye, ctx.worldPos));
     const reflected = std.reflect(std.neg(view), normal);
-    const skyDirection = std.normalize(d.vec3f(reflected.x, std.max(reflected.y, 0), reflected.z));
+    const skyDirection = std.normalize(
+        d.vec3f(reflected.x, std.clamp(reflected.y, 0, 0.05), reflected.z),
+    );
     const sky = sampleSky(
         DuskSkyGpu(oceanSurfaceLayout.$.duskSky),
         skyDirection,
