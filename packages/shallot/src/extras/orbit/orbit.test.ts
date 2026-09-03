@@ -1381,6 +1381,24 @@ describe("OrbitSystem keyboard orbit", () => {
         expect(Orbit.pitch.get(cam)).toBeCloseTo(0, 5);
     });
 
+    test("ArrowUp moves the production camera above its target", () => {
+        const cam = state.create();
+        state.add(cam, Transform);
+        state.add(cam, Orbit);
+        Orbit.pitch.set(cam, 0);
+        Orbit.distance.set(cam, 5);
+        Orbit.keyRate.set(cam, 3);
+        Orbit.keyAcceleration.set(cam, 30);
+        state.step(1 / 60);
+
+        const before = Transform.pos.y.get(cam);
+        dispatch("keydown", "ArrowUp");
+        for (let frame = 0; frame < 6; frame++) state.step(1 / 60);
+
+        expect(Orbit.pitch.get(cam)).toBeGreaterThan(0);
+        expect(Transform.pos.y.get(cam)).toBeGreaterThan(before);
+    });
+
     test("release damping decays velocity instead of stopping on the key-up frame", () => {
         const cam = state.create();
         state.add(cam, Transform);

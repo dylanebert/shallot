@@ -92,13 +92,13 @@ describe("OrbitTuningPlugin", () => {
     test("a production digit event mutates Orbit and updates the mounted readout", () => {
         const overlay = canvasParent.children[0];
         const readout = overlay.children[0].children[0];
-        expect(readout.textContent).toContain("rate 1.2 rad/s");
+        expect(readout.textContent).toContain("rate 3.0 rad/s");
 
         windowListeners.get("keydown")!({ code: "Digit2" });
         state.step();
 
         const eid = [...state.query([Orbit])][0];
-        expect(Orbit.keyRate.get(eid)).toBeCloseTo(1.3);
-        expect(readout.textContent).toContain("rate 1.3 rad/s");
+        expect(Orbit.keyRate.get(eid)).toBeCloseTo(3.1);
+        expect(readout.textContent).toContain("rate 3.1 rad/s");
     });
 });

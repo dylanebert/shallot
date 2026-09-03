@@ -225,7 +225,7 @@ const OrbitSystem: System = {
             const keyYaw =
                 Number(input.isKeyDown("ArrowRight")) - Number(input.isKeyDown("ArrowLeft"));
             const keyPitch =
-                Number(input.isKeyDown("ArrowDown")) - Number(input.isKeyDown("ArrowUp"));
+                Number(input.isKeyDown("ArrowUp")) - Number(input.isKeyDown("ArrowDown"));
             const accelerate = (velocity: number, direction: number): number => {
                 if (direction === 0) return velocity * Math.exp(-keyDamping * dt);
                 const target = direction * keyRate;
@@ -457,9 +457,9 @@ export const OrbitPlugin: Plugin = {
                 flySmoothness: 0.6,
                 sensitivity: 0.005,
                 flySensitivity: 0.003,
-                keyRate: 1.2,
-                keyAcceleration: 8,
-                keyDamping: 12,
+                keyRate: 3,
+                keyAcceleration: 30,
+                keyDamping: 30,
                 zoomSpeed: 0.025,
                 orbitButton: 0,
                 panButton: 1,

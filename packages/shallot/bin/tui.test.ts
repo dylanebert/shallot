@@ -8,6 +8,7 @@ import {
     decodeStdinChunk,
     EXIT_NO_BUN_WEBGPU,
     EXIT_SETUP,
+    frameWait,
     importBunWebgpu,
     noBunWebgpuMessage,
     parseTuiArgs,
@@ -156,6 +157,19 @@ describe("decodeStdinChunk", () => {
     test("an unrecognized escape sequence and plain text produce no codes and no quit", () => {
         expect(decodeStdinChunk("\x1b[Z")).toEqual({ codes: [], quit: false });
         expect(decodeStdinChunk("hello")).toEqual({ codes: [], quit: false });
+    });
+});
+
+describe("interactive frame cadence", () => {
+    test("readback time consumes the frame budget instead of being followed by another full period", () => {
+        const frameMs = 1000 / 30;
+        const workMs = 20;
+        expect(frameWait(frameMs, workMs)).toBeCloseTo(frameMs - workMs, 8);
+        expect(workMs + frameWait(frameMs, workMs)).toBeCloseTo(frameMs, 8);
+    });
+
+    test("an over-budget frame starts its successor without adding avoidable latency", () => {
+        expect(frameWait(1000 / 30, 40)).toBe(0);
     });
 });
 

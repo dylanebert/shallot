@@ -390,6 +390,12 @@ const ARROW_CODES: Readonly<Record<string, string>> = {
 export const KEY_FIRST_REPEAT_MS = 500;
 export const KEY_REPEAT_RELEASE_MS = 80;
 
+/** Remaining wait to keep frame starts on their fixed cadence instead of adding a full frame period
+ * after readback and terminal output. */
+export function frameWait(deadline: number, now: number): number {
+    return Math.max(0, deadline - now);
+}
+
 /** one decoded raw-stdin byte chunk: the `KeyboardEvent.code` values it named (arrow keys only today —
  *  WASD/other printable-key mapping is a natural follow-on, not required by this unit's own criteria),
  *  plus whether it asked to quit (Ctrl-C `\x03`, or `q`/`Q`). Pure — testable with no real tty. */
@@ -775,6 +781,8 @@ export async function runTui(
     }
 
     const dt = 1 / args.fps;
+    const frameMs = dt * 1000;
+    let nextFrameAt = performance.now();
     let frame = 0;
     await runLoopWithTeardown(
         async () => {
@@ -808,7 +816,8 @@ export async function runTui(
                     write(encoder.encode(tuiGrid));
                 }
                 frame++;
-                if (interactive) await Bun.sleep(dt * 1000);
+                nextFrameAt += frameMs;
+                if (interactive) await Bun.sleep(frameWait(nextFrameAt, performance.now()));
             }
         },
         teardown,
