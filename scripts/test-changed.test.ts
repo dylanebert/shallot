@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { Glob } from "bun";
 import { TEST_TIER_SUFFIX_NAMES } from "../packages/shallot/tests/test-tiers";
 import { EXAMPLE_GATES } from "./example-gates";
 import { OCEAN_CPU_GATES } from "./ocean-oracle-gates";
-import { main, selectCpuGates, selectExampleGates } from "./test-changed";
+import { changedPaths, main, selectCpuGates, selectExampleGates } from "./test-changed";
 
 const dirs = (paths: string[]) => selectExampleGates(paths).map((row) => row.dir);
 const cpus = (paths: string[]) => selectCpuGates(paths).map((row) => row.script);
@@ -39,16 +40,52 @@ describe("changed-path selector", () => {
             expect(cpus([path])).toContain(script);
     });
 
-    test("every CPU cover matches a tracked path and every command resolves to its root script", async () => {
+    test("every CPU cover matches a tracked path and every command declares its recorded per-test ceiling", async () => {
         const tracked = Bun.spawnSync(["git", "ls-files"], { cwd: resolve(import.meta.dir, "..") });
         expect(tracked.success).toBe(true);
         const files = tracked.stdout.toString().split("\n").filter(Boolean);
         const pkg = await Bun.file(resolve(import.meta.dir, "../package.json")).json();
         for (const row of OCEAN_CPU_GATES) {
-            expect(pkg.scripts[row.script]).toBeString();
-            expect(pkg.scripts[row.script]).toContain(row.covers[0]);
+            const command = pkg.scripts[row.script];
+            expect(command).toBeString();
+            expect(command).toContain(row.covers[0]);
+            expect(command).toContain(`--timeout ${row.timeoutMs}`);
+            expect(row.recordedFraction).toBeGreaterThan(0);
+            expect(row.recordedFraction).toBeLessThanOrEqual(0.5);
             for (const cover of row.covers)
                 expect(files.some((file) => new Glob(cover).match(file))).toBe(true);
+        }
+    });
+
+    test("a deleted oracle cover remains a changed path and selects its CPU row", async () => {
+        const root = mkdtempSync(resolve(tmpdir(), "shallot-changed-delete-"));
+        const run = (...args: string[]) => {
+            const result = Bun.spawnSync(["git", ...args], { cwd: root });
+            expect(result.success, result.stderr.toString()).toBe(true);
+        };
+        try {
+            run("init", "-q");
+            run("config", "user.email", "gate@example.invalid");
+            run("config", "user.name", "Gate Fixture");
+            const oracle = "examples/showcase/ocean/test/fold-anchor.oracle.ts";
+            const path = resolve(root, oracle);
+            mkdirSync(resolve(path, ".."), { recursive: true });
+            writeFileSync(path, "fixture", { flush: true });
+            run("add", ".");
+            run("commit", "-qm", "base");
+            run("rm", "-q", oracle);
+            run("commit", "-qm", "delete");
+            const oldCwd = process.cwd();
+            process.chdir(root);
+            try {
+                const paths = await changedPaths("HEAD^", "HEAD");
+                expect(paths).toContain(oracle);
+                expect(cpus(paths)).toContain("test:ocean-fold");
+            } finally {
+                process.chdir(oldCwd);
+            }
+        } finally {
+            rmSync(root, { recursive: true, force: true });
         }
     });
 
