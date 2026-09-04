@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { Glob } from "bun";
+import { TEST_TIER_SUFFIX_NAMES } from "../packages/shallot/tests/test-tiers";
 import { EXAMPLE_GATES } from "./example-gates";
 import { OCEAN_CPU_GATES } from "./ocean-oracle-gates";
 import { main, selectCpuGates, selectExampleGates } from "./test-changed";
@@ -62,6 +63,26 @@ describe("changed-path selector", () => {
             expect(existsSync(resolve(root, token))).toBe(true);
             const scan = new Glob("**/*.test.ts").scanSync({ cwd: resolve(root, token) });
             expect([...scan].length, token).toBeGreaterThan(0);
+        }
+    });
+
+    test("the derived default cone launches no by-path tier", async () => {
+        const root = resolve(import.meta.dir, "..");
+        const pkg = await Bun.file(resolve(root, "package.json")).json();
+        const dirs = pkg.scripts.test.split(/\s+/).slice(2);
+        const byPathSuffixes = TEST_TIER_SUFFIX_NAMES.filter((name) => name !== "test");
+        const tierCommand = new RegExp(
+            `(?:\\.(?:${byPathSuffixes.join("|")})\\.ts|shallot\\s+verify|bun\\s+(?:bench|run\\s+(?:flows|recipes|test:install)))`,
+        );
+        const launch = new RegExp(
+            `(?:const\\s+\\w*(?:COMMAND|CMD)\\s*=\\s*[\\s\\S]{0,300}${tierCommand.source}|Bun\\.spawn(?:Sync)?\\s*\\([\\s\\S]{0,300}${tierCommand.source})`,
+        );
+        for (const dir of dirs) {
+            const files = new Glob("**/*.test.ts").scanSync({ cwd: resolve(root, dir) });
+            for (const file of files) {
+                const path = resolve(root, dir, file);
+                expect(await Bun.file(path).text(), path).not.toMatch(launch);
+            }
         }
     });
 });

@@ -25,18 +25,13 @@
 // number. The t=0-only reading is kept and printed as the RED CONTROL this invariant names — the
 // single-point formulation the phase mean corrects for — never as a gate.
 //
-// COST: this file is `.oracle.ts` (exempt from the default per-file test-duration cap,
-// `packages/shallot/tests/test-cap.ts`), but `fold-anchor-oracle-reach.test.ts` spawns the WHOLE of
-// it synchronously inside a capped `.test.ts` file to prove `bun run test` actually executes it — so
-// this file's own wall-clock is bounded by that cap (5000ms) minus the reach sentinel's own overhead,
-// not by the exemption. The composed-world-grid build (330×330 points, both cascades) is the cost:
+// COST: this file is `.oracle.ts`, exempt from the default per-file test-duration cap and selected
+// by path through `bun run test:changed`; the root `test:ocean-fold` command runs full mode with 24
+// seeds per window. The composed-world-grid build (330×330 points, both cascades) is the cost:
 // ~20ms/realization for the FFT pipeline (`updateH`/`chop`/`spectralGradient`/`idft2`, all four
-// production primitives, unmodified) plus ~6ms for the nearest-neighbor composition, measured. Seed
-// reduced windows use two seeds each: that is the smallest scan that preserves the reach property's
-// stated nonzero assertion execution while retaining all three disjoint solve/held-out paths, all
-// nine phases, and the held-out anchor criterion (one seed fails heldA at +35.01%). Statistical
-// sizing and production pins remain full-mode-only, and the reduced run says so in its output; the
-// by-path full mode retains 24 seeds per window.
+// production primitives, unmodified) plus ~6ms for the nearest-neighbor composition, measured.
+// Reduced mode keeps two seeds per window as an explicitly degraded local diagnostic; statistical
+// sizing and production pins remain full-mode-only, and the reduced run says so in its output.
 //
 // SEED WINDOWS: reduced SOLVE (seeds 0..1), HELD_A (1000..1001), and HELD_B (2000..2001) are disjoint. Every window uses a per-cascade seed
 // offset (cascade 1 draws `seed + CASCADE1_OFFSET`) so one window index doesn't correlate the two

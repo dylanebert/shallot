@@ -4,18 +4,20 @@
 // each child runs a full deterministic oracle, so these arms cannot live under the default suite's
 // 5000 ms per-file cap or bun's 5000 ms per-test timeout.
 //
-// Trigger paths: this file; `fold-anchor-oracle-reach.test.ts`,
-// `slope-oracle-reach.test.ts`, `mesh-inversion-sweep-oracle-reach.test.ts`; `package.json`'s
-// `test:ocean-fold`, `test:ocean-slope`, and `test:ocean-mesh-inversion` scripts; and
+// Trigger paths: this file; `package.json`'s `test:ocean-fold`, `test:ocean-slope`, and
+// `test:ocean-mesh-inversion` scripts; and
 // `fold-anchor.oracle.ts`, `slope.oracle.ts`, `mesh-inversion-sweep.oracle.ts` plus their transitive
 // import cones. This header is the by-path registry: run from the Shallot root with
 // `bun test ./examples/showcase/ocean/test/ocean-oracle-reach.tier.ts`.
 
 import { expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
-import { FOLD_REACH_COMMAND } from "./fold-anchor-oracle-reach.test";
-import { MESH_INVERSION_REACH_COMMAND } from "./mesh-inversion-sweep-oracle-reach.test";
-import { SLOPE_REACH_COMMAND } from "./slope-oracle-reach.test";
+
+const FOLD_REACH_COMMAND =
+    "env FOLD_ENSEMBLE_MODE=reduced bun test ./examples/showcase/ocean/test/fold-anchor.oracle.ts";
+const MESH_INVERSION_REACH_COMMAND =
+    "bun test ./examples/showcase/ocean/test/mesh-inversion-sweep.oracle.ts";
+const SLOPE_REACH_COMMAND = "bun test ./examples/showcase/ocean/test/slope.oracle.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 
