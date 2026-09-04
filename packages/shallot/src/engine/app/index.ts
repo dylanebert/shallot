@@ -13,6 +13,9 @@ import {
 import { diagnose, load, parse } from "../scene";
 import { preload } from "../scene/core";
 import { coalesce, frameDelta, median } from "./coalesce";
+import { resolvePlugins } from "./compose";
+
+export * from "./compose";
 
 /**
  * bundle of components, systems, and lifecycle hooks: the unit of behavior a project enables.
@@ -218,22 +221,17 @@ export async function build(config: Config): Promise<App> {
         }
         for (const p of config.plugins) pluginSet.add(p);
 
-        const skipped = new Set<Plugin>();
-        const edges: [Plugin, Plugin][] = [];
+        const composition = resolvePlugins([...pluginSet]);
+        const skipped = new Set(composition.missing.map(({ plugin }) => plugin));
         for (const plugin of pluginSet) {
-            for (const dep of plugin.dependencies ?? []) {
-                if (pluginSet.has(dep)) continue;
+            const edge = composition.missing.find((missing) => missing.plugin === plugin);
+            if (edge) {
                 console.warn(
-                    `Missing plugin dependency: ${plugin.name ?? "?"} requires ${dep.name ?? "?"}`,
+                    `Missing plugin dependency: ${plugin.name ?? "?"} requires ${edge.dependency.name ?? "?"}`,
                 );
-                skipped.add(plugin);
-                break;
-            }
-            for (const dep of plugin.dependencies ?? []) {
-                edges.push([dep, plugin]);
             }
         }
-        const sorted = sortPlugins([...pluginSet], edges).filter((p) => !skipped.has(p));
+        const sorted = composition.plugins.filter((plugin) => !skipped.has(plugin));
 
         // acquire the device for exactly the loaded plugins' feature needs — the union of every
         // active plugin's required `features` and best-effort `preferredFeatures`. A scene without
@@ -354,37 +352,6 @@ export async function build(config: Config): Promise<App> {
         else cleanup?.();
         throw e;
     }
-}
-
-function sortPlugins(nodes: Plugin[], edges: [Plugin, Plugin][]): Plugin[] {
-    const adj = new Map<Plugin, Plugin[]>();
-    const inDegree = new Map<Plugin, number>();
-    for (const node of nodes) {
-        adj.set(node, []);
-        inDegree.set(node, 0);
-    }
-    for (const [from, to] of edges) {
-        if (!adj.has(from) || !inDegree.has(to)) continue;
-        adj.get(from)!.push(to);
-        inDegree.set(to, inDegree.get(to)! + 1);
-    }
-    const sorted: Plugin[] = [];
-    const queue: Plugin[] = [];
-    for (const node of nodes) if (inDegree.get(node) === 0) queue.push(node);
-    while (queue.length) {
-        const node = queue.shift()!;
-        sorted.push(node);
-        for (const next of adj.get(node)!) {
-            const d = inDegree.get(next)! - 1;
-            inDegree.set(next, d);
-            if (d === 0) queue.push(next);
-        }
-    }
-    if (sorted.length !== nodes.length) {
-        const remaining = nodes.filter((n) => (inDegree.get(n) ?? 0) > 0).map((n) => n.name);
-        throw new Error(`Circular plugin dependency: ${remaining.join(", ")}`);
-    }
-    return sorted;
 }
 
 /**
