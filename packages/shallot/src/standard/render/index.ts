@@ -72,8 +72,8 @@ function basisColumn(world: Float32Array, base: number, out: Float32Array, at: n
  * world-matrix compose dispatch, acquires each view's swapchain backbuffer
  * (`view.present`) + offscreen scene-color target (`view.framebuffer`), and
  * packs the View UBO. Producer and renderer systems both run
- * `after: [BeginFrameSystem]`; `EndFrameSystem` (a `last: true` system that
- * submits the encoder) closes the frame.
+ * `after: [BeginFrameSystem]`; the terminal submission system closes the frame
+ * after every producer and renderer in the draw group.
  */
 export const BeginFrameSystem: System = {
     group: "draw",
@@ -241,11 +241,14 @@ export const BeginFrameSystem: System = {
 /** closes the frame: submits the encoder, advances `Compute.frame` */
 const EndFrameSystem: System = {
     group: "draw",
-    last: true,
+    terminal: true,
     update() {
+        const device = Compute.device;
+        if (!device) return;
         const encoder = Render.encoder;
-        if (!Compute.device || !encoder) return;
-        Compute.device.queue.submit([encoder.finish()]);
+        if (!encoder)
+            throw new Error("render submission requires BeginFrameSystem to open an encoder");
+        device.queue.submit([encoder.finish()]);
         Compute.frame++;
         Render.encoder = null;
         for (const view of Views.values()) {

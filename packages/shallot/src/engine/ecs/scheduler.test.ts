@@ -361,6 +361,50 @@ describe("Scheduler", () => {
             expect(executionOrder.indexOf("A")).toBeLessThan(executionOrder.indexOf("B"));
         });
 
+        test("a unique terminal runs after first, normal, and last regardless of registration order", () => {
+            state.addSystem({
+                group: "simulation",
+                terminal: true,
+                update: () => executionOrder.push("terminal"),
+            });
+            state.addSystem({
+                group: "simulation",
+                last: true,
+                update: () => executionOrder.push("last"),
+            });
+            state.addSystem({
+                group: "simulation",
+                update: () => executionOrder.push("normal"),
+            });
+            state.addSystem({
+                group: "simulation",
+                first: true,
+                update: () => executionOrder.push("first"),
+            });
+
+            state.step(Time.FIXED_DT);
+
+            expect(executionOrder).toEqual(["first", "normal", "last", "terminal"]);
+        });
+
+        test("should reject duplicate terminal systems in one group", () => {
+            state.addSystem({ group: "simulation", terminal: true, update: () => {} });
+            state.addSystem({ group: "simulation", terminal: true, update: () => {} });
+
+            expect(() => state.step()).toThrow(/more than one terminal/i);
+        });
+
+        test("should reject terminal combined with another partition", () => {
+            state.addSystem({
+                group: "simulation",
+                last: true,
+                terminal: true,
+                update: () => {},
+            });
+
+            expect(() => state.step()).toThrow(/cannot combine terminal/i);
+        });
+
         test("should handle first + last combination", () => {
             state.addSystem({
                 group: "simulation",
