@@ -281,7 +281,7 @@ export const BECKMANN_VARIANCE_FLOOR = Math.sqrt(2 ** -23);
 /** Demo-local radial aerial-perspective density. */
 export const AERIAL_DENSITY = 0.0014;
 /** Bounded blue-teal body radiance revealed below the reflected sky. */
-export const WATER_BODY = [0.014, 0.017, 0.02] as const;
+export const WATER_BODY = [0.003, 0.009, 0.013] as const;
 /** Ambient sky share lighting the faint foam treatment. */
 export const WATER_AMBIENT = 0.72;
 
