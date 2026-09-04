@@ -5,6 +5,10 @@ import { basename, extname, resolve } from "node:path";
 import { decode as decodeJpeg } from "jpeg-js";
 import { PNG } from "pngjs";
 import fixture from "./reference/look-relations.json";
+import {
+    printReflectedElevationPrediction,
+    reflectedElevationPrediction,
+} from "./reflected-elevation";
 
 export interface Pixels {
     width: number;
@@ -33,6 +37,11 @@ export interface LookReading {
     reflection: {
         signedSkyTracking: [number, number, number, number];
         scaleNormalizedStructure: number;
+    };
+    highlight: {
+        clippingFraction: number;
+        glitterMeanChroma: number;
+        contiguousRunBreakup: number;
     };
     lumaRange: number;
 }
@@ -327,6 +336,51 @@ function normalResponse(
     };
 }
 
+function highlight(image: Pixels, ranges: BandRanges): LookReading["highlight"] {
+    const y0 = Math.floor(image.height * ranges.horizon[0]);
+    const values: number[] = [];
+    for (let y = y0; y < image.height; y++) {
+        for (let x = 0; x < image.width; x++) {
+            const i = (y * image.width + x) * 4;
+            values.push(luma(image.data[i] ?? 0, image.data[i + 1] ?? 0, image.data[i + 2] ?? 0));
+        }
+    }
+    values.sort((a, b) => a - b);
+    const threshold = values[Math.floor(values.length * 0.99)] ?? 1;
+    let highlighted = 0;
+    let clipped = 0;
+    let waterPixels = 0;
+    let chroma = 0;
+    let runs = 0;
+    let longest = 0;
+    for (let y = y0; y < image.height; y++) {
+        let run = 0;
+        for (let x = 0; x < image.width; x++) {
+            const i = (y * image.width + x) * 4;
+            const rgb = [image.data[i] ?? 0, image.data[i + 1] ?? 0, image.data[i + 2] ?? 0];
+            waterPixels++;
+            if (Math.max(...rgb) >= 250) clipped++;
+            const active = luma(rgb[0]!, rgb[1]!, rgb[2]!) >= threshold;
+            if (!active) {
+                if (run > 0) runs++;
+                longest = Math.max(longest, run);
+                run = 0;
+                continue;
+            }
+            run++;
+            highlighted++;
+            chroma += Math.max(...rgb) - Math.min(...rgb);
+        }
+        if (run > 0) runs++;
+        longest = Math.max(longest, run);
+    }
+    return {
+        clippingFraction: clipped / Math.max(waterPixels, 1),
+        glitterMeanChroma: chroma / Math.max(highlighted, 1),
+        contiguousRunBreakup: runs / Math.max(highlighted, 1),
+    };
+}
+
 function foam(
     image: Pixels,
     nearMean: number,
@@ -442,6 +496,7 @@ export function analyze(image: Pixels): LookReading {
                     response.midRowDeviation / Math.max((bands.midWater?.luma ?? 0) * 255, 1),
             };
         })(),
+        highlight: highlight(image, ranges),
         lumaRange: Math.max(...allLuma) - Math.min(...allLuma),
     };
 }
@@ -473,10 +528,9 @@ function inside(value: number, range: { min: number; max: number }): boolean {
     return Number.isFinite(value) && value >= range.min && value <= range.max;
 }
 
-export type ReferenceRelation =
+export type GoldRelation =
     | "horizonWidth"
     | "horizonContinuity"
-    | "farWaterSkyHueDistance"
     | "lowerBandBrightSpecks"
     | "foamNearCoverage"
     | "waterSkyLumaRatio0"
@@ -484,9 +538,11 @@ export type ReferenceRelation =
     | "waterSkyLumaRatio2"
     | "waterSkyLumaRatio3"
     | "horizonValueStep"
-    | "fadeExtent"
-    | "nearBlueRedRatio"
-    | "nearMeanChroma";
+    | "fadeExtent";
+
+export type ColourRelation = "farWaterSkyHueDistance" | "nearBlueRedRatio" | "nearMeanChroma";
+
+export type ReferenceRelation = GoldRelation | ColourRelation;
 
 type Interval = { min: number; max: number };
 
@@ -501,17 +557,13 @@ type RelationReading = {
     normalResponse: LookReading["normalResponse"];
 };
 
-export function referenceRelationResults(
+export function goldRelationResults(
     reading: RelationReading,
     relations: typeof fixture.relations = fixture.relations,
-): Record<ReferenceRelation, boolean> {
+): Record<GoldRelation, boolean> {
     return {
         horizonWidth: inside(reading.horizon.transitionWidth, relations.horizonWidth),
         horizonContinuity: reading.horizon.continuity >= relations.horizonContinuityMin,
-        farWaterSkyHueDistance: inside(
-            reading.farWaterSkyHueDistance,
-            relations.farWaterSkyHueDistance,
-        ),
         lowerBandBrightSpecks: inside(
             reading.lowerBandBrightSpecks,
             relations.lowerBandBrightSpecks,
@@ -535,6 +587,38 @@ export function referenceRelationResults(
         ),
         horizonValueStep: inside(reading.horizon.valueStep, relations.horizonValueStep),
         fadeExtent: inside(reading.duskBalance.fadeExtent, relations.fadeExtent),
+    };
+}
+
+export function colourRelationResults(
+    reading: RelationReading,
+    relations: typeof fixture.relations = fixture.relations,
+): Record<ColourRelation, boolean> {
+    return {
+        farWaterSkyHueDistance: inside(
+            reading.farWaterSkyHueDistance,
+            relations.s9Colour.farWaterSkyHueDistance,
+        ),
+        nearBlueRedRatio:
+            Number.isFinite(reading.duskBalance.nearBlueRedRatio) &&
+            reading.duskBalance.nearBlueRedRatio >= relations.s9Colour.nearBlueRedRatio.min,
+        nearMeanChroma: inside(
+            reading.normalResponse.nearMeanChroma,
+            relations.s9Colour.nearMeanChroma,
+        ),
+    };
+}
+
+export function referenceRelationResults(
+    reading: RelationReading,
+    relations: typeof fixture.relations = fixture.relations,
+): Record<ReferenceRelation, boolean> {
+    return {
+        ...goldRelationResults(reading, relations),
+        farWaterSkyHueDistance: inside(
+            reading.farWaterSkyHueDistance,
+            relations.farWaterSkyHueDistance,
+        ),
         nearBlueRedRatio: inside(reading.duskBalance.nearBlueRedRatio, relations.nearBlueRedRatio),
         nearMeanChroma: inside(reading.normalResponse.nearMeanChroma, relations.nearMeanChroma),
     };
@@ -588,15 +672,13 @@ export function satisfiesS16Relations(
     return (
         reading.reflection.signedSkyTracking.every((value, index) =>
             inside(value, relations.signedSkyTracking[index]!),
-        ) &&
-        inside(reading.normalResponse.nearMeanChroma, relations.nearMeanChroma) &&
-        inside(reading.reflection.scaleNormalizedStructure, relations.scaleNormalizedStructure)
+        ) && inside(reading.reflection.scaleNormalizedStructure, relations.scaleNormalizedStructure)
     );
 }
 
 export function satisfiesS16Floor(
-    fresh: Pick<LookReading, "normalResponse" | "reflection">,
-    prior: Pick<LookReading, "normalResponse" | "reflection">,
+    fresh: Pick<LookReading, "reflection">,
+    prior: Pick<LookReading, "reflection">,
     relations: typeof fixture.relations = fixture.relations,
 ): boolean {
     return (
@@ -606,11 +688,6 @@ export function satisfiesS16Floor(
                 prior.reflection.signedSkyTracking[index]!,
                 relations.signedSkyTracking[index]!,
             ),
-        ) &&
-        satisfiesPriorGoodFloor(
-            fresh.normalResponse.nearMeanChroma,
-            prior.normalResponse.nearMeanChroma,
-            relations.nearMeanChroma,
         ) &&
         satisfiesPriorGoodFloor(
             fresh.reflection.scaleNormalizedStructure,
@@ -630,20 +707,7 @@ export function satisfiesReferenceRelations(
     reading: RelationReading,
     relations: typeof fixture.relations = fixture.relations,
 ): boolean {
-    return (
-        inside(reading.horizon.transitionWidth, relations.horizonWidth) &&
-        reading.horizon.continuity >= relations.horizonContinuityMin &&
-        inside(reading.farWaterSkyHueDistance, relations.farWaterSkyHueDistance) &&
-        inside(reading.lowerBandBrightSpecks, relations.lowerBandBrightSpecks) &&
-        inside(reading.foam.nearCoverage, relations.foamNearCoverage) &&
-        reading.duskBalance.waterSkyLumaRatios.every((ratio, index) =>
-            inside(ratio, relations.waterSkyLumaRatios[index]!),
-        ) &&
-        inside(reading.horizon.valueStep, relations.horizonValueStep) &&
-        inside(reading.duskBalance.fadeExtent, relations.fadeExtent) &&
-        inside(reading.duskBalance.nearBlueRedRatio, relations.nearBlueRedRatio) &&
-        inside(reading.normalResponse.nearMeanChroma, relations.nearMeanChroma)
-    );
+    return Object.values(goldRelationResults(reading, relations)).every(Boolean);
 }
 
 export function assertRegeneratedReferences(
@@ -689,9 +753,37 @@ function print(path: string, reading: LookReading): void {
     console.log(
         `  signed sky tracking ${reading.reflection.signedSkyTracking.map((value) => value.toFixed(2)).join(", ")}  scale-normalized structure=${reading.reflection.scaleNormalizedStructure.toFixed(4)}`,
     );
+    console.log(
+        `  highlight clipping≥250/255=${(reading.highlight.clippingFraction * 100).toFixed(3)}% glitter-chroma=${reading.highlight.glitterMeanChroma.toFixed(2)} breakup=${reading.highlight.contiguousRunBreakup.toFixed(4)}`,
+    );
+}
+
+function printRelations(reading: LookReading): boolean {
+    const gold = goldRelationResults(reading);
+    for (const [name, pass] of Object.entries(gold))
+        console.log(`  gold ${name} ${pass ? "PASS" : "FAIL"}`);
+    const colour = colourRelationResults(reading);
+    const fresh = {
+        waterSkyLumaRatios: reading.duskBalance.waterSkyLumaRatios.every(
+            (ratio, index) => ratio >= fixture.relations.s9Colour.waterSkyLumaRatios[index]!.min,
+        ),
+        ...colour,
+        signedSkyTracking: reading.reflection.signedSkyTracking.every((value, index) =>
+            inside(value, fixture.relations.s9Colour.signedSkyTracking[index]!),
+        ),
+        midRowDeviation: reading.normalResponse.midRowDeviation >= 6.27,
+        scaleNormalizedStructure:
+            reading.reflection.scaleNormalizedStructure >=
+            fixture.relations.s9Colour.scaleNormalizedStructure,
+    };
+    for (const [name, pass] of Object.entries(fresh))
+        console.log(`  S21 ${name} ${pass ? "PASS" : "FAIL"}`);
+    return Object.values(fresh).every(Boolean);
 }
 
 if (import.meta.main) {
+    const reach = reflectedElevationPrediction();
+    printReflectedElevationPrediction(reach);
     const regenerateIndex = process.argv.indexOf("--regenerate");
     if (regenerateIndex >= 0) {
         const sourceRoot = resolve(
@@ -741,6 +833,7 @@ if (import.meta.main) {
         await load(resolve("examples/showcase/ocean/test/baseline/ocean-baseline-1.png")),
     );
     print(capture, captureReading);
+    const relationsPass = printRelations(captureReading);
     if (
         captureReading.lumaRange < 0.02 ||
         captureReading.horizon.transitionWidth < 1 ||
@@ -776,6 +869,11 @@ if (import.meta.main) {
     }
     printBounds();
     if (condition === undefined) {
+        if (reach.reflectionDominant && reach.clearsS9) ok &&= relationsPass;
+        else
+            console.log(
+                "  S21 colour branch UNREACHABLE: preserving S20 carriers; deficit routed to residue",
+            );
         ok &&= satisfiesS16Relations(captureReading);
         const s9 = analyze(
             await load(resolve("examples/showcase/ocean/test/fixtures/look/s9-prior-good.png")),

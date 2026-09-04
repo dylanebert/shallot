@@ -1,5 +1,5 @@
 {
-    "oracleRevision": "shallot-ocean-look/S14",
+    "oracleRevision": "shallot-ocean-look/S21",
     "provenance": {
         "horizonRows": "210/720",
         "absoluteRelationRows": {
@@ -44,6 +44,10 @@
             {
                 "name": "taste/captures/ocean-day-reel.jpg",
                 "sha256": "a5ae3d4da1abde8d042e949f01c19836b3a34649945c37b5b5ae47fe7bdc70d3"
+            },
+            {
+                "name": "fixtures/look/s9-prior-good.png",
+                "sha256": "b102e79f7843af558fb3ecdf1be40aefe5389aea749797d27e0d3706eb41cbd5"
             }
         ],
         "relationMargins": {
@@ -58,8 +62,14 @@
             "nearBlueRedRatio": "0.10 outside marked-frame range",
             "nearMeanChroma": "2 sRGB levels outside marked-frame range",
             "signedSkyTracking": "2 sRGB levels outside each marked-frame band range",
-            "scaleNormalizedStructure": "0.04 outside the marked-frame coefficient range"
-        }
+            "scaleNormalizedStructure": "0.04 outside the marked-frame coefficient range",
+            "s9FarWaterSkyHueDistance": "±6 degrees from pinned S9",
+            "s9NearBlueRedRatio": "one-sided floor 4.2",
+            "s9NearMeanChroma": "±2 sRGB levels from pinned S9",
+            "s9WaterSkyLumaRatios": "0.03 below each pinned S9 quartile",
+            "s9SignedSkyTracking": "±2 sRGB levels from pinned S9, with gold-authoritative sign and depth ordering"
+        },
+        "s9ColourRows": "detected horizon 214/720; sky 0.08..0.2917, far 0.52..0.66, mid 0.66..0.82, near 0.82..1"
     },
     "references": {
         "t26": {
@@ -142,6 +152,11 @@
                     10.308916156397508
                 ],
                 "scaleNormalizedStructure": 0.36253910667469597
+            },
+            "highlight": {
+                "clippingFraction": 0,
+                "glitterMeanChroma": 32.96085409252669,
+                "contiguousRunBreakup": 0.1312771846579676
             },
             "lumaRange": 0.411780509333465
         },
@@ -226,6 +241,11 @@
                 ],
                 "scaleNormalizedStructure": 0.3260064927100532
             },
+            "highlight": {
+                "clippingFraction": 0,
+                "glitterMeanChroma": 31.588257720167746,
+                "contiguousRunBreakup": 0.19290888295844452
+            },
             "lumaRange": 0.3771018146752451
         }
     },
@@ -282,10 +302,22 @@
             "max": 23.359449404761904
         },
         "signedSkyTracking": [
-            { "min": -2.8561698717948616, "max": 20.38572696834416 },
-            { "min": 0.5943376068376267, "max": 29.2906672913859 },
-            { "min": 3.69001068376069, "max": 33.623272789458525 },
-            { "min": 8.308916156397508, "max": 34.527754836309526 }
+            {
+                "min": -2.8561698717948616,
+                "max": 20.38572696834416
+            },
+            {
+                "min": 0.5943376068376267,
+                "max": 29.2906672913859
+            },
+            {
+                "min": 3.69001068376069,
+                "max": 33.623272789458525
+            },
+            {
+                "min": 8.308916156397508,
+                "max": 34.527754836309526
+            }
         ],
         "scaleNormalizedStructure": {
             "min": 0.2860064927100532,
@@ -316,13 +348,54 @@
             "captureDiameterPixels": 6.39,
             "diameterTolerancePixels": 1,
             "skyGradientDeltaMin": 3.8
+        },
+        "s9Colour": {
+            "farWaterSkyHueDistance": {
+                "min": 59.80804638761762,
+                "max": 71.80804638761762
+            },
+            "nearBlueRedRatio": {
+                "min": 4.2
+            },
+            "nearMeanChroma": {
+                "min": 58.17276526162791,
+                "max": 62.17276526162791
+            },
+            "skyLuma": 0.5900836538692705,
+            "waterSkyLumaRatios": [
+                { "min": 0.5933464127754305 },
+                { "min": 0.4403062403223277 },
+                { "min": 0.3288552346818034 },
+                { "min": 0.30228200804260155 }
+            ],
+            "signedSkyTracking": [
+                {
+                    "min": 14.027046770593174,
+                    "max": 18.027046770593174
+                },
+                {
+                    "min": 32.74012216361465,
+                    "max": 36.74012216361465
+                },
+                {
+                    "min": 44.69585201558834,
+                    "max": 48.69585201558834
+                },
+                {
+                    "min": 50.89620773774256,
+                    "max": 54.89620773774256
+                }
+            ],
+            "scaleNormalizedStructure": 0.11709731295066327
         }
     },
     "rejected": {
         "s13Default": {
             "source": "scratch/shallot-ocean-look/S13-20260903-apple/default.png",
             "sha256": "4e682ee6f95bb84d09a2419616c0f802cb340d87f2db6812a4b343792a54beb0",
-            "mustFail": ["nearMeanChroma"],
+            "mustFail": [
+                "nearMeanChroma"
+            ],
             "reading": {
                 "bands": {
                     "sky": {
@@ -401,7 +474,9 @@
         "s13SunFacing": {
             "source": "scratch/shallot-ocean-look/S13-20260903-apple/sun-facing.png",
             "sha256": "b0547efcaa2d32fe31707ba7bacee0df40f9d5e290b1b297f0616bae9c7cd65c",
-            "mustFail": ["fadeExtent"],
+            "mustFail": [
+                "fadeExtent"
+            ],
             "reading": {
                 "bands": {
                     "sky": {

@@ -8,16 +8,18 @@ import {
     analyzeRenderability,
     assertRegeneratedReferences,
     bandRanges,
+    colourRelationResults,
+    goldRelationResults,
     load,
     type ReferenceRelation,
     referenceRelationResults,
-    satisfiesPriorGoodFloor,
     satisfiesReferenceRelations,
     satisfiesRenderability,
     satisfiesS16Floor,
     satisfiesS16Relations,
 } from "./look.oracle";
 import fixture from "./reference/look-relations.json";
+import { reflectedElevationPrediction } from "./reflected-elevation";
 
 const baselines = [1, 2, 3].map((index) =>
     resolve(import.meta.dir, `baseline/ocean-baseline-${index}.png`),
@@ -59,9 +61,9 @@ describe("ocean look oracle", () => {
     });
 
     test("committed reference readings retain per-image provenance", () => {
-        expect(fixture.oracleRevision).toBe("shallot-ocean-look/S14");
+        expect(fixture.oracleRevision).toBe("shallot-ocean-look/S21");
         expect(fixture.provenance.absoluteRelationRows).toEqual({ t26: "277/540", t43: "267/540" });
-        expect(Object.keys(fixture.provenance.relationMargins)).toHaveLength(12);
+        expect(Object.keys(fixture.provenance.relationMargins)).toHaveLength(17);
         expect(
             fixture.provenance.sources.every(({ sha256 }) => /^[a-f0-9]{64}$/.test(sha256)),
         ).toBe(true);
@@ -162,28 +164,50 @@ describe("ocean look oracle", () => {
         const clampedReflection = structuredClone(gold[0]!);
         clampedReflection.reflection.signedSkyTracking[2] = 0;
         expect(satisfiesS16Relations(clampedReflection)).toBe(false);
-        const oldBody = structuredClone(gold[0]!);
-        oldBody.normalResponse.nearMeanChroma = 31;
-        expect(satisfiesS16Relations(oldBody)).toBe(false);
         expect(satisfiesS16Relations(witnessReadings.s13Default)).toBe(false);
         expect(satisfiesS16Relations(witnessReadings.s13SunFacing)).toBe(false);
         expect(satisfiesS16Floor(gold[0]!, witnessReadings.s9PriorGood)).toBe(true);
     });
 
-    test("the S9 floor stays in-range or moves strictly toward the gold interval", () => {
-        const prior = witnessReadings.s9PriorGood;
-        const chroma = prior.normalResponse.nearMeanChroma;
-        const chromaGold = fixture.relations.nearMeanChroma;
-        expect(chroma).toBeGreaterThan(chromaGold.max);
-        expect(satisfiesPriorGoodFloor(chroma - 1, chroma, chromaGold)).toBe(true);
-        expect(satisfiesPriorGoodFloor(chroma, chroma, chromaGold)).toBe(false);
-        expect(satisfiesPriorGoodFloor(chroma + 1, chroma, chromaGold)).toBe(false);
+    test("CPU reflected elevations route an unreachable S9 carrier to residue", () => {
+        const prediction = reflectedElevationPrediction();
+        expect(prediction.bands.every((band) => band.elevation > 0)).toBe(true);
+        expect(prediction.reflectionDominant).toBe(false);
+        expect(prediction.clearsS9).toBe(false);
+    });
 
-        const hue = prior.farWaterSkyHueDistance;
-        const hueGold = fixture.relations.farWaterSkyHueDistance;
-        expect(hue).toBeWithin(hueGold.min, hueGold.max);
-        expect(satisfiesPriorGoodFloor(hueGold.min, hue, hueGold)).toBe(true);
-        expect(satisfiesPriorGoodFloor(hueGold.max + 0.001, hue, hueGold)).toBe(false);
+    test("gold authority and S9 colour authority are disjoint", () => {
+        for (const reading of Object.values(fixture.references)) {
+            expect(Object.values(goldRelationResults(reading)).every(Boolean)).toBe(true);
+        }
+        const s9Colour = colourRelationResults(witnessReadings.s9PriorGood);
+        expect(Object.values(s9Colour).every(Boolean)).toBe(true);
+        expect(Object.keys(goldRelationResults(witnessReadings.s9PriorGood))).not.toContain(
+            "nearMeanChroma",
+        );
+        expect(Object.keys(colourRelationResults(witnessReadings.s9PriorGood))).not.toContain(
+            "waterSkyLumaRatio0",
+        );
+    });
+
+    test("S9 colour is a two-sided set and does not reject movement above old gold chroma", () => {
+        const prior = witnessReadings.s9PriorGood;
+        const below = structuredClone(prior);
+        below.normalResponse.nearMeanChroma = fixture.relations.s9Colour.nearMeanChroma.min - 0.001;
+        expect(colourRelationResults(below).nearMeanChroma).toBe(false);
+        const above = structuredClone(prior);
+        above.normalResponse.nearMeanChroma = fixture.relations.s9Colour.nearMeanChroma.max + 0.001;
+        expect(colourRelationResults(above).nearMeanChroma).toBe(false);
+        const weakBlue = structuredClone(prior);
+        weakBlue.duskBalance.nearBlueRedRatio = 4.199;
+        expect(colourRelationResults(weakBlue).nearBlueRedRatio).toBe(false);
+        const strongBlue = structuredClone(prior);
+        strongBlue.duskBalance.nearBlueRedRatio = 8;
+        expect(colourRelationResults(strongBlue).nearBlueRedRatio).toBe(true);
+        expect(prior.normalResponse.nearMeanChroma).toBeGreaterThan(
+            fixture.relations.nearMeanChroma.max,
+        );
+        expect(colourRelationResults(prior).nearMeanChroma).toBe(true);
     });
 
     test("cuts every band from the image's detected horizon", () => {

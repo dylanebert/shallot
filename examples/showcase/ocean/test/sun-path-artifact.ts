@@ -13,6 +13,9 @@ export interface ArtifactPanel {
     horizonRow: number;
     fadeExtentPerWaterHeight: number;
     specksPerMegapixelOfWater: number;
+    clippingFraction: number;
+    glitterMeanChroma: number;
+    contiguousRunBreakup: number;
 }
 
 export interface SunPathArtifact {
@@ -29,6 +32,9 @@ export interface SunPathArtifact {
         horizonRow: number;
         fadeExtentPerWaterHeight: number;
         specksPerMegapixelOfWater: number;
+        clippingFraction: number;
+        glitterMeanChroma: number;
+        contiguousRunBreakup: number;
     }[];
 }
 
@@ -51,13 +57,22 @@ function normalized(
     reading: LookReading,
     width: number,
     height: number,
-): Pick<ArtifactPanel, "horizonRow" | "fadeExtentPerWaterHeight" | "specksPerMegapixelOfWater"> {
+): Pick<
+    ArtifactPanel,
+    | "horizonRow"
+    | "fadeExtentPerWaterHeight"
+    | "specksPerMegapixelOfWater"
+    | "clippingFraction"
+    | "glitterMeanChroma"
+    | "contiguousRunBreakup"
+> {
     const waterHeight = height - reading.horizon.row;
     return {
         horizonRow: reading.horizon.row,
         fadeExtentPerWaterHeight: reading.duskBalance.fadeExtent / waterHeight,
         specksPerMegapixelOfWater:
             reading.lowerBandBrightSpecks / ((waterHeight * width) / 1_000_000),
+        ...reading.highlight,
     };
 }
 
@@ -89,11 +104,22 @@ export async function instrument(
         displayedPanelSize: { width: 1280, height: 720 },
         panels,
         captions: panels.map(
-            ({ sha256, horizonRow, fadeExtentPerWaterHeight, specksPerMegapixelOfWater }) => ({
+            ({
+                sha256,
+                horizonRow,
+                fadeExtentPerWaterHeight,
+                specksPerMegapixelOfWater,
+                clippingFraction,
+                glitterMeanChroma,
+                contiguousRunBreakup,
+            }) => ({
                 panelSha256: sha256,
                 horizonRow,
                 fadeExtentPerWaterHeight,
                 specksPerMegapixelOfWater,
+                clippingFraction,
+                glitterMeanChroma,
+                contiguousRunBreakup,
             }),
         ),
     };
@@ -121,7 +147,10 @@ export function assertArtifact(artifact: SunPathArtifact): void {
             caption.panelSha256 !== panel.sha256 ||
             caption.horizonRow !== panel.horizonRow ||
             caption.fadeExtentPerWaterHeight !== panel.fadeExtentPerWaterHeight ||
-            caption.specksPerMegapixelOfWater !== panel.specksPerMegapixelOfWater
+            caption.specksPerMegapixelOfWater !== panel.specksPerMegapixelOfWater ||
+            caption.clippingFraction !== panel.clippingFraction ||
+            caption.glitterMeanChroma !== panel.glitterMeanChroma ||
+            caption.contiguousRunBreakup !== panel.contiguousRunBreakup
         )
             throw new Error("caption readings must come from the panel source");
     }
@@ -143,7 +172,7 @@ async function svg(
     );
     const labels = artifact.panels.map((panel, index) => {
         const x = index * 1280;
-        const caption = `${panel.role} | ${panel.sourceWidth}x${panel.sourceHeight} | sha256 ${panel.sha256} | horizon ${panel.horizonRow}/${panel.sourceHeight} | fade/water ${panel.fadeExtentPerWaterHeight.toFixed(4)} | specks/MP water ${panel.specksPerMegapixelOfWater.toFixed(2)}`;
+        const caption = `${panel.role} | ${panel.sourceWidth}x${panel.sourceHeight} | sha256 ${panel.sha256} | horizon ${panel.horizonRow}/${panel.sourceHeight} | fade/water ${panel.fadeExtentPerWaterHeight.toFixed(4)} | specks/MP water ${panel.specksPerMegapixelOfWater.toFixed(2)} | clip≥250 ${panel.clippingFraction.toFixed(4)} | glitter chroma ${panel.glitterMeanChroma.toFixed(2)} | breakup ${panel.contiguousRunBreakup.toFixed(4)}`;
         return `<image x="${x}" y="0" width="1280" height="720" preserveAspectRatio="none" href="${encoded[index]}"/><text x="${x + 20}" y="760">${escapeHtml(caption)}</text>`;
     });
     const relation = `camera-to-sun default ${artifact.cameraToSun.defaultDegrees.toFixed(3)}°; sun-facing ${artifact.cameraToSun.sunFacingDegrees.toFixed(3)}°; declared ${artifact.cameraToSun.declaredSunFacingDegrees.toFixed(3)}°`;
@@ -168,6 +197,6 @@ if (import.meta.main) {
     );
     for (const panel of artifact.panels)
         console.log(
-            `${panel.role} ${panel.sourceWidth}x${panel.sourceHeight} sha256=${panel.sha256} horizon=${panel.horizonRow}/${panel.sourceHeight} fade/water=${panel.fadeExtentPerWaterHeight.toFixed(4)} specks/MPwater=${panel.specksPerMegapixelOfWater.toFixed(2)}`,
+            `${panel.role} ${panel.sourceWidth}x${panel.sourceHeight} sha256=${panel.sha256} horizon=${panel.horizonRow}/${panel.sourceHeight} fade/water=${panel.fadeExtentPerWaterHeight.toFixed(4)} specks/MPwater=${panel.specksPerMegapixelOfWater.toFixed(2)} clipping≥250=${panel.clippingFraction.toFixed(4)} glitter-chroma=${panel.glitterMeanChroma.toFixed(2)} breakup=${panel.contiguousRunBreakup.toFixed(4)}`,
         );
 }

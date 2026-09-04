@@ -11,6 +11,9 @@ function artifact(): SunPathArtifact {
         horizonRow: 210 + index,
         fadeExtentPerWaterHeight: 0.5 + index / 100,
         specksPerMegapixelOfWater: 100 + index,
+        clippingFraction: index / 100,
+        glitterMeanChroma: 20 + index,
+        contiguousRunBreakup: 0.5 + index / 100,
     }));
     return {
         revision: "shallot-ocean-look/S12",
@@ -26,6 +29,9 @@ function artifact(): SunPathArtifact {
             horizonRow: panel.horizonRow,
             fadeExtentPerWaterHeight: panel.fadeExtentPerWaterHeight,
             specksPerMegapixelOfWater: panel.specksPerMegapixelOfWater,
+            clippingFraction: panel.clippingFraction,
+            glitterMeanChroma: panel.glitterMeanChroma,
+            contiguousRunBreakup: panel.contiguousRunBreakup,
         })),
     };
 }
