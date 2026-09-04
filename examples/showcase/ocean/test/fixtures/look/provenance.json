@@ -28,7 +28,7 @@
             "source": "scratch/shallot-ocean-look/S9-20260903-apple/ocean-s9.png",
             "sha256": "b102e79f7843af558fb3ecdf1be40aefe5389aea749797d27e0d3706eb41cbd5",
             "capture": "S9 prior-good fixed default camera, Apple Metal, 2026-09-03",
-            "floor": "inside a gold interval stays inside; outside moves strictly closer to that interval"
+            "floor": "for nearMeanChroma, signedSkyTracking, and scaleNormalizedStructure: an S9 reading inside gold keeps the fresh reading inside; an S9 reading outside keeps the fresh reading in the directional corridor between S9 and the gold interval, with both distances printed"
         }
     }
 }
