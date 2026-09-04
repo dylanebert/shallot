@@ -25,13 +25,14 @@
 // number. The t=0-only reading is kept and printed as the RED CONTROL this invariant names — the
 // single-point formulation the phase mean corrects for — never as a gate.
 //
-// COST: this file is `.oracle.ts`, exempt from the default per-file test-duration cap and selected
-// by path through `bun run test:changed`; the root `test:ocean-fold` command runs full mode with 24
-// seeds per window. The composed-world-grid build (330×330 points, both cascades) is the cost:
-// ~20ms/realization for the FFT pipeline (`updateH`/`chop`/`spectralGradient`/`idft2`, all four
-// production primitives, unmodified) plus ~6ms for the nearest-neighbor composition, measured.
-// Reduced mode keeps two seeds per window as an explicitly degraded local diagnostic; statistical
-// sizing and production pins remain full-mode-only, and the reduced run says so in its output.
+// COST AND SCAN SIZE: this file is `.oracle.ts`, selected by path through `bun run test:changed`.
+// The full scan has 24 seeds per independent window. That population is checked before the timing
+// ceiling: the observed per-seed standard deviation is converted back from stderr, then
+// `ceil((3σ / allowance)^2)` is derived independently for the anchor and λ-agreement properties;
+// 24 must cover the larger requirement. The composed-world-grid build (330×330 points, both
+// cascades) dominates. The S1c full reading's slowest named arm was below 15 s, so the root command
+// declares 30 s per test (2× headroom, not tuned to the reading). Reduced mode keeps two seeds per
+// window as an explicitly degraded local diagnostic and skips production-pin verdicts.
 //
 // SEED WINDOWS: reduced SOLVE (seeds 0..1), HELD_A (1000..1001), and HELD_B (2000..2001) are disjoint. Every window uses a per-cascade seed
 // offset (cascade 1 draws `seed + CASCADE1_OFFSET`) so one window index doesn't correlate the two
@@ -69,8 +70,12 @@ const U10 = CFG0.windSpeed;
 const ANCHOR = whitecapFraction(U10);
 const GRID = worldGridSpec(CASCADE_CONFIGS);
 
-const FULL_MODE = process.env.FOLD_ENSEMBLE_MODE === "full";
+const ENSEMBLE_MODE = process.env.FOLD_ENSEMBLE_MODE;
+if (ENSEMBLE_MODE !== "full" && ENSEMBLE_MODE !== "reduced")
+    throw new Error("FOLD_ENSEMBLE_MODE must explicitly be full or reduced");
+const FULL_MODE = ENSEMBLE_MODE === "full";
 const SEED_COUNT = FULL_MODE ? 24 : 2;
+const productionTest = FULL_MODE ? test : test.skip;
 const SOLVE_SEEDS = Array.from({ length: SEED_COUNT }, (_, i) => i);
 const HELD_A_SEEDS = Array.from({ length: SEED_COUNT }, (_, i) => 1000 + i);
 const HELD_B_SEEDS = Array.from({ length: SEED_COUNT }, (_, i) => 2000 + i);
@@ -296,27 +301,26 @@ describe("composed-world-grid fold ensemble solves λ against the anchor (declar
         expect(solveBisect.hiFold).toBeGreaterThanOrEqual(ANCHOR);
     });
 
-    test("seed count satisfies the estimator-error sizing inequalities", () => {
-        const sensitivity = Math.abs(foldSensitivity(solveWindow, lambdaSolve));
-        const anchorAllowance = ANCHOR_BAND_REL * ANCHOR;
-        const lambdaAllowance = LAMBDA_AGREEMENT_REL * lambdaSolve;
-        const foldNoise3Sigma = 3 * solveReading.seedStderr;
-        const lambdaNoise3Sigma = foldNoise3Sigma / sensitivity;
-        console.log(
-            `mode=${FULL_MODE ? "full" : "reduced"} seeds=${SEED_COUNT} seedStderr=${solveReading.seedStderr.toExponential(6)} ` +
-                `anchor allowance=${anchorAllowance.toExponential(6)} >= 3stderr=${foldNoise3Sigma.toExponential(6)}; ` +
-                `lambda allowance=${lambdaAllowance.toExponential(6)} >= 3stderr/|dfold/dlambda|=${lambdaNoise3Sigma.toExponential(6)} ` +
-                `sensitivity=${sensitivity.toExponential(6)}`,
-        );
-        if (FULL_MODE) {
-            expect(anchorAllowance).toBeGreaterThanOrEqual(foldNoise3Sigma);
-            expect(lambdaAllowance).toBeGreaterThanOrEqual(lambdaNoise3Sigma);
-        } else {
+    productionTest(
+        "full seed count covers the independently derived estimator-error scan sizes",
+        () => {
+            const sensitivity = Math.abs(foldSensitivity(solveWindow, lambdaSolve));
+            const anchorAllowance = ANCHOR_BAND_REL * ANCHOR;
+            const lambdaFoldAllowance = LAMBDA_AGREEMENT_REL * lambdaSolve * sensitivity;
+            const perSeedSigma = solveReading.seedStderr * Math.sqrt(SEED_COUNT);
+            const required = (allowance: number) =>
+                Math.ceil(((3 * perSeedSigma) / allowance) ** 2);
+            const anchorRequired = required(anchorAllowance);
+            const lambdaRequired = required(lambdaFoldAllowance);
             console.log(
-                "reduced reach mode: sizing inequalities are printed but intentionally ungated",
+                `mode=full seeds=${SEED_COUNT} perSeedSigma=${perSeedSigma.toExponential(6)} ` +
+                    `required(anchor)=${anchorRequired} required(lambda-agreement)=${lambdaRequired} ` +
+                    `anchorAllowance=${anchorAllowance.toExponential(6)} lambdaFoldAllowance=${lambdaFoldAllowance.toExponential(6)}`,
             );
-        }
-    });
+            expect(SEED_COUNT).toBeGreaterThanOrEqual(anchorRequired);
+            expect(SEED_COUNT).toBeGreaterThanOrEqual(lambdaRequired);
+        },
+    );
 
     test("RED CONTROL — the single-instant (t=0 only) reading, printed beside the phase-averaged one, never gated (Residue: a normalization fitted at one instant is a fit, not a normalization)", () => {
         const t0OnlyMean = mean(
@@ -328,22 +332,25 @@ describe("composed-world-grid fold ensemble solves λ against the anchor (declar
         );
     });
 
-    test("the shipped LAMBDA (spectrum.ts) matches this run's live solve within the declared 10% agreement bound", () => {
-        const relDiff = Math.abs(LAMBDA - lambdaSolve) / lambdaSolve;
-        console.log(
-            `lambdaSolve=${lambdaSolve.toFixed(6)} seedStderr=${(solveReading.seedStderr * 100).toFixed(4)}% ` +
-                `phaseStderr=${(solveReading.phaseStderr * 100).toFixed(4)}% bernoulli95=±${(solveReading.bernoulli * 100).toFixed(4)}% ` +
-                `shipped LAMBDA=${LAMBDA} relDiff=${(relDiff * 100).toFixed(3)}%`,
-        );
-        expect(CASCADE_CONFIGS[0].lambda).toBe(LAMBDA);
-        expect(CASCADE_CONFIGS[1].lambda).toBe(LAMBDA);
-        if (FULL_MODE) {
-            expect(LAMBDA).toBeGreaterThanOrEqual(solveBisect.loFinal);
-            expect(LAMBDA).toBeLessThanOrEqual(solveBisect.hiFinal);
-        } else {
-            console.log("reduced reach mode: the production literal is intentionally unpinned");
-        }
-    });
+    productionTest(
+        "the shipped LAMBDA (spectrum.ts) matches this run's live solve within the declared 10% agreement bound",
+        () => {
+            const relDiff = Math.abs(LAMBDA - lambdaSolve) / lambdaSolve;
+            console.log(
+                `lambdaSolve=${lambdaSolve.toFixed(6)} seedStderr=${(solveReading.seedStderr * 100).toFixed(4)}% ` +
+                    `phaseStderr=${(solveReading.phaseStderr * 100).toFixed(4)}% bernoulli95=±${(solveReading.bernoulli * 100).toFixed(4)}% ` +
+                    `shipped LAMBDA=${LAMBDA} relDiff=${(relDiff * 100).toFixed(3)}%`,
+            );
+            expect(CASCADE_CONFIGS[0].lambda).toBe(LAMBDA);
+            expect(CASCADE_CONFIGS[1].lambda).toBe(LAMBDA);
+            if (FULL_MODE) {
+                expect(LAMBDA).toBeGreaterThanOrEqual(solveBisect.loFinal);
+                expect(LAMBDA).toBeLessThanOrEqual(solveBisect.hiFinal);
+            } else {
+                console.log("reduced reach mode: the production literal is intentionally unpinned");
+            }
+        },
+    );
 
     for (const held of [heldA, heldB]) {
         test(`${held.label}: pooled fold at the solved λ stays within ±${ANCHOR_BAND_REL * 100}% of the anchor`, () => {
@@ -466,30 +473,33 @@ describe("composed-world-grid fold ensemble solves λ against the anchor (declar
             );
         });
 
-        test("FOLD_REGIME pins the live operating point and carries no model-derived ceiling", () => {
-            console.log(
-                `effectiveSlopeSigma=${effectiveSlopeSigma.toFixed(6)} modelCeiling=${ceilingLambda.toFixed(6)}`,
-            );
-            const shippedReading = ensembleFold(FOLD_REGIME.lambda, solveWindow).mean;
-            const foldQuantum =
-                1 / (solveWindow.realizations.length * PHASES.length * GRID.gridN ** 2);
-            console.log(
-                `FOLD_REGIME measured=${FOLD_REGIME.measuredComposedFold.toFixed(10)} live=${shippedReading.toFixed(10)} ensembleQuantum=${foldQuantum.toExponential(6)}`,
-            );
-            expect(FOLD_REGIME.lambda).toBe(LAMBDA);
-            expect(FOLD_REGIME.whitecapAnchor).toBe(ANCHOR);
-            if (FULL_MODE) {
-                expect(
-                    Math.abs(FOLD_REGIME.measuredComposedFold - shippedReading),
-                ).toBeLessThanOrEqual(foldQuantum);
-            } else {
+        productionTest(
+            "FOLD_REGIME pins the live operating point and carries no model-derived ceiling",
+            () => {
                 console.log(
-                    "reduced reach mode: the measured fold literal is intentionally unpinned",
+                    `effectiveSlopeSigma=${effectiveSlopeSigma.toFixed(6)} modelCeiling=${ceilingLambda.toFixed(6)}`,
                 );
-            }
-            expect("ceilingLambda" in FOLD_REGIME).toBe(false);
-            expect("effectiveSlopeSigma" in FOLD_REGIME).toBe(false);
-        });
+                const shippedReading = ensembleFold(FOLD_REGIME.lambda, solveWindow).mean;
+                const foldQuantum =
+                    1 / (solveWindow.realizations.length * PHASES.length * GRID.gridN ** 2);
+                console.log(
+                    `FOLD_REGIME measured=${FOLD_REGIME.measuredComposedFold.toFixed(10)} live=${shippedReading.toFixed(10)} ensembleQuantum=${foldQuantum.toExponential(6)}`,
+                );
+                expect(FOLD_REGIME.lambda).toBe(LAMBDA);
+                expect(FOLD_REGIME.whitecapAnchor).toBe(ANCHOR);
+                if (FULL_MODE) {
+                    expect(
+                        Math.abs(FOLD_REGIME.measuredComposedFold - shippedReading),
+                    ).toBeLessThanOrEqual(foldQuantum);
+                } else {
+                    console.log(
+                        "reduced reach mode: the measured fold literal is intentionally unpinned",
+                    );
+                }
+                expect("ceilingLambda" in FOLD_REGIME).toBe(false);
+                expect("effectiveSlopeSigma" in FOLD_REGIME).toBe(false);
+            },
+        );
 
         test("measured λ sweep prints the fold band around the operating point", () => {
             const sweep = [0.8, 0.9, 1, 1.1, 1.2].map((scale) => ({

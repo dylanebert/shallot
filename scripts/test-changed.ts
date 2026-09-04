@@ -53,8 +53,10 @@ function parseArgs(argv: string[]): Args {
     return args;
 }
 
-async function changedPaths(base: string, diff: string): Promise<string[]> {
-    const proc = Bun.spawn(["git", "diff", "--name-only", "--diff-filter=ACMR", base, diff], {
+export async function changedPaths(base: string, diff: string): Promise<string[]> {
+    // Deletions still select the gate whose cover path disappeared; omitting D makes an oracle
+    // deletion look like an empty, green selection.
+    const proc = Bun.spawn(["git", "diff", "--name-only", "--diff-filter=ACMRD", base, diff], {
         stdout: "pipe",
         stderr: "pipe",
     });
