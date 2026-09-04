@@ -117,8 +117,12 @@ export const SkyPlugin: Plugin = {
 };
 
 export {
+    CIRCUMSOLAR_ANGULAR_RADIUS,
+    CIRCUMSOLAR_EXPOSURE,
+    circumsolarProfile,
     DuskSkyGpu,
     SOLAR_ANGULAR_RADIUS,
+    SOLAR_DISK_EXPOSURE,
     SOLAR_LIMB_EXPONENT,
     sampleCloud,
     sampleElevation,
