@@ -2,8 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { unpackColor } from "@dylanebert/shallot";
 import * as d from "typegpu/data";
 import {
+    CIRCUMSOLAR_ANGULAR_RADIUS,
+    CIRCUMSOLAR_EXPOSURE,
+    circumsolarProfile,
     DuskSkyGpu,
     SOLAR_ANGULAR_RADIUS,
+    SOLAR_DISK_EXPOSURE,
     sampleCloud,
     sampleElevation,
     sampleHaze,
@@ -86,6 +90,37 @@ describe("demo-local dusk sky", () => {
         expect(limb).toBeGreaterThan(0);
         expect(core).toBeGreaterThan(limb);
         expect(core).toBeCloseTo(1, 6);
+    });
+
+    test("circumsolar field decays monotonically over its cited angular bound", () => {
+        expect(CIRCUMSOLAR_ANGULAR_RADIUS).toBeCloseTo((2.5 * Math.PI) / 180, 8);
+        expect(CIRCUMSOLAR_EXPOSURE).toBe(1.5);
+        expect(SOLAR_DISK_EXPOSURE).toBe(16);
+        const angles = Array.from(
+            { length: 26 },
+            (_, index) =>
+                SOLAR_ANGULAR_RADIUS +
+                ((CIRCUMSOLAR_ANGULAR_RADIUS - SOLAR_ANGULAR_RADIUS) * index) / 25,
+        );
+        const values = angles.map((angle) => circumsolarProfile(Math.cos(angle)));
+        expect(values[0]).toBeCloseTo(1, 6);
+        expect(values.at(-1)).toBeCloseTo(0, 6);
+        expect(values.every((value, index) => index === 0 || value <= values[index - 1]!)).toBe(
+            true,
+        );
+        expect(circumsolarProfile(Math.cos(CIRCUMSOLAR_ANGULAR_RADIUS + 1e-5))).toBe(0);
+    });
+
+    test("circumsolar addition preserves the finite disk contribution", () => {
+        const alignment = Math.cos(SOLAR_ANGULAR_RADIUS * 0.6);
+        const disk = solarDiskProfile(alignment) * SOLAR_DISK_EXPOSURE;
+        const combined = disk + circumsolarProfile(alignment) * CIRCUMSOLAR_EXPOSURE;
+        expect(disk).toBeGreaterThan(0);
+        expect(combined - circumsolarProfile(alignment) * CIRCUMSOLAR_EXPOSURE).toBeCloseTo(
+            disk,
+            6,
+        );
+        expect(combined).toBeGreaterThan(disk);
     });
 
     test("stays finite and continuous across the horizon", () => {

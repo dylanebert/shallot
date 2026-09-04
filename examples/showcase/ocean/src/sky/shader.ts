@@ -73,6 +73,12 @@ export const sampleCloud = tgpu
 export const SOLAR_ANGULAR_RADIUS = 0.00465;
 /** Hestroffer-Magnan visible-continuum power-law exponent for solar limb darkening. */
 export const SOLAR_LIMB_EXPONENT = 0.5;
+/** ISO 9060 pyrheliometer acceptance half-angle used to bound the circumsolar field. */
+export const CIRCUMSOLAR_ANGULAR_RADIUS = (2.5 * Math.PI) / 180;
+/** Declared display-exposure multiplier for the finite solar disk. */
+export const SOLAR_DISK_EXPOSURE = 16;
+/** Declared display-exposure multiplier for the circumsolar field. */
+export const CIRCUMSOLAR_EXPOSURE = 1.5;
 
 /** Finite solar disk with a power-law limb profile. */
 export const solarDiskProfile = tgpu
@@ -87,7 +93,24 @@ export const solarDiskProfile = tgpu
     })
     .$name("solarDiskProfile");
 
-/** The physically bounded sun-disk channel. */
+/** Compact smoothstep circumsolar profile over the ISO 9060 acceptance field. */
+export const circumsolarProfile = tgpu
+    .fn(
+        [d.f32],
+        d.f32,
+    )((alignment) => {
+        "use gpu";
+        const angle = std.acos(std.clamp(alignment, -1, 1));
+        const radial = std.clamp(
+            (angle - SOLAR_ANGULAR_RADIUS) / (CIRCUMSOLAR_ANGULAR_RADIUS - SOLAR_ANGULAR_RADIUS),
+            0,
+            1,
+        );
+        return 1 - std.smoothstep(0, 1, radial);
+    })
+    .$name("circumsolarProfile");
+
+/** The bounded sun-disk and circumsolar channel. */
 export const sampleSun = tgpu
     .fn(
         [DuskSkyGpu, d.vec3f, d.vec3f],
@@ -96,8 +119,10 @@ export const sampleSun = tgpu
         "use gpu";
         const toSun = std.neg(lightDirection);
         const alignment = std.max(std.dot(dir, toSun), 0);
-        const disk = solarDiskProfile(alignment) * sky.sun.w * 16;
-        return d.vec3f(std.mul(std.mul(sky.sun.xyz, disk), d.vec3f(0.52, 0.8, 1.05)));
+        const disk = solarDiskProfile(alignment) * SOLAR_DISK_EXPOSURE;
+        const circumsolar = circumsolarProfile(alignment) * CIRCUMSOLAR_EXPOSURE;
+        const radiance = (disk + circumsolar) * sky.sun.w;
+        return d.vec3f(std.mul(std.mul(sky.sun.xyz, radiance), d.vec3f(0.52, 0.8, 1.05)));
     })
     .$name("sampleDuskSun");
 

@@ -81,7 +81,9 @@ export async function runDeviceClaim(state: State): Promise<Check[]> {
         }
     }
     const active = new Uint8Array(delta.length);
-    for (let i = 0; i < row * canvas.width; i++) if ((delta[i] ?? 0) >= 1 / 255) active[i] = 1;
+    const diskThreshold = peak * 0.9;
+    for (let i = 0; i < row * canvas.width; i++)
+        if ((delta[i] ?? 0) >= diskThreshold) active[i] = 1;
     const stack = [peakIndex];
     active[peakIndex] = 0;
     let minX = canvas.width;
@@ -126,7 +128,7 @@ export async function runDeviceClaim(state: State): Promise<Check[]> {
                 Math.abs(coreWidth - expected) <= 1 &&
                 Math.abs(coreHeight - expected) <= 1 &&
                 monotone,
-            detail: `core=${coreWidth}x${coreHeight} expected=${expected.toFixed(2)} radial=${radial.join(",")} horizon=${row}`,
+            detail: `core=${coreWidth}x${coreHeight} expected=${expected.toFixed(2)} threshold=${diskThreshold.toFixed(2)} radial=${radial.join(",")} horizon=${row}`,
         },
         {
             name: "solar disk is brighter than the sky column gradient",
