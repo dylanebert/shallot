@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { State } from "../../engine";
 import { Compute } from "../../engine/runtime";
 import { Render } from "./core";
-import { RenderPlugin } from "./index";
+import { BeginFrameSystem, RenderPlugin } from "./index";
 
 const EndFrameSystem = RenderPlugin.systems?.find((system) => system.terminal);
 if (!EndFrameSystem) throw new Error("RenderPlugin has no terminal submission system");
@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 describe("render submission", () => {
-    test("a last producer registered after RenderPlugin encodes before the terminal submit", () => {
+    test("BeginFrameSystem opens the encoder before a late last producer and terminal submit", () => {
         const events: string[] = [];
         const encoder = {
             finish() {
@@ -29,6 +29,10 @@ describe("render submission", () => {
         } as GPUCommandEncoder;
         mutableCompute.frame = 0;
         mutableCompute.device = {
+            createCommandEncoder() {
+                events.push("open");
+                return encoder;
+            },
             queue: {
                 submit() {
                     events.push("submit");
@@ -37,14 +41,8 @@ describe("render submission", () => {
         } as unknown as GPUDevice;
 
         const state = new State();
+        state.addSystem(BeginFrameSystem);
         state.addSystem(EndFrameSystem);
-        state.addSystem({
-            group: "draw",
-            first: true,
-            update() {
-                Render.encoder = encoder;
-            },
-        });
         state.addSystem({
             group: "draw",
             last: true,
@@ -56,7 +54,7 @@ describe("render submission", () => {
 
         state.step();
 
-        expect(events).toEqual(["encode", "finish", "submit"]);
+        expect(events).toEqual(["open", "encode", "finish", "submit"]);
         expect(Compute.frame).toBeGreaterThan(0);
         expect(Render.encoder).toBeNull();
     });
