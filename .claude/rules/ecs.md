@@ -12,7 +12,7 @@ paths:
 ## Plugin lifecycle gotchas
 
 - `initialize(state)` runs BEFORE scene parse — no entities exist. Use `warm(state)` for anything that needs scene data
-- Plugins that register meshes or surfaces MUST declare `dependencies: [RenderPlugin]` — RenderPlugin.initialize clears the render registries first (*Reload-safety* below), so the dependency orders the producer's registration after the wipe
+- Plugins that register meshes or surfaces MUST declare `dependencies: [RenderPlugin]` — RenderPlugin.initialize clears the render registries first (*Reload-safety* below), so the dependency orders the producer's registration after the wipe. A declared dependency is required: `build()` resolves the complete graph and throws on every missing edge before GPU acquisition or any lifecycle/registry mutation; optional cooperation is expressed by conditionally composing the plugin or a nullable hook, never by naming a best-effort dependency.
 - System `setup(state)` is NOT plugin initialize — called lazily on first frame the system runs
 
 ## Reload-safety: lifecycle + module scope
