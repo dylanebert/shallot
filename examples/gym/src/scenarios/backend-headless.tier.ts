@@ -30,7 +30,6 @@ describe("headless backend settle verdict", () => {
             </scene>`,
         });
         try {
-            expect(app.skipped).toEqual([]);
             const box = [...app.state.query([Body])].find((eid) => Body.mass.get(eid) > 0);
             expect(box).toBeDefined();
             if (box !== undefined) Physics.backend?.readBody(box);

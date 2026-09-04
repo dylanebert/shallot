@@ -78,10 +78,6 @@ export async function conform({ plugins, scene, probe, capacity }: Conformance):
         for (let pass = 0; pass < 2; pass++) {
             const app = await build({ plugins, defaults: false, scene, device, capacity });
             device = Compute.device;
-            if (app.skipped.length > 0) {
-                app.dispose();
-                return [`skipped at build (roster entry is missing a dependency): ${app.skipped}`];
-            }
             app.state.step();
             app.state.step();
             passes.push(signature(app.state, probe));
@@ -126,10 +122,6 @@ export async function conformSequence(steps: Conformance[]): Promise<string[]> {
                 capacity: step.capacity,
             });
             device = Compute.device;
-            if (app.skipped.length > 0) {
-                app.dispose();
-                return [`step ${i} skipped at build (missing a dependency): ${app.skipped}`];
-            }
             app.state.step();
             app.state.step();
             const sig = signature(app.state, step.probe);

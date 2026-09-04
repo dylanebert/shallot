@@ -445,19 +445,19 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "installStdinBridge's raw-mode listener actually receiving live input (including " +
             "requestStop's own real q/Ctrl-C call site inside that listener), installTeardown's SIGINT/" +
             "SIGTERM exit callback, onResize's live callback, and the real ALT_SCREEN_ENTER/EXIT " +
-            "sequence, since every gate above drives a piped, non-tty stdin/stdout — plus five non-tty " +
-            "refusal/throw/warning branches named explicitly rather than folded into that same claim: " +
+            "sequence, since every gate above drives a piped, non-tty stdin/stdout — plus four non-tty " +
+            "refusal/throw branches named explicitly rather than folded into that same claim: " +
             'the "Cells"-not-enabled refusal (:616-621), the no-camera refusal (:655-659), ' +
-            "resolveEnginePlugin's unknown-plugin throw (:506-508), resolveLocalPlugin's default-export " +
-            "guard (:519-523), and the app.skipped warning (:648-652). tui.test.ts's loader-rejection " +
-            "arms all return before reaching any of these five; install-test.ts's scaffolded project " +
+            "resolveEnginePlugin's unknown-plugin throw (:506-508), and resolveLocalPlugin's " +
+            "default-export guard (:519-523). tui.test.ts's loader-rejection arms all return before " +
+            "reaching any of these four; install-test.ts's scaffolded project " +
             "never installs bun-webgpu, so its own `shallot tui` checks exit 3 at the bun-webgpu-absence " +
             "guard, which runs before the Cells check, every time; and tui.probes.ts drives a recipe " +
             "that already enables Cells and has a camera, so it never reaches any refusal branch either. " +
             "No stage in this unit's Approach owns a pty-driven interactive test, or a project fixture " +
-            "built to reach these five specifically; occupants: installStdinBridge, the installTeardown " +
+            "built to reach these four specifically; occupants: installStdinBridge, the installTeardown " +
             "signal-exit callback, the alt-screen enter/exit paths gated on process.stdin.isTTY, and the " +
-            "five refusal/throw/warning branches named above.",
+            "four refusal/throw branches named above.",
     },
     {
         file: "packages/shallot/bin/verify.ts",

@@ -193,10 +193,6 @@ export async function dumpCellsAscii(
         defaults: false,
         scene: sceneXml,
     });
-    if (app.skipped.length > 0) {
-        throw new Error(`dump-cells-ascii: plugins skipped at build: ${app.skipped.join(", ")}`);
-    }
-
     const cameraEid = [...app.state.query([Camera])][0];
     if (cameraEid === undefined) throw new Error("dump-cells-ascii: no camera in the recipe scene");
 

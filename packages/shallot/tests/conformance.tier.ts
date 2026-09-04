@@ -140,7 +140,6 @@ describe("reload conformance (pipeline-compiling tier)", () => {
         ]) {
             clear();
             const app = await build({ plugins: order, defaults: false, scene: skinScene });
-            expect(app.skipped).toEqual([]);
             app.state.step();
             expect(getComponent("skin")).toBe(Skin);
             expect(getTraits("skin")).toBe(skinTraits);

@@ -30,8 +30,7 @@ export interface Plugin {
     readonly components?: Record<string, Component>;
     /** per-component traits (requires/excludes/singleton/defaults), keyed like `components` */
     readonly traits?: Record<string, Traits>;
-    /** other plugins that must load first; a missing one skips this plugin with a warning. The skip does
-     * not cascade: a plugin depending on a skipped-but-present one still initializes */
+    /** other plugins that must load first; every dependency must be present in the composition */
     readonly dependencies?: readonly Plugin[];
     /**
      * GPU features this plugin's shaders require beyond the engine's base floor. The active
@@ -120,10 +119,7 @@ export interface Config {
 /** result of {@link build} / {@link run}. owns the plugin teardown order. */
 export interface App {
     readonly state: State;
-    /**
-     * names of plugins skipped at build (missing dependency). The built reality {@link swap}
-     * validates against — a skipped plugin never initialized, so swapping it would half-apply.
-     */
+    /** @deprecated compatibility field; always empty because incomplete compositions fail in {@link build}. */
     readonly skipped: readonly string[];
     dispose(): void;
 }
@@ -204,35 +200,32 @@ export function setDefaultLoading(factory: () => Loading): void {
  * app.state.step(1 / 60);
  */
 export async function build(config: Config): Promise<App> {
+    const useDefaults = config.defaults !== false;
+    const excluded = new Set(config.exclude ?? []);
+    const pluginSet = new Set<Plugin>();
+    if (useDefaults) {
+        for (const plugin of _defaultPlugins) if (!excluded.has(plugin)) pluginSet.add(plugin);
+    }
+    for (const plugin of config.plugins) pluginSet.add(plugin);
+
+    const composition = resolvePlugins([...pluginSet]);
+    if (composition.missing.length > 0) {
+        const edges = composition.missing.map(
+            ({ plugin, dependency }) => `${plugin.name} requires ${dependency.name}`,
+        );
+        throw new Error(`Missing plugin dependencies:\n${edges.join("\n")}`);
+    }
+
+    const sorted = composition.plugins;
     const state = new State({
         capacity: config.capacity,
         pixelRatio: config.pixelRatio,
     });
-    const useDefaults = config.defaults !== false;
     const loading = config.loading ?? _defaultLoading?.();
     const cleanup = loading?.show();
     const initialized: Plugin[] = [];
 
     try {
-        const excluded = new Set(config.exclude ?? []);
-        const pluginSet = new Set<Plugin>();
-        if (useDefaults) {
-            for (const p of _defaultPlugins) if (!excluded.has(p)) pluginSet.add(p);
-        }
-        for (const p of config.plugins) pluginSet.add(p);
-
-        const composition = resolvePlugins([...pluginSet]);
-        const skipped = new Set(composition.missing.map(({ plugin }) => plugin));
-        for (const plugin of pluginSet) {
-            const edge = composition.missing.find((missing) => missing.plugin === plugin);
-            if (edge) {
-                console.warn(
-                    `Missing plugin dependency: ${plugin.name ?? "?"} requires ${edge.dependency.name ?? "?"}`,
-                );
-            }
-        }
-        const sorted = composition.plugins.filter((plugin) => !skipped.has(plugin));
-
         // acquire the device for exactly the loaded plugins' feature needs — the union of every
         // active plugin's required `features` and best-effort `preferredFeatures`. A scene without
         // physics (no BVH) requests neither, so it never asks for `subgroups`.
@@ -314,7 +307,7 @@ export async function build(config: Config): Promise<App> {
         let disposed = false;
         return {
             state,
-            skipped: [...skipped].map((p) => p.name),
+            skipped: [],
             dispose() {
                 if (disposed) return;
                 disposed = true;
@@ -476,7 +469,7 @@ export async function run(config: Config): Promise<App> {
 
     return {
         state,
-        skipped: app.skipped,
+        skipped: [],
         dispose() {
             disposed = true;
             app.dispose();
@@ -504,9 +497,7 @@ export interface SwapResult {
  * drives this from its HMR seam; `prev`/`next` are the project's own plugins
  * before and after the reload.
  *
- * `skipped` is the build's skip set ({@link App.skipped}): a plugin skipped at
- * build never initialized, so swapping it would half-apply — it's rejected here.
- * A user `initialize` that throws mid-swap also returns `{ ok: false }`: systems
+ * A user `initialize` that throws mid-swap returns `{ ok: false }`: systems
  * are already swapped at that point, so the State is half-updated and the
  * rebuild the caller falls back to is the recovery.
  */
@@ -514,7 +505,6 @@ export async function swap(
     state: State,
     prev: readonly Plugin[],
     next: readonly Plugin[],
-    skipped: readonly string[] = [],
 ): Promise<SwapResult> {
     const prevByName = new Map(prev.map((p) => [p.name, p]));
     const nextByName = new Map(next.map((p) => [p.name, p]));
@@ -538,18 +528,13 @@ export async function swap(
     }
 
     // validate every pair before mutating anything — any shape change falls back to a rebuild
-    const skippedSet = new Set(skipped);
     for (const [name, nextPlugin] of nextByName) {
         const prevPlugin = prevByName.get(name);
         if (!prevPlugin) return { ok: false, reason: `plugin "${name}" added or renamed` };
-        if (skippedSet.has(name)) return { ok: false, reason: `${name}: skipped at build` };
         const diff = shapeDiff(prevPlugin, nextPlugin, prevIndex, nextIndex);
         if (diff) return { ok: false, reason: `${name}: ${diff}` };
-        // a plugin skipped at build (missing dependency) never reached the scheduler — swapping
-        // it would half-apply (no-op system swap, fresh component registration), so rebuild
         for (const system of prevPlugin.systems ?? []) {
-            if (!state.hasSystem(system))
-                return { ok: false, reason: `${name}: system not live (skipped at build?)` };
+            if (!state.hasSystem(system)) return { ok: false, reason: `${name}: system not live` };
         }
     }
 
