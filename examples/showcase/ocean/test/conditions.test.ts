@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CAPTURE, SUN_FACING, sunDirection } from "../src/conditions";
+import { CAPTURE, measuredMaximumCrest, SUN_FACING, sunDirection } from "../src/conditions";
 
 const scene = readFileSync(join(import.meta.dir, "../public/scenes/ocean.scene"), "utf8");
 
@@ -66,8 +66,12 @@ describe("ocean showcase capture", () => {
         ).toBeCloseTo(1, 12);
         expect(SUN_FACING).toEqual({
             name: "sun-facing",
-            camera: { yaw: Math.PI + CAPTURE.sunAzimuthOffset, pitch: 0 },
+            camera: { yaw: Math.PI + CAPTURE.sunAzimuthOffset, pitch: 0, eyeHeight: 4 },
         });
+        const crest = measuredMaximumCrest(CAPTURE.time);
+        expect(crest).toBeCloseTo(2.9559387117624283, 6);
+        expect(SUN_FACING.camera.eyeHeight).toBeGreaterThan(crest);
+        expect(crest).toBeGreaterThan(2.9);
     });
 
     test("scene declares the capture light, camera, and sky", () => {
