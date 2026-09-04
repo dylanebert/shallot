@@ -1,5 +1,5 @@
 {
-    "oracleRevision": "shallot-ocean-look/S21",
+    "oracleRevision": "shallot-ocean-look/S21a",
     "provenance": {
         "horizonRows": "210/720",
         "absoluteRelationRows": {
@@ -67,9 +67,81 @@
             "s9NearBlueRedRatio": "one-sided floor 4.2",
             "s9NearMeanChroma": "±2 sRGB levels from pinned S9",
             "s9WaterSkyLumaRatios": "0.03 below each pinned S9 quartile",
-            "s9SignedSkyTracking": "±2 sRGB levels from pinned S9, with gold-authoritative sign and depth ordering"
+            "s9SignedSkyTracking": "±2 sRGB levels from pinned S9, with gold-authoritative sign and depth ordering",
+            "s9MidRowDeviation": "pinned S9 6.2736 minus 0.0036 rounding margin",
+            "reachabilityFidelity": "display-space chroma ±0.01, B/R ±0.001, water/sky luma ±0.001"
         },
-        "s9ColourRows": "detected horizon 214/720; sky 0.08..0.2917, far 0.52..0.66, mid 0.66..0.82, near 0.82..1"
+        "s9ColourRows": "detected horizon 214/720; sky 0.08..0.2917, far 0.52..0.66, mid 0.66..0.82, near 0.82..1",
+        "reachability": {
+            "displaySpace": "oracle decoded sRGB and normalized display luma",
+            "condition": "default camera pitch and derived 60deg vFOV; rows follow oracle water quartiles",
+            "tolerances": {
+                "chroma": 0.01,
+                "blueRedRatio": 0.001,
+                "waterSkyLuma": 0.001
+            },
+            "s9": {
+                "source": "fixtures/look/s9-prior-good.png",
+                "sha256": "b102e79f7843af558fb3ecdf1be40aefe5389aea749797d27e0d3706eb41cbd5",
+                "bands": [
+                    {
+                        "chroma": 23.303604294478518,
+                        "blueRedRatio": 1.2738552556029472,
+                        "waterSkyLuma": 0.6233464127754305,
+                        "reflectionShare": 0.44
+                    },
+                    {
+                        "chroma": 42.016679687499995,
+                        "blueRedRatio": 1.9212904045850263,
+                        "waterSkyLuma": 0.4703062403223277,
+                        "reflectionShare": 0.58
+                    },
+                    {
+                        "chroma": 53.97240953947369,
+                        "blueRedRatio": 3.1019058098791246,
+                        "waterSkyLuma": 0.3588552346818034,
+                        "reflectionShare": 0.67
+                    },
+                    {
+                        "chroma": 60.1727652616279,
+                        "blueRedRatio": 4.47918350395901,
+                        "waterSkyLuma": 0.33228200804260155,
+                        "reflectionShare": 0.39
+                    }
+                ]
+            },
+            "s20": {
+                "source": "S20 default panel",
+                "sha256": "186ddb975f0474342911c659a7ed8cb7c15f9d219dfbec68a205bab01a061866",
+                "bands": [
+                    {
+                        "chroma": 14.002540260736197,
+                        "blueRedRatio": 1.1406229312617986,
+                        "waterSkyLuma": 0.519039839009495,
+                        "reflectionShare": 0.46
+                    },
+                    {
+                        "chroma": 17.4921171875,
+                        "blueRedRatio": 1.4901303677590554,
+                        "waterSkyLuma": 0.31396562819959584,
+                        "reflectionShare": 0.61
+                    },
+                    {
+                        "chroma": 19.860677083333332,
+                        "blueRedRatio": 2.106203253258316,
+                        "waterSkyLuma": 0.16137497240061985,
+                        "reflectionShare": 0.7
+                    },
+                    {
+                        "chroma": 20.427858527131782,
+                        "blueRedRatio": 2.767888412345587,
+                        "waterSkyLuma": 0.12383654061525508,
+                        "reflectionShare": 0.42
+                    }
+                ]
+            },
+            "validatedBranch": "unreachable"
+        }
     },
     "references": {
         "t26": {
@@ -154,6 +226,7 @@
                 "scaleNormalizedStructure": 0.36253910667469597
             },
             "highlight": {
+                "thresholdPercentile": 0.99,
                 "clippingFraction": 0,
                 "glitterMeanChroma": 32.96085409252669,
                 "contiguousRunBreakup": 0.1312771846579676
@@ -242,6 +315,7 @@
                 "scaleNormalizedStructure": 0.3260064927100532
             },
             "highlight": {
+                "thresholdPercentile": 0.99,
                 "clippingFraction": 0,
                 "glitterMeanChroma": 31.588257720167746,
                 "contiguousRunBreakup": 0.19290888295844452
@@ -363,10 +437,18 @@
             },
             "skyLuma": 0.5900836538692705,
             "waterSkyLumaRatios": [
-                { "min": 0.5933464127754305 },
-                { "min": 0.4403062403223277 },
-                { "min": 0.3288552346818034 },
-                { "min": 0.30228200804260155 }
+                {
+                    "min": 0.5933464127754305
+                },
+                {
+                    "min": 0.4403062403223277
+                },
+                {
+                    "min": 0.3288552346818034
+                },
+                {
+                    "min": 0.3022820080426015
+                }
             ],
             "signedSkyTracking": [
                 {
@@ -386,7 +468,10 @@
                     "max": 54.89620773774256
                 }
             ],
-            "scaleNormalizedStructure": 0.11709731295066327
+            "scaleNormalizedStructure": 0.11709731295066327,
+            "midRowDeviation": {
+                "min": 6.27
+            }
         }
     },
     "rejected": {
@@ -468,8 +553,24 @@
                     "chromaWeightedWaterSkyHueDistance": 58.332717822146094,
                     "brightWaterFraction": 0.022830031988188976
                 },
+                "reflection": {
+                    "signedSkyTracking": [
+                        6.844708341579263,
+                        12.353669155221993,
+                        16.968148742572176,
+                        21.429646401985117
+                    ],
+                    "scaleNormalizedStructure": 0.20267376539091597
+                },
+                "highlight": {
+                    "thresholdPercentile": 0.99,
+                    "clippingFraction": 0,
+                    "glitterMeanChroma": 12.843501723879479,
+                    "contiguousRunBreakup": 0.19697196822065657
+                },
                 "lumaRange": 0.3741394363438428
-            }
+            },
+            "authoritySet": "s9-colour"
         },
         "s13SunFacing": {
             "source": "scratch/shallot-ocean-look/S13-20260903-apple/sun-facing.png",
@@ -549,8 +650,24 @@
                     "chromaWeightedWaterSkyHueDistance": 28.817811905127115,
                     "brightWaterFraction": 0.9626016260162602
                 },
+                "reflection": {
+                    "signedSkyTracking": [
+                        -8.75538326559439,
+                        -10.338400465066172,
+                        -10.622047725340138,
+                        -10.622047725340138
+                    ],
+                    "scaleNormalizedStructure": 1.558526254046072e-14
+                },
+                "highlight": {
+                    "thresholdPercentile": 0.99,
+                    "clippingFraction": 0.004192073170731708,
+                    "glitterMeanChroma": 15.983047506406466,
+                    "contiguousRunBreakup": 0.0364675734279519
+                },
                 "lumaRange": 0.041509211040095306
-            }
+            },
+            "authoritySet": "gold-renderability"
         }
     }
 }

@@ -13,13 +13,14 @@ import {
     load,
     type ReferenceRelation,
     referenceRelationResults,
+    satisfiesDefaultRelations,
     satisfiesReferenceRelations,
     satisfiesRenderability,
     satisfiesS16Floor,
     satisfiesS16Relations,
 } from "./look.oracle";
 import fixture from "./reference/look-relations.json";
-import { reflectedElevationPrediction } from "./reflected-elevation";
+import { reflectedElevationPrediction, routeReachability } from "./reflected-elevation";
 
 const baselines = [1, 2, 3].map((index) =>
     resolve(import.meta.dir, `baseline/ocean-baseline-${index}.png`),
@@ -61,9 +62,9 @@ describe("ocean look oracle", () => {
     });
 
     test("committed reference readings retain per-image provenance", () => {
-        expect(fixture.oracleRevision).toBe("shallot-ocean-look/S21");
+        expect(fixture.oracleRevision).toBe("shallot-ocean-look/S21a");
         expect(fixture.provenance.absoluteRelationRows).toEqual({ t26: "277/540", t43: "267/540" });
-        expect(Object.keys(fixture.provenance.relationMargins)).toHaveLength(17);
+        expect(Object.keys(fixture.provenance.relationMargins)).toHaveLength(19);
         expect(
             fixture.provenance.sources.every(({ sha256 }) => /^[a-f0-9]{64}$/.test(sha256)),
         ).toBe(true);
@@ -80,6 +81,14 @@ describe("ocean look oracle", () => {
         const added = structuredClone(fixture.references.t26) as Record<string, unknown>;
         added.unexpected = 1;
         expect(deepKeyPaths(added)).not.toEqual(emittedPaths);
+    });
+
+    test("rejected readings carry the complete analysis shape and named authority", () => {
+        const emittedPaths = deepKeyPaths(baselineReadings[0]);
+        expect(deepKeyPaths(fixture.rejected.s13Default.reading)).toEqual(emittedPaths);
+        expect(deepKeyPaths(fixture.rejected.s13SunFacing.reading)).toEqual(emittedPaths);
+        expect(fixture.rejected.s13Default.authoritySet).toBe("s9-colour");
+        expect(fixture.rejected.s13SunFacing.authoritySet).toBe("gold-renderability");
     });
 
     test("both marked frames pass every freshly derived relation", () => {
@@ -169,11 +178,30 @@ describe("ocean look oracle", () => {
         expect(satisfiesS16Floor(gold[0]!, witnessReadings.s9PriorGood)).toBe(true);
     });
 
-    test("CPU reflected elevations route an unreachable S9 carrier to residue", () => {
+    test("CPU reflected elevations reproduce pinned display-space readings and route both outcomes", () => {
+        const tolerance = fixture.provenance.reachability.tolerances;
+        for (const profile of ["s9", "s20"] as const) {
+            const prediction = reflectedElevationPrediction(profile);
+            const recorded = fixture.provenance.reachability[profile];
+            expect(prediction.bands.every((band) => band.elevation > 0)).toBe(true);
+            for (const [index, band] of prediction.bands.entries()) {
+                expect(Math.abs(band.chroma - recorded.bands[index]!.chroma)).toBeLessThanOrEqual(
+                    tolerance.chroma,
+                );
+                expect(
+                    Math.abs(band.blueRedRatio - recorded.bands[index]!.blueRedRatio),
+                ).toBeLessThanOrEqual(tolerance.blueRedRatio);
+                expect(
+                    Math.abs(band.waterSkyLuma - recorded.bands[index]!.waterSkyLuma),
+                ).toBeLessThanOrEqual(tolerance.waterSkyLuma);
+            }
+        }
         const prediction = reflectedElevationPrediction();
-        expect(prediction.bands.every((band) => band.elevation > 0)).toBe(true);
-        expect(prediction.reflectionDominant).toBe(false);
-        expect(prediction.clearsS9).toBe(false);
+        expect(routeReachability(prediction, () => true)).toBe("reachable");
+        expect(routeReachability(prediction, () => false)).toBe("unreachable");
+        expect(routeReachability(prediction)).toBe(
+            fixture.provenance.reachability.validatedBranch as "reachable" | "unreachable",
+        );
     });
 
     test("gold authority and S9 colour authority are disjoint", () => {
@@ -188,6 +216,19 @@ describe("ocean look oracle", () => {
         expect(Object.keys(colourRelationResults(witnessReadings.s9PriorGood))).not.toContain(
             "waterSkyLumaRatio0",
         );
+    });
+
+    test("the shared fresh-default predicate enforces two-sided chroma and the body mutation", () => {
+        const prior = witnessReadings.s9PriorGood;
+        expect(satisfiesDefaultRelations(prior)).toBe(true);
+        const lowBody = structuredClone(prior);
+        lowBody.normalResponse.nearMeanChroma =
+            fixture.relations.s9Colour.nearMeanChroma.min - 0.001;
+        expect(satisfiesDefaultRelations(lowBody)).toBe(false);
+        const highBody = structuredClone(prior);
+        highBody.normalResponse.nearMeanChroma =
+            fixture.relations.s9Colour.nearMeanChroma.max + 0.001;
+        expect(satisfiesDefaultRelations(highBody)).toBe(false);
     });
 
     test("S9 colour is a two-sided set and does not reject movement above old gold chroma", () => {

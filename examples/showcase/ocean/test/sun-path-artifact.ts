@@ -13,13 +13,14 @@ export interface ArtifactPanel {
     horizonRow: number;
     fadeExtentPerWaterHeight: number;
     specksPerMegapixelOfWater: number;
+    highlightThresholdPercentile: number;
     clippingFraction: number;
     glitterMeanChroma: number;
     contiguousRunBreakup: number;
 }
 
 export interface SunPathArtifact {
-    revision: "shallot-ocean-look/S12";
+    revision: "shallot-ocean-look/S21a";
     cameraToSun: {
         defaultDegrees: number;
         sunFacingDegrees: number;
@@ -32,6 +33,7 @@ export interface SunPathArtifact {
         horizonRow: number;
         fadeExtentPerWaterHeight: number;
         specksPerMegapixelOfWater: number;
+        highlightThresholdPercentile: number;
         clippingFraction: number;
         glitterMeanChroma: number;
         contiguousRunBreakup: number;
@@ -62,6 +64,7 @@ function normalized(
     | "horizonRow"
     | "fadeExtentPerWaterHeight"
     | "specksPerMegapixelOfWater"
+    | "highlightThresholdPercentile"
     | "clippingFraction"
     | "glitterMeanChroma"
     | "contiguousRunBreakup"
@@ -72,7 +75,10 @@ function normalized(
         fadeExtentPerWaterHeight: reading.duskBalance.fadeExtent / waterHeight,
         specksPerMegapixelOfWater:
             reading.lowerBandBrightSpecks / ((waterHeight * width) / 1_000_000),
-        ...reading.highlight,
+        highlightThresholdPercentile: reading.highlight.thresholdPercentile,
+        clippingFraction: reading.highlight.clippingFraction,
+        glitterMeanChroma: reading.highlight.glitterMeanChroma,
+        contiguousRunBreakup: reading.highlight.contiguousRunBreakup,
     };
 }
 
@@ -95,7 +101,7 @@ export async function instrument(
     const roles: ArtifactPanel["role"][] = ["default", "sun-facing", "gold-t26", "gold-t43"];
     const panels = await Promise.all(paths.map((path, index) => panel(roles[index]!, path)));
     const artifact: SunPathArtifact = {
-        revision: "shallot-ocean-look/S12",
+        revision: "shallot-ocean-look/S21a",
         cameraToSun: {
             defaultDegrees: cameraToSun(CAPTURE.camera.yaw, CAPTURE.camera.pitch),
             sunFacingDegrees: cameraToSun(SUN_FACING.camera.yaw, SUN_FACING.camera.pitch),
@@ -109,6 +115,7 @@ export async function instrument(
                 horizonRow,
                 fadeExtentPerWaterHeight,
                 specksPerMegapixelOfWater,
+                highlightThresholdPercentile,
                 clippingFraction,
                 glitterMeanChroma,
                 contiguousRunBreakup,
@@ -117,6 +124,7 @@ export async function instrument(
                 horizonRow,
                 fadeExtentPerWaterHeight,
                 specksPerMegapixelOfWater,
+                highlightThresholdPercentile,
                 clippingFraction,
                 glitterMeanChroma,
                 contiguousRunBreakup,
@@ -148,6 +156,7 @@ export function assertArtifact(artifact: SunPathArtifact): void {
             caption.horizonRow !== panel.horizonRow ||
             caption.fadeExtentPerWaterHeight !== panel.fadeExtentPerWaterHeight ||
             caption.specksPerMegapixelOfWater !== panel.specksPerMegapixelOfWater ||
+            caption.highlightThresholdPercentile !== panel.highlightThresholdPercentile ||
             caption.clippingFraction !== panel.clippingFraction ||
             caption.glitterMeanChroma !== panel.glitterMeanChroma ||
             caption.contiguousRunBreakup !== panel.contiguousRunBreakup
@@ -172,7 +181,7 @@ async function svg(
     );
     const labels = artifact.panels.map((panel, index) => {
         const x = index * 1280;
-        const caption = `${panel.role} | ${panel.sourceWidth}x${panel.sourceHeight} | sha256 ${panel.sha256} | horizon ${panel.horizonRow}/${panel.sourceHeight} | fade/water ${panel.fadeExtentPerWaterHeight.toFixed(4)} | specks/MP water ${panel.specksPerMegapixelOfWater.toFixed(2)} | clip≥250 ${panel.clippingFraction.toFixed(4)} | glitter chroma ${panel.glitterMeanChroma.toFixed(2)} | breakup ${panel.contiguousRunBreakup.toFixed(4)}`;
+        const caption = `${panel.role} | ${panel.sourceWidth}x${panel.sourceHeight} | sha256 ${panel.sha256} | horizon ${panel.horizonRow}/${panel.sourceHeight} | fade/water ${panel.fadeExtentPerWaterHeight.toFixed(4)} | specks/MP water ${panel.specksPerMegapixelOfWater.toFixed(2)} | highlight p${(panel.highlightThresholdPercentile * 100).toFixed(1)} | clip≥250 ${panel.clippingFraction.toFixed(4)} | glitter chroma ${panel.glitterMeanChroma.toFixed(2)} | breakup ${panel.contiguousRunBreakup.toFixed(4)}`;
         return `<image x="${x}" y="0" width="1280" height="720" preserveAspectRatio="none" href="${encoded[index]}"/><text x="${x + 20}" y="760">${escapeHtml(caption)}</text>`;
     });
     const relation = `camera-to-sun default ${artifact.cameraToSun.defaultDegrees.toFixed(3)}°; sun-facing ${artifact.cameraToSun.sunFacingDegrees.toFixed(3)}°; declared ${artifact.cameraToSun.declaredSunFacingDegrees.toFixed(3)}°`;
@@ -197,6 +206,6 @@ if (import.meta.main) {
     );
     for (const panel of artifact.panels)
         console.log(
-            `${panel.role} ${panel.sourceWidth}x${panel.sourceHeight} sha256=${panel.sha256} horizon=${panel.horizonRow}/${panel.sourceHeight} fade/water=${panel.fadeExtentPerWaterHeight.toFixed(4)} specks/MPwater=${panel.specksPerMegapixelOfWater.toFixed(2)} clipping≥250=${panel.clippingFraction.toFixed(4)} glitter-chroma=${panel.glitterMeanChroma.toFixed(2)} breakup=${panel.contiguousRunBreakup.toFixed(4)}`,
+            `${panel.role} ${panel.sourceWidth}x${panel.sourceHeight} sha256=${panel.sha256} horizon=${panel.horizonRow}/${panel.sourceHeight} fade/water=${panel.fadeExtentPerWaterHeight.toFixed(4)} specks/MPwater=${panel.specksPerMegapixelOfWater.toFixed(2)} highlight-p=${(panel.highlightThresholdPercentile * 100).toFixed(1)} clipping≥250=${panel.clippingFraction.toFixed(4)} glitter-chroma=${panel.glitterMeanChroma.toFixed(2)} breakup=${panel.contiguousRunBreakup.toFixed(4)}`,
         );
 }

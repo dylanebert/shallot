@@ -11,12 +11,13 @@ function artifact(): SunPathArtifact {
         horizonRow: 210 + index,
         fadeExtentPerWaterHeight: 0.5 + index / 100,
         specksPerMegapixelOfWater: 100 + index,
+        highlightThresholdPercentile: 0.99,
         clippingFraction: index / 100,
         glitterMeanChroma: 20 + index,
         contiguousRunBreakup: 0.5 + index / 100,
     }));
     return {
-        revision: "shallot-ocean-look/S12",
+        revision: "shallot-ocean-look/S21a",
         cameraToSun: {
             defaultDegrees: 160,
             sunFacingDegrees: 18.334649444186343,
@@ -29,6 +30,7 @@ function artifact(): SunPathArtifact {
             horizonRow: panel.horizonRow,
             fadeExtentPerWaterHeight: panel.fadeExtentPerWaterHeight,
             specksPerMegapixelOfWater: panel.specksPerMegapixelOfWater,
+            highlightThresholdPercentile: panel.highlightThresholdPercentile,
             clippingFraction: panel.clippingFraction,
             glitterMeanChroma: panel.glitterMeanChroma,
             contiguousRunBreakup: panel.contiguousRunBreakup,
@@ -53,5 +55,9 @@ describe("sun-path acceptance artifact", () => {
         const caption = artifact();
         caption.captions[0]!.horizonRow++;
         expect(() => assertArtifact(caption)).toThrow("caption readings");
+
+        const percentile = artifact();
+        percentile.captions[0]!.highlightThresholdPercentile = 0.95;
+        expect(() => assertArtifact(percentile)).toThrow("caption readings");
     });
 });

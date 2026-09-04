@@ -39,6 +39,7 @@ export interface LookReading {
         scaleNormalizedStructure: number;
     };
     highlight: {
+        thresholdPercentile: number;
         clippingFraction: number;
         glitterMeanChroma: number;
         contiguousRunBreakup: number;
@@ -336,6 +337,8 @@ function normalResponse(
     };
 }
 
+export const HIGHLIGHT_PERCENTILE = 0.99;
+
 function highlight(image: Pixels, ranges: BandRanges): LookReading["highlight"] {
     const y0 = Math.floor(image.height * ranges.horizon[0]);
     const values: number[] = [];
@@ -346,7 +349,7 @@ function highlight(image: Pixels, ranges: BandRanges): LookReading["highlight"] 
         }
     }
     values.sort((a, b) => a - b);
-    const threshold = values[Math.floor(values.length * 0.99)] ?? 1;
+    const threshold = values[Math.floor(values.length * HIGHLIGHT_PERCENTILE)] ?? 1;
     let highlighted = 0;
     let clipped = 0;
     let waterPixels = 0;
@@ -375,6 +378,7 @@ function highlight(image: Pixels, ranges: BandRanges): LookReading["highlight"] 
         longest = Math.max(longest, run);
     }
     return {
+        thresholdPercentile: HIGHLIGHT_PERCENTILE,
         clippingFraction: clipped / Math.max(waterPixels, 1),
         glitterMeanChroma: chroma / Math.max(highlighted, 1),
         contiguousRunBreakup: runs / Math.max(highlighted, 1),
@@ -591,7 +595,7 @@ export function goldRelationResults(
 }
 
 export function colourRelationResults(
-    reading: RelationReading,
+    reading: Pick<RelationReading, "farWaterSkyHueDistance" | "duskBalance" | "normalResponse">,
     relations: typeof fixture.relations = fixture.relations,
 ): Record<ColourRelation, boolean> {
     return {
@@ -607,6 +611,27 @@ export function colourRelationResults(
             relations.s9Colour.nearMeanChroma,
         ),
     };
+}
+
+export function satisfiesDefaultRelations(
+    reading: Pick<
+        LookReading,
+        "duskBalance" | "farWaterSkyHueDistance" | "normalResponse" | "reflection"
+    >,
+    relations: typeof fixture.relations = fixture.relations,
+): boolean {
+    const colour = colourRelationResults(reading);
+    return (
+        Object.values(colour).every(Boolean) &&
+        reading.duskBalance.waterSkyLumaRatios.every(
+            (ratio, index) => ratio >= relations.s9Colour.waterSkyLumaRatios[index]!.min,
+        ) &&
+        reading.reflection.signedSkyTracking.every((value, index) =>
+            inside(value, relations.s9Colour.signedSkyTracking[index]!),
+        ) &&
+        reading.normalResponse.midRowDeviation >= relations.s9Colour.midRowDeviation.min &&
+        reading.reflection.scaleNormalizedStructure >= relations.s9Colour.scaleNormalizedStructure
+    );
 }
 
 export function referenceRelationResults(
@@ -754,7 +779,7 @@ function print(path: string, reading: LookReading): void {
         `  signed sky tracking ${reading.reflection.signedSkyTracking.map((value) => value.toFixed(2)).join(", ")}  scale-normalized structure=${reading.reflection.scaleNormalizedStructure.toFixed(4)}`,
     );
     console.log(
-        `  highlight clipping≥250/255=${(reading.highlight.clippingFraction * 100).toFixed(3)}% glitter-chroma=${reading.highlight.glitterMeanChroma.toFixed(2)} breakup=${reading.highlight.contiguousRunBreakup.toFixed(4)}`,
+        `  highlight p${(reading.highlight.thresholdPercentile * 100).toFixed(1)} clipping≥250/255=${(reading.highlight.clippingFraction * 100).toFixed(3)}% glitter-chroma=${reading.highlight.glitterMeanChroma.toFixed(2)} breakup=${reading.highlight.contiguousRunBreakup.toFixed(4)}`,
     );
 }
 
@@ -771,14 +796,19 @@ function printRelations(reading: LookReading): boolean {
         signedSkyTracking: reading.reflection.signedSkyTracking.every((value, index) =>
             inside(value, fixture.relations.s9Colour.signedSkyTracking[index]!),
         ),
-        midRowDeviation: reading.normalResponse.midRowDeviation >= 6.27,
+        midRowDeviation:
+            reading.normalResponse.midRowDeviation >=
+            fixture.relations.s9Colour.midRowDeviation.min,
         scaleNormalizedStructure:
             reading.reflection.scaleNormalizedStructure >=
             fixture.relations.s9Colour.scaleNormalizedStructure,
     };
     for (const [name, pass] of Object.entries(fresh))
         console.log(`  S21 ${name} ${pass ? "PASS" : "FAIL"}`);
-    return Object.values(fresh).every(Boolean);
+    const shared = satisfiesDefaultRelations(reading);
+    if (shared !== Object.values(fresh).every(Boolean))
+        throw new Error("CLI and shared default predicate disagree");
+    return shared;
 }
 
 if (import.meta.main) {
