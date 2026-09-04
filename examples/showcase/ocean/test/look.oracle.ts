@@ -353,6 +353,57 @@ function foam(
     return { nearCoverage: marked / count, maxLuma };
 }
 
+export function analyzeRenderability(
+    image: Pixels,
+    horizonRow: number,
+    fadeExtent: number,
+    specks: number,
+): {
+    belowHorizonVariation: number;
+    backdropFraction: number;
+    maxBackdropRunsPerColumn: number;
+    normalizedFadeExtent: number;
+    normalizedSpeckDensity: number;
+} {
+    let sum = 0;
+    let sumSquared = 0;
+    let count = 0;
+    const backdropRows: boolean[] = [];
+    for (let y = horizonRow; y < image.height; y++) {
+        let rowSum = 0;
+        let rowSquared = 0;
+        for (let x = 0; x < image.width; x++) {
+            const i = (y * image.width + x) * 4;
+            const value = luma(image.data[i] ?? 0, image.data[i + 1] ?? 0, image.data[i + 2] ?? 0);
+            sum += value;
+            sumSquared += value * value;
+            rowSum += value;
+            rowSquared += value * value;
+            count++;
+        }
+        const rowMean = rowSum / image.width;
+        backdropRows.push(
+            Math.sqrt(Math.max(0, rowSquared / image.width - rowMean * rowMean)) <= 1 / 255,
+        );
+    }
+    let maxRuns = 0;
+    let runs = 0;
+    let active = false;
+    for (const backdrop of backdropRows) {
+        if (backdrop && !active) runs++;
+        active = backdrop;
+    }
+    maxRuns = Math.max(maxRuns, runs);
+    const waterRows = Math.max(image.height - horizonRow, 1);
+    return {
+        belowHorizonVariation: Math.sqrt(Math.max(0, sumSquared / count - (sum / count) ** 2)),
+        backdropFraction: backdropRows.filter(Boolean).length / backdropRows.length,
+        maxBackdropRunsPerColumn: maxRuns,
+        normalizedFadeExtent: fadeExtent / waterRows,
+        normalizedSpeckDensity: specks / (image.width * image.height * 0.3),
+    };
+}
+
 export function analyze(image: Pixels): LookReading {
     const horizonReading = horizon(image);
     const ranges = bandRanges(horizonReading.row, image.height);
@@ -365,10 +416,11 @@ export function analyze(image: Pixels): LookReading {
     const allLuma = Object.values(bands).map((band) => band.luma);
     const balance = duskBalance(image, horizonReading.row, horizonReading.means);
     const response = normalResponse(image, bands.sky?.luma ?? 0, ranges);
+    const specks = brightSpecks(image);
     return {
         bands,
         farWaterSkyHueDistance: Math.min(hueDelta, 360 - hueDelta),
-        lowerBandBrightSpecks: brightSpecks(image),
+        lowerBandBrightSpecks: specks,
         horizon: {
             row: horizonReading.row,
             transitionWidth: horizonReading.transitionWidth,
@@ -492,6 +544,41 @@ function distance(value: number, interval: Interval): number {
     if (value < interval.min) return interval.min - value;
     if (value > interval.max) return value - interval.max;
     return 0;
+}
+
+export function satisfiesRenderability(value: ReturnType<typeof analyzeRenderability>): boolean {
+    const goldFadeFloor = Math.min(
+        (fixture.references.t26.duskBalance.fadeExtent - 10) / (540 - 277),
+        (fixture.references.t43.duskBalance.fadeExtent - 10) / (540 - 267),
+    );
+    const goldSpeckFloor =
+        (Math.min(
+            fixture.references.t26.lowerBandBrightSpecks,
+            fixture.references.t43.lowerBandBrightSpecks,
+        ) *
+            0.9) /
+        (960 * 540 * 0.3);
+    return (
+        value.belowHorizonVariation > 1 / 255 &&
+        value.backdropFraction <= 0.1 &&
+        value.maxBackdropRunsPerColumn <= 1 &&
+        value.normalizedFadeExtent >= goldFadeFloor &&
+        value.normalizedSpeckDensity >= goldSpeckFloor
+    );
+}
+
+export function solarDiskInsideMeasuredSky(
+    horizonRow: number,
+    height: number,
+    cameraPitch: number,
+    sunElevation: number,
+    solarRadius: number,
+): boolean {
+    const halfFov = Math.PI / 6;
+    const top = 0.5 - Math.tan(sunElevation + cameraPitch + solarRadius) / (2 * Math.tan(halfFov));
+    const bottom =
+        0.5 - Math.tan(sunElevation + cameraPitch - solarRadius) / (2 * Math.tan(halfFov));
+    return top >= 0.08 && bottom < horizonRow / height;
 }
 
 export function satisfiesS16Relations(
@@ -662,16 +749,43 @@ if (import.meta.main) {
         ok = false;
     if (condition !== undefined && condition !== "sun-facing")
         throw new Error(`unknown look-oracle condition: ${condition}`);
+    if (condition === "sun-facing") {
+        const { CAPTURE, SUN_FACING } = await import("../src/conditions");
+        const { SOLAR_ANGULAR_RADIUS } = await import("../src/sky");
+        const renderability = analyzeRenderability(
+            captureImage,
+            captureReading.horizon.row,
+            captureReading.duskBalance.fadeExtent,
+            captureReading.lowerBandBrightSpecks,
+        );
+        console.log(
+            `  renderability variation=${renderability.belowHorizonVariation.toFixed(4)} backdrop=${(renderability.backdropFraction * 100).toFixed(2)}% runs=${renderability.maxBackdropRunsPerColumn} normalized-fade=${renderability.normalizedFadeExtent.toFixed(4)} normalized-specks=${renderability.normalizedSpeckDensity.toExponential(4)}`,
+        );
+        const diskInside = solarDiskInsideMeasuredSky(
+            captureReading.horizon.row,
+            captureImage.height,
+            SUN_FACING.camera.pitch,
+            CAPTURE.sunElevation,
+            SOLAR_ANGULAR_RADIUS,
+        );
+        const renderable = satisfiesRenderability(renderability);
+        console.log(
+            `  S18 renderability ${renderable ? "PASS" : "FAIL"}; solar disk in measured sky band ${diskInside ? "PASS" : "FAIL"}`,
+        );
+        ok &&= renderable && diskInside;
+    }
     printBounds();
-    ok &&= satisfiesS16Relations(captureReading);
-    const s9 = analyze(
-        await load(resolve("examples/showcase/ocean/test/fixtures/look/s9-prior-good.png")),
-    );
-    const floor = satisfiesS16Floor(captureReading, s9);
-    ok &&= floor;
-    console.log(
-        `  S16 reference relations ${ok ? "PASS" : "FAIL"}: tracking=${captureReading.reflection.signedSkyTracking.map((value) => value.toFixed(2)).join(",")} chroma=${captureReading.normalResponse.nearMeanChroma.toFixed(1)} structure=${captureReading.reflection.scaleNormalizedStructure.toFixed(4)} S9Floor=${floor ? "PASS" : "FAIL"}`,
-    );
+    if (condition === undefined) {
+        ok &&= satisfiesS16Relations(captureReading);
+        const s9 = analyze(
+            await load(resolve("examples/showcase/ocean/test/fixtures/look/s9-prior-good.png")),
+        );
+        const floor = satisfiesS16Floor(captureReading, s9);
+        ok &&= floor;
+        console.log(
+            `  S16 reference relations ${ok ? "PASS" : "FAIL"}: tracking=${captureReading.reflection.signedSkyTracking.map((value) => value.toFixed(2)).join(",")} chroma=${captureReading.normalResponse.nearMeanChroma.toFixed(1)} structure=${captureReading.reflection.scaleNormalizedStructure.toFixed(4)} S9Floor=${floor ? "PASS" : "FAIL"}`,
+        );
+    }
     if (prior) {
         const priorReading = analyze(await load(prior));
         const baselineNear = await Promise.all(

@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import witnesses from "./fixtures/look/provenance.json";
 import {
     analyze,
+    analyzeRenderability,
     assertRegeneratedReferences,
     bandRanges,
     load,
@@ -12,6 +13,7 @@ import {
     referenceRelationResults,
     satisfiesPriorGoodFloor,
     satisfiesReferenceRelations,
+    satisfiesRenderability,
     satisfiesS16Floor,
     satisfiesS16Relations,
 } from "./look.oracle";
@@ -114,6 +116,32 @@ describe("ocean look oracle", () => {
                     `${name} must keep unrelated ${relation} green`,
                 ).toBe(true);
         }
+    });
+
+    test("sun-facing renderability rejects the S13 water-plane witness", async () => {
+        const image = await load(witnessPaths.s13SunFacing);
+        const reading = witnessReadings.s13SunFacing;
+        const renderability = analyzeRenderability(
+            image,
+            reading.horizon.row,
+            reading.duskBalance.fadeExtent,
+            reading.lowerBandBrightSpecks,
+        );
+        expect(satisfiesRenderability(renderability)).toBe(false);
+        expect(renderability.backdropFraction).toBeGreaterThan(0.1);
+        expect(renderability.normalizedFadeExtent).toBeLessThan(0.7);
+
+        const mutation = {
+            belowHorizonVariation: 0.1,
+            backdropFraction: 0,
+            maxBackdropRunsPerColumn: 1,
+            normalizedFadeExtent: 1,
+            normalizedSpeckDensity: 0.001,
+        };
+        expect(satisfiesRenderability(mutation)).toBe(true);
+        expect(satisfiesRenderability({ ...mutation, belowHorizonVariation: 0 })).toBe(false);
+        expect(satisfiesRenderability({ ...mutation, maxBackdropRunsPerColumn: 2 })).toBe(false);
+        expect(satisfiesRenderability({ ...mutation, normalizedSpeckDensity: 0 })).toBe(false);
     });
 
     test("S16 gold intervals reject both S13 fixtures and improve from S9", () => {
