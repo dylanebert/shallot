@@ -1,10 +1,20 @@
+import { runCpuPipeline } from "./ocean/cpu-reference";
+import { CASCADE_CONFIGS, generateH0 } from "./ocean/spectrum";
 import { DUSK_SKY_DEFAULTS } from "./sky";
 
 /** Sun-facing capture condition measured by the solar-energy claim. */
 export const SUN_FACING = {
     name: "sun-facing",
-    camera: { yaw: Math.PI + 0.35, pitch: 0 },
+    camera: { yaw: Math.PI + 0.35, pitch: 0, eyeHeight: 4 },
 } as const;
+
+/** Conservative crest measured from every displacement cascade at the requested capture clock. */
+export function measuredMaximumCrest(time: number): number {
+    return CASCADE_CONFIGS.reduce((crest, config) => {
+        const field = runCpuPipeline(generateH0(config, 0), config, time).jacobian.height;
+        return crest + field.reduce((maximum, value) => Math.max(maximum, value), -Infinity);
+    }, 0);
+}
 
 /** matched showcase capture conditions. */
 export const CAPTURE = {
