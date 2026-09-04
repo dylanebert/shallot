@@ -12,11 +12,11 @@ Five demos are built and served at [dylanebert.com/shallot](https://dylanebert.c
 
 | demo | play | code |
 |---|---|---|
-| Collapse | [play](https://dylanebert.com/shallot/collapse/) | [code](https://github.com/dylanebert/shallot/tree/v0.9.5/examples/showcase/collapse) |
-| Roads | [play](https://dylanebert.com/shallot/roads/) | [code](https://github.com/dylanebert/shallot/tree/v0.9.5/examples/showcase/roads) |
-| Sandbox | [play](https://dylanebert.com/shallot/sandbox/) | [code](https://github.com/dylanebert/shallot/tree/v0.9.5/examples/showcase/sandbox) |
-| Visualization | [play](https://dylanebert.com/shallot/visualization/) | [code](https://github.com/dylanebert/shallot/tree/v0.9.5/examples/showcase/visualization) |
-| Voxel | [play](https://dylanebert.com/shallot/voxel/) | [code](https://github.com/dylanebert/shallot/tree/v0.9.5/examples/showcase/voxel) |
+| Collapse | [play](https://dylanebert.com/shallot/collapse/) | [code](https://github.com/dylanebert/shallot/tree/v0.10.0/examples/showcase/collapse) |
+| Roads | [play](https://dylanebert.com/shallot/roads/) | [code](https://github.com/dylanebert/shallot/tree/v0.10.0/examples/showcase/roads) |
+| Sandbox | [play](https://dylanebert.com/shallot/sandbox/) | [code](https://github.com/dylanebert/shallot/tree/v0.10.0/examples/showcase/sandbox) |
+| Visualization | [play](https://dylanebert.com/shallot/visualization/) | [code](https://github.com/dylanebert/shallot/tree/v0.10.0/examples/showcase/visualization) |
+| Voxel | [play](https://dylanebert.com/shallot/voxel/) | [code](https://github.com/dylanebert/shallot/tree/v0.10.0/examples/showcase/voxel) |
 
 ## quick start
 

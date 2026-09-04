@@ -2,7 +2,7 @@
 
 Newest first. **Breaking:** marks a change that needs consumer action; [`packages/shallot/MIGRATION.md`](packages/shallot/MIGRATION.md) is the 0.8→0.9 port. Versions follow [semver](https://semver.org).
 
-## Unreleased — next minor
+## 0.10.0 — 2026-09-03
 
 - **animation (fix)** — `Animator.clip` interns the authored clip name independently of `Playables` registration, so a scene round-trips its `clip:` with no plugin initialized. Before, the scene formatter (`bun run format`) normalized every animator with no playable registered, the id formatted back to "" and the attribute vanished — which is how the visualization showcase's animation and text scenes and the `animate-with-clips` recipe all shipped animators with no `clip:`, parked on a green gate. An animator whose clip resolves to nothing now warns once at its first step (`names no clip`, or `clip "x" is not registered`), both forms `shallot verify` promotes to errors; the scenes name their clips again, the recipe carries a motion smoke, and the showcase gate asserts the animated demos' frames actually change.
 - **format** — `bun run format` / `--check` refuses to write a scene when normalizing an attribute would drop one of its keys, naming the file, attribute and key, instead of silently deleting authored state.
