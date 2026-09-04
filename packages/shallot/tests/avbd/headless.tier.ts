@@ -109,7 +109,6 @@ describe("headless lavapipe physics (build + step + probeBuffer readback)", () =
                 <a body="pos: 0 6 0; half-extents: 0.6 0.6 0.6; mass: 1" />
             </scene>`,
         });
-        expect(app.skipped).toEqual([]);
         expect(Avbd.step).not.toBeNull();
         expect(Avbd.step!.eidCap).toBe(CAPACITY);
         // the falling box is the scene's only mass > 0 body; the ground is static.
@@ -153,7 +152,6 @@ describe("headless lavapipe physics (build + step + probeBuffer readback)", () =
                 />
             </scene>`,
         });
-        expect(app.skipped).toEqual([]);
         // the kinematic character: the sweep (fixed group, before the solve) reads candidate poses
         // through the body Mirror and writes its pose via setKinematic — the whole readback-bounded
         // coupling, headless.
@@ -207,7 +205,6 @@ describe("headless lavapipe physics (build + step + probeBuffer readback)", () =
                 <a body="pos: 0 0 0; half-extents: 10 0.5 10; mass: 0" />
             </scene>`,
         });
-        expect(app.skipped).toEqual([]);
         const chars = [...app.state.query([Character])];
         expect(chars.length).toBe(1);
         for (let i = 0; i < TICKS; i++) app.state.step();

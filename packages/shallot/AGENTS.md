@@ -47,7 +47,7 @@ Don't deep-import from `src/`. If something you need isn't in a barrel or `*/cor
 
 `initialize(state)` runs BEFORE scene parse — no entities exist yet. Use `warm(state)` for anything that touches scene data. System `setup(state)` is NOT plugin initialize; it runs lazily on the first frame the system runs.
 
-Plugins register meshes/surfaces against `render/core`'s `Surfaces` / `Draws` / `Meshes` (`Registry<T>` instances) and must declare `dependencies: [RenderPlugin]` so registration lands after the registry wipe. A producer whose per-frame compute writes geometry the renderer reads for *position* declares `before: [PrepassSystem]`.
+Mesh/surface plugins depend on `RenderPlugin` so registration follows its wipe. Every dependency is required: `build()` rejects all missing edges before side effects. Optional peers use conditional inclusion, nullable hooks, or ordering against an absent system. Position producers run `before: [PrepassSystem]`.
 
 ### Choosing a primitive
 

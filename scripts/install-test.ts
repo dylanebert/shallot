@@ -1240,6 +1240,21 @@ if (import.meta.main) {
             install.ok,
             install.ok ? "" : install.out.slice(-600),
         );
+        if (install.ok) {
+            writeFileSync(
+                join(sandbox, "missing-plugin.ts"),
+                `import { build } from "@dylanebert/shallot";\n` +
+                    `const Required = { name: "PackedRequired" };\n` +
+                    `const Consumer = { name: "PackedConsumer", dependencies: [Required] };\n` +
+                    `await build({ plugins: [Consumer], defaults: false });\n`,
+            );
+            const missing = run(["bun", "missing-plugin.ts"], sandbox);
+            check(
+                "the packed engine rejects a custom plugin's missing required edge at build",
+                !missing.ok && /PackedConsumer requires PackedRequired/.test(missing.out),
+                missing.out.slice(-400),
+            );
+        }
         check(
             "the engine's audio wasm shipped in the tarball (files surface)",
             existsSync(

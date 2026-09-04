@@ -712,12 +712,6 @@ export async function runTui(
         // regardless — a silent no-op screen, never the default.
         loading: { show: () => undefined, update: () => undefined },
     });
-    if (app.skipped.length > 0) {
-        console.error(
-            `shallot tui: plugins skipped at build (missing dependency): ${app.skipped.join(", ")}`,
-        );
-    }
-
     const cameraEid = [...app.state.query([engine.Camera])][0];
     if (cameraEid === undefined) {
         console.error(`shallot tui: no camera in ${projectDir}'s scene`);

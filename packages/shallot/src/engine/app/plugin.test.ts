@@ -96,45 +96,23 @@ describe("Plugin", () => {
     });
 
     describe("missing dependencies", () => {
-        test("should skip initialize when dependency is missing", async () => {
-            let initialized = false;
-
+        test("a missing dependency rejects the build", async () => {
             const Base: Plugin = { name: "Base" };
-            const Dependent: Plugin = {
-                name: "Dependent",
-                dependencies: [Base],
-                initialize: () => {
-                    initialized = true;
-                },
-            };
+            const Dependent: Plugin = { name: "Dependent", dependencies: [Base] };
 
-            await build({ plugins: [Dependent], defaults: false });
-            expect(initialized).toBe(false);
+            await expect(build({ plugins: [Dependent], defaults: false })).rejects.toThrow(
+                "Dependent requires Base",
+            );
         });
 
-        test("should only skip plugin with missing dep, not its dependents", async () => {
-            let aInit = false;
-            let bInit = false;
-
+        test("a present dependent does not conceal its own missing edge", async () => {
             const Base: Plugin = { name: "Base" };
-            const A: Plugin = {
-                name: "A",
-                dependencies: [Base],
-                initialize: () => {
-                    aInit = true;
-                },
-            };
-            const B: Plugin = {
-                name: "B",
-                dependencies: [A],
-                initialize: () => {
-                    bInit = true;
-                },
-            };
+            const A: Plugin = { name: "A", dependencies: [Base] };
+            const B: Plugin = { name: "B", dependencies: [A] };
 
-            await build({ plugins: [A, B], defaults: false });
-            expect(aInit).toBe(false);
-            expect(bInit).toBe(true);
+            await expect(build({ plugins: [A, B], defaults: false })).rejects.toThrow(
+                "A requires Base",
+            );
         });
 
         test("should not skip plugin when dependency is present", async () => {
@@ -359,54 +337,57 @@ describe("Plugin", () => {
             expect(result.reason).toContain("init boom");
         });
 
-        // a systemless skipped plugin has no scheduler trace for the liveness guard to catch, so
-        // swap validates against the skip set build() exposes — built reality, not the config
-        test("swap rejects a systemless plugin skipped at build, before half-applying it", async () => {
+        test("missing required edges fail together before build side effects", async () => {
             clear();
-            const Missing: Plugin = { name: "missing" };
-            let inits = 0;
-            const P1: Plugin = {
-                name: "dependent",
-                dependencies: [Missing],
+            const MissingA: Plugin = { name: "missing-a" };
+            const MissingB: Plugin = { name: "missing-b" };
+            const Registered = { n: sparse(u32) };
+            const calls: string[] = [];
+            const First: Plugin = {
+                name: "first",
+                dependencies: [MissingA, MissingB],
+                components: { registered: Registered },
+                systems: [{ setup: () => calls.push("system setup"), update: () => {} }],
                 initialize: () => {
-                    inits++;
+                    calls.push("initialize");
+                },
+                warm: () => {
+                    calls.push("warm");
                 },
             };
-            const app = await build({ plugins: [P1], defaults: false });
-            expect(app.skipped).toContain("dependent");
-            expect(inits).toBe(0);
+            const Second: Plugin = { name: "second", dependencies: [MissingA] };
 
-            const P2: Plugin = {
-                name: "dependent",
-                dependencies: [Missing],
-                initialize: () => {
-                    inits++;
+            const error = await build({
+                plugins: [First, Second],
+                defaults: false,
+                scene: '<scene><a registered="n: 1" /></scene>',
+                setup: () => calls.push("config setup"),
+                loading: {
+                    show: () => {
+                        calls.push("loading");
+                    },
+                    update: () => {},
                 },
-            };
-            const result = await swap(app.state, [P1], [P2], app.skipped);
-            expect(result.ok).toBe(false);
-            expect(result.reason).toContain("skipped");
-            expect(inits).toBe(0); // the never-built initialize never ran on the live State
+            }).then(
+                () => new Error("build did not reject"),
+                (cause) => cause as Error,
+            );
+
+            expect(error.message).toBe(
+                "Missing plugin dependencies:\nfirst requires missing-a\nfirst requires missing-b\nsecond requires missing-a",
+            );
+            expect(calls).toEqual([]);
+            expect(getComponent("registered")).toBeUndefined();
         });
 
-        test("swap rejects a plugin whose systems never reached the scheduler (skipped at build)", async () => {
+        test("a valid optional composition builds and keeps skipped as empty compatibility", async () => {
             clear();
-            const Missing: Plugin = { name: "missing" };
-            const P1: Plugin = {
-                name: "dependent",
-                dependencies: [Missing],
-                systems: [{ update: () => {} }],
-            };
-            const { state } = await build({ plugins: [P1], defaults: false });
-
-            const P2: Plugin = {
-                name: "dependent",
-                dependencies: [Missing],
-                systems: [{ update: () => {} }],
-            };
-            const result = await swap(state, [P1], [P2]);
-            expect(result.ok).toBe(false);
-            expect(result.reason).toContain("not live");
+            const OptionalPeer: Plugin = { name: "optional-peer" };
+            const Main: Plugin = { name: "main" };
+            const app = await build({ plugins: [Main], defaults: false });
+            expect(app.skipped).toEqual([]);
+            expect(OptionalPeer.name).toBe("optional-peer");
+            app.dispose();
         });
 
         // an ordering edge counts by *target*, not just length: `before: [A]` → `before: [B]`
