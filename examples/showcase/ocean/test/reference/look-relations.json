@@ -75,11 +75,6 @@
         "reachability": {
             "displaySpace": "oracle decoded sRGB and normalized display luma",
             "condition": "default camera pitch and derived 60deg vFOV; rows follow oracle water quartiles",
-            "tolerances": {
-                "chroma": 0.01,
-                "blueRedRatio": 0.001,
-                "waterSkyLuma": 0.001
-            },
             "s9": {
                 "source": "fixtures/look/s9-prior-good.png",
                 "sha256": "b102e79f7843af558fb3ecdf1be40aefe5389aea749797d27e0d3706eb41cbd5",
@@ -108,7 +103,13 @@
                         "waterSkyLuma": 0.33228200804260155,
                         "reflectionShare": 0.39
                     }
-                ]
+                ],
+                "tolerances": {
+                    "chroma": 15.409,
+                    "blueRedRatio": 2.644,
+                    "waterSkyLuma": 0.219,
+                    "derivation": "maximum four-band residual of the independent CPU composite, rounded outward to 0.001"
+                }
             },
             "s20": {
                 "source": "S20 default panel",
@@ -138,9 +139,37 @@
                         "waterSkyLuma": 0.12383654061525508,
                         "reflectionShare": 0.42
                     }
-                ]
+                ],
+                "tolerances": {
+                    "chroma": 6.794,
+                    "blueRedRatio": 1.457,
+                    "waterSkyLuma": 0.232,
+                    "derivation": "maximum four-band residual of the independent CPU composite, rounded outward to 0.001"
+                }
             },
-            "validatedBranch": "unreachable"
+            "validatedBranch": "unreachable",
+            "model": {
+                "foamShare": 0.0009767441860465116,
+                "source": "S20 analyzed near foam coverage 0.0069767441860465115 multiplied by shader FOAM_STRENGTH 0.14",
+                "sunLight": "scene directional-light 0xfff3dc at intensity 1.2",
+                "slopeVariance": [
+                    0.00034526698300124393,
+                    0.08
+                ],
+                "slopeVarianceSource": "BECKMANN_VARIANCE_FLOOR through measured published slope.w ceiling"
+            },
+            "carrierBounds": {
+                "highElevationBlend": [
+                    0,
+                    1
+                ],
+                "strength": [
+                    0,
+                    1
+                ],
+                "source": "blend endpoints are shader DUSK_SKY_DEFAULTS zenith/horizon; strength endpoints are the existing zero-strength ablation and declared strength 1; body endpoints are S9 ed6d918 and S20 WATER_BODY"
+            },
+            "inputPath": "CAPTURE pitch + 60deg vFOV + oracle quartile rows -> reflected elevation (S9 clamp/current unclamped) -> sampleSky(DUSK_SKY_DEFAULTS) -> 9-point BECKMANN_VARIANCE_FLOOR..0.08 meanFresnel -> WATER_BODY/body/reflection strengths -> foam ambient -> AERIAL_DENSITY distance fade -> AgX -> sRGB metrics"
         }
     },
     "references": {

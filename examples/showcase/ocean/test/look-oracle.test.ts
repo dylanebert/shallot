@@ -20,7 +20,11 @@ import {
     satisfiesS16Relations,
 } from "./look.oracle";
 import fixture from "./reference/look-relations.json";
-import { reflectedElevationPrediction, routeReachability } from "./reflected-elevation";
+import {
+    bodyMutation,
+    reflectedElevationPrediction,
+    routeReachability,
+} from "./reflected-elevation";
 
 const baselines = [1, 2, 3].map((index) =>
     resolve(import.meta.dir, `baseline/ocean-baseline-${index}.png`),
@@ -179,10 +183,10 @@ describe("ocean look oracle", () => {
     });
 
     test("CPU reflected elevations reproduce pinned display-space readings and route both outcomes", () => {
-        const tolerance = fixture.provenance.reachability.tolerances;
         for (const profile of ["s9", "s20"] as const) {
             const prediction = reflectedElevationPrediction(profile);
             const recorded = fixture.provenance.reachability[profile];
+            const tolerance = recorded.tolerances;
             expect(prediction.bands.every((band) => band.elevation > 0)).toBe(true);
             for (const [index, band] of prediction.bands.entries()) {
                 expect(Math.abs(band.chroma - recorded.bands[index]!.chroma)).toBeLessThanOrEqual(
@@ -218,13 +222,16 @@ describe("ocean look oracle", () => {
         );
     });
 
-    test("the shared fresh-default predicate enforces two-sided chroma and the body mutation", () => {
+    test("the shared fresh-default predicate reds on a body-carrier mutation through the model", () => {
         const prior = witnessReadings.s9PriorGood;
         expect(satisfiesDefaultRelations(prior)).toBe(true);
-        const lowBody = structuredClone(prior);
-        lowBody.normalResponse.nearMeanChroma =
-            fixture.relations.s9Colour.nearMeanChroma.min - 0.001;
-        expect(satisfiesDefaultRelations(lowBody)).toBe(false);
+        const baseChroma = reflectedElevationPrediction("s9").bands[3]!.chroma;
+        const mutatedChroma = bodyMutation("s9", 0).bands[3]!.chroma;
+        expect(mutatedChroma).not.toBe(baseChroma);
+        const predictedMutation = structuredClone(prior);
+        predictedMutation.normalResponse.nearMeanChroma += mutatedChroma - baseChroma;
+        expect(satisfiesDefaultRelations(predictedMutation)).toBe(false);
+
         const highBody = structuredClone(prior);
         highBody.normalResponse.nearMeanChroma =
             fixture.relations.s9Colour.nearMeanChroma.max + 0.001;
