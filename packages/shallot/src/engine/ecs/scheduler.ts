@@ -53,6 +53,8 @@ export interface System {
     readonly annotations?: Record<string, unknown>;
     readonly first?: boolean;
     readonly last?: boolean;
+    /** runs after every other system in its group; at most one terminal system is allowed */
+    readonly terminal?: boolean;
     readonly before?: readonly System[];
     readonly after?: readonly System[];
 }
@@ -264,12 +266,14 @@ function sortSystems(systems: System[], all: System[]): System[] {
 
     const first = systems.filter((s) => s.first);
     const last = systems.filter((s) => s.last);
-    const normal = systems.filter((s) => !s.first && !s.last);
+    const terminal = systems.filter((s) => s.terminal);
+    const normal = systems.filter((s) => !s.first && !s.last && !s.terminal);
 
     return [
         ...kahnSort(first, edgesOf(first)),
         ...kahnSort(normal, edgesOf(normal)),
         ...kahnSort(last, edgesOf(last)),
+        ...terminal,
     ];
 }
 
@@ -318,12 +322,18 @@ function edgesOf(systems: System[]): [System, System][] {
 }
 
 function validate(systems: System[], all: System[]): void {
+    const terminals = systems.filter((s) => s.terminal);
+    if (terminals.length > 1)
+        throw new Error("System group cannot have more than one terminal system");
+
     for (const s of systems) {
-        if (s.first && s.last) {
+        if (s.first && s.last)
             throw new Error("System cannot have both first and last constraints");
+        if (s.terminal && (s.first || s.last)) {
+            throw new Error("System cannot combine terminal with first or last constraints");
         }
         const group = s.group ?? "simulation";
-        const sRank = s.first ? 0 : s.last ? 2 : 1;
+        const sRank = s.first ? 0 : s.last ? 2 : s.terminal ? 3 : 1;
         for (const ref of [...(s.before ?? []), ...(s.after ?? [])]) {
             if (!all.includes(ref)) continue;
             const refGroup = ref.group ?? "simulation";
@@ -332,7 +342,7 @@ function validate(systems: System[], all: System[]): void {
             }
             // satisfiable cross-partition constraints hold by construction (first < normal < last)
             // and stay silent; only the unsatisfiable direction errors
-            const refRank = ref.first ? 0 : ref.last ? 2 : 1;
+            const refRank = ref.first ? 0 : ref.last ? 2 : ref.terminal ? 3 : 1;
             if (s.before?.includes(ref) && sRank > refRank) {
                 throw new Error(
                     `Unsatisfiable ordering: a ${partitionName(sRank)} system cannot run before a ${partitionName(refRank)} system`,
@@ -348,5 +358,5 @@ function validate(systems: System[], all: System[]): void {
 }
 
 function partitionName(rank: number): string {
-    return rank === 0 ? "first" : rank === 2 ? "last" : "normal";
+    return rank === 0 ? "first" : rank === 2 ? "last" : rank === 3 ? "terminal" : "normal";
 }

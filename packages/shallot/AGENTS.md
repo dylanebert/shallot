@@ -24,7 +24,7 @@ Shallot is data-oriented, ECS, declarative. Code shaped this way composes with t
 
 **Scenes declare; code transforms.** Scene files are the source of truth for entity composition. Imperative entity setup belongs in procedural generation and tests, not the standard load path. If you're writing entity-construction code that mirrors a scene file, use the scene file.
 
-**Systems declare order.** A system declares `after` / `before` other systems (and a `group`); the scheduler topo-sorts. Don't sequence frame work manually.
+**Systems declare order.** Declare `after` / `before` and a `group`; the scheduler topo-sorts. One `terminal` system runs last; `RenderPlugin` owns draw's for submit. Don't sequence work manually.
 
 **One source of truth.** Every piece of data has exactly one authoritative location. Derive, don't duplicate.
 
