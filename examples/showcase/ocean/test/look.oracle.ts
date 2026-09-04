@@ -594,36 +594,44 @@ export function satisfiesS16Relations(
     );
 }
 
+export function s9DirectionalResults(
+    fresh: Pick<LookReading, "normalResponse" | "reflection">,
+    prior: Pick<LookReading, "normalResponse" | "reflection">,
+    relations: typeof fixture.relations = fixture.relations,
+): Record<string, boolean> {
+    const results: Record<string, boolean> = {};
+    for (const [index, band] of ["horizon", "farWater", "midWater", "nearWater"].entries())
+        results[`signedSkyTracking.${band}`] = satisfiesPriorGoodFloor(
+            fresh.reflection.signedSkyTracking[index]!,
+            prior.reflection.signedSkyTracking[index]!,
+            relations.signedSkyTracking[index]!,
+        );
+    results.nearMeanChroma = satisfiesPriorGoodFloor(
+        fresh.normalResponse.nearMeanChroma,
+        prior.normalResponse.nearMeanChroma,
+        relations.nearMeanChroma,
+    );
+    results["scaleNormalizedStructure.midWater"] = satisfiesPriorGoodFloor(
+        fresh.reflection.scaleNormalizedStructure,
+        prior.reflection.scaleNormalizedStructure,
+        relations.scaleNormalizedStructure,
+    );
+    return results;
+}
+
 export function satisfiesS16Floor(
     fresh: Pick<LookReading, "normalResponse" | "reflection">,
     prior: Pick<LookReading, "normalResponse" | "reflection">,
     relations: typeof fixture.relations = fixture.relations,
 ): boolean {
-    return (
-        fresh.reflection.signedSkyTracking.every((value, index) =>
-            satisfiesPriorGoodFloor(
-                value,
-                prior.reflection.signedSkyTracking[index]!,
-                relations.signedSkyTracking[index]!,
-            ),
-        ) &&
-        satisfiesPriorGoodFloor(
-            fresh.normalResponse.nearMeanChroma,
-            prior.normalResponse.nearMeanChroma,
-            relations.nearMeanChroma,
-        ) &&
-        satisfiesPriorGoodFloor(
-            fresh.reflection.scaleNormalizedStructure,
-            prior.reflection.scaleNormalizedStructure,
-            relations.scaleNormalizedStructure,
-        )
-    );
+    return Object.values(s9DirectionalResults(fresh, prior, relations)).every(Boolean);
 }
 
 export function satisfiesPriorGoodFloor(fresh: number, prior: number, interval: Interval): boolean {
-    const priorDistance = distance(prior, interval);
-    const freshDistance = distance(fresh, interval);
-    return priorDistance === 0 ? freshDistance === 0 : freshDistance < priorDistance;
+    if (!Number.isFinite(fresh) || !Number.isFinite(prior)) return false;
+    if (inside(prior, interval)) return inside(fresh, interval);
+    if (prior < interval.min) return fresh >= prior && fresh <= interval.max;
+    return fresh >= interval.min && fresh <= prior;
 }
 
 export function satisfiesReferenceRelations(
@@ -663,6 +671,12 @@ function printBounds(): void {
         console.log(
             `  ${name}: source=t26,t43 rows=${fixture.provenance.absoluteRelationRows.t26},${fixture.provenance.absoluteRelationRows.t43} margin=${margin}`,
         );
+}
+
+function printDivergence(name: string, value: number, prior: number, interval: Interval): void {
+    console.log(
+        `  divergence ${name} interval=${distance(value, interval).toFixed(4)} S9=${Math.abs(value - prior).toFixed(4)}`,
+    );
 }
 
 function print(path: string, reading: LookReading): void {
@@ -734,19 +748,19 @@ if (import.meta.main) {
     const compare = compareIndex >= 0 ? process.argv[compareIndex + 1] : undefined;
     const prior = priorIndex >= 0 ? process.argv[priorIndex + 1] : undefined;
     const condition = conditionIndex >= 0 ? process.argv[conditionIndex + 1] : undefined;
-    let ok = true;
+    const failures: string[] = [];
+    const fail = (arm: string) => {
+        failures.push(arm);
+    };
     const captureImage = await load(capture);
     const captureReading = analyze(captureImage);
     const baseline = analyze(
         await load(resolve("examples/showcase/ocean/test/baseline/ocean-baseline-1.png")),
     );
     print(capture, captureReading);
-    if (
-        captureReading.lumaRange < 0.02 ||
-        captureReading.horizon.transitionWidth < 1 ||
-        captureReading.horizon.continuity <= 0
-    )
-        ok = false;
+    if (captureReading.lumaRange < 0.02) fail("image:luma-range");
+    if (captureReading.horizon.transitionWidth < 1) fail("horizon:transition-width");
+    if (captureReading.horizon.continuity <= 0) fail("horizon:continuity");
     if (condition !== undefined && condition !== "sun-facing")
         throw new Error(`unknown look-oracle condition: ${condition}`);
     if (condition === "sun-facing") {
@@ -772,18 +786,38 @@ if (import.meta.main) {
         console.log(
             `  S18 renderability ${renderable ? "PASS" : "FAIL"}; solar disk in measured sky band ${diskInside ? "PASS" : "FAIL"}`,
         );
-        ok &&= renderable && diskInside;
+        if (!renderable) fail("sun-facing:renderability");
+        if (!diskInside) fail("sun-facing:solar-disk-band");
     }
     printBounds();
     if (condition === undefined) {
-        ok &&= satisfiesS16Relations(captureReading);
         const s9 = analyze(
             await load(resolve("examples/showcase/ocean/test/fixtures/look/s9-prior-good.png")),
         );
-        const floor = satisfiesS16Floor(captureReading, s9);
-        ok &&= floor;
+        for (const [index, band] of ["horizon", "farWater", "midWater", "nearWater"].entries())
+            printDivergence(
+                `signedSkyTracking.${band}`,
+                captureReading.reflection.signedSkyTracking[index]!,
+                s9.reflection.signedSkyTracking[index]!,
+                fixture.relations.signedSkyTracking[index]!,
+            );
+        printDivergence(
+            "nearMeanChroma",
+            captureReading.normalResponse.nearMeanChroma,
+            s9.normalResponse.nearMeanChroma,
+            fixture.relations.nearMeanChroma,
+        );
+        printDivergence(
+            "scaleNormalizedStructure",
+            captureReading.reflection.scaleNormalizedStructure,
+            s9.reflection.scaleNormalizedStructure,
+            fixture.relations.scaleNormalizedStructure,
+        );
+        const directional = s9DirectionalResults(captureReading, s9);
+        for (const [arm, passed] of Object.entries(directional))
+            if (!passed) fail(`s9-direction:${arm}`);
         console.log(
-            `  S16 reference relations ${ok ? "PASS" : "FAIL"}: tracking=${captureReading.reflection.signedSkyTracking.map((value) => value.toFixed(2)).join(",")} chroma=${captureReading.normalResponse.nearMeanChroma.toFixed(1)} structure=${captureReading.reflection.scaleNormalizedStructure.toFixed(4)} S9Floor=${floor ? "PASS" : "FAIL"}`,
+            `  S9 directional floor ${Object.values(directional).every(Boolean) ? "PASS" : "FAIL"}`,
         );
     }
     if (prior) {
@@ -808,9 +842,11 @@ if (import.meta.main) {
         console.log(
             `  S5 mid-band floor capture=${captureReading.bands.midWater!.luma.toFixed(6)} prior=${priorReading.bands.midWater!.luma.toFixed(6)} tolerance=${nearFloor.toFixed(6)}`,
         );
-        ok &&=
-            Math.abs(captureReading.bands.midWater!.luma - priorReading.bands.midWater!.luma) <=
-            nearFloor;
+        if (
+            Math.abs(captureReading.bands.midWater!.luma - priorReading.bands.midWater!.luma) >
+            nearFloor
+        )
+            fail("prior:mid-water-luma");
         for (const band of ["sky", "horizon", "farWater"] as const) {
             const floor =
                 Math.max(...baselineNear.map((reading) => reading.bands[band]!.luma)) -
@@ -821,7 +857,7 @@ if (import.meta.main) {
             console.log(
                 `  untouched ${band} delta=${delta.toFixed(6)} S1Floor=${floor.toFixed(6)}`,
             );
-            ok &&= delta <= floor;
+            if (delta > floor) fail(`prior:${band}-luma`);
         }
     }
     console.log(
@@ -834,8 +870,8 @@ if (import.meta.main) {
         const overlap = speckOverlap(captureImage, await load(compare));
         console.log(`  t=6 versus t=6.05 speck overlap ${overlap.toFixed(4)}`);
     }
-    if (!ok) {
-        console.error("FAIL: zero-contrast or discontinuous horizon input");
+    if (failures.length > 0) {
+        for (const arm of failures) console.error(`FAIL ${arm}`);
         process.exitCode = 1;
     }
 }

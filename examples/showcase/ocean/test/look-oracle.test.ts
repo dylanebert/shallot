@@ -11,6 +11,7 @@ import {
     load,
     type ReferenceRelation,
     referenceRelationResults,
+    s9DirectionalResults,
     satisfiesPriorGoodFloor,
     satisfiesReferenceRelations,
     satisfiesRenderability,
@@ -144,7 +145,7 @@ describe("ocean look oracle", () => {
         expect(satisfiesRenderability({ ...mutation, normalizedSpeckDensity: 0 })).toBe(false);
     });
 
-    test("S16 gold intervals reject both S13 fixtures and improve from S9", () => {
+    test("S16 gold intervals retain marked and rejected-fixture relations", () => {
         const gold = [fixture.references.t26, fixture.references.t43].map((reading) => ({
             normalResponse: reading.normalResponse,
             reflection: {
@@ -167,23 +168,35 @@ describe("ocean look oracle", () => {
         expect(satisfiesS16Relations(oldBody)).toBe(false);
         expect(satisfiesS16Relations(witnessReadings.s13Default)).toBe(false);
         expect(satisfiesS16Relations(witnessReadings.s13SunFacing)).toBe(false);
-        expect(satisfiesS16Floor(gold[0]!, witnessReadings.s9PriorGood)).toBe(true);
     });
 
-    test("the S9 floor stays in-range or moves strictly toward the gold interval", () => {
+    test("the directional floor keeps readings between S9 and the gold interval", () => {
         const prior = witnessReadings.s9PriorGood;
         const chroma = prior.normalResponse.nearMeanChroma;
         const chromaGold = fixture.relations.nearMeanChroma;
         expect(chroma).toBeGreaterThan(chromaGold.max);
-        expect(satisfiesPriorGoodFloor(chroma - 1, chroma, chromaGold)).toBe(true);
-        expect(satisfiesPriorGoodFloor(chroma, chroma, chromaGold)).toBe(false);
-        expect(satisfiesPriorGoodFloor(chroma + 1, chroma, chromaGold)).toBe(false);
+        expect(satisfiesPriorGoodFloor(chroma, chroma, chromaGold)).toBe(true);
+        expect(satisfiesPriorGoodFloor(chromaGold.max, chroma, chromaGold)).toBe(true);
+        expect(satisfiesPriorGoodFloor(chromaGold.min, chroma, chromaGold)).toBe(true);
+        expect(satisfiesPriorGoodFloor(chromaGold.min - 0.001, chroma, chromaGold)).toBe(false);
 
-        const hue = prior.farWaterSkyHueDistance;
-        const hueGold = fixture.relations.farWaterSkyHueDistance;
-        expect(hue).toBeWithin(hueGold.min, hueGold.max);
-        expect(satisfiesPriorGoodFloor(hueGold.min, hue, hueGold)).toBe(true);
-        expect(satisfiesPriorGoodFloor(hueGold.max + 0.001, hue, hueGold)).toBe(false);
+        const tracking = prior.reflection.signedSkyTracking[0];
+        const trackingGold = fixture.relations.signedSkyTracking[0]!;
+        expect(tracking).toBeWithin(trackingGold.min, trackingGold.max);
+        expect(satisfiesPriorGoodFloor(trackingGold.min, tracking, trackingGold)).toBe(true);
+        expect(satisfiesPriorGoodFloor(trackingGold.max + 0.001, tracking, trackingGold)).toBe(
+            false,
+        );
+    });
+
+    test("S9 passes the fresh-default floor and a mid-band move past gold reds by arm", () => {
+        const prior = witnessReadings.s9PriorGood;
+        expect(satisfiesS16Floor(prior, prior)).toBe(true);
+        const moved = structuredClone(prior);
+        moved.reflection.signedSkyTracking[2] = fixture.relations.signedSkyTracking[2]!.min - 0.001;
+        const results = s9DirectionalResults(moved, prior);
+        expect(results["signedSkyTracking.midWater"]).toBe(false);
+        expect(results["signedSkyTracking.farWater"]).toBe(true);
     });
 
     test("cuts every band from the image's detected horizon", () => {
