@@ -6,7 +6,7 @@ import { type Box, type Contact, collide } from "./collide";
 import { add, type Quat, scale, sub, transform, type Vec3 } from "./math";
 import gold from "./sat-gold-vectors.json";
 
-// The SAT crux gate (scratch.md "AVBD rebuild" → Distributed cruxes). The gold
+// The SAT crux gate. The gold
 // vectors are the box-box manifolds the reference `Manifold::collide` produces
 // (gen-sat-gold.ts → reference/avbd-demo3d/gold-sat.cpp); collide.ts is the faithful
 // f64 port and must reproduce them. The configs cover all four code paths: FACE_A /
@@ -88,7 +88,7 @@ describe("box-box SAT vs C++ gold vectors", () => {
     });
 });
 
-// Feature-key continuity (scratch.md "AVBD rebuild" → Distributed cruxes → SAT). The key's low byte
+// Feature-key continuity. The key's low byte
 // is the clip-vertex loop index, so a reordered Sutherland-Hodgman output silently reassigns keys —
 // a contact that physically persists across a frame would get a NEW key, miss the warmstart merge,
 // and jitter (not crash). This is the cross-frame precondition the phase-3 warmstart keying builds
@@ -179,8 +179,7 @@ describe("box-box SAT feature-key continuity under sub-box perturbation", () => 
 // on the stable clip-loop ordinal (a body-fixed corner id), matched by (a,b)+key; webphysics re-ordinals
 // the face key to the post-reduction array rank (reference/webphysics/.../contactGeneration.ts:1375).
 // The two are mitigated tradeoffs (ours cold-starts a shifted key, wp false-matches a nearby λ that AVBD
-// absorbs), and which is better is an OPEN 4.9 A/B (vs Jolt/Bullet PCM position-proximity too —
-// roadmap "Phase 4.9 Goal C", scratch.md "Phase 4.8.5" item 4). This guards only against an *accidental*
+// absorbs), and which is better is an OPEN 4.9 A/B (vs Jolt/Bullet PCM position-proximity too). This guards only against an *accidental*
 // re-ordinal while that *deliberate* choice stays open: the continuity test above covers the 4-point
 // interior manifold (no reduction); this reaches the OVER-PRODUCED clip the Jolt reduction prunes to 4,
 // where each kept contact keeps its ORIGINAL clip ordinal (a non-contiguous subset), so a rank-relabel

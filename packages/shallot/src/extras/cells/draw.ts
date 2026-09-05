@@ -1,11 +1,9 @@
 // The web sink: an instanced draw of `cols * rows` monospace quads against the shared SDF glyph atlas
-// (`text/core`), no readback — the Locked decision's "same pipeline with the expensive tail deleted"
-// (`specs/shallot-tui.md`). A simplification of `extras/text`'s own instanced glyph draw: no world
+// (`text/core`), no readback — the same pipeline with the expensive tail deleted. A simplification of `extras/text`'s own instanced glyph draw: no world
 // transform, no per-entity eid lookup, no per-string layout pass — every cell is a fixed monospace box
 // whose position derives purely from its instance index. The quad's *geometry* always covers the whole
-// box (`checks.md`'s "invariant enforced on the quantity it constrains": the Goal's "the grid is the
-// frame" property lives in every pixel of every cell getting a real write, so the rasterized polygon can
-// never be smaller than the cell — `specs/shallot-tui.md`'s s3r item 9), and the glyph's own ink is drawn
+// box ("the grid is the frame" property lives in every pixel of every cell getting a real write, so
+// the rasterized polygon can never be smaller than the cell), and the glyph's own ink is drawn
 // *within* that full-cell quad, shrunk + centered to the glyph's own measured em-normalized footprint
 // (`glyphFootprintT`/`cellFootprintPx` below, against `glyphs.ts`'s size table) — size-proportional
 // placement, the same principle `extras/text`'s own `layoutText` applies per glyph (`ramp.ts`'s module
@@ -169,8 +167,7 @@ export const cellVertex = tgpu
         const has = std.select(d.u32(0), d.u32(1), rect.z > rect.x);
 
         // full-cell geometry, unconditionally — every fragment of every cell gets a real write, so
-        // nothing the scene rendered before this pass can show through (`specs/shallot-tui.md`'s s3r
-        // item 9: "the grid is the frame", not an overlay on one).
+        // nothing the scene rendered before this pass can show through ("the grid is the frame", not an overlay on one).
         const px = (d.f32(col) + corner.x) * cellW;
         const py = (d.f32(row) + corner.y) * cellH;
         const ndcX = px / (drawLayout.$.params.viewW * 0.5) - 1;
@@ -274,7 +271,7 @@ export function resetDrawPipeline(): void {
  * `Render.format` — `view.framebuffer` in production) as one instanced draw. `loadOp: "clear"`: the
  * geometry now tiles the view exactly (every cell's quad always covers its whole box, `cellVertex`'s own
  * docblock), so every pixel the pass writes is a real cell-authored value and nothing before this pass
- * needs to survive it — `"load"` was the s3r item 9 defect (`specs/shallot-tui.md`): it composited the
+ * needs to survive it — `"load"` was the s3r item 9 defect: it composited the
  * grid *over* the rendered scene, so a cols/rows pair that doesn't evenly divide the view (or any other
  * rasterizer-level gap) left the scene showing through. `"clear"` makes that impossible by construction
  * rather than by exact tiling alone — a gap now clears to black instead of leaking whatever rendered

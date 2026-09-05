@@ -36,7 +36,7 @@
 //     output, and its `surface-flatness-property-on-device` check re-asserts the *property* device-side —
 //     the same unconditional exact zero the default suite asserts, over real `readVertices()`.
 //
-// What this oracle cannot see (name the blind axes, `checks.md`'s granularity clause):
+// What this oracle cannot see:
 //   - albedo registration — the overlay's own texel/coverage crispness is a separate render-half property
 //     (the spec's "Fs composite" criterion, `terrain.ts`'s fs), untouched by anything read here.
 //   - shading normals — the finite-difference normal `generate.ts`'s kernel emits alongside height is

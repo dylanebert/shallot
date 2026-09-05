@@ -153,7 +153,7 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
     // In-frame assertion: each probe's fractional screen coordinates must be strictly inside (0, 1)
     // before any pixel is read — `luminanceAt` clamps out-of-range coordinates to the border, so an
     // off-screen probe silently reads a border pixel and passes instead of reding (the same class as
-    // the unreachable null control, `checks.md`'s audit-check-vacuity). Measured on the shipped default
+    // the unreachable null control). Measured on the shipped default
     // (distance 120 m): onRoad sits at 0.905/0.464 and offRoad at 0.929/0.492 of frame — on-screen, but
     // one small camera change from the clamp. Red-first demonstrated: tightening the x-bound to
     // `toBeLessThan(0.9)` reds on the offRoad probe (x=0.917), exit 1 — the assertion fires before

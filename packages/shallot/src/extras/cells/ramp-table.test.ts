@@ -3,8 +3,7 @@ import { computeRampTable, glyphCoverage, loadBrandFont } from "../../../scripts
 import { CELL_DIRECTIONAL_GLYPHS, CELL_FILL_EXCLUDED_GLYPHS } from "./ramp";
 import { RAMP_TABLE } from "./ramp-table";
 
-// The reproduction arm the Locked decision requires (`specs/shallot-tui.md`'s glyph-selection
-// addendum): "a derived table nobody can re-derive is a hand-authored guess with extra steps" — this
+// The reproduction arm: "a derived table nobody can re-derive is a hand-authored guess with extra steps" — this
 // proves `ramp-table.ts` (the committed data) is exactly what `generate-ramp.ts`'s own pure
 // `computeRampTable` produces off the same JetBrains Mono face, right now, not just at the moment it was
 // generated.
@@ -39,7 +38,7 @@ describe("RAMP_TABLE reproduces from generate-ramp.ts's own computeRampTable", (
     });
 
     // the s3r fill-treatment amendment's own regression guard: "the fill role emits angular glyphs only,
-    // never curved ones" (`specs/shallot-tui.md`) — pinned against `CELL_FILL_EXCLUDED_GLYPHS` (`ramp.ts`'s
+    // never curved ones" — pinned against `CELL_FILL_EXCLUDED_GLYPHS` (`ramp.ts`'s
     // own curated set) rather than a hardcoded literal, so a widened exclusion in `ramp.ts` is what this
     // arm proves reached the generated table, not a copy of today's four characters.
     test("excludes every curated curved glyph — a regenerated ramp cannot reintroduce a parenthesis or brace into the fill role", () => {

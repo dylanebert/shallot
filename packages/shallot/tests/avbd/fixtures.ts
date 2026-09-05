@@ -2,7 +2,7 @@
 // reference trajectories — see gen-fixtures.ts). Builds a Solver from a fixture's initial state
 // + params, and exposes the per-frame reference state the oracle is checked against. Test
 // scaffolding; the fixtures are f32 (C++ float), the oracle f64 — so trajectory comparison is
-// tolerant (and chaotic scenes only on the statistical band — scratch.md "Gate ladder").
+// tolerant (and chaotic scenes only on the statistical band).
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

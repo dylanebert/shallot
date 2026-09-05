@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { CORPUS_DRAGS, dragCorpus, scanDrag } from "./dragCorpus";
 
-// By-path tier (`coding.md` Suite speed): the whole 200-drag corridor-flatness corpus, run by path
+// By-path tier: the whole 200-drag corridor-flatness corpus, run by path
 // rather than in the default suite because it costs ~12 s there against a whole-suite budget of ~30 s,
 // while the property it pins is one corpus-scale oracle over one kernel. The default suite keeps
 // `edit.test.ts`'s sentinel over the *same* frozen fixture's first `SENTINEL_DRAGS` entries
@@ -19,8 +19,7 @@ import { CORPUS_DRAGS, dragCorpus, scanDrag } from "./dragCorpus";
 // adds `harness.ts` — 19 files beyond the tier itself. The cone is wider than the set of modules the
 // scan's readings are a *function* of (`overlay/queue.ts` and `posts.ts` cannot move a flatness
 // reading, they arrive because `terrain/terrain.ts` exports `SEED`): that over-inclusion is what a
-// derived list costs and it is accepted rather than re-narrowed by hand (`checks.md`, by-path tier
-// trigger lists). The tier reads no non-imported file at runtime, so there is no runtime-read input to
+// derived list costs and it is accepted rather than re-narrowed by hand. The tier reads no non-imported file at runtime, so there is no runtime-read input to
 // list beside the cone.
 //
 // Advisory, not a trigger: nothing runs this tier automatically — a person reads this header and runs

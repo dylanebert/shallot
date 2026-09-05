@@ -55,7 +55,7 @@ export function displayGateExit(hardware: string): number | null {
 }
 
 /** the refusal diagnostic for a non-hardware adapter: names what was offered and why the CLI won't run
- *  checks against it, never the caller or its environment (`branding.md` — point at the diagnostic). */
+ *  checks against it, never the caller or its environment. */
 export function displayGateMessage(hardware: string): string {
     const reason =
         hardware === "unknown"
@@ -391,7 +391,7 @@ export interface LoafPhaseReport {
  * large LoAF spikes standing *before* the compile chain have no owner. Entry-level LoAF fields
  * (`duration`, `blockingDuration`) cannot name one; `scripts` can, and this is the reader over that
  * pair. Pure — no DOM, no observer, no CDP — so it arms against hand-built entry sets
- * (`.claude/rules/checks.md`'s extract-the-arithmetic move) rather than needing a GPU.
+ * rather than needing a GPU.
  *
  * @example
  * const report = loafByCompilePhase(attribution.longAnimationFrames, attribution.compileMeasures, PREFIX);
@@ -1490,7 +1490,7 @@ export async function sampleFrameNode(
 
 // shallot-boot-stall-repair S1: the boot wait loop's per-tick sample selection, extracted out of
 // `drive` so it is a testable seam — `drive` itself takes no page mock (it drives a real `page.goto`
-// plus a CDP session), so this is the "extract it into a pure sibling module" escape (`checks.md`)
+// plus a CDP session), so this is the "extract it into a pure sibling module" escape
 // rather than a source-text proxy over `drive`'s call site. Every poll consumer now takes the Node
 // decode; `attribution` only selects `sampleFrameNode`'s own throw-vs-fallback contract, never a
 // different sampler. `harnessDefined` short-circuits to null without sampling — unchanged from the

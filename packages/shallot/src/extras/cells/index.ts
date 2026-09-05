@@ -82,8 +82,7 @@ let _warnedMultiCamera = false;
  * reallocated) per call and shared across every caller in the frame — correct only when every caller
  * that frame requests the same `cols`/`rows`/`viewW`/`viewH`. A second camera with a different view size
  * would silently corrupt both the first camera's still-unsubmitted recording and its own (`select.ts`'s
- * own docblock names the hazard; this is the demonstrated instance of it, `specs/shallot-tui.md`'s s3r
- * item 5). Per-camera buffer keying is the eventual fix; until then, draw the first camera with a
+ * own docblock names the hazard; this is the demonstrated instance of it). Per-camera buffer keying is the eventual fix; until then, draw the first camera with a
  * rendered scene and warn once rather than composite garbage for every camera after it.
  */
 const CellsSystem: System = {

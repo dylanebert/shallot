@@ -14,8 +14,7 @@
 // independently re-derives cutDepth from the real network geometry (buildNetworkGeometry) and
 // computes the projected extents from that independent cutDepth plus the fixed-literal pose. So a
 // future stage that moves cutDepth reds this arm — the pose does not auto-adjust, which is the
-// whole point (per checks.md's "re-derives its own rule" and Residue: "re-run that arithmetic
-// whenever any earlier stage moves the subject's magnitude").
+// whole point.
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";

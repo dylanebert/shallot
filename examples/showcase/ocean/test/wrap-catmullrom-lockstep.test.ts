@@ -42,7 +42,7 @@ describe("wrapIndex vs reconstruction.ts's wrap — same formula, called directl
 
 describe("vertex-displacement.ts's catmullRom1D vs reconstruction.ts's — same formula, per channel", () => {
     // a position-encoded fixture: every source texel and channel a distinct value, so a swapped tap
-    // or dropped channel is visible (`checks.md`'s own recorded shape for this class of arm).
+    // or dropped channel is visible.
     const p0 = [1.1, 2.2, 3.3, 4.4];
     const p1 = [5.5, 6.6, 7.7, 8.8];
     const p2 = [9.9, 10.1, 11.2, 12.3];

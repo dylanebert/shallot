@@ -658,8 +658,7 @@ async function assertDrawDispatch(): Promise<Check> {
 // S3r item 2's owed arm: render every coverage-ordered fill glyph through `draw.ts`'s own real pipeline
 // (not the synthetic solid atlas `DrawPlugin` above uses for its fg/bg-only check) and assert the
 // *rendered* ink rises with the ramp's own measured-coverage order — the property `draw.ts`'s
-// `cellFootprintPx`/`glyphFootprintT` fix exists to preserve at the point of use (`specs/shallot-tui.md`'s s3r item 2,
-// "the coverage-ordered ramp whose rendered order does not match its measured order is the defect class
+// `cellFootprintPx`/`glyphFootprintT` fix exists to preserve at the point of use ("the coverage-ordered ramp whose rendered order does not match its measured order is the defect class
 // here"). One cell per fill glyph, `CELL_FILL_GLYPHS[i]`'s glyph index `i` — `ramp.ts`'s own contract
 // keeps that array sorted ascending by measured coverage, so "monotone in the same direction as
 // RAMP_TABLE's measured coverage" reduces to "rendered ink at cell `i` rises with `i`".
@@ -1069,7 +1068,7 @@ const FacadePlugin: Plugin = {
     },
 };
 
-// rule 3's own real-device arm (`specs/shallot-tui.md`'s fill-treatment amendment: "facade ink is low…
+// rule 3's own real-device arm ("facade ink is low…
 // the target is the number"), reworked after criterion 8's round-1 rejection. The prior version averaged
 // `assertMonoRamp`'s per-glyph readback (a continuous per-glyph coverage fraction) over the whole fill
 // ramp's own `[0, 1]` luma domain — not a facade (a facade never selects the ramp's blank or densest

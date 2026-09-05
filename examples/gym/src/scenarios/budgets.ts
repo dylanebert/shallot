@@ -82,13 +82,12 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     "bodies-motion-locks": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_516_692 },
     "bodies-spinning-book": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_517_860 },
     // measured 2026-09-01, `--scenario cells` (WSL/NVIDIA bridge, lovelace), re-measured the same day
-    // after S3r item 2's ramp-monotonicity arm landed (`specs/shallot-tui.md`'s s3r item 2 — the owed
+    // after S3r item 2's ramp-monotonicity arm landed (the owed
     // regression guard driving `draw.ts`'s real pipeline against a real font atlas, not the synthetic
     // solid atlas the draw differential below uses), again after the s3r item-8 background-detection
     // repair, which grew `SelectParams` (`select.ts`) by one `bg: vec4f` reference (16 B), and again after
     // criterion 9's arm (`assertFrameIsGrid`, `FramePlugin` below `MonoPlugin` in this file) — the two-
-    // sided proof that `drawCells` replaces a target's prior contents rather than compositing over them
-    // (`specs/shallot-tui.md`'s s3r item 9). Nine compute/render pipelines: `cells-fill` (S1's synthetic
+    // sided proof that `drawCells` replaces a target's prior contents rather than compositing over them. Nine compute/render pipelines: `cells-fill` (S1's synthetic
     // producer), `cells-avg` + `cells-select` (S3's two-pass real content producer), `cells-draw` (the
     // draw differential's real render pipeline, shared by the mono-ramp arm and criterion 9's own
     // `FramePlugin` draw — reused under the same label three times over, which is why `pipelineCalls` (11)
@@ -120,7 +119,7 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     // `cells-gym-frame-out` 8 (two 4 B atomic-u32 counters sharing that label) = 4_472_008, matching
     // `gpuBytes` below exactly.
     //
-    // Re-measured 2026-09-01, same day, after the s3r fill-treatment amendment (`specs/shallot-tui.md`):
+    // Re-measured 2026-09-01, same day, after the s3r fill-treatment amendment:
     // rule 2's curated curved-glyph exclusion (`ramp.ts`'s `CELL_FILL_EXCLUDED_GLYPHS`) shrinks
     // `CELL_FILL_GLYPHS` from 91 to 87 and `MONO_GLYPH_COUNT` (this file, `= CELL_FILL_GLYPHS.length`)
     // with it, moving five labels that scale off the fill-ramp length: `cells-grid` (-48 B, `MonoPlugin`'s
@@ -131,8 +130,7 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     // now-retired `INK_DILATE_FRACTION` changed gpu *behavior*, not any allocation size, so neither moved
     // this row at that measurement. Two independent same-day confirming runs agreed exactly on `gpuBytes`.
     //
-    // Re-measured 2026-09-02, after the fill-treatment amendment's s3r review repair
-    // (`specs/shallot-tui.md`): `draw.ts`'s `INK_DILATE_FRACTION` is deleted outright (a behavior-only
+    // Re-measured 2026-09-02, after the fill-treatment amendment's s3r review repair: `draw.ts`'s `INK_DILATE_FRACTION` is deleted outright (a behavior-only
     // change, so it still moves nothing on its own) and the facade-ink measurement (rule 3) moves off the
     // old per-glyph-average sweep onto a real per-pixel device readback — `examples/gym/src/scenarios/
     // cells.ts`'s new `FacadePlugin`, added to this scenario's plugin list between `MonoPlugin` and

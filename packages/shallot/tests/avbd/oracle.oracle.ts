@@ -10,7 +10,7 @@ import { spring } from "./spring";
 
 // The phase-0 standing gate: the TS oracle is the executable AVBD spec. Tolerances are derived
 // + checked (the values in the comments were measured against the oracle, not guessed), and the
-// gate is laid out by the ladder in scratch.md "AVBD rebuild → Gate ladder": closed-form gates
+// gate follows the ladder: closed-form gates
 // (tightest, no reference), fixture reproduction (deterministic parts only — the rest state +
 // the energy invariant, never a long-horizon trajectory match), and the scheduler bridge.
 //
@@ -409,7 +409,7 @@ describe("AVBD oracle — friction + rotation reproduce the C++ fixtures", () =>
     // the 100-wide ground and free-fall (never settle). These three harness scenes (harness-dense.cpp,
     // mirroring tests/avbd/corpus.ts) cover the dynamics that were never gold-checked: kinetic friction
     // that stops a box, a box tipping vertex→face, and a stack toppling. Each is gated where it's
-    // deterministic (scratch.md "Gate ladder"): a clean slide / a contained tip track the C++ over the
+    // deterministic: a clean slide / a contained tip track the C++ over the
     // whole run; a chaotic topple only early + on the statistical band.
 
     test("friction-settle: tracks the C++ slide-to-rest + lower-μ-slides-farther", () => {
@@ -1006,8 +1006,7 @@ describe("AVBD oracle — scheduler equivalence", () => {
 });
 
 describe("AVBD oracle — warmstart (cross-frame persistence)", () => {
-    // The Phase-3 warmstart crux at the spec level (scratch.md "AVBD rebuild" → Distributed cruxes →
-    // Warmstart): the reference's force-list manifold persistence — `initManifold` merges this frame's
+    // The Phase-3 warmstart crux at the spec level: the reference's force-list manifold persistence — `initManifold` merges this frame's
     // contacts onto last frame's by feature key, carrying λ/k with γ decay (manifold.ts). The fixtures
     // (oracle.test.ts above) exercise the merge on *settling* scenes; these close the documented gap —
     // a churning scene (flipping feature keys) and the positive "warmstart converges tighter" property

@@ -53,8 +53,7 @@
 // Rings 1-4 (leg a) stay population-only, on purpose: coarsening past the Nyquist bound is EXPECTED
 // to under-count folds (a fold that fits between two widely-spaced vertices cannot invert a triangle
 // there), so a coarser ring's flip fraction has no reason to track any reference rate and asserting
-// it as if it should would defend the wrong claim (`checks.md`'s "pins the status quo at a position
-// nobody has questioned").
+// it as if it should would defend the wrong claim.
 //
 // I3m-r correction round (2026-09-01): leg (b)'s ring-0 flip fraction used to be ASSERTED
 // non-increasing across the three near-spacing legs. The consult ruled that ordering claim wrong too

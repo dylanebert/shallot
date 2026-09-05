@@ -1,5 +1,4 @@
-// The tier-0 ASCII dump — criterion 8's own artifact promoted into the repo (s3r item 2,
-// specs/shallot-tui.md): "the grid is readable as text at a stock 80x24 with color removed... read from
+// The tier-0 ASCII dump: "the grid is readable as text at a stock 80x24 with color removed... read from
 // the recipe" (examples/recipes/render-to-a-terminal). Boots that recipe's scene headlessly through
 // bun-webgpu — no browser, no `shallot verify`, no dev/preview server — drives the orbit camera to a
 // named yaw, steps the real `CellsPlugin` pipeline (`select.ts`'s structure-first glyph selection over

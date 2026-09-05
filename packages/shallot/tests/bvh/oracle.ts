@@ -10,7 +10,7 @@
 // Exact topology is NOT the contract — parallel merge order is non-deterministic
 // even in NexusBVH. The contract is the per-pass output (bounds, codes, sort) and,
 // for the build, the invariants + SAH + ray-vs-brute-force agreement that
-// {@link invariants} and {@link compareRays} check. See scratch.md "H-PLOC BVH".
+// {@link invariants} and {@link compareRays} check.
 
 import { type Prims, primMax, primMin } from "./fixtures";
 

@@ -7,8 +7,7 @@
 // is the survive-reload flow at examples/flows/survive-reload/ (`bun run flows`), which rebuilds through a real page
 // reload; this roster is the sole per-plugin conformance coverage.
 //
-// This is the default-tier SENTINEL (`coding.md` Suite speed: a gate leaving the default suite
-// leaves a cheap sentinel): the pipeline-compiling arms — Render, Part, Sear, Glaze, Lines, Sprite,
+// This is the default-tier SENTINEL: the pipeline-compiling arms — Render, Part, Sear, Glaze, Lines, Sprite,
 // Skin, Physics, Character, Player, both toggle arms, and the SkinPlugin+GltfPlugin pair — were
 // promoted to the by-path tier `conformance.tier.ts` because their real GPU pipeline-compile cost
 // (render arms measured 4.6–6.3 s, readings 5062–6279 ms) straddled the 5000 ms per-file cap

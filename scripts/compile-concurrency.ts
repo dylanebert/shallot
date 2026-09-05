@@ -9,8 +9,7 @@ import { queryFlags, skipReason, teardownBridge, verify } from "./verify";
 // the boot window, unfiltered), fed through the pure reader `compileConcurrencyRatio`
 // (`site/rum-compile-vitals.ts`) rather than re-deriving the ratio here. Prints
 // `{count, sum, span, ratio}` plus the absolute span ungated — a concurrency claim (the ratio) is
-// host-independent by construction, so nothing here gates on a wall-clock number
-// (`.claude/rules/checks.md` on a threshold over wall-clock duration).
+// host-independent by construction, so nothing here gates on a wall-clock number.
 //
 //     bun run scripts/compile-concurrency.ts [--dir <project>] [--query k=v ...]
 //
