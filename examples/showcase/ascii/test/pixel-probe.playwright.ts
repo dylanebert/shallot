@@ -1,11 +1,12 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as harness from "@dylanebert/shallot/harness";
 import { assertMotion, isDegradedBootMessage } from "@dylanebert/shallot/harness";
 import { pixelProbePass, probePixels } from "@dylanebert/shallot/harness/pixels";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, type TestInfo, test } from "@playwright/test";
 import { PNG } from "pngjs";
 import { adapterName, SOFTWARE } from "./gpu-adapter";
 
@@ -40,6 +41,84 @@ const motionPath = realpathSync(join(dirname(barrelPath), "motion.ts"));
 const barrelSource = readFileSync(barrelPath, "utf8");
 expect(barrelSource.match(/export \{ assertMotion \} from "\.\/motion";/g)).toHaveLength(1);
 expect(harness.assertMotion).toBe(assertMotion);
+
+/** Persist full bytes independently of the reporter, then attach the physical file. */
+export async function retain(info: TestInfo, name: string, bytes: Uint8Array, contentType: string) {
+    const path = info.outputPath(`${randomUUID()}-${name}`);
+    await writeFile(path, bytes, { flag: "wx" });
+    await info.attach(name, { path, contentType });
+    const attachmentPath = info.attachments.at(-1)?.path;
+    if (!attachmentPath || attachmentPath === path) throw new Error("missing attachment copy");
+    return { name, path, attachmentPath, bytes: bytes.length, sha256: hash(bytes), contentType };
+}
+
+/** The shared synchronous swatch consumer, after sampling has succeeded. */
+export function assertSwatch(result: ReturnType<typeof probePixels>) {
+    expect(pixelProbePass(result, swatch), SWATCH_MESSAGE).toBe(true);
+}
+
+/** Measure the full compositor population with the same inclusive color bands. */
+export function measureSwatch(png: PNG) {
+    return probePixels(png.data, png.width, png.height, swatch);
+}
+
+/** Keep positive readiness tolerant of initial blank frames. */
+export async function pollSwatch(sample: () => Promise<boolean>) {
+    await expect.poll(sample, { message: SWATCH_MESSAGE, timeout: 15_000 }).toBe(true);
+}
+
+/** Consume only the synchronous swatch refusal, never a capture or readiness failure. */
+export function rejectAbsent(result: ReturnType<typeof probePixels>) {
+    expect(() => assertSwatch(result), "absent cube must reject at the swatch consumer").toThrow(
+        SWATCH_MESSAGE,
+    );
+}
+
+/** Fence the existing canvas queue and allow paint before an absent sample. */
+export async function painted(element: Element) {
+    const cells = element as HTMLCanvasElement & { cellCols?: number; cellRows?: number };
+    const order = ["metadata"];
+    if (!((cells.cellCols ?? 0) * (cells.cellRows ?? 0) > 0))
+        throw new Error("missing cell metadata before fence");
+    const context = cells.getContext("webgpu");
+    if (!context || context.canvas !== cells || typeof context.getConfiguration !== "function")
+        throw new Error("missing existing canvas configuration API");
+    const configuration = context.getConfiguration();
+    const queue = configuration?.device?.queue;
+    if (!queue || typeof queue.onSubmittedWorkDone !== "function")
+        throw new Error("missing configured canvas queue");
+    order.push("configured");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let frame = 0;
+    try {
+        await Promise.race([
+            (async () => {
+                order.push("fence-start");
+                await queue.onSubmittedWorkDone();
+                order.push("fence-done");
+                await new Promise<void>((resolve) => {
+                    frame = requestAnimationFrame(() => {
+                        order.push("raf-1");
+                        frame = requestAnimationFrame(() => {
+                            order.push("raf-2");
+                            resolve();
+                        });
+                    });
+                });
+            })(),
+            new Promise<never>((_, reject) => {
+                timer = setTimeout(
+                    () => reject(new Error("canvas paint readiness timeout")),
+                    5_000,
+                );
+            }),
+        ]);
+        return order;
+    } finally {
+        clearTimeout(timer);
+        cancelAnimationFrame(frame);
+    }
+}
 
 async function gesture(page: Page, canvas: Locator) {
     const box = await canvas.boundingBox();
@@ -88,6 +167,9 @@ test("ascii showcase — the cell grid reaches the compositor", async ({
         let responses = 0;
         let captures = 0;
         record("phase-start", { phase });
+        const persist = async (name: string, bytes: Uint8Array, contentType: string) => {
+            record("artifact", { phase, ...(await retain(info, name, bytes, contentType)) });
+        };
         try {
             const page = await context.newPage();
             page.on("pageerror", (error) => errors.push(String(error)));
@@ -130,14 +212,8 @@ test("ascii showcase — the cell grid reaches the compositor", async ({
                         replacement = target.replace(orbit, orbit.replace(/"$/, '; mode: 1"'));
                     }
                     const mutated = Buffer.from(source.replace(target, replacement));
-                    await info.attach(`${phase}-scene-original`, {
-                        body: original,
-                        contentType: "application/xml",
-                    });
-                    await info.attach(`${phase}-scene-mutated`, {
-                        body: mutated,
-                        contentType: "application/xml",
-                    });
+                    await persist(`${phase}-scene-original`, original, "application/xml");
+                    await persist(`${phase}-scene-mutated`, mutated, "application/xml");
                     record("mutation", {
                         phase,
                         responses,
@@ -156,10 +232,7 @@ test("ascii showcase — the cell grid reaches the compositor", async ({
             await page.goto("/");
             const served = await sceneResponse;
             const servedBytes = await served.body();
-            await info.attach(`${phase}-scene-served`, {
-                body: servedBytes,
-                contentType: "application/xml",
-            });
+            await persist(`${phase}-scene-served`, servedBytes, "application/xml");
             record("served", {
                 phase,
                 url: served.url(),
@@ -204,6 +277,7 @@ test("ascii showcase — the cell grid reaches the compositor", async ({
                 .locator("..");
             await expect(panel).toBeVisible();
             const capture = async (name: string, exclude = true) => {
+                const started = performance.now();
                 const beforeBox = await canvas.boundingBox();
                 expect(beforeBox).toEqual(box);
                 const visibility = await panel.evaluate(
@@ -223,11 +297,8 @@ test("ascii showcase — the cell grid reaches the compositor", async ({
                 ).toBe(visibility);
                 await expect(panel).toBeVisible();
                 const id = `${phase}-${captures++}-${name}`;
-                await info.attach(`${id}.png`, { body: bytes, contentType: "image/png" });
-                await info.attach(`${id}.rgba`, {
-                    body: png.data,
-                    contentType: "application/octet-stream",
-                });
+                await persist(`${id}.png`, bytes, "image/png");
+                await persist(`${id}.rgba`, png.data, "application/octet-stream");
                 record("capture", {
                     phase,
                     id,
@@ -239,49 +310,45 @@ test("ascii showcase — the cell grid reaches the compositor", async ({
                     visibility,
                     pngSha256: hash(bytes),
                     rgbaSha256: hash(png.data),
+                    durationMs: performance.now() - started,
                 });
                 return png;
             };
             let result = { pixels: 0, width: 0, height: 0 };
-            let captureError: unknown;
-            const swatches = async () => {
-                await expect
-                    .poll(
-                        async () => {
-                            const png = await capture("swatch").catch((error: unknown) => {
-                                captureError = error;
-                                throw error;
-                            });
-                            result = probePixels(png.data, png.width, png.height, swatch);
-                            record("swatch", {
-                                phase,
-                                ...result,
-                                pass: pixelProbePass(result, swatch),
-                            });
-                            return pixelProbePass(result, swatch);
-                        },
-                        { message: SWATCH_MESSAGE, timeout: 15_000 },
-                    )
-                    .toBe(true);
-                expect(
-                    pixelProbePass(result, swatch),
-                    `matched ${result.pixels} px, span ${result.width}x${result.height}`,
-                ).toBe(true);
+            const sample = async () => {
+                result = measureSwatch(await capture("swatch"));
+                record("swatch", { phase, ...result, pass: pixelProbePass(result, swatch) });
+                return pixelProbePass(result, swatch);
             };
             if (phase === "absent") {
-                await expect(
-                    swatches(),
-                    "absent cube must reject at the swatch consumer",
-                ).rejects.toThrow(SWATCH_MESSAGE);
-                expect(
-                    captureError,
-                    "absent control must not consume a capture error",
-                ).toBeUndefined();
-                expect(captures).toBeGreaterThan(0);
-                expect(pixelProbePass(result, swatch)).toBe(false);
+                const order = await canvas.evaluate(painted);
+                expect(order).toEqual([
+                    "metadata",
+                    "configured",
+                    "fence-start",
+                    "fence-done",
+                    "raf-1",
+                    "raf-2",
+                ]);
+                const rechecked = await canvas.evaluate((element) => {
+                    const cells = element as HTMLCanvasElement & {
+                        cellCols?: number;
+                        cellRows?: number;
+                    };
+                    return { cols: cells.cellCols, rows: cells.cellRows };
+                });
+                expect(rechecked).toEqual(metadata);
+                expect(await canvas.boundingBox()).toEqual(box);
+                expect(errors).toEqual([]);
+                expect(warnings).toEqual([]);
+                record("painted", { phase, order, metadata: rechecked, box });
+                await sample();
+                rejectAbsent(result);
+                expect(captures).toBe(1);
                 record("absent-rejected", { phase, ...result });
             } else {
-                await swatches();
+                await pollSwatch(sample);
+                assertSwatch(result);
                 const rawBefore = phase === "locked" ? await capture("raw-before", false) : null;
                 const before = await capture("before");
                 if (phase === "positive") {
