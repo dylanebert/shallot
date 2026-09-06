@@ -600,75 +600,9 @@ if (missingTaskIndex.length > 0 || staleTaskIndex.length > 0) {
     process.exit(1);
 }
 
-// ── Arm (d): tier-suffix roster — one constant, derived consumers, asserted against testing.md ──────
-//
-// The test-tier suffix roster is ONE exported constant (`packages/shallot/tests/test-tiers.ts`).
-// This arm asserts (1) the roster matches `testing.md`'s tier-section bullet ledes — the
-// enumeration `testing.md` itself makes — (2) the section heading agrees with its own body, and
-// (3) no file in the repo carries a literal tier-suffix roster of its own — a line enumerating 3+
-// of the roster's suffix names either as bare words with regex alternation (`|`) or as an array literal of
-// quoted `.suffix.ts` strings. The consumer set is DERIVED, not enumerated: the arm scans every
-// tracked file itself, so a new file restating the roster — in either shape — is caught without
-// updating a hand-list. A fix that leaves two hand-written lists in agreement fails this criterion.
-
-const testingMd = await Bun.file(resolve(root, ".claude/rules/testing.md")).text();
-const testingLines = testingMd.split("\n");
-
-// find the tier section heading (## `.test.ts` vs ...)
-let tierHeadingIdx = -1;
-for (let i = 0; i < testingLines.length; i++) {
-    if (/^## `\.test\.ts` vs /.test(testingLines[i])) {
-        tierHeadingIdx = i;
-        break;
-    }
-}
-if (tierHeadingIdx === -1) {
-    console.error(
-        "✗ tier-suffix roster arm: could not find the `## `.test.ts` vs ...` heading in testing.md.",
-    );
-    process.exit(1);
-}
-
-// collect the section's lines until the next `## ` heading
-const tierSectionLines: string[] = [];
-for (let i = tierHeadingIdx + 1; i < testingLines.length; i++) {
-    if (/^## /.test(testingLines[i])) break;
-    tierSectionLines.push(testingLines[i]);
-}
-
-// extract suffix names from bullet ledes: `- **`.suffix.ts`**`
-const bulletSuffixRe = /^- \*\*`\.(\w+)\.ts`\*\*/;
-const bulletLedeSuffixes: string[] = [];
-for (const line of tierSectionLines) {
-    const m = bulletSuffixRe.exec(line);
-    if (m) bulletLedeSuffixes.push(m[1]);
-}
-
-// extract suffix names from the heading: `` `.suffix.ts` ``
-const headingSuffixRe = /`\.(\w+)\.ts`/g;
-const headingSuffixes: string[] = [];
-for (const m of testingLines[tierHeadingIdx].matchAll(headingSuffixRe)) {
-    headingSuffixes.push(m[1]);
-}
-
-const rosterSuffixes = [...TEST_TIER_SUFFIX_NAMES];
-
+// ── Arm (d): tier-suffix roster — one constant, derived consumers ─────────────────────────
+// Prose explains tier obligations without duplicating the constant as a heading/bullet roster.
 const rosterFindings: string[] = [];
-if (bulletLedeSuffixes.length === 0) {
-    rosterFindings.push(
-        "testing.md's tier section has no `- **`.suffix.ts`**` bullet ledes — the arm would be vacuously green.",
-    );
-}
-if (rosterSuffixes.join(",") !== bulletLedeSuffixes.join(",")) {
-    rosterFindings.push(
-        `the shared roster [${rosterSuffixes.join(", ")}] does not match testing.md's bullet ledes [${bulletLedeSuffixes.join(", ")}].`,
-    );
-}
-if (headingSuffixes.join(",") !== bulletLedeSuffixes.join(",")) {
-    rosterFindings.push(
-        `testing.md's tier-section heading [${headingSuffixes.join(", ")}] does not agree with its own bullet ledes [${bulletLedeSuffixes.join(", ")}].`,
-    );
-}
 
 // Derive the consumer set: scan every tracked file in the repo for a literal tier-suffix roster —
 // a line enumerating 3+ of the roster's suffix names either as bare words with regex alternation (`|`) or
@@ -728,9 +662,7 @@ if (rosterFindings.length > 0) {
         console.error(`  ${f}`);
     }
     console.error(
-        "\nThe test-tier suffix roster must be one exported constant with two consumers, asserted " +
-            "against testing.md's own enumeration. A fix that leaves two hand-written lists in " +
-            "agreement fails this criterion.",
+        "\nDerive test-tier suffix rosters from the shared test-tiers.ts constant, never restate them.",
     );
     process.exit(1);
 }
@@ -893,7 +825,7 @@ if (citationCandidates.length === 0) {
 // Disjunct 2: the citation population floor. A predicate narrowing shrinks the population
 // below the floor and reds; legitimate prose growth passes and re-pins the floor
 // opportunistically upward.
-const PINNED_CITATION_COUNT = 1739;
+const PINNED_CITATION_COUNT = 1617;
 if (citationCandidates.length < PINNED_CITATION_COUNT) {
     console.error(
         `✗ citation count below floor: floor ${PINNED_CITATION_COUNT}, actual ${citationCandidates.length}.
@@ -907,7 +839,7 @@ if (citationCandidates.length < PINNED_CITATION_COUNT) {
 // Disjunct 3: the roster total entry count. Every entry is asserted cited by at least
 // one rule file (both ways: a real member, genuinely needed). Zero slack means a launder
 // cannot occupy an existing slot, and adding one moves this number in the diff that adds it.
-const PINNED_ROSTER_ENTRY_COUNT = 43;
+const PINNED_ROSTER_ENTRY_COUNT = 42;
 const totalRosterEntries = allRosters.reduce((n, { roster }) => n + roster.size, 0);
 if (totalRosterEntries !== PINNED_ROSTER_ENTRY_COUNT) {
     console.error(
@@ -1445,7 +1377,7 @@ console.log(
         `cross-citations resolve (${citationCount} citation(s)), ` +
         `showcase index complete (${showcaseDirs.size} dir(s)), ` +
         `evals task-index complete (${evalsTaskDirs.size} task(s)), ` +
-        `tier roster asserted (${rosterSuffixes.length} suffix(es)), ` +
+        `tier restatements absent (${suffixWords.length} suffix(es)), ` +
         `citation resolution clean (${citationCandidates.length} citation(s) from ${ruleFiles.length} rule file(s), ` +
         `${allRosters.length} roster(s) with ${totalRosterEntries} entr(y/ies), ` +
         `${PINNED_MARKER_EXEMPTED_COUNT} marker-exempted citation(s), ` +
