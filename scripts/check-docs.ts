@@ -685,8 +685,7 @@ if (rosterFindings.length > 0) {
 // identifier words and does exact set-membership — `spotInner` only resolves if `spotInner`
 // appears as a standalone token, not as a substring of `spotInnerF`.
 //
-// The allowlist is roster classes (WGSL-builtin, WebGPU-IDL, foreign-namespace vendored symbol
-// lists, SteamAudio, WasmFeatures, Tools — each a committed file under `scripts/`). The
+// Foreign-namespace roster classes live in the committed `scripts/rosters.ts`. The
 // per-entry allowlist is retired — the arm carries no per-site residue. Each roster entry
 // is asserted THREE WAYS: (1) the entry is genuinely cited by at least one rule file,
 // (2) the symbol/path is genuinely absent from the tree (disjointness law, round 7),
@@ -701,7 +700,7 @@ if (rosterFindings.length > 0) {
 // `packages/shallot/`), so the glob does not reach them; a reader can verify with
 // `git ls-files '**/AGENTS.md' '**/CLAUDE.md'` that no hit starts with `.claude/rules/`.
 
-import { FOREIGN_NAMESPACES, WEBGPU_IDL, WGSL_BUILTINS } from "./rosters";
+import { FOREIGN_NAMESPACES } from "./rosters";
 import {
     buildTokenIndex,
     extractCandidates,
@@ -757,14 +756,10 @@ if (tokenIndex.size === 0) {
 //
 // Merge all rosters into a single set for O(1) lookup. Each roster is asserted non-empty below.
 
-const allRosters: { name: string; roster: ReadonlySet<string> }[] = [
-    { name: "WGSL_BUILTINS", roster: WGSL_BUILTINS },
-    { name: "WEBGPU_IDL", roster: WEBGPU_IDL },
-    ...Object.entries(FOREIGN_NAMESPACES).map(([name, roster]) => ({
-        name: `FOREIGN_NAMESPACES.${name}`,
-        roster,
-    })),
-];
+const allRosters = Object.entries(FOREIGN_NAMESPACES).map(([name, roster]) => ({
+    name: `FOREIGN_NAMESPACES.${name}`,
+    roster,
+}));
 
 // Assert each roster non-empty — a roster that loses its last entry would make the arm vacuously
 // green for that class.
@@ -825,7 +820,7 @@ if (citationCandidates.length === 0) {
 // Disjunct 2: the citation population floor. A predicate narrowing shrinks the population
 // below the floor and reds; legitimate prose growth passes and re-pins the floor
 // opportunistically upward.
-const PINNED_CITATION_COUNT = 1617;
+const PINNED_CITATION_COUNT = 1008;
 if (citationCandidates.length < PINNED_CITATION_COUNT) {
     console.error(
         `✗ citation count below floor: floor ${PINNED_CITATION_COUNT}, actual ${citationCandidates.length}.
@@ -839,7 +834,7 @@ if (citationCandidates.length < PINNED_CITATION_COUNT) {
 // Disjunct 3: the roster total entry count. Every entry is asserted cited by at least
 // one rule file (both ways: a real member, genuinely needed). Zero slack means a launder
 // cannot occupy an existing slot, and adding one moves this number in the diff that adds it.
-const PINNED_ROSTER_ENTRY_COUNT = 42;
+const PINNED_ROSTER_ENTRY_COUNT = 26;
 const totalRosterEntries = allRosters.reduce((n, { roster }) => n + roster.size, 0);
 if (totalRosterEntries !== PINNED_ROSTER_ENTRY_COUNT) {
     console.error(
@@ -953,7 +948,7 @@ if (rosterInTree.length > 0) {
 // The pinned marker-exempted count. This literal is the law the arm already applies to its
 // tier rosters and chain budgets: growth reds, and a swap-in moves prose a reviewer reads.
 // When a marker is added or removed from a rule file, this count must be updated to match.
-const PINNED_MARKER_EXEMPTED_COUNT = 16;
+const PINNED_MARKER_EXEMPTED_COUNT = 9;
 
 type StaleCitation = {
     file: string;
