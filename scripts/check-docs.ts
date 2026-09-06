@@ -2,6 +2,8 @@ import { Glob } from "bun";
 import { resolve } from "path";
 import { template } from "../packages/create-shallot/index";
 import { TEST_TIER_SUFFIX_NAMES } from "../packages/shallot/tests/test-tiers";
+import { EXAMPLE_GATES } from "./example-gates";
+import { OCEAN_CPU_GATES } from "./ocean-oracle-gates";
 
 // Command docs standardize on `bunx shallot <cmd>`: bare `shallot` only resolves when the CLI is
 // globally linked, while `bunx` resolves the local install everywhere — repo and consumer project
@@ -1250,6 +1252,91 @@ if (deadPointers.length > 0) {
     );
     process.exit(1);
 }
+
+// Command composition is lexical documentation validation, not shell equivalence or NLP.
+// Scan tracked docs for affirmative "subsumes/subsuming" clauses attached to the all-roster
+// command, and root-test command comments enumerating paths after "over", "in", or "paths:".
+// Exact row commands are grants; a broader command is not proved by a selected invocation.
+const rootScripts = (await Bun.file(resolve(root, "package.json")).json()).scripts as Record<
+    string,
+    string
+>;
+function expandCommand(command: string): string {
+    const normalized = command.trim().replace(/\s+/g, " ");
+    const match = /^bun run ([a-zA-Z][\w:-]*)(\s.*)?$/.exec(normalized);
+    if (!match) return normalized;
+    const script = rootScripts[match[1]];
+    if (!script) throw new Error(`command composition: unknown root script ${match[1]}`);
+    return `${script}${match[2] ?? ""}`.trim().replace(/\s+/g, " ");
+}
+const rosterCommands = new Set(
+    [
+        ...OCEAN_CPU_GATES.map((row) => `bun run ${row.script}`),
+        ...EXAMPLE_GATES.map((row) => row.gate),
+    ].map(expandCommand),
+);
+const testCommand = /^bun test\s+(.+)$/.exec(rootScripts.test ?? "");
+if (!testCommand || !OCEAN_CPU_GATES.length || !EXAMPLE_GATES.length) {
+    console.error("✗ command composition: missing test arguments or empty gate registry");
+    process.exit(1);
+}
+const testPaths = testCommand[1].trim().split(/\s+/);
+if (testPaths.some((path) => path.startsWith("-") || /[;&|]/.test(path))) {
+    console.error("✗ command composition: unsupported root test syntax; update the reader");
+    process.exit(1);
+}
+const compositionFindings: string[] = [];
+let subsumedCommands = 0;
+let testCones = 0;
+for (const file of docs) {
+    const text = await Bun.file(resolve(root, file)).text();
+    for (const paragraph of text.split(/\n\s*\n/)) {
+        if (!/\btest:changed\s+(?:--\s+)?--all\b/.test(paragraph)) continue;
+        for (const clause of paragraph.matchAll(/\bsubsum(?:es|ing)\s+([^;)\n]+)/g)) {
+            const commands = [...clause[1].matchAll(/`((?:bun|bunx) [^`]+)`/g)];
+            const remainder = clause[1]
+                .replace(/`((?:bun|bunx) [^`]+)`/g, "")
+                .replace(/\band\b/g, "")
+                .replace(/[\s,.]/g, "");
+            if (!commands.length || remainder) {
+                compositionFindings.push(`${file}: subsumption needs explicit row commands`);
+            }
+            for (const [, command] of commands) {
+                subsumedCommands++;
+                if (!rosterCommands.has(expandCommand(command))) {
+                    compositionFindings.push(
+                        `${file}: false subsumption: ${command} is absent from the all-roster commands`,
+                    );
+                }
+            }
+        }
+    }
+    for (const [index, line] of text.split("\n").entries()) {
+        const comment = /^\s*bun run test\s+#\s*(.*)$/.exec(line)?.[1];
+        if (!comment) continue;
+        const cone = /\b(?:over|in|paths:)\s+([^()]+)/.exec(comment)?.[1];
+        if (!cone) continue;
+        testCones++;
+        const paths = cone
+            .trim()
+            .replace(/`/g, "")
+            .split(/[,\s]+/);
+        const missing = testPaths.filter((path) => !paths.includes(path));
+        const extra = paths.filter((path) => !testPaths.includes(path));
+        if (missing.length || extra.length || new Set(paths).size !== paths.length) {
+            compositionFindings.push(
+                `${file}:${index + 1}: stale root test cone: missing [${missing.join(", ")}], extra [${extra.join(", ")}]`,
+            );
+        }
+    }
+}
+if (compositionFindings.length) {
+    console.error(`✗ command composition:\n${compositionFindings.join("\n")}`);
+    process.exit(1);
+}
+console.log(
+    `✓ command composition (${rosterCommands.size} derived commands, ${testPaths.length} manifest test paths, ${subsumedCommands} subsumed commands, ${testCones} restated cones)`,
+);
 
 console.log(
     `✓ doc commands clean (${scanTargets.length} file(s)), ` +
