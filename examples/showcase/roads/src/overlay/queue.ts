@@ -25,8 +25,7 @@ export function drain(pending: number[], pendingSet: Set<number>, n: number): nu
  * resolve tile `id`'s atlas layer against the indirection CPU mirror `cpu` (negative = unallocated):
  * already resident → its existing layer; otherwise pop the next free layer off `free` and write
  * `cpu[id]` in place. Throws when `free` is empty rather than silently overwriting a resident layer —
- * no plausible-fallback substitute for a real capacity limit. The free list is the complete shape
- * (`coding.md`): `release` pushes layers back, so an edit that releases old tiles before allocating new
+ * no plausible-fallback substitute for a real capacity limit. The free list is the complete shape: `release` pushes layers back, so an edit that releases old tiles before allocating new
  * ones never exhausts a layer pool the counter-with-a-reset stopgap could only flush wholesale.
  *
  * @example allocate(new Int32Array(4).fill(-1), 2, [0, 1, 2, 3], 4) // → 0, cpu[2] === 0

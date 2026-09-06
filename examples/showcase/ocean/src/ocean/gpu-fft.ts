@@ -39,8 +39,7 @@ function isPow2(n: number): boolean {
  * expression `makeRowFftKernel`/`makeColFftKernel` evaluate at every stage, every frame. Exported
  * so a CPU-side measurement of the device's own trig accuracy (`measureTwiddleTrigError`, below)
  * drives the real kernel through this one shared formula rather than a hand-copied second
- * version that could silently drift from what the WGSL actually emits (`checks.md`'s "two things
- * one author wrote from one document" class). Calling this directly from JS still round-trips
+ * version that could silently drift from what the WGSL actually emits. Calling this directly from JS still round-trips
  * through typegpu's `d.f32` return-type cast, so it is an f32-ROUNDED value, not a device
  * measurement — see that function's own docblock for why a real GPU dispatch is still required.
  */

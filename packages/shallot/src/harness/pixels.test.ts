@@ -58,8 +58,8 @@ describe("probePixels", () => {
     // criterion 5): a near-white grayscale band meant to discriminate the Cells system's glyph draw from
     // the scene's own chromatic colors. A live browser isn't available to this suite (`testing.md`'s GPU
     // ladder), so this pins the discrimination mechanically against synthetic frames standing in for
-    // "Cells: true" vs. "Cells: true deleted from shallot.json" (`checks.md`: prove a probe reds with the
-    // mechanism it targets removed, not just that it passes on the happy path).
+    // "Cells: true" vs. "Cells: true deleted from shallot.json": prove a probe reds with the
+    // mechanism it targets removed, not just that it passes on the happy path.
     describe("the ascii showcase's cells-only ink probe discriminates Cells from a bare scene", () => {
         const GlyphInk: PixelProbe = {
             name: "cell glyph ink reaches the compositor",
@@ -69,8 +69,7 @@ describe("probePixels", () => {
             g: [210, 255],
             b: [210, 255],
         };
-        // the scene's own two colors, per `specs/shallot-tui.md`'s locked shading + the recipe/showcase
-        // scenes: a warm box albedo (never near-white — the blue channel alone sits well under 210) and a
+        // the recipe/showcase scenes' own two colors: a warm box albedo (never near-white — the blue channel alone sits well under 210) and a
         // near-black clear color. Neither is chromatically neutral, so neither can land in a band that
         // demands r, g, and b all high simultaneously.
         const Box: [number, number, number] = [172, 151, 126];

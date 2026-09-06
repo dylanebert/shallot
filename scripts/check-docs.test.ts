@@ -14,7 +14,7 @@
 // must land in an existing tracked file. The test appends comments to `scripts/rosters.ts`
 // (a tracked .ts file, not in POINTER_EXCLUSION), runs the real script as a subprocess, and
 // restores the original content in `finally` — same pattern as check-imports.test.ts. Both
-// cites are seeded in a single subprocess run. The subprocess is driven from `beforeAll` so
+// cites and a private-only basename are seeded in a single subprocess run. The subprocess is driven from `beforeAll` so
 // its wall-clock cost is invisible to the per-file test-duration cap (5000 ms), which measures
 // only the test body, not `beforeAll`/`afterAll` (see packages/shallot/tests/test-cap.ts).
 
@@ -30,13 +30,13 @@ let captured: { exitCode: number; output: string };
 beforeAll(async () => {
     const original = readFileSync(SEED_FILE, "utf-8");
     try {
-        // Seed both a dead cite (resolves to nothing) and a live cite (README.md is tracked
-        // in-repo) in the same file. One subprocess run covers both sides.
+        // Seed a dead cite, a live in-repo cite (README.md), and a private-only basename in one run.
         writeFileSync(
             SEED_FILE,
             original +
                 "\n// vacuity-arm-seed: see zzz-vacuity-dead-seed.md for details\n" +
-                "// vacuity-arm-seed: see README.md for details\n",
+                "// vacuity-arm-seed: see README.md for details\n" +
+                "// vacuity-arm-seed: see checks.md for details\n",
         );
         const proc = Bun.spawn({
             cmd: ["bun", SCRIPT],
@@ -69,4 +69,9 @@ test("pointer-validity — two-sided vacuity reading (dead reds, live spared)", 
     // (Exit code is not asserted on this side: pre-sweep the script reds at 46 from
     // existing sites, post-sweep it greens — either way the live cite is spared.)
     expect(captured.output).not.toMatch(/rosters\.ts:\d+: README\.md/);
+});
+
+test("pointer-validity — a private-only basename does not resolve", () => {
+    expect(captured.exitCode).toBe(1);
+    expect(captured.output).toMatch(/rosters\.ts:\d+: checks\.md/);
 });

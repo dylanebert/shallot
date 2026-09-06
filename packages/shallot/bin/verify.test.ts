@@ -2742,9 +2742,7 @@ describe("decodeSampleNode area-average equivalence — the blocker repair's own
     // independently-derived area-average reference: for each 64×64 destination cell, weight every
     // overlapping source pixel by its fractional coverage of the cell's continuous source-space rect —
     // the textbook box-filter resize, not decodeSampleNode's own integer-cell grouping. Two different
-    // implementations of "area average", so agreement is evidence rather than a restated identity
-    // (checks.md: "an equality between two quantities the same expression produces is only a check when
-    // one side comes from outside the artifact").
+    // implementations of "area average", so agreement is evidence rather than a restated identity.
     function areaAverageReference(png: { width: number; height: number; data: Buffer }): number[] {
         const { width: W0, height: H0, data } = png;
         const W = 64;
@@ -2973,8 +2971,7 @@ describe("sampleFrameNode — the S1c decontaminated frame sampler", () => {
 
 // shallot-boot-stall-repair S1: the boot wait poll's routing seam. `drive` itself (the loop's real
 // caller, ~line 2161) drives a live `page.goto` + CDP session no unit test mocks, so `pollFrameSample`
-// is the extracted pure function the loop now calls (checks.md's "extract it into a pure sibling
-// module" escape) — these arms are the oracle over THAT seam, not a re-test of `sampleFrameNode` in
+// is the extracted pure function the loop now calls — these arms are the oracle over THAT seam, not a re-test of `sampleFrameNode` in
 // isolation (already covered above): they prove the poll's non-attribution consumer takes the Node
 // decode, not just `--attribution`'s.
 describe("pollFrameSample — S1's boot wait poll routing seam", () => {

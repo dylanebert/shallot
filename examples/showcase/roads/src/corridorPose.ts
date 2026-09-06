@@ -21,8 +21,7 @@
 // import this module under plain `bun test` and independently verify the budget by computing cutDepth
 // from the real network geometry. A future stage that moves cutDepth reds the arm because the
 // fixed-literal pose does not satisfy the budget at the new cutDepth — the pose does not
-// auto-adjust, which is the whole point (per checks.md's "re-derives its own rule" and this unit's
-// Residue: "re-run that arithmetic whenever any earlier stage moves the subject's magnitude").
+// auto-adjust, which is the whole point.
 
 // ─── Scene constants (Playwright defaults and camera defaults — see sourcing arm) ─────────────
 //

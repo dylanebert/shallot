@@ -21,7 +21,7 @@
 // — a sentinel stays behind in the default suite against the same frozen fixture." `.oracle.ts` is the
 // heavy deterministic CPU reference tier (the f64 AVBD physics oracle), not this case.
 //
-// Trigger cone (derived per `checks.md`'s by-path rule, `coding.md` Suite speed): this file's own
+// Trigger cone: this file's own
 // transitive import cone — the plugin source modules whose reload conformance the promoted arms pin,
 // walked from this file's import statements. The cone is the source tree of every plugin this file
 // (and the shared roster it imports) pulls in for a promoted arm: `src/standard/render/`,

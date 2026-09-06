@@ -1,5 +1,5 @@
 // CPU reference for the GPU incremental-greedy body coloring (step.ts COLORING_PASS_WGSL) — the
-// Phase-4 coloring crux's executable spec (scratch.md "AVBD rebuild" → Distributed cruxes → Coloring).
+// Phase-4 coloring crux's executable spec.
 // One "thread" per body, no atomics, reading a stable prior-frame snapshot: deterministic integer
 // logic; the GPU reproduces it (gym `pile` coloring-conflict counter, the real-GPU home).
 // Mirrors webphysics greedyBodyColorsShader: the higher-id symmetry break, the 32-wide usedMask, the

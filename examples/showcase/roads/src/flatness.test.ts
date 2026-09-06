@@ -35,8 +35,7 @@ describe("surface flatness — sanity (the oracle can read flat)", () => {
     test("a manufactured target === natural profile reads flat on both axes", () => {
         // when the flatten target height exactly equals the natural height everywhere, flattenHeight
         // returns that one value regardless of coreDist (`terrain/flatten.ts`'s own definition) — so this
-        // is flat by construction, the mutation-style proof the checker isn't just always red
-        // (`coding.md`'s "survives its own mutations").
+        // is flat by construction, the mutation-style proof the checker isn't just always red.
         const doc: StrokeDocument = {
             polylines: [
                 {
@@ -198,8 +197,7 @@ describe("surface flatness — null control: no cut, real relief (arm iii)", () 
         // define the sampled footprint is still the real network — so the sampled lines run through
         // genuinely undeformed, rolling terrain (RELIEF=40) that was never asked to be flat. This is a
         // *different* mechanism from the shipped defect (raw noise steepness, not a reconstruction crease)
-        // — it's the null control that still has something to find (`checks.md`'s witness-distinguishable
-        // clause): a broken instrument that always reads "flat" would fail this arm the same way it would
+        // — it's the null control that still has something to find: a broken instrument that always reads "flat" would fail this arm the same way it would
         // pass arm ii, so the two arms together are what makes either one meaningful.
         const doc = generateNetwork();
         const perm = makePermutation(SEED);

@@ -245,7 +245,7 @@ class TuiKeyEvent extends Event {
  * `STORAGE_BINDING` usage for Glaze's compute composite, a capability this command never needs since it
  * drops `GlazePlugin` the same way that script does). `addEventListener`/`style` additionally satisfy
  * `InputSystem`'s own per-canvas pointer-listener registration (pointer events are never dispatched here
- * — mouse/pointer input is out of scope, `specs/shallot-tui.md`'s Out of scope — so those listeners just
+ * — mouse/pointer input is out of scope — so those listeners just
  * sit unused).
  */
 class TuiCanvas {

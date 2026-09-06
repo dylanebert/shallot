@@ -1,6 +1,5 @@
 // The real content producer `grid.ts`'s module doc names as the thing S3 ships: two compute passes that
-// fill a cell grid from a rendered scene, structure-first (Locked decision, `specs/shallot-tui.md`'s
-// glyph-selection addendum) rather than `grid.ts`'s deterministic test pattern, which stays untouched —
+// fill a cell grid from a rendered scene, structure-first rather than `grid.ts`'s deterministic test pattern, which stays untouched —
 // the shape-proving headless producer the `cells` gym scenario and its own tests pin, not the content
 // path a real scene drives. `CellsPlugin` (`./index.ts`) dispatches both passes each frame, in order.
 //
@@ -21,7 +20,7 @@
 // {@link EDGE_MAGNITUDE_THRESHOLD}; over threshold picks a directional glyph from the gradient angle
 // (converted to its perpendicular tangent bucket, `ramp.ts`'s locked contract); under it picks a
 // coverage-ordered fill glyph from the cell's own luma. The s3r fill-treatment amendment's "a shared face
-// boundary carries its own rule" (`specs/shallot-tui.md`) is a **second, independent** gate,
+// boundary carries its own rule" is a **second, independent** gate,
 // {@link FACE_BOUNDARY_MAGNITUDE_THRESHOLD} — not a lower setting of the same one: the full 3×3 Sobel
 // kernel's diagonal taps carry a real face boundary's influence *past* its own row/column into an
 // adjacent, genuinely flat cell (measured directly, `FACE_BOUNDARY_MAGNITUDE_THRESHOLD`'s own docblock has
@@ -34,8 +33,7 @@
 // fine for angle, since a slightly bled angle is a far smaller defect than a mis-classified cell). The glyph's
 // `fg` carries the cell's own tonemapped average for both directional and fill branches while `bg` stays at
 // the dark floor. The glyph is the mark in both sinks; painting the cell background with scene color would turn
-// the grid into a low-resolution image with text overlaid rather than an ASCII render (the locked color model
-// in `specs/shallot-tui.md`).
+// the grid into a low-resolution image with text overlaid rather than an ASCII render.
 
 import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
@@ -72,7 +70,7 @@ const PI = Math.PI;
 export const EDGE_MAGNITUDE_THRESHOLD = 0.4;
 
 /**
- * the shared-face-boundary gate (the s3r fill-treatment amendment, `specs/shallot-tui.md`: "a shared face
+ * the shared-face-boundary gate ("a shared face
  * boundary carries its own rule") — independent of {@link EDGE_MAGNITUDE_THRESHOLD}, on an independent
  * metric: a **4-connected central difference**, `dx = l21 - l01` (own row, right minus left) and
  * `dy = l12 - l10` (own column, bottom minus top), `magnitude = sqrt(dx² + dy²)`, using none of the full
@@ -101,8 +99,8 @@ export const EDGE_MAGNITUDE_THRESHOLD = 0.4;
  * cell one this gate exists to avoid. Bound: the metric is a central difference across the two cells
  * flanking the one being classified (`dx = right − left`, a 2-cell baseline), so on a smooth gradient with
  * a constant per-cell luma step `s` the magnitude reads ≈2s — the gate fires once the per-cell gradient
- * exceeds a **quarter** ramp step, not half, so it presumes the spec's per-face-constant shading
- * (`specs/shallot-tui.md`'s "cell shading is flat and unlit" lock) — a surface whose luma varies smoothly
+ * exceeds a **quarter** ramp step, not half, so it presumes per-face-constant shading
+ * (cell shading is flat and unlit) — a surface whose luma varies smoothly
  * cell-to-cell (a gradient, not a hard face boundary) would cross this threshold at a shallower per-cell
  * slope than half a ramp step and read as a false boundary.
  */
@@ -112,7 +110,7 @@ export const FACE_BOUNDARY_MAGNITUDE_THRESHOLD = 0.5 / (CELL_FILL_GLYPHS.length 
  * the background-match gate: how close a cell's own tonemapped block average must sit to the
  * caller-supplied background reference (`SelectParams.bg`, tonemapped the same way inside the kernel)
  * before the cell is forced to the blank fill glyph regardless of luma or edge (the s3r item-8 repair —
- * `specs/shallot-tui.md`'s residue log names the mechanism: a non-black clear color's tonemapped luma
+ * a non-black clear color's tonemapped luma
  * never reaches the ramp's zero-coverage entry, so an unlit background read as a uniform field of `'`
  * instead of blank). Derived from `rg11b10ufloat`'s own quantization, not fitted: the format packs R/G
  * as 11-bit unsigned floats (5 exponent + 6 mantissa bits) and B as 10-bit (5 exponent + 5 mantissa),
@@ -219,7 +217,7 @@ export const luma = tgpu.fn(
  * represent. Dropping the y-down→y-up conversion swaps the two diagonal glyphs and leaves the two
  * axis-aligned buckets untouched — negating `gy` doesn't change `atan2`'s bucket for `gy = 0` (horizontal)
  * or `gx = 0` (vertical), only for a true diagonal, which is exactly the shape the first version of this
- * function shipped with (`specs/shallot-tui.md`'s s3r item 1). A pure function of `(gx, gy)` — no binding
+ * function shipped with. A pure function of `(gx, gy)` — no binding
  * access — so it's callable directly from `bun test` (typegpu's dual CPU/GPU form, `packCell`'s own shape)
  * with no device.
  * @example const glyph = directionalGlyphIndex(gx, gy); // CELL_FILL_GLYPHS.length + a tangent bucket 0..3
@@ -240,11 +238,10 @@ export const directionalGlyphIndex = tgpu.fn(
  * the fill role's own luma→index map: round `luma` linearly across the coverage-ordered ramp, clamped to
  * the last fill index. Extracted from `selectKernel`'s own inline arithmetic (unchanged) so the exact same
  * mapping is callable with no device (`directionalGlyphIndex`'s own dual CPU/GPU shape) — the facade-ink
- * measurement below (rule 3, `specs/shallot-tui.md`'s fill-treatment amendment) has to use the *real*
- * mapping the kernel selects with, not a re-derived copy that could silently drift from it
- * (`checks.md`: "an oracle that shares an assumption with the thing it checks proves nothing" runs the
- * other way here — the risk is a *second*, drifting implementation, not a shared blind spot, so sharing one
- * function is the fix).
+ * measurement below (rule 3) has to use the *real*
+ * mapping the kernel selects with, not a re-derived copy that could silently drift from it.
+ * The risk is a *second*, drifting implementation, not a shared blind spot, so sharing one
+ * function is the fix.
  * @example const idx = fillIndexForLuma(0.55); // an index into CELL_FILL_GLYPHS
  */
 export const fillIndexForLuma = tgpu.fn(
@@ -277,8 +274,7 @@ export const localBoundaryMagnitude = tgpu.fn(
 });
 
 /**
- * the facade luma band the fill-treatment amendment's rule 3 measurement renders against
- * (`specs/shallot-tui.md`'s fill-treatment amendment): three values hand-picked, not derived, to sit
+ * the facade luma band the fill-treatment amendment's rule 3 measurement renders against: three values hand-picked, not derived, to sit
  * inside the luma band the recipe's faces occupy in the tier-0 dump (`examples/recipes/render-to-a-terminal`
  * at one orbit angle), not the fill ramp's whole `[0, 1]` domain the prior version of this measurement
  * swept — criterion 8's round-1 rejection named exactly that mismatch, since the ramp's own blank and
@@ -300,7 +296,7 @@ export const FACADE_BAND_LUMAS: readonly number[] = [0.52, 0.56, 0.6];
 export const FACADE_PIXEL_LUMA_THRESHOLD = 0.18;
 
 /**
- * the facade-ink band's floor and ceiling (rule 3, `specs/shallot-tui.md`: "the target is the number").
+ * the facade-ink band's floor and ceiling (rule 3: "the target is the number").
  * Ratios of the densest-glyph control's own reading, not copied from the reference's crops unread:
  * {@link fillIndexForLuma}'s device caller (`examples/gym/src/scenarios/cells.ts`'s `assertFacadeInk`)
  * renders a blank-glyph control (0% of pixels above {@link FACADE_PIXEL_LUMA_THRESHOLD}, by construction —

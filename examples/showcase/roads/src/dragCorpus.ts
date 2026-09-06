@@ -1,7 +1,5 @@
 // The frozen drag fixture the corridor-flatness scan runs over, shared by exactly two readers so the
-// default suite and the by-path tier scan the *same* corpus rather than two hand-picked ones
-// (`coding.md` Suite speed: a golden gate leaving the default suite leaves a cheap sentinel behind
-// against the same frozen fixture):
+// default suite and the by-path tier scan the *same* corpus rather than two hand-picked ones:
 //   - `editCorridor.tier.ts` — the full 200-drag corpus, run by path. Which edits are the cue to run it
 //     is that file's own header (its transitive import cone, walked there) — not listed here.
 //   - `edit.test.ts` — the sentinel, the corpus's own first `SENTINEL_DRAGS` entries.
@@ -69,8 +67,7 @@ export function dragCorpus(count: number): CorpusDrag[] {
         const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
         const hA = heightAtCpu(a[0], a[1], perm);
         const hB = heightAtCpu(b[0], b[1], perm);
-        // Measured extent of this exclusion on the frozen corpus (`checks.md`: an exclusion's extent is
-        // measured in the diff that adds it) — it never fires. All 200 corpus drags come out of the
+        // Measured extent of this exclusion on the frozen corpus — it never fires. All 200 corpus drags come out of the
         // first 200 attempts: 0 rejections, steepest chord 0.0509 (42 % of `MAX_GRADE` = 0.12), median
         // 0.0073. So on this corpus neither the `attempts < 50000` guard nor the tier's "fully
         // populated" arm can discriminate: both are loop bounds, not witnesses for this filter. Stated

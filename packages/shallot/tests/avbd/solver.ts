@@ -3,7 +3,7 @@
 // force initialize/warmstart → body inertial init + adaptive warmstart → the main loop
 // (primal solve + dual update) → BDF1 velocity recovery.
 //
-// Two axes the reference doesn't have, both required by scratch.md "AVBD rebuild":
+// Two required axes the reference doesn't have:
 //   • scheduler — `sequential` is the C++ exactly (Gauss-Seidel, reverse creation order, commit
 //     in place); `colored` runs a supplied coloring (commit deferred within a color → a rare
 //     same-color neighbor degrades to Jacobi, the paper's §Parallelization).
@@ -51,7 +51,7 @@ export interface Params extends ContactParams {
      * sub-steps per fixed step (the "small steps" form, Macklin 2019): one `step()` runs `substeps`
      * complete AVBD sub-steps of `h = dt/substeps`. Smaller per-sub-step motion keeps the penalty ramp
      * (`k += β|C|`) bounded — a tall dense pile that can't converge in one big step otherwise runs `k`
-     * away into a lateral ejection (scratch.md "Phase 4.9 robustness"). `1` is byte-identical to the
+     * away into a lateral ejection. `1` is byte-identical to the
      * single-step reference, so the corpus + closed-form gates are unchanged.
      */
     substeps: number;

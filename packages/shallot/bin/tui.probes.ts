@@ -4,8 +4,7 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { EXIT_PASS } from "./tui";
 
-// Criterion 6's real determinism red-proof ("the terminal command is deterministic into a pipe" —
-// specs/shallot-tui.md), split out of `tui.test.ts` as its own by-path gate — a genuine subprocess boot
+// Criterion 6's real determinism red-proof ("the terminal command is deterministic into a pipe"), split out of `tui.test.ts` as its own by-path gate — a genuine subprocess boot
 // under bun-webgpu costs ~2.5s fixed (measured: GPU device acquisition + pipeline compile, essentially
 // independent of --frames), which blows the shared per-file test-duration cap (`tests/test-cap.ts`,
 // 5000ms) at just two runs. Mirrors `bin/verify.probes.ts`'s own precedent exactly ("browser probes stay
@@ -38,8 +37,8 @@ function runPiped(extra: string[] = [], env: NodeJS.ProcessEnv = process.env) {
     });
 }
 
-// a software-adapter seat (llvmpipe, dzn) still renders correctly (measured in this unit's own two-seat
-// table, specs/shallot-tui.md) — only a seat offering no adapter at all should skip.
+// a software-adapter seat (llvmpipe, dzn) still renders correctly — only a seat offering no adapter
+// at all should skip.
 function skipReason(result: ReturnType<typeof runPiped>): string | null {
     if (result.status === EXIT_PASS) return null;
     const stderr = result.stderr?.toString() ?? "";
@@ -72,7 +71,7 @@ describe("shallot tui — deterministic into a pipe (criterion 6, real subproces
     // regression) reds this the moment the two hashes diverge, and an accidentally-nondeterministic
     // command (real-time pacing, a Math.random seed, an object-iteration-order dependency) reds it
     // exactly as reliably. A hand-pinned golden hash was rejected: the engine's glyph selection/ramp is
-    // still evolving (specs/shallot-tui.md's own Live log), so a hard-pinned byte constant would red on
+    // still evolving, so a hard-pinned byte constant would red on
     // every unrelated tuning pass rather than on the property this criterion actually names.
     test.skipIf(!hasBunWebgpu)(
         "two independent runs against the same recipe, piped non-tty, hash identically",

@@ -27,8 +27,7 @@ import {
 // Sobel formula (`select.ts`), not picked as abstract numbers — the class of bug this arm exists to catch
 // is a y-frame mix-up (grid y-down vs. the glyph labels' y-up visual convention), which an abstract
 // `(gx, gy)` pair can't discriminate: the old version of this table asserted `gx=1,gy=1 -> "\\"`, which is
-// what you get if you *don't* convert frames, and it passed for a full review round (`specs/shallot-tui.md`
-// s3r item 1). Naming the luma neighborhood a case derives from ties the expectation to a real edge
+// what you get if you *don't* convert frames, and it passed for a full review round. Naming the luma neighborhood a case derives from ties the expectation to a real edge
 // instead of to whatever the code under test currently computes.
 describe("directionalGlyphIndex", () => {
     // l(dx, dy) = 0.5 + A*dx + B*dy over the 8 neighbors selectKernel reads (dx/dy in {-1,0,1}, own
@@ -142,7 +141,7 @@ describe("EDGE_MAGNITUDE_THRESHOLD", () => {
     });
 });
 
-// rule 1's own repair proof (`specs/shallot-tui.md`'s fill-treatment amendment, "a shared face boundary
+// rule 1's own repair proof ("a shared face boundary
 // carries its own rule"): FACE_BOUNDARY_MAGNITUDE_THRESHOLD's own docblock claims a witnessed reproduction
 // — a real yaw (2.4 rad) where a genuinely flat 4-connected neighborhood still read a nonzero full-Sobel
 // magnitude solely from its diagonal taps landing in the next face over. This reproduces that shape
@@ -206,7 +205,7 @@ describe("selectWgsl", () => {
 // The s3r item-8 repair's own regression guard: a real device dispatch (not the device-free structural
 // arms above), because the defect this repair closes lived entirely in a runtime comparison
 // (`BG_MATCH_EPSILON`'s distance gate against a live tonemapped average) no WGSL-text or pure-function
-// arm can see. `specs/shallot-tui.md`'s residue log names what this replaces: a non-black clear color's
+// arm can see. A non-black clear color's
 // tonemapped luma never rounds to the ramp's zero-coverage entry, so a real scene's empty background read
 // as a uniform field of `'` (glyph index 2) instead of blank — refuted twice at the wrong layer before
 // this repair (the directional-glyph mechanism was never it; the fill computation itself was).
@@ -342,8 +341,7 @@ function roundTiesToEven(v: number): number {
 }
 
 // the reference mapping computed from scratch, never by calling `fillIndexForLuma` — a defect in the
-// production rounding or clamping can't hide behind a shared implementation this way (`checks.md`:
-// "an oracle that shares an assumption with the thing it checks proves nothing").
+// production rounding or clamping can't hide behind a shared implementation this way.
 function referenceFillIndex(luma: number, fillCount: number): number {
     const sat = Math.min(1, Math.max(0, luma));
     const idx = roundTiesToEven(sat * (fillCount - 1));

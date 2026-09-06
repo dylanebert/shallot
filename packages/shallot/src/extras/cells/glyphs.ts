@@ -56,9 +56,9 @@ export const MISSING_GLYPH_SIZE: readonly [number, number] = [1, 1];
  *  cell. {@link MISSING_GLYPH_SIZE} when the font has no outline for it, mirroring {@link glyphUvRect}'s
  *  fallback. This is the measurement `draw.ts`'s vertex stage scales the glyph's footprint by
  *  (`cellFootprintPx`, isotropically — both axes share one scale so the cell's own aspect never
- *  re-stretches the glyph's true shape, `specs/shallot-tui.md`'s s3r item 9) — without it every glyph's
+ *  re-stretches the glyph's true shape) — without it every glyph's
  *  own tightly-cropped SDF tile stretches across the whole cell regardless of true size, destroying the
- *  coverage-ordered ramp's monotone progression at the point of use (`specs/shallot-tui.md`'s s3r item 8).
+ *  coverage-ordered ramp's monotone progression at the point of use.
  *  @example const size = glyphSizeRect(atlas, 0); // the lowest-coverage fill glyph's own footprint */
 export function glyphSizeRect(atlas: GlyphAtlas, index: number): readonly [number, number] {
     const metrics = atlas.glyphs.get(cellGlyphChar(index));

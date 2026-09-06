@@ -140,8 +140,7 @@ try {
     const out = `${proc.stdout.toString()}${proc.stderr.toString()}`;
     // Assert the test *ran*, not merely that the process was happy: a module-load failure leaves
     // `playwright test --list` exiting 0 with "Total: 0 tests in 0 files" (measured 2026-08-25), so an
-    // exit code alone is not a witness that the subject was ever imported (`checks.md`: "an arm whose
-    // subject never launched reads clean on a predicate that checks only survivors").
+    // exit code alone is not a witness that the subject was ever imported.
     if (proc.exitCode !== 0 || !/\b1 passed\b/.test(out)) {
         fail(
             `real node could not import ${SUBJECT} (exit ${proc.exitCode})`,

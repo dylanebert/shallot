@@ -74,7 +74,7 @@ describe("resolvePrebuiltDecision", () => {
     });
 
     // Exhaustive over PrebuiltFetchResult. The Record<..., true> assignment fails at compile time
-    // if the union gains a member, so the arm's name stays true to its assertion (checks.md).
+    // if the union gains a member, so the arm's name stays true to its assertion.
     test("every fetch result maps to a decision with a non-empty reason", () => {
         const exhaustive: Record<PrebuiltFetchResult, true> = {
             ok: true,

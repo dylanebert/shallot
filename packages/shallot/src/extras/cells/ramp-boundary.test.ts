@@ -11,7 +11,7 @@ import {
 // the `CELL_GLYPH_COUNT` boundary had zero test references repo-wide before this file — the one property
 // S3 is told to build against (fill indices below the boundary, directional above, in bucket order) had
 // no arm, and neither did the range throws `cellGlyphChar` names in its own docblock. This is a
-// `review:stage` first-instance-of-a-pattern stage (`specs/shallot-tui.md`), so it's exhaustive over the
+// `review:stage` first-instance-of-a-pattern stage, so it's exhaustive over the
 // whole index space rather than a handful of examples: the space is small (~100 entries), and a
 // boundary-only sample can't see an off-by-one anywhere except at the two edges it happened to pick.
 describe("cellGlyphChar / CELL_GLYPH_COUNT boundary (S3's contract, ramp.ts's module doc)", () => {

@@ -1,7 +1,6 @@
 // Color-support detection: the portability ladder's tier selector — portability is a ladder in
 // the encoder, not a second design. Pure function over an injected env snapshot — no `process`
-// read here, so it's testable with a plain object and carries no ambient state (`checks.md` "A
-// test that exercises a function whose destination comes from ambient env must stub that env").
+// read here, so it's testable with a plain object and carries no ambient state.
 
 /**
  * The four output tiers, cheapest first. `plain` is non-interactive (no cursor addressing, no

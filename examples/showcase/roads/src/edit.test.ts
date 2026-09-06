@@ -193,7 +193,7 @@ describe(`edit — corridor flatness sentinel (${SENTINEL_DRAGS} of the ${CORPUS
     // The default-suite sentinel for the corridor-flatness criterion (spec Validation "Corridor
     // flatness", extended to edited documents). The full corpus lives in `editCorridor.tier.ts`, run by
     // path; this arm scans the *same* frozen fixture's first `SENTINEL_DRAGS` drags, so the coverage
-    // moved tiers rather than shrinking (`coding.md` Suite speed). The reading is the one the tier
+    // moved tiers rather than shrinking. The reading is the one the tier
     // asserts: exactly 0 violations / 0.0000 m on both axes at SPACING and SPACING/2, over the banded
     // lattice — whose equivalence to the full lattice for this oracle is `flatness.test.ts`'s null
     // control ("the banded lattice reads what the full lattice reads").

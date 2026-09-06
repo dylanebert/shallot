@@ -5,8 +5,7 @@ import { RAMP_TABLE } from "./ramp-table";
 // instanced draw (a GPU-side uv-rect table indexed the same way, contract below — not built here), and
 // S4's terminal encoder (glyph index → the literal character it writes to the pipe).
 //
-// Glyph selection is structure-first (Locked decision, `specs/shallot-tui.md`'s glyph-selection
-// addendum, grounded against Xu/Zhang/Wong SIGGRAPH/TOG 2010): S3's detector picks a directional glyph
+// Glyph selection is structure-first (grounded against Xu/Zhang/Wong SIGGRAPH/TOG 2010): S3's detector picks a directional glyph
 // where a strong edge exists and falls back to a coverage-ordered fill ramp elsewhere. That splits this
 // module's index space into two differently-selected halves, each ordered by the rule that selects it:
 //
@@ -34,7 +33,7 @@ import { RAMP_TABLE } from "./ramp-table";
 // committed enumeration, so it survives a font swap or an atlas rebuild unchanged — a coverage-derived
 // table is exactly as stable as a code-point one, only its *ordering rule* differs.
 
-/** the small curated directional set (Locked decision, `specs/shallot-tui.md`) — one glyph per quantized
+/** the small curated directional set — one glyph per quantized
  *  edge-*tangent* angle bucket, 0°(`-`)/45°(`/`)/90°(`|`)/135°(`\`), the shape S3's structure-based
  *  selector consumes. This is the angle the glyph visually runs along, **not** the gradient angle Canny
  *  non-max suppression buckets (a gradient is perpendicular to its edge's tangent — module doc above has
@@ -45,8 +44,7 @@ import { RAMP_TABLE } from "./ramp-table";
 export const CELL_DIRECTIONAL_GLYPHS: readonly string[] = ["-", "/", "|", "\\"] as const;
 
 /**
- * the fill role's curated curved-glyph exclusion (the s3r fill-treatment amendment,
- * `specs/shallot-tui.md`: "the fill role emits angular glyphs only, never curved ones" — grounded against
+ * the fill role's curated curved-glyph exclusion ("the fill role emits angular glyphs only, never curved ones" — grounded against
  * the reference's own selection habit, which uses `+ : X 0 " - .` for fill and never selects `(`/`)` even
  * though its wider atlas contains them). A curved glyph reads as bumpy texture rather than a flat surface,
  * which is the whole job of a fill glyph — but this is a hand-curated exclusion, not an ink-coverage or

@@ -5,7 +5,7 @@
 // Hessian into a body's 6×6 system, `updateDual` advances λ + the penalty ramp. This is the
 // `Force` interface (initialize / updatePrimal / updateDual) joints + springs reuse later.
 //
-// AL layer toggle (scratch.md "AVBD rebuild"): the same solver, three constraint laws.
+// AL layer toggle: the same solver, three constraint laws.
 //   penalty   — fixed stiffness, λ = 0, no ramp, no cross-frame state (phase 1, the mg/k gate)
 //   dual      — λ accumulation + conditional penalty ramp, reset each frame (phase 2)
 //   warmstart — dual + cross-frame persistence: merge by feature key, decay λ/k (phase 3)

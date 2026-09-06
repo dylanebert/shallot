@@ -178,8 +178,8 @@ test("orbit touch gate — pinch/drag/pan isolation, 2→1 finger transition (re
     ).toBeGreaterThan(MoveEps);
 
     // the survivor's one-finger rotate lands a few animation frames after the drag helper's own last
-    // dispatch — poll the observable (yaw's own delta from before4) rather than a fixed sleep (kex
-    // coding.md Testing → Forbidden: no waitForTimeout). A frozen handoff (the pre-fix defect) never
+    // dispatch — poll the observable (yaw's own delta from before4) rather than a fixed sleep.
+    // A frozen handoff (the pre-fix defect) never
     // clears this poll and times out rather than silently reading a stale pose.
     await expect
         .poll(async () => Math.abs((await readPose(page)).yaw - before4.yaw), {

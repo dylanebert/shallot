@@ -30,8 +30,7 @@ describe("drawWgsl", () => {
 });
 
 // cellFootprintPx is the s3r item 9 fix's own arithmetic, extracted to a plain TS-callable TGSL function
-// so its numbers are asserted directly rather than only through resolved shader text (`checks.md`: "an
-// arm over a shader's resolved text is not an arm over its behaviour"). One TGSL source, dual-mode like
+// so its numbers are asserted directly rather than only through resolved shader text. One TGSL source, dual-mode like
 // `cell.ts`'s `packCell` — `cellVertex` resolves the identical body real-device-side.
 describe("cellFootprintPx", () => {
     test("a non-square cell scales both axes by the SAME factor — no anisotropic stretch", () => {

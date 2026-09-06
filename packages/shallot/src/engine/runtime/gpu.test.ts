@@ -1111,8 +1111,7 @@ describe("precompile", () => {
             // silently dropped — `c` stays queued and drains on a later call — and the throw still
             // names `broken`, not the level.
             //
-            // Mutation witnesses (both restored via `git show HEAD:<path>` after the read, per
-            // `checks.md`): (a) changing the serial re-drain's start index so it restarts a failing
+            // Mutation witnesses (both restored via `git show HEAD:<path>` after the read): (a) changing the serial re-drain's start index so it restarts a failing
             // level from `ranThrough` (its own last-attempted member) instead of `0` reds this arm —
             // `expect(order).toEqual(["a", "b", "c", "a", "b"])` becomes `["a", "b", "c", "b"]`, i.e.
             // `a` is never re-run — `bun test` exit 1, this arm the sole failure. (b) making the batch

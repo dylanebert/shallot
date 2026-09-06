@@ -13,7 +13,7 @@ import {
 } from "./corpus";
 import { makeSolver, step } from "./solver";
 
-// The Phase-4.6 topology stability corpus, oracle tier (scratch.md "AVBD rebuild" → Phase 4.6).
+// The Phase-4.6 topology stability corpus, oracle tier.
 // The gym `pile` scenario is one jittered grid; this is the band-gated corpus across distinct
 // topologies (corpus.ts) so stability problems have somewhere to surface. Here it runs through the
 // f64 oracle — the reference for what "stable" looks like: every scene settles, energy never
@@ -21,7 +21,7 @@ import { makeSolver, step } from "./solver";
 // `pile` scenario runs the identical scenes + band; a scene steady here but wobbling there is a
 // GPU bug, not a band that's wrong (avbd.md "the oracle is not the suspect").
 //
-// The band is the gate-ladder's statistical band (scratch.md "Gate ladder"), never a long-horizon
+// The band is the gate-ladder's statistical band, never a long-horizon
 // trajectory match — chaotic settling can't bit-match. Bounds are derived (corpus.ts BAND_*) and
 // the oracle sits an order inside each (measured values in-line).
 

@@ -15,7 +15,7 @@
 //
 // Rounds 1–3 hand-rolled regex and brace-counting over `evals/` source. All
 // three were green at their own gate and each was holed in the surface form
-// that round's fixtures did not vary. `checks.md` names this class: a check
+// that round's fixtures did not vary. A check
 // that has failed N rounds each green at its own gate is a finding about the
 // gate's *kind*. So the arms that parse read a `@babel/parser` AST and assert
 // a structural property — a call expression's argument node kind, a function's
@@ -598,7 +598,7 @@ describe("S3 — staging failure maps to INCOMPLETE (post-fix)", () => {
     // specifier rather than declaration, and a template-literal union
     // member `TSLiteralType` never matches) — the signal that an absence-
     // over-an-open-shape-space arm cannot be made exhaustive by widening
-    // its reader (`checks.md`'s N-rounds clause), so this leg retires the
+    // its reader, so this leg retires the
     // scan rather than authoring a fifth reader.
     //
     // Dominance measurement (this round's acceptance evidence, reproduced
@@ -628,9 +628,7 @@ describe("S3 — staging failure maps to INCOMPLETE (post-fix)", () => {
     // name `grade.ts` imports from a source ending `harness/result` must
     // resolve to a real export of that module (never a spelling, never a
     // filename guess — the same binding-resolution shape as the
-    // harness/lib arm above). Renamed for exactly that assertion, per
-    // `checks.md`'s "name the arm for what it asserts, not for the
-    // property you wish it had".
+    // harness/lib arm above). The arm is named for exactly that assertion.
     test("grade.ts's harness/result import resolves to a real export of that module", () => {
         const root = evalRoot();
         const ast = gradeAst(root);
@@ -1125,9 +1123,8 @@ describe("S4 — blocker 2's floor: per-test value covers the gate's OWN boot() 
 // re-exported, an options object spread together at the call site) evades
 // it; that shape reds this leg instead of passing silently, but it is not
 // something this leg positively verifies as safe. This is a match-shape
-// limit, not a promise that every restatement is caught — `checks.md`'s own
-// clause on why a docblock claiming "any restatement" would be a false
-// statement in a permanent file.
+// limit, not a promise that every restatement is caught — claiming "any restatement"
+// would be a false statement in a permanent file.
 //
 // Population control across the whole class: at least one `timeout:` is
 // actually evaluated (checked, pass or fail) somewhere in the six gates

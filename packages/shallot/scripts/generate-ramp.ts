@@ -1,8 +1,7 @@
-// Generates `extras/cells/ramp-table.ts`: the coverage-ordered fill glyph ramp the Locked decision
-// requires (`specs/shallot-tui.md`'s glyph-selection addendum — "the ramp is an ordered artifact, sorted
-// by measured ink coverage", not a hand-authored character set in code-point order). Renders each
+// Generates `extras/cells/ramp-table.ts`: the coverage-ordered fill glyph ramp, sorted
+// by measured ink coverage, not a hand-authored character set in code-point order. Renders each
 // candidate printable-ASCII glyph's outline against the cells face (`assets/jetbrains-mono.ttf`, the house
-// monospace from `branding.md`) and measures its ink coverage: the glyph's TrueType contour area (Green's theorem over
+// monospace) and measures its ink coverage: the glyph's TrueType contour area (Green's theorem over
 // the parsed outline, `extras/text/font.ts`'s own `glyphPath`) divided by the font's em-square area,
 // sorted ascending.
 //

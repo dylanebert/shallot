@@ -1155,7 +1155,7 @@ if (staleCitations.length > 0) {
 // *.md path citation is the greppable surface form of that anchor: `roads-interactive.md`,
 // `ecs.md`, `gpu.md:110`. The arm scans every tracked .ts file's comment lines for *.md
 // path citations and checks each basename against the set of .md files tracked in the
-// shallot repo or the superproject (the full repo a reader has). A citation that
+// shallot repo. A citation that
 // resolves to nothing is a dead anchor — it reads as authoritative for years.
 //
 // The discrimination follows the fixture-pin scan's shape (the `fixtureUnclassified`
@@ -1182,25 +1182,11 @@ if (staleCitations.length > 0) {
 // `scripts/rosters.ts:100: zzz-dead-pointer-mutation-proof.md` moves the count from 46
 // to 47).
 
-// Build the resolved .md basenames set: shallot tracked + superproject tracked. A
-// citation resolves if SOME file with that basename is tracked in the shallot repo or
-// the superproject — the full repo a reader has. `checks.md` and `coding.md` live in
-// the superproject's `.claude/rules/`, not the shallot submodule, so a shallot-only
-// check would false-positive on them. `scratch.md` lives in a sibling submodule
-// (`orrstead/`), tracked by the superproject. `roads-interactive.md` is tracked by
-// neither — it resolves to nothing.
+// A citation resolves only if its basename is tracked in this repo, so the gate
+// holds for a standalone reader without access to a private containing repository.
 const resolvedMdBasenames = new Set<string>();
 for (const path of docs) {
     resolvedMdBasenames.add(path.split("/").pop()!);
-}
-const superprojectRoot = resolve(root, "..");
-const superprojectMd = Bun.spawnSync(["git", "ls-files", "-z", "*.md"], {
-    cwd: superprojectRoot,
-});
-if (superprojectMd.success) {
-    for (const path of superprojectMd.stdout.toString().split("\0").filter(Boolean)) {
-        resolvedMdBasenames.add(path.split("/").pop()!);
-    }
 }
 
 // A *.md path citation in a comment: a word ending in .md, not preceded by a word

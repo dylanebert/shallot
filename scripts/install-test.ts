@@ -254,7 +254,7 @@ function createShallotFlow(work: string, engineTgz: string) {
         `exit ${noPw.exitCode}`,
     );
 
-    // criterion 7 (specs/shallot-tui.md): "a missing bun-webgpu produces a named remedy" — the genuine-
+    // criterion 7: "a missing bun-webgpu produces a named remedy" — the genuine-
     // absence rung, mirroring the playwright check directly above exactly. This scaffold never installs
     // bun-webgpu (a devDependency of the monorepo's own packages/shallot, never shipped or declared for a
     // consumer), so `shallot tui` here hits a real absence, not an injected one — real subprocess stdout/
