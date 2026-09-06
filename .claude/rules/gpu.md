@@ -19,11 +19,11 @@ paths:
 
 Shallot owns commands; TypeGPU schemas/shaders. One named owner schema derives types/stride/layout; typed identity crosses boundaries, adopt wrapped/unwrap raw commands only. TGSL; raw resolve interop, WGSL leaves only inexpressible primitives; whole raw only diagnostics/reference/output/no-walls.
 
-Packed uploads, not objects; differential-test CPU mirrors. TGSL `idiv`/typed integers, lint use-gpu. Handle completion rejection/counters. Root/device memo; maps/build reset: republish typed/raw memo hits.
+Packed uploads, not objects. JS packer mirrors only for needed TGSL CPU arms; differential-test both. TGSL `idiv`/typed integers, lint use-gpu. Handle completion rejection/counters. Root/device memo; maps/build reset: republish typed/raw hits.
 
 Base only default-plugin needs: indirect-first-instance/bgra8unorm-storage/rg11b10ufloat-renderable. Required fails before load; only preferred falls back. BVH subgroups→LDS/glTF BC/ETC2/ASTC preferred; profiler timestamp-query required; shader-f16 opt-in. Unrequested=false. Adoption: host unions/users guard requirements. Keep gates lazy; audit removed guarantees.
 
-KTX2 gate per image; standalone requests nothing. Compressed size/format buckets; no batch-wide fallback for outliers.
+KTX2 gate per image; standalone requests nothing. Compressed size/format buckets; no batch fallback for outliers.
 
 ## Binding limits
 
@@ -31,7 +31,7 @@ KTX2 gate per image; standalone requests nothing. Compressed size/format buckets
 
 ### Consolidation
 
-GPU scans, never CPU gathers. Slab authored entities; bulk non-entities owner-managed; derived GPU-only. Mirror/consumer compaction. Small-integer slabs CPU-only, pack u32; half declarations need feature, packed storage doesn't.
+GPU scans, no CPU gathers. Slab authored entities; bulk non-entities owner-managed; derived GPU-only. Mirror/consumer compaction. Small-int slabs CPU-only, pack u32; half declarations need feature, packed storage doesn't.
 
 Cols-buffer ≥3-field SoA; merge same-pass/header data, bulk-concatenate near-limit uploads, split last. Don't merge different-pass/mixed CPU-GPU/exclusive owners.
 
@@ -41,11 +41,11 @@ Cols-buffer ≥3-field SoA; merge same-pass/header data, bulk-concatenate near-l
 
 6. Audit emitters' worst range/tolerance. Bounded fixed-point: unit unorm8/scaled position unorm16/directions snorm-8/oct. LDR sRGB u32; HDR r11g11b10ufloat/half intermediates; packed IDs/flags, smallest-3 quats. Mixed HDR half; storage encode/f32 math.
 
-World position/velocity/acceleration/instance transforms f32; never quantize instance rotation/scale. Sentinel/unbounded/time-cumulative/finite-differenced state f32; saturation can't change classifiers. Audit fields, not categories/library defaults; physics parity stays.
+World position/velocity/acceleration/instance transforms f32; never quantize instance rotation/scale. Sentinel/unbounded/time-cumulative/finite-differenced state f32; saturation can't change classifiers. Audit fields, not categories/library defaults.
 
-9. No oct interpolate/filter: plain normals/renormalize, VAT too. Flat IDs fetch constants; pixel reconstruction, no redundant spaces; pack/prune. Four custom slots before justification, 16 total.
+9. No oct interpolate/filter: plain normals/renormalize, VAT too. Flat IDs fetch constants; pixel reconstruction, no redundant spaces; pack/prune.
 
-8. Quantization/branching: isolated bandwidth/field/encoding proof; unified paths need none. Affine first; log decode costs. Desktop noise doesn't reject portable gains.
+8. Quantize only if production pass ≥5× off bandwidth floor AND per-field audit clean AND encoding microbench-proved free/near-free. Isolate branch-optimization proof, not unified paths. Affine first; log decode costs.
 
 ## Atomics
 
@@ -55,13 +55,13 @@ Uniformity opt-out: runtime-uniform/proven fixed cap. Separate-data cross-workgr
 
 ## Dispatch count is a first-class cost
 
-Fewest synchronized passes; one-workgroup data one dispatch. **Indirect ≈ 2× direct**: CPU-known direct, indirect zero validates. GPU-count branches pay both encodes: reduce unconditionally or specialize static caps.
+Minimize synchronized passes; one workgroup, one dispatch. **Indirect ≈ 2× direct**: CPU-known direct, indirect zero validates. GPU-count branches pay both encodes: reduce unconditionally or specialize static caps.
 
 Mask cheap ALU; bench memory/sample/traversal early-outs. Uniform/tail branches fine. Verify unrolling/repeat small bodies. FMA needs unfused-code/win proof; prefer dot.
 
 ## Bandwidth ceiling check
 
-Strip empty→reads→atomics→math→suspects; restore. Active set (solver color slice) sets cache-tier floor. ≥5× off: stride first. Sub-0.1 ms needs isolated stress; cache noise can't refute DRAM gains. Varyings no cache escape.
+Strip empty→reads→atomics→math→suspects; restore. Active set (solver color slice) sets cache-tier floor. ≥5× off: stride first. Sub-0.1 ms: isolated stress; desktop cache/noise can't refute portable DRAM gains. Varyings no cache escape.
 
 ## Native targets and webview backends
 
@@ -69,7 +69,7 @@ Default wry webviews; portable CEF. Mac LDS/no subgroups; Linux needs portable. 
 
 ## DXC shader compilation
 
-No large dynamic-loop functions/duplicate dead paths; split pipelines. Constant bounds/breaks fine; repeat cache isn't compile proof.
+No large dynamic-loop functions/dead duplicates; split pipelines. Constant bounds/breaks fine; repeat cache isn't compile proof.
 
 ## Render passes on TBDR
 
@@ -87,17 +87,17 @@ Safe TypeGPU logs over bespoke buffers: perturbing/no vertices/overflow loses ev
 
 ### Runtime Inspector
 
-Isolated aid, not app/host proof. Declare features; no scaffolding. Unavailable→verify artifacts.
+Isolated aid, not app/host proof. Declare features; no scaffolding; unavailable→verify.
 
 ## GPU profiling
 
-Timestamps every pass, optional; names accumulate/profiler first/absent no-op. Spans omit barriers/copies/present/validation: no subtracted bubbles. Command counts (recorded bundles) predict GPU floor, not fence addition. GPU-bound no-op calibration, not approximate direct/readback; ablation before capture.
+Timestamps every pass, optional; names accumulate/profiler first/absent no-op. Spans omit barriers/copies/present/validation: no subtracted bubbles. Command counts (recorded bundles) predict GPU floor, not fence addition. GPU-bound no-op calibration, not approximate direct/readback; ablate before capture.
 
 Timing-grown pools: lazy descriptors, tested at growth sites, not label exclusions. `testing.md`: Freezing a golden.
 
 ## Labels
 
-Stable per-pipeline shader/sync/async labels; typed names/functions/schemas. Join diagnostics/WGSL/hash/profile/verify/capture. Compose detail, not hidden causes; extend creation check only.
+Stable shader/sync/async labels per pipeline; typed names/functions/schemas. Join diagnostics/WGSL/hash/profile/verify/capture. Compose detail, not hidden causes; extend creation check only.
 
 ## WebGPU-specific traps
 
