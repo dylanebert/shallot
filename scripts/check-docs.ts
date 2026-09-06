@@ -1,3 +1,4 @@
+import { lstatSync } from "node:fs";
 import { Glob } from "bun";
 import { resolve } from "path";
 import { template } from "../packages/create-shallot/index";
@@ -1020,7 +1021,7 @@ if (rosterInTree.length > 0) {
 // The pinned marker-exempted count. This literal is the law the arm already applies to its
 // tier rosters and chain budgets: growth reds, and a swap-in moves prose a reviewer reads.
 // When a marker is added or removed from a rule file, this count must be updated to match.
-const PINNED_MARKER_EXEMPTED_COUNT = 20;
+const PINNED_MARKER_EXEMPTED_COUNT = 16;
 
 type StaleCitation = {
     file: string;
@@ -1336,6 +1337,105 @@ if (compositionFindings.length) {
 }
 console.log(
     `✓ command composition (${rosterCommands.size} derived commands, ${testPaths.length} manifest test paths, ${subsumedCommands} subsumed commands, ${testCones} restated cones)`,
+);
+
+// One closed Git population; ignored files and other instruction names are outside this arm.
+// Paragraphs are nonempty blank-line-delimited blocks, measured in Unicode characters.
+const lowerInstructions = process.argv.slice(2);
+if (lowerInstructions.length && lowerInstructions.join(" ") !== "--lower") {
+    console.error("✗ instruction ratchet: expected no arguments or --lower");
+    process.exit(1);
+}
+const instructionListing = Bun.spawnSync(["git", "ls-files", "-co", "--exclude-standard", "-z"], {
+    cwd: root,
+});
+const instructionModes = Bun.spawnSync(["git", "ls-files", "--stage", "-z"], { cwd: root });
+if (!instructionListing.success || !instructionModes.success) {
+    console.error("✗ instruction ratchet: Git population unavailable");
+    process.exit(1);
+}
+const instructionFiles = [...new Set(instructionListing.stdout.toString().split("\0"))]
+    .filter((file) =>
+        /(?:^|\/)(?:AGENTS|CLAUDE)\.md$|(?:^|\/)\.claude\/rules\/[^/]+\.md$/.test(file),
+    )
+    .sort();
+const symlinkFiles = new Set(
+    instructionModes.stdout
+        .toString()
+        .split("\0")
+        .filter((entry) => entry.startsWith("120000 "))
+        .map((entry) => entry.slice(entry.indexOf("\t") + 1)),
+);
+type InstructionSize = { bytes: number; paragraph: number };
+type InstructionBudget = { total: number; files: Record<string, InstructionSize> };
+const measured: InstructionBudget = { total: 0, files: {} };
+const instructionFindings: string[] = [];
+if (!instructionFiles.length) instructionFindings.push("empty population");
+for (const file of instructionFiles) {
+    try {
+        if (symlinkFiles.has(file) || lstatSync(resolve(root, file)).isSymbolicLink()) {
+            instructionFindings.push(`symlink member: ${file}`);
+            continue;
+        }
+        const text = await Bun.file(resolve(root, file)).text();
+        const bytes = Buffer.byteLength(text);
+        const paragraph = Math.max(
+            0,
+            ...text.split(/\n\s*\n/).map((part) => [...part.trim()].length),
+        );
+        measured.files[file] = { bytes, paragraph };
+        measured.total += bytes;
+    } catch {
+        instructionFindings.push(`unreadable member: ${file}`);
+    }
+}
+const instructionBaseline = Bun.file(resolve(root, "scripts/instruction-budget.json"));
+if (await instructionBaseline.exists()) {
+    const budget = (await instructionBaseline.json()) as InstructionBudget;
+    const ceiling = (value: number) => Number.isSafeInteger(value) && value >= 0;
+    if (!ceiling(budget.total) || !budget.files || Array.isArray(budget.files)) {
+        instructionFindings.push("invalid baseline");
+    } else {
+        for (const [file, size] of Object.entries(budget.files)) {
+            if (!size || !ceiling(size.bytes) || !ceiling(size.paragraph)) {
+                instructionFindings.push(`invalid ceiling: ${file}`);
+            }
+        }
+        for (const [file, size] of Object.entries(measured.files)) {
+            const cap = budget.files[file];
+            if (!Object.hasOwn(budget.files, file))
+                instructionFindings.push(`unlisted member: ${file}`);
+            else {
+                if (size.bytes > cap.bytes)
+                    instructionFindings.push(`byte growth: ${file} ${size.bytes} > ${cap.bytes}`);
+                if (size.paragraph > cap.paragraph)
+                    instructionFindings.push(
+                        `paragraph growth: ${file} ${size.paragraph} > ${cap.paragraph}`,
+                    );
+            }
+        }
+        if (measured.total > budget.total)
+            instructionFindings.push(`corpus growth: ${measured.total} > ${budget.total}`);
+    }
+} else if (!lowerInstructions.length) {
+    instructionFindings.push("missing baseline; seed explicitly with --lower");
+} else {
+    const style = measured.files[".claude/rules/style.md"];
+    if (!style || style.bytes > 3000 || style.paragraph > 800) {
+        instructionFindings.push(
+            "initial style must be <=3000 bytes and <=800 paragraph characters",
+        );
+    }
+}
+if (instructionFindings.length) {
+    console.error(`✗ instruction ratchet:\n${instructionFindings.join("\n")}`);
+    process.exit(1);
+}
+if (lowerInstructions.length) {
+    await Bun.write(instructionBaseline, `${JSON.stringify(measured, null, 4)}\n`);
+}
+console.log(
+    `✓ instruction ratchet (${instructionFiles.length} files, ${measured.total} bytes; ${lowerInstructions.length ? "lowered" : "validate-only"})`,
 );
 
 console.log(
