@@ -1,78 +1,60 @@
 # Examples
 
-The retrieval surface for shallot's examples. Grep it for the problem you have before writing a pattern
-from scratch. Four groups: **recipes** (one minimal project per problem, the teaching corpus),
-**gym** (machine-verdict atoms), **flows** (standalone-app engine flows), **showcase** (richer capability
-exhibits). Each recipe is a manifest project — run it with `bunx shallot dev examples/recipes/<name>/`. The
-recipe contract is `.claude/rules/examples.md`.
+Grep first: `.claude/rules/examples.md`. Manifests: `bunx shallot dev examples/recipes/<name>/` (showcase likewise); gym/visualization: cd there, bun dev.
 
 ## Recipes
 
-One minimal project per problem a game developer actually has.
+- scene — `recipes/build-a-scene/` — declarative/code.
+- game loop — `recipes/game-loop/` — ECS/plugin.
+- input — `recipes/respond-to-input/` — held/edge/mouse.
+- orbit — `recipes/orbit-camera/` — framing.
+- first-person — `recipes/first-person/` — controller/platform.
+- physics — `recipes/physics-playground/` — bodies/joints; gym pile/suspension.
 
-- **build a scene** — `recipes/build-a-scene/` — compose a world declaratively in a `.scene` file (entities, components, vectors, colors, `@` refs), and build more entities from code.
-- **code a game loop** — `recipes/game-loop/` — the ECS basics: a custom component, a system over a query, a marker + `not()`, a plugin.
-- **respond to input** — `recipes/respond-to-input/` — read held keys and the mouse, edge-triggered presses, drive an entity each frame.
-- **orbit camera** — `recipes/orbit-camera/` — the orbit camera: frame a target, tune distance / yaw / pitch.
-- **first-person character** — `recipes/first-person/` — the first-person character controller, plus riding a moving platform.
-- **physics playground** — `recipes/physics-playground/` — rigidbodies and colliders (`Body`/`Spring`/`Joint`), spawning bodies from code; settling behavior is oracle-verified in the gym physics golds (e.g. `pile`, `joints-suspension`).
-- **ragdoll** — `recipes/ragdoll/` — a physics-driven ragdoll posing a live joint palette (`LiveSkin`); the cone/twist joints ride the `Tumble.world` hatch (no substrate-surface equivalent yet — twin: gym `ragdoll-ragdoll`).
-- **connect bodies with joints** — `recipes/joints/` — the published substrate `Spring` (a soft distance suspension) and `Joint` (a fixed-weld cantilever); the hertz/damping-tuned versions live in the gym twins `joints-suspension` / `joints-cantilever`.
-- **a moving platform** — `recipes/moving-platform/` — a kinematic code-driven lift (`Physics.backend.setKinematic`) carrying crates up and down; the motor-driven prismatic version is the gym twin `joints-elevator`.
-- **drive a vehicle** — `recipes/drive-a-vehicle/` — a car on wheel joints (rear spin + front steering) driven with W/S/A/D, via the `Tumble.world` hatch (no substrate-surface equivalent yet — twin: gym `joints-driving`).
-- **breakable joints** — `recipes/breakable-joints/` — distance joints that cut under load, read off the tumble joint-event stream (`getJointEvents`), via the `Tumble.world` hatch (no substrate-surface equivalent yet — twin: gym `events-joint-break`).
-- **surface friction** — `recipes/surface-friction/` — the substrate `Body.friction` field: a friction ladder of boxes on a tilted ramp, slippery to grippy (twin: gym `shapes-inclined-plane`).
-- **import a model (glTF)** — `recipes/import-a-model/` — declarative mesh refs (`mesh: file.glb#0`) and the programmatic `loadGltf` / `placeGltf` / `placeScene`.
-- **day-night sky** — `recipes/day-night-sky/` — the procedural sky: sun direction, time of day.
-- **fog and light shafts** — `recipes/fog-and-light-shafts/` — volumetric fog and god rays.
-- **stylize the look** — `recipes/stylize-the-look/` — the screen-space outline post-effect on selected entities.
-- **author a custom material** — `recipes/custom-material/` — register a custom WGSL surface and use it by name in a scene, plus a custom backdrop via `Backgrounds.register`.
-- **run a compute pass and read it back** — `recipes/compute-and-readback/` — a custom GPU compute pass over per-entity slab data, results read back to the CPU with `Mirror`.
-- **simulate particles on the GPU** — `recipes/gpu-particles/` — a per-frame compute pass writes a typed particle buffer read directly by a custom surface's vertex stage.
-- **annotate the world** — `recipes/annotate-the-world/` — world-space text labels plus debug lines and arrows (retained components and the immediate `box` / `arrow` API).
-- **billboards and sprites** — `recipes/billboards-and-sprites/` — camera-facing sprites, the billboard modes, a radial meter.
-- **play sound** — `recipes/play-sound/` — spatial audio: a listener and positioned sound sources.
-- **animate with clips** — `recipes/animate-with-clips/` — registered keyframe, script, and mixer playables driving `Animator`.
-- **overlay DOM UI / embed in a page** — `recipes/overlay-ui/` — `mountOverlay` for a canvas-bounded HUD, and the `run()` embedding path.
-- **save and restore** — `recipes/save-and-restore/` — `serialize` the world to scene XML, persist it to `localStorage`, restore it in place via `parse` → `load` (or `run({ scene })` at app boot).
-- **measure performance** — `recipes/measure-performance/` — `showProfiler()` surfaces the profiler HUD on open, reading `Profile.gpu` per-frame and `window.__benchmark` for aggregated timing.
+- ragdoll — `recipes/ragdoll/` — LiveSkin, Tumble hatch; gym ragdoll-ragdoll.
+- joints — `recipes/joints/` — Spring/Joint; gym joints-suspension/cantilever.
+- platform — `recipes/moving-platform/` — kinematic; gym joints-elevator motor.
+- drive a vehicle — `recipes/drive-a-vehicle/` — W/S/A/D, hatch; gym joints-driving.
+- breakable joints — `recipes/breakable-joints/` — hatch events; gym events-joint-break.
+- friction — `recipes/surface-friction/` — Body.friction; gym shapes-inclined-plane.
+
+- import glTF — `recipes/import-a-model/` — mesh refs/load/place.
+- day-night sky — `recipes/day-night-sky/` — procedural sun/time.
+- fog/light shafts — `recipes/fog-and-light-shafts/` — god rays.
+- stylize — `recipes/stylize-the-look/` — outlines.
+- material — `recipes/custom-material/` — WGSL surface/backdrop.
+- compute/readback — `recipes/compute-and-readback/` — slab/Mirror.
+- particles — `recipes/gpu-particles/` — compute→vertex buffer.
+
+- annotate — `recipes/annotate-the-world/` — text/lines/arrows.
+- sprites — `recipes/billboards-and-sprites/` — modes/meter.
+- play sound — `recipes/play-sound/` — spatial listener/sources.
+- animate clips — `recipes/animate-with-clips/` — Animator playables.
+- overlay/embed UI — `recipes/overlay-ui/` — mountOverlay/run.
+- save/restore — `recipes/save-and-restore/` — XML/storage.
+- perf — `recipes/measure-performance/` — profiler.
 
 ## Gym
 
-`gym/` — one project, `?scenario=`-selected. Each scenario is a correctness gate + benchmark + live demo
-in one, run on a real device via `bun bench --scenario <name>`. The scenario list and the GPU-driven
-coverage each carries is the barrel header in `gym/src/scenarios/index.ts`. This is the machine tier, not
-a teaching reference — read a recipe first. A scenario needing real input dispatch (touch, a scripted
-drag) may add its own driver-level Playwright gate run by path, e.g. `gym/test/touch.playwright.ts` over
-the `orbit-touch` scenario.
+`gym/`: `bun bench --scenario <name>`; gates/bench/demo. Roster: `gym/src/scenarios/index.ts`; teaching: recipes. Touch: `gym/test/touch.playwright.ts`.
 
 ## Flows
 
-Standalone-app engine flows — ejected vite apps that exercise engine behavior a `bun test` can't reach,
-driven by `bun run flows` (`scripts/flows.ts` over `shallot verify`).
+`bun run flows` wraps shipped verify.
 
-- **no-walls** — `flows/no-walls/` — an externally acquired device, a schema-wrapped raw buffer, and raw
-  WGSL resolved through TypeGPU form one indirect draw; the harness asserts every boundary and the pixel
-  gate proves the draw reaches the product.
-- **survive-reload** — `flows/survive-reload/` — a runtime value + a `warm`-derived entity survive a real
-  `location.reload()` through the serialize→sessionStorage→restore path; the restored boot's `window.__harness` asserts it.
-- **ui-containment** — `flows/ui-containment/` — a deliberately invalid `config.ui` HUD (`position: fixed`,
-  oversized) must stay clipped to the canvas; the flow asserts the host-chrome pixels stay clear.
-- **blank** — `flows/blank/` — the pixel-gate red-proof: a draw-nothing app `shallot verify` must fail with
-  `rendered: false`; an expected-fail flow, so it never reddens the matrix.
+- `flows/no-walls/` — adopted device/raw WGSL draw, boundary/pixel gate.
+- `flows/survive-reload/` — value/warm entity reload/storage/restore.
+- `flows/ui-containment/` — invalid fixed UI clipped from host chrome.
+- `flows/blank/` — expected pixel failure despite harness ok.
 
 ## Showcase
 
-Richer exhibits — each a self-contained real project that owns its own test gate, run with
-`bunx shallot dev examples/showcase/<name>/` (except `visualization`, which owns a vite harness: `cd
-examples/showcase/visualization && bun dev`).
-
-The showcase demos are live at https://dylanebert.com/shallot/ — each playable in the browser, with a
-code link to its source pinned to the version it was built from.
+https://dylanebert.com/shallot/; version-pinned code links, project-owned gates.
 
 - **ascii** — `showcase/ascii/` — the cell-grid cube seeded on the web sink, the same scene `shallot tui` renders in a terminal.
 - **collapse** — `showcase/collapse/` — an AVBD rigidbody structure collapsing, profiled.
 - **ocean** — `showcase/ocean/` — a full-screen multi-cascade FFT ocean at pinned camera, sun, time, and capture conditions.
+
 - **roads** — `showcase/roads/` — a road network editor across terrain (capture, edit, re-drive corridors) that owns its own Playwright gate.
 - **sandbox** — `showcase/sandbox/` — a playable physics sandbox (character + AVBD + modal-synthesis audio).
 - **visualization** — `showcase/visualization/` — a multi-canvas gallery of the debug-draw primitives (lines, text, written animations, wireframe).

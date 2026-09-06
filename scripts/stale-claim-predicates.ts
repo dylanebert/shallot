@@ -127,15 +127,6 @@ export type CitationCandidate = {
     soloBacktick: boolean;
 };
 
-// ── Marker vocabulary ──────────────────────────────────────────────────────────────────────
-
-export const MARKER_VOCABULARY = ["(retired)", "(gone)", "(anti-pattern)"] as const;
-export type Marker = (typeof MARKER_VOCABULARY)[number];
-
-export function lineHasMarker(line: string): boolean {
-    return MARKER_VOCABULARY.some((m) => line.includes(m));
-}
-
 // ── Candidate extraction ───────────────────────────────────────────────────────────────────
 
 const TS_PATH_RE = /`([^`]*\.ts)`/g;
@@ -162,11 +153,9 @@ const ARITH_RE = /[-+*/=^·×÷−≤≥]/;
 export async function extractCandidates(
     ruleFiles: string[],
     root: string,
-): Promise<{ candidates: CitationCandidate[]; markerExempted: Map<string, Set<string>> }> {
+): Promise<{ candidates: CitationCandidate[] }> {
     const candidates: CitationCandidate[] = [];
     const seen = new Set<string>();
-    // markerExempted: file → set of refs that are on a marker-carrying line
-    const markerExempted = new Map<string, Set<string>>();
 
     function addCandidate(
         file: string,
@@ -194,13 +183,6 @@ export async function extractCandidates(
             }
             if (inFence) continue;
 
-            const lineHasMarkerFlag = lineHasMarker(line);
-
-            // Track which refs are on marker-carrying lines (for the marker exemption)
-            if (lineHasMarkerFlag) {
-                if (!markerExempted.has(file)) markerExempted.set(file, new Set());
-            }
-
             // 1. Backtick-cited .ts paths
             const tsPathSpans: string[] = [];
             for (const m of line.matchAll(TS_PATH_RE)) {
@@ -214,9 +196,6 @@ export async function extractCandidates(
                     continue;
                 addCandidate(file, i + 1, ref, "ts-path", true);
                 tsPathSpans.push(m[0]);
-                if (lineHasMarkerFlag) {
-                    markerExempted.get(file)!.add(ref);
-                }
             }
 
             // 2. Backtick-cited identifiers (solo-backtick spans)
@@ -225,9 +204,6 @@ export async function extractCandidates(
                 if (ref.endsWith(".ts")) continue;
                 if (matchesShape(ref)) {
                     addCandidate(file, i + 1, ref, "identifier", true);
-                    if (lineHasMarkerFlag) {
-                        markerExempted.get(file)!.add(ref);
-                    }
                 }
             }
 
@@ -280,9 +256,6 @@ export async function extractCandidates(
                     if (afterChar === "(") {
                         if (matchesShape(ref)) {
                             addCandidate(file, i + 1, ref, "identifier", false);
-                            if (lineHasMarkerFlag) {
-                                markerExempted.get(file)!.add(ref);
-                            }
                         }
                         continue;
                     }
@@ -296,16 +269,13 @@ export async function extractCandidates(
                     // above.
                     if (matchesShape(ref)) {
                         addCandidate(file, i + 1, ref, "identifier", false);
-                        if (lineHasMarkerFlag) {
-                            markerExempted.get(file)!.add(ref);
-                        }
                     }
                 }
             }
         }
     }
 
-    return { candidates, markerExempted };
+    return { candidates };
 }
 
 // ── Token index ────────────────────────────────────────────────────────────────────────────

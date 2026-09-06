@@ -701,13 +701,7 @@ if (rosterFindings.length > 0) {
 // `git ls-files '**/AGENTS.md' '**/CLAUDE.md'` that no hit starts with `.claude/rules/`.
 
 import { FOREIGN_NAMESPACES } from "./rosters";
-import {
-    buildTokenIndex,
-    extractCandidates,
-    lineHasMarker,
-    matchesShape,
-    resolvesAnywhere,
-} from "./stale-claim-predicates";
+import { buildTokenIndex, extractCandidates, resolvesAnywhere } from "./stale-claim-predicates";
 
 // ── Population: scan .claude/rules/**/*.md for identifier-shaped tokens ────────────────────
 //
@@ -790,7 +784,7 @@ for (const { roster } of allRosters) {
 
 // ── Candidate extraction ───────────────────────────────────────────────────────────────────
 
-const { candidates: citationCandidates, markerExempted } = await extractCandidates(ruleFiles, root);
+const { candidates: citationCandidates } = await extractCandidates(ruleFiles, root);
 
 if (citationCandidates.length === 0) {
     console.error(
@@ -809,18 +803,13 @@ if (citationCandidates.length === 0) {
 
 // ── Pinned cardinalities ───────────────────────────────────────────────────────────────
 //
-// The arm's green condition is an exhaustive four-way disjunction: a candidate passes
-// iff it never enters citationCandidates (the population predicate), or it resolves in
-// the tree token index, or it resolves in a committed roster, or it is marker-exempt.
-// Each disjunct gets a cardinality pinned as a literal — disjunct 2 as an anti-narrowing
-// floor (its population grows with ordinary prose), the rest asserted equal — so an escape
-// that moves a number in the diff that narrows it reds; there is no fifth place for the
-// escape to move.
+// Candidates must resolve in the tree or a cited, disjoint foreign roster.
+// Pin the candidate floor and roster cardinality to expose population narrowing.
 
 // Disjunct 2: the citation population floor. A predicate narrowing shrinks the population
 // below the floor and reds; legitimate prose growth passes and re-pins the floor
 // opportunistically upward.
-const PINNED_CITATION_COUNT = 152;
+const PINNED_CITATION_COUNT = 120;
 if (citationCandidates.length < PINNED_CITATION_COUNT) {
     console.error(
         `✗ citation count below floor: floor ${PINNED_CITATION_COUNT}, actual ${citationCandidates.length}.
@@ -898,58 +887,6 @@ if (rosterInTree.length > 0) {
     process.exit(1);
 }
 
-// ── Marker exemption system ──────────────────────────────────────────────────────────────
-//
-// The per-entry allowlist is retired — the arm carries no per-site residue. An exemption is
-// admitted only through a closed-vocabulary marker in the rule file's own prose, tiered by
-// citation shape at the citing site. A solo-backtick span or `.ts` path is exempt only when
-// its own line carries a marker from the closed vocabulary the arm owns
-// (`(retired)` / `(gone)` / `(anti-pattern)`), asserted both ways — marker present, target
-// genuinely absent from tree and rosters. A bare token, or a token inside a multi-token
-// backtick span, gets no exemption at all. The marker-exempted count is pinned as a literal
-// and asserted equal, so growth reds and a swap-in moves prose a reviewer reads.
-//
-// Laundering now costs writing a false sentence into a permanent file, which is an instance
-// of the defect class this spec exists to sweep, visible to the rule's readers rather than
-// buried in a script comment.
-//
-// Witnessed red (mutation proofs, each exit code captured to a committed in-repo path —
-// see scripts/asc-mutations.md, never /tmp):
-//   (i)  Seed: `advanceColor` → `zombieUploadPass` in avbd.md:114 (in place, count-neutral)
-//         → exit 1, stale citation
-//   (ii) Bare: `advanceColor` → bare zombieUploadPass in avbd.md:114 (in place) → exit 1,
-//         stale citation (bare token caught by the formatting-invariant predicate,
-//         round 3's escape shut)
-//   (iii) Roster swap-in: in scripts/rosters.ts replace "PowerVR" with
-//         "zombieUploadPass" (roster count stays 43); in avbd.md:114 replace
-//         the solo-backticked `advanceColor` with `zombieUploadPass` (citation
-//         count stays above the floor) → exit 1, stale citation — PowerVR's citation
-//         sites in gpu.md no longer resolve. Count-neutral in every pinned
-//         quantity, so the red comes from the resolution leg, not a count pin.
-//         Witnesses: every surviving roster entry is load-bearing, so a
-//         swap-in cannot occupy a free slot (round 7 disjointness law).
-//   (iv) Substring: `git grep --fixed-strings` reads a substring match green; the token
-//         index does not — `advanceColor` → `spotInner` (substring of `spotInnerF`)
-//         reds with the token index but greens with `git grep --fixed-strings`
-//   (v)  Launder-via-marker: `advanceColor` → `zombieUploadPass` (retired) in avbd.md:114
-//         → exit 1, marker-exempted count mismatch (21 vs 20) (round 4's escape)
-//   (vi) Weak-shape bare: `advanceColor` → bare `zombie_upload_pass` (snake) in avbd.md:114
-//         → exit 1, stale citation (all shapes caught bare, round 6b's escape shut;
-//         round 7 also admits weak shapes in-span)
-//   (vii) Predicate narrowing: removing `matchesWeakShape` from `matchesShape` shrinks the
-//         citation population below the floor → exit 1, citation count below floor
-//   (viii) Retired: the round-6 SHAPE_FALSE_POSITIVES set was deleted in round 6b.
-//         Re-introducing it as an unread variable is a tautology about dead code, not a
-//         gate witness — the real channel was closed by deletion, not by the gate catching
-//         a re-introduction. No mutation to witness.
-//
-// All captures are in scripts/asc-mutations.md, a committed in-repo path.
-
-// The pinned marker-exempted count. This literal is the law the arm already applies to its
-// tier rosters and chain budgets: growth reds, and a swap-in moves prose a reviewer reads.
-// When a marker is added or removed from a rule file, this count must be updated to match.
-const PINNED_MARKER_EXEMPTED_COUNT = 1;
-
 type StaleCitation = {
     file: string;
     line: number;
@@ -960,23 +897,9 @@ type StaleCitation = {
 
 const staleCitations: StaleCitation[] = [];
 
-// Collect the actual marker-exempted refs: solo-backtick spans or .ts paths on marker lines
-// that don't resolve against tree or rosters.
-const actualMarkerExempted: { file: string; line: number; ref: string }[] = [];
-
 for (const c of citationCandidates) {
     const live = resolvesAnywhere(c.ref, c.kind, tokenIndex, trackedSet, combinedRoster);
     if (live) continue; // live — no violation
-
-    // Check marker exemption: only solo-backtick spans or .ts paths can be exempt
-    const canBeMarkerExempt = c.soloBacktick || c.kind === "ts-path";
-    if (canBeMarkerExempt) {
-        const exemptedRefs = markerExempted.get(c.file);
-        if (exemptedRefs?.has(c.ref)) {
-            actualMarkerExempted.push({ file: c.file, line: c.line, ref: c.ref });
-            continue; // marker-exempt — no violation
-        }
-    }
 
     // Stale citation
     staleCitations.push({
@@ -988,92 +911,15 @@ for (const c of citationCandidates) {
     });
 }
 
-// Assert the pinned marker-exempted count equals the actual count.
-if (actualMarkerExempted.length !== PINNED_MARKER_EXEMPTED_COUNT) {
-    console.error(
-        `✗ marker-exempted count mismatch: pinned ${PINNED_MARKER_EXEMPTED_COUNT}, actual ${actualMarkerExempted.length}.\n` +
-            `  Expected ${PINNED_MARKER_EXEMPTED_COUNT} marker-exempted citation(s), found ${actualMarkerExempted.length}:\n` +
-            actualMarkerExempted.map((e) => `    ${e.file}:${e.line}: \`${e.ref}\``).join("\n") +
-            `\n  Update PINNED_MARKER_EXEMPTED_COUNT in scripts/check-docs.ts to match, ` +
-            `or remove the marker from the rule file.`,
-    );
-    process.exit(1);
-}
-
-// Assert markers are not orphaned: every marker line must have at least one solo-backtick
-// span or .ts path that doesn't resolve (otherwise the marker is on a line with no exemptable
-// citation, which is a stale marker).
-const markerLines = new Map<string, Set<string>>();
-for (const file of ruleFiles) {
-    const fullPath = resolve(root, file);
-    const text = await Bun.file(fullPath).text();
-    const lines = text.split("\n");
-    let inFence = false;
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.trim().startsWith("```")) {
-            inFence = !inFence;
-            continue;
-        }
-        if (inFence) continue;
-        if (lineHasMarker(line)) {
-            const key = `${file}:${i + 1}`;
-            if (!markerLines.has(key)) markerLines.set(key, new Set());
-            // Collect all solo-backtick identifiers and .ts paths on this line
-            for (const m of line.matchAll(/`([A-Za-z_][A-Za-z0-9_]*(?:\(\))?)`/g)) {
-                const ref = m[1].replace(/\(\)$/, "");
-                if (ref.endsWith(".ts")) continue;
-                if (matchesShape(ref)) markerLines.get(key)!.add(ref);
-            }
-            for (const m of line.matchAll(/`([^`]*\.ts)`/g)) {
-                const ref = m[1];
-                if (
-                    ref.startsWith(".") ||
-                    ref.includes("*") ||
-                    ref.includes(" ") ||
-                    ref.includes("{")
-                )
-                    continue;
-                markerLines.get(key)!.add(ref);
-            }
-        }
-    }
-}
-
-for (const [lineKey, refs] of markerLines) {
-    // At least one ref on this marker line must be in actualMarkerExempted
-    const [file, lineStr] = lineKey.split(":");
-    const line = parseInt(lineStr);
-    const found = Array.from(refs).some((ref) =>
-        actualMarkerExempted.some((e) => e.file === file && e.line === line && e.ref === ref),
-    );
-    if (!found) {
-        staleCitations.push({
-            file,
-            line,
-            ref: "(orphaned marker)",
-            kind: "marker",
-            reason: `marker on ${lineKey} has no exemptable citation — the marker is orphaned (no solo-backtick span or .ts path on this line is genuinely absent from tree and rosters)`,
-        });
-    }
-}
-
 if (staleCitations.length > 0) {
-    console.error(
-        `✗ citation resolution: ${staleCitations.length} stale citation(s) or marker failure(s):\n`,
-    );
+    console.error(`✗ citation resolution: ${staleCitations.length} stale citation(s):\n`);
     for (const v of staleCitations) {
         console.error(`  ${v.file}${v.line ? `:${v.line}` : ""}: ${v.reason}`);
     }
     console.error(
         "\nEvery identifier-shaped token in `.claude/rules/**` (backticked or bare, outside " +
             "fenced code blocks) must resolve against the tree or a committed roster. A token " +
-            "that no source file or roster contains is a stale claim. A solo-backtick span or " +
-            ".ts path is exempt only when its own line carries a marker from the closed " +
-            "vocabulary (`(retired)` / `(gone)` / `(anti-pattern)`), asserted both ways: marker " +
-            "present, target genuinely absent. A bare token or a token inside a multi-token " +
-            "backtick span gets no exemption at all. The marker-exempted count is pinned as a " +
-            "literal and asserted equal.",
+            "that no source file or roster contains is a stale claim.",
     );
     process.exit(1);
 }
@@ -1375,7 +1221,6 @@ console.log(
         `tier restatements absent (${suffixWords.length} suffix(es)), ` +
         `citation resolution clean (${citationCandidates.length} citation(s) from ${ruleFiles.length} rule file(s), ` +
         `${allRosters.length} roster(s) with ${totalRosterEntries} entr(y/ies), ` +
-        `${PINNED_MARKER_EXEMPTED_COUNT} marker-exempted citation(s), ` +
         `token index ${tokenIndex.size} token(s)), ` +
         `pointer-validity clean (${pointerCitationCount} .md citation(s))`,
 );

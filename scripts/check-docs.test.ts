@@ -105,6 +105,19 @@ beforeAll(async () => {
             }
         };
         await run("baseline", {});
+        const audio = ".claude/rules/audio.md";
+        const deadAudio = ["Missing", "AudioCitation"].join("");
+        for (const marker of ["retired", "gone", "anti-pattern"]) {
+            await run(`dead citation with ${marker}`, {
+                [audio]: (text) => text.replace("`NodeType`", `\`${deadAudio}\` (${marker})`),
+            });
+        }
+        await run("bare dead citation", {
+            [audio]: (text) => text.replace("`NodeType`", deadAudio),
+        });
+        await run("live citation without exemption", {
+            [audio]: (text) => text.replace("`NodeType`", "`LiveSkin`"),
+        });
         const suffixes = ["oracle", "tier", "lab"];
         for (const [name, roster] of [
             ["regex", suffixes.join("|")],
@@ -254,7 +267,13 @@ beforeAll(async () => {
     }
 }, 60000);
 
-for (const name of ["baseline", "valid lowering", "closed vocabulary", "ignored member"]) {
+for (const name of [
+    "baseline",
+    "valid lowering",
+    "closed vocabulary",
+    "ignored member",
+    "live citation without exemption",
+]) {
     test(`production docs consumer grants ${name}`, () => {
         expect(readings.get(name)?.exitCode).toBe(0);
     });
@@ -282,6 +301,21 @@ for (const [name, diagnostic] of [
         expect(reading.output).toContain(diagnostic);
         if (name.includes("paragraph")) expect(reading.output).not.toContain("byte growth:");
         if (name.includes("byte")) expect(reading.output).not.toContain("paragraph growth:");
+    });
+}
+
+for (const name of [
+    "dead citation with retired",
+    "dead citation with gone",
+    "dead citation with anti-pattern",
+    "bare dead citation",
+]) {
+    test(`citation resolution refuses ${name} without a marker escape`, () => {
+        const reading = readings.get(name)!;
+        expect(reading.exitCode).toBe(1);
+        expect(reading.output).toContain("✗ citation resolution:");
+        expect(reading.output).toContain(["Missing", "AudioCitation"].join(""));
+        expect(reading.output).not.toContain("count below floor");
     });
 }
 
