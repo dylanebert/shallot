@@ -9,124 +9,38 @@ paths:
 
 # ECS
 
-## Plugin lifecycle gotchas
+## Plugin lifecycle
 
-- `initialize(state)` runs BEFORE scene parse — no entities exist. Use `warm(state)` for anything that needs scene data
-- Plugins that register meshes or surfaces MUST declare `dependencies: [RenderPlugin]` — RenderPlugin.initialize clears the render registries first (*Reload-safety* below), so the dependency orders the producer's registration after the wipe. A declared dependency is required: `build()` resolves the complete graph and throws on every missing edge before GPU acquisition or any lifecycle/registry mutation; optional cooperation is expressed by conditionally composing the plugin or a nullable hook, never by naming a best-effort dependency.
-- System `setup(state)` is NOT plugin initialize — called lazily on first frame the system runs
+Initialize registers pre-scene; warm handles GPU/scene data/derived spawns; setup is lazy per-State, update pure over State, dispose teardown. Phases are idempotent/re-runnable. Mesh/surface producers depend on RenderPlugin after its wipe. Build rejects ALL missing dependencies before GPU/lifecycle/registry effects; optional peers use conditional composition/nullable hooks.
 
 ## Reload-safety: lifecycle + module scope
 
-A `State` is rebuilt routinely — an embedding app rebuilds on a scene switch, plugin toggle, or play/stop, re-running every plugin's `initialize`/`warm` against the **same module-level singletons** (registries and services persist across States). In-place plugin hot-reload (swapping a system's behavior on a live State) is the same shape, tighter. Both need the two rules below — better practice regardless, load-bearing once a State outlives one build.
+Module scope holds definitions/registries, not eids, entity handles or accumulators; derive time from State. Initialize clears/rebuilds registries, removing toggled-off producers. Global handles need identity-guarded teardown against stale States. Per-build cleanup lives beside creation: `state.onDispose` (LIFO) or `state.signal`; plugin dispose is module/process lifetime. UI needs real unmount/loop cancellation, not host removal. Re-warm clears prior mounts first AND retains State cleanup.
 
-**Module scope holds idempotent definitions + registries, never runtime identity.**
-
-- No module-cached eids or per-entity handles. An eid is a borrow (see *Entity reference fields*) — a rebuild recycles it to a different entity. Hold the reference in a component (`@name`/relation) or re-query each frame. Where a module-level handle is unavoidable (a browser-owned singleton, an installed backend), whatever clears it at teardown is **identity-guarded** against the State that set it — `if (inputState === s)` (`standard/input`), `if (lock === pl)` (`standard/player`) — or a host rebuilding before it disposes the old State has the stale teardown null the *new* State's live handle.
-- No module-level runtime accumulators (`let angle += dt`). Derive from `State` (`state.time.elapsed`), so the value is correct after a rebuild and isn't a hidden second source of truth.
-- A module-level registry (the `Surfaces`/`Draws`/`Meshes` shape, or a plugin's own) is **idempotent w.r.t. `initialize`**: clear then rebuild, so re-running `initialize` is a no-op-equivalent. `RenderPlugin.initialize` clearing `Surfaces`/`Draws` (`Registry.clear`) + `clearMeshes()` is the exemplar — a same-set rebuild re-registers identically, and a plugin **toggled off** leaves no stale entry (otherwise its dead draw/mesh is paired against torn-down buffers — a GPU error, the conformance "producer toggle" gate).
-
-**Lifecycle phases are idempotent and re-runnable.** `initialize` — registration only, pre-scene, no entities; clears + rebuilds any registry it owns. `warm` — post-parse GPU setup + derived (non-authored) spawns, idempotent; warm-spawned entities re-create each build (they live in `State`, not the serialized scene). `setup` — per-`State` lazy init. `update` — pure over `State`. `dispose` — teardown.
-
-**External side effects register their teardown on the State.** A DOM mount, window/document listener, or rAF loop created during a build leaks unless something unwinds it. Register that cleanup where you create it: `state.onDispose(fn)` runs `fn` (LIFO) when the State disposes, and `state.signal` is an `AbortSignal` — pass it as `{ signal }` to `addEventListener`/`fetch` and the listener detaches at dispose with no removal code (`engine/ecs/state.ts`). Cleanup lives beside its creation site, not in a separate `dispose` hook. A plugin `dispose` hook is still correct for **process/module-lifetime** teardown — an engine singleton or global, not a per-build mount/listener (the profile plugin's Compute-sink + `window.__benchmark` teardown is the exemplar, the way collapse is the exemplar for the swap fallback). A plugin mounting UI hands its State to `mountOverlay(canvas, state)` (auto-registers `overlay.remove()`) or calls `state.onDispose` directly; `examples/showcase/collapse` is the exemplar. Removing a mounted framework component's host DOM is not teardown — register its real unmount (Svelte `unmount()`, React `root.unmount()`) or its effects and rAF loops survive.
-
-**The fallback covers a host that re-warms without disposing.** `onDispose` fires only on `state.dispose()`. A rebuild on the *same* State — `swap()` (in-place hot reload), or any host that re-runs `warm` without a `dispose` first — never triggers it, so a `warm` mount stacks. There, hold the cleanup in module scope and run it at the top of `warm` before re-creating, keeping the State-owned registration for the disposing path (collapse's control panel does both: `mountOverlay(canvas, state)` for `dispose`, a module `panelCleanup` cleared top-of-`warm` for the swap).
-
-**Build invariants, fixed for a `State`'s life:** capacity, the registered-component set, each component's schema, and the membership generation count (`build` assigns every component its bit up front). A change to any is a fresh build, never an in-place migration.
-
-**Stable component ids — identity survives a reload.** Membership, queries, and the traits exclusions view key on a component's `idOf(component)` (`ecs/core`), not the object — `intern`ed **by name** at `register` and resolved on re-registration, so a reloaded module's fresh component object resolves to the same id, and `register` copies the prior stores onto the new handle (runtime data + GPU buffers survive). A bare (unregistered) component auto-mints an anonymous, object-stable id. The id key is a **Symbol** on purpose — an enumerable `id` would be misread as a field by the `Object.keys`/`Object.entries` walks (`readFields`, `inspect`, `fields`). All of it is slow-path (register / add / remove / query registration), not the per-frame path. `swap()` (engine barrel) is the in-place plugin hot-reload built on this — see its JSDoc.
+Capacity, component set/schema and membership generations require fresh builds to change. Identity is name-interned, Symbol-keyed, non-enumerable; re-registration preserves stores/GPU buffers. Anonymous identities are object-stable; identity work stays slow-path.
 
 ## Runtime state
 
-ECS state is built from a parsed scene via `load()`. `serialize(state)` is the on-demand inverse (save / survive-reload / rebuild), never per-frame. Format a component to its scene attribute through the one shared `readComponent` (`scene`), never a second copy of defaults + `readFields` + `formatFields`. A round-trip preserves codec-representable component values; GPU buffers and `warm`-spawned (derived) entities are rebuilt, not serialized.
+Serialize on demand via shared `readComponent`, never per-frame/duplicate codecs: authored values/identity, not GPU buffers/warm spawns. Explicit eid sets admit procedural entities. Marker + `not()` gates one-time work. Process singletons: matching PascalCase type/value, plugin-initialized, direct reads, no setters/wrappers.
 
-`load` records each entity's identity on `state.identity` (its scene `id` + the load-authored set; an eid stays a borrow, so this is the durable-by-name half — see *Entity reference fields*). `serialize(state)` reads it to serialize **the authored set only** — `warm`-derived entities are absent by construction, so a restore (`load` then `warm`) never doubles them — and to round-trip an entity-ref field as `@<id>`. Pass `serialize(state, eids)` to serialize entities spawned outside `load`.
+## Component storage
 
-## Choosing the right primitive
+Sparse is CPU, slab GPU-read; both expose Single/Pair/Quad. Typed arrays, not number arrays; one Pair/Quad per vector, no split-suffix support. Pick narrow accurate types; hex stays f32. Packed mirrors keep CPU lossless, packing only GPU flushes. Dirty bits stay per-field/per-entity, set EVERY write, cleared ONLY at frame flush, never merged/cleared early: future delta-reader contract.
 
-- Marker components + `not()` queries — entity-scoped one-time actions ("this entity needs initialization")
-- Module-level PascalCase singletons (e.g. `Compute`, `Audio`, `Graph`) — process-scoped shared state. Type name matches singleton name; populate fields in plugin `initialize`, read via direct import. No setters, no `Resource<T>` wrapper
-
-## Component storage contract
-
-Components declare each field as `Single` (scalar), `Pair` (2-lane), or `Quad` (4-lane), produced by `sparse(type)` (CPU, Map-backed — the CPU storage primitive, memory O(live entities)) or `slab(type)` (GPU-mirrored, same Single/Pair/Quad shape plus a dirty-flushed `.gpu` buffer). Pick by direction: `sparse` for CPU-side fields, `slab` for per-entity data a GPU pass reads. Both present the same Single/Pair/Quad surface, so consumers, scene parse, and traits don't see the difference. Type descriptors (`f32, i32, u32, u8, u16, f16, vec2, vec4`, plus the packed mirrors `srgb8x4` / `f16x4`) and the storage interfaces live in `engine/ecs/component.ts`. A packed mirror (`Type.gpu`) keeps the **CPU side lossless** (the full `ctor`×`lanes` — `set`/`read`/serialize see exact floats) and packs only the `.gpu` buffer at flush, so authored scene values never round-trip through the GPU format; never store the packed form on the CPU. Vector fields stay flat — `pos: Quad`, not `posX/posY/posZ` — with lane Singles (`pos.x`) for lane-granular access and bulk `pos.set(eid, x, y, z, w)` for hot-path writes.
-
-A slab's dirty bitset is contract, not implementation detail: one bitset per field, one bit per entity, set on every write, cleared only by the frame flush. That shape is a per-field delta stream (the seam a future replication encoder reads), so keep the granularity — never collapse bitsets across fields or clear bits outside the flush.
-
-Storage fields are pure data — `state.remove`/`state.destroy` do NOT reset them, and a recycled eid inherits whatever the field held until a default re-applies on the next `state.add`. GPU consumers that scan a slab by index (the Part pack reads `surface[eid]` for every slot 0..capacity) skip dead and non-member slots by gating on **component membership**, not on a value smuggled into the data. `SlabPlugin` mirrors the ECS membership bitset to a `"membership"` GPU buffer (one 31-bit word per entity per generation); a pack shader skips `eid` when `(membership[gen * capacity + eid] & mask) == 0`. `state.membership.bit(component)` returns the `{ gen, mask }` to template into that gate (see `Membership` in `engine/ecs/component.ts`). Because membership is the authoritative liveness signal, `state.destroy`/`state.remove` dropping the bit is enough to stop a Part rendering the next frame — no per-field clear, no sentinel value reserved out of the data domain.
-
-A flat component is a real data shape, not a bundle of named scalars. Splitting bloats the schema, mismatches GPU layouts (a vec4 slab is one bind-group entry; four lane Singles is bookkeeping over the same buffer), and would force a name-suffix detector inside scene parse and reflection. TypedArray backing also halves memory vs `number[]` for f32 (4 B vs V8's 8 B doubles), is demand-paged for sparse usage, has no element-kind deopt cliffs, and maps directly to GPU upload.
-
-### Scope
-
-- **All live code is clean** — `engine/`, `standard/`, and `extras/` declare Single/Pair/Quad directly, no `column()` backing, no raw `number[]`. The engine has no split-suffix support: no `detectVecN` detectors, no `${name}X/Y/Z` parse/format branches, no `key.endsWith("X")` schema collapse. (retired)
-
-### Migration guidelines
-
-- **One Pair/Quad per logical vector.** `pos: Quad` not `posX/posY/posZ` lane Singles. Bulk authorship: `pos.set(eid, x, y, z, w)`. Lane access on hot paths: `pos.x.get(eid)`.
-- **Type per field — pick the narrowest accurate type.** `f32` for floats. `u32` for entity IDs. `u8` for boolean flags. `i32`, `u16`, `f16` as the data calls for. Hex-encoded colors stay `f32` (numeric value, codec at parse time).
-- **Defaults are arrays.** `defaults: () => ({ pos: [0, 0, 0, 0], rot: [0, 0, 0, 1] })`. Dotted keys (`"pos.x": 0`) accepted for partial defaults. `applyDefaults` resolves both to one bulk `Quad.set` per field.
-- **Scene attributes accept 1, 3, or 4 values for a Quad; 1 or 2 for a Pair.** Trailing-default lanes elide on format (`pos: [1, 2, 3, 0]` → `pos: 1 2 3`). Dotted attributes (`pos.y: 5`) write a single lane.
-- **Hot loop pattern — hoist→local→writeback.** Inside a query loop, `let v = field.get(eid)` once at the top, mutate, write back at the scope boundary. Avoid `field.set(eid, field.get(eid) - delta)` chains — they read worse against `slab(...)` where the write boundary is semantic.
-- **Single read OR single write — direct call, no hoist.** `field.set(eid, 1)` and `field.get(eid)` are fine standalone.
-- **Test float equality.** `toBe(x)` only for f32-exact values (powers of two, small integers). `toBeCloseTo(x)` for fractional values — `Float32Array` round-trip won't preserve them.
-- **Euler / hex / matrix conveniences live in an authoring `alias` (`eulerAlias`) or codec helpers (`parse`/`format`), never on the component.** Programmatic authors call `euler()`/`quat()` directly.
-- **Import discipline.** `import { sparse, slab, f32, u32, vec4, ... } from "../../engine"` — barrel re-exports them; the deep `engine/ecs/sparse` path fails the import-check rule.
-
-### Pattern references
-
-- `standard/transforms/index.ts` — canonical direct Quad component, slab-backed.
-- `engine/scene/xml.test.ts` — scene-parse contract end to end ("direct Pair/Quad — scene parsing").
+Remove/destroy clears membership, NOT data; add reapplies defaults. GPU index scans MUST gate membership, not sentinels/field clearing. Hoist once, mutate, write back; lone accesses stay direct. Shared codec owns array/dotted defaults/lane attributes. Fractional f32 tests use closeness, exact only if representable. Euler/hex/matrix conveniences stay in aliases/codecs. Import storage via engine barrel. Patterns: `standard/transforms/index.ts`, `engine/scene/xml.test.ts`.
 
 ## Entity reference fields
 
-Component fields that store entity IDs (like `Joint.a`, `Animator.target`, `Player.camera`) use `@name` syntax in scene files. The scene loader resolves `@name` to a real eid at load time — never a literal eid, which would break on serialize→reload because entity ID assignment depends on creation order.
+Refs use entity type, not u32/parallel lists; scenes use `@name`, never eids. Serialize mints names inside its set, uses recorded names outside, throws for destroyed/unnamed external targets. Flat scenes/world Transform: no nesting/parent graph/cascade destroy. Hierarchy/animation producers emit flat output; palettes/VAT bind separately.
 
-A ref field declares itself by **type**: `target: sparse(entity)` (the `entity` descriptor — u32 storage tagged as a ref), not `sparse(u32)`. `serialize` enumerates them (`refs`) and, with the scene `id` `load` recorded on `state.identity`, emits each as `@<id>` — minting an id for a referenced target *inside the serialized set* that lacks one, and falling back to the recorded scene id for a target outside it — so a ref round-trips by name across the creation-order eid reshuffle a reload causes. A target that is neither (destroyed, or outside the set and never authored an id) throws rather than emitting a raw eid, so the round-trip claim holds by failing loud, not by best effort. The type is the one source of truth — a plain `sparse(u32)` (e.g. `Animator.clip`, which interns a path) is never a ref, so no parallel list can drift.
-
-Scenes are flat: no XML nesting, no engine-level parent component. Consumers that need attachment (player → camera, water → chunks, animator → target) declare a consumer-shaped relation — a numeric eid field on the relevant component, resolved via `@name` at load time. `state.destroy(eid)` removes one entity (dropping its component membership) — no cascade to related entities.
-
-**The transform substrate is flat by definition.** `Transform` is a per-entity world transform (the flat `transforms` firehose sear + the pack read); no `parent` field, no per-frame parent-graph traversal. Relative / hierarchical / animated transforms are consumer concerns that depend inward and emit substrate-native flat output, never an engine parent graph: a static glTF node chain bakes to a flat world matrix at import; runtime attachment is the consumer-shaped relation above (a system writes the follower's flat `Transform` from the target each frame); skinning bakes its clip to per-frame vertex textures (the VAT) the importer's `skin` surface samples per-vertex in its `vs` chunk — the instance root stays flat in the firehose, the VAT a separate binding (a live joint palette rides the same shape — the runtime-posed twin in `extras/skin`, `LiveSkin` + the `skin-live` surface, posed each fixed tick instead of sampled from a baked texture). Don't grow `Transform` a `parent` to make imported hierarchies "just work" — that taxes the entities that don't animate to serve the few that do; the convenience layer produces flat output and the substrate stays blind. This is the transform analogue of the no-Hi-Z call (`render.md` "Culling lives in the producer"): refuse the universal runtime mechanism in the substrate, relocate the real need to an inward-depending layer.
-
-**An eid is a borrow, not a durable handle.** It is valid for the scope you obtain it in, recycled on `state.destroy`, with no version packed in (it stays a bare index — see the storage contract). Recycle is handled by membership, not a sentinel: a dead slot is gated out, a reused slot re-applies defaults on `state.add`, so a system that re-queries each frame is always safe. A *held* (cached-across-frames) bare eid is not — validate it with a `state.has`/membership check. That catches a despawned target but **not** a slot recycled to a new same-component entity; for that realias, pair the membership check with **`state.stamp(eid)`** — the create-stamp side array, bumped on every allocation (destroy leaves it unchanged, so neither check alone suffices): `if (!state.has(eid, Comp) || state.stamp(eid) !== cached) evict()`. The 0 stamp is the "never created" sentinel — eid 0 is never minted (`_nextId` starts at 1), so `capacity` admits capacity−1 entities (eids 1..capacity−1). Store the cached stamp **beside the held state, wherever that lives** — the four shipped shapes: beside the handle map (tumble `bodies`+`stamps`), folded into a sync signature (character's FNV), a field on the resource (`View.stamp`), a param on the allocator (LiveSkin `alloc`). A shared adoption helper was considered and declined — the storage shape is what varies, and abstracting it is premature; only a pure diff earns extraction (AVBD's `diffStamps`). Never pack a version into the eid (it stays a bare index). Durable cross-session identity (serialization) is a separate concern from the runtime eid.
+An eid is a borrow: bare index, never packed version. Re-query; held refs need BOTH membership and matching `state.stamp(eid)` against despawn/reuse. Stamps increment on allocation, not destroy; zero means never created, eid zero reserved, capacity admits capacity−1. Keep stamps beside held state; extract pure diffs, not universal adoption wrappers. Serialization identity is separate.
 
 ## Anti-patterns
 
-- `lastState` / `resetIfNewState` guards — scope the state instead (anti-pattern)
-- `lastCamera` skip-checks — premature dirty tracking (anti-pattern)
-- `state.exists` guards — defensive code for cross-State leaking
-- Module-level `Map<number, ...>` for entity ownership — use a consumer-shaped relation (eid field on a component) with marker components
-- Per-frame gather-and-`return null` on GPU buffers that are stable post-warm — a draw-group consumer runs after `warm()` (slab `.gpu`) and the `first` `MembershipSystem` (`membership`), so they're always up at the call site. Read them directly, build the bind group once (rebuilt only on an identity change), let a missing one throw — a null = wiring bug, not a frame to skip. `standard/transforms` is the exemplar
+No last-State/exists guards, camera skip-checks or module ownership maps: scope state/use relations/markers. Post-warm GPU buffers must exist: read directly, throw if missing, cache groups until identity changes, never gather-and-skip.
 
 ## Bevy as the structural reference
 
-**Bevy is the structural reference for ECS, plugin layout, and frame-graph shape.** Take it where it earns its place; skip the parts that exist for Bevy's scale and constraints, not ours.
+Take data-first ECS/plugins, named resource publish/subscribe, closed typed resource unions and kind tags. Skip separate render/extract apps, asset refcounts, open reflection unions, manual slot edges (auto-wire names), macro/query/ordering DSLs, parallel/conflict executors, change ticks, packed generations, hidden deferred sync/mutations and typed system-param chains. One State: sim/render, immediate mutation, camera/canvas views, after BeginFrameSystem, compile in warm; no universal compute graph/compositor.
 
-**Take from Bevy:**
-
-- ECS-component-first, data over inheritance (already the foundation)
-- Plugin shape: `name` + lifecycle hooks + dependency declarations
-- Frame-graph as named resource publish/subscribe
-- Typed, *closed* resource unions (e.g. `Image` bundles texture + view, like `GpuImage`)
-- Kind-tagged values at access time
-
-**Skip from Bevy:**
-
-- Separate `RenderApp` / extract schedule. Shallot runs sim + render in one `State`; that's intentional, not an oversight
-- `Assets<T>` + `Handle<T>` reference counting. Frame-graph slots aren't assets
-- `Box<dyn Reflect>` plugin-extensible type unions. Closed unions beat open at single-author scale; add a variant when a real consumer needs it
-- Manual `add_slot_edge` graph topology. Auto-wire from input/output name matches; the existing inference is simpler and works
-- Macro-heavy registration, generic-saturated query DSLs, schedule/system ordering DSLs
-- **Multi-threaded executor + access-conflict scheduling.** Single-threaded JS, GPU-bound — no parallelism opportunity on the CPU side. Most of Bevy's ECS bulk exists to make this safe; we don't pay the cost
-- **`ChangeDetection` ticks / dirty tracking.** Directly contradicts gpu.md's firehose principle. Tracking which entities changed *is* the antipattern
-- **Generational `Entity` / mandatory recycle version.** The eid stays a bare index; membership is the liveness signal. A recycle version, if a held-reference consumer ever earns it, is an opt-in side array, never packed in the eid. Detail in *Entity reference fields* above
-- **Auto-inserted `apply_deferred` sync + `Commands` deferred mutation.** Hidden inter-system behavior taxes debugging; immediate mutation is fine in single-threaded JS
-- **Typed `SystemParam` chains (`Res<T>`, `Query<T>`, custom params).** The type ceremony taxes authoring; module-level singletons + `state.query([A, B])` are the right size for shallot's scale and trip count
-
-**The decision rules.** Two axes when evaluating any Bevy-style upgrade:
-
-1. **Iteration speed + performance.** Is the feature solving a problem shallot has, or one of Bevy's? Most of Bevy's mature ECS apparatus addresses multi-threaded CPU parallelism with safe deferred mutation — constraints shallot doesn't have. Adopt only when a feature compounds across many systems and reduces noise without taxing authoring or hiding behavior.
-2. **Layer churn.** Which layer iterates? Substrate stable + pipeline iterates → take the strict typing (typed graph slots, closed resource unions). Substrate iterates → keep it loose.
-
-When something doesn't have a clean Bevy analogue (e.g. shallot's GPU-driven physics, on-GPU graph coloring, fixed-cap SoA component storage), don't invent one. Shallot's "structurally Bevy" ends where the WebGPU-on-integrated-GPU floor, the procedural-first commitment, or the iteration-speed posture forces a different shape.
-
-The minimal scheduler/ECS isn't a TODO — it's a deliberate shape that compounds with TS hot reload and small mental model to give shallot's iteration speed. Bevy 0.16 absorbed the render graph into its schedule because the schedule had grown to ~14.5k lines of typed-param + parallel-executor + auto-sync machinery; shallot's scheduler is a few hundred lines doing a different, smaller job. The engine runs on plain ECS systems (no compute graph): each camera binds 1:1 to a canvas (a `View` in the `Views` map); `BeginFrameSystem` acquires every view's swapchain texture, renderers attach via `after: [BeginFrameSystem]` and draw directly into each camera's framebuffer, async pipeline compile happens in each plugin's own `warm()`. No compositor, no offscreens; multi-view = multi-canvas.
+Adopt for real needs/compounding iteration and speed, without hidden behavior/authoring tax. Stable substrate earns strict pipeline types; changing substrate stays loose. No forced analogues against WebGPU/procedural-first constraints; the small scheduler is deliberate.

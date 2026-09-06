@@ -1,5 +1,5 @@
 {
-    "total": 145842,
+    "total": 93666,
     "files": {
         ".claude/rules/audio.md": {
             "bytes": 6161,
@@ -10,16 +10,16 @@
             "paragraph": 636
         },
         ".claude/rules/ecs.md": {
-            "bytes": 22171,
-            "paragraph": 1795
+            "bytes": 4489,
+            "paragraph": 515
         },
         ".claude/rules/examples.md": {
             "bytes": 11708,
             "paragraph": 3862
         },
         ".claude/rules/exports.md": {
-            "bytes": 24665,
-            "paragraph": 15471
+            "bytes": 4490,
+            "paragraph": 539
         },
         ".claude/rules/gpu.md": {
             "bytes": 6974,
@@ -62,8 +62,8 @@
             "paragraph": 4334
         },
         "packages/shallot/AGENTS.md": {
-            "bytes": 19313,
-            "paragraph": 1443
+            "bytes": 4994,
+            "paragraph": 511
         }
     }
 }

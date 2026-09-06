@@ -1,211 +1,55 @@
 # Shallot
 
-WebGPU game engine. Data-oriented ECS, declarative scenes, plugins compose everything. This file is the working contract for building a game on shallot. The source is the reference: every public export carries JSDoc, and `examples/AGENTS.md` (a sibling of this file) indexes the shipped recipe corpus — grep it for the problem you have, then read that recipe's source, before writing a pattern from scratch. `bunx shallot recipe <name> [dir]` copies a recipe out into a runnable project (bare: lists them).
+WebGPU game engine: ECS, scenes, plugins. JSDoc owns APIs. Search `examples/AGENTS.md` and read a recipe first; `bunx shallot recipe <name> [dir]` copies one (bare lists).
 
 ## Commands
 
 ```bash
-bun create shallot <name>   # scaffold a project
-bunx shallot dev [dir]      # run it (vite, hot reload)
-bunx shallot build [dir]    # web build → dist/
-bunx shallot run [dir]      # build + preview
-bunx shallot verify [dir]   # headless-browser gate, exit 0/nonzero (below)
+bun create shallot <name>
+bunx shallot dev [dir]
+bunx shallot build [dir]
+bunx shallot run [dir]
+bunx shallot verify [dir]
 ```
 
-The check is `bunx tsc --noEmit` — run it after every change. Native builds (`bunx shallot build --target windows|mac|linux`, `--portable` for bundled Chromium) download a prebuilt shell from GitHub Releases when available (no Rust toolchain needed); on a miss, compiles from source, needing the Rust toolchain plus per-target system dependencies. If you author TGSL, add `eslint-plugin-typegpu` too; the engine runs its recommended rules with zero warnings allowed.
-
-A project is pure data: `shallot.json` (scene + plugins, optionally capacity + pixel ratio) + `public/scenes/*.scene` + plugin modules under `src/`. No index.html, no vite config — the CLI supplies the scaffolding.
+Run `bunx tsc --noEmit` after changes. `shallot.json` names scene/plugins and optional capacity/pixel ratio; CLI supplies HTML/Vite. Native `--target windows|mac|linux` downloads a shell or compiles with Rust/system dependencies; `--portable` bundles Chromium.
 
 ## Philosophy
 
-Shallot is data-oriented, ECS, declarative. Code shaped this way composes with the engine; code shaped otherwise fights it.
-
-**Add components and systems, not methods.** New behavior is a new component (data) plus a new system (transform). Not a method on an entity, not a class with state, not a manager. The temptation to write `player.jump()` is the most common consumer antipattern — write a `Jump` event or marker and a system that consumes it.
-
-**Scenes declare; code transforms.** Scene files are the source of truth for entity composition. Imperative entity setup belongs in procedural generation and tests, not the standard load path. If you're writing entity-construction code that mirrors a scene file, use the scene file.
-
-**Systems declare order.** Declare `after` / `before` and a `group`; the scheduler topo-sorts. One `terminal` system runs last; `RenderPlugin` owns draw's for submit. Don't sequence work manually.
-
-**One source of truth.** Every piece of data has exactly one authoritative location. Derive, don't duplicate.
-
-**Plugins compose.** Everything is a plugin; nothing is privileged core. Add a feature by adding a plugin, not by modifying engine internals.
-
-**Onion layers — dependencies point inward.** The core is pure data and logic; the outer shell is domain-aware integration. New code goes in the innermost layer it can.
+Components are data, systems behavior, not methods/managers. Scenes author composition; imperative setup is procedural/tests. Derive one truth; compose plugins, depend inward on pure core. Declare group/after/before, not manual sequencing; one terminal runs last (RenderPlugin owns draw submit).
 
 ## Imports
 
-- `@dylanebert/shallot` — public API: components, types, plugins, shape factories. The default plugins (`RenderPlugin`, `SearPlugin`, `GlazePlugin`, `TransformsPlugin`, `PartPlugin`, `InputPlugin`, `SlabPlugin`) auto-register; components register through `Plugin.components`, parse-time metadata via `Plugin.traits`. The orbit camera is opt-in (`OrbitPlugin`, in `extras`)
-- `@dylanebert/shallot/extras` — opt-in plugins not in the default set: `lines`, `orbit`, `outline`, `text`, `animation`, `sprite`, `sky`, `profile`, `gltf`, `skin` (also reachable on the bare barrel). `audio` and `mirror` are on the bare barrel only (`AudioPlugin`, `MirrorPlugin`)
-- `@dylanebert/shallot/runtime` — platform layer (`now`, `requestFrame`, `readFile`) plus the adopted TypeGPU root (`Compute.root`), build check (`checkTgsl`), pipeline warm queue (`precompile`), and GPU probes
-- `@dylanebert/shallot/{render,sear,bvh,audio,animation,ecs,skin,utils}/core` + `/glaze` — extension API for custom render producers, compute passes, diagnostics. Schemas, TGSL/WGSL chunks, typed surface contracts, GPU buffer layouts
-
-Don't deep-import from `src/`. If something you need isn't in a barrel or `*/core` subpath, file an issue.
+`@dylanebert/shallot`: author APIs/defaults; `/extras`: opt-in convenience, also bare. Audio/mirror are bare-only. `/runtime`: platform/device; `*/core` and `/glaze`: extensions. Never deep-import src; file issues for missing seams. Plugins register components/traits.
 
 ## ECS & Plugins
 
-### Plugin lifecycle
+Initialize is pre-scene; warm handles scene data; system setup is lazy first-frame. Mesh/surface plugins depend on RenderPlugin after its registry wipe. Missing dependencies fail before side effects; optional peers use conditional inclusion, nullable hooks or absent-system ordering. Position producers run before PrepassSystem.
 
-`initialize(state)` runs BEFORE scene parse — no entities exist yet. Use `warm(state)` for anything that touches scene data. System `setup(state)` is NOT plugin initialize; it runs lazily on the first frame the system runs.
-
-Mesh/surface plugins depend on `RenderPlugin` so registration follows its wipe. Every dependency is required: `build()` rejects all missing edges before side effects. Optional peers use conditional inclusion, nullable hooks, or ordering against an absent system. Position producers run `before: [PrepassSystem]`.
-
-### Choosing a primitive
-
-- **Marker component + `not()` query** — entity-scoped one-time work
-- **Module-level singleton** (`Compute`, `Audio`, `Render`) — process-scoped shared state; populate fields in plugin `initialize`, read via direct import
-- **Eid field on a component** — entity-to-entity links. An entity references another by storing its eid in a component field, resolved via `@name` syntax in scenes (`target: @hero`). Scenes are flat — there is no engine-level parent.
-
-An eid is a borrow, not a durable handle — a rebuild or destroy recycles it. Re-query each frame, or hold the reference in a component field.
-
-### Anti-patterns
-
-- **Methods on components** — components are data; behavior lives in systems
-- **Manager classes that own entities** — use queries with a consumer-shaped relation (eid field) and systems
-- **`Map<entityId, ...>` for ownership** — use an eid field on the owning component with marker components
-- **Module-level runtime accumulators** (`let angle += dt`) — derive from `state.time.elapsed`, so the value survives a rebuild
-- **`lastState` / `state.exists` defensive guards** — symptoms of cross-State leaking or missed scope
+Marker + `not()` gates once; initialized singletons hold services, component eids relations (`@name`, flat scenes, no parent). Eids recycle: re-query, no module handles/ownership maps. Derive from `state.time.elapsed`; scope state, not last-State/exists guards.
 
 ## UI
 
-DOM UI mounts into **one engine-provided container, sandboxed to the canvas region** — it can never spill into an embedding host page.
-
-- **One attachment point.** `config.ui(container, state) => () => void` — `run()` creates the container over the canvas and hands it in; mount your UI (any framework) and return a cleanup. A plugin that owns UI calls `mountOverlay(canvas, state)` for the identical sandboxed container; passing `state` ties its removal to the State's lifetime.
-- **Author within the container** — position relative to it; **never `position: fixed`** (escapes to the viewport) and **never `document.body`**. The container is `pointer-events: none`; an interactive panel sets `pointer-events: auto`.
-- **Cleanup means real unmount, registered on the State.** Tie teardown to the State: `state.onDispose(fn)` runs `fn` at `state.dispose()`, and `state.signal` passed as `{ signal }` to `addEventListener`/`fetch` detaches with no removal code. The cleanup you return from `config.ui` registers the same way. Whatever you register must unmount what it mounted — Svelte `unmount()`, React `root.unmount()` — and cancel any rAF/interval the UI started; removing the host DOM alone leaves a framework component's effects running. `onDispose` fires only on `state.dispose()`, so if you mount from `warm` (which re-runs on an in-place rebuild with no `dispose` first) also clear the prior mount at the top of `warm` so it can't stack.
-- The engine guarantees containment (`contain: layout paint` + `overflow: hidden`), so overflowing UI is clipped to the canvas region.
+Mount only in `config.ui(container, state)` or `mountOverlay(canvas, state)`, sandboxed to the canvas by layout/paint containment and clipping. Position relative, never fixed or on document.body. Container ignores pointer events; interactive children enable them. Return/register real framework unmount and cancel timers/rAF via State cleanup; use `state.signal` for listeners/fetch. Removing DOM alone leaks effects. Re-warm without dispose must clear its prior mount first; retain dispose cleanup too.
 
 ## GPU
 
-Custom render producers and compute passes are normal extension points — register against `render/core` (`Surfaces` / `Meshes` / `Draws`) and run compute on `Render.encoder` from a system.
+[MIGRATION.md](./MIGRATION.md) governs new code too: exact-once transforms, ejected/framework inclusion, consumer tests, schemas, ownership, TGSL integers/lint, surfaces/varyings/fragment inputs, warm queues. Compute on Render.encoder; register on render/core. Only allocators destroy. CPU truth is typed arrays, not per-frame objects.
 
-### TypeGPU transform
+Hard ceiling: 10 storage bindings/stage across ALL groups, including read-only. Consolidate buffers/headers/uploads, not per-entity CPU iteration. Batch async raw compilation; label raw modules/pipelines, name TypeGPU factories. Use preferred canvas format. DXC needs constant loop bounds/dynamic break, not large dynamic-loop functions.
 
-TGSL needs exactly one transform: CLI-installed, or one direct `unplugin-typegpu/vite` in ejected Vite (never CLI-only `typegpuPlugin()`). An ejected Vite project also needs `optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] }` — a registry install resolves both inside `node_modules`, and no Vite plugin runs over a dependency the dev-server's scanner prebundles ahead of it. The default excludes compiled Svelte/Vue; run component TGSL after its framework transform and include its id. `checkTgsl()` covers only engine TS, so test a consumer component function. Missing transforms yield `NaN`; doubles corrupt metadata. Recipes: [MIGRATION.md](./MIGRATION.md).
+Debug CPU → labeled WGSL/API → safe fragment/compute log → resource probe → verify; no rung proves the next. Logging perturbs bindings/atomics, is bounded/delayed, excludes vertices; external-pass drains need replay. Probe if replay changes behavior; Mirror is delayed telemetry. No atomic debug buffer if logging suffices; capture last after naming pass/draw.
 
-### Schemas and typed resources
+## Render, physics, assets
 
-CPU↔GPU layouts belong to schemas beside data. Create/wrap via `Compute.root`; `unwrap` only for raw consumers. For dual identity, publish typed in `Compute.typed`, raw in `Compute.buffers`; only allocator destroys. Keep CPU truth in typed arrays/`ArrayBuffer`, not per-frame objects.
+Decode scene sRGB hex to linear; surfaces stay linear, composite alone encodes sRGB. Bright accents saturate: darken/lower intensity, tune dominant tones, not a global gamma multiplier. Physics is opt-in TumblePlugin; Body/Spring/Joint author it, Tumble.world extends it. Hand-wired joint bodies must spawn non-overlapping to avoid persistent fighting contacts.
 
-### TGSL authoring
+Procedural-first, no format-shaped substrate. GltfPlugin converts to mesh/material/VAT/rig data; engine-owned SkinPlugin accepts glTF/physics/procedural poses. Producers compose skin/core surfaces.
 
-Author with `tgpu.fn`, `computeFn`, `vertexFn`, or `fragmentFn`; put `"use gpu"` first. Pure functions run in tests; WGSL strings only when needed. Factory kernels call `.$name()`; name factory schemas/pipelines.
+## Testing and verify
 
-TGSL integer division uses `idiv`, never `/`; initialize integer locals with `d.u32(...)`/`d.i32(...)`; lint every `"use gpu"` file.
+Unit verdicts are hardware-invariant; real GPU gates cover compile/raster/readback. Keep permanent tests, temporary labs; derive tolerances (exact ~1e-10, f32 ~1e-6 relative, convergence from order/steps), never tune. Measure GPU timestamps, not FPS.
 
-Force pipeline creation during loading: from `warm`, queue `precompile(label, force)`; return the bound pipeline or an array — drain awaits each entry's `initAsync()`, never dispatch.
+Use self-terminating verify, not lingering servers/tabs. Install: `bun add -d playwright`, `bunx playwright install chromium`. Build then verify `--dist`. COOP/COEP requires CORS/CORP or local assets; hosts without headers use single-thread physics.
 
-### Typed surfaces
-
-Build `surfaceLayout` first, close TGSL over `layout.$`, then register that exact spec against its `State`. One `varyings` object builds both `vsPatchSchema` and `fsCtxSchema`. List mesh fields read by `fs` in `fragmentInputs`; omitted fields are zero-filled and use no interpolator.
-
-### Binding limits
-
-`maxStorageBuffersPerShaderStage` is **10 — hard ceiling.** 99.6% of devices support 10; only 64% support 16. Requesting more rejects `requestDevice()` on a third of users. Per shader stage across all bind groups — splitting groups doesn't help. Both `storage` and `read-only-storage` count.
-
-When you hit it, don't silently exceed (Chrome fails with no diagnostics). Consolidate: interleave same-pass buffers into one struct, fold scalars into a related buffer's header, block-concatenate CPU uploads. Never add per-entity CPU iteration to save a binding.
-
-### Debug methodology
-
-Climb one boundary at a time: CPU-call a pure TGSL function where possible; inspect the labeled resolved-WGSL artifact and compilation/API diagnostic; use TypeGPU `console.*` only for a safe TypeGPU-owned fragment/compute trigger; inspect typed buffers with `.read()` or raw/color/depth resources with one-shot `probeBuffer` / `probeTexture`; then keep the final `shallot verify` observable. No rung proves the next.
-
-Treat shader logging as perturbing: it injects atomics/bindings, is bounded and delayed, cannot log vertex work, and an externally-owned `.with(pass)` draw does not drain it without replay. Prefer a resource probe when replay could change the path. `Mirror` is for continuous delayed telemetry, not a submission-causal diagnosis. Do not invent an atomic debug buffer where TypeGPU logging answers the same question; use native capture last, after a runnable probe has named the pass/draw.
-
-### Pipelines
-
-- Raw WebGPU pipelines use `createComputePipelineAsync` / `createRenderPipelineAsync` and batch through `Promise.all`. TypeGPU pipelines use the warm queue described above
-- Every raw shader module and pipeline must include a stable `label`; every TypeGPU pipeline must carry a stable `.$name()` — these join error scopes, exact WGSL artifacts/hashes, stats, and capture markers
-- Don't hardcode `bgra8unorm`; use `navigator.gpu.getPreferredCanvasFormat()`
-- DXC (Chrome on Windows) doesn't DCE and stalls on large functions inside dynamic loops. Constant upper bounds with dynamic `break` are fine
-
-## Render
-
-### Gamma pipeline
-
-End-to-end gamma-correct; everywhere but the boundaries is linear:
-
-1. **Hex decode** — scene hex colors decode sRGB byte → linear float at parse time (`unpackColor`).
-2. **Surfaces output linear** — a surface fs writes a linear `col`; sear returns it verbatim.
-3. **Composite encode** — the postfx composite (`GlazePlugin`, or a custom one) encodes linear→sRGB itself (`linearToSrgbWgsl()`).
-
-Don't call `linearToSrgb` in a surface fs — the composite does it.
-
-### Content tuning
-
-- Bright accent hex (`0xd49560`) saturates under intense lighting (linear × intensity > 1 collapses to white). Use darker variants (`0x8b6040`) or lower intensity.
-- Gamma is non-linear; no global intensity multiplier matches every albedo. Tune for dominant tones; accept drift on saturated-bright accents.
-
-## Physics
-
-Physics is opt-in — `TumblePlugin` (main barrel) plus the `Body` / `Spring` / `Joint` components author it, and `Tumble.world` is the escape hatch for constraints past the substrate. When you wire a joint by hand after the bodies marshal, **spawn the jointed bodies non-overlapping**: the physics ticks between body creation and the wire mint a persistent contact that fights the joint from then on, so a motor pulling two concentric bodies together stalls — author them apart, or anchor a driven body to ground it does not overlap.
-
-## Assets
-
-Shallot is procedural-first: meshes, materials, and motion are data you author, and no engine path is shaped around an asset format. When you have authored assets, `extras/gltf` (`GltfPlugin`) is the converter — it turns a glTF file into engine idioms: mesh data, material palette entries, baked VAT animation textures, live-skin rig data. The runtime substrate it feeds is engine-owned: `extras/skin` (`SkinPlugin`) holds the live joint-palette skinning substrate — the `Skin` component, the palette buffer, and the `LiveSkin` pose-write API — with three producers: a glTF rig, a physics ragdoll, or your own procedural rig (compose a custom surface from `skin/core`'s WGSL).
-
-## Testing
-
-- **Unit tests** (`bun test`) — fast, hardware-invariant logic: structure, layout, math errors. **A default-suite one's verdict never rests on device execution** (software adapters flake; exceptions: testing.md). A by-path `.tier.ts` probe binds the preloaded adapter: closed-form bands only, never a correctness oracle.
-- **Real GPU** (Playwright) — pipeline validation, compile, raster, readback. Unit tests alone miss real hardware failures.
-- **`.test.ts`** — spec tests. First principles, tight tolerances, permanent. **`.lab.ts`** — investigation, not auto-run, temporary.
-- **Tolerances are derived, not tuned:** exact invariants → 1e-10; f32 precision → ~1e-6 relative; truncation and convergence → derive from order, step size, iteration count. If you can't derive it, investigate in a `.lab.ts` first.
-- **GPU timestamps, not FPS.** `requestAnimationFrame` measures CPU; `queue.submit()` returns immediately. GPU timestamp queries measure actual hardware execution.
-
-## Build, run, verify
-
-`shallot verify [dir]` boots the project in a real headless browser and exits 0 on pass / nonzero on fail — a self-terminating gate for an agent (or CI) to prove its own work. No dev server left running, no browser tab to close.
-
-**Cross-origin isolation.** Every serve surface (`shallot dev`, `shallot run`'s preview, `verify`'s boots) sends COOP/COEP headers so tumble physics can multithread — a browser grants shared memory only to a cross-origin-isolated page. The tradeoff: a cross-origin subresource must be CORS-approved or carry a CORP header. A plain `<img>` or no-cors fetch from a host that sends neither is blocked on these servers; serve the asset from `public/` instead, or use a CORS-enabled host. A static host that can't set headers (GitHub Pages) still works — physics falls back to single-threaded with one console log.
-
-```bash
-bunx shallot verify                    # boot the dev server, check the scene renders
-bunx shallot build && bunx shallot verify --dist   # verify the shipped build instead
-bunx shallot verify --screenshot out.png --query scenario=fall
-```
-
-Playwright is optional — install it once: `bun add -d playwright && bunx playwright install chromium`. It's never a dependency of your app; `verify` finds it in your project and exits with a distinct code (naming the install command) if it's absent.
-
-**Default readiness.** With no `window.__harness`, `verify` passes when the canvas booted, rendered a settled non-blank frame, and threw no page errors — the whole check needs no code in your project.
-
-**Assert something specific.** Install `window.__harness` to have `verify` drive your own pass/fail instead of the render check. `installHarness` sets it up (`ready` flips true once a frame draws, `read(eid)` returns a live entity pose — physics pose for a `Body`, else its `Transform`); replace `run` to assert:
-
-```ts
-import { installHarness } from "@dylanebert/shallot/harness";
-
-const app = await run({ scene });
-const harness = installHarness(app.state);
-harness.run = async () => {
-    const box = harness.read!(boxEid)!;           // where did it end up?
-    const fell = box.pos[1] < 0.5;
-    return { ok: fell, checks: [{ name: "box fell to the floor", ok: fell }] };
-};
-```
-
-`verify` waits for `ready`, calls `run()`, and its exit code follows the `Verdict.ok` (plus zero page errors). `--json` emits the full result — `checks` and any extra fields your `Verdict` carries pass through. `--query k=v` sets URL params (and mirrors into `run`'s opts).
-
-**Many configurations, one boot.** `--run k=v` (repeatable) batches them: fresh context and page per run, one verdict each, JSON array out, nonzero if any fails. Keep a **perf-threshold** verdict in its own process; back-to-back runs contend for the GPU.
-
-**In a manifest project** (`shallot.json` + plugins, no `run({ scene })` of your own — the CLI runs the project), install from a plugin hook. `initialize(state)` runs before the scene parses, so it pins the harness before a frame can settle; resolve entities inside `run`, where they already exist:
-
-```ts
-import { installHarness } from "@dylanebert/shallot/harness";
-import { Body, type Plugin, type State } from "@dylanebert/shallot";
-
-const Verify: Plugin = {
-    name: "Verify",
-    initialize(state: State) {
-        const harness = installHarness(state);
-        harness.run = async () => {
-            const box = [...state.query([Body])][0]; // the falling body
-            const fell = harness.read!(box)!.pos[1] < 0.5;
-            return { ok: fell, checks: [{ name: "box fell", ok: fell }] };
-        };
-    },
-};
-export default Verify;
-```
-
-Add it to `shallot.json` (`"Verify": "./src/verify"`) while you check, and remove it after.
-
-**Verify persistence in one run.** `run(opts)` receives the `--query` values, so you can seed the saved state and assert the restore path without a real reload. `bunx shallot verify --query color=blue` → `run({ color })` writes `localStorage` the way a prior session would, drives the project's restore path, and asserts the restored value came back — reload-persistence proven in a single invocation, no dev server.
-
-**Installing late?** A defined `window.__harness` always wins over the render check, but only once it exists — a static frame can settle (and conclude the render check) before your app finishes a slow build or a self-reload and installs it. Pin the harness path up front: set `window.__harness = { ready: false }` first thing, then install the real one when ready.
+Without `window.__harness`, verify needs settled nonblank rendering/no page errors. Pin `{ready:false}` immediately, then installHarness from `/harness`; initialize pins, run resolves entities. Verify waits ready, calls run, requires Verdict.ok/no page errors. Queries feed run; JSON preserves checks/extras. Batch `--run k=v` isolates pages/contexts, any failure fails; perf thresholds run separately. Seed storage/exercise restore for persistence. JSDoc owns pose reads/flags; remove temporary verify plugins.
