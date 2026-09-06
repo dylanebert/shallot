@@ -124,17 +124,7 @@ export type CitationCandidate = {
     line: number;
     ref: string;
     kind: "ts-path" | "identifier";
-    soloBacktick: boolean;
 };
-
-// ── Marker vocabulary ──────────────────────────────────────────────────────────────────────
-
-export const MARKER_VOCABULARY = ["(retired)", "(gone)", "(anti-pattern)"] as const;
-export type Marker = (typeof MARKER_VOCABULARY)[number];
-
-export function lineHasMarker(line: string): boolean {
-    return MARKER_VOCABULARY.some((m) => line.includes(m));
-}
 
 // ── Candidate extraction ───────────────────────────────────────────────────────────────────
 
@@ -162,23 +152,15 @@ const ARITH_RE = /[-+*/=^·×÷−≤≥]/;
 export async function extractCandidates(
     ruleFiles: string[],
     root: string,
-): Promise<{ candidates: CitationCandidate[]; markerExempted: Map<string, Set<string>> }> {
+): Promise<{ candidates: CitationCandidate[] }> {
     const candidates: CitationCandidate[] = [];
     const seen = new Set<string>();
-    // markerExempted: file → set of refs that are on a marker-carrying line
-    const markerExempted = new Map<string, Set<string>>();
 
-    function addCandidate(
-        file: string,
-        line: number,
-        ref: string,
-        kind: "ts-path" | "identifier",
-        soloBacktick: boolean,
-    ) {
+    function addCandidate(file: string, line: number, ref: string, kind: "ts-path" | "identifier") {
         const key = `${file}:${line}:${ref}`;
         if (seen.has(key)) return;
         seen.add(key);
-        candidates.push({ file, line, ref, kind, soloBacktick });
+        candidates.push({ file, line, ref, kind });
     }
 
     for (const file of ruleFiles) {
@@ -194,13 +176,6 @@ export async function extractCandidates(
             }
             if (inFence) continue;
 
-            const lineHasMarkerFlag = lineHasMarker(line);
-
-            // Track which refs are on marker-carrying lines (for the marker exemption)
-            if (lineHasMarkerFlag) {
-                if (!markerExempted.has(file)) markerExempted.set(file, new Set());
-            }
-
             // 1. Backtick-cited .ts paths
             const tsPathSpans: string[] = [];
             for (const m of line.matchAll(TS_PATH_RE)) {
@@ -212,11 +187,8 @@ export async function extractCandidates(
                     ref.includes("{")
                 )
                     continue;
-                addCandidate(file, i + 1, ref, "ts-path", true);
+                addCandidate(file, i + 1, ref, "ts-path");
                 tsPathSpans.push(m[0]);
-                if (lineHasMarkerFlag) {
-                    markerExempted.get(file)!.add(ref);
-                }
             }
 
             // 2. Backtick-cited identifiers (solo-backtick spans)
@@ -224,10 +196,7 @@ export async function extractCandidates(
                 const ref = m[1].replace(/\(\)$/, "");
                 if (ref.endsWith(".ts")) continue;
                 if (matchesShape(ref)) {
-                    addCandidate(file, i + 1, ref, "identifier", true);
-                    if (lineHasMarkerFlag) {
-                        markerExempted.get(file)!.add(ref);
-                    }
+                    addCandidate(file, i + 1, ref, "identifier");
                 }
             }
 
@@ -250,7 +219,7 @@ export async function extractCandidates(
                 // All identifier shapes are caught bare (re-admitted, round 6b): camelCase,
                 // PascalCase, SCREAMING_SNAKE, snake_case, and lowercase-with-digits.
                 if (matchesShape(ref)) {
-                    addCandidate(file, i + 1, ref, "identifier", false);
+                    addCandidate(file, i + 1, ref, "identifier");
                 }
             }
 
@@ -279,10 +248,7 @@ export async function extractCandidates(
                     // Fix 4a: a token followed by `(` is a call citation — must resolve
                     if (afterChar === "(") {
                         if (matchesShape(ref)) {
-                            addCandidate(file, i + 1, ref, "identifier", false);
-                            if (lineHasMarkerFlag) {
-                                markerExempted.get(file)!.add(ref);
-                            }
+                            addCandidate(file, i + 1, ref, "identifier");
                         }
                         continue;
                     }
@@ -295,17 +261,14 @@ export async function extractCandidates(
                     // in arithmetic context (including comparison operators) are excluded
                     // above.
                     if (matchesShape(ref)) {
-                        addCandidate(file, i + 1, ref, "identifier", false);
-                        if (lineHasMarkerFlag) {
-                            markerExempted.get(file)!.add(ref);
-                        }
+                        addCandidate(file, i + 1, ref, "identifier");
                     }
                 }
             }
         }
     }
 
-    return { candidates, markerExempted };
+    return { candidates };
 }
 
 // ── Token index ────────────────────────────────────────────────────────────────────────────

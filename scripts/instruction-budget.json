@@ -1,9 +1,9 @@
 {
-    "total": 93666,
+    "total": 69191,
     "files": {
         ".claude/rules/audio.md": {
-            "bytes": 6161,
-            "paragraph": 1517
+            "bytes": 3715,
+            "paragraph": 528
         },
         ".claude/rules/avbd.md": {
             "bytes": 5499,
@@ -14,8 +14,8 @@
             "paragraph": 515
         },
         ".claude/rules/examples.md": {
-            "bytes": 11708,
-            "paragraph": 3862
+            "bytes": 2981,
+            "paragraph": 432
         },
         ".claude/rules/exports.md": {
             "bytes": 4490,
@@ -50,16 +50,16 @@
             "paragraph": 451
         },
         "AGENTS.md": {
-            "bytes": 13314,
-            "paragraph": 2550
+            "bytes": 4469,
+            "paragraph": 630
         },
         "CLAUDE.md": {
             "bytes": 169,
             "paragraph": 156
         },
         "examples/AGENTS.md": {
-            "bytes": 7953,
-            "paragraph": 4334
+            "bytes": 3496,
+            "paragraph": 514
         },
         "packages/shallot/AGENTS.md": {
             "bytes": 4994,
