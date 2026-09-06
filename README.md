@@ -104,10 +104,10 @@ Portable builds bundle the Chromium runtime (CEF) instead of the system webview.
 
 ### commands
 
-run from the repo root.
+run from the repo root. The `test` script in [`package.json`](package.json) defines the default test paths.
 
 ```bash
-bun run test       # unit tests over packages/shallot, scripts, evals, showcase/visualization/test (bun-webgpu)
+bun run test       # default unit suite (bun-webgpu)
 bun bench          # GPU benchmarks
 bun check          # read-only: tsc + biome + eslint + repo checks + scene-format report
 bun run format     # biome + scene formatter
