@@ -1,13 +1,13 @@
 {
-    "total": 264203,
+    "total": 145842,
     "files": {
         ".claude/rules/audio.md": {
             "bytes": 6161,
             "paragraph": 1517
         },
         ".claude/rules/avbd.md": {
-            "bytes": 69400,
-            "paragraph": 16734
+            "bytes": 5499,
+            "paragraph": 636
         },
         ".claude/rules/ecs.md": {
             "bytes": 22171,
@@ -26,8 +26,8 @@
             "paragraph": 519
         },
         ".claude/rules/physics.md": {
-            "bytes": 18335,
-            "paragraph": 6116
+            "bytes": 3997,
+            "paragraph": 534
         },
         ".claude/rules/render.md": {
             "bytes": 6957,
@@ -42,8 +42,8 @@
             "paragraph": 493
         },
         ".claude/rules/tumble.md": {
-            "bytes": 45105,
-            "paragraph": 2861
+            "bytes": 4983,
+            "paragraph": 733
         },
         ".claude/rules/visual-identity.md": {
             "bytes": 1224,
