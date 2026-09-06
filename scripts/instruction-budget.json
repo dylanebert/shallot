@@ -1,0 +1,69 @@
+{
+    "total": 481092,
+    "files": {
+        ".claude/rules/audio.md": {
+            "bytes": 6161,
+            "paragraph": 1517
+        },
+        ".claude/rules/avbd.md": {
+            "bytes": 69400,
+            "paragraph": 16734
+        },
+        ".claude/rules/ecs.md": {
+            "bytes": 22171,
+            "paragraph": 1795
+        },
+        ".claude/rules/examples.md": {
+            "bytes": 11708,
+            "paragraph": 3862
+        },
+        ".claude/rules/exports.md": {
+            "bytes": 24665,
+            "paragraph": 15471
+        },
+        ".claude/rules/gpu.md": {
+            "bytes": 69930,
+            "paragraph": 6264
+        },
+        ".claude/rules/physics.md": {
+            "bytes": 18335,
+            "paragraph": 6116
+        },
+        ".claude/rules/render.md": {
+            "bytes": 64234,
+            "paragraph": 12566
+        },
+        ".claude/rules/style.md": {
+            "bytes": 2784,
+            "paragraph": 473
+        },
+        ".claude/rules/testing.md": {
+            "bytes": 104626,
+            "paragraph": 18471
+        },
+        ".claude/rules/tumble.md": {
+            "bytes": 45105,
+            "paragraph": 2861
+        },
+        ".claude/rules/visual-identity.md": {
+            "bytes": 1224,
+            "paragraph": 451
+        },
+        "AGENTS.md": {
+            "bytes": 13314,
+            "paragraph": 2550
+        },
+        "CLAUDE.md": {
+            "bytes": 169,
+            "paragraph": 156
+        },
+        "examples/AGENTS.md": {
+            "bytes": 7953,
+            "paragraph": 4334
+        },
+        "packages/shallot/AGENTS.md": {
+            "bytes": 19313,
+            "paragraph": 1443
+        }
+    }
+}

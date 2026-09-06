@@ -1,57 +1,23 @@
 # Style
 
-How shallot code is shaped: naming, the shape of a function, and when to comment — across all code in this repo: engine source (`src/engine/`, `src/standard/`, `src/extras/`), tests, `bin/`, `scripts/`, `evals/`, and examples alike. The data-over-methods philosophy lives in `packages/shallot/AGENTS.md`; choosing a component, system, or singleton primitive lives in `ecs.md`. This file covers the rest: what to call things, how a function reads, and what's worth a comment.
-
-## Imitate the existing code
-
-`src/engine/` and `src/standard/` are the reference for both. Before writing a new function, system, or plugin, read a sibling in the same directory and follow its shape. The names and structure already there are the spec. Two minutes grepping neighbors for the verb that fits beats inventing one, and keeps the surface consistent.
+Applies to all repo code, including tests, tooling and examples. Read a sibling before adding a function, system or plugin; follow the naming and shape in `src/engine/` and `src/standard/`. Data-over-methods lives in `packages/shallot/AGENTS.md`; primitive choices live in `ecs.md`.
 
 ## Naming
 
-The shortest word that's clear in context, a single verb where one fits: `mesh`, `pack`, `warm`, `sparse`, `slab`, `attachCanvas`. Module scope is the context: a function doesn't repeat the name of the file or type it lives in.
-
-- Add a qualifier only to distinguish two real things: `composeTransform` (one entity) vs `composeTransforms` (the batch). Never to describe what the body already shows. A function that builds a mesh from vertices is `mesh`, not `createMeshGeometryFromVertices`. (anti-pattern)
-- A multi-word name is usually a function doing several things. Split it, or the name is covering for a call chain.
-- PascalCase for components, plugins, and singletons (`Transform`, `RenderPlugin`, `Compute`); camelCase for functions and locals.
+Use the shortest clear word, a single verb where it fits. Module scope supplies context: don't repeat the file or type name. Qualify only to distinguish real alternatives, not to describe the body. A multi-word name may hide several jobs; split those jobs rather than disguise a call chain. Use PascalCase for components, plugins and singletons; camelCase for functions and locals.
 
 ## A function is a transform; a system is a loop
 
-Logic is data in, data out. Orchestration is a flat sequence or a query loop, not a stack of private helpers calling helpers. The dominant shape is a system that queries entities and acts on each:
-
-```ts
-// standard/sear/index.ts — query, guard, act. Flat.
-const ColorSystem: System = {
-    group: "draw",
-    after: [PrepassSystem],
-    update(state) {
-        if (!Render.encoder) return;
-        for (const eid of state.query([Camera, Sear])) {
-            const view = Views.get(eid);
-            if (!view?.framebuffer) continue;
-            renderColor(eid, view, _frameDraws);
-        }
-    },
-};
-```
-
-Guards are early returns, not nested branches. The work it hands off (`renderColor`) is one named transform, not a `prepareX` then `buildY` then `applyZ` chain of helpers calling each other. Extract a step into its own function when it's pure and a test can call it in isolation; inline a step that only runs from one place. A plugin is the same idea, as data: a plain object of `name`, `components`, `systems`, `dependencies`, and lifecycle hooks (`initialize` / `warm`), not a class. See `SearPlugin` and `PartPlugin` in `standard/`. (anti-pattern)
+Logic is data in, data out. Orchestration is a flat sequence or entity-query loop: query, guard, act. Use early returns instead of nested branches, and named transforms instead of private helpers calling helpers. Extract pure steps that tests can call in isolation; inline steps used only once. Plugins are plain objects with components, systems, dependencies and lifecycle hooks, not classes. Follow `SearPlugin` and `PartPlugin` in `standard/`.
 
 ## Comments earn their place
 
-The comment rule is universal: default to none, earn one only with a public export's JSDoc contract or the *why* behind a non-obvious line. One thing is shallot-specific: shallot code is minimal enough that the bar sits higher than elsewhere — `sear/` and `slab/` are the reference for how much to say, and when in doubt, say less.
+Default to none. Earn a comment with a public export's JSDoc contract or the why behind a non-obvious line; `sear/` and `slab/` set the bar. State today's invariant, never restate the code or narrate an edit. History sections, refuted alternatives and workflow chronologies belong in Git. Algorithm step labels are fine: they name the algorithm, not this repo's workflow.
 
-**A comment states what is true now; how the code got that way is the commit message's job.** Never restate the line, and never narrate the edit — "now we…", "changed to…", "no longer…", "previously…", "used to…" are the greppable surface forms. A `History:` section, a refuted-alternative record, or a workflow-stage chronology in a module header is the same defect at essay length: rewrite it as the invariant that holds today, or delete it. (Algorithm step labels like `// Stage 1:` in a ported kernel are fine — they name the algorithm's own stages, not this repo's workflow.)
+Never anchor comments to workflow stage IDs, private planning paths or deleted symbols. Write the invariant so a standalone reader can check it. `scripts/check-docs.ts` checks tracked `.ts` comment citations against `.md` basenames tracked in this repo only. It does not validate full paths, scan other source languages or distinguish bare workflow IDs from algorithm labels; those still need a read. `check-docs.test.ts` preserves dead/private refusal and live resolution.
 
-**A comment anchored to something outside this repo rots invisibly.** Never cite a workflow stage ID, a private planning path, or a symbol you are deleting; write the invariant instead, so the comment stays checkable by a reader who has only this repo. A stale anchor reads as authoritative for years — one sweep found ~90 such sites, and the last of them had to be caught by name because no regex spelled its surface form. **The `*.md`-cite half is partly gated and the stage-ID half never will be.** `scripts/check-docs.ts` reds on a **tracked `.ts`** comment citing a `.md` **basename** that no tracked `.md` matches, in this repo or the one containing it (`check-docs.test.ts` holds the two-sided reading — a dead cite reds, a live one is spared), so a pointer to a deleted spec cannot re-accrete there. Know the three edges it leaves: the *path* is never checked, only the basename; non-`.ts` sources are unscanned; and a basename tracked only by the containing repo is spared, so a cite that resolves for a reader who has that repo still rots for one who has only this one. A bare stage ID has no resolution target at all, and separating a workflow anchor from an algorithm's own `// Stage N:` labels is semantic rather than mechanical, so that half re-accretes silently and only a read catches it.
+## Instruction budgets
 
-- **The entry-doc chain from repo root down to the working directory stays under the Codex 32768 B budget** — `scripts/check-docs.ts`'s `ENTRY_DOC_BUDGET = 32768` arm enforces this per chain in `bun run check` (root + `packages/shallot`, root + `examples`), so a manual `wc -c` before an entry-doc addition is work the gate already does; the chain sits at ~32752 B — 16 B of headroom — so the next addition must fold detail down into a path-scoped rule rather than pay for it in the entry doc; past the budget Codex silently drops the deepest file and its whole contract vanishes.
+Keep root-to-leaf entry-doc chains within 32768 bytes. `scripts/check-docs.ts` enforces root plus `packages/shallot`, and root plus `examples`, in `bun run check`. Fold detail into scoped rules: exceeding the context-loader budget silently drops the deepest file and its contract.
 
-```ts
-// good — says why; survives the next edit
-// the shadow pass reads positions only; the attributes stream stays bound for the color pass
-bindMesh(state, view.positions);
-
-// bad — narrates the change and restates the code
-// now we bind positions instead of the whole mesh like before
-bindMesh(state, view.positions); // bind the positions
-```
+The same check ratchets instruction bytes and longest blank-line-delimited paragraph per file, plus corpus bytes. After cuts, explicitly run `bun run scripts/check-docs.ts --lower`; checking never writes. Its Git-derived population covers any-depth AGENTS.md, CLAUDE.md and `.claude/rules/*.md`, including untracked files; ignored files and other names are outside that vocabulary. New members and symlinks refuse.
