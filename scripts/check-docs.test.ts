@@ -105,6 +105,15 @@ beforeAll(async () => {
             }
         };
         await run("baseline", {});
+        const suffixes = ["oracle", "tier", "lab"];
+        for (const [name, roster] of [
+            ["regex", suffixes.join("|")],
+            ["array", JSON.stringify(suffixes.map((suffix) => `.${suffix}.ts`))],
+        ]) {
+            await run(`tier ${name} restatement`, {
+                "scripts/rosters.ts": (text) => `${text}\n// ${roster}\n`,
+            });
+        }
         const visual = ".claude/rules/visual-identity.md";
         const byteGrowth = { [visual]: (text: string) => `${text}\n\nsmall addition\n` };
         const paragraphGrowth = { [visual]: (text: string) => text.replace(/\n\s*\n/g, " ") };
@@ -273,6 +282,16 @@ for (const [name, diagnostic] of [
         expect(reading.output).toContain(diagnostic);
         if (name.includes("paragraph")) expect(reading.output).not.toContain("byte growth:");
         if (name.includes("byte")) expect(reading.output).not.toContain("paragraph growth:");
+    });
+}
+
+for (const shape of ["regex", "array"]) {
+    test(`tier roster refuses ${shape} restatement without prose enumeration`, () => {
+        const reading = readings.get(`tier ${shape} restatement`)!;
+        expect(reading.exitCode).toBe(1);
+        expect(reading.output).toContain("✗ tier-suffix roster arm:");
+        expect(reading.output).toContain("scripts/rosters.ts:");
+        expect(reading.output).toContain("carries a literal tier-suffix roster");
     });
 }
 

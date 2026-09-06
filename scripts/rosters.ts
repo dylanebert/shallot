@@ -92,7 +92,7 @@ export const FOREIGN_NAMESPACES: Record<string, ReadonlySet<string>> = {
     D3D12: new Set(["ExecuteIndirect"]),
     Vulkan: new Set(["vkCmdDrawIndirectCount"]),
     CUDA: new Set(["__threadfence"]),
-    TypeGPU: new Set(["__TYPEGPU_AUTONAME__", "sideEffects"]),
+    TypeGPU: new Set(["sideEffects"]),
     SteamAudio: new Set(["gain_effect", "direct_effect"]),
     WasmFeatures: new Set(["memory64"]),
     Tools: new Set(["PowerVR", "RenderDoc", "webgpu_inspector"]),
