@@ -12,7 +12,7 @@ Kernel behavior lives in `rust/audio/` + `worklet.ts`; JS layers in `standard/au
 
 Dependencies inward, substrate then composable contracts; don't collapse layers or push upper work down. Core owns AudioContext/worklet hosting, 64-slot generation-validated allocation, per-frame wire/spatial batches and DAG compilation to nodes/`paramLayout`. Kernel owns all DSP; no CPU voice mirror or duplicate command union: wire belongs only to `worklet.ts`.
 
-Index is SFX: sparse Sound/Listener, SoundSystem allocation/free gated by Voiced, volume/spatial updates, play. Policy registers per-name max/cooldown/oldest|quietest|drop limits over play; no policy means unbounded. Cooldown uses `state.time.elapsed`, heals backwards clocks after rebuild. Never cull loops; caps steal only same-name voices, not beds/music. General priority remains out of scope. Future sequencer/acoustics/physics/DDSP contracts compose above the small substrate; transport-layer sequencer wires aren't built.
+Index: SFX, sparse Sound/Listener, SoundSystem alloc/free gated by Voiced, volume/spatial updates/play. Policy registers per-name max/cooldown/oldest|quietest|drop limits over play; no policy means unbounded. Cooldown uses `state.time.elapsed`, heals backwards clocks after rebuild. Never cull loops; caps steal only same-name voices, not beds/music. General priority is out of scope. Future sequencer/acoustics/physics/DDSP contracts: one scenario each, mix freely above small substrate; sequencer transport wires aren't built.
 
 ## Voice lifecycle
 

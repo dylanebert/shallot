@@ -124,7 +124,6 @@ export type CitationCandidate = {
     line: number;
     ref: string;
     kind: "ts-path" | "identifier";
-    soloBacktick: boolean;
 };
 
 // ── Candidate extraction ───────────────────────────────────────────────────────────────────
@@ -157,17 +156,11 @@ export async function extractCandidates(
     const candidates: CitationCandidate[] = [];
     const seen = new Set<string>();
 
-    function addCandidate(
-        file: string,
-        line: number,
-        ref: string,
-        kind: "ts-path" | "identifier",
-        soloBacktick: boolean,
-    ) {
+    function addCandidate(file: string, line: number, ref: string, kind: "ts-path" | "identifier") {
         const key = `${file}:${line}:${ref}`;
         if (seen.has(key)) return;
         seen.add(key);
-        candidates.push({ file, line, ref, kind, soloBacktick });
+        candidates.push({ file, line, ref, kind });
     }
 
     for (const file of ruleFiles) {
@@ -194,7 +187,7 @@ export async function extractCandidates(
                     ref.includes("{")
                 )
                     continue;
-                addCandidate(file, i + 1, ref, "ts-path", true);
+                addCandidate(file, i + 1, ref, "ts-path");
                 tsPathSpans.push(m[0]);
             }
 
@@ -203,7 +196,7 @@ export async function extractCandidates(
                 const ref = m[1].replace(/\(\)$/, "");
                 if (ref.endsWith(".ts")) continue;
                 if (matchesShape(ref)) {
-                    addCandidate(file, i + 1, ref, "identifier", true);
+                    addCandidate(file, i + 1, ref, "identifier");
                 }
             }
 
@@ -226,7 +219,7 @@ export async function extractCandidates(
                 // All identifier shapes are caught bare (re-admitted, round 6b): camelCase,
                 // PascalCase, SCREAMING_SNAKE, snake_case, and lowercase-with-digits.
                 if (matchesShape(ref)) {
-                    addCandidate(file, i + 1, ref, "identifier", false);
+                    addCandidate(file, i + 1, ref, "identifier");
                 }
             }
 
@@ -255,7 +248,7 @@ export async function extractCandidates(
                     // Fix 4a: a token followed by `(` is a call citation — must resolve
                     if (afterChar === "(") {
                         if (matchesShape(ref)) {
-                            addCandidate(file, i + 1, ref, "identifier", false);
+                            addCandidate(file, i + 1, ref, "identifier");
                         }
                         continue;
                     }
@@ -268,7 +261,7 @@ export async function extractCandidates(
                     // in arithmetic context (including comparison operators) are excluded
                     // above.
                     if (matchesShape(ref)) {
-                        addCandidate(file, i + 1, ref, "identifier", false);
+                        addCandidate(file, i + 1, ref, "identifier");
                     }
                 }
             }
