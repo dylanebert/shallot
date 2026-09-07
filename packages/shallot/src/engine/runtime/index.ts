@@ -3,6 +3,7 @@ export {
     checkStorageBinding,
     checkTextureLimits,
     checkTgsl,
+    deviceLost,
     type LazyAlloc,
     PIPELINE_COMPILE_MEASURE_PREFIX,
     precompile,

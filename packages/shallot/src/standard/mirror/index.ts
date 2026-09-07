@@ -1,7 +1,7 @@
 import { isBuffer, type TgpuBuffer } from "typegpu";
 import type { AnyData } from "typegpu/data";
 import { Compute, type Plugin, type State, type System } from "../../engine";
-import type { LazyAlloc } from "../../engine/runtime";
+import { deviceLost, type LazyAlloc } from "../../engine/runtime";
 
 /** what {@link mirror} reads back: a raw `GPUBuffer` or its typed twin. Mirror is byte-granular either
  *  way — a typed source is unwrapped at construction and the snapshot stays opaque bytes. */
@@ -56,9 +56,11 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
     private _disposed: boolean = false;
 
     private readonly _raw: GPUBuffer;
+    private readonly _device: GPUDevice;
 
     constructor(source: T, opts?: { ring?: number }) {
         this.source = source;
+        this._device = Compute.device;
         this._raw = unwrap(source);
         this.size = this._raw.size;
         this._ringSize = opts?.ring ?? 2;
@@ -97,6 +99,7 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
     static flush(state: State): void {
         if (Mirror._all.length === 0) return;
         const device = Compute.device;
+        if (deviceLost(device)) return;
         const fixedTick = state.time.fixedTick;
         const frame = Compute.frame;
 
@@ -104,6 +107,7 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
         const pending: { m: Mirror; slot: GPUBuffer }[] = [];
 
         for (const m of Mirror._all) {
+            if (m._device !== device) continue;
             let slot = m._free.pop();
             if (!slot) {
                 // Ring saturated — every staging slot still mapping. Skip this tick.
@@ -135,6 +139,10 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
             slot.mapAsync(GPUMapMode.READ, 0, m.size).then(
                 () => {
                     if (m._disposed) return;
+                    if (deviceLost(m._device) || m._device !== Compute.device) {
+                        m.dispose();
+                        return;
+                    }
                     // A stale (out-of-order) map resolution must not clobber a newer snapshot — without
                     // the per-readback fresh buffer, last-resolved-wins would otherwise overwrite the
                     // reused buffer with older data + an older frame stamp.
@@ -156,12 +164,15 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
                     }
                 },
                 () => {
-                    if (!m._disposed) {
-                        m._free.push(slot);
-                        console.error(
-                            `Mirror readback (source ${m._raw.label ?? "<unlabeled>"}) mapAsync rejected; this map failed and the slot was recycled — the snapshot may recover on the next flush`,
-                        );
+                    if (m._disposed) return;
+                    if (deviceLost(m._device) || m._device !== Compute.device) {
+                        m.dispose();
+                        return;
                     }
+                    m._free.push(slot);
+                    console.error(
+                        `Mirror readback (source ${m._raw.label ?? "<unlabeled>"}) mapAsync rejected; this map failed and the slot was recycled — the snapshot may recover on the next flush`,
+                    );
                 },
             );
         }
