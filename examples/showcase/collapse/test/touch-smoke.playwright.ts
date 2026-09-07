@@ -1,4 +1,4 @@
-import { assertMotion, isDegradedBootMessage } from "@dylanebert/shallot/harness";
+import { frameDifference, isDegradedBootMessage } from "@dylanebert/shallot/harness";
 import { expect, test } from "@playwright/test";
 import { adapterName, SOFTWARE } from "./gpu-adapter";
 import { oneFingerDrag } from "./touch-drag";
@@ -72,8 +72,10 @@ test("collapse showcase — loads clean and orbits by touch", async ({ page }) =
 
     // poll instead of a fixed sleep — the orbit's smoothed pose (`smoothLerp`, extras/orbit) settles
     // over a few frames, not instantly, so wait on the condition itself: the sampled frame diverging.
+    // The polled callback reads `frameDifference`, not `assertMotion`: a throwing callback ends an
+    // `expect.poll` on its first sample, so the parked first frame would decide the whole gate.
     await expect
-        .poll(async () => assertMotion(before, await sampleCanvas(page), FrameChangeThreshold), {
+        .poll(async () => frameDifference(before, await sampleCanvas(page)), {
             message: "a one-finger drag should visibly rotate the orbit camera",
         })
         .toBeGreaterThan(FrameChangeThreshold);

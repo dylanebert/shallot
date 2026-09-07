@@ -1,28 +1,35 @@
+import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { Glob } from "bun";
+import { EXAMPLE_GATES } from "./example-gates";
 import { skipReason, verify } from "./verify";
 
-// `bun run recipes` — the recipes' dynamics smoke. Each listed recipe installs a `window.__harness` (its
-// `src/smoke.ts`, wired only in its manifest) whose `run()` drives the scene and asserts the concept's
-// observable — the platform slides, joints hold or break, friction rates differ, the car advances under
-// throttle, the profiler reports GPU time. This drives each through `shallot verify` (the same shipped gate
-// `bun bench` / `bun run flows` wrap) and reads the pass/fail verdict. It is the standing regression gate for
-// the recipes' behaviour, not just that they render.
+// `bun run recipes` — the one entry every recipe row's gate runs through. A dynamic recipe installs a
+// `window.__harness` (its `src/smoke.ts`, wired only in its manifest) whose `run()` drives the scene and
+// asserts the concept's observable — the platform slides, joints hold or break, friction rates differ, the
+// car advances under throttle, the profiler reports GPU time. A static recipe (one whose registry row
+// carries a `static` reason) has no runtime observable, so its verdict is verify's own boot + nonblank
+// render. Both drive the shipped `shallot verify` through `./verify`, which is what makes the row
+// attributable off a native seat: that wrapper owns the WSL bridge to the host's real-GPU browser, while a
+// bare `bunx shallot verify` row spawned through `sh -c` reaches only WSL's software adapter and reds.
 //
-// Display-gated exactly like flows: verify needs a real display + a conformant WebGPU adapter, so on WSL /
-// headless it skips honestly (native hardware only). The green run is native; here it proves the wiring.
+// Display-gated exactly like flows: verify needs a real display + a conformant WebGPU adapter, so on a
+// headless box it skips honestly. The green run is native; here it proves the wiring.
 
 interface Recipe {
     dir: string;
     // the harness check names this recipe's smoke reports — the run must surface all of them and pass each,
     // never degrade to a bare boot smoke (a harness that readies without a run() reports ok:true otherwise).
+    // Empty for a static recipe, which reports no verdict at all.
     checks: string[];
+    /** why this recipe has no runtime observable — set iff it has no `src/smoke.ts`. */
+    static?: string;
     timeoutMs?: number;
 }
 
-// The recipe dirs are derived from the glob `examples/recipes/*/src/smoke.ts` so a new smoke is gated by
-// construction — no hand list to drift. The per-recipe check names are a lookup; a recipe not in the map
-// runs with empty checks (still gated on verify pass + verdict.ok, just without named-check assertions).
+// The dynamic recipe dirs are derived from `examples/recipes/*/src/smoke.ts` and the static ones from the
+// registry's `static` reasons, so a new recipe is gated by construction — no hand list to drift. The
+// per-recipe check names are a lookup; a dynamic recipe not in the map runs with empty checks (still gated
+// on verify pass + verdict.ok, just without named-check assertions).
 const CHECKS: Record<string, string[]> = {
     "annotate-the-world": ["world annotation advances"],
     "billboards-and-sprites": ["radial sprite meter advances"],
@@ -51,15 +58,33 @@ const CHECKS: Record<string, string[]> = {
     ],
 };
 
-const recipeGlob = new Glob("*/src/smoke.ts");
-const recipeDirs: string[] = [];
-for await (const path of recipeGlob.scan({
-    cwd: resolve(import.meta.dir, "../examples/recipes"),
-})) {
-    recipeDirs.push(path.split("/")[0]);
+/** Build the roster from the recipe directories on disk and the registry's `static` reasons — the two
+ *  sources that already exist, so a new recipe is gated by construction. Pure over both inputs so the
+ *  static/dynamic split is unit-testable without a filesystem walk. */
+export function rosterFrom(
+    dirs: readonly string[],
+    statics: ReadonlyMap<string, string>,
+): Recipe[] {
+    return [...dirs]
+        .sort()
+        .map((dir) => ({ dir, checks: CHECKS[dir] ?? [], static: statics.get(dir) }));
 }
-recipeDirs.sort();
-const RECIPES: Recipe[] = recipeDirs.map((dir) => ({ dir, checks: CHECKS[dir] ?? [] }));
+
+const recipesRoot = resolve(import.meta.dir, "../examples/recipes");
+const dynamicDirs = existsSync(recipesRoot)
+    ? readdirSync(recipesRoot, { withFileTypes: true })
+          .filter(
+              (e) => e.isDirectory() && existsSync(resolve(recipesRoot, e.name, "src/smoke.ts")),
+          )
+          .map((e) => e.name)
+    : [];
+const STATIC_REASONS = new Map(
+    EXAMPLE_GATES.filter((row) => row.tier === "recipes" && row.static).map((row) => [
+        row.dir.slice("examples/recipes/".length),
+        row.static as string,
+    ]),
+);
+const RECIPES: Recipe[] = rosterFrom([...dynamicDirs, ...STATIC_REASONS.keys()], STATIC_REASONS);
 
 async function runRecipe(r: Recipe): Promise<boolean> {
     console.log(`\n--- ${r.dir} ---`);
@@ -67,6 +92,13 @@ async function runRecipe(r: Recipe): Promise<boolean> {
         "--timeout",
         String(r.timeoutMs ?? 60_000),
     ]);
+    // a static recipe installs no harness, so verify reports no verdict: its gate is verify's own
+    // boot + settled-nonblank-render pass. Requiring `verdict.ok` there would fail every static row.
+    if (r.static) {
+        const ok = result?.pass === true;
+        console.log(ok ? `PASS: ${r.dir} (static — ${r.static})` : `FAIL: ${r.dir}`);
+        return ok;
+    }
     let ok = result?.pass === true && result.verdict?.ok === true;
     for (const name of r.checks) {
         if (!result?.verdict?.checks?.some((c) => c.name === name && c.ok)) {
@@ -87,7 +119,7 @@ export function populationError(recipeDirs: string[], only?: string): string | n
         return `no recipe "${only}" — one of: ${recipeDirs.join(", ")}`;
     }
     if (!only && recipeDirs.length === 0) {
-        return `no recipes derived from examples/recipes/*/src/smoke.ts — the glob matched nothing`;
+        return `no recipes derived from examples/recipes — the scan matched nothing`;
     }
     return null;
 }
@@ -97,7 +129,8 @@ async function main(): Promise<void> {
     if (args.includes("--help") || args.includes("-h")) {
         console.log(`Usage: bun run recipes [--recipe <name>]
 
-Runs the physics recipes' dynamics smoke through \`shallot verify\`. Display-gated (native hardware only).
+Runs every recipe through \`shallot verify\` — dynamics smoke where one exists, boot + render for a
+registered static recipe. Display-gated (native hardware only).
 
 Options:
   --recipe <name>   Run a single recipe by its directory name (e.g. moving-platform)`);
@@ -122,7 +155,7 @@ Options:
         process.exit(0);
     }
 
-    console.log("Running recipe dynamics smoke...");
+    console.log(`Running ${list.length} recipe verification(s)...`);
     let allPass = true;
     for (const r of list) allPass = (await runRecipe(r)) && allPass;
 

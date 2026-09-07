@@ -25,5 +25,5 @@
         }
     },
     "include": ["packages", "examples", "scripts", "evals"],
-    "exclude": ["**/dist", "**/build", "packages/shallot/examples"]
+    "exclude": ["**/dist", "**/build", "packages/shallot/examples", "scripts/install-test/compat-0.9.5"]
 }

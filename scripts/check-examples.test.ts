@@ -18,6 +18,10 @@ const make = (): string => {
         resolve(root, "examples/recipes/static/public/scenes/main.scene"),
         "<entity />\n",
     );
+    // every cone in the fixture registry needs a real subject, or the completeness clause reds the
+    // baseline and no mutation below can be attributed to itself
+    writeFileSync(resolve(root, "examples/flows/flow/main.ts"), "export const flow = 1;\n");
+    writeFileSync(resolve(root, "examples/gym/main.ts"), "export const gym = 1;\n");
     writeFileSync(
         resolve(root, "scripts/recipes.ts"),
         "const CHECKS: Record<string, string[]> = {\n    moving: ['moves'],\n};\n",
@@ -33,7 +37,7 @@ const registry = (motion = false): ExampleGate[] => [
         dir: "examples/recipes/static",
         tier: "recipes",
         covers: ["examples/recipes/static/**"],
-        gate: "bunx shallot verify examples/recipes/static",
+        gate: "bun run recipes --recipe static",
         static: "fixture has no runtime behavior",
     },
     {
@@ -110,7 +114,21 @@ test("smoked recipe rows must use the recipe selector", () => {
         },
     ];
     expect(checkExamples(root, rows)).toContain(
-        'smoked recipe gate must use selector "bun run recipes --recipe moving": moving',
+        'recipe gate must use selector "bun run recipes --recipe moving": moving',
+    );
+});
+
+// A bare `bunx shallot verify` row is spawned by the stage-close selector through `sh -c`, missing the
+// WSL bridge. The static rows used to be exempt from the selector rule and carried exactly that shape.
+test("a static recipe row must use the selector too", () => {
+    const root = make();
+    const rows = registry().map((row) =>
+        row.dir === "examples/recipes/static"
+            ? { ...row, gate: "bunx shallot verify examples/recipes/static" }
+            : row,
+    );
+    expect(checkExamples(root, rows)).toContain(
+        'recipe gate must use selector "bun run recipes --recipe static": static',
     );
 });
 
@@ -136,11 +154,25 @@ test("every animator attribute names a clip and cannot use the static opt-out", 
     expect(errors).toContain("static recipe scene declares animator or body: static");
 });
 
-test("autonomous showcase rows require an imported assertMotion arm", () => {
+test("autonomous showcase rows require an imported motion arm", () => {
     const root = make();
     expect(checkExamples(root, registry(true))).toContain(
-        "autonomous showcase has no imported assertMotion arm: examples/showcase/demo",
+        "autonomous showcase has no imported motion arm: examples/showcase/demo",
     );
+});
+
+test("either published motion reading satisfies the autonomous showcase arm", () => {
+    for (const symbol of ["assertMotion", "frameDifference"]) {
+        const root = make();
+        mkdirSync(resolve(root, "examples/showcase/demo/test"), { recursive: true });
+        writeFileSync(
+            resolve(root, "examples/showcase/demo/test/motion.playwright.ts"),
+            `import { ${symbol} } from "@dylanebert/shallot/harness";\n`,
+        );
+        expect(checkExamples(root, registry(true)).join("\n")).not.toContain(
+            "no imported motion arm",
+        );
+    }
 });
 
 test("a complete static fixture is green", () => {

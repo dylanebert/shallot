@@ -5,6 +5,7 @@ import { SCENARIO_GATES } from "../../../examples/gym/src/scenarios/timeouts";
 import {
     benchTimeout,
     type ForMatch,
+    forExitCode,
     formatForResolution,
     formatRoster,
     forUnmatchedReason,
@@ -1256,6 +1257,34 @@ describe("forUnmatchedReason", () => {
         expect(forUnmatchedReason("packages/shallot/src/engine/ecs/state.ts")).toContain(
             "SCENARIO_GATES",
         );
+    });
+});
+
+describe("forExitCode", () => {
+    // the instrument red this replaces: `bun bench --for examples/gym` matched no `covers` glob (they
+    // all spell `packages/shallot/src/...`), swept nothing and exited 0, so the gym gate row reported
+    // success without running a single scenario.
+    test("an unmatched, non-excluded path refuses", () => {
+        expect(forExitCode([{ path: "examples/gym", scenarios: [] }])).toBe(1);
+    });
+
+    test("a declared tumble exclusion stays green", () => {
+        expect(
+            forExitCode([{ path: "packages/shallot/src/standard/tumble/body.ts", scenarios: [] }]),
+        ).toBe(0);
+    });
+
+    test("a resolved path stays green", () => {
+        expect(forExitCode([{ path: "a.ts", scenarios: ["outline"] }])).toBe(0);
+    });
+
+    test("one unmatched path among resolved ones still refuses", () => {
+        expect(
+            forExitCode([
+                { path: "a.ts", scenarios: ["outline"] },
+                { path: "examples/gym", scenarios: [] },
+            ]),
+        ).toBe(1);
     });
 });
 

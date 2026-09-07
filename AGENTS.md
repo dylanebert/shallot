@@ -23,7 +23,7 @@ Targets: desktop Chrome/Edge, recent Android Chrome, Safari26+ Apple Silicon, St
 ## Commands
 
 ```bash
-bun run test                              # Default hardware-invariant unit gate
+bun run test                              # Unit gate; needs a native adapter
 bun run test:changed -- --base <ref> --diff <ref>
 bun run demos                             # Separate release site build + verify --dist; skips fail
 bun run site                              # Ejected published-package demos; build, not runtime proof

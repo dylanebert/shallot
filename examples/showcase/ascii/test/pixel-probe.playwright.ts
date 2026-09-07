@@ -39,7 +39,9 @@ const readerPath = realpathSync(fileURLToPath(import.meta.url));
 const barrelPath = realpathSync(fileURLToPath(import.meta.resolve("@dylanebert/shallot/harness")));
 const motionPath = realpathSync(join(dirname(barrelPath), "motion.ts"));
 const barrelSource = readFileSync(barrelPath, "utf8");
-expect(barrelSource.match(/export \{ assertMotion \} from "\.\/motion";/g)).toHaveLength(1);
+expect(
+    barrelSource.match(/export \{[^}]*\bassertMotion\b[^}]*\} from "\.\/motion";/g),
+).toHaveLength(1);
 expect(harness.assertMotion).toBe(assertMotion);
 
 /** Persist full bytes independently of the reporter, then attach the physical file. */

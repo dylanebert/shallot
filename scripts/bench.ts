@@ -61,7 +61,8 @@ Options:
   --list               print every registered scenario name and exit (the real roster, not a guess)
   --for <paths...>     resolve changed source paths to the scenario(s) that gate them, via
                         SCENARIO_GATES' covers globs; prints the mapping and exits unless --sweep is
-                        also given, in which case it selects the sweep's scenario set
+                        also given, in which case it selects the sweep's scenario set. Exits nonzero if
+                        any path resolves to no scenario and is not a declared exclusion
   --sweep              run every scenario (or the --for subset) through shallot verify's batch mode —
                         one boot, N verdicts — spawning each declared-isolate scenario in its own process
   --memory             opt in to the retained-leak sample on the sweep path (single runs always sample it)`);
@@ -147,13 +148,28 @@ export function resolveFor(
     }));
 }
 
+/** true when a path matching no `covers` glob is a declared exclusion rather than a coverage hole.
+ *  Tumble physics is gated by its own standing gates (`tumble.md`), not this table. */
+export function isDeclaredExclusion(path: string): boolean {
+    return path.includes("standard/tumble/");
+}
+
 /** why a path matched no scenario — a tumble path is a declared exclusion (`tumble.md`'s own standing
  *  gates cover it, not this table); anything else is genuinely outside the table's tracked coverage. */
 export function forUnmatchedReason(path: string): string {
-    if (path.includes("standard/tumble/")) {
+    if (isDeclaredExclusion(path)) {
         return "no scenario declares coverage — tumble physics is gated by its own standing gates (tumble.md), not this table";
     }
     return "no scenario declares coverage in SCENARIO_GATES";
+}
+
+/** the exit code a `--for` resolution owes. A path that resolves to nothing and is not a declared
+ *  exclusion is an unattributable selection, not a green one: `bun bench --for <dir>` used to print
+ *  "no scenario declares coverage" and exit 0, so a gate row naming a path no `covers` glob can ever
+ *  match (a directory, a renamed module) swept nothing and reported success. Pure so the decision is
+ *  testable without booting a page. */
+export function forExitCode(matches: readonly ForMatch[]): number {
+    return matches.some((m) => m.scenarios.length === 0 && !isDeclaredExclusion(m.path)) ? 1 : 0;
 }
 
 export function formatForResolution(matches: readonly ForMatch[]): string {
@@ -524,8 +540,9 @@ async function main(): Promise<void> {
     }
 
     if (args.for && !args.sweep) {
-        console.log(formatForResolution(resolveFor(args.for, SCENARIO_GATES)));
-        return;
+        const matches = resolveFor(args.for, SCENARIO_GATES);
+        console.log(formatForResolution(matches));
+        process.exit(forExitCode(matches));
     }
 
     const skip = skipReason();
@@ -541,6 +558,13 @@ async function main(): Promise<void> {
             for (const m of matches) {
                 if (m.scenarios.length === 0)
                     console.log(`${m.path} → ${forUnmatchedReason(m.path)}`);
+            }
+            if (forExitCode(matches) !== 0) {
+                console.error(
+                    "\n--for resolved a path no scenario covers — nothing would be swept",
+                );
+                await teardownBridge();
+                process.exit(1);
             }
             names = [...new Set(matches.flatMap((m) => m.scenarios))];
         } else {

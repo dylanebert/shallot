@@ -48,7 +48,7 @@ Procedural-first, no format-shaped substrate. GltfPlugin converts to mesh/materi
 
 ## Testing and verify
 
-Unit verdicts are hardware-invariant; real GPU gates cover compile/raster/readback. Keep permanent tests, temporary labs; derive tolerances (exact ~1e-10, f32 ~1e-6 relative, convergence from order/steps), never tune. Measure GPU timestamps, not FPS.
+Unit verdicts need a native adapter; real GPU gates cover compile/raster/readback. Keep permanent tests, temporary labs; derive tolerances (exact ~1e-10, f32 ~1e-6 relative, convergence from order/steps), never tune. Measure GPU timestamps, not FPS.
 
 Use self-terminating verify, not lingering servers/tabs. Install: `bun add -d playwright`, `bunx playwright install chromium`. Build then verify `--dist`. COOP/COEP requires CORS/CORP or local assets; hosts without headers use single-thread physics.
 

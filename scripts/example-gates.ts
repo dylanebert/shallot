@@ -41,7 +41,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         dir: "examples/recipes/build-a-scene",
         tier: "recipes",
         covers: ["examples/recipes/build-a-scene/**", "packages/shallot/src/**"],
-        gate: "bunx shallot verify examples/recipes/build-a-scene",
+        gate: "bun run recipes --recipe build-a-scene",
         static: "authored scene structure has no runtime behavior",
     },
     {
@@ -54,7 +54,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         dir: "examples/recipes/custom-material",
         tier: "recipes",
         covers: ["examples/recipes/custom-material/**", "packages/shallot/src/**"],
-        gate: "bunx shallot verify examples/recipes/custom-material",
+        gate: "bun run recipes --recipe custom-material",
         static: "material appearance is static",
     },
     {
@@ -79,7 +79,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         dir: "examples/recipes/fog-and-light-shafts",
         tier: "recipes",
         covers: ["examples/recipes/fog-and-light-shafts/**", "packages/shallot/src/**"],
-        gate: "bunx shallot verify examples/recipes/fog-and-light-shafts",
+        gate: "bun run recipes --recipe fog-and-light-shafts",
         static: "fog and light-shaft appearance is static",
     },
     {
@@ -98,7 +98,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         dir: "examples/recipes/import-a-model",
         tier: "recipes",
         covers: ["examples/recipes/import-a-model/**", "packages/shallot/src/**"],
-        gate: "bunx shallot verify examples/recipes/import-a-model",
+        gate: "bun run recipes --recipe import-a-model",
         static: "model import appearance is static",
     },
     {
@@ -123,7 +123,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         dir: "examples/recipes/orbit-camera",
         tier: "recipes",
         covers: ["examples/recipes/orbit-camera/**", "packages/shallot/src/**"],
-        gate: "bunx shallot verify examples/recipes/orbit-camera",
+        gate: "bun run recipes --recipe orbit-camera",
         static: "camera movement is user-driven rather than autonomous",
     },
     {
@@ -201,6 +201,6 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         dir: "examples/gym",
         tier: "gym",
         covers: ["examples/gym/**", "packages/shallot/src/**"],
-        gate: "bun bench --for examples/gym && bun run --cwd examples/gym gate",
+        gate: "bun bench --sweep && bun run --cwd examples/gym gate",
     },
 ];

@@ -69,7 +69,9 @@ function normalizeNodes(nodes: Node[]) {
 const checkOnly = process.argv.includes("--check");
 
 const glob = new Glob("**/*.scene");
-const ignore = ["node_modules", "dist", "_legacy"];
+// `compat-0.9.5` holds a frozen published scaffold: normalizing its scene would destroy the byte-exact
+// baseline the compatibility arm compares a candidate against.
+const ignore = ["node_modules", "dist", "_legacy", "compat-0.9.5"];
 
 let formatted = 0;
 let wouldChange = 0;
