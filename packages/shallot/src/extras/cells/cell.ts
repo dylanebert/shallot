@@ -51,11 +51,10 @@ export const CELL_AT = {
  * instead of inventing a second one, and the stored bytes are already sRGB — the space ANSI SGR
  * truecolor needs, with no conversion at S4's encoder. One TGSL source: `bun test` calls it directly on
  * the CPU, a compute kernel resolves the identical body (`grid.ts`'s fill pass). `packLdrColor`'s CPU arm
- * rounds half-up (`Math.round`) where the real WGSL `pack4x8unorm` intrinsic rounds half-to-even at an
- * exact lattice midpoint — a residual CPU↔GPU seam this device-free tier cannot observe (`cell.test.ts`
- * proves the CPU-side wiring only); the real-device dispatch differential lives in the `cells` gym
- * scenario (`bun bench --scenario cells`), the only tier allowed to depend on device execution
- * (`testing.md`).
+ * uses `Math.round` after its f32 input conversion. WGSL packing specifies
+ * `floor(0.5 + 255*clamp(a,0,1))` with permitted intermediate rounding; the CPU
+ * construction is not a universal GPU-byte oracle. The cells scenario owns the
+ * real-device operation-contract and packing checks (`bun bench --scenario cells`).
  *
  * @example const cell = packCell(glyphIndex, vec4f(1, 0, 0, 1), vec4f(0, 0, 0, 1)); // red on black
  */

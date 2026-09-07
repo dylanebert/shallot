@@ -59,12 +59,10 @@ const idivWgsl = tgpu.fn(
     d.u32,
 )(/* wgsl */ `(a: u32, b: u32) -> u32 { return a / b; }`);
 
-// The lattices themselves, shared by each leaf's CPU arm and by the hot-path mirrors in encode.ts: one
-// definition of where a quantized value lands, whatever calls it. Each rounds its input to f32 first —
-// a vector schema stores f32 and so does the GPU, so quantizing an f64 value would put the rare
-// half-way case on the other lattice point from the shader. One residual CPU↔GPU seam: `Math.round` is
-// half-up and WGSL's `round` is half-to-even, so a product that lands exactly on a lattice midpoint
-// (x.5 after scaling) differs by 1 LSB between the two arms.
+// Shared by the CPU leaves and encode.ts mirrors: one f32-input, f64-scaling
+// construction. WGSL packing has its own floor-based conversion and intermediate
+// accuracy contract, so agreement at ambiguous inputs is not guaranteed by the
+// CPU rounding choice.
 /** @internal */
 export const snorm16 = (v: number): number =>
     Math.round(Math.max(-1, Math.min(1, Math.fround(v))) * 32767) & 0xffff;

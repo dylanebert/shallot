@@ -1,4 +1,4 @@
-import { assertMotion, isDegradedBootMessage } from "@dylanebert/shallot/harness";
+import { frameDifference, isDegradedBootMessage } from "@dylanebert/shallot/harness";
 import { expect, type Page, test } from "@playwright/test";
 import { deriveDemosFromIframeSrcs } from "./demos";
 import { classifyRendered } from "./rendered";
@@ -127,8 +127,10 @@ test("visualization showcase — every demo loads clean, one orbits by touch", a
 
     // poll instead of a fixed sleep — the orbit's smoothed pose (`smoothLerp`, extras/orbit) settles over
     // a few frames, not instantly, so wait on the condition itself: the sampled frame actually diverging.
+    // The polled callback reads `frameDifference`, not `assertMotion`: a throwing callback ends an
+    // `expect.poll` on its first sample, so the parked first frame would decide the whole gate.
     await expect
-        .poll(async () => assertMotion(before, await sampleGrid(page), 3), {
+        .poll(async () => frameDifference(before, await sampleGrid(page)), {
             message: `${first}: a one-finger drag should visibly rotate the orbit camera`,
         })
         .toBeGreaterThan(3);

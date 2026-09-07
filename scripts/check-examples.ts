@@ -86,11 +86,11 @@ export function checkExamples(root: string, registry: ExampleGate[]): string[] {
     for (const row of registry.filter((entry) => entry.tier === "showcase" && entry.motion)) {
         const specs = files(resolve(root, row.dir), ".playwright.ts").map(text).join("\n");
         if (
-            !/import[\s\S]*?\bassertMotion\b[\s\S]*?from\s*["']@dylanebert\/shallot\/harness["']/.test(
+            !/import[\s\S]*?\b(?:assertMotion|frameDifference)\b[\s\S]*?from\s*["']@dylanebert\/shallot\/harness["']/.test(
                 specs,
             )
         )
-            errors.push(`autonomous showcase has no imported assertMotion arm: ${row.dir}`);
+            errors.push(`autonomous showcase has no imported motion arm: ${row.dir}`);
     }
     return errors;
 }

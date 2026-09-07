@@ -14,7 +14,14 @@ const Smoke: Plugin = {
         harness.run = async (): Promise<Verdict> => {
             const before = active(state);
             let after = before;
-            for (let i = 0; i < 90 && after === before; i++) {
+            // `cursor` steps the highlight on `floor(state.time.elapsed * 1.5)`, so one step is 2/3 s of
+            // scene time. Wait in that unit, not in frames: a 90-frame budget is 1.5 s at 60 Hz but only
+            // 0.37 s at 240 Hz, where the cursor never steps and the check reds on the refresh rate. The
+            // wall-clock ceiling is the exhaustion arm — a stalled clock fails rather than hangs.
+            const until = state.time.elapsed + 1 / 1.5;
+            const deadline = performance.now() + 6000;
+            while (after === before && state.time.elapsed < until) {
+                if (performance.now() > deadline) break;
                 await frame();
                 after = active(state);
             }
