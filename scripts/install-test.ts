@@ -7,6 +7,7 @@
 // shallot` (scaffold → install → build the starter). The packaging / resolution / asset failures the
 // repo's own symlinked dev setup hides. Run: `bun run scripts/install-test.ts` (or `bun run test:install`).
 
+import assert from "node:assert/strict";
 import {
     existsSync,
     mkdirSync,
@@ -74,6 +75,240 @@ async function waitFor(cond: () => Promise<boolean>, ms: number): Promise<boolea
         await Bun.sleep(250);
     }
     return false;
+}
+
+/** Exercise the shipped native loader in physical, external installs; retain raw child receipts. */
+export function nativeFlow(work: string, engineTgz: string): void {
+    const evidence = join(work, "native");
+    mkdirSync(evidence, { recursive: true });
+    let sequence = 0;
+    const exec = (name: string, cmd: string[], cwd: string) => {
+        const result = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe", timeout: 120000 });
+        const stem = join(evidence, `${++sequence}-${name}`);
+        writeFileSync(`${stem}.stdout`, result.stdout);
+        writeFileSync(`${stem}.stderr`, result.stderr);
+        writeFileSync(
+            `${stem}.json`,
+            JSON.stringify({
+                cmd,
+                cwd,
+                exit: result.exitCode,
+                signal: result.signalCode,
+                runtime: Bun.version,
+            }),
+        );
+        return {
+            exit: result.exitCode,
+            out: `${result.stdout.toString()}\n${result.stderr.toString()}`,
+        };
+    };
+    const expect = (
+        name: string,
+        result: { exit: number; out: string },
+        exit: number,
+        text: RegExp,
+    ) => {
+        assert.equal(result.exit, exit, `${name}: ${result.out}`);
+        assert.match(result.out, text, name);
+        console.log(`native: ${name}`);
+    };
+    for (const layout of ["absent", "normal", "nested"]) {
+        const project =
+            layout === "nested"
+                ? join(evidence, layout, "node_modules/native-consumer")
+                : join(evidence, layout);
+        mkdirSync(project, { recursive: true });
+        writeFileSync(
+            join(project, "package.json"),
+            pkgJson({
+                name: `native-${layout}`,
+                private: true,
+                type: "module",
+                dependencies: {
+                    "@dylanebert/shallot": `file:${engineTgz}`,
+                    typegpu: "~0.12.4",
+                    ...(layout === "absent" ? {} : { "bun-webgpu": "0.1.7" }),
+                },
+            }),
+        );
+        const install = exec(
+            `${layout}-install`,
+            layout === "nested"
+                ? [
+                      "npm",
+                      "install",
+                      "--install-strategy=nested",
+                      "--ignore-scripts",
+                      "--no-audit",
+                      "--no-fund",
+                  ]
+                : ["bun", "install"],
+            project,
+        );
+        assert.equal(install.exit, 0, install.out);
+        const shipped = join(project, "node_modules/@dylanebert/shallot");
+        assert.equal(realpathSync(shipped), shipped, "engine is a physical install");
+        for (const file of [
+            "dist/native.js",
+            "dist/bun-webgpu-LICENSE",
+            "dist/bun-webgpu-NOTICE",
+            "bin/bun-native.ts",
+        ]) {
+            assert(existsSync(join(shipped, file)), `tar contains ${file}`);
+        }
+        assert.match(
+            readFileSync(join(shipped, "dist/bun-webgpu-NOTICE"), "utf8"),
+            /Modified by Shallot/,
+        );
+        writeFileSync(
+            join(project, "native.fixture.ts"),
+            readFileSync(join(import.meta.dir, "install-test/native.fixture.ts")),
+        );
+        writeFileSync(
+            join(project, "shallot.json"),
+            JSON.stringify({ scene: "main.scene", plugins: { Cells: true } }),
+        );
+        mkdirSync(join(project, "public"));
+        writeFileSync(
+            join(project, "public/main.scene"),
+            '<scene><a camera sear cells transform="pos: 0 0 5" /><a part transform /></scene>',
+        );
+        const cli = (args: string[]) => ["bun", CLI, ...args];
+        expect(
+            `${layout}-help`,
+            exec(`${layout}-help`, cli(["tui", "--help"]), project),
+            0,
+            /--frames/,
+        );
+        expect(
+            `${layout}-import`,
+            exec(
+                `${layout}-import`,
+                [
+                    "bun",
+                    "-e",
+                    'import { run } from "@dylanebert/shallot"; if(typeof run !== "function") throw Error("run missing"); console.log("NONNATIVE_IMPORT_OK")',
+                ],
+                project,
+            ),
+            0,
+            /NONNATIVE_IMPORT_OK/,
+        );
+        if (layout === "absent") {
+            assert(!existsSync(join(project, "node_modules/bun-webgpu")));
+            expect(
+                "absent-tui",
+                exec("absent-tui", cli(["tui", ".", "--frames", "1"]), project),
+                3,
+                /bun add -d bun-webgpu/,
+            );
+            continue;
+        }
+        for (const mode of ["acquire", "foreign", "override"]) {
+            expect(
+                `${layout}-${mode}`,
+                exec(`${layout}-${mode}`, ["bun", "native.fixture.ts", mode], project),
+                0,
+                mode === "acquire"
+                    ? /PACKED_NATIVE_ACQUIRED_DRAINED/
+                    : mode === "foreign"
+                      ? /FOREIGN_REFUSED_UNCHANGED/
+                      : /OVERRIDE_REFUSED/,
+            );
+        }
+        expect(
+            `${layout}-tui`,
+            exec(`${layout}-tui`, cli(["tui", ".", "--frames", "1", "--tier", "plain"]), project),
+            0,
+            /./s,
+        );
+        const peer = join(project, "node_modules/bun-webgpu");
+        const platformName = `bun-webgpu-${process.platform}-${process.arch}`;
+        const platform =
+            layout === "nested"
+                ? join(peer, "node_modules", platformName)
+                : join(project, "node_modules", platformName);
+        assert.equal(realpathSync(peer), peer, "peer is a physical install");
+        assert.equal(
+            realpathSync(platform),
+            platform,
+            "platform is a physical install at the intended depth",
+        );
+        const control = (
+            name: string,
+            file: string,
+            replace: (original: Buffer) => Buffer | null,
+            diagnostic: RegExp,
+        ) => {
+            const original = readFileSync(file);
+            try {
+                const changed = replace(original);
+                if (changed === null) rmSync(file);
+                else writeFileSync(file, changed);
+                const result = exec(
+                    `${layout}-${name}`,
+                    cli(["tui", ".", "--frames", "1"]),
+                    project,
+                );
+                assert.notEqual(result.exit, 0, name);
+                assert.notEqual(result.exit, 3, `${name} misclassified as absent peer`);
+                assert.match(result.out, diagnostic, name);
+                assert(!result.out.includes("bun add -d bun-webgpu"), name);
+                console.log(`native: ${layout}-${name}`);
+            } finally {
+                writeFileSync(file, original);
+            }
+        };
+        const wrongVersion = (original: Buffer) =>
+            Buffer.from(JSON.stringify({ ...JSON.parse(original.toString()), version: "0.0.0" }));
+        control(
+            "wrong-peer",
+            join(peer, "package.json"),
+            wrongVersion,
+            /requires bun-webgpu 0.1.7/,
+        );
+        control(
+            "wrong-platform",
+            join(platform, "package.json"),
+            wrongVersion,
+            /platform requires version 0.1.7/,
+        );
+        control(
+            "missing-platform-entry",
+            join(platform, "index.ts"),
+            () => null,
+            /bun-webgpu-.*\/index.ts/,
+        );
+        const library = readdirSync(platform).find((file) => /\.(dylib|so|dll)$/.test(file));
+        assert(library, "installed native library");
+        const alternate = join(project, library);
+        writeFileSync(alternate, readFileSync(join(platform, library)));
+        control(
+            "wrong-library-path",
+            join(platform, "index.ts"),
+            () => Buffer.from(`export default ${JSON.stringify(alternate)};\n`),
+            /platform library path mismatch/,
+        );
+        control(
+            "missing-library",
+            join(platform, library),
+            () => null,
+            /platform library is missing/,
+        );
+        control(
+            "missing-projection",
+            join(shipped, "dist/native.js"),
+            () => null,
+            /native projection is missing/,
+        );
+        control(
+            "altered-projection",
+            join(shipped, "dist/native.js"),
+            (original) => Buffer.concat([original, Buffer.from("\n// altered\n")]),
+            /projection hash mismatch/,
+        );
+    }
+    console.log(`native: ${sequence} commands completed`);
 }
 
 const fails: string[] = [];
@@ -256,8 +491,8 @@ function createShallotFlow(work: string, engineTgz: string) {
 
     // criterion 7: "a missing bun-webgpu produces a named remedy" — the genuine-
     // absence rung, mirroring the playwright check directly above exactly. This scaffold never installs
-    // bun-webgpu (a devDependency of the monorepo's own packages/shallot, never shipped or declared for a
-    // consumer), so `shallot tui` here hits a real absence, not an injected one — real subprocess stdout/
+    // bun-webgpu (the optional native peer), so `shallot tui` here hits a real absence, not an injected
+    // one — real subprocess stdout/
     // stderr, never a mock. The fast DI-driven proof of the same exit-code + message wiring lives in
     // bin/tui.test.ts, which can't see whether the real dynamic import actually fails on a real install.
     const tuiHelp = run(["bun", CLI, "tui", "--help"], proj);
@@ -1179,6 +1414,7 @@ if (import.meta.main) {
         identityFlow(work, engineTgz);
         pmIdentityFlow(work, engineTgz, "npm");
         pmIdentityFlow(work, engineTgz, "pnpm");
+        nativeFlow(work, engineTgz);
 
         // a real manifest project: installed engine + an installed plugin library + a local plugin, the
         // audio plugin pulling its wasm in. No vite.config, no index.html — the CLI supplies the harness.

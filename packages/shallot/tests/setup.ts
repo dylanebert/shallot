@@ -1,3 +1,3 @@
-import { setupGlobals } from "bun-webgpu";
+import { loadNative } from "../bin/bun-native";
 
-await setupGlobals();
+await (await loadNative()).setupGlobals();

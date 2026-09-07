@@ -110,8 +110,33 @@ describe("documentDistance", () => {
 });
 
 describe("documentDirtyTiles", () => {
-    test("an empty document throws rather than producing a degenerate set", () => {
-        expect(() => documentDirtyTiles({ polylines: [] })).toThrow();
+    test("cleared and unfinished strokes touch no tiles", () => {
+        for (const polylines of [
+            [],
+            [{ points: [], halfWidth: 4 }],
+            [{ points: [[0, 0] as const], halfWidth: 4 }],
+        ]) {
+            expect(documentDirtyTiles({ polylines })).toEqual([]);
+            expect(documentDistance(0, 0, { polylines })).toBe(Infinity);
+        }
+    });
+
+    test("non-finite document geometry refuses instead of silently losing dirty tiles", () => {
+        for (const value of [NaN, Infinity, -Infinity]) {
+            expect(() =>
+                documentDirtyTiles({
+                    polylines: [
+                        {
+                            points: [
+                                [0, 0],
+                                [value, 0],
+                            ],
+                            halfWidth: 4,
+                        },
+                    ],
+                }),
+            ).toThrow("finite");
+        }
     });
 
     test("matches strokeRect/dirtyTiles' original row/column set for strokeDocument()", () => {

@@ -27,12 +27,14 @@ export async function oneFingerDrag(
     from: { x: number; y: number },
     to: { x: number; y: number },
     steps = 10,
+    onStart?: () => Promise<void>,
 ): Promise<void> {
     const id = 1;
     await cdp.send("Input.dispatchTouchEvent", {
         type: "touchStart",
         touchPoints: [{ x: from.x, y: from.y, id }],
     });
+    await onStart?.();
     await wait(STEP_MS);
     for (let i = 1; i <= steps; i++) {
         const x = lerp(from.x, to.x, i / steps);

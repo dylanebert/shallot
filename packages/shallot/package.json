@@ -99,7 +99,7 @@
         "vite": "^8.0.16"
     },
     "peerDependencies": {
-        "bun-webgpu": "^0.1.4",
+        "bun-webgpu": "0.1.7",
         "playwright": "^1.0.0",
         "typegpu": "~0.12.4"
     },
@@ -116,7 +116,7 @@
     },
     "devDependencies": {
         "@types/bun": "latest",
-        "bun-webgpu": "^0.1.4",
+        "bun-webgpu": "0.1.7",
         "fast-check": "^4.6.0",
         "js-yaml": "^4.1.0",
         "typegpu": "~0.12.4",

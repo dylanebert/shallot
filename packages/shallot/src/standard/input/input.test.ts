@@ -360,6 +360,36 @@ describe("InputPlugin", () => {
         expect(Inputs.mouse.left).toBe(true); // requireLock off → button reads immediately
     });
 
+    for (const type of ["pointerenter", "pointerdown"]) {
+        test(`${type} seeds a fresh canvas-relative pick before any pointer move`, () => {
+            canvas.getBoundingClientRect = () => ({
+                ...MOCK_RECT,
+                left: 100,
+                top: 50,
+                width: 640,
+                height: 480,
+            });
+            onCanvas(type)({
+                target: canvas,
+                pointerId: 1,
+                pointerType: "touch",
+                button: 0,
+                buttons: 1,
+                clientX: 225,
+                clientY: 180,
+                preventDefault() {},
+            });
+            expect(Inputs.mouse.hover).toBe(true);
+            expect([
+                Inputs.mouse.x,
+                Inputs.mouse.y,
+                Inputs.mouse.canvasWidth,
+                Inputs.mouse.canvasHeight,
+            ]).toEqual([125, 130, 640, 480]);
+            expect([Inputs.mouse.deltaX, Inputs.mouse.deltaY]).toEqual([0, 0]);
+        });
+    }
+
     test("pointer down captures the pointer and tracks the pressed button", () => {
         onCanvas("pointerdown")({
             target: canvas,
@@ -854,7 +884,7 @@ describe("InputPlugin", () => {
 
     test("a held-pointer move at a non-canvas target keeps mouse.x/y tracking", () => {
         // pointer enters the canvas — sets hover true
-        onCanvas("pointerenter")({ target: canvas });
+        onCanvas("pointerenter")({ target: canvas, clientX: 0, clientY: 0 });
         expect(Inputs.mouse.hover).toBe(true);
         // pointer down on the canvas — establishes the active pointer and activeCanvas
         onCanvas("pointerdown")({
@@ -896,7 +926,7 @@ describe("InputPlugin", () => {
     });
 
     test("pointerLeave clears hover when no pointer is active", () => {
-        onCanvas("pointerenter")({ target: canvas });
+        onCanvas("pointerenter")({ target: canvas, clientX: 0, clientY: 0 });
         expect(Inputs.mouse.hover).toBe(true);
         onCanvas("pointerleave")({ target: canvas });
         expect(Inputs.mouse.hover).toBe(false); // no active pointer → hover clears

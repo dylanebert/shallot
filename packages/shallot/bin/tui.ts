@@ -190,6 +190,8 @@ export const EXIT_NO_BUN_WEBGPU = 3; // bun-webgpu isn't installed
 
 const INSTALL_BUN_WEBGPU = "bun add -d bun-webgpu";
 
+import { loadNative } from "./bun-native";
+
 /** the refusal diagnostic for a missing `bun-webgpu` — names the install command, never a stack trace
  *  (criterion 7's own wording). Mirrors `verify.ts`'s `displayGateMessage` / playwright-remedy shape. */
 export function noBunWebgpuMessage(): string {
@@ -210,11 +212,21 @@ export function noBunWebgpuMessage(): string {
  * in `scripts/install-test.ts`, mirroring its existing `importPlaywright` sibling check exactly.
  */
 export async function importBunWebgpu(
-    loader: () => Promise<typeof import("bun-webgpu")> = () => import("bun-webgpu"),
+    loader: () => Promise<typeof import("bun-webgpu")> = loadNative,
 ): Promise<typeof import("bun-webgpu") | null> {
     try {
         return await loader();
-    } catch {
+    } catch (error) {
+        if (
+            loader === loadNative &&
+            !(
+                error instanceof Error &&
+                "code" in error &&
+                error.code === "MODULE_NOT_FOUND" &&
+                error.message.includes("'bun-webgpu'")
+            )
+        )
+            throw error;
         return null;
     }
 }

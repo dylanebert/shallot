@@ -1,11 +1,6 @@
 import { resolve } from "node:path";
 import { Glob } from "bun";
-import { setupGlobals } from "bun-webgpu";
 import type { Node } from "../packages/shallot/src";
-
-// the engine references WebGPU globals (e.g. GPUShaderStage) at module scope, so define
-// them before importing it — mirrors tests/setup.ts. ES imports are hoisted, hence dynamic.
-await setupGlobals();
 
 const {
     State,

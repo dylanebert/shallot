@@ -482,8 +482,8 @@ export async function regenerate(seed: number): Promise<void> {
  */
 export async function editDocument(doc: StrokeDocument): Promise<void> {
     const oldDoc = liveDocument;
-    liveDocument = doc;
     setNetwork(doc, currentSeed);
+    liveDocument = doc;
     await dispatchPosts(currentSeed); // re-write post positions for the edited chord
     overlayAtlas.updateChord(doc);
     overlayAtlas.retile(oldDoc, doc);

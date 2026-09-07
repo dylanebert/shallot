@@ -26,8 +26,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { plugin } from "bun";
-import { setupGlobals } from "bun-webgpu";
 import typegpuBunPlugin from "unplugin-typegpu/bun";
+import { loadNative } from "../bin/bun-native";
 
 // TGSL function bodies are transpiled at load time (`tests/tgsl.ts`'s own docblock: without this
 // transform every kernel resolves with no metadata and CPU-called kernels return NaN). `bunfig.toml`'s
@@ -172,7 +172,7 @@ export function renderAsciiGrid(bytes: ArrayBuffer, cols: number, rows: number):
 export async function dumpCellsAscii(
     args: DumpCellsAsciiArgs,
 ): Promise<{ grid: { cols: number; rows: number }; text: string }> {
-    await setupGlobals();
+    await (await loadNative()).setupGlobals();
 
     const sceneXml = readFileSync(fileURLToPath(SCENE_URL), "utf8");
     const app = await build({

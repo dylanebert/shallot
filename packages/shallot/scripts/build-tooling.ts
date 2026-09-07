@@ -13,8 +13,12 @@
 // package, which would be the actual regression this build must not introduce, fails loud in review
 // rather than silently inlining.
 
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { nativeHash, nativePatchHash, nativeSourceHash } from "../bin/bun-native";
 
 const ROOT = resolve(import.meta.dir, ".."); // packages/shallot
 const OUT = resolve(ROOT, "dist");
@@ -102,4 +106,29 @@ for (const { out } of entries) {
     }
 }
 
-console.log(`build-tooling: compiled ${entries.map((e) => `dist/${e.out}.js`).join(", ")}`);
+const peer = createRequire(import.meta.url).resolve("bun-webgpu");
+const patch = resolve(ROOT, "patches/bun-webgpu-0.1.7.patch");
+const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
+if (hash(peer) !== nativeSourceHash || hash(patch) !== nativePatchHash) {
+    throw new Error("build-tooling: native source/patch drift");
+}
+const temp = mkdtempSync(resolve(tmpdir(), "shallot-native-"));
+try {
+    cpSync(peer, resolve(temp, "index.js"));
+    const applied = Bun.spawnSync(["git", "apply", patch], { cwd: temp });
+    if (applied.exitCode !== 0) throw new Error(applied.stderr.toString());
+    const projected = resolve(temp, "index.js");
+    if (hash(projected) !== nativeHash) throw new Error("build-tooling: native projection drift");
+    cpSync(projected, resolve(OUT, "native.js"));
+    cpSync(resolve(ROOT, "patches/bun-webgpu-LICENSE"), resolve(OUT, "bun-webgpu-LICENSE"));
+    writeFileSync(
+        resolve(OUT, "bun-webgpu-NOTICE"),
+        "bun-webgpu 0.1.7 (https://github.com/kommander/bun-webgpu), Apache-2.0.\n" +
+            "Modified by Shallot: acquisition allocation/callback ownership and peer-relative native loading.\n",
+    );
+} finally {
+    rmSync(temp, { recursive: true, force: true });
+}
+console.log(
+    `build-tooling: compiled ${entries.map((e) => `dist/${e.out}.js`).join(", ")}, dist/native.js`,
+);

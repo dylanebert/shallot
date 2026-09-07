@@ -21,7 +21,7 @@ import { Compute, type State } from "@dylanebert/shallot";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import type { StrokeDocument } from "../overlay/document";
+import { type StrokeDocument, validateDocument } from "../overlay/document";
 import { SPACING } from "./grid";
 import { heightAt, makePermutation } from "./noise";
 import { buildPolylineProfile, heightAtCpu, PROFILE_STEP } from "./profile";
@@ -285,10 +285,12 @@ export interface NetworkGeometry {
  * `overlay/document.ts` uses for its own geometry math.
  */
 export function buildNetworkGeometry(doc: StrokeDocument, seed: number): NetworkGeometry {
+    validateDocument(doc);
     const perm = makePermutation(seed);
     const segments: ProfileSegment[] = [];
     let cutDepth = 0;
     for (const [road, line] of doc.polylines.entries()) {
+        if (line.points.length < 2) continue;
         const profile = buildPolylineProfile(line.points, perm);
         for (let i = 0; i < profile.length - 1; i++) {
             const a = profile[i];
@@ -334,10 +336,9 @@ export function buildNetworkGeometry(doc: StrokeDocument, seed: number): Network
  *  dispatches instead of being rebuilt per redraw — the kernel dispatches once per reseed, not once per
  *  throttled tile. */
 export function setNetwork(doc: StrokeDocument, seed: number): void {
+    const { segments, cutDepth } = buildNetworkGeometry(doc, seed);
     teardownNetworkBuffers();
     const { device, root } = Compute;
-
-    const { segments, cutDepth } = buildNetworkGeometry(doc, seed);
     const falloff = computeFalloff(cutDepth);
     const segmentsData: readonly ProfileSegment[] =
         segments.length > 0

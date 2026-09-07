@@ -98,6 +98,16 @@ let hovered = -1;
 let grab = createGrabState();
 let claimInstalled = false;
 
+/** The actual pick owner and current ray, read on demand by the device regression. */
+export function editSnapshot() {
+    return {
+        camera: camEid,
+        hovered,
+        grab: { ...grab },
+        ray: liveState ? cursorRay(liveState, camEid) : null,
+    };
+}
+
 /** march `ray` against the continuous flattened field (`flattenFieldAt`) and return the (x, z) where the
  *  ray crosses the surface. If the ray doesn't cross within `MARCH_MAX` (aimed at the sky, or the crossing
  *  sits past the max distance), the ray's projection onto the world bound is returned instead — never null,
@@ -185,6 +195,16 @@ const EditSystem: System = {
         }
         if (camEid < 0) return;
 
+        const doc = getDocument();
+        const line = doc.polylines[0];
+        if (!line || line.points.length < 2) {
+            for (const eid of handleEids) if (eid >= 0) state.destroy(eid);
+            handleEids = [-1, -1];
+            hovered = -1;
+            grab = { ...createGrabState(), prevLeft: Inputs.mouse.left };
+            return;
+        }
+
         // create the handle entities once the sphere mesh is registered
         if (handleEids[0] < 0 && Meshes.id("sphere") !== undefined) {
             handleEids = createHandles(state);
@@ -192,8 +212,6 @@ const EditSystem: System = {
         if (handleEids[0] < 0) return;
 
         // read the live document and place the handles at its endpoints (y = heightAtCpu)
-        const doc = getDocument();
-        const line = doc.polylines[0];
         const perm = makePermutation(getCurrentSeed());
         for (let i = 0; i < 2; i++) {
             const [x, z] = line.points[i];

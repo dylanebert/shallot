@@ -28,13 +28,15 @@ const STANDARD_CHORD: readonly [readonly [number, number], readonly [number, num
 
 /** the chord (endpoints + halfWidth) of the one road in `doc` — the analytic fs's marking geometry
  *  input. One road means one chord; the fs receives this as a uniform and computes marking distances
- *  from it directly, without decoding a texel. */
+ *  from it directly, without decoding a texel. Empty/unfinished strokes use a neutral chord;
+ *  the atlas indirection independently disables their overlay contribution. */
 export function chordOf(doc: StrokeDocument): {
     a: readonly [number, number];
     b: readonly [number, number];
     halfWidth: number;
 } {
     const line = doc.polylines[0];
+    if (!line || line.points.length < 2) return { a: [0, 0], b: [0, 0], halfWidth: 0 };
     return {
         a: line.points[0],
         b: line.points[1],

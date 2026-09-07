@@ -271,6 +271,17 @@ export function checkCliCoverage(
  */
 export const CLI_COVERAGE: readonly CoverageRow[] = [
     {
+        file: "packages/shallot/bin/bun-native.ts",
+        arm: "tier",
+        reason:
+            "native-abi.test.ts drives loadNative's non-Bun refusal in real Node. " +
+            "bun run test:install's nativeFlow drives the actual shipped loader in physical " +
+            "normal/nested installs: optional-peer absence, missing/altered projection refusals, " +
+            "repeated imports and native acquisition. Build tooling checks nativeSourceHash and " +
+            "nativePatchHash against the inputs and nativeHash against the generated projection; " +
+            "the installed loader checks that projection again before importing it.",
+    },
+    {
         file: "packages/shallot/bin/build.ts",
         arm: "gap",
         reason:

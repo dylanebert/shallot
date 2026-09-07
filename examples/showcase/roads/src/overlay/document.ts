@@ -47,11 +47,25 @@ export interface Segment {
     readonly halfWidth: number;
 }
 
+/** Refuse invalid upload coordinates before publishing an edit or deriving its dirty tiles. */
+export function validateDocument(doc: StrokeDocument): void {
+    for (const line of doc.polylines) {
+        if (
+            !Number.isFinite(line.halfWidth) ||
+            line.halfWidth < 0 ||
+            line.points.some((point) => point.length !== 2 || !point.every(Number.isFinite))
+        ) {
+            throw new Error("roads: document coordinates and non-negative widths must be finite");
+        }
+    }
+}
+
 /** every polyline in `doc`, flattened to its consecutive-point segments — pure data marshaling (not
  *  distance math), shared by the CPU oracle and the GPU buffer packer alike; sharing this step doesn't
  *  weaken the differential, since the two sides only diverge in how they measure distance to a segment,
  *  not in which segments exist. */
 export function flattenSegments(doc: StrokeDocument): Segment[] {
+    validateDocument(doc);
     const out: Segment[] = [];
     for (const line of doc.polylines) {
         for (let i = 0; i < line.points.length - 1; i++) {
@@ -263,8 +277,8 @@ export function drivable(px: number, pz: number, doc: StrokeDocument): boolean {
  *
  * Deliberately not one bounding rect over the whole document — two primitives far apart would otherwise
  * mark every tile *between* them too, which is exactly the over-approximation the spec's
- * "only-touched-tiles oracle" rules out. Sorted ascending by tile id, de-duplicated. Empty documents
- * throw — an empty edit (`markDirty` on nothing) is a caller bug, not a valid zero-tile mark.
+ * "only-touched-tiles oracle" rules out. Sorted ascending by tile id, de-duplicated. A cleared or
+ * unfinished stroke touches no tiles; retile still releases the outgoing document's tiles.
  */
 export function documentDirtyTiles(doc: StrokeDocument): number[] {
     const ids = new Set<number>();
@@ -274,8 +288,5 @@ export function documentDirtyTiles(doc: StrokeDocument): number[] {
             if (segmentRectDistance(seg, tileWorldRect(tx, tz)) <= seg.halfWidth + MARGIN)
                 ids.add(id);
         }
-    if (ids.size === 0) {
-        throw new Error("documentDirtyTiles: an empty document (no polylines) touches no tile");
-    }
     return [...ids].sort((a, b) => a - b);
 }
