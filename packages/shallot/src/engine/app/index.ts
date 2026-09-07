@@ -2,6 +2,7 @@ import { type Component, State, type System } from "../ecs";
 import { entries, fields, register, type Traits } from "../ecs/core";
 import {
     Compute,
+    deviceLost,
     now,
     precompileAll,
     Runtime,
@@ -383,6 +384,7 @@ export function mountOverlay(canvas: HTMLElement | null, state?: State): HTMLDiv
 export async function run(config: Config): Promise<App> {
     const app = await build(config);
     const state = app.state;
+    const { device, pending, sync } = Compute;
     // UI teardown is State-owned: the overlay auto-registers its removal (mountOverlay above), and the
     // ui cleanup registers beside it. Both run at state.dispose() — after the plugin dispose hooks on the
     // App.dispose path (UI cleanup is DOM/unmount work with no dependency on plugin GPU state), and it also
@@ -412,7 +414,7 @@ export async function run(config: Config): Promise<App> {
     const scratch: number[] = [];
 
     function frame(timestamp?: number): void {
-        if (disposed) return;
+        if (disposed || deviceLost(device) || Compute.sync !== sync) return;
         // rAF clocks the loop and reschedules first, before any GPU work: the next frame is registered
         // while the browser's paint deadline is still open, so frame delivery stays vsync-aligned. The
         // alternative — scheduling the next rAF off the completion fence — slips a paint whenever the
@@ -441,25 +443,21 @@ export async function run(config: Config): Promise<App> {
         // the in-flight depth. The bound sits well above a present-throttled pipeline's depth (~3 frames),
         // since `onSubmittedWorkDone` is present-gated and a tighter cap would drop frames Chrome is ready to
         // present (a 60Hz fullscreen throttle reads ~3 in flight with the GPU idle).
-        if ((Compute.pending?.() ?? 0) >= MAX_FRAMES_IN_FLIGHT) return;
+        if ((pending?.() ?? 0) >= MAX_FRAMES_IN_FLIGHT) return;
         const dt = frameDelta(t, lastTime);
         lastTime = t;
         state.fenceWait(pendingFenceWaitMs);
         pendingFenceWaitMs = 0;
         state.step(dt);
-        const fence = Compute.sync?.();
+        const fence = sync?.();
         if (fence) {
             const waitStart = now();
             fence.then(
                 () => {
                     pendingFenceWaitMs = now() - waitStart;
                 },
-                // a rejected fence is device loss, and this continuation carries nothing but a timing
-                // sample — drop it rather than reporting a bogus wait. The handler exists only so the
-                // rejection isn't unhandled; the loss itself is reported by `observeDevice`, and the
-                // loop deliberately keeps running (report-only device-loss policy). Don't delete this
-                // as dead code: `Compute.sync`'s own `inFlight` accounting is what must not wedge, and
-                // it is guarded at the fence in `runtime/gpu.ts`, not here.
+                // A rejected fence has no timing sample. Device loss is reported once by
+                // observeDevice; the next scheduled callback stops at the original owner guard.
                 () => {},
             );
         }

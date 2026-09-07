@@ -13,7 +13,7 @@ import {
     type TypedArray,
 } from "../../engine";
 import { entries } from "../../engine/ecs/core";
-import { type LazyAlloc, precompile } from "../../engine/runtime";
+import { deviceLost, type LazyAlloc, precompile } from "../../engine/runtime";
 import { allocMembership, MembershipSystem } from "./membership";
 import {
     compiled,
@@ -109,6 +109,7 @@ export class Slab {
     // bumped by release(): a stager whose mapAsync resolves after its epoch ended belongs to a
     // torn-down build (prior size, possibly prior device) and must be destroyed, not re-pooled
     private _epoch = 0;
+    private _device: GPUDevice | null = null;
 
     constructor(type: Type = f32, name: string | null = null) {
         this.type = type;
@@ -216,6 +217,7 @@ export class Slab {
             );
         }
         const root = Compute.root;
+        this._device = Compute.device;
         const values = d.arrayOf(element, capacity);
         this.typed = root
             .createBuffer(values)
@@ -282,7 +284,6 @@ export class Slab {
                     count++;
                     bits ^= lsb;
                 }
-                dirty[w] = 0;
             }
             slotView[0] = count;
             stager.unmap();
@@ -314,7 +315,6 @@ export class Slab {
                 count++;
                 bits ^= lsb;
             }
-            dirty[w] = 0;
         }
         slotView[0] = count;
         stager.unmap();
@@ -338,6 +338,7 @@ export class Slab {
         this._rawValues = null;
         this._bindGroup = null;
         this._bound = null;
+        this._device = null;
         this._stagingPool.length = 0;
         this._epoch++;
     }
@@ -401,58 +402,74 @@ export class Slab {
     static flush(): void {
         if (Slab._all.length === 0) return;
         const device = Compute.device;
+        if (deviceLost(device)) return;
         const encoder = device.createCommandEncoder({ label: "slab-flush" });
         const used: { slab: Slab; stager: GPUBuffer; count: number }[] = [];
 
-        for (const slab of Slab._all) {
-            if (!slab.gpu) continue;
-            const dirty = slab.dirty;
-            let anyDirty = false;
-            for (let w = 0; w < dirty.length; w++) {
-                if (dirty[w] !== 0) {
-                    anyDirty = true;
-                    break;
+        try {
+            for (const slab of Slab._all) {
+                if (!slab.gpu || slab._device !== device) continue;
+                const dirty = slab.dirty;
+                let anyDirty = false;
+                for (let w = 0; w < dirty.length; w++) {
+                    if (dirty[w] !== 0) {
+                        anyDirty = true;
+                        break;
+                    }
                 }
+                if (!anyDirty) continue;
+                const bytes = elementBytes(slab.type)!;
+                const stagerBytes = (capacity + 1) * 4 + capacity * bytes;
+                const stager = slab._stagingPool.pop() ?? createStager(device, stagerBytes);
+                const entry = { slab, stager, count: 0 };
+                used.push(entry);
+                const count = slab.pack(stager);
+                entry.count = count;
+                encoder.copyBufferToBuffer(stager, 0, slab._rawSlots!, 0, (count + 1) * 4);
+                encoder.copyBufferToBuffer(
+                    stager,
+                    (capacity + 1) * 4,
+                    slab._rawValues!,
+                    0,
+                    count * bytes,
+                );
             }
-            if (!anyDirty) continue;
-            const bytes = elementBytes(slab.type)!;
-            const stagerBytes = (capacity + 1) * 4 + capacity * bytes;
-            const stager = slab._stagingPool.pop() ?? createStager(device, stagerBytes);
-            const count = slab.pack(stager);
-            encoder.copyBufferToBuffer(stager, 0, slab._rawSlots!, 0, (count + 1) * 4);
-            encoder.copyBufferToBuffer(
-                stager,
-                (capacity + 1) * 4,
-                slab._rawValues!,
-                0,
-                count * bytes,
-            );
-            used.push({ slab, stager, count });
+
+            if (used.length === 0) return;
+
+            // One compute pass for all slabs — each dispatch rebinds its own group; the pass is shared, which
+            // saves N-1 beginComputePass/endPass round-trips.
+            const pass = encoder.beginComputePass({
+                label: "slab-scatter",
+                timestampWrites: Compute.span?.("slab:flush"),
+            });
+            for (const { slab, count } of used) {
+                slab._bound!.with(pass).dispatchWorkgroups(Math.ceil(count / 64));
+            }
+            pass.end();
+
+            device.queue.submit([encoder.finish()]);
+        } catch (error) {
+            // Nothing submitted: retain every dirty word, and release even a stager whose pack failed.
+            for (const { stager } of used) stager.destroy();
+            throw error;
         }
-
-        if (used.length === 0) return;
-
-        // One compute pass for all slabs — each dispatch rebinds its own group; the pass is shared, which
-        // saves N-1 beginComputePass/endPass round-trips.
-        const pass = encoder.beginComputePass({
-            label: "slab-scatter",
-            timestampWrites: Compute.span?.("slab:flush"),
-        });
-        for (const { slab, count } of used) {
-            slab._bound!.with(pass).dispatchWorkgroups(Math.ceil(count / 64));
-        }
-        pass.end();
-
-        device.queue.submit([encoder.finish()]);
         for (const { slab, stager } of used) {
+            slab.dirty.fill(0);
             const epoch = slab._epoch;
             stager
                 .mapAsync(GPUMapMode.WRITE)
                 .then(() => {
-                    if (slab._epoch === epoch) slab._stagingPool.push(stager);
-                    else stager.destroy();
+                    if (slab._epoch === epoch && !deviceLost(device) && Compute.device === device) {
+                        slab._stagingPool.push(stager);
+                    } else stager.destroy();
                 })
-                .catch(() => {});
+                .catch((error) => {
+                    stager.destroy();
+                    if (slab._epoch === epoch && !deviceLost(device) && Compute.device === device) {
+                        console.error("Slab staging mapAsync rejected:", error);
+                    }
+                });
         }
     }
 }

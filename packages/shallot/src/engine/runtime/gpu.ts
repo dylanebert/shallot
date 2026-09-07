@@ -518,6 +518,12 @@ function endArtifactScope(scope: ArtifactScope | undefined): void {
 }
 
 const _observedDevices = new WeakSet<GPUDevice>();
+const _lostDevices = new WeakSet<GPUDevice>();
+
+/** whether the original device's loss has been observed; never follows the active build. @internal */
+export function deviceLost(device: GPUDevice): boolean {
+    return _lostDevices.has(device);
+}
 
 function failure(error: unknown): { errorClass: string; message: string } {
     if (error instanceof Error) return { errorClass: error.name, message: error.message };
@@ -593,6 +599,7 @@ export function observeDevice(
     _observedDevices.add(device);
 
     void device.lost?.then((info) => {
+        _lostDevices.add(device);
         report(`GPU device lost ${info.reason}: ${info.message}`);
     });
 

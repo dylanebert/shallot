@@ -17,7 +17,7 @@ import {
     vec4,
 } from "../..";
 import { clear, lanes, register } from "../../engine/ecs/core";
-import { Slab, SlabPlugin } from "./";
+import { Slab, SlabPlugin, SlabSystem } from "./";
 import { elementBytes, scatterWgsl } from "./scatter";
 
 // Pure-CPU slab logic (no device): CPU-storage alloc, set/get + dirty bits, defaults-through-.set,
@@ -25,7 +25,8 @@ import { elementBytes, scatterWgsl } from "./scatter";
 // dirty-clear) is gated by the gym `render` scenario's transport round-trip (`bun bench --scenario
 // render`), the product-truth gate for the resolved pipeline's execution. `Slab.collect()` is the
 // device-free CPU-alloc pass `build()` runs over the registry; the `.gpu` mirror is `prepare()` at warm.
-// One exception binds a device here: the reset/in-flight-stager lifecycle race, unreachable from the gym.
+// Native devices below exercise allocation unwind and staging-map lifetimes; GPU value correctness
+// stays with the gym transport assertion.
 
 beforeEach(() => {
     clear();
@@ -202,6 +203,238 @@ describe("reset during an in-flight flush", () => {
     });
 });
 
+describe("stager completion ownership", () => {
+    for (const retirement of ["live", "loss", "dispose", "rebuild"] as const) {
+        test(`${retirement} discriminates successful and rejected native maps`, async () => {
+            const Thing = { scalar: new Slab(f32), packed: new Slab(f16x4) };
+            const config = {
+                plugins: [SlabPlugin, { name: "thing", components: { Thing } }],
+                defaults: false,
+            };
+            const app = await build(config);
+            let replacement: Awaited<ReturnType<typeof build>> | undefined;
+            const device = Compute.device;
+            const create = device.createBuffer.bind(device);
+            const ready: Promise<void>[] = [];
+            const controls: ReturnType<typeof Promise.withResolvers<void>>[] = [];
+            const destroyed: ReturnType<typeof spyOn>[] = [];
+            const maps: ReturnType<typeof spyOn>[] = [];
+            let allocations = 0;
+            const allocation = spyOn(device, "createBuffer").mockImplementation((desc) => {
+                const buffer = create(desc);
+                if (desc.label !== "slab-staging") return buffer;
+                allocations++;
+                if (allocations > 2) return buffer;
+                const control = Promise.withResolvers<void>();
+                controls.push(control);
+                const map = buffer.mapAsync.bind(buffer);
+                maps.push(
+                    spyOn(buffer, "mapAsync").mockImplementation((...args) => {
+                        const native = map(...args);
+                        ready.push(native);
+                        return native.then(() => control.promise).then(() => undefined);
+                    }),
+                );
+                destroyed.push(spyOn(buffer, "destroy"));
+                return buffer;
+            });
+            const errors = spyOn(console, "error").mockImplementation(() => {});
+            try {
+                Thing.scalar.set(31, 7);
+                Thing.packed.set(65, 1, 2, 3, 4);
+                app.state.step();
+                expect(controls).toHaveLength(2);
+                await Promise.all(ready);
+                if (retirement === "loss") {
+                    device.destroy();
+                    await device.lost;
+                }
+                if (retirement === "dispose" || retirement === "rebuild") app.dispose();
+                if (retirement === "rebuild") replacement = await build(config);
+                // Native device.destroy also destroys its buffers; count the continuation separately.
+                const priorDestroys = destroyed.map((destroy) => destroy.mock.calls.length);
+                const refusal = new Error("injected ordinary map rejection");
+                controls[0].resolve();
+                controls[1].reject(refusal);
+                await Promise.allSettled(controls.map((control) => control.promise));
+                // Drain the native-map -> controlled-completion -> pool/error chain.
+                for (let i = 0; i < 4; i++) await Promise.resolve();
+                const pools = Object.values(Thing).map(
+                    (slab) => (slab as unknown as { _stagingPool: GPUBuffer[] })._stagingPool,
+                );
+                expect(pools.map((pool) => pool.length)).toEqual(
+                    retirement === "live" ? [1, 0] : [0, 0],
+                );
+                expect(destroyed[0]).toHaveBeenCalledTimes(
+                    priorDestroys[0] + (retirement === "live" ? 0 : 1),
+                );
+                expect(destroyed[1]).toHaveBeenCalledTimes(priorDestroys[1] + 1);
+                if (retirement === "live") {
+                    expect(errors.mock.calls).toEqual([
+                        ["Slab staging mapAsync rejected:", refusal],
+                    ]);
+                    Thing.scalar.set(31, 8);
+                    Thing.packed.set(65, 2, 3, 4, 5);
+                    app.state.step();
+                    expect(allocations).toBe(3);
+                    expect(Thing.scalar.dirty.some(Boolean)).toBe(false);
+                    expect(Thing.packed.dirty.some(Boolean)).toBe(false);
+                } else {
+                    expect(errors).toHaveBeenCalledTimes(retirement === "loss" ? 1 : 0);
+                }
+                if (replacement) {
+                    const submit = spyOn(Compute.device.queue, "submit");
+                    try {
+                        Thing.scalar.set(31, 9);
+                        replacement.state.step();
+                        expect(submit).toHaveBeenCalledTimes(1);
+                        expect(Thing.scalar.dirty.some(Boolean)).toBe(false);
+                    } finally {
+                        submit.mockRestore();
+                    }
+                }
+            } finally {
+                allocation.mockRestore();
+                replacement?.dispose();
+                app.dispose();
+                for (const map of maps) map.mockRestore();
+                for (const destroy of destroyed) destroy.mockRestore();
+                errors.mockRestore();
+            }
+        });
+    }
+});
+
+describe("lost slab owner", () => {
+    test("a lost device receives no further flush work and retains dirty data", async () => {
+        const Thing = { v: new Slab(f32) };
+        const app = await build({
+            plugins: [SlabPlugin, { name: "thing", components: { Thing } }],
+            defaults: false,
+        });
+        const device = Compute.device;
+        const errors = spyOn(console, "error").mockImplementation(() => {});
+        const encoder = spyOn(device, "createCommandEncoder");
+        const create = spyOn(device, "createBuffer");
+        const submit = spyOn(device.queue, "submit");
+        try {
+            Thing.v.set(31, 2);
+            device.destroy();
+            await device.lost;
+            const dirty = Thing.v.dirty.slice();
+            for (let i = 0; i < 3; i++) Slab.flush();
+            expect(encoder).not.toHaveBeenCalled();
+            expect(create).not.toHaveBeenCalled();
+            expect(submit).not.toHaveBeenCalled();
+            expect(Thing.v.dirty).toEqual(dirty);
+            expect(errors).toHaveBeenCalledTimes(1);
+        } finally {
+            encoder.mockRestore();
+            create.mockRestore();
+            submit.mockRestore();
+            errors.mockRestore();
+            app.dispose();
+        }
+    });
+});
+
+describe("allocation failure unwind", () => {
+    for (const mode of ["fresh", "pooled", "submit"] as const) {
+        test(`${mode} failure preserves dirty words, releases stagers and quarantines the real system`, async () => {
+            const Thing = {
+                scalar: new Slab(f32),
+                color: new Slab(srgb8x4),
+                half: new Slab(f16x4),
+            };
+            const app = await build({
+                plugins: [SlabPlugin, { name: "thing", components: { Thing } }],
+                defaults: false,
+            });
+            const device = Compute.device;
+            const create = device.createBuffer.bind(device);
+            const refusal = new RangeError("injected mapped backing allocation failure");
+            const allocated: GPUBuffer[] = [];
+            const destroyed: ReturnType<typeof spyOn>[] = [];
+            let attempts = 0;
+            let fail = true;
+            const allocation = spyOn(device, "createBuffer").mockImplementation((desc) => {
+                if (desc.label !== "slab-staging") return create(desc);
+                attempts++;
+                expect(desc.mappedAtCreation).toBe(true);
+                expect(desc.usage).toBe(GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC);
+                if (fail && mode !== "submit" && attempts === (mode === "pooled" ? 1 : 3))
+                    throw refusal;
+                const buffer = create(desc);
+                allocated.push(buffer);
+                destroyed.push(spyOn(buffer, "destroy"));
+                return buffer;
+            });
+            const nativeSubmit = device.queue.submit.bind(device.queue);
+            const submit = spyOn(device.queue, "submit").mockImplementation((commands) => {
+                if (fail && mode === "submit") throw refusal;
+                nativeSubmit(commands);
+            });
+            const errors = spyOn(console, "error").mockImplementation(() => {});
+            try {
+                const slabs = Object.values(Thing);
+                if (mode === "pooled") {
+                    fail = false;
+                    Thing.scalar.set(1, 1);
+                    Thing.color.set(1, 1, 1, 1, 1);
+                    app.state.step();
+                    const pools = slabs
+                        .slice(0, 2)
+                        .map(
+                            (slab) =>
+                                (slab as unknown as { _stagingPool: GPUBuffer[] })._stagingPool,
+                        );
+                    for (let i = 0; i < 20 && pools.some((pool) => pool.length !== 1); i++) {
+                        await new Promise((resolve) => setTimeout(resolve, 5));
+                    }
+                    expect(pools.map((pool) => pool.length)).toEqual([1, 1]);
+                    attempts = 0;
+                    submit.mockClear();
+                    fail = true;
+                }
+                const failedAttempts = mode === "pooled" ? 1 : 3;
+                for (const slab of slabs) {
+                    for (const eid of [1, 31, 32, 65]) slab.set(eid, 1, 0.5, 0.25, 1);
+                }
+                const dirty = slabs.map((slab) => slab.dirty.slice());
+                app.state.step();
+                expect(attempts).toBe(failedAttempts);
+                expect(errors.mock.calls).toEqual([
+                    [expect.stringContaining('System "Slab/0" threw and is paused'), refusal],
+                ]);
+                expect(submit).toHaveBeenCalledTimes(mode === "submit" ? 1 : 0);
+                // Scheduler quarantine is observable through repeated production steps, not its private set.
+                app.state.step();
+                app.state.step();
+                expect(attempts).toBe(failedAttempts);
+                expect(errors).toHaveBeenCalledTimes(1);
+                expect(slabs.map((slab) => slab.dirty)).toEqual(dirty);
+                expect(destroyed).toHaveLength(mode === "submit" ? 3 : 2);
+                for (const destroy of destroyed) expect(destroy).toHaveBeenCalledTimes(1);
+
+                fail = false;
+                app.state.swap(SlabSystem, { ...SlabSystem });
+                app.state.step();
+                expect(attempts).toBe(failedAttempts + 3);
+                expect(submit).toHaveBeenCalledTimes(mode === "submit" ? 2 : 1);
+                for (const slab of slabs) expect(slab.dirty.some(Boolean)).toBe(false);
+                await device.queue.onSubmittedWorkDone();
+            } finally {
+                allocation.mockRestore();
+                submit.mockRestore();
+                errors.mockRestore();
+                app.dispose();
+                for (const destroy of destroyed) destroy.mockRestore();
+                for (const buffer of allocated) buffer.destroy();
+            }
+        });
+    }
+});
+
 describe("staging pool allocation", () => {
     // `createStager` (module-private in index.ts) is the site that carries `lazy: true` (index.ts:49) —
     // it fires whenever `Slab.flush()` finds an empty `_stagingPool` for a dirty slab, i.e. real GPU
@@ -218,6 +451,7 @@ describe("staging pool allocation", () => {
 
         const s = Marker.v as unknown as {
             gpu: unknown;
+            _device: GPUDevice;
             _rawSlots: unknown;
             _rawValues: unknown;
             _bound: { with: (pass: unknown) => { dispatchWorkgroups: (n: number) => void } };
@@ -247,6 +481,7 @@ describe("staging pool allocation", () => {
             queue: { submit: () => {} },
         } as unknown as GPUDevice;
         const prevDevice = Compute.device;
+        s._device = device;
         Object.assign(Compute, { device });
 
         try {

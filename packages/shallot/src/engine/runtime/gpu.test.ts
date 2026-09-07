@@ -9,6 +9,7 @@ import {
     checkTextureLimits,
     checkTgsl,
     deviceLimits,
+    deviceLost,
     GpuDiagnosticError,
     observeDevice,
     PIPELINE_COMPILE_MEASURE_PREFIX,
@@ -43,13 +44,24 @@ describe("device failure listeners", () => {
         observeDevice(device, (message) => reported.push(message));
         observeDevice(device, (message) => reported.push(`duplicate:${message}`));
 
+        const other = { lost: new Promise<GPUDeviceLostInfo>(() => {}) } as GPUDevice;
+        observeDevice(other, (message) => reported.push(message));
+        expect(deviceLost(device)).toBe(false);
+        expect(deviceLost(other)).toBe(false);
         expect(device.onuncapturederror).toBe(host);
         listener?.({ error: new Error("bad binding") } as unknown as GPUUncapturedErrorEvent);
+        expect(deviceLost(device)).toBe(false);
         lose({ reason: "destroyed", message: "host closed" } as GPUDeviceLostInfo);
         await Promise.resolve();
+        expect(deviceLost(device)).toBe(true);
+        expect(deviceLost(other)).toBe(false);
+        observeDevice(device, (message) => reported.push(`late:${message}`));
+        expect(deviceLost(device)).toBe(true);
+        listener?.({ error: new Error("unrelated failure") } as unknown as GPUUncapturedErrorEvent);
         expect(reported).toEqual([
             "GPU uncaptured Error: bad binding",
             "GPU device lost destroyed: host closed",
+            "GPU uncaptured Error: unrelated failure",
         ]);
     });
 });
