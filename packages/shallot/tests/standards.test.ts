@@ -220,7 +220,7 @@ describe("checkStandards (fixture-only)", () => {
     });
 });
 
-/** `violation()` proofs: each of the four discipline checks, red-provable against a mutated kernel, at
+/** `violation()` proofs: each discipline check, red-provable against a mutated kernel, at
  *  the resolved-WGSL granularity the meta-test itself uses (Validation: "No check is satisfiable without
  *  its property"). */
 describe("violation() per discipline check", () => {
@@ -228,12 +228,17 @@ describe("violation() per discipline check", () => {
         noIntegerDivision: "fn f() -> f32 { return f32(a) / f32(b); }",
         integerDiscipline: "fn f() -> u32 { return i32(3); }",
         pointerDiscipline: "fn f() -> f32 { let n = 3.0; let m = (&n); return m; }",
+        // the exact pre-fix `uniformLoad` leaf naga rejected, which took Firefox's light-cull down
+        portablePointers:
+            "fn uniformLoad(p: ptr<workgroup,u32>) -> u32 { return workgroupUniformLoad(p); }",
         noDivision: "fn f() -> f32 { return a / b; }",
     };
     const good: Record<DisciplineCheck, string> = {
         noIntegerDivision: "fn f() -> f32 { return a * b; }",
         integerDiscipline: "fn f() -> u32 { return a + b; }",
         pointerDiscipline: "fn f() -> f32 { var n = 3.0; let m = (&n); return m; }",
+        // the repaired shape: the intrinsic inlined against the variable, no pointer parameter
+        portablePointers: "fn f() -> u32 { return workgroupUniformLoad(&wgCount); }",
         noDivision: "fn f() -> f32 { return a * idivWgsl(x, y); }",
     };
 

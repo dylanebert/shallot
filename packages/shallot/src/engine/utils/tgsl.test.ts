@@ -10,7 +10,6 @@ import {
     packUnorm2x16,
     packUnorm4x8,
     subgroupUniformityOff,
-    uniformLoad,
     unpackSnorm2x16,
     unpackUnorm2x16,
 } from "./tgsl";
@@ -108,8 +107,7 @@ describe("escape leaves — CPU arm", () => {
     });
 
     test("a GPU-only leaf refuses to run on the CPU rather than answering wrong", () => {
-        // a workgroup pointer and an atomic have no CPU meaning, so these two have no dual arm
-        expect(() => (uniformLoad as unknown as () => void)()).toThrow();
+        // an atomic has no CPU meaning, so this leaf has no dual arm
         expect(() => (compareExchange as unknown as () => void)()).toThrow();
     });
 });

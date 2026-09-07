@@ -315,6 +315,7 @@ const uniformityOptOut = tgpu
 const gD = tgpu.workgroupVar(d.arrayOf(d.atomic(d.u32), G_D));
 const wgPart = tgpu.workgroupVar(d.u32);
 const wgDone = tgpu.workgroupVar(d.u32); // lookback early-exit gate, read via workgroupUniformLoad
+const wgDoneUniform = uniformLoad(wgDone);
 
 const Keys = d.arrayOf(d.u32, KEYS_PER_THREAD);
 const Ballot = d.arrayOf(d.u32, 4);
@@ -496,7 +497,7 @@ const binningKernel = tgpu
         let lookbackPart = part;
         let spinCount = d.u32(0);
         while (true) {
-            if (uniformLoad(wgDone.$) !== 0) break;
+            if (wgDoneUniform.$ !== 0) break;
             const descIdx = (passIdx * binBlocks + lookbackPart) * RADIX + input.tid;
             let flagPayload = d.u32(0);
             if (!warpComplete && !lookbackComplete) {

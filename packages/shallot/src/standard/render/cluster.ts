@@ -524,6 +524,7 @@ function compactKernel(
 }
 
 const wgCount = tgpu.workgroupVar(d.u32);
+const wgCountUniform = uniformLoad(wgCount);
 const batch = tgpu.workgroupVar(d.arrayOf(d.vec4f, 64));
 
 // view-space sphere vs cluster AABB: squared distance from the box to the center against range²
@@ -556,7 +557,7 @@ const cullKernel = tgpu.computeFn({
     const slot = input.gid.y;
     const live = cluster < CLUSTER_COUNT;
     if (input.lid.x === 0) wgCount.$ = std.min(cullLayout.$.lights.count.x, MAX_POINT_LIGHTS);
-    const n = uniformLoad(wgCount.$);
+    const n = wgCountUniform.$;
     const base = (slot * CLUSTER_COUNT + std.min(cluster, CLUSTER_COUNT - 1)) * 2;
     const lo = cullLayout.$.aabbs[base];
     const hi = cullLayout.$.aabbs[base + 1];

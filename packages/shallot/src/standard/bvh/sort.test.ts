@@ -89,11 +89,14 @@ describe("tile descriptors", () => {
 
 describe("lookback with fallback", () => {
     test("the early exit is a workgroupUniformLoad gate, which is what legalizes the in-loop barriers", () => {
-        expect(flat(wgsl.binning)).toContain(
-            "fn uniformLoad(p: ptr<workgroup,u32>) -> u32 { return workgroupUniformLoad(p); }",
-        );
+        // inlined at the site, never a `fn(p: ptr<workgroup, u32>)` leaf: naga (Firefox) rejects a
+        // workgroup-address-space pointer parameter, so the leaf spelling made this module
+        // uncompilable there
+        expect(wgsl.binning).not.toContain("ptr<workgroup");
         const main = flat(body(wgsl.binning, "@compute"));
-        expect(main).toContain("while (true) { if ((uniformLoad((&wgDone)) != 0u)) { break; }");
+        expect(main).toContain(
+            "while (true) { if ((workgroupUniformLoad(&wgDone) != 0u)) { break; }",
+        );
         // the gate is a plain (non-atomic) workgroup var — an atomicLoad here is what Tint rejects
         expect(wgsl.binning).toContain("var<workgroup> wgDone: u32;");
         expect(main).toContain("wgDone = 1u;");

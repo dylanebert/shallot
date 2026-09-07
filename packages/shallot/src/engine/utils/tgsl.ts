@@ -1,4 +1,4 @@
-import tgpu, { type Namespace } from "typegpu";
+import tgpu, { type Namespace, type TgpuVar } from "typegpu";
 import * as d from "typegpu/data";
 import { isBeingTranspiled } from "typegpu/std";
 
@@ -175,26 +175,21 @@ export const idiv = tgpu.fn(
     return isBeingTranspiled() ? idivWgsl(a, b) : Math.floor(a / b);
 });
 
-const uniformLoadFn = tgpu
-    .fn(
-        [d.ptrWorkgroup(d.u32)],
-        d.u32,
-    )(/* wgsl */ `(p: ptr<workgroup, u32>) -> u32 { return workgroupUniformLoad(p); }`)
-    .$name("uniformLoad");
-
-/** WGSL `workgroupUniformLoad(p)`: a control barrier whose result the uniformity analysis treats as
+/** WGSL `workgroupUniformLoad(&v)`: a control barrier whose result the uniformity analysis treats as
  *  uniform, which is what makes a `workgroupBarrier` inside a flag-gated loop legal (the decoupled-
- *  fallback scan's early-exit, gpu.md "the decoupled-scan exception"). GPU-only — a workgroup pointer
- *  has no CPU meaning. Pass the variable's `.$`, which the transpiler emits as `&flag`.
+ *  fallback scan's early-exit, gpu.md "the decoupled-scan exception"). GPU-only — a workgroup variable
+ *  has no CPU meaning. Bind one loader per variable at module scope and read it as `.$` at the call
+ *  site, which emits the intrinsic inline against that variable.
  *
- *  The widened call signature is an upstream typing gap, not a choice: typegpu types a scalar
- *  `TgpuVar.$` as `number` rather than the `ref<number>` its own `ptrWorkgroup` param declares, and
- *  `d.ref` rejects a scalar outright. A runtime wrapper can't narrow it either — the transpiler has to
- *  see the `tgpu.fn` call at the site, so a JS forwarder resolves as an untranspiled function. That
- *  leaves the type as the only lever, and `number` is the only type there is; `uniformLoad(5)` compiles
- *  and emits nonsense. On the upstream-PR list with the other escape leaves.
- *  @example const n = uniformLoad(flag.$); */
-export const uniformLoad = uniformLoadFn as typeof uniformLoadFn & ((flag: number) => number);
+ *  Inline rather than a shared `fn(p: ptr<workgroup, u32>)` leaf: WGSL 1.0 forbids workgroup-address-
+ *  space pointer parameters, and only Tint admits them (`unrestricted_pointer_parameters`). naga —
+ *  Firefox's front end — rejects such a function outright, so the pointer-parameter spelling made every
+ *  shader reaching it uncompilable off Chromium.
+ *  @example const n = wgCountUniform.$; */
+export const uniformLoad = (flag: TgpuVar<"workgroup", d.U32>) =>
+    tgpu["~unstable"]
+        .rawCodeSnippet(/* wgsl */ `workgroupUniformLoad(&flag)`, d.u32, "runtime", true)
+        .$uses({ flag });
 
 const compareExchangeFn = tgpu
     .fn(
@@ -212,7 +207,7 @@ const compareExchangeFn = tgpu
  *  publish/claim step needs. Returns the prior value — equal to `cmp` exactly when the exchange took.
  *  GPU-only. Pass the atomic array element; the transpiler emits it as `&slot`.
  *
- *  The widened call signature is the same upstream typing gap {@link uniformLoad} carries: typegpu
+ *  The widened call signature is an upstream typing gap, not a choice: typegpu
  *  types an atomic storage element as its own `atomic` instance rather than the `ref` its `ptrStorage`
  *  param declares, and a JS forwarder can't narrow it (the transpiler has to see the `tgpu.fn` call at
  *  the site). `std.atomicAdd` and friends accept that instance type, so the leaf accepts it too.

@@ -18,7 +18,7 @@ Before Bevy machinery/analogues, read ecs.md "Bevy as the structural reference":
 
 One WebGPU 1.0 floor: indirect-first-instance, bgra8unorm-storage, rg11b10ufloat-renderable. Only default-plugin needs belong here; others declare required/preferred plugin features. Missing required fails before loading; only preferred features may fall back (BVH subgroups→LDS). Don't gate guaranteed features. Keep feature use behind narrow interfaces.
 
-Targets: desktop Chrome/Edge, recent Android Chrome, Safari26+ Apple Silicon, Steam Deck. Native defaults: wry WebView2/WKWebView/WebKitGTK; portable CEF required on Linux. Build mismatch warns, never blocks. Firefox/pre-Gen11 Intel: boot, explain unsupported configuration, exit; no degraded path. Details: `gpu.md`.
+Targets: desktop Chrome/Edge, recent Android Chrome, Safari26+ Apple Silicon, Steam Deck. Native defaults: wry WebView2/WKWebView/WebKitGTK; portable CEF required on Linux. Build mismatch warns, never blocks. Admission by features/limits, not browser name; a missing floor boots, explains, exits. Details: `gpu.md`.
 
 ## Commands
 

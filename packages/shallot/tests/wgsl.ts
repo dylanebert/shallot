@@ -81,6 +81,41 @@ export function pointerDiscipline(src: string): void {
 }
 
 /**
+ * assert no function declares a parameter in the `workgroup` address space. WGSL 1.0 forbids it, and
+ * only Tint admits it (its `unrestricted_pointer_parameters` extension) — naga, Firefox's front end,
+ * rejects the whole module, so one such parameter makes every shader reaching it uncompilable off
+ * Chromium. Red-proven against the pre-fix `uniformLoad` leaf
+ * (`fn uniformLoad(p: ptr<workgroup,u32>) -> u32`), which took the light-cull, AVBD and BVH shaders
+ * down on Firefox. Reads the parameter list alone: a `ptr<workgroup, ...>` in a body is a local
+ * pointer, which is legal. The lexical forms covered are the spacing variants (`ptr<workgroup,u32>`,
+ * `ptr< workgroup , u32 >`) and the explicit access mode (`ptr<workgroup, u32, read_write>`).
+ */
+export function portablePointers(src: string): void {
+    for (const params of functionParams(src)) {
+        if (/\bptr\s*<\s*workgroup\b/.test(params))
+            throw new Error(
+                `a workgroup-address-space pointer parameter (${flat(params)}) — naga rejects it`,
+            );
+    }
+}
+
+/** each top-level `fn name(...)` parameter list, in emission order. */
+function functionParams(src: string): string[] {
+    const lists: string[] = [];
+    for (const m of src.matchAll(/\bfn\s+[A-Za-z_]\w*\s*\(/g)) {
+        let depth = 0;
+        for (let i = src.indexOf("(", m.index); i < src.length; i++) {
+            if (src[i] === "(") depth++;
+            else if (src[i] === ")" && --depth === 0) {
+                lists.push(src.slice(m.index, i + 1));
+                break;
+            }
+        }
+    }
+    return lists;
+}
+
+/**
  * brace-matched top-level `fn name(...) { ... }` blocks, in emission order. Falls back to the whole
  * source when it names no function (a caller passing an already-scoped body with no `fn` header).
  */
