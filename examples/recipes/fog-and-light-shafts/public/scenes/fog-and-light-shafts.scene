@@ -18,7 +18,7 @@
         camera
         sear
         depth
-        orbit="distance: 14; yaw: 0.7; pitch: 0.12; pan: 0 1.5 -8"
+        orbit="distance: 3; yaw: 0.7; pitch: 0.12; pan: -2 1 0"
         transform
     />
 

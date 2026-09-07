@@ -62,6 +62,8 @@ export function clampDragTarget(
     x: number,
     z: number,
 ): [number, number] {
+    if (!Number.isFinite(x) || !Number.isFinite(z))
+        throw new Error("roads: drag target must be finite");
     const line = doc.polylines[0];
     const other = (end === 0 ? line.points[1] : line.points[0]) as [number, number];
     const current = line.points[end] as [number, number];
@@ -77,8 +79,6 @@ export function clampDragTarget(
     // drag direction: from current position toward target
     const ddx = x - px;
     const ddz = z - pz;
-    const dlen = Math.hypot(ddx, ddz);
-    if (dlen < 1e-9) return [x, z]; // target equals current — no-op
 
     // solve |V + s*D|^2 = ROAD_MIN_LENGTH^2 for s, where V = P - O, D = (ddx, ddz)
     // the chord is valid at s=0 (current) and invalid at s=1 (target), so the crossing in (0, 1] is
@@ -89,16 +89,24 @@ export function clampDragTarget(
     const b = 2 * (vx * ddx + vz * ddz);
     const c = vx * vx + vz * vz - ROAD_MIN_LENGTH * ROAD_MIN_LENGTH;
     const disc = b * b - 4 * a * c;
-    if (disc < 0) {
-        // no intersection — shouldn't happen if current is valid and target is invalid;
-        // fallback: project target onto the floor circle
-        return [ox + (tdx / tdist) * ROAD_MIN_LENGTH, oz + (tdz / tdist) * ROAD_MIN_LENGTH];
+    if (a > 0 && c >= 0 && disc >= 0) {
+        const s = (-b - Math.sqrt(disc)) / (2 * a);
+        if (s >= 0 && s <= 1) return [px + ddx * s, pz + ddz * s];
     }
-    const s = (-b - Math.sqrt(disc)) / (2 * a);
-    if (s < 0) {
-        return [ox + (tdx / tdist) * ROAD_MIN_LENGTH, oz + (tdz / tdist) * ROAD_MIN_LENGTH];
+
+    // A loaded short chord or rounding just inside the floor has no entering root.
+    // At the opposite endpoint the target direction is zero: use the old chord,
+    // then an inward axis if even that is coincident or its projection leaves the grid.
+    const vxFloor = tdist > 0 ? tdx : vx;
+    const vzFloor = tdist > 0 ? tdz : vz;
+    const length = Math.hypot(vxFloor, vzFloor);
+    if (length > 0) {
+        const fx = ox + (vxFloor / length) * ROAD_MIN_LENGTH;
+        const fz = oz + (vzFloor / length) * ROAD_MIN_LENGTH;
+        const bound = WORLD_HALF - BOUND_MARGIN;
+        if (Math.abs(fx) <= bound && Math.abs(fz) <= bound) return [fx, fz];
     }
-    return [px + ddx * s, pz + ddz * s];
+    return [ox + (ox > 0 ? -ROAD_MIN_LENGTH : ROAD_MIN_LENGTH), oz];
 }
 
 /** Project a ray onto the world bound — find where the ray's (x, z) trajectory hits the world bound

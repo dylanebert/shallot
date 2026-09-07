@@ -1,4 +1,48 @@
-import { Compute, type Mirror } from "@dylanebert/shallot";
+import { Camera, Compute, Inputs, type Mirror, Transform } from "@dylanebert/shallot";
+import { Orbit } from "@dylanebert/shallot/extras";
+import { Views } from "@dylanebert/shallot/render/core";
+
+/** Read actual view/camera/input state independently of the edit and pixel predicates. */
+export function cameraSnapshot() {
+    return {
+        frame: Compute.frame,
+        mouse: { ...Inputs.mouse },
+        touch: { ...Inputs.touch },
+        cameras: [...Views].map(([eid, view]) => ({
+            eid,
+            canvas: view.canvas !== null,
+            fov: Camera.fov.get(eid),
+            near: Camera.near.get(eid),
+            pos: [Transform.pos.x.get(eid), Transform.pos.y.get(eid), Transform.pos.z.get(eid)],
+            rot: [
+                Transform.rot.x.get(eid),
+                Transform.rot.y.get(eid),
+                Transform.rot.z.get(eid),
+                Transform.rot.w.get(eid),
+            ],
+            yaw: Orbit.yaw.get(eid),
+            pitch: Orbit.pitch.get(eid),
+            distance: Orbit.distance.get(eid),
+        })),
+    };
+}
+
+/** Set only the live display camera for device controls, never the authored scene. */
+export function poseCamera(values: {
+    distance?: number;
+    pitch?: number;
+    yaw?: number;
+    smoothness?: number;
+    mode?: number;
+}): void {
+    for (const [eid, view] of Views) {
+        if (!view.canvas) continue;
+        for (const key of ["distance", "pitch", "yaw", "smoothness", "mode"] as const) {
+            const value = values[key];
+            if (value !== undefined) Orbit[key].set(eid, value);
+        }
+    }
+}
 
 // The project's own tiny test/boot helpers — published-surface-only (no reach into the repo harness),
 // the same shape as voxel's `src/harness.ts`. {@link Check} is the gate's verdict shape, read by

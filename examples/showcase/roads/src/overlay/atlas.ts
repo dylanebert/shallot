@@ -131,7 +131,8 @@ export function warm(state: State): void {
     indirectionRaw = device.createBuffer({
         label: "overlay-indirection",
         size: TILE_COUNT * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        // The clear/reload device gate reads the actual table consumed by the surface.
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
     invalidateQueue(indirectionCpu, free, ATLAS_LAYERS, pending, pendingSet);
     device.queue.writeBuffer(indirectionRaw, 0, indirectionCpu as Int32Array<ArrayBuffer>);

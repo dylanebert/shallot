@@ -1,0 +1,818 @@
+--- a/index.js
++++ b/index.js
+@@ -1,74 +1,27 @@
+ // @bun
++// bun-webgpu 0.1.7, Apache-2.0 (see bun-webgpu-LICENSE).
++// Modified by Shallot: acquisition allocation/callback ownership and peer-relative native loading.
+ // src/ffi.ts
+ import { dlopen, suffix, FFIType } from "bun:ffi";
+-import { existsSync } from "fs";
+-import path from "path";
+-import { fileURLToPath } from "url";
+-var __filename2 = fileURLToPath(import.meta.url);
+-var __dirname2 = path.dirname(__filename2);
+-var targetLibPath = null;
+-function debugLoader(message) {
+-  if (process.env.WGPU_DEBUG_LOADER === "true") {
+-    console.error(`[ffi-loader] ${message}`);
+-  }
+-}
+-function resolveFromInstalledPackage() {
+-  return targetLibPath;
+-}
+-function resolveFromLocalBuild() {
+-  const platformMap = {
+-    darwin: "macos",
+-    linux: "linux",
+-    win32: "windows"
+-  };
+-  const archMap = {
+-    x64: "x86_64",
+-    arm64: "aarch64",
+-    aarch64: "aarch64"
+-  };
+-  const targetDir = `${archMap[process.arch] ?? process.arch}-${platformMap[process.platform] ?? process.platform}`;
+-  const localBaseDir = path.resolve(__dirname2, "lib", targetDir);
+-  const candidates = [
+-    path.join(localBaseDir, `libwebgpu_wrapper.${suffix}`),
+-    path.join(localBaseDir, `webgpu_wrapper.${suffix}`)
+-  ];
+-  for (const candidate of candidates) {
+-    if (existsSync(candidate)) {
+-      debugLoader(`resolved local library -> ${candidate}`);
+-      return candidate;
+-    }
+-    debugLoader(`failed local library candidate '${candidate}'`);
+-  }
+-  return null;
+-}
+-function findLibrary() {
+-  const fromPackage = resolveFromInstalledPackage();
+-  if (fromPackage) {
+-    return fromPackage;
+-  }
+-  const fromLocal = resolveFromLocalBuild();
+-  if (fromLocal) {
+-    return fromLocal;
+-  }
+-  throw new Error(`bun-webgpu is not supported on the current platform: ${process.platform}-${process.arch} (no installed package or local src/lib build found)`);
+-}
+-try {
+-  const module = await import(`bun-webgpu-${process.platform}-${process.arch}/index.ts`);
+-  let resolvedTargetLibPath = module.default;
+-  if (/\$bunfs/.test(resolvedTargetLibPath)) {
+-    resolvedTargetLibPath = resolvedTargetLibPath.replace("../", "");
+-  }
+-  if (!existsSync(resolvedTargetLibPath)) {
+-    debugLoader(`installed package resolved to missing path '${resolvedTargetLibPath}'`);
+-  } else {
+-    targetLibPath = resolvedTargetLibPath;
+-    debugLoader(`resolved installed package library -> ${targetLibPath}`);
+-  }
+-} catch (error) {
+-  debugLoader(`failed installed package import: ${error instanceof Error ? error.message : String(error)}`);
+-}
++import { existsSync, readFileSync, realpathSync } from 'node:fs';
++import { createRequire } from 'node:module';
++import path from 'node:path';
++const peerRequire = createRequire(import.meta.url);
++const peerEntry = peerRequire.resolve('bun-webgpu');
++const peerManifest = JSON.parse(readFileSync(path.join(path.dirname(peerEntry), 'package.json'), 'utf8'));
++if (peerManifest.version !== '0.1.7') throw new Error('Shallot native carrier requires bun-webgpu 0.1.7');
++const platformRequire = createRequire(peerEntry);
++const platformEntry = platformRequire.resolve(`bun-webgpu-${process.platform}-${process.arch}/index.ts`);
++const platformManifest = JSON.parse(readFileSync(path.join(path.dirname(platformEntry), 'package.json'), 'utf8'));
++if (platformManifest.version !== '0.1.7') throw new Error('Shallot native platform requires version 0.1.7');
++const platformLibrary = path.join(path.dirname(platformEntry), `libwebgpu_wrapper.${suffix}`);
++if (!existsSync(platformLibrary)) throw new Error('Shallot native platform library is missing');
++const targetLibPath = (await import(platformEntry)).default;
++if (typeof targetLibPath !== 'string' || !existsSync(targetLibPath) || realpathSync(targetLibPath) !== realpathSync(platformLibrary)) throw new Error('Shallot native platform library path mismatch');
++function findLibrary() { return targetLibPath; }
+ function _loadLibrary(libPath) {
+-  const resolvedPath = libPath || findLibrary();
++  if (libPath !== undefined) throw new Error('Shallot native library override is unsupported');
++  const resolvedPath = findLibrary();
+   const { symbols } = dlopen(resolvedPath, {
+     zwgpuCreateInstance: {
+       args: [FFIType.pointer],
+@@ -1335,8 +1288,16 @@
+ function isObjectPointerDef(type) {
+   return typeof type === "object" && type !== null && type.__type === "objectPointer";
+ }
++class CallArena {
++  owners = new Set();
++  hold(value) { this.owners.add(value); return value; }
++  release() { this.owners.clear(); }
++}
++function owned(value, options) {
++  return options?.arena ? options.arena.hold(value) : value;
++}
+ function allocStruct(structDef, options) {
+-  const buffer = new ArrayBuffer(structDef.size);
++  const buffer = owned(new ArrayBuffer(structDef.size), options);
+   const view = new DataView(buffer);
+   const result = { buffer, view };
+   const { pack: pointerPacker } = primitivePackers("pointer");
+@@ -1347,7 +1308,7 @@
+       if (!arrayMeta) {
+         throw new Error(`Field '${arrayFieldName}' is not an array field with a lengthOf field`);
+       }
+-      const subBuffer = new ArrayBuffer(length * arrayMeta.elementSize);
++      const subBuffer = owned(new ArrayBuffer(length * arrayMeta.elementSize), options);
+       subBuffers[arrayFieldName] = subBuffer;
+       const pointer = length > 0 ? ptr(subBuffer) : null;
+       pointerPacker(view, arrayMeta.arrayOffset, pointer);
+@@ -1444,8 +1405,9 @@
+   return { pack, unpack };
+ }
+ var { pack: pointerPacker, unpack: pointerUnpacker } = primitivePackers("pointer");
+-function packObjectArray(val) {
+-  const buffer = new ArrayBuffer(val.length * pointerSize);
++function packObjectArray(val, options) {
++  const buffer = owned(new ArrayBuffer(val.length * pointerSize), options);
++  for (const value of val) owned(value, options);
+   const bufferView = new DataView(buffer);
+   for (let i = 0;i < val.length; i++) {
+     const instance = val[i];
+@@ -1478,8 +1440,8 @@
+     } else if (typeof typeOrStruct === "string" && typeOrStruct === "cstring") {
+       size = pointerSize;
+       align = pointerSize;
+-      pack = (view, off, val) => {
+-        const bufPtr = val ? ptr(encoder.encode(val + "\x00")) : null;
++      pack = (view, off, val, obj, options2) => {
++        const bufPtr = val ? ptr(owned(encoder.encode(val + "\x00"), options2)) : null;
+         pointerPacker(view, off, bufPtr);
+       };
+       unpack = (view, off) => {
+@@ -1489,8 +1451,8 @@
+     } else if (typeof typeOrStruct === "string" && typeOrStruct === "char*") {
+       size = pointerSize;
+       align = pointerSize;
+-      pack = (view, off, val) => {
+-        const bufPtr = val ? ptr(encoder.encode(val)) : null;
++      pack = (view, off, val, obj, options2) => {
++        const bufPtr = val ? ptr(owned(encoder.encode(val), options2)) : null;
+         pointerPacker(view, off, bufPtr);
+       };
+       unpack = (view, off) => {
+@@ -1542,7 +1504,8 @@
+     } else if (isObjectPointerDef(typeOrStruct)) {
+       size = pointerSize;
+       align = pointerSize;
+-      pack = (view, off, value) => {
++      pack = (view, off, value, obj, options2) => {
++        owned(value, options2);
+         const ptrValue = value?.ptr ?? null;
+         if (ptrValue === undefined) {
+           console.warn(`Field '${name}' expected object with '.ptr' property, but got undefined pointer value from:`, value);
+@@ -1561,12 +1524,12 @@
+       let arrayElementSize;
+       if (isEnum(def)) {
+         arrayElementSize = typeSizes[def.type];
+-        pack = (view, off, val, obj) => {
++        pack = (view, off, val, obj, options2) => {
+           if (!val || val.length === 0) {
+             pointerPacker(view, off, null);
+             return;
+           }
+-          const buffer = new ArrayBuffer(val.length * arrayElementSize);
++          const buffer = owned(new ArrayBuffer(val.length * arrayElementSize), options2);
+           const bufferView = new DataView(buffer);
+           for (let i = 0;i < val.length; i++) {
+             const num = def.to(val[i]);
+@@ -1584,7 +1547,7 @@
+             pointerPacker(view, off, null);
+             return;
+           }
+-          const buffer = new ArrayBuffer(val.length * arrayElementSize);
++          const buffer = owned(new ArrayBuffer(val.length * arrayElementSize), options2);
+           const bufferView = new DataView(buffer);
+           for (let i = 0;i < val.length; i++) {
+             def.packInto(val[i], bufferView, i * arrayElementSize, options2);
+@@ -1597,12 +1560,12 @@
+       } else if (isPrimitiveType(def)) {
+         arrayElementSize = typeSizes[def];
+         const { pack: primitivePack } = primitivePackers(def);
+-        pack = (view, off, val) => {
++        pack = (view, off, val, obj, options2) => {
+           if (!val || val.length === 0) {
+             pointerPacker(view, off, null);
+             return;
+           }
+-          const buffer = new ArrayBuffer(val.length * arrayElementSize);
++          const buffer = owned(new ArrayBuffer(val.length * arrayElementSize), options2);
+           const bufferView = new DataView(buffer);
+           for (let i = 0;i < val.length; i++) {
+             primitivePack(bufferView, i * arrayElementSize, val[i]);
+@@ -1612,12 +1575,12 @@
+         unpack = null;
+       } else if (isObjectPointerDef(def)) {
+         arrayElementSize = pointerSize;
+-        pack = (view, off, val) => {
++        pack = (view, off, val, obj, options2) => {
+           if (!val || val.length === 0) {
+             pointerPacker(view, off, null);
+             return;
+           }
+-          const packedView = packObjectArray(val);
++          const packedView = packObjectArray(val, options2);
+           pointerPacker(view, off, ptr(packedView.buffer));
+         };
+         unpack = () => {
+@@ -1740,7 +1703,7 @@
+     layoutByName,
+     arrayFields,
+     pack(obj, options) {
+-      const buf = new ArrayBuffer(totalSize);
++      const buf = owned(new ArrayBuffer(totalSize), options);
+       const view = new DataView(buf);
+       let mappedObj = obj;
+       if (structDefOptions?.mapValue) {
+@@ -1761,6 +1724,7 @@
+       return view.buffer;
+     },
+     packInto(obj, view, offset2, options) {
++      owned(view.buffer, options);
+       let mappedObj = obj;
+       if (structDefOptions?.mapValue) {
+         mappedObj = structDefOptions.mapValue(obj);
+@@ -2957,7 +2921,7 @@
+   _onSubmittedWorkDoneCallback;
+   _onSubmittedWorkDoneResolves = [];
+   _onSubmittedWorkDoneRejects = [];
+-  constructor(ptr3, lib, instanceTicker) {
++  constructor(ptr3, lib, instanceTicker, acquisition) {
+     this.ptr = ptr3;
+     this.lib = lib;
+     this.instanceTicker = instanceTicker;
+@@ -2976,6 +2940,7 @@
+       args: [FFIType2.u32, FFIType2.pointer, FFIType2.pointer],
+       returns: FFIType2.void
+     });
++    acquisition?.initialized(this._onSubmittedWorkDoneCallback);
+   }
+   submit(commandBuffers) {
+     const commandBuffersArray = Array.from(commandBuffers);
+@@ -4352,7 +4317,7 @@
+   _buffers = new Set;
+   __brand = "GPUDevice";
+   label = "";
+-  constructor(devicePtr, lib, instanceTicker) {
++  constructor(devicePtr, lib, instanceTicker, acquisition) {
+     super();
+     this.devicePtr = devicePtr;
+     this.lib = lib;
+@@ -4363,8 +4328,9 @@
+       fatalError("Failed to get device queue");
+     }
+     this.queuePtr = queuePtr;
++    if (acquisition) acquisition.queuePtr = queuePtr;
+     this._ticker = new DeviceTicker(this.devicePtr, this.lib);
+-    this._queue = new GPUQueueImpl(this.queuePtr, this.lib, this.instanceTicker);
++    this._queue = new GPUQueueImpl(this.queuePtr, this.lib, this.instanceTicker, acquisition);
+     this._lost = new Promise((resolve) => {
+       this._lostPromiseResolve = resolve;
+     });
+@@ -4390,6 +4356,7 @@
+     }, {
+       args: [FFIType4.u32, FFIType4.u32, FFIType4.pointer, FFIType4.u64, FFIType4.pointer, FFIType4.pointer]
+     });
++    acquisition?.initialized(this._popErrorScopeCallback);
+     this._createComputePipelineAsyncCallback = new JSCallback3((status, pipeline, messagePtr, messageSize, userdata1, userdata2) => {
+       this.instanceTicker.unregister();
+       const asyncId = unpackUserDataId(userdata1);
+@@ -4413,6 +4380,7 @@
+     }, {
+       args: [FFIType4.u32, FFIType4.pointer, FFIType4.pointer, FFIType4.u64, FFIType4.pointer, FFIType4.pointer]
+     });
++    acquisition?.initialized(this._createComputePipelineAsyncCallback);
+     this._createRenderPipelineAsyncCallback = new JSCallback3((status, pipeline, messagePtr, messageSize, userdata1, userdata2) => {
+       this.instanceTicker.unregister();
+       const asyncId = unpackUserDataId(userdata1);
+@@ -4436,6 +4404,7 @@
+     }, {
+       args: [FFIType4.u32, FFIType4.pointer, FFIType4.pointer, FFIType4.u64, FFIType4.pointer, FFIType4.pointer]
+     });
++    acquisition?.initialized(this._createRenderPipelineAsyncCallback);
+   }
+   tick() {
+     this.lib.wgpuDeviceTick(this.devicePtr);
+@@ -4529,9 +4498,10 @@
+       return Object.freeze(new Set);
+     }
+     if (this._features === null) {
+-      let supportedFeaturesStructPtr = null;
++      const arena = new CallArena();
+       try {
+         const { buffer: featuresStructBuffer } = allocStruct(WGPUSupportedFeaturesStruct, {
++          arena,
+           lengths: {
+             features: 128
+           }
+@@ -4544,15 +4514,7 @@
+       } catch (e) {
+         console.error("Error getting device features via wgpuDeviceGetFeatures:", e);
+         this._features = Object.freeze(new Set);
+-      } finally {
+-        if (supportedFeaturesStructPtr) {
+-          try {
+-            this.lib.wgpuSupportedFeaturesFreeMembers(supportedFeaturesStructPtr);
+-          } catch (freeError) {
+-            console.error("Error calling wgpuSupportedFeaturesFreeMembers:", freeError);
+-          }
+-        }
+-      }
++      } finally { arena.release(); }
+     }
+     return this._features;
+   }
+@@ -5086,8 +5048,10 @@
+       return Object.freeze(new Set);
+     }
+     if (this._features === null) {
++      const arena = new CallArena();
+       try {
+         const { buffer: featuresStructBuffer, subBuffers } = allocStruct(WGPUSupportedFeaturesStruct, {
++          arena,
+           lengths: {
+             features: 128
+           }
+@@ -5104,7 +5068,7 @@
+       } catch (e) {
+         console.error("Error calling adapterGetFeatures FFI function:", e);
+         return Object.freeze(new Set);
+-      }
++      } finally { arena.release(); }
+     }
+     return this._features;
+   }
+@@ -5113,9 +5077,10 @@
+       return this._limits ?? DEFAULT_LIMITS2;
+     }
+     if (this._limits === null) {
++      const arena = new CallArena();
+       let limitsStructPtr = null;
+       try {
+-        const { buffer: structBuffer } = allocStruct(WGPULimitsStruct);
++        const { buffer: structBuffer } = allocStruct(WGPULimitsStruct, { arena });
+         limitsStructPtr = ptr10(structBuffer);
+         const status = this.lib.wgpuAdapterGetLimits(this.adapterPtr, limitsStructPtr);
+         if (status !== 1) {
+@@ -5132,147 +5097,79 @@
+         }));
+       } catch (e) {
+         console.error("Error calling wgpuAdapterGetLimits or unpacking struct:", e);
+-      }
++      } finally { arena.release(); }
+     }
+     return this._limits ?? DEFAULT_LIMITS2;
+   }
+   get isFallbackAdapter() {
+     console.error("get isFallbackAdapter", this.adapterPtr);
+     throw new Error("Not implemented");
+-  }
+-  handleUncapturedError(devicePtr, typeInt, messagePtr, messageSize, userdata1, userdata2) {
+-    const message = decodeCallbackMessage(messagePtr, messageSize);
+-    const error = createWGPUError(typeInt, message);
+-    if (this._device) {
+-      const event = new GPUUncapturedErrorEventImpl(error);
+-      this._device.handleUncapturedError(event);
+-      this._device.dispatchEvent(event);
+-    } else {
+-      console.error(`Device not found for uncaptured error`);
+-    }
+-  }
+-  handleDeviceLost(devicePtr, reason, messagePtr, messageSize, userdata1, userdata2) {
+-    const message = decodeCallbackMessage(messagePtr, messageSize);
+-    this._state = "invalid";
+-    if (this._device) {
+-      this._device.handleDeviceLost(WGPUDeviceLostReasonDef.from(reason), message);
+-    }
+   }
+   requestDevice(descriptor) {
+-    if (this._destroyed) {
+-      return Promise.reject(new Error("Adapter destroyed"));
+-    }
+-    if (this._state === "invalid") {
+-      this._device?.handleDeviceLost("unknown", "Adapter already invalid", true);
+-      return Promise.resolve(this._device);
+-    }
+-    if (this._state === "consumed") {
+-      return Promise.reject(new OperationError("Adapter already consumed"));
+-    }
+-    this._state = "consumed";
++    if (this._destroyed) return Promise.reject(new Error('Adapter destroyed'));
++    if (this._state === 'consumed') return Promise.reject(new OperationError('Adapter already consumed'));
++    this._state = 'consumed';
+     return new Promise((resolve, reject) => {
+-      let packedDescriptorPtr = null;
+-      let jsCallback = null;
++      const attempt = new Acquisition(this.instanceTicker, true);
++      const args = [FFIType5.pointer, FFIType5.u32, FFIType5.pointer, FFIType5.u64, FFIType5.pointer, FFIType5.pointer];
+       try {
+-        const uncapturedErrorCallback = new JSCallback4((devicePtr, typeInt, messagePtr, messageSize, userdata1, userdata2) => {
+-          this.handleUncapturedError(devicePtr, typeInt, messagePtr, messageSize, userdata1, userdata2);
+-        }, {
+-          args: [FFIType5.pointer, FFIType5.u32, FFIType5.pointer, FFIType5.u64, FFIType5.pointer, FFIType5.pointer],
+-          returns: FFIType5.void
+-        });
+-        if (!uncapturedErrorCallback.ptr) {
+-          fatalError("Failed to create uncapturedErrorCallback");
+-        }
+-        const deviceLostCallback = new JSCallback4((devicePtr, reason, messagePtr, messageSize, userdata1, userdata2) => {
+-          this.handleDeviceLost(devicePtr, reason, messagePtr, messageSize, userdata1, userdata2);
+-        }, {
+-          args: [FFIType5.pointer, FFIType5.u32, FFIType5.pointer, FFIType5.u64, FFIType5.pointer, FFIType5.pointer],
+-          returns: FFIType5.void
+-        });
+-        if (!deviceLostCallback.ptr) {
+-          fatalError("Failed to create deviceLostCallback");
+-        }
+-        const fullDescriptor = {
++        nullBoundary(descriptor?.nextInChain, 'device chain');
++        nullBoundary(descriptor?.requiredLimits?.nextInChain, 'limits chain');
++        nullBoundary(descriptor?.defaultQueue?.nextInChain, 'queue chain');
++        const error = attempt.callback('error', (deviceAddress, type, message, size) => {
++          // deviceAddress is WGPUDevice const*, not the device handle. Routing is
++          // through this attempt, never the adapter's most recently returned device.
++          const event = new GPUUncapturedErrorEventImpl(createWGPUError(type, decodeCallbackMessage(message, size)));
++          if (attempt.device) {
++            attempt.device.handleUncapturedError(event);
++          } else attempt.errors.push(event);
++        }, args);
++        const loss = attempt.callback('loss', (deviceAddress, reason, message, size) => {
++          attempt.loss = [WGPUDeviceLostReasonDef.from(reason), 'Native device lost (message decoding failed)'];
++          try { attempt.loss[1] = decodeCallbackMessage(message, size); }
++          finally { attempt.deliverLoss(); }
++        }, args);
++        const options = { arena: attempt.arena, validationHints: { limits: this.limits, features: this.features } };
++        const packed = ptr10(WGPUDeviceDescriptorStruct.pack({
+           ...descriptor,
+-          uncapturedErrorCallbackInfo: {
+-            callback: uncapturedErrorCallback.ptr,
+-            userdata1: null,
+-            userdata2: null
+-          },
+-          deviceLostCallbackInfo: {
+-            nextInChain: null,
+-            mode: "AllowProcessEvents",
+-            callback: deviceLostCallback.ptr,
+-            userdata1: null,
+-            userdata2: null
+-          },
+-          defaultQueue: {
+-            label: "default queue"
+-          }
+-        };
+-        try {
+-          const limits = this.limits;
+-          const features = this.features;
+-          const descBuffer = WGPUDeviceDescriptorStruct.pack(fullDescriptor, {
+-            validationHints: {
+-              limits,
+-              features
++          defaultQueue: descriptor?.defaultQueue ?? { label: 'default queue' },
++          deviceLostCallbackInfo: { nextInChain: null, mode: 'AllowProcessEvents', callback: loss, userdata1: null, userdata2: null },
++          uncapturedErrorCallbackInfo: { nextInChain: null, callback: error, userdata1: null, userdata2: null }
++        }, options));
++        const request = attempt.callback('request', (status, devicePtr, message, size) => {
++          // A successful handle belongs to this attempt before any fallible JS work.
++          const ownedDevice = status === RequestDeviceStatus.Success && devicePtr;
++          try {
++            const text = decodeCallbackMessage(message, size);
++            if (status !== RequestDeviceStatus.Success || !devicePtr) {
++              this._state = 'valid';
++              reject(new OperationError(`WGPU Error (${ReverseDeviceStatus[status] ?? status}): ${text}`));
++              return;
+             }
+-          });
+-          packedDescriptorPtr = ptr10(descBuffer);
+-        } catch (e) {
+-          this._state = "valid";
+-          reject(e);
+-          return;
+-        }
+-        const callbackFn = (status, devicePtr, messagePtr, messageSize, userdata1, userdata2) => {
+-          this.instanceTicker.unregister();
+-          const message = decodeCallbackMessage(messagePtr, messageSize);
+-          if (status === RequestDeviceStatus.Success) {
+-            if (devicePtr) {
+-              const device = new GPUDeviceImpl(devicePtr, this.lib, this.instanceTicker);
+-              this._device = device;
+-              resolve(device);
+-            } else {
+-              console.error("WGPU Error: requestDevice Success but device pointer is null.");
+-              reject(new Error(`WGPU Error (Success but null device): ${message || "No message."}`));
++            const device = new GPUDeviceImpl(devicePtr, this.lib, this.instanceTicker, attempt);
++            device._acquisition = attempt;
++            attempt.device = device;
++            for (const event of attempt.errors) {
++              device.handleUncapturedError(event);
+             }
+-          } else {
+-            this._state = "valid";
+-            let statusName = ReverseDeviceStatus[status] || "Unknown WGPU Error";
+-            reject(new OperationError(`WGPU Error (${statusName}): ${message || "No message provided."}`));
++            attempt.errors.length = 0;
++            if (attempt.loss) attempt.deliverLoss();
++            this._device = device;
++            attempt.initializers.length = 0;
++            attempt.queuePtr = null;
++            resolve(device);
++          } catch (error) {
++            this._state = 'valid';
++            if (ownedDevice) queueMicrotask(() => attempt.rollback(devicePtr, this.lib));
++            reject(error);
+           }
+-          if (jsCallback) {
+-            const callbackToClose = jsCallback;
+-            jsCallback = null;
+-            queueMicrotask(() => {
+-              callbackToClose.close();
+-            });
+-          }
+-        };
+-        jsCallback = new JSCallback4(callbackFn, {
+-          args: [FFIType5.u32, FFIType5.pointer, FFIType5.pointer, FFIType5.u64, FFIType5.pointer, FFIType5.pointer],
+-          returns: FFIType5.void
+-        });
+-        if (!jsCallback?.ptr) {
+-          fatalError("Failed to create JSCallback");
+-        }
+-        const buffer = WGPUCallbackInfoStruct.pack({
+-          nextInChain: null,
+-          mode: "AllowProcessEvents",
+-          callback: jsCallback?.ptr,
+-          userdata1: null,
+-          userdata2: null
+-        });
+-        const packedCallbackInfoPtr = ptr10(buffer);
+-        this.lib.wgpuAdapterRequestDevice(this.adapterPtr, packedDescriptorPtr, packedCallbackInfoPtr);
+-        this.instanceTicker.register();
+-      } catch (e) {
+-        console.error("Error during requestDevice:", e);
+-        this._state = "valid";
+-        if (jsCallback)
+-          jsCallback.close();
+-        reject(e);
++        }, [FFIType5.u32, FFIType5.pointer, FFIType5.pointer, FFIType5.u64, FFIType5.pointer, FFIType5.pointer]);
++        const info = ptr10(WGPUCallbackInfoStruct.pack({ nextInChain: null, mode: 'AllowProcessEvents', callback: request, userdata1: null, userdata2: null }, options));
++        attempt.call(() => this.lib.wgpuAdapterRequestDevice(this.adapterPtr, packed, info));
++      } catch (error) {
++        if (!attempt.entered) this._state = 'valid';
++        attempt.abort();
++        reject(error);
+       }
+     });
+   }
+@@ -5299,8 +5196,105 @@
+   Error: 4,
+   Unknown: 5
+ };
++
++// Request completion and loss have independent terminal events. Microtasks run after
++// both the callback and its enclosing native stack, including instance shutdown.
++class Acquisition {
++  arena = new CallArena();
++  handles = new Map();
++  entered = false;
++  requestDone = false;
++  lossDone;
++  device = null;
++  loss = null;
++  errors = [];
++  initializers = [];
++  queuePtr = null;
++  initialized(handle) {
++    this.initializers.push(handle);
++    if (!handle.ptr) throw new Error('Failed to create device initialization callback');
++  }
++  deliverLoss() {
++    if (!this.device || !this.loss) return;
++    try { this.device.handleDeviceLost(...this.loss); }
++    finally {
++      this.device._lostPromiseResolve?.({ reason: this.loss[0], message: this.loss[1], __brand: 'GPUDeviceLostInfo' });
++    }
++  }
++  rollback(pointer, lib) {
++    // No initializer has been published or submitted native work. Unwind after
++    // the request callback's enclosing native stack, without normal device teardown.
++    try {
++      for (const handle of this.initializers.splice(0)) handle.close();
++    } finally {
++      try { if (this.queuePtr) lib.wgpuQueueRelease(this.queuePtr); }
++      finally {
++        this.queuePtr = null;
++        try { lib.wgpuDeviceDestroy(pointer); this.ticker.processEvents(); }
++        finally { lib.wgpuDeviceRelease(pointer); this.device = null; this.errors.length = 0; }
++      }
++    }
++  }
++  constructor(ticker, deviceAttempt = false) {
++    this.ticker = ticker;
++    this.lossDone = !deviceAttempt;
++    ticker.acquisitions.add(this);
++    ticker.register();
++  }
++  callback(key, fn, args) {
++    const handle = new JSCallback5((...values) => {
++      try { fn(...values); }
++      catch (error) {
++        // Never unwind a JS exception through the native ABI. Terminal state and
++        // handle cleanup must complete before the original failure is reported.
++        queueMicrotask(() => { this.drain(); throw error; });
++      }
++      finally {
++        if (key === 'request') this.requestDone = true;
++        if (key === 'loss') this.lossDone = true;
++        queueMicrotask(() => this.drain());
++      }
++    }, { args, returns: FFIType6.void });
++    this.handles.set(key, handle);
++    if (!handle.ptr) throw new Error(`Failed to create ${key} callback`);
++    return handle.ptr;
++  }
++  drain() {
++    if (this.requestDone && this.handles.has('request')) {
++      this.handles.get('request').close();
++      this.handles.delete('request');
++    }
++    if (this.requestDone && !this.unregistered) {
++      this.unregistered = true;
++      this.ticker.unregister();
++    }
++    if (this.lossDone) {
++      for (const key of ['loss', 'error']) {
++        this.handles.get(key)?.close();
++        this.handles.delete(key);
++      }
++    }
++    if (this.requestDone && this.lossDone) this.ticker.acquisitions.delete(this);
++  }
++  abort() {
++    if (this.entered) return;
++    this.requestDone = this.lossDone = true;
++    this.arena.release();
++    this.drain();
++  }
++  call(fn) {
++    this.entered = true;
++    try { return fn(); }
++    finally { this.arena.release(); }
++  }
++}
++function nullBoundary(value, name) {
++  if (value != null && value !== 0 && value !== 0n) throw new TypeError(`Unsupported acquisition ${name}`);
++}
+ 
+ class InstanceTicker {
++  acquisitions = new Set();
++  stopped = false;
+   instancePtr;
+   lib;
+   _waiting = 0;
+@@ -5324,6 +5318,7 @@
+     return this._waiting > 0;
+   }
+   processEvents() {
++    if (this.stopped) return;
+     this.lib.wgpuInstanceProcessEvents(this.instancePtr);
+   }
+   scheduleTick() {
+@@ -5331,6 +5326,7 @@
+       return;
+     this._ticking = true;
+     setImmediate(() => {
++      if (this.stopped) { this._ticking = false; return; }
+       const now = performance.now();
+       this._accTime += now - this._lastTime;
+       this._lastTime = now;
+@@ -5367,8 +5363,10 @@
+       return Object.freeze(new Set);
+     }
+     if (this._wgslLanguageFeatures === null) {
++      const arena = new CallArena();
+       try {
+         const { buffer: structBuffer } = allocStruct(WGPUSupportedWGSLLanguageFeaturesStruct, {
++          arena,
+           lengths: {
+             features: 32
+           }
+@@ -5390,71 +5388,42 @@
+       } catch (e) {
+         console.error("Error in wgslLanguageFeatures getter:", e);
+         this._wgslLanguageFeatures = Object.freeze(new Set);
+-      }
++      } finally { arena.release(); }
+     }
+     return this._wgslLanguageFeatures;
+   }
+   requestAdapter(options) {
+-    if (this._destroyed) {
+-      return Promise.reject(new Error("GPU instance has been destroyed"));
+-    }
++    if (this._destroyed) return Promise.reject(new Error('GPU instance has been destroyed'));
+     return new Promise((resolve, reject) => {
+-      let packedOptionsPtr = null;
+-      let jsCallback = null;
++      const attempt = new Acquisition(this._ticker);
+       try {
+-        if (options) {
+-          try {
+-            const buffer2 = WGPURequestAdapterOptionsStruct.pack(options);
+-            packedOptionsPtr = ptr11(buffer2);
+-          } catch (e) {
+-            resolve(null);
+-            return;
+-          }
++        let packed = null;
++        try {
++          nullBoundary(options?.nextInChain, 'adapter chain');
++          nullBoundary(options?.compatibleSurface, 'compatible surface');
++          if (options) packed = ptr11(WGPURequestAdapterOptionsStruct.pack(options, { arena: attempt.arena }));
++        } catch (error) {
++          attempt.abort();
++          resolve(null);
++          return;
+         }
+-        const callbackFn = (status, adapterPtr, messagePtr, messageSize, userdata1, userdata2) => {
+-          this._ticker.unregister();
+-          const message = decodeCallbackMessage(messagePtr, messageSize);
+-          if (status === RequestAdapterStatus.Success) {
+-            if (adapterPtr) {
+-              resolve(new GPUAdapterImpl(adapterPtr, this.instancePtr, this.lib, this._ticker));
+-            } else {
+-              reject(new Error(`WGPU Error (Success but null adapter): ${message || "No message."}`));
+-            }
+-          } else if (status === RequestAdapterStatus.Unavailable) {
+-            resolve(null);
+-          } else {
+-            let statusName = Object.keys(RequestAdapterStatus).find((key) => RequestAdapterStatus[key] === status) || "Unknown WGPU Error";
+-            reject(new Error(`WGPU Error (${statusName}): ${message || "No message provided."}`));
++        const request = attempt.callback('request', (status, adapterPtr, message, size) => {
++          const ownedAdapter = status === RequestAdapterStatus.Success && adapterPtr;
++          try {
++            const text = decodeCallbackMessage(message, size);
++            if (status === RequestAdapterStatus.Success && adapterPtr) resolve(new GPUAdapterImpl(adapterPtr, this.instancePtr, this.lib, this._ticker));
++            else if (status === RequestAdapterStatus.Unavailable) resolve(null);
++            else reject(new Error(`WGPU Error (${status}): ${text}`));
++          } catch (error) {
++            if (ownedAdapter) queueMicrotask(() => this.lib.wgpuAdapterRelease(adapterPtr));
++            reject(error);
+           }
+-          if (jsCallback) {
+-            const callbackToClose = jsCallback;
+-            jsCallback = null;
+-            queueMicrotask(() => {
+-              callbackToClose.close();
+-            });
+-          }
+-        };
+-        jsCallback = new JSCallback5(callbackFn, {
+-          args: [FFIType6.u32, FFIType6.pointer, FFIType6.pointer, FFIType6.u64, FFIType6.pointer, FFIType6.pointer],
+-          returns: FFIType6.void
+-        });
+-        if (!jsCallback?.ptr) {
+-          fatalError("Failed to create JSCallback");
+-        }
+-        const buffer = WGPUCallbackInfoStruct.pack({
+-          nextInChain: null,
+-          mode: "AllowProcessEvents",
+-          callback: jsCallback?.ptr,
+-          userdata1: null,
+-          userdata2: null
+-        });
+-        const packedCallbackInfoPtr = ptr11(buffer);
+-        this.lib.wgpuInstanceRequestAdapter(this.instancePtr, packedOptionsPtr, packedCallbackInfoPtr);
+-        this._ticker.register();
+-      } catch (e) {
+-        if (jsCallback)
+-          jsCallback.close();
+-        reject(e);
++        }, [FFIType6.u32, FFIType6.pointer, FFIType6.pointer, FFIType6.u64, FFIType6.pointer, FFIType6.pointer]);
++        const info = ptr11(WGPUCallbackInfoStruct.pack({ nextInChain: null, mode: 'AllowProcessEvents', callback: request, userdata1: null, userdata2: null }, { arena: attempt.arena }));
++        attempt.call(() => this.lib.wgpuInstanceRequestAdapter(this.instancePtr, packed, info));
++      } catch (error) {
++        attempt.abort();
++        reject(error);
+       }
+     });
+   }
+@@ -5464,6 +5433,7 @@
+     this._destroyed = true;
+     try {
+       this.lib.wgpuInstanceRelease(this.instancePtr);
++      this._ticker.stopped = true;
+     } catch (e) {
+       console.error("FFI Error: wgpuInstanceRelease", e);
+     }
+@@ -5611,6 +5581,8 @@
+   GPUSupportedLimits: GPUSupportedLimitsImpl
+ };
+ async function setupGlobals({ libPath } = {}) {
++  if (libPath !== undefined) throw new Error('Shallot native library override is unsupported');
++  if (navigator.gpu && !(navigator.gpu instanceof GPUImpl)) throw new Error('Shallot native setup refuses an existing foreign GPU instance');
+   if (!navigator.gpu) {
+     const gpuInstance = createGPUInstance(libPath);
+     global.navigator = {

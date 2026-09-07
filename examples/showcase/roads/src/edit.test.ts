@@ -156,6 +156,40 @@ describe("edit — every drag constraint clamps (stage 4c)", () => {
     });
 });
 
+describe("edit — finite floor at coincident targets", () => {
+    test("short and coincident starting chords project to a finite bounded floor", () => {
+        for (const a of [
+            [0, 0],
+            [BOUND, BOUND],
+            [-BOUND, -BOUND],
+        ] as const) {
+            for (const length of [0, 1, ROAD_MIN_LENGTH - Number.EPSILON * ROAD_MIN_LENGTH]) {
+                const sign = a[0] > 0 ? -1 : 1;
+                const doc: StrokeDocument = {
+                    polylines: [
+                        { points: [a, [a[0] + sign * length, a[1]]], halfWidth: ROAD_HALF_WIDTH },
+                    ],
+                };
+                const target = clampDragTarget(doc, 1, a[0], a[1]);
+                expect(target.every(Number.isFinite)).toBe(true);
+                expect(target.every((v) => Math.abs(v) <= BOUND)).toBe(true);
+                expect(chordLength(applyEdit(doc, 1, ...target))).toBeCloseTo(ROAD_MIN_LENGTH, 8);
+            }
+        }
+    });
+
+    test("repeated floor contacts never turn roundoff into NaN", () => {
+        let doc = generateNetwork();
+        for (let i = 0; i < 50; i++) {
+            const a = doc.polylines[0].points[0];
+            const target = clampDragTarget(doc, 1, a[0] + (i % 2 ? 0 : 1e-12), a[1]);
+            expect(target.every(Number.isFinite)).toBe(true);
+            doc = applyEdit(doc, 1, ...target);
+            expect(chordLength(doc)).toBeGreaterThanOrEqual(ROAD_MIN_LENGTH - 1e-9);
+        }
+    });
+});
+
 describe("edit — worst-case chord capacity (stage 4d)", () => {
     // The invariant that matters:
     // "no admissible drag can throw out of `allocate`". The worst case the world allows is a

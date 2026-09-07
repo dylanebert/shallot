@@ -317,9 +317,7 @@ function createHandlers(s: InputState): void {
         s.mouse.canvasHeight = rect.height;
     };
 
-    s.pointerEnter = () => {
-        s.mouse.hover = true;
-    };
+    s.pointerEnter = s.pointerHover;
 
     s.pointerLeave = () => {
         if (s.activePointerId === null) s.mouse.hover = false;
@@ -359,6 +357,8 @@ function createHandlers(s: InputState): void {
         // ignore multi-touch (different pointerId on the same canvas) so a
         // second pointer's buttons can't masquerade as the captured one's.
         if (s.activePointerId === null || s.activePointerId === e.pointerId) {
+            // Touch can press without a preceding move; pickers consume this press's ray immediately.
+            s.pointerHover(e);
             syncButtons(s.mouse, gateButtons(s, e.buttons));
         }
         if (s.activePointerId === null) {

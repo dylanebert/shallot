@@ -416,7 +416,8 @@ function printMemory(m: Memory): void {
 // check asserts both directions), but `--list` reads the real one anyway per the spec's naming-trap
 // motivation, not the side table that exists to avoid booting a page.
 async function registeredScenarios(): Promise<string[]> {
-    const { setupGlobals } = await import("bun-webgpu");
+    const { loadNative } = await import("../packages/shallot/bin/bun-native");
+    const { setupGlobals } = await loadNative();
     await setupGlobals();
     const { scenarioNames } = await import("../examples/gym/src/gym");
     await import("../examples/gym/src/scenarios/index");

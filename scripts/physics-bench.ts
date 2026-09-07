@@ -1,10 +1,10 @@
-import { globals } from "bun-webgpu";
+import { loadNative } from "../packages/shallot/bin/bun-native";
 import { type Check, queryFlags, skipReason, verify } from "./verify";
 
 // SMALL_N's module graph (avbd/step → physics/core → sear) references GPU enum constants at module
 // scope, which exist in a browser but not under bare `bun run` — install bun-webgpu's constants-only
 // globals (no adapter) before evaluating it, the same shim `bun test` preloads.
-globals();
+(await loadNative()).globals();
 const { SMALL_N } = await import("../packages/shallot/src/standard/avbd/step");
 
 // physics-bench — the standing perf + scaling-robustness surface for the AVBD solver. Drives the §6 gym
