@@ -93,13 +93,17 @@ function parseParamStrings(params: readonly string[]): Record<string, string> {
  *  Checks the filesystem under `examples/gym/public/` — cheaper and more honest than an in-page
  *  fetch, and it skips before booting a page so no ready timeout burns. Returns the missing paths
  *  so the caller can name them in the skip announcement. */
-export function missingAssets(scenario: string, paramStrings: readonly string[]): string[] | null {
+export function missingAssets(
+    scenario: string,
+    paramStrings: readonly string[],
+    exists: (path: string) => boolean = existsSync,
+): string[] | null {
     const gate = SCENARIO_GATES[scenario];
     if (!gate?.assets) return null;
     const params = parseParamStrings(paramStrings);
     const paths = gate.assets(params);
     if (paths.length === 0) return null;
-    const missing = paths.filter((p) => !existsSync(resolve(REPO_ROOT, GYM, "public", p)));
+    const missing = paths.filter((p) => !exists(resolve(REPO_ROOT, GYM, "public", p)));
     return missing.length > 0 ? missing : null;
 }
 
@@ -456,7 +460,7 @@ function printSweepResult(name: string, result: VerifyResult | null, bytes?: num
         return false;
     }
     const checks = result.verdict?.checks;
-    let ok = result.pass;
+    let ok = result.pass && result.verdict?.ok !== false;
     if (checks) for (const c of checks) if (!c.ok) ok = false;
     console.log(`${ok ? "✓" : "✗"} ${name}${result.error ? ` — ${result.error}` : ""}`);
     if (checks) {
@@ -478,9 +482,8 @@ async function sweep(names: string[], args: Args): Promise<boolean> {
     if (args.count != null) shared.push(`count=${args.count}`);
     shared.push(...args.params);
 
-    // skip scenarios whose declared assets are absent from the filesystem — a missing mount skips
-    // with a clear message instead of failing through the glTF loader. Skipped scenarios don't run
-    // and don't count as failures (the locked fork says skip, not fail).
+    // Missing mounts are unavailable, never page assertion failures.
+    const population = { selected: names.length, executed: 0, pass: 0, fail: 0, unavailable: 0 };
     const batch = batchAll.filter((name) => {
         const missing = missingAssets(name, args.params);
         if (missing) {
@@ -498,19 +501,34 @@ async function sweep(names: string[], args: Args): Promise<boolean> {
         return true;
     });
 
-    let allPass = true;
+    population.unavailable = names.length - batch.length - isolate.length;
+    let allPass =
+        names.length > 0 &&
+        batch.length + isolate.length > 0 &&
+        !(process.env.SHALLOT_DISPLAY_REQUIRED === "1" && population.unavailable > 0);
 
     for (const group of groupByTimeout(batch, args.timeoutMs)) {
         const extra = [...queryFlags(shared), ...(args.memory ? ["--memory"] : [])];
         if (group.timeoutMs != null) extra.push("--timeout", String(group.timeoutMs));
-        const { results, bytes } = await verifyBatch(
+        const outcome = await verifyBatch(
             GYM,
             group.names.map((name) => `scenario=${name}`),
             extra,
             true,
         );
+        if (!outcome.pass) allPass = false;
+        for (const error of outcome.errors) console.error(`batch: ${error}`);
         group.names.forEach((name, i) => {
-            if (!printSweepResult(name, results?.[i] ?? null, results ? undefined : bytes)) {
+            const result = outcome.results[i];
+            if (!result) {
+                population.unavailable++;
+                console.log(`· ${name} — unavailable verdict (${outcome.bytes} bytes received)`);
+                return;
+            }
+            population.executed++;
+            if (printSweepResult(name, result)) population.pass++;
+            else {
+                population.fail++;
                 allPass = false;
             }
         });
@@ -525,9 +543,21 @@ async function sweep(names: string[], args: Args): Promise<boolean> {
         const timeoutMs = benchTimeout(name, args.timeoutMs);
         if (timeoutMs != null) extra.push("--timeout", String(timeoutMs));
         const result = await verify(GYM, extra, true);
-        if (!printSweepResult(name, result)) allPass = false;
+        if (result) {
+            population.executed++;
+            if (printSweepResult(name, result)) population.pass++;
+            else {
+                population.fail++;
+                allPass = false;
+            }
+        } else {
+            population.unavailable++;
+            allPass = false;
+            console.log(`· ${name} — unavailable verdict`);
+        }
     }
 
+    console.log(`population: ${JSON.stringify(population)}`);
     return allPass;
 }
 
@@ -548,7 +578,7 @@ async function main(): Promise<void> {
     const skip = skipReason();
     if (skip) {
         console.log(`bun bench needs native hardware (${skip}). Skipping.`);
-        process.exit(0);
+        process.exit(process.env.SHALLOT_DISPLAY_REQUIRED === "1" ? 1 : 0);
     }
 
     if (args.sweep) {
@@ -571,14 +601,14 @@ async function main(): Promise<void> {
             names = Object.keys(SCENARIO_GATES);
         }
         if (names.length === 0) {
-            console.log("\nno scenario selected — nothing to sweep");
+            console.error("\nno scenario selected — nothing to sweep");
             await teardownBridge();
-            return;
+            process.exit(1);
         }
         const started = Date.now();
         const passed = await sweep(names, args);
         console.log(
-            `\nswept ${names.length} scenario(s) in ${((Date.now() - started) / 1000).toFixed(1)}s`,
+            `\nselected ${names.length} scenario(s) in ${((Date.now() - started) / 1000).toFixed(1)}s`,
         );
         await teardownBridge();
         if (!passed) {
@@ -615,8 +645,9 @@ async function main(): Promise<void> {
     const missing = missingAssets(args.scenario, args.params);
     if (missing) {
         console.log(`\n${assetSkipMessage(args.scenario, missing)}`);
+        console.log('population: {"selected":1,"executed":0,"pass":0,"fail":0,"unavailable":1}');
         await teardownBridge();
-        return;
+        process.exit(process.env.SHALLOT_DISPLAY_REQUIRED === "1" ? 1 : 0);
     }
 
     const result = await verify(GYM, extra);

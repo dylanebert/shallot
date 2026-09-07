@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { Glob } from "bun";
 import { TEST_TIER_SUFFIX_NAMES } from "../packages/shallot/tests/test-tiers";
 import { EXAMPLE_GATES } from "./example-gates";
 import { OCEAN_CPU_GATES } from "./ocean-oracle-gates";
-import { changedPaths, main, selectCpuGates, selectExampleGates } from "./test-changed";
+import { changedPaths, main, runCommand, selectCpuGates, selectExampleGates } from "./test-changed";
 
 const dirs = (paths: string[]) => selectExampleGates(paths).map((row) => row.dir);
 const cpus = (paths: string[]) => selectCpuGates(paths).map((row) => row.script);
@@ -121,6 +121,192 @@ describe("changed-path selector", () => {
                 expect(await Bun.file(path).text(), path).not.toMatch(launch);
             }
         }
+    });
+});
+
+describe("manifest-owned verify transport", () => {
+    test("loads each manifest revision and executes its cwd/argv/exit through native and Node transports", async () => {
+        const project = realpathSync(mkdtempSync(resolve(tmpdir(), "shallot-manifest-verify-")));
+        const cli = resolve(project, "driver.mjs");
+        const observed = resolve(project, "observed.json");
+        writeFileSync(
+            cli,
+            `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(observed)}, JSON.stringify({cwd:process.cwd(),argv:process.argv.slice(2),runtime:process.versions.bun ? 'bun' : 'node'})); process.exit(process.argv.includes('exit=7') ? 7 : 0);`,
+        );
+        const setGate = (gate: string) =>
+            writeFileSync(resolve(project, "package.json"), JSON.stringify({ scripts: { gate } }));
+        const command = `bun run --cwd ${project} gate`;
+        try {
+            setGate("bunx shallot verify . --screenshot native.png --query exit=7");
+            expect(await runCommand(command, { wsl: false, cli })).toEqual({
+                ok: false,
+                warnings: 0,
+            });
+            expect(await Bun.file(observed).json()).toEqual({
+                cwd: project,
+                argv: ["verify", ".", "--screenshot", "native.png", "--query", "exit=7"],
+                runtime: "bun",
+            });
+            setGate("bunx shallot verify . --screenshot bridge.png --query exit=0");
+            const bridge = async () => ({
+                bundle: cli,
+                connectUrl: "ws://127.0.0.1:12345/fixture",
+            });
+            expect(
+                await runCommand(command, {
+                    wsl: true,
+                    prerequisite: () => null,
+                    bridge,
+                    port: async () => 23456,
+                }),
+            ).toEqual({ ok: true, warnings: 0 });
+            expect(await Bun.file(observed).json()).toEqual({
+                cwd: project,
+                argv: [
+                    "verify",
+                    ".",
+                    "--screenshot",
+                    "bridge.png",
+                    "--query",
+                    "exit=0",
+                    "--connect",
+                    "ws://127.0.0.1:12345/fixture",
+                    "--port",
+                    "23456",
+                ],
+                runtime: "node",
+            });
+            setGate("bunx shallot verify . --port 34567 --query exit=7");
+            expect(
+                (
+                    await runCommand(command, {
+                        wsl: true,
+                        prerequisite: () => null,
+                        bridge,
+                        port: async () => {
+                            throw new Error("must preserve explicit port");
+                        },
+                    })
+                ).ok,
+            ).toBe(false);
+            expect((await Bun.file(observed).json()).argv).toEqual([
+                "verify",
+                ".",
+                "--port",
+                "34567",
+                "--query",
+                "exit=7",
+                "--connect",
+                "ws://127.0.0.1:12345/fixture",
+            ]);
+            setGate("bunx shallot verify . && echo false-green");
+            await expect(runCommand(command, { wsl: false, cli })).rejects.toThrow(
+                "unsupported verify gate composition",
+            );
+            setGate("bun --eval 'process.exit(7)'");
+            expect((await runCommand(command)).ok).toBe(false);
+        } finally {
+            rmSync(project, { recursive: true, force: true });
+        }
+    });
+
+    test("warning headings survive the real selector and manifest transport composition", async () => {
+        const project = realpathSync(mkdtempSync(resolve(tmpdir(), "shallot-warning-count-")));
+        const cli = resolve(project, "driver.mjs");
+        const reader = resolve(import.meta.dir, "test-changed.ts");
+        // Match the CLI and wrapper emitters, including chatter that is not a heading.
+        const cases = [
+            { stdout: "  warnings (18):\n    deprecated\n", stderr: "", count: 18, exit: 0 },
+            {
+                stdout: "",
+                stderr: "  ⚠ 2 console warning(s):\n    deprecated\n",
+                count: 2,
+                exit: 7,
+            },
+            {
+                stdout: "  warnings (3):\n",
+                stderr: "  ⚠ 2 console warning(s):\n",
+                count: 5,
+                exit: 0,
+            },
+            {
+                stdout: '  warnings (0):\n    message mentions warnings (18):\n{"detail":"warnings (9):"}\n',
+                stderr: "warnings (x):\nwarnings (-1):\nwarnings (2): trailing text\n",
+                count: 0,
+                exit: 0,
+            },
+        ];
+        try {
+            for (const row of cases) {
+                writeFileSync(
+                    cli,
+                    `process.stdout.write(${JSON.stringify(row.stdout)}); process.stderr.write(${JSON.stringify(row.stderr)}); process.exit(${row.exit});`,
+                );
+                const child = Bun.spawn(
+                    [
+                        process.execPath,
+                        "--eval",
+                        `
+                    import {main,runCommand} from ${JSON.stringify(reader)};
+                    process.exit(await main(['--base','HEAD','--diff','HEAD'], {
+                        paths: async () => ['examples/showcase/ocean/shallot.json'],
+                        displaySkip: () => null,
+                        displayRequired: true,
+                        run: command => runCommand(command, {wsl:false, cli:${JSON.stringify(cli)}})
+                    }));`,
+                    ],
+                    { stdout: "pipe", stderr: "pipe" },
+                );
+                const [stdout, stderr, code] = await Promise.all([
+                    new Response(child.stdout).text(),
+                    new Response(child.stderr).text(),
+                    child.exited,
+                ]);
+                expect(code, stderr).toBe(row.exit === 0 ? 0 : 1);
+                expect(stdout).toContain("manifest gate:");
+                expect(stdout).toContain(
+                    `argv=["bun",${JSON.stringify(cli)},"verify",".","--screenshot","ocean.png"]`,
+                );
+                expect(stdout).toContain(
+                    `${row.exit === 0 ? "PASS" : "FAIL"}: display examples/showcase/ocean (${row.count} warnings)`,
+                );
+            }
+        } finally {
+            rmSync(project, { recursive: true, force: true });
+        }
+    });
+
+    test("missing bridge refuses through a real selector subprocess before launching a driver", async () => {
+        const reader = resolve(import.meta.dir, "test-changed.ts");
+        // Use ocean's actual registry row and actual manifest; only seat discovery is
+        // controlled. No ambient bridge is started, disabled or contacted.
+        const child = Bun.spawn(
+            [
+                "bun",
+                "--eval",
+                `
+            import {main,runCommand} from ${JSON.stringify(reader)};
+            try {
+                process.exit(await main(['--base','HEAD','--diff','HEAD'], {
+                    paths: async () => ['examples/showcase/ocean/shallot.json'],
+                    displaySkip: () => null,
+                    displayRequired: true,
+                    run: command => runCommand(command, {wsl:true, prerequisite:()=> 'controlled missing host bridge', bridge:async()=>{throw new Error('driver must not start');}})
+                }));
+            } catch (error) { console.error(error.message); process.exit(2); }
+        `,
+            ],
+            { stdout: "pipe", stderr: "pipe" },
+        );
+        const [stdout, stderr, code] = await Promise.all([
+            new Response(child.stdout).text(),
+            new Response(child.stderr).text(),
+            child.exited,
+        ]);
+        expect(code).toBe(2);
+        expect(stdout).toContain("examples/showcase/ocean");
+        expect(stderr).toContain("verify bridge unavailable: controlled missing host bridge");
+        expect(stderr).not.toContain("driver must not start");
     });
 });
 

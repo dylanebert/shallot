@@ -160,6 +160,35 @@ test("autonomous showcase rows require an imported motion arm", () => {
         "autonomous showcase has no imported motion arm: examples/showcase/demo",
     );
 });
+for (const helper of ["assertMotion", "frameDifference"]) {
+    test(`autonomous showcase accepts the published ${helper} presence`, () => {
+        const root = make();
+        writeFileSync(
+            resolve(root, "examples/showcase/demo/test/demo.playwright.ts"),
+            `import { isDegradedBootMessage, ${helper} } from '@dylanebert/shallot/harness';\n`,
+        );
+        expect(checkExamples(root, registry(true))).toEqual([]);
+    });
+}
+
+for (const extra of [
+    "",
+    "import { frameDifferences } from '@dylanebert/shallot/harness';",
+    "import { frameDifference } from 'another-package';",
+    "import { assertMotion } from 'another-package';",
+]) {
+    test(`autonomous showcase refuses missing published motion presence: ${extra || "none"}`, () => {
+        const root = make();
+        writeFileSync(
+            resolve(root, "examples/showcase/demo/test/demo.playwright.ts"),
+            `import { isDegradedBootMessage } from '@dylanebert/shallot/harness';\n${extra}\n`,
+        );
+        expect(checkExamples(root, registry(true))).toEqual([
+            "autonomous showcase has no imported motion arm: examples/showcase/demo",
+        ]);
+        expect(checkExamples(root, registry(false))).toEqual([]);
+    });
+}
 
 test("either published motion reading satisfies the autonomous showcase arm", () => {
     for (const symbol of ["assertMotion", "frameDifference"]) {

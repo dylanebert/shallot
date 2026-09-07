@@ -45,10 +45,19 @@ const BIN_DIR = resolve(REPO_ROOT, "packages/shallot/bin");
 const POOL = 8;
 
 function sh(cmd: string): { ok: boolean; out: string } {
-    const p = Bun.spawnSync(["powershell.exe", "-NoProfile", "-Command", cmd], {
-        stdout: "pipe",
-        stderr: "pipe",
-    });
+    // An absent `powershell.exe` is the no-interop seat, which `bridgePrereq` is written to report as a
+    // reason. `Bun.spawnSync` throws on a missing executable rather than returning a nonzero exit, so
+    // without this catch the throw escapes the prerequisite probe and the caller crashes instead of
+    // refusing with the reason — the one outcome this file's contract rules out.
+    let p: { exitCode: number; stdout: Uint8Array };
+    try {
+        p = Bun.spawnSync(["powershell.exe", "-NoProfile", "-Command", cmd], {
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+    } catch {
+        return { ok: false, out: "" };
+    }
     return {
         ok: p.exitCode === 0,
         out: new TextDecoder().decode(p.stdout).trim().replace(/\r/g, ""),

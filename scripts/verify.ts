@@ -42,6 +42,7 @@ export interface Verdict {
 /** the `shallot verify --json` Result (bin/verify.ts). A setup failure emits `{ pass:false, error }`. */
 export interface VerifyResult {
     pass: boolean;
+    url?: string;
     error?: string;
     hardware?: string;
     verdict?: Verdict;
@@ -331,12 +332,85 @@ export function reportWarnings(result: VerifyResult | null): void {
     for (const [line, n] of counts) console.log(`    ${n > 1 ? `×${n} ` : ""}${line}`);
 }
 
-/** what `verifyBatch` actually observed on stdout: `results` is null when no line parsed to an array —
- *  true on a real crash, but equally true of a truncated or otherwise unparseable stream, and this can't
- *  distinguish them. `bytes` is the one fact it does have: the raw byte count received. */
+/** Page observations remain independent of process and protocol failures. Null slots are unavailable. */
 export interface BatchOutcome {
-    results: VerifyResult[] | null;
+    results: (VerifyResult | null)[];
     bytes: number;
+    exitCode: number;
+    errors: string[];
+    pass: boolean;
+}
+
+/** Bind each observation to its requested query before a caller attributes a page verdict. */
+export function batchOutcome(stdout: string, exitCode: number, runs: string[]): BatchOutcome {
+    const parsed = extractBatchResult(stdout);
+    const errors: string[] = [];
+    let envelopes = 0;
+    for (const line of stdout.split("\n")) {
+        try {
+            if (Array.isArray(JSON.parse(line))) envelopes++;
+        } catch {
+            /* console chatter */
+        }
+    }
+    if (envelopes !== 1) errors.push(`batch envelopes: expected 1, received ${envelopes}`);
+    if (new Set(runs).size !== runs.length) errors.push("batch requests: duplicate run");
+    const results: (VerifyResult | null)[] = runs.map(() => null);
+    if (!runs.length || !parsed || parsed.length !== runs.length) {
+        errors.push(`batch population: requested ${runs.length}, received ${parsed?.length ?? 0}`);
+    }
+    const seen = new Set<string>();
+    for (let i = 0; i < (parsed?.length ?? 0); i++) {
+        const result = parsed![i];
+        if (
+            !result ||
+            typeof result.pass !== "boolean" ||
+            typeof result.url !== "string" ||
+            (result.verdict != null &&
+                (typeof result.verdict !== "object" ||
+                    (result.verdict.checks != null &&
+                        (!Array.isArray(result.verdict.checks) ||
+                            result.verdict.checks.some(
+                                (c) =>
+                                    !c || typeof c.ok !== "boolean" || typeof c.name !== "string",
+                            )))))
+        ) {
+            errors.push(`batch result ${i}: malformed verdict`);
+            continue;
+        }
+        try {
+            const url = new URL(result.url);
+            const query = new URLSearchParams(runs[i]);
+            if (
+                i >= runs.length ||
+                seen.has(url.href) ||
+                [...query].some(
+                    ([key, value]) =>
+                        url.searchParams.getAll(key).length !== 1 ||
+                        url.searchParams.get(key) !== value,
+                )
+            ) {
+                errors.push(`batch result ${i}: duplicate or misbound URL`);
+                continue;
+            }
+            seen.add(url.href);
+            results[i] = result;
+        } catch {
+            errors.push(`batch result ${i}: invalid URL`);
+        }
+    }
+    const failed = results.some(
+        (r) => r && (!r.pass || r.verdict?.ok === false || r.verdict?.checks?.some((c) => !c.ok)),
+    );
+    if (exitCode !== 0) errors.push(`verify process exited ${exitCode}`);
+    else if (failed) errors.push("batch protocol: failed page with successful process exit");
+    return {
+        results,
+        bytes: Buffer.byteLength(stdout, "utf8"),
+        exitCode,
+        errors,
+        pass: errors.length === 0 && results.length > 0 && results.every((r) => r?.pass) && !failed,
+    };
 }
 
 /** spawn `shallot verify <dir> --json <extra> --run <r> --run <r> ...` — the shipped CLI's batch mode:
@@ -351,35 +425,43 @@ export async function verifyBatch(
 ): Promise<BatchOutcome> {
     const runFlags = runs.flatMap((r) => ["--run", r]);
     const { stdout, exitCode } = await spawnVerify(dir, [...extra, ...runFlags], quiet);
-    const results = extractBatchResult(stdout);
-    if (exitCode !== 0 && results) {
-        return {
-            results: results.map((r) =>
-                r.pass === true
-                    ? { ...r, pass: false, error: r.error ?? `verify process exited ${exitCode}` }
-                    : r,
-            ),
-            bytes: Buffer.byteLength(stdout, "utf8"),
-        };
-    }
-    return { results, bytes: Buffer.byteLength(stdout, "utf8") };
+    return batchOutcome(stdout, exitCode, runs);
 }
 
 // the WSL spawn: the node-bundled verify, driving the bridge's remote browser. A fixed `--port` skips the
 // CLI's own `Bun.serve` port probe (undefined under node) — vite binds it on WSL and the host browser reaches
 // it back over localhost forwarding, so the port must be one both sides agree on.
 async function wslCmd(dir: string, extra: string[]): Promise<string[]> {
-    const b = await wslBridge();
+    return verifyCommand([dir, "--json", ...extra], { wsl: true });
+}
+
+export interface VerifyCommandDeps {
+    wsl?: boolean;
+    prerequisite?: () => string | null;
+    bridge?: () => Promise<Pick<Bridge, "bundle" | "connectUrl">>;
+    port?: () => Promise<number>;
+    cli?: string;
+}
+
+/** Resolve the repository transport without replacing the project's verify arguments. */
+export async function verifyCommand(
+    argv: string[],
+    deps: VerifyCommandDeps = {},
+): Promise<string[]> {
+    if (!(deps.wsl ?? isWSL)) return ["bun", deps.cli ?? CLI, "verify", ...argv];
+    const missing = (deps.prerequisite ?? bridgePrereq)();
+    if (missing) throw new Error(`verify bridge unavailable: ${missing}`);
+    if (argv.includes("--connect"))
+        throw new Error("project verify --connect conflicts with repository bridge transport");
+    const b = await (deps.bridge ?? wslBridge)();
     return [
         "node",
         b.bundle,
         "verify",
-        dir,
-        "--json",
+        ...argv,
         "--connect",
         b.connectUrl,
-        ...(extra.includes("--port") ? [] : ["--port", String(await bridgePort())]),
-        ...extra,
+        ...(argv.includes("--port") ? [] : ["--port", String(await (deps.port ?? bridgePort)())]),
     ];
 }
 

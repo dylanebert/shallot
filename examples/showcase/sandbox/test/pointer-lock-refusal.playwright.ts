@@ -35,6 +35,10 @@ async function boot(page: import("@playwright/test").Page): Promise<string[]> {
         const c = document.querySelector("canvas");
         return c instanceof HTMLCanvasElement && c.width > 0 && c.height > 0;
     });
+    await expect(
+        page.locator(".sandbox-prompts"),
+        "sandbox boot did not mount gameplay chrome",
+    ).toBeAttached();
     return errors;
 }
 
@@ -60,13 +64,39 @@ test("sandbox showcase — a refused pointer-lock request explains itself", asyn
     await page.addInitScript((reason: string) => {
         (
             HTMLCanvasElement.prototype as unknown as { requestPointerLock: () => Promise<void> }
-        ).requestPointerLock = () => Promise.reject(new Error(reason));
+        ).requestPointerLock = () => {
+            const root = document.documentElement;
+            root.dataset.lockRequests = String(Number(root.dataset.lockRequests ?? 0) + 1);
+            return Promise.reject(new Error(reason));
+        };
+        document.addEventListener(
+            "click",
+            (event) => {
+                if (event.isTrusted && event.target instanceof HTMLCanvasElement) {
+                    const root = document.documentElement;
+                    root.dataset.lockClicks = String(Number(root.dataset.lockClicks ?? 0) + 1);
+                }
+            },
+            true,
+        );
     }, REASON);
     const errors = await boot(page);
     await page
         .locator("canvas")
         .first()
         .click({ position: { x: 40, y: 40 } });
-    await expect(page.locator(".sandbox-touch-notice")).toContainText("Pointer lock refused");
+    await expect(
+        page.locator("html"),
+        "trusted canvas click did not reach the document",
+    ).toHaveAttribute("data-lock-clicks", "1");
+    await expect(
+        page.locator("html"),
+        "canvas click did not reach requestPointerLock",
+    ).toHaveAttribute("data-lock-requests", "1");
+    await expect(
+        page.locator(".sandbox-touch-notice"),
+        "request reached, refusal notice absent",
+    ).toContainText("Pointer lock refused");
+    await expect(page.locator("html")).toHaveAttribute("data-lock-requests", "1");
     expect(errors, `page errors: ${errors.join("\n")}`).toEqual([]);
 });
