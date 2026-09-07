@@ -1,6 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { attach } from "../../../tests/helpers";
 import { State, type System } from "../../engine";
-import { PlayerControlSystem } from "./index";
+import { clear, register } from "../../engine/ecs/core";
+import { moves } from "../character/drive";
+import { InputPlugin, Inputs, setInputEnabled } from "../input";
+import { Body } from "../physics";
+import { Player, PlayerControlSystem, pointerLockRefusal, pointerLockStatus } from "./index";
 
 // biome-ignore lint/complexity/noBannedTypes: test mock tracks arbitrary DOM listeners
 type Fn = Function;
@@ -162,4 +167,281 @@ describe("PlayerControlSystem pointer-lock dispose identity", () => {
             globalThis.document = savedDocument;
         }
     });
+});
+
+// Pointer-lock capability refusal. `requestPointerLock` is not universal: touch-only browsers and some
+// WebViews omit it entirely, older implementations return void rather than a promise, and a live request
+// can be rejected (no user gesture, a sandboxed frame, an exit too recent). The controller used to call
+// `canvas.requestPointerLock().catch(...)` unguarded, so the missing method threw a TypeError inside the
+// click listener, the void return threw on `.catch`, and a rejection vanished — while `requirePointerLock`
+// held every mouse button at 0 forever, leaving a game that looks playable and never aims. These legs drive
+// the four API shapes through the REAL input plugin (buttons read through its production gate) crossed with
+// the input-enabled gate, and read the refusal back through the exported status data.
+describe("PlayerControlSystem pointer-lock capability", () => {
+    type Shape = "absent" | "void" | "rejecting" | "resolving";
+
+    const Rejection = "pointer lock refused by the browser";
+
+    interface LockCanvas {
+        canvas: HTMLCanvasElement & { tracker: ListenerTracker };
+        requests: () => number;
+    }
+
+    const Rect: DOMRect = {
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        width: 800,
+        height: 600,
+        right: 800,
+        bottom: 600,
+        toJSON() {},
+    } as DOMRect;
+
+    function lockCanvas(shape: Shape): LockCanvas {
+        const tracker = new ListenerTracker();
+        let requests = 0;
+        const request = () => {
+            requests++;
+            if (shape === "void") return undefined;
+            if (shape === "rejecting") return Promise.reject(new Error(Rejection));
+            return Promise.resolve();
+        };
+        const canvas = {
+            addEventListener: tracker.addEventListener,
+            removeEventListener: tracker.removeEventListener,
+            setPointerCapture() {},
+            releasePointerCapture() {},
+            hasPointerCapture: () => false,
+            getBoundingClientRect: () => Rect,
+            style: {} as CSSStyleDeclaration,
+            ...(shape === "absent" ? {} : { requestPointerLock: request }),
+            tracker,
+        } as unknown as HTMLCanvasElement & { tracker: ListenerTracker };
+        return { canvas, requests: () => requests };
+    }
+
+    interface Leg {
+        state: State;
+        canvas: HTMLCanvasElement & { tracker: ListenerTracker };
+        requests: () => number;
+        exits: () => number;
+        click: () => void;
+        press: (buttons: number) => void;
+        key: (code: string) => void;
+        setLock: (on: boolean) => void;
+        player: number;
+        teardown: () => void;
+    }
+
+    function start(shape: Shape): Leg {
+        clear();
+        const { canvas, requests } = lockCanvas(shape);
+        const windowTracker = new ListenerTracker();
+        (windowTracker as unknown as { focus: () => void }).focus = () => {};
+        const docTracker = new ListenerTracker();
+        const savedWindow = globalThis.window;
+        const savedDocument = globalThis.document;
+        globalThis.window = windowTracker as unknown as typeof window;
+        let exits = 0;
+        globalThis.document = {
+            pointerLockElement: null,
+            querySelector: (sel: string) => (sel === "canvas" ? canvas : null),
+            querySelectorAll: (sel: string) => (sel === "canvas" ? [canvas] : []),
+            addEventListener: docTracker.addEventListener,
+            removeEventListener: docTracker.removeEventListener,
+            exitPointerLock: () => {
+                exits++;
+            },
+        } as unknown as typeof document;
+
+        const state = new State();
+        for (const [n, c] of Object.entries(InputPlugin.components ?? {}))
+            register(n, c, InputPlugin.traits?.[n]);
+        attach(state, InputPlugin); // the real input plugin: buttons come through its production gate
+        state.step();
+        setInputEnabled(true);
+        PlayerControlSystem.setup!(state);
+
+        const on = (t: ListenerTracker, type: string): Fn =>
+            t.added.filter(([k]) => k === type).at(-1)![1];
+        const player = state.create();
+        state.add(player, Player);
+        state.add(player, Body);
+        Player.speed.set(player, 6);
+        Player.sensitivity.set(player, 1.5);
+
+        return {
+            state,
+            canvas,
+            requests,
+            exits: () => exits,
+            click: () => on(canvas.tracker, "click")(),
+            press: (buttons: number) =>
+                on(
+                    canvas.tracker,
+                    "pointerdown",
+                )({
+                    target: canvas,
+                    pointerId: 1,
+                    pointerType: "mouse",
+                    button: 0,
+                    buttons,
+                    clientX: 10,
+                    clientY: 10,
+                    preventDefault() {},
+                }),
+            key: (code: string) => on(windowTracker, "keydown")({ code, preventDefault() {} }),
+            setLock: (lockOn: boolean) => {
+                (globalThis.document as { pointerLockElement: unknown }).pointerLockElement = lockOn
+                    ? canvas
+                    : null;
+                on(docTracker, "pointerlockchange")();
+            },
+            player,
+            teardown: () => {
+                state.dispose();
+                moves.clear();
+                globalThis.window = savedWindow;
+                globalThis.document = savedDocument;
+            },
+        };
+    }
+
+    // a rejected request must be caught by the controller, never escape as an unhandled rejection
+    const rejections: unknown[] = [];
+    const onRejection = (e: unknown) => rejections.push(e);
+    beforeEach(() => {
+        rejections.length = 0;
+        process.on("unhandledRejection", onRejection);
+    });
+    afterEach(() => {
+        process.off("unhandledRejection", onRejection);
+        setInputEnabled(true);
+    });
+
+    const settle = async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        await new Promise((r) => setTimeout(r, 0));
+    };
+
+    test("missing requestPointerLock never calls it, never gates buttons, and still walks", async () => {
+        const leg = start("absent");
+        try {
+            expect(() => leg.click()).not.toThrow();
+            await settle();
+            expect(leg.requests()).toBe(0); // never called: there is nothing to call
+            expect(pointerLockStatus()).toBe("unsupported");
+            expect(pointerLockRefusal()).toBe("canvas has no requestPointerLock");
+            expect(rejections).toEqual([]);
+
+            // the desktop button gate must NOT strand a device that can never lock
+            leg.press(1);
+            expect(Inputs.mouse.left).toBe(true);
+
+            // keyboard move still resolves: KeyW reaches the controller and writes a drive intent
+            leg.key("KeyW");
+            expect(Inputs.isKeyDown("KeyW")).toBe(true);
+            PlayerControlSystem.update!(leg.state);
+            const m = moves.get(leg.player)!;
+            expect(Math.hypot(m[0], m[1])).toBeCloseTo(6, 6);
+        } finally {
+            leg.teardown();
+        }
+    });
+
+    test("a void-returning implementation requests without a .catch and locks on pointerlockchange", async () => {
+        const leg = start("void");
+        try {
+            expect(() => leg.click()).not.toThrow();
+            await settle();
+            expect(leg.requests()).toBe(1);
+            expect(pointerLockStatus()).toBe("unlocked"); // requested, unpromised, not yet engaged
+            expect(pointerLockRefusal()).toBeNull();
+            expect(rejections).toEqual([]);
+
+            leg.press(1); // gated until the lock engages
+            expect(Inputs.mouse.left).toBe(false);
+
+            leg.setLock(true);
+            expect(pointerLockStatus()).toBe("locked");
+            leg.press(1);
+            expect(Inputs.mouse.left).toBe(true);
+        } finally {
+            leg.teardown();
+        }
+    });
+
+    test("a rejected request becomes a visible refusal, not an unhandled rejection, and retries", async () => {
+        const leg = start("rejecting");
+        try {
+            expect(() => leg.click()).not.toThrow();
+            await settle();
+            expect(leg.requests()).toBe(1);
+            expect(pointerLockStatus()).toBe("refused");
+            expect(pointerLockRefusal()).toBe(Rejection);
+            expect(rejections).toEqual([]);
+
+            leg.click(); // the next click may retry — the browser owns the throttle
+            await settle();
+            expect(leg.requests()).toBe(2);
+            expect(pointerLockStatus()).toBe("refused");
+            expect(rejections).toEqual([]);
+        } finally {
+            leg.teardown();
+        }
+    });
+
+    test("a supported request keeps the gate: locked look, gated buttons until lock, clean dispose", async () => {
+        const leg = start("resolving");
+        try {
+            leg.click();
+            await settle();
+            expect(leg.requests()).toBe(1);
+            expect(pointerLockStatus()).toBe("unlocked");
+
+            leg.press(1);
+            expect(Inputs.mouse.left).toBe(false); // the capturing click only focuses
+
+            leg.setLock(true);
+            expect(pointerLockStatus()).toBe("locked");
+            expect(pointerLockRefusal()).toBeNull();
+            leg.press(1);
+            expect(Inputs.mouse.left).toBe(true);
+            expect(rejections).toEqual([]);
+
+            leg.state.dispose(); // exits the engaged lock and drops the module ref
+            expect(leg.exits()).toBe(1);
+            expect(pointerLockStatus()).toBe("unlocked");
+            expect(pointerLockRefusal()).toBeNull();
+        } finally {
+            leg.teardown();
+        }
+    });
+
+    // the second dimension: the input-enabled gate. Suspended input never requests a lock, whatever the
+    // API shape, and a refusal already recorded stays readable — the product of the two axes.
+    for (const shape of ["absent", "void", "rejecting", "resolving"] as const) {
+        test(`suspended input makes no ${shape} pointer-lock request`, async () => {
+            const leg = start(shape);
+            try {
+                setInputEnabled(false);
+                expect(() => leg.click()).not.toThrow();
+                await settle();
+                expect(leg.requests()).toBe(0);
+                expect(pointerLockStatus()).toBe(shape === "absent" ? "unsupported" : "unlocked");
+                expect(rejections).toEqual([]);
+
+                // re-enabled, the same click takes its normal branch (non-vacuity for the gate above)
+                setInputEnabled(true);
+                leg.click();
+                await settle();
+                expect(leg.requests()).toBe(shape === "absent" ? 0 : 1);
+            } finally {
+                leg.teardown();
+            }
+        });
+    }
 });

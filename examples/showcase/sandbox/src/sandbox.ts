@@ -15,6 +15,7 @@ import {
     Physics,
     Player,
     type Plugin,
+    pointerLockStatus,
     RenderPlugin,
     Resolution,
     Sear,
@@ -32,7 +33,7 @@ import * as std from "typegpu/std";
 import { armImpacts, ImpactSystem, registerInstruments } from "./audio";
 import { type Gun, gun } from "./gun";
 import { Brick, box, brickStack, bridge, hex, lamp, pyramid, rope } from "./spawn";
-import { hud, isTouchOnly, setCrosshair, touchNotice } from "./ui";
+import { hud, isTouchOnly, lockNotice, setCrosshair, touchNotice } from "./ui";
 
 // The sandbox — the first-person gravity-gun showcase (physics + player + synthetic audio together).
 // A manifest project: shallot.json enables physics + player + audio + this plugin and sets the
@@ -216,6 +217,9 @@ let bodyMirror: Mirror | null = null;
 let contactMirror: Mirror | null = null;
 let theGun: Gun | null = null;
 let booted = false;
+let chrome: HTMLElement | null = null;
+let lockShown: "unsupported" | "refused" | null = null;
+let clearLockNotice: (() => void) | null = null;
 
 // the world spawns from a boot system, not `warm`: build() reads `Avbd.step` (joints, the body Mirror),
 // and plugin warms run concurrently (Promise.all in build()), so AvbdPlugin.warm may not have created the
@@ -237,10 +241,42 @@ const BootSystem: System = {
         // and the hud's own cleanup registers beside it — both unwind at `state.dispose()`, no plugin
         // `dispose` hook for the UI.
         const overlay = mountOverlay(document.querySelector("canvas"), state);
+        chrome = overlay;
+        // the overlay is State-owned (mountOverlay removes it); drop this module ref with it, so a
+        // rebuilt sandbox never writes a notice into a torn-down overlay.
+        state.onDispose(() => {
+            clearLockNotice?.();
+            clearLockNotice = null;
+            lockShown = null;
+            chrome = null;
+        });
         state.onDispose(hud(overlay));
         // Pointer Lock has no touch equivalent (this unit ships sandbox desktop-only, `ui.ts`'s
         // header) — a touch-only visitor gets a reason instead of a silently unplayable gun.
         if (isTouchOnly()) state.onDispose(touchNotice(overlay));
+    },
+};
+
+// Pointer Lock can also fail on a mouse device: a browser without `requestPointerLock`, or one that
+// refuses the capture (sandboxed frame, missing gesture, an exit too recent). The engine publishes that as
+// data (`pointerLockStatus`), never a thrown click — read it each frame and put the reason on screen, so a
+// desktop visitor sees why the gun never aims instead of a silently dead crosshair. Touch devices keep the
+// touch sentence above; capability, not the browser name, decides.
+const LockNoticeSystem: System = {
+    name: "sandbox-lock-notice",
+    group: "simulation",
+    setup() {
+        lockShown = null;
+        clearLockNotice = null;
+    },
+    update() {
+        if (!chrome || isTouchOnly()) return;
+        const status = pointerLockStatus();
+        const want = status === "unsupported" || status === "refused" ? status : null;
+        if (want === lockShown) return;
+        clearLockNotice?.();
+        clearLockNotice = want ? lockNotice(chrome, want) : null;
+        lockShown = want;
     },
 };
 
@@ -291,7 +327,7 @@ const SandboxPlugin: Plugin = {
     // initialize, so the dependency orders this plugin's registration after the wipe
     dependencies: [RenderPlugin],
     components: { Brick },
-    systems: [BootSystem, GunSystem, ImpactSystem, FogToggleSystem],
+    systems: [BootSystem, LockNoticeSystem, GunSystem, ImpactSystem, FogToggleSystem],
     initialize(state) {
         registerSurfaces(state);
         registerInstruments();

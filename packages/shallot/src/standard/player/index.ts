@@ -70,6 +70,11 @@ export const Player = {
 
 interface PointerLock {
     locked: boolean;
+    /** the canvas actually implements `requestPointerLock` (touch-only browsers and some WebViews don't) */
+    supported: boolean;
+    /** the last refusal reason, cleared when a lock engages; null while nothing has been refused */
+    refusal: string | null;
+    warned: boolean;
     dx: number;
     dy: number;
     onClick: () => void;
@@ -78,6 +83,48 @@ interface PointerLock {
 }
 
 let lock: PointerLock | null = null;
+
+/** pointer-lock capability/refusal state, read through {@link pointerLockStatus}. `unsupported` is a canvas
+ *  with no `requestPointerLock`, `refused` a request the browser rejected (permission, sandboxed frame, an
+ *  exit too recent), `unlocked` a lock that simply hasn't been asked for yet, `locked` the engaged capture. */
+export type PointerLockStatus = "unsupported" | "refused" | "unlocked" | "locked";
+
+/**
+ * the player's pointer-lock state, as data a consumer can read each frame to explain a dead mouse look.
+ * `unsupported`/`refused` mean the look will never engage on this click; show a refusal instead of a
+ * silently unaimable game. Reads `unlocked` when no player controller is set up.
+ *
+ * @example
+ * ```
+ * if (pointerLockStatus() === "refused") notice(`aim unavailable: ${pointerLockRefusal()}`);
+ * ```
+ */
+export function pointerLockStatus(): PointerLockStatus {
+    if (!lock) return "unlocked";
+    if (!lock.supported) return "unsupported";
+    if (lock.locked) return "locked";
+    return lock.refusal === null ? "unlocked" : "refused";
+}
+
+/** the reason the last pointer-lock request was refused (or the capability is missing); null when none. */
+export function pointerLockRefusal(): string | null {
+    return lock ? lock.refusal : null;
+}
+
+// record a refusal and warn once per controller — a missing or rejected capture is a visible product state,
+// never a thrown click handler.
+function refuse(pl: PointerLock, reason: string): void {
+    pl.refusal = reason;
+    if (pl.warned) return;
+    pl.warned = true;
+    console.warn(`[player] pointer lock unavailable (${reason}) — mouse look stays off`);
+}
+
+// exit an engaged lock where the document implements it; a browser without requestPointerLock has no exit either.
+function exitLock(): void {
+    if (typeof document === "undefined") return;
+    if (typeof document.exitPointerLock === "function") document.exitPointerLock();
+}
 // scratch for the per-tick swept-pose read (character.pose), reused across players.
 const _pose: [number, number, number] = [0, 0, 0];
 
@@ -176,18 +223,33 @@ export const PlayerControlSystem: System = {
         // query (the same one run() uses) finds it regardless of View-attach timing.
         const canvas = typeof document === "undefined" ? null : document.querySelector("canvas");
         if (!canvas) return;
+        // capability comes from the canvas, never the browser name: a canvas with no `requestPointerLock`
+        // (touch-only browsers, some WebViews) can never lock, so it must NOT take the desktop button gate —
+        // gating buttons on a lock that can't engage strands the device with every mouse button held up.
+        const supported = typeof canvas.requestPointerLock === "function";
         // gameplay is pointer-locked: hold mouse buttons up until the lock engages, so the click
         // that captures the pointer only focuses — it never fires a gun/grab. see requirePointerLock.
-        requirePointerLock(true);
+        if (supported) requirePointerLock(true);
         const pl: PointerLock = {
             locked: false,
+            supported,
+            refusal: null,
+            warned: false,
             dx: 0,
             dy: 0,
             onClick: () => {
-                if (inputEnabled()) canvas.requestPointerLock().catch(() => {});
+                if (!inputEnabled() || !pl.supported) return;
+                // older implementations return void rather than a promise: the request is still made and
+                // lock state still follows `pointerlockchange`, there is just nothing to await or catch.
+                const request = canvas.requestPointerLock() as unknown as Promise<void> | undefined;
+                if (!request || typeof request.catch !== "function") return;
+                request.catch((e: unknown) =>
+                    refuse(pl, e instanceof Error ? e.message : String(e)),
+                );
             },
             onChange: () => {
                 pl.locked = document.pointerLockElement === canvas;
+                if (pl.locked) pl.refusal = null;
             },
             onMove: (e: MouseEvent) => {
                 if (!pl.locked) return;
@@ -201,6 +263,7 @@ export const PlayerControlSystem: System = {
         document.addEventListener("pointerlockchange", pl.onChange, { signal });
         document.addEventListener("mousemove", pl.onMove, { signal });
         lock = pl;
+        if (!supported) refuse(pl, "canvas has no requestPointerLock");
         // release the input gate + any live pointer lock and drop the module ref when this State tears down.
         // Guarded so a newer build's `lock` isn't clobbered: a rebuild-then-dispose ordering (the new State's
         // setup runs before the old one's dispose) would otherwise null out the live State's pointer-lock
@@ -208,7 +271,7 @@ export const PlayerControlSystem: System = {
         state.onDispose(() => {
             requirePointerLock(false);
             if (lock === pl) {
-                if (lock.locked) document.exitPointerLock();
+                if (lock.locked) exitLock();
                 lock = null;
             }
         });
@@ -218,7 +281,7 @@ export const PlayerControlSystem: System = {
         // input suspended (a menu/cutscene): release the lock so the cursor frees + mouse-look stops, and let
         // the loop run with neutral Inputs — every key reads up, so move resolves to 0 and the player freezes.
         const active = inputEnabled();
-        if (!active && lock?.locked) document.exitPointerLock();
+        if (!active && lock?.locked) exitLock();
         for (const eid of state.query([Player, Body])) {
             let yaw = Player.yaw.get(eid);
             let pitch = Player.pitch.get(eid);

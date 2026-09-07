@@ -1,8 +1,11 @@
 import {
     Character,
+    mountOverlay,
     Physics,
     Player,
     type Plugin,
+    pointerLockRefusal,
+    pointerLockStatus,
     type State,
     type System,
 } from "@dylanebert/shallot";
@@ -38,11 +41,43 @@ const slide: System = {
     },
 };
 
+// mouse look needs Pointer Lock, and a browser can lack it or refuse the capture. `pointerLockStatus()`
+// reports that as data, so say it on screen instead of leaving a view that never turns.
+let notice: HTMLElement | null = null;
+let overlay: HTMLElement | null = null;
+
+const lockNotice: System = {
+    name: "lock-notice",
+    group: "simulation",
+    setup() {
+        notice = null;
+        overlay = null; // a rebuilt State mounts its own overlay
+    },
+    update(state: State) {
+        const status = pointerLockStatus();
+        const refused = status === "unsupported" || status === "refused";
+        if (refused === !!notice) return;
+        if (!refused) {
+            notice?.remove();
+            notice = null;
+            return;
+        }
+        const el = document.createElement("div");
+        el.style.cssText =
+            "position:absolute;top:16px;left:50%;transform:translateX(-50%);padding:8px 14px;" +
+            "border-radius:6px;background:rgba(0,0,0,0.7);color:#fff;font:12px system-ui;";
+        el.textContent = `Mouse look unavailable — ${pointerLockRefusal() ?? "pointer lock refused"}. WASD still walks.`;
+        overlay ??= mountOverlay(document.querySelector("canvas"), state);
+        overlay.appendChild(el);
+        notice = el;
+    },
+};
+
 export const Demo = {
     name: "Demo",
     components: { Moving },
     warm: tune,
-    systems: [slide],
+    systems: [slide, lockNotice],
 } satisfies Plugin;
 
 export default Demo;

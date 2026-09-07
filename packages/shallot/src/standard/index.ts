@@ -16,7 +16,14 @@ export { minimalDark, minimalLight, shallotDark, shallotLight } from "./loading"
 export { Mirror, MirrorPlugin, MirrorSystem, mirror } from "./mirror";
 export { Color, Part, PartPlugin } from "./part";
 export { Body, Joint, Physics, ShapeKind, Spring } from "./physics";
-export { Player, PlayerControlSystem, PlayerPlugin } from "./player";
+export {
+    Player,
+    PlayerControlSystem,
+    PlayerPlugin,
+    type PointerLockStatus,
+    pointerLockRefusal,
+    pointerLockStatus,
+} from "./player";
 export {
     AmbientLight,
     Camera,
