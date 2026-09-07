@@ -171,12 +171,30 @@ export function isTouchOnly(): boolean {
     return navigator.maxTouchPoints > 0 && !window.matchMedia("(pointer: fine)").matches;
 }
 
+// one label surface for every "the gun can't aim here" reason — the touch case and the desktop
+// pointer-lock refusals share the style, and differ only in the sentence they carry.
+function notice(container: HTMLElement, text: string): () => void {
+    const el = document.createElement("div");
+    el.className = "sandbox-touch-notice";
+    el.textContent = text;
+    container.appendChild(el);
+    return () => el.remove();
+}
+
 /** the gun's Pointer-Lock aim has no touch equivalent (out of scope, spec header above) — a static label
  *  telling a touch visitor why the crosshair never engages, instead of a silently unplayable gun. */
 export function touchNotice(container: HTMLElement): () => void {
-    const el = document.createElement("div");
-    el.className = "sandbox-touch-notice";
-    el.textContent = "Desktop only — needs a mouse to aim";
-    container.appendChild(el);
-    return () => el.remove();
+    return notice(container, "Desktop only — needs a mouse to aim");
+}
+
+/** the desktop counterpart: a mouse device whose browser has no Pointer Lock (`unsupported`) or refused
+ *  the capture (`refused` — a sandboxed frame, a missing gesture, an exit too recent). Without it the gun
+ *  looks live and never aims; `sandbox.ts` mounts it off the engine's `pointerLockStatus`. */
+export function lockNotice(container: HTMLElement, status: "unsupported" | "refused"): () => void {
+    return notice(
+        container,
+        status === "unsupported"
+            ? "Pointer lock unavailable — this browser can't capture the mouse to aim"
+            : "Pointer lock refused — click the scene again to aim",
+    );
 }
