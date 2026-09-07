@@ -1,9 +1,15 @@
 import { join } from "node:path";
 import tgpu, { isTgpuFn } from "typegpu";
 import { TEST_TIER_SUFFIXES } from "./test-tiers";
-import { integerDiscipline, noDivision, noIntegerDivision, pointerDiscipline } from "./wgsl";
+import {
+    integerDiscipline,
+    noDivision,
+    noIntegerDivision,
+    pointerDiscipline,
+    portablePointers,
+} from "./wgsl";
 
-export const STANDARDS_POPULATION_GOLDEN = 109;
+export const STANDARDS_POPULATION_GOLDEN = 107;
 
 const SRC_DIR = join(import.meta.dir, "../src");
 
@@ -86,12 +92,14 @@ export type DisciplineCheck =
     | "noIntegerDivision"
     | "integerDiscipline"
     | "pointerDiscipline"
+    | "portablePointers"
     | "noDivision";
 
 const CHECKERS: Record<DisciplineCheck, (src: string) => void> = {
     noIntegerDivision,
     integerDiscipline,
     pointerDiscipline,
+    portablePointers,
     noDivision,
 };
 
@@ -103,6 +111,7 @@ export const DEFAULT_CHECKS: readonly DisciplineCheck[] = [
     "noIntegerDivision",
     "integerDiscipline",
     "pointerDiscipline",
+    "portablePointers",
 ];
 
 /** runs one discipline check against a kernel's resolved WGSL; returns the violation message, or `null`
@@ -295,11 +304,6 @@ export type DifferentialRegistry = Record<string, DifferentialEntry>;
  *    (`engine/utils/encode.ts`) states why: smallest-3 dynamically indexes a vector (`q[largest]`)
  *    and switches on the result, neither of which TGSL expresses, so the body stays WGSL text with no
  *    CPU arm to call.
- *  - `uniformLoad`: a raw-WGSL leaf over `ptr<workgroup, u32>` — its JSDoc (`engine/utils/tgsl.ts`)
- *    states the mechanism: "a workgroup pointer has no CPU meaning."
- *  - `compareExchange`: a raw-WGSL leaf over `ptr<storage, atomic<u32>, read_write>` —
- *    `atomicCompareExchangeWeak` is a device-memory compare-and-swap with no CPU-side semantics to
- *    reproduce; its JSDoc (`engine/utils/tgsl.ts`) states "GPU-only."
  */
 export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     octEncodeNormal: {
@@ -321,18 +325,6 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
         reason:
             "raw-WGSL leaf: the inverse of packQuatSmallest3's dynamic-index/switch pack, same " +
             "mechanism, no CPU arm — see the kernel's own JSDoc, engine/utils/encode.ts.",
-    },
-    uniformLoad: {
-        reason:
-            "raw-WGSL leaf over ptr<workgroup, u32>: a workgroup pointer has no CPU meaning (the kernel's " +
-            "own JSDoc, engine/utils/tgsl.ts) — workgroupUniformLoad is a control-barrier primitive with " +
-            "no CPU-side analogue to compare against.",
-    },
-    compareExchange: {
-        reason:
-            "raw-WGSL leaf over ptr<storage, atomic<u32>, read_write>: atomicCompareExchangeWeak is a " +
-            "device-memory compare-and-swap with no CPU-side semantics to reproduce — GPU-only per the " +
-            "kernel's own JSDoc, engine/utils/tgsl.ts.",
     },
     applyGrade: {
         test: { file: "packages/shallot/src/standard/glaze/glaze.test.ts", symbol: "applyGrade" },

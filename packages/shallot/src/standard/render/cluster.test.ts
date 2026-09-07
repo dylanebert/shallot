@@ -266,8 +266,10 @@ describe("emitted WGSL", () => {
         const { cull } = lightCullWgsl(light, spot, vol);
         // the loop bound comes through workgroupUniformLoad, which is what makes the in-loop
         // barriers legal; out-of-range threads mask on `live`, they never return early
-        expect(cull).toContain("workgroupUniformLoad");
-        expect(flat(cull)).toContain("uniformLoad((&wgCount))");
+        expect(flat(cull)).toContain("workgroupUniformLoad(&wgCount)");
+        // inline, never a `fn(p: ptr<workgroup, u32>)` leaf — naga rejects that parameter outright
+        // (Firefox's front end), which is what took this pipeline down there
+        expect(cull).not.toContain("ptr<workgroup");
         expect(cull).toContain("workgroupBarrier();");
         expect(body(cull, "@compute")).not.toContain("return;");
         expect(flat(cull)).toMatch(/var<workgroup> batch: array<vec4f, ?64>/);

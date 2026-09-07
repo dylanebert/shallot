@@ -63,7 +63,7 @@ describe("tile descriptors", () => {
         expect(flat(wgsl.scan)).toContain(`= ((base << 2u) | ${FLAG_INCLUSIVE}u)`);
         // the binning pass CAS-publishes its own count as a REDUCTION
         expect(flat(wgsl.binning)).toContain(
-            `compareExchange((&passHist[succ]), 0u, (${FLAG_REDUCTION}u | (histReduction << 2u)))`,
+            `compareExchange(succ, 0u, (${FLAG_REDUCTION}u | (histReduction << 2u)))`,
         );
         // and bumps a successor's REDUCTION to INCLUSIVE with a plain add of the flag delta
         expect(flat(wgsl.binning)).toContain(
@@ -80,20 +80,26 @@ describe("tile descriptors", () => {
         expect(wgsl.init).toMatch(/var<storage, read_write> passHist: array<u32>/);
     });
 
-    test("the CAS goes through the escape leaf, which reads old_value", () => {
+    test("the CAS goes through the escape leaf, which reads old_value at the bound buffer", () => {
+        // the leaf forms the pointer from the bound buffer and an index. A `ptr<storage, …>` parameter
+        // is what naga (Firefox) rejects, so the index is the portable spelling, not a style choice
         expect(flat(wgsl.binning)).toContain(
-            "return atomicCompareExchangeWeak(p, cmp, val).old_value;",
+            "return atomicCompareExchangeWeak(&passHist[i], cmp, val).old_value;",
         );
+        expect(wgsl.binning).not.toContain("ptr<storage");
     });
 });
 
 describe("lookback with fallback", () => {
     test("the early exit is a workgroupUniformLoad gate, which is what legalizes the in-loop barriers", () => {
-        expect(flat(wgsl.binning)).toContain(
-            "fn uniformLoad(p: ptr<workgroup,u32>) -> u32 { return workgroupUniformLoad(p); }",
-        );
+        // inlined at the site, never a `fn(p: ptr<workgroup, u32>)` leaf: naga (Firefox) rejects a
+        // workgroup-address-space pointer parameter, so the leaf spelling made this module
+        // uncompilable there
+        expect(wgsl.binning).not.toContain("ptr<workgroup");
         const main = flat(body(wgsl.binning, "@compute"));
-        expect(main).toContain("while (true) { if ((uniformLoad((&wgDone)) != 0u)) { break; }");
+        expect(main).toContain(
+            "while (true) { if ((workgroupUniformLoad(&wgDone) != 0u)) { break; }",
+        );
         // the gate is a plain (non-atomic) workgroup var — an atomicLoad here is what Tint rejects
         expect(wgsl.binning).toContain("var<workgroup> wgDone: u32;");
         expect(main).toContain("wgDone = 1u;");

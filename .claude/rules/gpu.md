@@ -65,7 +65,7 @@ Strip empty→reads→atomics→math→suspects; restore. Active set (solver col
 
 ## Native targets and webview backends
 
-Default wry webviews; portable CEF. Mac LDS/no subgroups; Linux needs portable. Build mismatch warns. Desktop Chrome/Edge, recent Android Chrome, Safari 26+ Apple Silicon, Deck; Firefox/pre-Gen11 diagnostic. Intel Mac unaudited; features aren't render proof.
+Default wry webviews; portable CEF. Mac LDS/no subgroups; Linux needs portable. Build mismatch warns. Admission by features/limits, not browser name: a floor-meeting configuration owes rendered proof, and Firefox/Windows is unqualified. Intel Mac unaudited.
 
 ## DXC shader compilation
 

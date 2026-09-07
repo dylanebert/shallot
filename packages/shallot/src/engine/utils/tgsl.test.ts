@@ -4,13 +4,11 @@ import { vec2f, vec4f } from "typegpu/data";
 import * as std from "typegpu/std";
 import {
     bitcastF32toU32,
-    compareExchange,
     idiv,
     packSnorm2x16,
     packUnorm2x16,
     packUnorm4x8,
     subgroupUniformityOff,
-    uniformLoad,
     unpackSnorm2x16,
     unpackUnorm2x16,
 } from "./tgsl";
@@ -105,11 +103,5 @@ describe("escape leaves — CPU arm", () => {
         expect(Math.trunc(Math.fround(Math.fround(4294967295) / 3))).toBe(1431655808);
         expect(idiv(16777217, 1)).toBe(16777217);
         expect(Math.fround(16777217)).toBe(16777216);
-    });
-
-    test("a GPU-only leaf refuses to run on the CPU rather than answering wrong", () => {
-        // a workgroup pointer and an atomic have no CPU meaning, so these two have no dual arm
-        expect(() => (uniformLoad as unknown as () => void)()).toThrow();
-        expect(() => (compareExchange as unknown as () => void)()).toThrow();
     });
 });

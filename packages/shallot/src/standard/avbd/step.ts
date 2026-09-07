@@ -1819,7 +1819,7 @@ const aabbKernel = tgpu
 
 // ── broadphase per-candidate accumulate + block emit (shared by the descent + the small-N scan) ──
 // TGSL functions over `nbr`/`nd2`/`count` — the mains' accumulator — threaded by `d.ref` pointer (arrays)
-// and the `uniformLoad`-style widened-signature escape (the scalar `count`, which `d.ref` refuses). Both
+// and the `considerCapAxis`-style widened-signature escape (the scalar `count`, which `d.ref` refuses). Both
 // mains call the SAME two functions, so the ownership rule, the nearest-K + static-pin prune, the sort, and
 // the block write are one source of truth — the small-N O(n²) scan differs ONLY in how it enumerates
 // candidates, the precondition for warmstart carrying across a regime flip (identical blocks). Broadphase
@@ -1879,7 +1879,7 @@ function broadOutput(layout: BroadLayout) {
             },
         )
         .$name("broadCandidate");
-    // the widened call signature is the uniformLoad / considerCapAxis typing gap (engine/utils/tgsl.ts):
+    // the widened call signature is the considerCapAxis typing gap (standard/avbd/collide.ts):
     // `d.ref` refuses a scalar, so `count` (mutated only through this pointer) is passed bare — nbr/nd2 go
     // through real `d.ref` (arrays), so only the last param needs widening.
     const broadCandidate = broadCandidateFn as typeof broadCandidateFn &
@@ -2088,6 +2088,7 @@ const broadphaseSmallLayout = tgpu
 const tMin = tgpu.workgroupVar(d.arrayOf(d.vec4f, TILE));
 const tMax = tgpu.workgroupVar(d.arrayOf(d.vec4f, TILE));
 const wgN = tgpu.workgroupVar(d.u32);
+const wgNUniform = uniformLoad(wgN);
 
 const { broadCandidate: scanCandidate, broadEmit: scanEmit } = broadOutput(broadphaseSmallLayout);
 
@@ -2101,7 +2102,7 @@ const broadphaseSmallKernel = tgpu
         // inactive rather than returning. workgroupUniformLoad makes the live count uniform for Tint's
         // uniformity analysis (eids[0] is workgroup-uniform in fact, but a raw storage read can't prove it).
         if (input.lid.x === 0) wgN.$ = broadphaseSmallLayout.$.eids[0];
-        const n = uniformLoad(wgN.$);
+        const n = wgNUniform.$;
         const dOwn = input.gid.x;
         const inRange = dOwn < n;
         // i = this body's eid (0 placeholder when idle)
@@ -3080,8 +3081,10 @@ const lpy = tgpu.workgroupVar(d.arrayOf(d.f32, LDS_CAP));
 const lpz = tgpu.workgroupVar(d.arrayOf(d.f32, LDS_CAP));
 const lq = tgpu.workgroupVar(d.arrayOf(d.vec4f, LDS_CAP));
 const wgCount = tgpu.workgroupVar(d.u32);
+const wgCountUniform = uniformLoad(wgCount);
 const wgColorMax = tgpu.workgroupVar(d.atomic(d.u32));
 const wgColors = tgpu.workgroupVar(d.u32);
+const wgColorsUniform = uniformLoad(wgColors);
 
 // the LDS-backed pose readers the shared solve/dual math goes through (one
 // authored kernel re-emits per reader set — storage this stage's other kernels, workgroup memory here).
@@ -3129,7 +3132,7 @@ const solveLdsKernel = tgpu
         "use gpu";
         const lane = input.lid.x;
         if (lane === 0) wgCount.$ = ldsLayout.$.eids[0];
-        const count = uniformLoad(wgCount.$);
+        const count = wgCountUniform.$;
         const n = std.min(count, d.u32(LDS_CAP));
 
         // load: eid → dense map + the resident poses + the used-color count (max dynamic color + 1 — the
@@ -3152,7 +3155,7 @@ const solveLdsKernel = tgpu
         std.workgroupBarrier(); // resident poses + wgColorMax
         if (lane === 0)
             wgColors.$ = std.min(std.atomicLoad(wgColorMax.$), rwRw.layout.$.params.maxColors);
-        const colorsToRun = uniformLoad(wgColors.$);
+        const colorsToRun = wgColorsUniform.$;
 
         for (let it = d.u32(0); it < rwRw.layout.$.params.iterations; it++) {
             for (let c = d.u32(0); c < colorsToRun; c++) {
@@ -3489,6 +3492,7 @@ const csrColorSmallLayout = tgpu
     .$idx(0);
 
 const csrColorWgN = tgpu.workgroupVar(d.u32);
+const csrColorWgNUniform = uniformLoad(csrColorWgN);
 const csrColorSum = tgpu.workgroupVar(d.arrayOf(d.u32, PACK_WG));
 const csrColorWgMax = tgpu.workgroupVar(d.atomic(d.u32)); // max dynamic color + 1 (zero-inits per dispatch)
 
@@ -3496,10 +3500,10 @@ const csrColorSmallKernel = tgpu
     .computeFn({ workgroupSize: [PACK_WG], in: { lid: d.builtin.localInvocationId } })((input) => {
         "use gpu";
         // every lane reaches every barrier (no early returns — idle lanes skip strided loops), and the live
-        // count flows through uniformLoad for Tint's uniformity analysis (the small-broadphase pattern).
+        // count flows through workgroupUniformLoad for the uniformity analysis (the small-broadphase pattern).
         const t = input.lid.x;
         if (t === 0) csrColorWgN.$ = csrColorSmallLayout.$.eids[0];
-        const n = uniformLoad(csrColorWgN.$);
+        const n = csrColorWgNUniform.$;
 
         // clear: live eids' counts (the only counts the scan reads — see the header)
         for (let dOwn = t; dOwn < n; dOwn = dOwn + PACK_WG) {

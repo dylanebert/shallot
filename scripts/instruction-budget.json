@@ -1,5 +1,5 @@
 {
-    "total": 69191,
+    "total": 69188,
     "files": {
         ".claude/rules/audio.md": {
             "bytes": 3715,
@@ -22,7 +22,7 @@
             "paragraph": 539
         },
         ".claude/rules/gpu.md": {
-            "bytes": 6974,
+            "bytes": 6973,
             "paragraph": 519
         },
         ".claude/rules/physics.md": {
@@ -50,7 +50,7 @@
             "paragraph": 451
         },
         "AGENTS.md": {
-            "bytes": 4469,
+            "bytes": 4467,
             "paragraph": 630
         },
         "CLAUDE.md": {

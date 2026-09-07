@@ -44,7 +44,6 @@ export {
 export {
     bitcastF32toU32,
     chunk,
-    compareExchange,
     idiv,
     packSnorm2x16,
     packUnorm2x16,

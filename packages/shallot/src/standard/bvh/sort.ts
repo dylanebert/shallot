@@ -34,7 +34,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute } from "../../engine";
 import { precompile, precompileScope } from "../../engine/runtime";
-import { compareExchange, idiv, subgroupUniformityOff, uniformLoad } from "../../engine/utils/core";
+import { idiv, subgroupUniformityOff, uniformLoad } from "../../engine/utils/core";
 import { createRadixSortLds } from "./sort-lds";
 
 const RADIX = 256;
@@ -137,6 +137,24 @@ export const binLayout = tgpu.bindGroupLayout({
     passHist: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" }, // cross-workgroup tile descriptors
     index: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" }, // per-pass partition counter
 });
+
+// `atomicCompareExchangeWeak(&passHist[i], cmp, val).old_value` — the write-if-unset a chained scan's
+// publish/claim step needs, returning the prior value (equal to `cmp` exactly when the exchange took).
+// The pointer is formed inside the leaf from the bound buffer and an index, never passed in: WGSL 1.0
+// admits a pointer parameter only in the function and private address spaces, and naga (Firefox's front
+// end) rejects a storage-space one outright, taking the whole module down. `binLayout.$` rides as one
+// external because a dereferenced `layout.$.x` throws outside a TGSL body (extras/gltf/live.ts).
+const passHistCas = tgpu
+    .fn(
+        [d.u32, d.u32, d.u32],
+        d.u32,
+    )(
+        /* wgsl */ `(i: u32, cmp: u32, val: u32) -> u32 {
+    return atomicCompareExchangeWeak(&bound.passHist[i], cmp, val).old_value;
+}`,
+    )
+    .$uses({ bound: binLayout.$ })
+    .$name("compareExchange");
 
 /** the GPU-count prepare's I/O: the count in, the indirect args + all four passes' params out.
  *  @internal */
@@ -315,6 +333,7 @@ const uniformityOptOut = tgpu
 const gD = tgpu.workgroupVar(d.arrayOf(d.atomic(d.u32), G_D));
 const wgPart = tgpu.workgroupVar(d.u32);
 const wgDone = tgpu.workgroupVar(d.u32); // lookback early-exit gate, read via workgroupUniformLoad
+const wgDoneUniform = uniformLoad(wgDone);
 
 const Keys = d.arrayOf(d.u32, KEYS_PER_THREAD);
 const Ballot = d.arrayOf(d.u32, 4);
@@ -431,7 +450,7 @@ const binningKernel = tgpu
         // a fallback may have already published it). The one edit vs the shared DOWNSWEEP ranking.
         if (part < binBlocks - 1) {
             const succ = (passIdx * binBlocks + part + 1) * RADIX + input.tid;
-            compareExchange(binLayout.$.passHist[succ], 0, FLAG_REDUCTION | (histReduction << 2));
+            passHistCas(succ, 0, FLAG_REDUCTION | (histReduction << 2));
         }
         // 4b. begin the cross-digit scan: inclusive within the subgroup
         histReduction = histReduction + std.subgroupExclusiveAdd(histReduction);
@@ -496,7 +515,7 @@ const binningKernel = tgpu
         let lookbackPart = part;
         let spinCount = d.u32(0);
         while (true) {
-            if (uniformLoad(wgDone.$) !== 0) break;
+            if (wgDoneUniform.$ !== 0) break;
             const descIdx = (passIdx * binBlocks + lookbackPart) * RADIX + input.tid;
             let flagPayload = d.u32(0);
             if (!warpComplete && !lookbackComplete) {
@@ -534,11 +553,7 @@ const binningKernel = tgpu
             if (!warpComplete && !lookbackComplete) {
                 if (doFallback) {
                     const recomputed = std.atomicLoad(gD.$[RADIX + input.tid]);
-                    const old = compareExchange(
-                        binLayout.$.passHist[descIdx],
-                        0,
-                        FLAG_REDUCTION | (recomputed << 2),
-                    );
+                    const old = passHistCas(descIdx, 0, FLAG_REDUCTION | (recomputed << 2));
                     if ((old & FLAG_MASK) === FLAG_INCLUSIVE) {
                         lookbackReduction = lookbackReduction + (old >>> 2);
                         lookbackComplete = true;
