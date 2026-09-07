@@ -42,8 +42,10 @@ test("sandbox showcase — a browser without requestPointerLock explains itself"
     page,
 }) => {
     await page.addInitScript(() => {
-        // the touch-only/WebView shape: the method simply isn't there
-        delete (HTMLCanvasElement.prototype as { requestPointerLock?: unknown }).requestPointerLock;
+        // the touch-only/WebView shape: the method simply isn't there. `requestPointerLock` lives on
+        // `Element.prototype`, not `HTMLCanvasElement.prototype` — deleting the canvas subclass leaves the
+        // inherited method in place and stubs nothing.
+        delete (Element.prototype as { requestPointerLock?: unknown }).requestPointerLock;
     });
     const errors = await boot(page);
     await page
