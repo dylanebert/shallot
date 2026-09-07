@@ -9,7 +9,7 @@ import {
     portablePointers,
 } from "./wgsl";
 
-export const STANDARDS_POPULATION_GOLDEN = 108;
+export const STANDARDS_POPULATION_GOLDEN = 107;
 
 const SRC_DIR = join(import.meta.dir, "../src");
 
@@ -304,9 +304,6 @@ export type DifferentialRegistry = Record<string, DifferentialEntry>;
  *    (`engine/utils/encode.ts`) states why: smallest-3 dynamically indexes a vector (`q[largest]`)
  *    and switches on the result, neither of which TGSL expresses, so the body stays WGSL text with no
  *    CPU arm to call.
- *  - `compareExchange`: a raw-WGSL leaf over `ptr<storage, atomic<u32>, read_write>` —
- *    `atomicCompareExchangeWeak` is a device-memory compare-and-swap with no CPU-side semantics to
- *    reproduce; its JSDoc (`engine/utils/tgsl.ts`) states "GPU-only."
  */
 export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     octEncodeNormal: {
@@ -328,12 +325,6 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
         reason:
             "raw-WGSL leaf: the inverse of packQuatSmallest3's dynamic-index/switch pack, same " +
             "mechanism, no CPU arm — see the kernel's own JSDoc, engine/utils/encode.ts.",
-    },
-    compareExchange: {
-        reason:
-            "raw-WGSL leaf over ptr<storage, atomic<u32>, read_write>: atomicCompareExchangeWeak is a " +
-            "device-memory compare-and-swap with no CPU-side semantics to reproduce — GPU-only per the " +
-            "kernel's own JSDoc, engine/utils/tgsl.ts.",
     },
     applyGrade: {
         test: { file: "packages/shallot/src/standard/glaze/glaze.test.ts", symbol: "applyGrade" },

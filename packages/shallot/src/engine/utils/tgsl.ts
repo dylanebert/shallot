@@ -191,30 +191,6 @@ export const uniformLoad = (flag: TgpuVar<"workgroup", d.U32>) =>
         .rawCodeSnippet(/* wgsl */ `workgroupUniformLoad(&flag)`, d.u32, "runtime", true)
         .$uses({ flag });
 
-const compareExchangeFn = tgpu
-    .fn(
-        [d.ptrStorage(d.atomic(d.u32), "read-write"), d.u32, d.u32],
-        d.u32,
-    )(
-        /* wgsl */ `(p: ptr<storage, atomic<u32>, read_write>, cmp: u32, val: u32) -> u32 {
-    return atomicCompareExchangeWeak(p, cmp, val).old_value;
-}`,
-    )
-    // the widening below moves the public name off the declaration typegpu would read it from
-    .$name("compareExchange");
-
-/** WGSL `atomicCompareExchangeWeak(p, cmp, val).old_value`: the compare-and-swap a chained scan's
- *  publish/claim step needs. Returns the prior value — equal to `cmp` exactly when the exchange took.
- *  GPU-only. Pass the atomic array element; the transpiler emits it as `&slot`.
- *
- *  The widened call signature is an upstream typing gap, not a choice: typegpu
- *  types an atomic storage element as its own `atomic` instance rather than the `ref` its `ptrStorage`
- *  param declares, and a JS forwarder can't narrow it (the transpiler has to see the `tgpu.fn` call at
- *  the site). `std.atomicAdd` and friends accept that instance type, so the leaf accepts it too.
- *  @example const prev = compareExchange(layout.$.slots[i], 0, claim); */
-export const compareExchange = compareExchangeFn as typeof compareExchangeFn &
-    ((slot: d.atomicU32, cmp: number, val: number) => number);
-
 /**
  * the shared dedup scope for the chunks a raw-WGSL consumer splices *together*: the storage codecs
  * (`octEncodeWgsl` / `quatSnorm16x4Wgsl`), the clustered-light primitives (`pointLightsWgsl` /

@@ -4,7 +4,6 @@ import { vec2f, vec4f } from "typegpu/data";
 import * as std from "typegpu/std";
 import {
     bitcastF32toU32,
-    compareExchange,
     idiv,
     packSnorm2x16,
     packUnorm2x16,
@@ -104,10 +103,5 @@ describe("escape leaves — CPU arm", () => {
         expect(Math.trunc(Math.fround(Math.fround(4294967295) / 3))).toBe(1431655808);
         expect(idiv(16777217, 1)).toBe(16777217);
         expect(Math.fround(16777217)).toBe(16777216);
-    });
-
-    test("a GPU-only leaf refuses to run on the CPU rather than answering wrong", () => {
-        // an atomic has no CPU meaning, so this leaf has no dual arm
-        expect(() => (compareExchange as unknown as () => void)()).toThrow();
     });
 });

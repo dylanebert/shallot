@@ -63,7 +63,7 @@ describe("tile descriptors", () => {
         expect(flat(wgsl.scan)).toContain(`= ((base << 2u) | ${FLAG_INCLUSIVE}u)`);
         // the binning pass CAS-publishes its own count as a REDUCTION
         expect(flat(wgsl.binning)).toContain(
-            `compareExchange((&passHist[succ]), 0u, (${FLAG_REDUCTION}u | (histReduction << 2u)))`,
+            `compareExchange(succ, 0u, (${FLAG_REDUCTION}u | (histReduction << 2u)))`,
         );
         // and bumps a successor's REDUCTION to INCLUSIVE with a plain add of the flag delta
         expect(flat(wgsl.binning)).toContain(
@@ -80,10 +80,13 @@ describe("tile descriptors", () => {
         expect(wgsl.init).toMatch(/var<storage, read_write> passHist: array<u32>/);
     });
 
-    test("the CAS goes through the escape leaf, which reads old_value", () => {
+    test("the CAS goes through the escape leaf, which reads old_value at the bound buffer", () => {
+        // the leaf forms the pointer from the bound buffer and an index. A `ptr<storage, …>` parameter
+        // is what naga (Firefox) rejects, so the index is the portable spelling, not a style choice
         expect(flat(wgsl.binning)).toContain(
-            "return atomicCompareExchangeWeak(p, cmp, val).old_value;",
+            "return atomicCompareExchangeWeak(&passHist[i], cmp, val).old_value;",
         );
+        expect(wgsl.binning).not.toContain("ptr<storage");
     });
 });
 

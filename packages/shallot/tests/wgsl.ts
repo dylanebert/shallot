@@ -81,20 +81,27 @@ export function pointerDiscipline(src: string): void {
 }
 
 /**
- * assert no function declares a parameter in the `workgroup` address space. WGSL 1.0 forbids it, and
- * only Tint admits it (its `unrestricted_pointer_parameters` extension) — naga, Firefox's front end,
- * rejects the whole module, so one such parameter makes every shader reaching it uncompilable off
- * Chromium. Red-proven against the pre-fix `uniformLoad` leaf
- * (`fn uniformLoad(p: ptr<workgroup,u32>) -> u32`), which took the light-cull, AVBD and BVH shaders
- * down on Firefox. Reads the parameter list alone: a `ptr<workgroup, ...>` in a body is a local
- * pointer, which is legal. The lexical forms covered are the spacing variants (`ptr<workgroup,u32>`,
- * `ptr< workgroup , u32 >`) and the explicit access mode (`ptr<workgroup, u32, read_write>`).
+ * assert no function declares a pointer parameter outside the `function` and `private` address spaces.
+ * WGSL 1.0 admits only those two; a `workgroup`, `storage`, `uniform` or handle pointer parameter needs
+ * Tint's `unrestricted_pointer_parameters` extension, so Chrome accepts it and naga — Firefox's front
+ * end — rejects the whole module, making every shader that reaches such a function uncompilable off
+ * Chromium. Red-proven against both leaves that carried the defect: `uniformLoad`
+ * (`fn uniformLoad(p: ptr<workgroup,u32>)`, which took the light-cull, AVBD and BVH shaders down on
+ * Firefox 155) and `compareExchange` (`ptr<storage,atomic<u32>,read_write>`, which took the BVH binning
+ * shader down there). The remedy in both cases is to form the pointer inside the leaf — inline the
+ * intrinsic against the variable, or take an index into the bound buffer.
+ *
+ * Reads the parameter list alone: a pointer to one of these spaces inside a body is legal. The lexical
+ * forms covered are the spacing variants (`ptr<storage,atomic<u32>,read_write>`, `ptr< workgroup , u32 >`)
+ * and the explicit access mode; `ptr<function, …>` and `ptr<private, …>` are the legal population this
+ * must keep admitting, which `standards.test.ts`'s green fixture pins.
  */
 export function portablePointers(src: string): void {
     for (const params of functionParams(src)) {
-        if (/\bptr\s*<\s*workgroup\b/.test(params))
+        const bad = /\bptr\s*<\s*(?!function\b|private\b)(\w+)/.exec(params);
+        if (bad)
             throw new Error(
-                `a workgroup-address-space pointer parameter (${flat(params)}) — naga rejects it`,
+                `a ${bad[1]}-address-space pointer parameter (${flat(params)}) — naga rejects it`,
             );
     }
 }

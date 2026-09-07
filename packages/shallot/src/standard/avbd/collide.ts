@@ -1994,7 +1994,7 @@ const considerCapAxisFn = tgpu
     )
     .$name("considerCapAxis");
 
-// the widened call signature is the `compareExchange` typing gap (engine/utils/tgsl.ts):
+// the widened call signature is a typegpu typing gap, not a choice:
 // `d.ref` refuses a scalar ("cannot take a reference to a scalar value"), so the running-best separation
 // can only be passed bare — and the transpiler has to see the `tgpu.fn` call at the site, so a JS
 // forwarder can't narrow it either. Two pointers, matching the reference's `bestSep` / `bestN`.

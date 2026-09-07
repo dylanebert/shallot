@@ -10,14 +10,16 @@
  * the size floor and the `workgroupUniformLoad` subset are pinned, so a resolver that silently returned
  * nothing cannot pass this by scanning an empty corpus.
  *
- * Workgroup-space parameters only, which is the population this gate cleared. naga rejects a *storage*
- * -space pointer parameter for the same reason, and the BVH binning shader still carries one in the
- * `compareExchange` leaf (`engine/utils/tgsl.ts`) — so passing this test is not yet a claim that every
- * shader here compiles on Firefox.
+ * The check covers every address space WGSL 1.0 refuses as a pointer parameter, not just the workgroup
+ * one: the storage-space `compareExchange` leaf was the same defect, witnessed blocking the BVH binning
+ * shader on Firefox 155 before its repair. What this test does not claim is capability: the subgroup
+ * Onesweep passes still need the `subgroups` feature, which an adapter lacking it answers with the LDS
+ * sibling included above, not with a fallback this gate can see.
  */
 import { describe, expect, test } from "bun:test";
 import { stepWgsl } from "../src/standard/avbd/step";
 import { radixWgsl } from "../src/standard/bvh/sort";
+import { radixLdsWgsl } from "../src/standard/bvh/sort-lds";
 import { gridWgsl, lightCullWgsl } from "../src/standard/render/cluster";
 import { portablePointers } from "./wgsl";
 
@@ -29,14 +31,16 @@ function shaders(): Record<string, string> {
     const out: Record<string, string> = { compact, cull, grid: gridWgsl() };
     for (const [name, resolve] of Object.entries(stepWgsl)) out[`step.${name}`] = resolve();
     for (const [name, src] of Object.entries(radix)) out[`radix.${name}`] = src;
+    for (const [name, src] of Object.entries(radixLdsWgsl())) out[`radixLds.${name}`] = src;
     return out;
 }
 
 describe("WGSL 1.0 portability", () => {
-    test("no production shader declares a workgroup-address-space pointer parameter", () => {
+    test("no production shader declares a pointer parameter outside function/private space", () => {
         const population = shaders();
-        // the three cluster passes, the five Onesweep passes and every AVBD pass
-        expect(Object.keys(population).length).toBe(3 + 5 + Object.keys(stepWgsl).length);
+        // the three cluster passes, the five Onesweep passes, the four subgroup-free LDS passes
+        // (what a no-`subgroups` adapter such as Firefox 155 actually compiles) and every AVBD pass
+        expect(Object.keys(population).length).toBe(3 + 5 + 4 + Object.keys(stepWgsl).length);
         expect(Object.keys(population).length).toBeGreaterThan(20);
         for (const [name, wgsl] of Object.entries(population)) {
             expect(wgsl.length).toBeGreaterThan(0);

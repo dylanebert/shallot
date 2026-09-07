@@ -1819,7 +1819,7 @@ const aabbKernel = tgpu
 
 // ── broadphase per-candidate accumulate + block emit (shared by the descent + the small-N scan) ──
 // TGSL functions over `nbr`/`nd2`/`count` — the mains' accumulator — threaded by `d.ref` pointer (arrays)
-// and the `compareExchange`-style widened-signature escape (the scalar `count`, which `d.ref` refuses). Both
+// and the `considerCapAxis`-style widened-signature escape (the scalar `count`, which `d.ref` refuses). Both
 // mains call the SAME two functions, so the ownership rule, the nearest-K + static-pin prune, the sort, and
 // the block write are one source of truth — the small-N O(n²) scan differs ONLY in how it enumerates
 // candidates, the precondition for warmstart carrying across a regime flip (identical blocks). Broadphase
@@ -1879,7 +1879,7 @@ function broadOutput(layout: BroadLayout) {
             },
         )
         .$name("broadCandidate");
-    // the widened call signature is the compareExchange / considerCapAxis typing gap (engine/utils/tgsl.ts):
+    // the widened call signature is the considerCapAxis typing gap (standard/avbd/collide.ts):
     // `d.ref` refuses a scalar, so `count` (mutated only through this pointer) is passed bare — nbr/nd2 go
     // through real `d.ref` (arrays), so only the last param needs widening.
     const broadCandidate = broadCandidateFn as typeof broadCandidateFn &

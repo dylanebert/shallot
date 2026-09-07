@@ -237,8 +237,9 @@ describe("violation() per discipline check", () => {
         noIntegerDivision: "fn f() -> f32 { return a * b; }",
         integerDiscipline: "fn f() -> u32 { return a + b; }",
         pointerDiscipline: "fn f() -> f32 { var n = 3.0; let m = (&n); return m; }",
-        // the repaired shape: the intrinsic inlined against the variable, no pointer parameter
-        portablePointers: "fn f() -> u32 { return workgroupUniformLoad(&wgCount); }",
+        // the repaired shapes, plus the legal population: a `ptr<function, …>` parameter stays admitted
+        portablePointers:
+            "fn f(acc: ptr<function,u32>) -> u32 { return workgroupUniformLoad(&wgCount) + atomicCompareExchangeWeak(&passHist[0], 0u, 1u).old_value; }",
         noDivision: "fn f() -> f32 { return a * idivWgsl(x, y); }",
     };
 
@@ -250,6 +251,35 @@ describe("violation() per discipline check", () => {
             expect(violation(check, good[check])).toBeNull();
         });
     }
+});
+
+/** `portablePointers` is a set policy over WGSL's address spaces, so it owes both directions across the
+ *  whole space vocabulary: every space WGSL 1.0 refuses as a pointer parameter reds, and the two it
+ *  admits stay green. The single-fixture arms above prove only the workgroup member. */
+describe("portablePointers over the address-space vocabulary", () => {
+    const refused = {
+        workgroup: "fn f(p: ptr<workgroup,u32>) -> u32 { return workgroupUniformLoad(p); }",
+        storage: "fn f(p: ptr<storage,atomic<u32>,read_write>) -> u32 { return atomicLoad(p); }",
+        uniform: "fn f(p: ptr<uniform,vec4f>) -> vec4f { return *p; }",
+        "spaced storage": "fn f(p: ptr< storage , u32 , read >) -> u32 { return *p; }",
+    };
+    const admitted = {
+        function: "fn f(p: ptr<function,u32>) -> u32 { return *p; }",
+        private: "fn f(p: ptr<private,u32>) -> u32 { return *p; }",
+        "no pointer":
+            "fn f(i: u32) -> u32 { return atomicCompareExchangeWeak(&passHist[i], 0u, 1u).old_value; }",
+        "body pointer":
+            "fn f(i: u32) -> u32 { var n = 3u; let m = &n; return *m + workgroupUniformLoad(&wgCount); }",
+    };
+
+    for (const [space, src] of Object.entries(refused))
+        test(`a ${space} pointer parameter reds`, () => {
+            expect(violation("portablePointers", src)).toContain("pointer parameter");
+        });
+    for (const [shape, src] of Object.entries(admitted))
+        test(`${shape} holds`, () => {
+            expect(violation("portablePointers", src)).toBeNull();
+        });
 });
 
 /** pure-checker fixture proofs for {@link checkDifferentials}, each finding kind red-provable with no
