@@ -164,7 +164,11 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     // 3 × 221_184 + 12 = 4_194_304 + 36_864 + 1_456 + 728 + 3_456 + 663_552 + 12 = 4_900_372;
     // 4_472_008 + 4_900_372 = 9_372_380, matching `gpuBytes` below exactly. Two independent same-day
     // confirming runs (`bun bench --scenario cells`, this seat) agree exactly.
-    cells: { pipelines: 10, pipelineCalls: 13, gpuBytes: 9_372_380 },
+    // Exact packing fixture: four vec2f inputs (4*8=32), twelve u32 outputs
+    // (12*4=48): +80 permanent bytes and one pipeline/create call. Mirror owns
+    // up to two 48-byte lazy staging slots, excluded by the existing lazy ledger.
+    // The fixture destroys both storage buffers; MirrorPlugin releases staging.
+    cells: { pipelines: 11, pipelineCalls: 14, gpuBytes: 9_372_380 + 80 },
     chain: { pipelines: 26, pipelineCalls: 26, gpuBytes: 29_151_084 },
     character: { pipelines: 66, pipelineCalls: 66, gpuBytes: 21_761_544 },
     "character-mover": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_522_532 },

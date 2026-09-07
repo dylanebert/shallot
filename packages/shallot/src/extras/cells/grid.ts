@@ -70,24 +70,10 @@ const fillKernel = tgpu.computeFn({
     const one = d.f32(1);
     const u = d.f32(x) / d.f32(cols);
     const v = d.f32(y) / d.f32(rows);
-    // fg/bg alpha (the linear lane packLdrColor passes straight into packUnorm4x8, no sRGB transfer)
-    // sweeps column/row across the unorm8 lattice's own midpoints — packed inverted (`one - e`, below),
-    // `(x + 0.5) / 255` and `(y + 0.5) / 255` are the *mathematically* exact tie `k + 0.5` for
-    // k = 254 - x (resp. 254 - y) — `cells.ts`'s own local reference states the same k. Whether the
-    // emitted WGSL division actually lands each sample's f32 value exactly on that tie is device
-    // arithmetic the `cells` gym scenario measures rather than this comment asserting — WGSL division
-    // carries a spec'd ULP tolerance, not a correctly-rounded guarantee, so some samples construct the
-    // seam by luck rather than by guarantee (the fixture's own module doc has the measured derivation).
-    // Packed inverted (`one - e`) so the visible byte lands near-opaque (~245..254 of 255) rather than
-    // the near-transparent 1..10 the un-inverted small numerator alone would pack to — a consumer sees a
-    // near-solid grid, not a blank one. The inversion is where the tie becomes *predictable*, not where
-    // it stays exact: `e` (~0.002..0.998) carries mantissa bits down to roughly exponent -9 (ulp ~2^-32),
-    // but `one - e` lands at exponent -1 (ulp ~2^-24) and so discards `e`'s eight lowest mantissa bits —
-    // exactly the width WGSL's permitted division-ULP slack lives in. The subtraction re-rounds `e` at
-    // that coarser ulp and so *absorbs* the division's slack rather than adding to it; that re-rounding is
-    // the only new rounding the inversion introduces, and it's the reason the packed tie is predictable
-    // across the division's ULP tolerance rather than merely mathematically exact on paper. `cells.ts`'s
-    // own local half-to-even reference predicts the byte this produces on a real device, tie or not.
+    // Alpha is linear and inverted to keep the pattern near opaque. Its ideal scaled
+    // values lie on unorm8 half boundaries; intermediate rounding and reassociation
+    // can place the packed result on either neighboring byte. The cells scenario
+    // checks operation-derived admissible sets and separate exact packing inputs.
     const alphaFg = one - (d.f32(x) + d.f32(0.5)) / d.f32(255);
     const alphaBg = one - (d.f32(y) + d.f32(0.5)) / d.f32(255);
     const packed = packCell(

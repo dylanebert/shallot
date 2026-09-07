@@ -21,17 +21,11 @@ describe("Cell layout", () => {
     });
 });
 
-// Criterion 3 (shallot-tui S1): "cell packing round-trips GPU to CPU" — a differential between the
-// GPU-side pack (`packCell`, a TGSL function `bun test` calls directly on the CPU — the same source a
-// compute kernel resolves, `grid.ts`'s fill pass) and the CPU-side unpack (`unpackCell`, written
-// independently against the raw readback bytes), bit-identical. "Lattice drift between a CPU packer and
-// a GPU unpacker" (`engine/utils/encode.ts`'s codec-boundary comment) is the failure class this proves
-// absent for this module's own codec — the addressing/wiring half of it. `packUnorm4x8`'s CPU arm rounds
-// half-up (`Math.round`) where the real WGSL `pack4x8unorm` intrinsic rounds half-to-even at an exact
-// lattice midpoint (`engine/utils/tgsl.ts`); this device-free tier calls the CPU arm on both sides of the
-// pack/unpack seam and so cannot observe that residual CPU↔GPU divergence — the `cells` gym scenario
-// (`bun bench --scenario cells`) is where the real device dispatch is differentiated against this same
-// CPU reference (`testing.md`'s tier split: a default-suite verdict must not depend on device execution).
+// This CPU round-trip proves addressing/wiring. The CPU packer uses Math.round
+// after f32 input conversion; WGSL packing specifies floor(.5 + 255*clamp(a,0,1))
+// with permitted intermediate rounding. The CPU construction is not a universal
+// GPU-byte oracle. The cells scenario owns real-device operation-contract and
+// exact production-packing checks.
 describe("packCell / unpackCell round-trip (bit-identical)", () => {
     // `packUnorm4x8`'s CPU arm rounds its f64 input to f32 first (`engine/utils/tgsl.ts`'s own `unorm8`
     // — a vec4f lane stores f32, so quantizing an f64 puts a rare halfway case on the other lattice point

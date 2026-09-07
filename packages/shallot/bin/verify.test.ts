@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { SCENARIO_GATES } from "../../../examples/gym/src/scenarios/timeouts";
 import {
     benchTimeout,
     type ForMatch,
+    forExitCode,
     formatForResolution,
     formatRoster,
     forUnmatchedReason,
@@ -1140,9 +1141,8 @@ describe("formatRoster", () => {
 // side table nothing else polices — a declared path drifting from the path the scenario actually fetches
 // would surface only at runtime, so these tests pin the declared paths to what the loader expects.
 //
-// The mounts (sponza, gltf-samples) are gitignored local-only symlinks into reference/ (testing.md:176),
-// absent in a clean checkout — so `missingAssets` reports them as missing here. A consumer who mounted
-// them locally would see `null` instead; that's the non-standard state, not this one.
+// Local mounts may be present or absent. Control filesystem availability without changing them;
+// the production bench subprocess controls in scripts/verify.test.ts exercise the default reader.
 describe("missingAssets", () => {
     test("a scenario with no assets declaration returns null", () => {
         expect(missingAssets("stress", [])).toBeNull();
@@ -1150,15 +1150,18 @@ describe("missingAssets", () => {
     });
 
     test("gltf with default params reports the sponza path", () => {
-        expect(missingAssets("gltf", [])).toEqual(["sponza/Sponza-KTX-Draco.glb"]);
+        expect(missingAssets("gltf", [], () => false)).toEqual(["sponza/Sponza-KTX-Draco.glb"]);
+        expect(missingAssets("gltf", [], () => true)).toBeNull();
     });
 
     test("gltf with source=fox reports the Fox path", () => {
-        expect(missingAssets("gltf", ["source=fox"])).toEqual(["gltf-samples/Fox/glTF/Fox.gltf"]);
+        expect(missingAssets("gltf", ["source=fox"], () => false)).toEqual([
+            "gltf-samples/Fox/glTF/Fox.gltf",
+        ]);
     });
 
     test("render with mode=gltf-animated reports the Fox path", () => {
-        expect(missingAssets("render", ["mode=gltf-animated"])).toEqual([
+        expect(missingAssets("render", ["mode=gltf-animated"], () => false)).toEqual([
             "gltf-samples/Fox/glTF/Fox.gltf",
         ]);
     });
@@ -1187,11 +1190,15 @@ describe("missingAssets", () => {
                 "shadow",
             );
 
-            const fromRoot = missingAssets("gltf", []);
+            const rootAsset = resolve(
+                import.meta.dir,
+                "../../../examples/gym/public/sponza/Sponza-KTX-Draco.glb",
+            );
+            const exists = (path: string) => path !== rootAsset && existsSync(path);
+            const fromRoot = missingAssets("gltf", [], exists);
             process.chdir(shadow);
-            const fromShadow = missingAssets("gltf", []);
-            // the shadow file exists at the cwd-relative path, but the check resolves against REPO_ROOT
-            // where the mount is absent — so both report the asset as missing, never a false pass.
+            const fromShadow = missingAssets("gltf", [], exists);
+            // Only the root mount is controlled absent; the real shadow remains present.
             expect(fromShadow).toEqual(fromRoot);
             expect(fromShadow).toEqual(["sponza/Sponza-KTX-Draco.glb"]);
         } finally {
@@ -1256,6 +1263,34 @@ describe("forUnmatchedReason", () => {
         expect(forUnmatchedReason("packages/shallot/src/engine/ecs/state.ts")).toContain(
             "SCENARIO_GATES",
         );
+    });
+});
+
+describe("forExitCode", () => {
+    // the instrument red this replaces: `bun bench --for examples/gym` matched no `covers` glob (they
+    // all spell `packages/shallot/src/...`), swept nothing and exited 0, so the gym gate row reported
+    // success without running a single scenario.
+    test("an unmatched, non-excluded path refuses", () => {
+        expect(forExitCode([{ path: "examples/gym", scenarios: [] }])).toBe(1);
+    });
+
+    test("a declared tumble exclusion stays green", () => {
+        expect(
+            forExitCode([{ path: "packages/shallot/src/standard/tumble/body.ts", scenarios: [] }]),
+        ).toBe(0);
+    });
+
+    test("a resolved path stays green", () => {
+        expect(forExitCode([{ path: "a.ts", scenarios: ["outline"] }])).toBe(0);
+    });
+
+    test("one unmatched path among resolved ones still refuses", () => {
+        expect(
+            forExitCode([
+                { path: "a.ts", scenarios: ["outline"] },
+                { path: "examples/gym", scenarios: [] },
+            ]),
+        ).toBe(1);
     });
 });
 

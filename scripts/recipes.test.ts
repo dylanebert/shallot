@@ -12,7 +12,7 @@
 
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { populationError } from "./recipes";
+import { populationError, rosterFrom } from "./recipes";
 
 const SCRIPT = resolve(import.meta.dir, "recipes.ts");
 
@@ -77,5 +77,30 @@ test("recipes — importing the module runs no gate side effect (import.meta.mai
     ]);
     const out = stdout + stderr;
     expect(exitCode).toBe(0);
-    expect(out).not.toContain("Running recipe dynamics smoke");
+    expect(out).not.toContain("recipe verification(s)");
+});
+
+// The static rows joined this roster when their gates stopped being bare `bunx shallot verify` calls:
+// spawned through the stage-close selector's `sh -c` they missed the WSL bridge and reddened on the
+// software adapter. `runRecipe` reads `static` to decide whether a verdict is owed at all.
+test("recipes — the roster carries the registry's static reasons alongside the smoked dirs", () => {
+    const roster = rosterFrom(
+        ["joints", "orbit-camera"],
+        new Map([["orbit-camera", "camera movement is user-driven"]]),
+    );
+    expect(roster.map((r) => r.dir)).toEqual(["joints", "orbit-camera"]);
+    expect(roster.find((r) => r.dir === "joints")?.static).toBeUndefined();
+    expect(roster.find((r) => r.dir === "orbit-camera")?.static).toBe(
+        "camera movement is user-driven",
+    );
+});
+
+test("recipes — every registered static recipe reaches the roster", async () => {
+    const { EXAMPLE_GATES } = await import("./example-gates");
+    const statics = EXAMPLE_GATES.filter((row) => row.tier === "recipes" && row.static).map((row) =>
+        row.dir.slice("examples/recipes/".length),
+    );
+    expect(statics.length).toBeGreaterThan(0);
+    const roster = rosterFrom(statics, new Map(statics.map((dir) => [dir, "reason"])));
+    expect(roster.every((r) => r.static)).toBe(true);
 });

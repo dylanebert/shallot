@@ -1,7 +1,14 @@
+import { resolve } from "node:path";
 import { Glob } from "bun";
 import { EXAMPLE_GATES, type ExampleGate } from "./example-gates";
 import { type CpuGate, OCEAN_CPU_GATES } from "./ocean-oracle-gates";
-import { skipReason } from "./verify";
+import {
+    REPO_ROOT,
+    skipReason,
+    teardownBridge,
+    type VerifyCommandDeps,
+    verifyCommand,
+} from "./verify";
 
 const WHOLE_ROSTER = new Set(["bun.lock"]);
 const DISPLAY_REQUIRED_ENV = "SHALLOT_DISPLAY_REQUIRED";
@@ -77,8 +84,31 @@ function printPlan(paths: string[], cpu: CpuGate[], display: ExampleGate[]): voi
     if (cpu.length + display.length === 0) console.log("  selected: nothing");
 }
 
-async function runCommand(command: string): Promise<{ ok: boolean; warnings: number }> {
-    const proc = Bun.spawn(["sh", "-c", command], { stdout: "pipe", stderr: "pipe" });
+export async function runCommand(
+    command: string,
+    deps: VerifyCommandDeps = {},
+): Promise<{ ok: boolean; warnings: number }> {
+    let cwd = REPO_ROOT;
+    let argv = ["sh", "-c", command];
+    const projectGate = /^bun run --cwd ([\w./-]+) gate$/.exec(command);
+    if (projectGate) {
+        const project = resolve(REPO_ROOT, projectGate[1]);
+        const manifest = await Bun.file(resolve(project, "package.json")).json();
+        const gate: unknown = manifest.scripts?.gate;
+        if (typeof gate !== "string") throw new Error(`${project}: missing manifest gate`);
+        if (/\bshallot\s+verify\b/.test(gate)) {
+            // Only the simple, literal command shape is transportable. Shell operators,
+            // expansion and quoting must not be silently discarded or run unbridged.
+            if (!/^bunx shallot verify(?: [\w./:=+-]+)*$/.test(gate)) {
+                throw new Error(`${project}: unsupported verify gate composition: ${gate}`);
+            }
+            cwd = project;
+            argv = await verifyCommand(gate.split(" ").slice(3), deps);
+            console.log(`manifest gate: ${project}/package.json -> ${gate}`);
+            console.log(`verify transport: cwd=${cwd} argv=${JSON.stringify(argv)}`);
+        }
+    }
+    const proc = Bun.spawn(argv, { cwd, stdout: "pipe", stderr: "pipe", env: { ...process.env } });
     const [stdout, stderr, code] = await Promise.all([
         new Response(proc.stdout).text(),
         new Response(proc.stderr).text(),
@@ -87,8 +117,10 @@ async function runCommand(command: string): Promise<{ ok: boolean; warnings: num
     if (stdout) process.stdout.write(stdout);
     if (stderr) process.stderr.write(stderr);
     let warnings = 0;
-    for (const match of `${stdout}\n${stderr}`.matchAll(/⚠ (\d+) console warning\(s\):/g))
-        warnings += Number(match[1]);
+    for (const match of `${stdout}\n${stderr}`.matchAll(
+        /^[\t ]*(?:⚠ (\d+) console warning\(s\):|warnings \((\d+)\):)[\t ]*\r?$/gm,
+    ))
+        warnings += Number(match[1] ?? match[2]);
     return { ok: code === 0, warnings };
 }
 
@@ -131,12 +163,16 @@ export async function main(argv = process.argv.slice(2), deps: MainDeps = {}): P
         return required || !allPass ? 1 : 0;
     }
 
-    for (const row of display) {
-        const result = await run(row.gate);
-        console.log(
-            `${result.ok ? "PASS" : "FAIL"}: display ${row.dir} (${result.warnings} warnings)`,
-        );
-        allPass = result.ok && allPass;
+    try {
+        for (const row of display) {
+            const result = await run(row.gate);
+            console.log(
+                `${result.ok ? "PASS" : "FAIL"}: display ${row.dir} (${result.warnings} warnings)`,
+            );
+            allPass = result.ok && allPass;
+        }
+    } finally {
+        await teardownBridge();
     }
     if (allPass) console.log("PASS: all selected rows passed.");
     return allPass ? 0 : 1;

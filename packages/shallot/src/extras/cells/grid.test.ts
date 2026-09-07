@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { dumpCellsAscii } from "../../../scripts/dump-cells-ascii";
 import { Compute } from "../../engine";
 import { CELL_BYTES } from "./cell";
@@ -9,6 +10,20 @@ afterEach(() => {
 });
 
 describe("cell grid compute-pass contract (device-free structural)", () => {
+    test("the finite cells certificate's emitted expression premise is unchanged", () => {
+        // WGSL CRD 2026-08-31 operation-family certificate in gym/cells-oracle.ts:
+        // coordinate/complement, inverted (i+.5)/255 alpha, sRGB power, pack floor,
+        // glyph and lane stores. A graph change requires a new derivation, not a
+        // regenerated hash. Whitespace alone is immaterial. This is a premise guard,
+        // not output evidence; the cells scenario executes both fill and packCell.
+        const digest = (source: string) =>
+            createHash("sha256").update(source.replace(/\s+/g, " ").trim()).digest("hex");
+        const expected = "455043264c069b1c30f0d4e20c8601f07407409ffe482dd33b4d8f66be901c57";
+        const source = gridWgsl();
+        expect(digest(source)).toBe(expected);
+        expect(source).toContain("255f");
+        expect(digest(source.replaceAll("255f", "254f"))).not.toBe(expected);
+    });
     test("resolves to a compute entry point bound to the dims uniform + the mutable cell array", () => {
         const wgsl = gridWgsl();
         expect(wgsl).toContain("@compute");
