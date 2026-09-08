@@ -1,5 +1,5 @@
 {
-    "total": 68367,
+    "total": 68365,
     "files": {
         ".claude/rules/audio.md": {
             "bytes": 3714,
@@ -46,8 +46,8 @@
             "paragraph": 696
         },
         ".claude/rules/visual-identity.md": {
-            "bytes": 1224,
-            "paragraph": 451
+            "bytes": 1222,
+            "paragraph": 288
         },
         "AGENTS.md": {
             "bytes": 4406,
