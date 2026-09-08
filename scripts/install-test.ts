@@ -1100,7 +1100,7 @@ async function ejectedFlow(work: string, engineTgz: string) {
         `import { projectPlugin } from "@dylanebert/shallot/vite";\n` +
             `import { REAL_GPU_LAUNCH } from "@dylanebert/shallot/harness/browser";\n` +
             `if (typeof projectPlugin !== "function") throw new Error("projectPlugin: not a function");\n` +
-            `if (JSON.stringify(REAL_GPU_LAUNCH) !== '${JSON.stringify({ channel: "chromium", args: ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures"] })}') throw new Error("REAL_GPU_LAUNCH: wrong options");\n` +
+            `if (JSON.stringify(REAL_GPU_LAUNCH) !== '${JSON.stringify({ channel: "chromium", args: ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures", "--class=kex-gate"] })}') throw new Error("REAL_GPU_LAUNCH: wrong options");\n` +
             `console.log("NODE_RESOLVE_OK " + REAL_GPU_LAUNCH.channel);\n`,
     );
     const nodeResolve = run(["node", "node-resolve-check.mjs"], proj);

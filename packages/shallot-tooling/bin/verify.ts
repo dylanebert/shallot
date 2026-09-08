@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, writeSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer as createTcpServer } from "node:net";
 import { basename, join, resolve } from "node:path";
@@ -1920,8 +1920,30 @@ export function flushStdout(): Promise<void> {
 
 // the one failure path for runs that never reach a verdict: a machine consumer always gets JSON on
 // stdout under --json; a human gets the message on stderr.
+/** Write one machine-read JSON payload straight to fd 1, looping until every byte is gone. A payload
+ *  queued through `console.log` is dropped past the pipe buffer when the process exits — measured
+ *  2026-09-08 against a 569,183-byte batch report: piped to a reader the output stops at exactly 65,536
+ *  bytes, while the same command redirected to a file is whole, which is why this only ever surfaced
+ *  against a reading process (`scripts/bench.ts`'s sweep read 56 of 59 rows as "unavailable verdict").
+ *  No flush after the fact recovers it: an empty-write callback and a `drain` listener both resolve
+ *  while the bytes are still unwritten. `writeSync` returns only once the OS has taken them, so a
+ *  verdict is whole or the write throws. Human-readable output stays on `console.log` — it is small,
+ *  and a torn line there is not a protocol violation. */
+function reportJson(payload: unknown): void {
+    const buffer = Buffer.from(`${JSON.stringify(payload)}\n`, "utf8");
+    let written = 0;
+    while (written < buffer.length) {
+        try {
+            written += writeSync(1, buffer, written, buffer.length - written);
+        } catch (err) {
+            // a non-blocking pipe whose buffer is full — the reader has not drained yet, so retry
+            if ((err as NodeJS.ErrnoException).code !== "EAGAIN") throw err;
+        }
+    }
+}
+
 function reportError(message: string, json: boolean): void {
-    if (json) console.log(JSON.stringify({ pass: false, error: message }));
+    if (json) reportJson({ pass: false, error: message });
     else console.error(`\n  ✗ ${message}\n`);
 }
 
@@ -2674,7 +2696,7 @@ async function maybeScreenshot(page: Page, path: string | undefined): Promise<vo
  *  otherwise — `labels` are the `--run` specs in the same order as `results`. @internal */
 export function reportBatch(results: Result[], labels: string[], json: boolean): void {
     if (json) {
-        console.log(JSON.stringify(results));
+        reportJson(results);
         return;
     }
     results.forEach((result, i) => {
@@ -2686,7 +2708,7 @@ export function reportBatch(results: Result[], labels: string[], json: boolean):
 /** render one completed verify result for the human or JSON CLI boundary. @internal */
 export function report(result: Result, json: boolean): void {
     if (json) {
-        console.log(JSON.stringify(result));
+        reportJson(result);
         return;
     }
     const mark = (ok: boolean) => (ok ? "✓" : "✗");

@@ -185,6 +185,8 @@ if (!detectDisplay()) {
             "--port",
             String(port),
             "--strict-port",
+            // the grader brings its own browser — never open a tab in the operator's
+            "--no-open",
         ]);
         try {
             const run = runPlaywright({

@@ -41,6 +41,7 @@ describe("parseCliArgs", () => {
             portable: true,
             port: undefined,
             strictPort: false,
+            open: true,
         });
     });
 
@@ -55,6 +56,19 @@ describe("parseCliArgs", () => {
 
         const b = parseCliArgs(["dev", "--port=4000"]) as Extract<CliArgs, { kind: "run" }>;
         expect(b.port).toBe(4000);
+    });
+
+    test("--no-open turns the dev server's browser launch off; the human default leaves it on", () => {
+        // the tab a gate's web server used to open in the operator's own browser is this flag's job
+        const opened = parseCliArgs(["dev"]) as Extract<CliArgs, { kind: "run" }>;
+        expect(opened.open).toBe(true);
+
+        const quiet = parseCliArgs(["dev", "--no-open", "--port", "5300"]) as Extract<
+            CliArgs,
+            { kind: "run" }
+        >;
+        expect(quiet.open).toBe(false);
+        expect(quiet.port).toBe(5300);
     });
 
     test("an unrecognized -flag throws rather than silently falling through to usage", () => {

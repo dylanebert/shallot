@@ -53,6 +53,8 @@ export default defineConfig({
                 "--enable-unsafe-webgpu",
                 "--enable-features=WebGPUDeveloperFeatures",
                 "--enable-dawn-features=allow_unsafe_apis",
+                // a headed gate window, placed out of the way by the session's own compositor rule
+                "--class=kex-gate",
             ],
         },
     },

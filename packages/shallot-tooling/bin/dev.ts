@@ -28,7 +28,11 @@ function synthIndexPlugin(name: string): VitePlugin {
     };
 }
 
-/** the vite dev config for a manifest project. `open` defaults true (the CLI). */
+/** the vite dev config for a manifest project. `open` defaults true: a person typing `shallot dev`
+ *  wants the page. A driver that brings its own browser passes `--no-open` (a gate that opened a tab in
+ *  the operator's browser on every start is the defect this default earns), and every non-interactive
+ *  caller in this repo — `bin/verify.ts`, the eval grader, the showcase gates' web servers — passes
+ *  `open: false` explicitly rather than relying on one. */
 export function devConfig(
     absProjectDir: string,
     name: string,
@@ -91,7 +95,10 @@ export function devConfig(
  * `virtual:project` and full-reloads on a manifest / scene / plugin edit — the same resolver `shallot build`
  * uses, so dev and ship agree on the loaded plugins + scene + capacity.
  */
-export async function startDev(projectDir: string, opts: { port?: number; strictPort?: boolean }) {
+export async function startDev(
+    projectDir: string,
+    opts: { port?: number; strictPort?: boolean; open?: boolean },
+) {
     const absProjectDir = resolve(projectDir);
     const name = basename(absProjectDir);
 

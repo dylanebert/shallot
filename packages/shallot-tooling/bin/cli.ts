@@ -31,6 +31,7 @@ const usage = `
                           (WebKitGTK has no usable WebGPU) and for apps needing subgroups on macOS.
     --port <n>            Server port (dev, run)
     --strict-port         Fail if the port is in use instead of picking another
+    --no-open             Don't open a browser tab (dev) — for a driver that brings its own
     -h, --help            Show this help
 
   Examples
@@ -52,6 +53,7 @@ export type CliArgs =
           portable: boolean;
           port?: number;
           strictPort: boolean;
+          open: boolean;
       };
 
 /**
@@ -71,6 +73,7 @@ export function parseCliArgs(raw: string[]): CliArgs {
     let portable = false;
     let port: number | undefined;
     let strictPort = false;
+    let open = true;
     let help = false;
 
     const num = (flag: string, v: string): number => {
@@ -102,6 +105,8 @@ export function parseCliArgs(raw: string[]): CliArgs {
             port = num("--port", raw[i].split("=")[1]);
         } else if (raw[i] === "--strict-port") {
             strictPort = true;
+        } else if (raw[i] === "--no-open") {
+            open = false;
         } else if (raw[i] === "--help" || raw[i] === "-h") {
             help = true;
         } else if (raw[i].startsWith("-")) {
@@ -130,6 +135,7 @@ export function parseCliArgs(raw: string[]): CliArgs {
         portable,
         port,
         strictPort,
+        open,
     };
 }
 
@@ -170,7 +176,11 @@ if (import.meta.main) {
                     portable: parsed.portable,
                 });
             } else {
-                await startDev(projectDir, { port: parsed.port, strictPort: parsed.strictPort });
+                await startDev(projectDir, {
+                    port: parsed.port,
+                    strictPort: parsed.strictPort,
+                    open: parsed.open,
+                });
             }
         } else if (parsed.subcmd === "build") {
             await buildProject(projectDir, {

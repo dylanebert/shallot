@@ -8,7 +8,7 @@ import * as harness from "@dylanebert/shallot/harness";
 import { REAL_GPU_LAUNCH as leaf } from "@dylanebert/shallot/harness/browser";
 const names = ["installHarness", "isDegradedBootMessage", "assertMotion", "frameDifference", "pixelProbePass", "probePixels", "REAL_GPU_LAUNCH"].sort();
 if (JSON.stringify(Object.keys(harness).sort()) !== JSON.stringify(names)) throw new Error("HARNESS_SURFACE");
-const launch = { channel: "chromium", args: ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures"] };
+const launch = { channel: "chromium", args: ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures", "--class=kex-gate"] };
 for (const value of [harness.REAL_GPU_LAUNCH, leaf]) {
     if (JSON.stringify(value) !== JSON.stringify(launch)) throw new Error("HARNESS_LAUNCH");
 }
@@ -49,7 +49,7 @@ export function harnessArms(project: string): void {
     writeFileSync(
         join(project, "harness-node.mjs"),
         `import { REAL_GPU_LAUNCH } from "@dylanebert/shallot/harness/browser";
-if (JSON.stringify(REAL_GPU_LAUNCH) !== '${JSON.stringify({ channel: "chromium", args: ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures"] })}') throw new Error("NODE_LAUNCH");
+if (JSON.stringify(REAL_GPU_LAUNCH) !== '${JSON.stringify({ channel: "chromium", args: ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures", "--class=kex-gate"] })}') throw new Error("NODE_LAUNCH");
 console.log("NODE_LEAF_OK");\n`,
     );
     const raw = ["bun", "--preload", "./harness-preload.ts", "harness-contract.ts"];

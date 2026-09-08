@@ -26,7 +26,9 @@ export default defineConfig({
         actionTimeout: 20_000,
         navigationTimeout: 30_000,
         launchOptions: {
-            args: ["--enable-unsafe-webgpu", "--enable-features=Vulkan"],
+            // `--class` is the handle the session's compositor rule uses to place the headed gate
+            // window out of the way; the two feature flags are the WebGPU floor.
+            args: ["--enable-unsafe-webgpu", "--enable-features=Vulkan", "--class=kex-gate"],
         },
     },
 

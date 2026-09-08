@@ -1475,7 +1475,7 @@ describe("shader artifacts", () => {
         expect(failureArtifacts(false, { artifacts: [] })).toBeUndefined();
     });
 
-    test("human and JSON failure output carry the exact artifact", () => {
+    test("human and JSON failure output carry the exact artifact", async () => {
         const result = {
             project: "/tmp/gpu-diagnostic",
             mode: "dev",
@@ -1497,15 +1497,37 @@ describe("shader artifacts", () => {
             expect(human).toContain("forward [vertex+fragment] 0123456789abcdef");
             expect(human).toContain("error 1:2 invalid shader");
             expect(human).toContain("@vertex fn vs() {}");
-
-            lines.length = 0;
-            report(result as never, true);
-            expect(JSON.parse(lines[0]).artifacts).toEqual(capture.artifacts);
         } finally {
             console.log = original;
         }
+
+        const json = await reportStdout(`report(${JSON.stringify(result)}, true);`);
+        expect(JSON.parse(json.trim()).artifacts).toEqual(capture.artifacts);
     });
 });
+
+/** Run one production report call in a subprocess and return its stdout. The `--json` channel writes
+ *  straight to fd 1 (`reportJson`, so a piped reader gets the whole verdict), which a `console.log` stub
+ *  cannot observe — the human channel still can, and those arms below still use one. */
+async function reportStdout(body: string): Promise<string> {
+    const dir = cacheDir("shallot-report-stdout-");
+    try {
+        const file = join(dir, "report.mjs");
+        writeFileSync(
+            file,
+            `import { report, reportBatch } from ${JSON.stringify(join(import.meta.dir, "verify.ts"))};\n` +
+                `void report;\n` +
+                `void reportBatch;\n` +
+                `${body}\n`,
+        );
+        const proc = Bun.spawn(["bun", file], { stdout: "pipe", stderr: "inherit" });
+        const stdout = await new Response(proc.stdout).text();
+        await proc.exited;
+        return stdout;
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}
 
 describe("reportBatch — the batch human/JSON rendering", () => {
     const mk = (pass: boolean) => ({
@@ -1520,24 +1542,16 @@ describe("reportBatch — the batch human/JSON rendering", () => {
         pass,
     });
 
-    test("JSON mode is one array, in run order, no per-run header", () => {
-        const lines: string[] = [];
-        const original = console.log;
-        console.log = (...args: unknown[]) => lines.push(args.join(" "));
-        try {
-            reportBatch(
-                [mk(true), mk(false)] as never,
-                ["scenario=outline", "scenario=sprite"],
-                true,
-            );
-            expect(lines).toHaveLength(1);
-            expect(JSON.parse(lines[0]).map((r: { pass: boolean }) => r.pass)).toEqual([
-                true,
-                false,
-            ]);
-        } finally {
-            console.log = original;
-        }
+    test("JSON mode is one array, in run order, no per-run header", async () => {
+        const stdout = await reportStdout(
+            `reportBatch(${JSON.stringify([mk(true), mk(false)])}, ` +
+                `["scenario=outline", "scenario=sprite"], true);`,
+        );
+        expect(stdout.trimEnd().split("\n")).toHaveLength(1);
+        expect(JSON.parse(stdout.trim()).map((r: { pass: boolean }) => r.pass)).toEqual([
+            true,
+            false,
+        ]);
     });
 
     test("human mode labels each run with its --run spec and index", () => {
@@ -1561,15 +1575,77 @@ describe("reportBatch — the batch human/JSON rendering", () => {
     });
 });
 
+describe("the JSON channel survives a piped reader — fd 1, not the queue", () => {
+    // Measured on this seat 2026-09-08: a 569,183-byte `--run` batch report redirected to a file is
+    // whole, and the same command piped to a reader stops at exactly 65,536 bytes — which is what made
+    // `scripts/bench.ts`'s sweep read 56 of 59 rows as "unavailable verdict" while the file copy showed
+    // 54 of 55 passing. The queue is the defect: `console.log`'s bytes sit in the stream when
+    // `process.exit` runs. `reportJson`'s `writeSync` loop is the fix, and the foil below is the same
+    // payload through `console.log` in the same subprocess shape, so the arm discriminates the writer
+    // rather than the payload. Both arms read through a real OS pipe, the channel `spawnVerify` uses.
+    const script = (dir: string, name: string, body: string): string => {
+        const file = join(dir, name);
+        writeFileSync(
+            file,
+            `import { reportBatch } from ${JSON.stringify(join(import.meta.dir, "verify.ts"))};\n` +
+                `const results = Array.from({ length: 4000 }, (_, i) => ({ project: "/tmp/gym", ` +
+                `mode: "dev", url: "http://localhost/gym?scenario=s" + i, hardware: "test-gpu", ` +
+                `harness: true, booted: true, rendered: true, errors: [], pass: true, ` +
+                `verdict: { ok: true, checks: [], metrics: { scenario: i, blob: "x".repeat(300) } } }));\n` +
+                `${body}\n` +
+                `process.exit(0);\n`,
+        );
+        return file;
+    };
+
+    const readPiped = async (file: string): Promise<string> => {
+        const proc = Bun.spawn(["bun", file], { stdout: "pipe", stderr: "inherit" });
+        const stdout = await new Response(proc.stdout).text();
+        await proc.exited;
+        return stdout;
+    };
+
+    test("a batch report far past the pipe buffer arrives whole; the same payload queued does not", async () => {
+        const dir = cacheDir("shallot-reportjson-test-");
+        try {
+            const whole = await readPiped(
+                script(
+                    dir,
+                    "production.mjs",
+                    `reportBatch(results, results.map((_, i) => "scenario=s" + i), true);`,
+                ),
+            );
+            const queued = await readPiped(
+                script(dir, "queued.mjs", `console.log(JSON.stringify(results));`),
+            );
+
+            // the payload is big enough that the truncation is not a near-miss
+            const expected = `${JSON.stringify(JSON.parse(whole.trim()))}\n`;
+            expect(Buffer.byteLength(whole, "utf8")).toBeGreaterThan(1_000_000);
+            expect(whole).toBe(expected);
+            expect(JSON.parse(whole.trim())).toHaveLength(4000);
+
+            // the foil: the same bytes through the queue lose everything past the pipe buffer, so the
+            // production arm above is reading a real difference and not a payload that always fits
+            expect(Buffer.byteLength(queued, "utf8")).toBeLessThan(
+                Buffer.byteLength(whole, "utf8"),
+            );
+            expect(() => JSON.parse(queued.trim())).toThrow();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 60_000);
+});
+
 describe("stdout survives process.exit — the 64 KiB pipe truncation", () => {
-    // The truncation is a Node behavior, not a Bun one (measured: `bun -e "console.log(huge); process.exit(0)"`
-    // piped never truncates; `node` does, exactly at 65,536 B). It's Node that hits it in production — the
-    // WSL bridge runs a `bun build --target node` bundle of this CLI (`scripts/wsl-bridge.ts` buildBundle),
-    // because that's how the batch sweep drives a real GPU on this platform. So the regression test bundles
-    // `verify.ts` the same way and runs it under `node`, reproducing the CLI's real report boundary —
-    // `reportBatch` under --json is the exact call a sweep's batch report makes — as two runs sharing one
-    // >64 KiB payload: one exits the old way (no flush, the bug), one exits through `flushStdout` (the fix).
-    // Both read through a real OS pipe, the same channel `scripts/verify.ts`'s `spawnVerify` reads.
+    // Both runtimes drop queued stdout on `process.exit` once the payload outruns the pipe buffer —
+    // measured 2026-09-08: node cuts at exactly 65,536 B and bun at 131,072 B, and the same command
+    // redirected to a file is never cut, which is why this only ever surfaced against a reading process.
+    // The `--json` channel no longer rides that queue (`reportJson` writes fd 1 synchronously), so the
+    // arms below bundle `verify.ts` `--target node` and run it under real `node` to hold the property on
+    // the runtime that cuts earliest: `reportBatch` under --json is the exact call a sweep's batch report
+    // makes, and its foil is that payload through `console.log`. `flushStdout` still guards the
+    // human-readable `console.log` output, which the `runVerify` arm below drives.
     const hasNode = Bun.which("node") != null;
 
     // both regression tests below bundle `verify.ts` the same way (a real `node`-targeted build, the
@@ -1623,7 +1699,7 @@ describe("stdout survives process.exit — the 64 KiB pipe truncation", () => {
     };
 
     test.skipIf(!hasNode)(
-        "a >64 KiB batch report exits truncated without flushStdout, whole with it",
+        "a >64 KiB batch report reaches a node reader whole; the same payload queued does not",
         async () => {
             const dir = cacheDir("shallot-flush-test-");
             try {
@@ -1636,37 +1712,38 @@ describe("stdout survives process.exit — the 64 KiB pipe truncation", () => {
                     "verdict: { ok: true, checks: [], metrics: { scenario: i, blob: 'x'.repeat(300) } } }))";
                 const labels = "results.map((_, i) => 'scenario=s' + i)";
 
-                const unflushed = join(dir, "unflushed.mjs");
+                // the foil is the writer this channel used to use — the same payload, the same bundle,
+                // the same pipe, queued through `console.log` instead of `reportJson`'s fd-1 loop. It is
+                // what makes the production arm below a reading rather than a payload that always fits.
+                const queued = join(dir, "queued.mjs");
                 writeFileSync(
-                    unflushed,
+                    queued,
+                    `const results = ${makeResults};\n` +
+                        `console.log(JSON.stringify(results));\n` +
+                        `process.exit(0);\n`,
+                );
+                const production = join(dir, "production.mjs");
+                writeFileSync(
+                    production,
                     `import { reportBatch } from "./verify.bundle.mjs";\n` +
                         `const results = ${makeResults};\n` +
                         `reportBatch(results, ${labels}, true);\n` +
                         `process.exit(0);\n`,
                 );
-                const flushed = join(dir, "flushed.mjs");
-                writeFileSync(
-                    flushed,
-                    `import { flushStdout, reportBatch } from "./verify.bundle.mjs";\n` +
-                        `const results = ${makeResults};\n` +
-                        `reportBatch(results, ${labels}, true);\n` +
-                        `await flushStdout();\n` +
-                        `process.exit(0);\n`,
-                );
 
                 const [before, after] = await Promise.all([
-                    runNode(dir, unflushed),
-                    runNode(dir, flushed),
+                    runNode(dir, queued),
+                    runNode(dir, production),
                 ]);
                 const fullLength = Buffer.byteLength(after, "utf8");
 
                 // the payload is genuinely big enough to hit the wall...
                 expect(fullLength).toBeGreaterThan(65_536);
-                // ...the unflushed exit cuts it off before the pipe drains (the bug, still reproducible
-                // today — the exact byte count where it cuts off is reader-timing-dependent, so only the
-                // fact of truncation is asserted, not a specific count)...
+                // ...the queued write is cut off before the pipe drains (the defect: witnessed at
+                // exactly 65,536 bytes on this seat, but the cut point is reader-timing-dependent, so only
+                // the fact of truncation is asserted)...
                 expect(Buffer.byteLength(before, "utf8")).toBeLessThan(fullLength);
-                // ...and the flushed exit delivers every byte, parseable back into all 4000 verdicts (the fix).
+                // ...and the production writer delivers every byte, parseable back into all 4000 verdicts.
                 expect(JSON.parse(after.trim())).toHaveLength(4000);
             } finally {
                 rmSync(dir, { recursive: true, force: true });

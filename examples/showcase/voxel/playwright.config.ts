@@ -22,7 +22,7 @@ export default defineConfig({
     webServer: {
         // standalone `shallot dev` over this project's manifest — `bunx` resolves the installed CLI. A cold
         // first vite build can run past 60s in CI; the warm cache serves in ~1s.
-        command: `bunx shallot dev . --port ${PORT} --strict-port`,
+        command: `bunx shallot dev . --port ${PORT} --strict-port --no-open`,
         url: URL,
         reuseExistingServer: !process.env.CI,
         timeout: 180_000,
@@ -42,6 +42,8 @@ export default defineConfig({
                 "--enable-unsafe-webgpu",
                 "--enable-features=WebGPUDeveloperFeatures",
                 "--enable-dawn-features=allow_unsafe_apis",
+                // a headed gate window, placed out of the way by the session's own compositor rule
+                "--class=kex-gate",
             ],
         },
     },

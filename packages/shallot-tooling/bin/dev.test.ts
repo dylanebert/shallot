@@ -69,6 +69,8 @@ describe("devConfig", () => {
     test("open defaults true (the CLI) but is overridable", () => {
         expect(devConfig(dir, "demo", {}).server.open).toBe(true);
         expect(devConfig(dir, "demo", { open: false }).server.open).toBe(false);
+        // the human default: `shallot dev` with nothing passed still opens the page
+        expect(devConfig(dir, "demo", {}).server.open).toBe(true);
     });
 
     test("sends the cross-origin isolation headers so tumble physics multithreads", () => {
