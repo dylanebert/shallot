@@ -2,7 +2,7 @@ import {
     DARK,
     END_TICK,
     type Grid,
-    runSplash,
+    splash,
     splashFrame,
     TICK_MS,
     toSvg,
@@ -18,10 +18,9 @@ const vars = { gold: "var(--gold)", dim: "var(--dim)", ink: "var(--ink)", bg: "v
 
 for (const el of document.querySelectorAll<HTMLElement>("[data-splash-svg]")) {
     const scale = Number(el.dataset.scale ?? "4");
-    el.addEventListener(
-        "click",
-        runSplash(el, (grid) => toSvg(grid, vars, scale), reduced),
-    );
+    const s = splash(el, (grid) => toSvg(grid, vars, scale), reduced);
+    s.play();
+    el.addEventListener("click", () => s.play());
 }
 
 // A terminal, as a terminal paints it: text in the real font, block cells as flush fills at the

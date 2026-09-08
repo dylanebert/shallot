@@ -300,33 +300,61 @@ export function splashFrame(tick: number): Grid {
     return out;
 }
 
+/** Progress `0`–`1` → the landing tick it lights; non-finite or `p <= 0` is `0`, `p >= 1` the hit. */
+export function progressTick(progress: number): number {
+    if (!Number.isFinite(progress)) return 0;
+    return Math.floor(Math.min(1, Math.max(0, progress)) * HIT_TICK);
+}
+
+/** A mounted splash: `seek` draws one tick, `play` runs the clock from a tick to the lockup. */
+export interface Splash {
+    seek(tick: number): void;
+    play(from?: number): Promise<void>;
+}
+
 /**
- * Drives the splash into `el` at thirty ticks a second: `render` turns each frame's grid into
- * markup. Ticks are quantized to the clock, so a fast display shows no extra frames. Honors
- * reduced motion by rendering the resting lockup once. Returns a replay function.
+ * Mounts the splash in `el`: `render` turns each frame's grid into markup, and every frame is a
+ * grid, so no surface draws its own. `seek` draws a tick and skips a repeat; `play` runs from
+ * `from` at thirty ticks a second and resolves once the lockup is drawn, a later `play` cancelling
+ * and resolving an earlier one. Reduced motion rests on the lockup for any tick and resolves at once.
  */
-export function runSplash(
-    el: Element,
-    render: (grid: Grid) => string,
-    reduced: boolean = false,
-): () => void {
-    let start = 0;
+export function splash(el: Element, render: (grid: Grid) => string, reduced = false): Splash {
+    const Rest = END_TICK + 1;
     let last = -1;
     let raf = 0;
-    const frame = () => {
-        const tick = reduced ? END_TICK + 1 : Math.floor((performance.now() - start) / TICK_MS);
-        if (tick !== last) {
-            last = tick;
-            el.innerHTML = render(splashFrame(Math.min(tick, END_TICK + 1)));
-        }
-        if (tick <= END_TICK) raf = requestAnimationFrame(frame);
+    let settle: (() => void) | null = null;
+
+    const seek = (tick: number) => {
+        const t = reduced ? Rest : Math.min(tick, Rest);
+        if (t === last) return;
+        last = t;
+        el.innerHTML = render(splashFrame(t));
     };
-    const replay = () => {
+
+    const play = (from = 0): Promise<void> => {
         cancelAnimationFrame(raf);
-        start = performance.now();
-        last = -1;
-        frame();
+        settle?.();
+        settle = null;
+        if (reduced) {
+            seek(Rest);
+            return Promise.resolve();
+        }
+        const start = performance.now();
+        return new Promise<void>((resolve) => {
+            settle = resolve;
+            const frame = () => {
+                const tick = from + Math.floor((performance.now() - start) / TICK_MS);
+                seek(tick);
+                if (tick <= END_TICK) {
+                    raf = requestAnimationFrame(frame);
+                    return;
+                }
+                settle = null;
+                resolve();
+            };
+            frame();
+        });
     };
-    replay();
-    return replay;
+
+    return { seek, play };
 }

@@ -971,6 +971,7 @@ describe("Plugin", () => {
         test("a failed build calls cleanup when Loading has no error method", async () => {
             clear();
             let cleanupCalled = false;
+            let completed = false;
             const loading: Loading = {
                 show() {
                     return () => {
@@ -978,6 +979,9 @@ describe("Plugin", () => {
                     };
                 },
                 update() {},
+                complete() {
+                    completed = true;
+                },
             };
             const A: Plugin = {
                 name: "a",
@@ -989,6 +993,8 @@ describe("Plugin", () => {
                 "build boom",
             );
             expect(cleanupCalled).toBe(true);
+            // complete is the graceful finish; a throw takes the error path instead
+            expect(completed).toBe(false);
         });
 
         // the AggregateError's message must name the actual reason(s), not a fixed string —
@@ -1128,6 +1134,59 @@ describe("Plugin", () => {
             };
             await build({ plugins: [], defaults: false, loading });
             expect(trace.at(-1)).toBe(1);
+        });
+
+        // the screen's hold is the whole point of `complete`: the build must still be pending
+        // while the promise is, and the cleanup must wait for it rather than race the outro
+        test("a deferred complete holds the build and runs before the cleanup", async () => {
+            clear();
+            const trace: string[] = [];
+            let release!: () => void;
+            let reached!: () => void;
+            const held = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const entered = new Promise<void>((resolve) => {
+                reached = resolve;
+            });
+            const loading: Loading = {
+                show() {
+                    return () => trace.push("cleanup");
+                },
+                update(progress) {
+                    trace.push(`update:${progress}`);
+                },
+                complete() {
+                    trace.push("complete");
+                    reached();
+                    return held;
+                },
+            };
+            let settled = false;
+            const building = build({ plugins: [], defaults: false, loading }).then(() => {
+                settled = true;
+            });
+            await entered;
+            expect(settled).toBe(false);
+            expect(trace).toEqual(["update:1", "complete"]);
+            release();
+            await building;
+            expect(trace).toEqual(["update:1", "complete", "cleanup"]);
+        });
+
+        test("a screen without complete dismisses straight after progress reaches 1", async () => {
+            clear();
+            const trace: string[] = [];
+            const loading: Loading = {
+                show() {
+                    return () => trace.push("cleanup");
+                },
+                update(progress) {
+                    trace.push(`update:${progress}`);
+                },
+            };
+            await build({ plugins: [], defaults: false, loading });
+            expect(trace).toEqual(["update:1", "cleanup"]);
         });
     });
 });
