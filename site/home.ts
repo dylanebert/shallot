@@ -47,6 +47,7 @@ header p { font-size: 17px; text-wrap: balance; }
 .demos .code:hover { color: var(--gold); }
 .needs { font-size: 13px; }
 .steps { display: grid; gap: 8px; }
+.steps .c { color: var(--muted); }
 .steps a { color: inherit; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
 [hidden] { display: none !important; }
 </style>
@@ -63,11 +64,14 @@ ${nav("home")}
 <section>
 <h2>quick start</h2>
 <div class="steps">
-<pre class="block">curl -fsSL https://<a href="https://bun.sh">bun.sh</a>/install | bash</pre>
-<pre class="block">bun create shallot my-game
+<pre class="block"><span class="c"># install bun</span>
+curl -fsSL https://<a href="https://bun.sh">bun.sh</a>/install | bash</pre>
+<pre class="block"><span class="c"># new project</span>
+bun create shallot my-game
 cd my-game
 bun install</pre>
-<pre class="block">bunx shallot dev</pre>
+<pre class="block"><span class="c"># run it</span>
+bunx shallot dev</pre>
 </div>
 </section>
 
