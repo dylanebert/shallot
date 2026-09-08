@@ -262,7 +262,7 @@ function renderUnsupported(overlay: HTMLDivElement, error: UnsupportedError, the
 
     const hint = document.createElement("p");
     hint.style.cssText = `margin: 0; color: ${theme.muted}; font: 13px/1.5 ${fontStack()};`;
-    hint.textContent = "Use a recent Chromium browser (Chrome, Edge, Brave) on desktop or Android.";
+    hint.textContent = "This needs a browser with WebGPU. Browser support shows which have it today.";
     card.appendChild(hint);
 
     const actions = document.createElement("div");
