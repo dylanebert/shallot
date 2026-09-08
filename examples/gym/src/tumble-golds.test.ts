@@ -11,7 +11,7 @@
 // threshold can silently lose determinism (a gold that matches in isolation diverges once other worlds run
 // ahead of it). A shared in-process run made a verdict depend on registry order and, for shape-soup, even
 // the entry's own oracle + knob probes exceeded the trap. A fresh kernel per world — the gold mint's own
-// recipe (`packages/shallot/scripts/gen-tumble-sample-golds.ts`) — removes both: registry order cannot affect any verdict
+// recipe (`packages/shallot-tumble/scripts/gen-tumble-sample-golds.ts`) — removes both: registry order cannot affect any verdict
 // (the "sequential-world kernel trap").
 //
 // Outside the default `bun run test` (the `test` script's explicit paths don't include `examples/gym/src`) — run explicitly:

@@ -15,12 +15,19 @@ import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "../..");
 const enginePath = "src/standard/tumble/engine";
-const canonical = resolve(root, "packages/shallot-runtime", enginePath);
+const canonical = resolve(root, "packages/shallot-tumble", enginePath);
 const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
-function exec(dir: string, name: string, cmd: string[], pass = true, message?: RegExp): string {
+function exec(
+    dir: string,
+    name: string,
+    cmd: string[],
+    pass = true,
+    message?: RegExp,
+    cwd = dir,
+): string {
     const result = Bun.spawnSync(cmd, {
-        cwd: dir,
+        cwd,
         stdout: "pipe",
         stderr: "pipe",
         timeout: 120000,
@@ -29,7 +36,7 @@ function exec(dir: string, name: string, cmd: string[], pass = true, message?: R
     writeFileSync(join(dir, `${name}.log`), out);
     writeFileSync(
         join(dir, `${name}.json`),
-        JSON.stringify({ cmd, cwd: dir, exit: result.exitCode, signal: result.signalCode }),
+        JSON.stringify({ cmd, cwd, exit: result.exitCode, signal: result.signalCode }),
     );
     assert(!result.signalCode, `${name}: signal ${result.signalCode}`);
     assert.equal(result.exitCode === 0, pass, `${name}: ${out}`);
@@ -82,13 +89,13 @@ export function checkMembers(members: ReturnType<typeof archiveMembers>, expecte
     );
 }
 
-/** Generate a private source pack, then realize it once inside the public tarball; no second maintained solver. */
+/** Pack the canonical private solver, then realize it once inside the public tarball. */
 export function projectTumble(work: string, publicTar: string): string {
     const dir = join(work, "tumble-pack");
-    const source = join(dir, "private-source");
+    const source = resolve(root, "packages/shallot-tumble");
     const unpacked = join(dir, "private-unpacked");
     const assembled = join(dir, "public");
-    for (const path of [source, unpacked, assembled]) mkdirSync(path, { recursive: true });
+    for (const path of [unpacked, assembled]) mkdirSync(path, { recursive: true });
     const inventory = Bun.spawnSync(["git", "ls-files", "--", "."], { cwd: canonical });
     assert.equal(inventory.exitCode, 0);
     const files = inventory.stdout
@@ -99,50 +106,35 @@ export function projectTumble(work: string, publicTar: string): string {
         .sort();
     assert(files.includes("index.ts") && files.includes("kernel.shared.wasm.ts"));
     const hashes = Object.fromEntries(files.map((file) => [file, hash(join(canonical, file))]));
-    for (const file of files) {
-        assert(lstatSync(join(canonical, file)).isFile());
-        mkdirSync(resolve(source, "src", file, ".."), { recursive: true });
-        cpSync(join(canonical, file), join(source, "src", file));
-    }
-    writeFileSync(
-        join(source, "package.json"),
-        JSON.stringify({
-            name: "shallot-tumble",
-            version: "0.0.0",
-            private: true,
-            type: "module",
-            exports: { ".": "./src/index.ts" },
-            files: ["src"],
-        }),
-    );
-    exec(source, "private-pack", ["bun", "pm", "pack", "--destination", dir]);
-    for (const extension of ["log", "json"])
-        renameSync(
-            join(source, `private-pack.${extension}`),
-            join(dir, `private-pack.${extension}`),
-        );
+    for (const file of files) assert(lstatSync(join(canonical, file)).isFile());
+    exec(dir, "private-pack", ["bun", "pm", "pack", "--destination", dir], true, undefined, source);
     const privateTar = readdirSync(dir).find((file) => file.endsWith(".tgz"));
     assert(privateTar, "private Tumble tarball produced");
     const privateMembers = archiveMembers(join(dir, privateTar));
     writeFileSync(join(dir, "private-members.json"), JSON.stringify(privateMembers, null, 2));
     checkMembers(privateMembers, [
         "package/package.json",
-        ...files.map((file) => `package/src/${file}`),
+        ...files.map((file) => `package/${enginePath}/${file}`),
     ]);
     const originalMembers = archiveMembers(publicTar);
     writeFileSync(join(dir, "original-members.json"), JSON.stringify(originalMembers, null, 2));
     const publicFiles = originalMembers.filter(({ type }) => type === "-").map(({ path }) => path);
     checkMembers(originalMembers, publicFiles);
     exec(dir, "private-unpack", ["tar", "-xzf", join(dir, privateTar), "-C", unpacked]);
+    assert.deepEqual(
+        JSON.parse(readFileSync(join(unpacked, "package/package.json"), "utf8")),
+        JSON.parse(readFileSync(join(source, "package.json"), "utf8")),
+        "private solver manifest fields",
+    );
     exec(dir, "public-unpack", ["tar", "-xzf", publicTar, "-C", assembled]);
     const target = join(assembled, "package", enginePath);
     assert.deepEqual(readdirSync(target).sort(), files, "public solver projection population");
     for (const file of files) {
-        assert.equal(hash(join(unpacked, "package/src", file)), hashes[file]);
+        assert.equal(hash(join(unpacked, "package", enginePath, file)), hashes[file]);
         assert.equal(hash(join(target, file)), hashes[file]);
     }
     rmSync(target, { recursive: true });
-    cpSync(join(unpacked, "package/src"), target, { recursive: true });
+    cpSync(join(unpacked, "package", enginePath), target, { recursive: true });
     const tar = join(dir, "shallot-composed.tgz");
     exec(dir, "public-compose", [
         "env",
@@ -165,6 +157,8 @@ export function projectTumble(work: string, publicTar: string): string {
         JSON.stringify(
             {
                 canonical,
+                sourceManifest: hash(join(source, "package.json")),
+                packedManifest: hash(join(unpacked, "package/package.json")),
                 files: hashes,
                 privateTar: hash(join(dir, privateTar)),
                 publicTar: hash(tar),
@@ -173,8 +167,8 @@ export function projectTumble(work: string, publicTar: string): string {
             2,
         ),
     );
-    // Consumers must succeed with neither a private package installation nor these generation roots.
-    for (const path of [source, unpacked, assembled]) rmSync(path, { recursive: true });
+    // Installed consumers have neither a private package dependency nor extracted generation roots.
+    for (const path of [unpacked, assembled]) rmSync(path, { recursive: true });
     return tar;
 }
 
@@ -325,7 +319,7 @@ export function tumbleArms(project: string): void {
     const fixtures = join(shipped, "tests/tumble/fixtures");
     const reader = join(engine, "step.fixture.ts");
     assert(!existsSync(fixtures) && !existsSync(reader), "fixtures are not public package payload");
-    const truth = join(root, "packages/shallot/tests/tumble/fixtures");
+    const truth = join(root, "packages/shallot-tumble/tests/tumble/fixtures");
     const population = readdirSync(truth)
         .filter((file) => file.endsWith(".json"))
         .sort();

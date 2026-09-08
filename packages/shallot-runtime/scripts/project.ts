@@ -13,6 +13,11 @@ import { dirname, relative, resolve } from "node:path";
 
 const owner = resolve(import.meta.dir, "..");
 const distribution = resolve(owner, "../shallot");
+const solver = resolve(owner, "../shallot-tumble");
+const engine = "src/standard/tumble/engine";
+const canonical = (file: string) => resolve(file.startsWith(`${engine}/`) ? solver : owner, file);
+const bridge = resolve(owner, engine, "index.ts");
+const bridgeContent = `export * from ${JSON.stringify(relative(dirname(bridge), resolve(solver, engine, "index")).replaceAll("\\\\", "/"))};\n`;
 const manifest = JSON.parse(readFileSync(resolve(distribution, "package.json"), "utf8"));
 const runtime = JSON.parse(readFileSync(resolve(owner, "package.json"), "utf8"));
 const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
@@ -24,17 +29,29 @@ const walk = (root: string): string[] =>
         : readdirSync(root, { recursive: true, withFileTypes: true })
               .filter((entry) => entry.isFile() || entry.isSymbolicLink())
               .map((entry) => resolve(entry.parentPath, entry.name));
-const sources = walk(resolve(owner, "src"))
-    .map((file) => relative(owner, file))
-    .filter(carried)
+const sources = [owner, solver]
+    .flatMap((root) => {
+        const accepts = (file: string) =>
+            carried(file) && (root === solver || !file.startsWith(`${engine}/`));
+        const actual = walk(resolve(root, "src"))
+            .map((file) => relative(root, file))
+            .filter(accepts)
+            .sort();
+        // Git is independent of the filesystem: missing source cannot shrink the expected pack.
+        const tracked = Bun.spawnSync(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", "src"],
+            { cwd: root },
+        );
+        if (tracked.exitCode !== 0) throw Error("runtime projection: source inventory unavailable");
+        const declared = [
+            ...new Set(tracked.stdout.toString().trim().split("\n").filter(accepts)),
+        ].sort();
+        if (!actual.length || JSON.stringify(actual) !== JSON.stringify(declared))
+            throw Error("runtime projection: missing or unregistered canonical source");
+        return actual;
+    })
     .sort();
-// Git's source population is independent of filesystem enumeration: missing input cannot shrink a pack.
-const tracked = Bun.spawnSync(
-    ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", "src"],
-    { cwd: owner },
-);
-if (tracked.exitCode !== 0) throw Error("runtime projection: source inventory unavailable");
-const declared = [...new Set(tracked.stdout.toString().trim().split("\n").filter(carried))].sort();
+const declared = [...new Set(sources)].sort();
 if (!sources.length || JSON.stringify(sources) !== JSON.stringify(declared))
     throw Error("runtime projection: missing or unregistered canonical source");
 const assets = [
@@ -90,13 +107,22 @@ const forward = (file: string) => {
 };
 const inputs = Object.fromEntries(
     [...copies, "package.json", "scripts/project.ts", "scripts/build.ts"].map((file) => [
-        file,
-        hash(resolve(owner, file)),
+        relative(owner, canonical(file)),
+        hash(canonical(file)),
     ]),
 );
+inputs["../shallot-tumble/package.json"] = hash(resolve(solver, "package.json"));
 inputs["../shallot/package.json"] = hash(resolve(distribution, "package.json"));
 const record = resolve(distribution, "runtime-inputs.json");
 if (process.argv.includes("--check")) {
+    const bridges = walk(resolve(owner, engine));
+    if (
+        bridges.length !== 1 ||
+        bridges[0] !== bridge ||
+        lstatSync(bridge).isSymbolicLink() ||
+        readFileSync(bridge, "utf8") !== bridgeContent
+    )
+        throw Error("runtime projection: missing, duplicate or misbound solver bridge");
     const expected = JSON.parse(readFileSync(record, "utf8"));
     if (expected.mode !== mode) throw Error(`runtime projection: expected ${mode} mode`);
     if (JSON.stringify(expected.inputs) !== JSON.stringify(inputs))
@@ -123,7 +149,7 @@ if (process.argv.includes("--check")) {
         const content =
             mode === "development" && forwards.includes(file)
                 ? Buffer.from(forward(file))
-                : readFileSync(resolve(owner, file));
+                : readFileSync(canonical(file));
         if (!readFileSync(output).equals(content) || hash(output) !== expected.outputs[file])
             throw Error(`runtime projection: stale or misbound output ${file}`);
     }
@@ -131,12 +157,15 @@ if (process.argv.includes("--check")) {
         `runtime projection: ${mode}, ${forwards.length} declared targets, ${files.length} outputs fresh`,
     );
 } else {
+    rmSync(resolve(owner, engine), { recursive: true, force: true });
+    mkdirSync(dirname(bridge), { recursive: true });
+    writeFileSync(bridge, bridgeContent);
     for (const path of roots) rmSync(resolve(distribution, path), { recursive: true, force: true });
     for (const file of files) {
         const dest = resolve(distribution, file);
         mkdirSync(dirname(dest), { recursive: true });
         if (mode === "development" && forwards.includes(file)) writeFileSync(dest, forward(file));
-        else cpSync(resolve(owner, file), dest);
+        else cpSync(canonical(file), dest);
     }
     const outputs = Object.fromEntries(
         files.map((file) => [file, hash(resolve(distribution, file))]),

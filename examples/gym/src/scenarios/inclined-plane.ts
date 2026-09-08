@@ -2,7 +2,7 @@
 // sample (`samples/src/samples/shapes.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer. No knobs.
 
-import goldJson from "../../../../packages/shallot/tests/tumble/samples/shapes-inclined-plane.json";
+import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/shapes-inclined-plane.json";
 import { register } from "../gym";
 import { buildInclinedPlane } from "../tumble-inclined-plane";
 import type { SampleGold } from "../tumble-oracle";

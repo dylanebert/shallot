@@ -3,7 +3,7 @@
 // committed gold. The swept-sphere `castShape` sweep + HUD draw (`render()`) is outside the gold contract —
 // it only feeds debug-draw output, never mutates the world — so only `build()` ports.
 
-import goldJson from "../../../../packages/shallot/tests/tumble/samples/collision-shape-cast.json";
+import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/collision-shape-cast.json";
 import { register } from "../gym";
 import type { SampleGold } from "../tumble-oracle";
 import { sampleScenario } from "../tumble-sample";

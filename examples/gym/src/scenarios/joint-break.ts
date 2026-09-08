@@ -3,7 +3,7 @@
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer. The threshold-crossing
 // joint cut lives in `update()`.
 
-import goldJson from "../../../../packages/shallot/tests/tumble/samples/events-joint-break.json";
+import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/events-joint-break.json";
 import { register } from "../gym";
 import { buildJointBreak, renderJointBreak, updateJointBreak } from "../tumble-joint-break";
 import type { SampleGold } from "../tumble-oracle";

@@ -2,7 +2,7 @@
 // (`samples/src/samples/compound.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw layer.
 
-import goldJson from "../../../../packages/shallot/tests/tumble/samples/compound-simple.json";
+import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/compound-simple.json";
 import { register } from "../gym";
 import { buildCompoundSimple } from "../tumble-compound-simple";
 import type { SampleGold } from "../tumble-oracle";

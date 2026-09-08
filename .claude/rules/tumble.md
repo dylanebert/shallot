@@ -1,14 +1,7 @@
 ---
 paths:
   - "packages/shallot-runtime/src/standard/tumble/**/*.ts"
-  - "packages/shallot/rust/tumble/**"
-  - "packages/shallot/tests/tumble/**"
-  - "packages/shallot/scripts/build-tumble-kernel.ts"
-  - "packages/shallot/scripts/run-tumble-fixtures.ts"
-  - "packages/shallot/scripts/gen-tumble-fixtures.ts"
-  - "packages/shallot/scripts/gen-tumble-gold.ts"
-  - "packages/shallot/scripts/gen-tumble-sample-golds.ts"
-  - "packages/shallot/scripts/tumble-exit-test.ts"
+  - "packages/shallot-tumble/**"
   - "examples/gym/src/tumble-*.ts"
   - "examples/gym/src/scenarios/**"
   - "scripts/bench-tumble.ts"
@@ -40,8 +33,8 @@ MT: host-resolved bounded pool, not all cores/scene API. Main instantiates first
 
 ## Fixtures and gates
 
-Read `tests/tumble/fixtures/README.md`, `tests/tumble/samples/README.md` and `engine/upstream.json` before changes. Committed C fixtures, phase golds and sample trajectories are truth: never hand-edit or adjust for mismatch. Minting needs the external harness fork/C toolchain and must fail honestly without it. Freeze the pin by default; sync only to a tag/Fixes batch with observable math/staging fixes. Rebase harness, regenerate/reverify fixtures, port op-for-op, regenerate affected golds, update BOTH pin sites. Arithmetic/order changes need regen; data movement alone does not.
+Private `packages/shallot-tumble` owns the solver, Rust and oracles; runtime owns the adapter. From the solver root read `tests/tumble/{fixtures,samples}/README.md` and `src/standard/tumble/engine/upstream.json` before changes. Committed C fixtures, phase golds and sample trajectories are truth: never hand-edit or adjust for mismatch. Minting needs the external harness fork/C toolchain and must fail honestly without it. Freeze the pin by default; sync only to a tag/Fixes batch with observable math/staging fixes. Rebase harness, regenerate/reverify fixtures, port op-for-op, regenerate affected golds, update BOTH pin sites. Arithmetic/order changes need regen; data movement alone does not.
 
-Kernel: `cargo test`, then from `packages/shallot` `bun run scripts/build-tumble-kernel.ts`; commit both wasm artifacts, even panic-line changes. MT changes also run `bun run test:fixture`, `bun run test:fixture:mt` at `TUMBLE_THREADS=2` and 8, `bun run test:fixture:auto`, `bun run test:exit`. Keep joint-event assertions at ST/2/8: hashes cannot see events. Decompose serial/kernel costs; memory-traffic wins need same-window interleaved pre-change A/B before landing.
+Kernel: `cargo test`, then from `packages/shallot-tumble` `bun run scripts/build-tumble-kernel.ts`; commit both wasm artifacts, even panic-line changes. MT changes also run `bun run test:fixture`, `bun run test:fixture:mt` at `TUMBLE_THREADS=2` and 8, `bun run test:fixture:auto`, `bun run test:exit`. Keep joint-event assertions at ST/2/8: hashes cannot see events. Decompose serial/kernel costs; memory-traffic wins need same-window interleaved pre-change A/B before landing.
 
 Engine/host/twin changes run root `bun test ./examples/gym/src` (gold worlds in separate processes). Corpus/render changes run `bun run scripts/bench-tumble.ts`; grab/solids/overlay/input changes run `bun run scripts/tumble-interaction.ts`, input-to-pixels also `bun run scripts/tumble-repro.ts --gate`. Require synthetic AND trusted input, independent static-breach/finite guards. Derive visuals from world shapes. Serialize bridges; tiers: `testing.md`.
