@@ -1,4 +1,12 @@
-import { DARK, END_TICK, type Grid, runSplash, splashFrame, TICK_MS, toSvg } from "./mark";
+import {
+    DARK,
+    END_TICK,
+    type Grid,
+    runSplash,
+    splashFrame,
+    TICK_MS,
+    toSvg,
+} from "../../packages/shallot-runtime/src/standard/loading/mark";
 
 // Browser entry for the site pages. Splashes the lockup in as pixel squares on `[data-splash-svg]`
 // and paints the terminal on `[data-terminal]`; click replays either. Shows the WebGPU note only
