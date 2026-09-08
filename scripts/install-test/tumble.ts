@@ -38,6 +38,50 @@ function exec(dir: string, name: string, cmd: string[], pass = true, message?: R
     return out;
 }
 
+// Libarchive normally consumes AppleDouble members even in list mode on macOS. Disable that
+// interpretation, not those entries: the inventory must expose every physical archive member.
+export function archiveMembers(file: string): { path: string; type: string }[] {
+    const options = process.platform === "darwin" ? ["--options", "!mac-ext"] : [];
+    const list = (verbose: boolean) => {
+        const result = Bun.spawnSync(["tar", ...options, verbose ? "-tvf" : "-tf", file], {
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        assert.equal(result.exitCode, 0, result.stderr.toString());
+        return result.stdout.toString().trimEnd().split("\n");
+    };
+    const names = list(false);
+    const details = list(true);
+    assert.equal(names.length, details.length, "archive inventory: names/types population");
+    return names.map((path, i) => ({ path, type: details[i][0] }));
+}
+
+export function checkMembers(members: ReturnType<typeof archiveMembers>, expected: string[]): void {
+    assert(members.length > 0 && expected.length > 0, "archive inventory: empty population");
+    const seen = new Set<string>();
+    const files: string[] = [];
+    for (const { path, type } of members) {
+        assert(!seen.has(path), `archive inventory: duplicate member ${path}`);
+        seen.add(path);
+        assert(type === "-" || type === "d", `archive inventory: unexpected type ${type} ${path}`);
+        assert(
+            !path.split("/").some((part) => part.startsWith("._")),
+            `archive inventory: platform metadata ${path}`,
+        );
+        if (type === "d") {
+            assert(
+                path.endsWith("/") && expected.some((file) => file.startsWith(path)),
+                `archive inventory: unexpected directory ${path}`,
+            );
+        } else files.push(path);
+    }
+    assert.deepEqual(
+        files.sort(),
+        [...expected].sort(),
+        "archive inventory: regular member population",
+    );
+}
+
 /** Generate a private source pack, then realize it once inside the public tarball; no second maintained solver. */
 export function projectTumble(work: string, publicTar: string): string {
     const dir = join(work, "tumble-pack");
@@ -79,6 +123,16 @@ export function projectTumble(work: string, publicTar: string): string {
         );
     const privateTar = readdirSync(dir).find((file) => file.endsWith(".tgz"));
     assert(privateTar, "private Tumble tarball produced");
+    const privateMembers = archiveMembers(join(dir, privateTar));
+    writeFileSync(join(dir, "private-members.json"), JSON.stringify(privateMembers, null, 2));
+    checkMembers(privateMembers, [
+        "package/package.json",
+        ...files.map((file) => `package/src/${file}`),
+    ]);
+    const originalMembers = archiveMembers(publicTar);
+    writeFileSync(join(dir, "original-members.json"), JSON.stringify(originalMembers, null, 2));
+    const publicFiles = originalMembers.filter(({ type }) => type === "-").map(({ path }) => path);
+    checkMembers(originalMembers, publicFiles);
     exec(dir, "private-unpack", ["tar", "-xzf", join(dir, privateTar), "-C", unpacked]);
     exec(dir, "public-unpack", ["tar", "-xzf", publicTar, "-C", assembled]);
     const target = join(assembled, "package", enginePath);
@@ -90,7 +144,22 @@ export function projectTumble(work: string, publicTar: string): string {
     rmSync(target, { recursive: true });
     cpSync(join(unpacked, "package/src"), target, { recursive: true });
     const tar = join(dir, "shallot-composed.tgz");
-    exec(dir, "public-compose", ["tar", "-czf", tar, "-C", assembled, "package"]);
+    exec(dir, "public-compose", [
+        "env",
+        "COPYFILE_DISABLE=1",
+        "tar",
+        "-czf",
+        tar,
+        "-C",
+        assembled,
+        "package",
+    ]);
+    const composedMembers = archiveMembers(tar);
+    writeFileSync(join(dir, "composed-members.json"), JSON.stringify(composedMembers, null, 2));
+    checkMembers(composedMembers, publicFiles);
+    console.log(
+        `tumble: archive members ${publicFiles.length} regular, ${composedMembers.length - publicFiles.length} directories; no extras`,
+    );
     writeFileSync(
         join(dir, "projection.json"),
         JSON.stringify(
