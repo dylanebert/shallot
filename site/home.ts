@@ -32,7 +32,7 @@ export function siteIndex(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>shallot</title>
-<meta name="description" content="game engine. fast by default, instant iteration, runs where webgpu does.">
+<meta name="description" content="webgpu game engine. fast by default, instant iteration, checks itself.">
 <link rel="icon" href="./brand/mark-32.png">
 ${FONTS}
 ${THEME_SCRIPT}
@@ -58,7 +58,7 @@ ${TOGGLE}
 ${nav("home")}
 <header>
 <div data-splash-svg data-scale="5">${toSvg(lockup(), CSS_PALETTE, 5)}</div>
-<p>game engine. fast by default, instant iteration, runs where webgpu does.</p>
+<p>webgpu game engine. fast by default, instant iteration, checks itself.</p>
 </header>
 
 <section>
