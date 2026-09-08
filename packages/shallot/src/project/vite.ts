@@ -1,14 +1,18 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { dirname, isAbsolute, join, relative, resolve } from "path";
 import typegpu from "unplugin-typegpu/vite";
 import type { Plugin, Rollup, ViteDevServer } from "vite";
-import { contentType, manifestPath, readManifest, resolveAssetPath } from "./assets";
-import { generateModule } from "./generate";
+import { contentType, manifestPath, resolveAssetPath } from "./assets";
+import { generateModuleFromPlan } from "./generate";
+import { emptyPlan, readProject } from "./host";
 
 // the manifest descriptor half of `assets.ts` is part of this subpath's published surface — the CLI
 // (`bin/build.ts`, `bin/features.ts`, `bin/toolchain.ts`) and consumers already resolve both through
 // `@dylanebert/shallot/vite`. The readers beside them stay internal to `src/project/`.
 export { manifestPath, manifestWarnings } from "./assets";
+// scene discovery is the project host's (`host.ts`) — re-exported here because the CLI and consumers
+// already resolve it through `@dylanebert/shallot/vite`.
+export { discoverScenes } from "./host";
 
 /**
  * cross-origin isolation headers, applied by every serve surface (`shallot dev`, `shallot run`'s preview,
@@ -40,38 +44,6 @@ export const CROSS_ORIGIN_ISOLATION = {
  */
 export function typegpuPlugin(): Plugin {
     return typegpu() as unknown as Plugin;
-}
-
-export function discoverScenes(dir: string): string[] {
-    const scenes: string[] = [];
-    // per-directory try/catch, not one around the whole walk: an unreadable subtree (permissions, a
-    // broken symlink) used to throw out of the recursive `walk`, which the outer catch swallowed —
-    // silently truncating every sibling not yet visited at every ancestor level, not just the bad
-    // subtree, with no warning that the scene list was incomplete.
-    function walk(current: string) {
-        let entries: string[];
-        try {
-            entries = readdirSync(current);
-        } catch (e) {
-            console.warn(`  ! scene discovery: skipping unreadable directory "${current}": ${e}`);
-            return;
-        }
-        for (const entry of entries) {
-            if (entry === "node_modules" || entry === "dist") continue;
-            const full = join(current, entry);
-            let isDirectory: boolean;
-            try {
-                isDirectory = statSync(full).isDirectory();
-            } catch (e) {
-                console.warn(`  ! scene discovery: skipping unreadable entry "${full}": ${e}`);
-                continue;
-            }
-            if (isDirectory) walk(full);
-            else if (entry.endsWith(".scene")) scenes.push(relative(dir, full));
-        }
-    }
-    walk(dir);
-    return scenes.sort();
 }
 
 export function findPublicDirs(projectDir: string): string[] {
@@ -217,9 +189,10 @@ export function projectPlugin(projectDir?: string): Plugin {
         // enabled plugin (engine via the barrel, locals via their specifier) + the scene + manifest.
         load(id) {
             if (id !== resolvedId) return;
-            if (!projectDir) return generateModule({}, null, []);
-            const absDir = resolve(projectDir);
-            return generateModule(readManifest(absDir), absDir, discoverScenes(absDir));
+            if (!projectDir) return generateModuleFromPlan(emptyPlan());
+            // one resolved plan, the same shape `bin/tui.ts` runs (src/project/command.ts) — the
+            // browser module and the terminal command classify a manifest exactly once.
+            return generateModuleFromPlan(readProject(resolve(projectDir)));
         },
         configureServer(server) {
             viteServer = server;

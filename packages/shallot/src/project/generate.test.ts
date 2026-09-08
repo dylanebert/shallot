@@ -1,40 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { generateModule, plan } from "./generate";
+import { generateModule } from "./generate";
 import type { Manifest } from "./manifest";
 
+// `plan` moved to the project host (`host.ts`) with the A1 seam — its own arms live in `host.test.ts`.
+// What stays here is the emission half: a plan (however it was produced) becoming module source.
+
 const DIR = "/proj";
-
-describe("plan", () => {
-    test("an empty manifest enables every default, no locals", () => {
-        const { engine, locals } = plan({}, DIR);
-        expect(engine).toEqual(["Slab", "Transforms", "Input", "Render", "Part", "Sear", "Glaze"]);
-        expect(locals).toEqual([]);
-    });
-
-    test("a disabled default drops out; an enabled extra joins the engine set", () => {
-        const { engine } = plan({ plugins: { Glaze: false, Orbit: true } }, DIR);
-        expect(engine).toContain("Orbit");
-        expect(engine).not.toContain("Glaze");
-    });
-
-    test("a local specifier resolves project-relative → project-absolute", () => {
-        const { locals } = plan({ plugins: { Spin: "./src/spin" } }, DIR);
-        expect(locals).toEqual([{ name: "Spin", path: "/proj/src/spin" }]);
-    });
-
-    test("a disabled local is not imported; a bare package passes through", () => {
-        const { locals } = plan({ plugins: { Off: ["./src/off", false], Pkg: "@scope/foo" } }, DIR);
-        expect(locals).toEqual([{ name: "Pkg", path: "@scope/foo" }]);
-    });
-
-    test("an arbitrary engine plugin (true, not a default) joins the engine set by name", () => {
-        // the generator trusts any `true` name as an engine plugin — no catalog gate, since it runs
-        // headless (no plugin objects to check against). Where it imports FROM (barrel vs. a
-        // backend plugin's own subpath) is generateModule's concern, not plan's — see below.
-        const { engine } = plan({ plugins: { Foo: true } }, DIR);
-        expect(engine).toContain("Foo");
-    });
-});
 
 describe("generateModule", () => {
     test("emits a lean named barrel import for enabled engine plugins", () => {

@@ -1,6 +1,6 @@
-import { join } from "node:path";
-import { DEFAULT_PLUGIN_NAMES, SUBPATH_PLUGIN_MODULES } from "./engine";
-import { localOf, type Manifest } from "./manifest";
+import { SUBPATH_PLUGIN_MODULES } from "./engine";
+import { type ProjectPlan, plan } from "./host";
+import type { Manifest } from "./manifest";
 
 // Generates the `virtual:project` module source from a `shallot.json` manifest — the one place a manifest
 // becomes static imports. Pure over (manifest, absDir, scenes), so `generate.test.ts` pins the emitted
@@ -19,41 +19,10 @@ function engineSource(name: string): string {
     return SUBPATH_PLUGIN_MODULES[name] ?? ENGINE;
 }
 
-// a local specifier resolved for the generated module: project-relative → project-absolute (the virtual
-// module resolves against the host root, not the project), a bare package or absolute path → passed through.
-function localPath(spec: string, absDir: string): string {
-    return spec.startsWith(".") ? join(absDir, spec) : spec;
-}
-
-interface Plan {
-    /** engine plugin names to import as `{ ${name}Plugin }` from the barrel (enabled defaults + extras) */
-    readonly engine: string[];
-    /** enabled local plugins, by name + resolved import path */
-    readonly locals: { name: string; path: string }[];
-}
-
-/** classify a manifest into the engine + local plugins to statically import. */
-export function plan(manifest: Manifest, absDir: string | null): Plan {
-    const plugins = manifest.plugins ?? {};
-    const defaults = new Set<string>(DEFAULT_PLUGIN_NAMES);
-    const engine: string[] = [];
-    const locals: Plan["locals"] = [];
-
-    // every default is enabled unless explicitly turned off
-    for (const name of DEFAULT_PLUGIN_NAMES) {
-        if (plugins[name] !== false) engine.push(name);
-    }
-    // then the declared entries: an engine extra (true), or a local (a specifier). defaults already handled.
-    for (const [name, value] of Object.entries(plugins)) {
-        if (defaults.has(name)) continue;
-        if (value === true) engine.push(name);
-        else {
-            const local = localOf(value);
-            if (local?.enabled) locals.push({ name, path: localPath(local.spec, absDir ?? "") });
-        }
-    }
-    return { engine, locals };
-}
+// Planning itself lives in `host.ts` — the browser generator and the terminal command consume the same
+// resolved plan, so a manifest classifies once. Re-exported here because the CLI's feature reader
+// already imports `plan` through this module.
+export { plan };
 
 /**
  * build the `virtual:project` module source for a project dir with a (possibly empty) manifest. The
@@ -61,7 +30,13 @@ export function plan(manifest: Manifest, absDir: string | null): Plan {
  * edit, which the page reload cleans up (dev and a production build agree).
  */
 export function generateModule(manifest: Manifest, dir: string | null, scenes: string[]): string {
-    const { engine, locals } = plan(manifest, dir);
+    return generateModuleFromPlan({ dir, manifest, scenes, ...plan(manifest, dir) });
+}
+
+/** the same module source, built from an already-resolved {@link ProjectPlan} — the shape both consumers
+ *  share, so the terminal command and this generator provably run the same plugin set. */
+export function generateModuleFromPlan(project: ProjectPlan): string {
+    const { dir, manifest, scenes, engine, locals } = project;
     const idents = engine.map((n) => `${n}Plugin`);
     const lines: string[] = [];
 
