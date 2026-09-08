@@ -81,7 +81,7 @@ test("recipes — importing the module runs no gate side effect (import.meta.mai
 });
 
 // The static rows joined this roster when their gates stopped being bare `bunx shallot verify` calls:
-// spawned through the stage-close selector's `sh -c` they missed the WSL bridge and reddened on the
+// spawned through the stage-close selector's `sh -c` they missed the display guard and reddened on the
 // software adapter. `runRecipe` reads `static` to decide whether a verdict is owed at all.
 test("recipes — the roster carries the registry's static reasons alongside the smoked dirs", () => {
     const roster = rosterFrom(

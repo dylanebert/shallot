@@ -1,29 +1,25 @@
-import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { skipReason } from "./verify";
-import { type Bridge, start as startBridge } from "./wsl-bridge";
 
-// `bun run scripts/tumble-repro.ts` — the trusted-input floor-vanish repro + standing gate. A thin bun orchestrator over the node driver (scripts/tumble-repro-driver.mjs): it owns the
-// WSL→Windows bridge lifecycle exactly like scripts/bench-tumble.ts, then spawns the driver under NODE (Bun's Playwright client
-// hangs on the bridge — wsl-bridge.ts fact 2) with the bridge's `--connect` ws endpoint. The driver boots the
-// gym vite server, connects to the host's real-GPU browser, and drives a bridge plank with browser-trusted
+// `bun run scripts/tumble-repro.ts` — the trusted-input floor-vanish repro + standing gate. A thin bun orchestrator over the node
+// driver (scripts/tumble-repro-driver.mjs), spawned under NODE. The driver boots the
+// gym vite server, launches a headed real-GPU browser, and drives a bridge plank with browser-trusted
 // `page.mouse` flicks (one-frame cursor jumps) until any draw pair's drawn count drops below its derivation
 // count or a pose/transform goes non-finite — the loss the dispatched-event probe never reproduced.
 //
 // Two modes:
 //   • default — the F1 diagnostic: escalating drag violence, first-break report (exits 0 either way).
-//   • --gate  — the F3 STANDING GATE: two real-device asserts over one bridge session. (1) a trusted-input
+//   • --gate  — the F3 STANDING GATE: two real-device asserts. (1) a trusted-input
 //     violent reversing whip must fling NO pair out of frustum under the grab-energy cap (tumble-grab.ts
 //     driveGrab) — a smoke; the DETERMINISTIC cap red→green + regression is the headless whip-cap unit test
 //     (examples/gym/src/tumble-pilot.test.ts, in `bun test ./examples/gym/src`). (2) `--inject far` must STILL drop
 //     pairs (it bypasses the grab entirely, proving the frustum-cull detector still detects — the
 //     discriminating half). Exits nonzero if either fails.
 //
-//   ⚠ ONE bridge session at a time. On WSL the bridge is a SINGLE shared host browser (scripts/wsl-bridge.ts);
-//   never run this alongside `bun bench`, `bun run scripts/bench-tumble.ts`, `bun run
-//   scripts/tumble-interaction.ts`, `bun run flows`, or `bun run recipes`.
+//   ⚠ Display gates self-terminate and run alone (AGENTS.md): never run this alongside `bun bench`,
+//   `bun run scripts/bench-tumble.ts`, `bun run scripts/tumble-interaction.ts`, `bun run flows`, or
+//   `bun run recipes`.
 
-const isWSL = process.platform === "linux" && existsSync("/proc/sys/fs/binfmt_misc/WSLInterop");
 const DRIVER = resolve(import.meta.dir, "tumble-repro-driver.mjs");
 
 interface Snapshot {
@@ -231,8 +227,8 @@ function report(r: DriverResult): void {
     console.log(bar + "\n");
 }
 
-// The standing gate (spec 6b/F3): the two asserts over one bridge session. Owns the bridge lifecycle, runs the
-// driver twice, prints a verdict per check, exits 0 only if both hold. See the header + `--help`.
+// The standing gate (spec 6b/F3): the two asserts. Runs the driver twice, prints a verdict per check,
+// exits 0 only if both hold. See the header + `--help`.
 async function runGate(): Promise<void> {
     const skip = skipReason();
     if (skip) {
@@ -242,16 +238,8 @@ async function runGate(): Promise<void> {
         process.exit(0);
     }
     const bar = "=".repeat(64);
-    let bridge: Bridge | null = null;
-    let whip: DriverResult | null = null;
-    let far: DriverResult | null = null;
-    try {
-        const connect = isWSL ? (bridge = await startBridge()).connectUrl : "";
-        whip = await runDriver(connect, ["--gate"]); // assert: no fling (the grab-energy cap holds)
-        far = await runDriver(connect, ["--inject", "far"]); // assert: the frustum-cull detector still fires
-    } finally {
-        if (bridge) await bridge.teardown().catch(() => {});
-    }
+    const whip = await runDriver("", ["--gate"]); // assert: no fling (the grab-energy cap holds)
+    const far = await runDriver("", ["--inject", "far"]); // assert: the frustum-cull detector still fires
 
     // (1) the trusted-input whip must not fling any pair out of frustum.
     const whipOk = !!whip && !whip.error && whip.reproduced === false;
@@ -308,29 +296,23 @@ async function runRecipeSweep(): Promise<void> {
         { speed: "slow", hold: 3000, depth: "bottom", pitch: "default" },
     ];
     const bar = "=".repeat(78);
-    let bridge: Bridge | null = null;
     const rows: { row: (typeof table)[number]; r: DriverResult | null }[] = [];
-    try {
-        const connect = isWSL ? (bridge = await startBridge()).connectUrl : "";
-        for (const row of table) {
-            console.error(`\n[recipe] attempt ${JSON.stringify(row)}`);
-            const r = await runDriver(connect, [
-                "--recipe",
-                "drag-below",
-                "--speed",
-                row.speed,
-                "--hold",
-                String(row.hold),
-                "--depth",
-                row.depth,
-                "--pitch",
-                row.pitch,
-            ]);
-            rows.push({ row, r });
-            if (r?.recipe?.fired) break; // first pixel breach — stop and report
-        }
-    } finally {
-        if (bridge) await bridge.teardown().catch(() => {});
+    for (const row of table) {
+        console.error(`\n[recipe] attempt ${JSON.stringify(row)}`);
+        const r = await runDriver("", [
+            "--recipe",
+            "drag-below",
+            "--speed",
+            row.speed,
+            "--hold",
+            String(row.hold),
+            "--depth",
+            row.depth,
+            "--pitch",
+            row.pitch,
+        ]);
+        rows.push({ row, r });
+        if (r?.recipe?.fired) break; // first pixel breach — stop and report
     }
 
     console.log(`\n${bar}`);
@@ -396,19 +378,19 @@ async function main(): Promise<void> {
     if (argv.includes("--help") || argv.includes("-h")) {
         console.log(`Usage: bun run scripts/tumble-repro.ts [--gate] [--recipe drag-below] [--inject nan|inf|far] [--dpr <n>]
 
-Drives joints-bridge with browser-trusted page.mouse flicks over the WSL→host real-GPU bridge. Display-gated
-(native hardware / the WSL host bridge). ONE bridge session at a time — never run concurrent with another
+Drives joints-bridge with browser-trusted page.mouse flicks in a headed real-GPU browser. Display-gated
+(native hardware). Display gates run alone — never run concurrent with another
 bench / scripts/bench-tumble.ts / scripts/tumble-interaction.ts / flows / recipes.
 
 Modes:
   (default)          Diagnostic escalation (F1): five levels of growing drag violence, first-break report.
   --recipe drag-below  The F1′ pixel-level repro: the user's exact gesture — a sustained slow downward drag of
                      a CENTRAL plank carrying the grab handle below the ground plane, held there, then continued
-                     — swept across drag speed × hold × depth × camera pitch over one bridge session. Asserts at
+                     — swept across drag speed × hold × depth × camera pitch. Asserts at
                      the PIXEL layer (reference patches over the static ground + end posts), because a shadow /
                      tonemap black-out keeps every drawArgs count intact. Reports the key bit on a breach: pixels
                      broken WITH drawArgs green (render-side corruption) vs drawArgs dropped (the cull layer).
-  --gate             STANDING GATE (spec 6b/F3): two real-device asserts over one bridge session —
+  --gate             STANDING GATE (spec 6b/F3): two real-device asserts —
                      (1) a trusted-input violent reversing whip must NOT fling any pair out of frustum under
                          the grab-energy cap (a smoke; the deterministic cap red→green is the headless
                          whip-cap unit test in \`bun test ./examples/gym/src\`); (2) --inject far must STILL produce the
@@ -438,14 +420,7 @@ Options:
     const dprIdx = argv.indexOf("--dpr");
     if (dprIdx !== -1 && argv[dprIdx + 1]) extra.push("--dpr", argv[dprIdx + 1]);
 
-    let bridge: Bridge | null = null;
-    let result: DriverResult | null = null;
-    try {
-        const connect = isWSL ? (bridge = await startBridge()).connectUrl : "";
-        result = await runDriver(connect, extra);
-    } finally {
-        if (bridge) await bridge.teardown().catch(() => {});
-    }
+    const result = await runDriver("", extra);
 
     if (!result) {
         console.error("\nrepro driver produced no result (crashed before reporting)");

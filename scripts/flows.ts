@@ -10,7 +10,7 @@ import { skipReason, verify } from "./verify";
 // self-navigation by construction). ui-containment mounts a deliberately invalid `config.ui` HUD; paint
 // containment isn't observable in-page, so verify captures the screenshot and this asserts the magenta /
 // host-chrome pixels node-side. blank is the pixel-gate red-proof: a draw-nothing app verify must fail
-// with rendered:false (an expected-fail). Display-gated; on WSL/headless it skips (native hardware only).
+// with rendered:false (an expected-fail). Display-gated; with no display it skips (native hardware only).
 
 const MAGENTA: [number, number, number] = [255, 0, 255];
 const near = (a: number, b: number, t = 40): boolean => Math.abs(a - b) <= t;

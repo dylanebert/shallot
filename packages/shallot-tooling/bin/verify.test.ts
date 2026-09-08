@@ -355,7 +355,7 @@ describe("bootArm", () => {
 
 // The CLI's own display gate: on a software adapter the run clears every feature/limit check and then
 // dies mid-execution (`GPU device lost`, oversized `mappedAtCreation`) — measured 2026-08-18 running this
-// exact CLI against `examples/showcase/voxel` and `roads` under WSL's `dzn`/SwiftShader fallback, hardware
+// exact CLI against `examples/showcase/voxel` and `roads` on the retired WSL seat's SwiftShader fallback, hardware
 // read as "google / swiftshader". `isSoftwareAdapter` is the pure classification that refuses it before
 // any check runs; `displayGateExit` is the refusal-path seam reduced to its exit code, with no device
 // execution (`testing.md`: a default-suite verdict must not depend on device execution).
@@ -367,7 +367,7 @@ describe("isSoftwareAdapter / displayGateExit — the CLI's own display gate", (
         expect(isSoftwareAdapter("intel / vulkan / intel(r) uhd graphics")).toBe(false);
     });
 
-    test("software rasterizer strings refuse — the showcase drivers' name list, plus the measured WSL string", () => {
+    test("software rasterizer strings refuse — the showcase drivers' name list, plus every measured string", () => {
         expect(isSoftwareAdapter("google / swiftshader")).toBe(true); // measured 2026-08-18, this sandbox
         expect(isSoftwareAdapter("mesa / llvmpipe")).toBe(true);
         expect(isSoftwareAdapter("mesa / lavapipe")).toBe(true);
@@ -1648,9 +1648,9 @@ describe("stdout survives process.exit — the 64 KiB pipe truncation", () => {
     // human-readable `console.log` output, which the `runVerify` arm below drives.
     const hasNode = Bun.which("node") != null;
 
-    // both regression tests below bundle `verify.ts` the same way (a real `node`-targeted build, the
-    // externals matching `scripts/wsl-bridge.ts`'s `buildBundle`) and run a script against it the same
-    // way — shared here so the bundling command and the subprocess-reading logic live once, not twice.
+    // both regression tests below bundle `verify.ts` the same way (a real `node`-targeted build) and run
+    // a script against it the same way — shared here so the bundling command and the subprocess-reading
+    // logic live once, not twice.
     const buildVerifyBundle = (dir: string): string => {
         const bundle = join(dir, "verify.bundle.mjs");
         const build = Bun.spawnSync(

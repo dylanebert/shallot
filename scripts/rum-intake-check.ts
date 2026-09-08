@@ -16,11 +16,11 @@ import { extname, resolve } from "node:path";
 // forwarded (`scripts/rum-intake-driver.ts`).
 //
 // The actual browser drive happens in a node subprocess (`rum-intake-driver.ts`, bundled to a
-// node target here, the same shape `scripts/wsl-bridge.ts` uses for `shallot verify`'s CLI):
+// node target here, the shape a node-run bundle of the CLI graph needs):
 // Bun's Playwright client hangs on this platform. No real GPU/display gate applies — the RUM
 // sampler is rAF-based and main-thread, independent of WebGPU init, so a plain local headless
 // launch (software adapter) is enough; this check is not display-gated the way `bun run demos`
-// is, and doesn't touch the wsl-bridge host tunnel.
+// is.
 
 const root = resolve(import.meta.dir, "..");
 const outDir = resolve(root, "out/site");

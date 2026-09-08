@@ -1,7 +1,7 @@
 // Trusted-input floor-vanish repro driver. Runs under NODE, not bun:
-// Bun's Playwright client hangs after the ws upgrade on WSL (scripts/wsl-bridge.ts fact 2), so the same
+// Bun's Playwright client hangs after a ws upgrade on some hosts, so the same
 // node-bundled path `shallot verify --connect` uses is the only one that can drive the host's real-GPU
-// browser. This is a SIBLING of that path — it reuses the wsl-bridge browser server (via `--connect`) but
+// browser. This is a SIBLING of that path — it can attach to a browser server (via `--connect`) but
 // drives the page DIRECTLY through `page.mouse` (browser-trusted CDP input), which the `window.__harness`
 // wrapper exposes no seam for. The gym's `window.__tumbleProbe` / `__tumbleAim` (examples/gym/src/
 // tumble-watch.ts) are the per-frame instrument: a drawArgs readback + a NaN/Inf scan over body poses AND
@@ -11,7 +11,7 @@
 // non-finite transform → shared pack-scan poisoning) made observable.
 //
 // The orchestrator (scripts/tumble-repro.ts, bun) owns the bridge lifecycle; this owns the vite server + the
-// browser drive. Off WSL (`--connect` absent) it launches a local chromium instead. NEVER left open — the
+// browser drive. With `--connect` absent it launches a local chromium instead. NEVER left open — the
 // server + browser tear down on every exit path.
 
 import { createRequire } from "node:module";

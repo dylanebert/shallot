@@ -65,8 +65,8 @@ export function checkExamples(root: string, registry: ExampleGate[]): string[] {
         const smoke = resolve(dir, "src/smoke.ts");
         // Every recipe row — static or smoked — runs through the one selector. A bare
         // `bunx shallot verify <dir>` row is spawned by the stage-close selector through `sh -c` and
-        // never reaches `scripts/verify.ts`, so it misses the WSL bridge and reds on the software
-        // adapter instead of driving the host's real GPU. One gate shape keeps every row attributable.
+        // never reaches `scripts/verify.ts`, so it misses that wrapper's display guard and reds on a
+        // software adapter instead of refusing. One gate shape keeps every row attributable.
         const expectedGate = `bun run recipes --recipe ${recipe}`;
         if (row && row.gate !== expectedGate)
             errors.push(`recipe gate must use selector "${expectedGate}": ${recipe}`);

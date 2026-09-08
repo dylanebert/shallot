@@ -2,8 +2,8 @@
 // withheld gate against the running canvas. Emits a machine-readable result plus a human summary. The
 // gate scripts live in the repo and are never shown to the agent — this is the only place they run.
 //
-// Uses evals' own browser path (evals/harness: server boot, WSL→Windows Playwright staging, display
-// gating) — self-contained, so the repo's shipped-gate dissolution doesn't reach it. On the pre-agent
+// Uses evals' own browser path (evals/harness: server boot, local Playwright run, display gating) —
+// self-contained, so the repo's shipped-gate dissolution doesn't reach it. On the pre-agent
 // (empty scaffold) project the gate is expected to FAIL its assertions — what this proves is the
 // mechanics: build, boot, drive, report.
 //
@@ -19,11 +19,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { detectDisplay } from "./harness/display";
 import { SPAWN_BACKSTOP_MS } from "./harness/lib";
 import { runPlaywright } from "./harness/playwright";
 import { deriveResultKind, type ResultKind, resultKindToPass } from "./harness/result";
 import { startServer } from "./harness/server";
-import { detectDisplay } from "./harness/wsl";
 
 const EVALS = import.meta.dir;
 const HARNESS = join(EVALS, "harness");

@@ -673,9 +673,6 @@ async function main(): Promise<void> {
         console.error("\ngym run FAILED");
         process.exit(1);
     }
-    // release the shared WSL bridge so the process exits — its rendezvous + client servers and the host
-    // browser subprocess otherwise keep the event loop alive past the verdict (a no-op off WSL). The
-    // failure paths above `process.exit`, firing the bridge's sync exit hook; the pass path drains cleanly.
     console.log("\ngym run passed");
 }
 

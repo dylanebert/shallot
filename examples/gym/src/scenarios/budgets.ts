@@ -81,7 +81,7 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     "bodies-body-type": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_519_028 },
     "bodies-motion-locks": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_516_692 },
     "bodies-spinning-book": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_517_860 },
-    // measured 2026-09-01, `--scenario cells` (WSL/NVIDIA bridge, lovelace), re-measured the same day
+    // measured 2026-09-01, `--scenario cells` (retired WSL seat, nvidia lovelace), re-measured the same day
     // after S3r item 2's ramp-monotonicity arm landed (the owed
     // regression guard driving `draw.ts`'s real pipeline against a real font atlas, not the synthetic
     // solid atlas the draw differential below uses), again after the s3r item-8 background-detection

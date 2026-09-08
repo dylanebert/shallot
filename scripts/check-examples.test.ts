@@ -119,7 +119,7 @@ test("smoked recipe rows must use the recipe selector", () => {
 });
 
 // A bare `bunx shallot verify` row is spawned by the stage-close selector through `sh -c`, missing the
-// WSL bridge. The static rows used to be exempt from the selector rule and carried exactly that shape.
+// display guard. The static rows used to be exempt from the selector rule and carried exactly that shape.
 test("a static recipe row must use the selector too", () => {
     const root = make();
     const rows = registry().map((row) =>
