@@ -1,11 +1,7 @@
-import { isWSL, stageOnWindows, type WindowsPaths } from "./wsl";
-
-// The one place that runs `playwright test`. Native it spawns directly; under WSL it stages the caller's
-// config + test files onto the Windows host and drives them through powershell, so the host's real-GPU
-// Chrome runs them. The eval gate driver (grade.ts) depends on this: it stages a task's gate + config and
-// reads the result envelope back off stdout. The WSL staging and the powershell spawn, the most fragile
-// code in the eval harness, live here once. The caller owns its config + tests and reads back its own
-// artifacts (grade.ts decodes `stdout`; a staged artifact reads from `staged.wsl`).
+// The one place that runs `playwright test`. It spawns the runner locally, headed on the seat's own
+// display (`grade.ts` refuses the gate outright when there is none), and returns the child's stdout —
+// where the gate's result envelope is emitted — with its exit code. The caller owns its config + test
+// files and reads back its own artifacts (grade.ts decodes `stdout`).
 
 export interface RunArgs {
     /** dir holding the playwright config + test files — the launcher's own directory */
@@ -14,10 +10,8 @@ export interface RunArgs {
     config: string;
     /** trailing `playwright test` args (a positional test file, `--grep <name>`) */
     args?: string[];
-    /** WSL staging: a temp-dir name + the files (relative to `dir`) copied to the host to run from there */
-    stage?: { name: string; files: string[] };
-    /** env for the run, built from the staged paths (`null` when native) so output dirs resolve host-side */
-    env?: (staged: WindowsPaths | null) => Record<string, string>;
+    /** env for the run */
+    env?: () => Record<string, string>;
     /** true: stream the child's stdout (the live list reporter); false (default): capture + return it */
     inherit?: boolean;
     /** hard ceiling on the whole spawn — a backstop above `gate.config.ts`'s own `globalTimeout`
@@ -35,12 +29,6 @@ export interface RunResult {
     stdout: string;
     /** the spawn ceiling fired — distinct from a clean nonzero Playwright exit */
     timedOut: boolean;
-    /** the Windows staging paths (WSL only, else `null`) — read artifacts back from `.wsl` */
-    staged: WindowsPaths | null;
-}
-
-function quote(s: string): string {
-    return s.replace(/'/g, "''");
 }
 
 function decode(stdout: Uint8Array | null | undefined, inherit: boolean): string {
@@ -51,11 +39,7 @@ function decode(stdout: Uint8Array | null | undefined, inherit: boolean): string
 }
 
 export function runPlaywright(run: RunArgs): RunResult {
-    return isWSL ? runWSL(run) : runNative(run);
-}
-
-function runNative(run: RunArgs): RunResult {
-    const env = run.env?.(null) ?? {};
+    const env = run.env?.() ?? {};
     const result = Bun.spawnSync(
         ["bunx", "playwright", "test", "--config", run.config, ...(run.args ?? [])],
         {
@@ -70,34 +54,5 @@ function runNative(run: RunArgs): RunResult {
         exitCode: result.exitCode,
         stdout: decode(result.stdout, !!run.inherit),
         timedOut: result.exitCode === null,
-        staged: null,
-    };
-}
-
-function runWSL(run: RunArgs): RunResult {
-    if (!run.stage) throw new Error("WSL playwright run needs a `stage` (name + files)");
-    const staged = stageOnWindows(run.dir, run.stage.name, run.stage.files);
-    const env = run.env?.(staged) ?? {};
-    const assigns = Object.entries(env)
-        .map(([k, v]) => `$env:${k} = '${quote(v)}';`)
-        .join(" ");
-    const tail = [run.config, ...(run.args ?? [])].map((a) => `'${quote(a)}'`).join(" ");
-    const result = Bun.spawnSync(
-        [
-            "powershell.exe",
-            "-Command",
-            `${assigns} $env:PLAYWRIGHT_BROWSERS_PATH = "$env:LOCALAPPDATA\\ms-playwright"; cd '${staged.win}'; bunx playwright test --config ${tail}`,
-        ],
-        {
-            stdout: run.inherit ? "inherit" : "pipe",
-            stderr: "inherit",
-            timeout: run.timeoutMs,
-        },
-    );
-    return {
-        exitCode: result.exitCode,
-        stdout: decode(result.stdout, !!run.inherit),
-        timedOut: result.exitCode === null,
-        staged,
     };
 }

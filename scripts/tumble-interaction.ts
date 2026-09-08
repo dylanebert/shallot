@@ -1,4 +1,4 @@
-import { skipReason, teardownBridge, verify } from "./verify";
+import { skipReason, verify } from "./verify";
 
 // `bun run scripts/tumble-interaction.ts` — the standing interaction + visual gate for the tumble gym
 // sample host. A thin wrapper over the shipped gate exactly like
@@ -150,7 +150,6 @@ Options:
     try {
         for (const p of list) allPass = (await runProbe(p)) && allPass;
     } finally {
-        await teardownBridge();
     }
 
     if (!allPass) {

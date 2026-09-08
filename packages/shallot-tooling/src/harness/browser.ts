@@ -33,9 +33,16 @@ export interface RealGpuLaunch {
  * shallot's floor even on real hardware (probed 2026-07-14, M4 Metal: headless-shell = swiftshader, 4/5
  * floor features; `channel: "chromium"` = metal-3, full floor + subgroups). The same
  * `playwright install chromium` provides both builds, and this channel is real GPU in headed launches
- * too, not just headless. `args` requests WebGPU behind Chromium's dev flags.
+ * too, not just headless. `args` requests WebGPU behind Chromium's dev flags, and names the launch's
+ * window class: a gate runs headed (headless reaches only a software adapter), so a window appears on
+ * whatever session drives it, and `--class` is the handle a compositor rule needs to place it out of
+ * the way. Chromium and Chrome both take it as the Wayland app id.
  */
 export const REAL_GPU_LAUNCH: RealGpuLaunch = {
     channel: "chromium",
-    args: ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures"],
+    args: [
+        "--enable-unsafe-webgpu",
+        "--enable-features=WebGPUDeveloperFeatures",
+        "--class=kex-gate",
+    ],
 };

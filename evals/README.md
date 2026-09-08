@@ -55,15 +55,16 @@ without-context arm — running the same task with and without `--bare` measures
 - `setup.ts` — pack engine → scaffold via `create-shallot` → install → drop `PROMPT.md`. Emits the dir.
 - `grade.ts` — typecheck + build + boot + drive the gate. Uses `harness/` for the browser path.
 - `harness/lib.ts` — the shared gate driver: boot, screenshot, pixel/region/diff/centroid helpers.
-- `harness/{server,playwright,wsl}.ts` — the self-contained browser path: server boot, `playwright test` runner, WSL→Windows staging.
+- `harness/{server,playwright,wsl}.ts` — the self-contained browser path: server boot, `playwright test` runner, display detection.
 - `harness/gate.config.ts`, `harness/package.json` — the Playwright config + deps staged to run a gate.
 - `harness/result.ts` — pure derivation of a graded task's result kind (PASS/FAIL/INCOMPLETE) from its typecheck, build, and gate inputs.
 - `tasks/<task>/` — `PROMPT.md` (shown), `gate.ts` + `NOTES.md` (withheld).
 
 ## Notes
 
-- The browser gate is **display-gated** like the rest of the harness (WSL → Windows Chrome; auto-skips
-  with no display). `typecheck` and `build` always run; the gate reports `skipped` without a display.
+- The browser gate is **display-gated** like the rest of the harness: it launches a headed local
+  browser and auto-skips with no display. `typecheck` and `build` always run; the gate reports
+  `skipped` without a display.
 - Physics and raster need a real GPU, so those gates only mean anything where a display is present.
 - The result schema carries `verification` fields. This script fills the mechanical ones (`booted`,
   `rendered`); the judgment ones (did the agent *claim* it verified, and was that honest) are filled by

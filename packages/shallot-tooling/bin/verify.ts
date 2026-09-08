@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, writeSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer as createTcpServer } from "node:net";
 import { basename, join, resolve } from "node:path";
@@ -15,7 +15,7 @@ import { devConfig } from "./dev";
 import { composeViteConfig, isProject, loadProjectConfig } from "./toolchain";
 
 // `shallot verify [dir]` — the shipped, self-terminating verification gate. It boots the project in a
-// real headless browser, waits for it to render (or for a `window.__harness` the project installs),
+// real headed browser (the only launch that reaches real GPU hardware), waits for it to render (or for a `window.__harness` the project installs),
 // reads a pass/fail Verdict, and exits 0 on pass / nonzero on fail. Playwright is lazy + optional (never
 // a hard dep of @dylanebert/shallot); the browser path drives the Playwright LIBRARY API in-process — no
 // @playwright/test runner, no config file. Boot = the dev server by default, `--dist` = the existing
@@ -66,6 +66,33 @@ export function displayGateMessage(hardware: string): string {
         `feature/limit check and then crashes mid-run instead (GPU device lost, oversized buffer ` +
         `allocations) — a false engine-bug reading rather than a missing display. Run against a browser ` +
         `backed by real hardware, or attach to one via --connect.`
+    );
+}
+
+/**
+ * true when this host can launch a *headed* browser, which is the only launch that reaches real GPU
+ * hardware: a headless Chromium falls back to a software rasterizer (measured 2026-09-08 on a Linux
+ * Wayland session with a discrete NVIDIA GPU: headed reports `nvidia / lovelace`, headless reports
+ * `google / swiftshader` under every WebGPU flag set tried). On Linux that needs a display server;
+ * on macOS and Windows a launch always has one. Pure — testable without a browser.
+ */
+export function headedLaunchAvailable(
+    platform: string,
+    env: Record<string, string | undefined>,
+): boolean {
+    if (platform !== "linux") return true;
+    return !!(env.DISPLAY || env.WAYLAND_DISPLAY);
+}
+
+/** the refusal diagnostic for a host with no display: verify cannot launch headed, and a headless
+ *  launch would only offer a software adapter the display gate refuses anyway — so it says which is
+ *  missing rather than reporting a software adapter as the finding. */
+export function noDisplayMessage(): string {
+    return (
+        `shallot verify launches a headed browser, but this host has no display (neither DISPLAY nor ` +
+        `WAYLAND_DISPLAY is set). A headless launch only offers a software rasterizer, which clears ` +
+        `every feature/limit check and then crashes mid-run. Run on a session with a display, or ` +
+        `attach to a browser on one via --connect.`
     );
 }
 
@@ -1699,8 +1726,8 @@ export interface Booter {
     mode: "dev" | "dist";
 }
 
-// pick an ephemeral free port (or honor --port), via node:net so this runs under node too (the WSL bridge
-// bundles this CLI and drives it with node — Bun is undefined there). Bind an OS-assigned port, read it,
+// pick an ephemeral free port (or honor --port), via node:net rather than a Bun API so this path carries
+// no Bun globals and a node-target bundle of this graph can run it. Bind an OS-assigned port, read it,
 // release it, hand it to the dev/dist server. A tiny race, acceptable for a one-shot gate.
 function pickPort(explicit?: number): Promise<number> {
     if (explicit != null) return Promise.resolve(explicit);
@@ -1718,8 +1745,8 @@ function pickPort(explicit?: number): Promise<number> {
 }
 
 // serve an existing dist/ statically over vite's own preview server — the same mechanism serveDev/
-// serveEjected already use. Together with pickPort's node:net probe, the whole boot path is now
-// runtime-agnostic (the WSL bridge runs this CLI under node, where Bun is undefined).
+// serveEjected already use. Together with pickPort's node:net probe, the whole boot path is
+// runtime-agnostic: it names no Bun global, so it runs unchanged under node.
 // No implicit build — a missing dist is an actionable error, not a silent recovery.
 /** @internal exported only so the SetupError guard can be driven by temp dir without booting vite. */
 export async function serveDist(projectDir: string, port: number): Promise<Booter> {
@@ -1835,7 +1862,7 @@ async function importPlaywright(projectDir: string): Promise<{ chromium: unknown
 }
 
 const usage = `
-  shallot verify [dir] — boot the project in a headless browser and check it renders
+  shallot verify [dir] — boot the project in a headed browser and check it renders
 
   By default runs the dev server and waits for a settled, non-blank frame (booted + rendered
   + zero page errors). A project that installs window.__harness (import { installHarness } from
@@ -1879,8 +1906,8 @@ const usage = `
 
 // Node's stdout-to-a-pipe is async: `console.log`/`process.stdout.write` queue the write and return
 // before the OS has it, so a `process.exit()` right after silently drops whatever's still queued past the
-// pipe buffer (measured: cut at exactly 64 KiB under node; bun did not truncate, but node is what runs
-// this CLI on the WSL bridge). Writes to the same handle are flushed in the order they were
+// pipe buffer (measured: cut at exactly 64 KiB under node; bun did not truncate, but node is a runtime
+// this CLI's boot path stays runnable under). Writes to the same handle are flushed in the order they were
 // queued, so awaiting one more (empty) write's callback proves every prior write already landed — the one
 // seam `runVerify` awaits before returning, covering every payload it can emit (batch array, `--timings`,
 // shader artifacts, a lone large verdict) without each call site tracking its own flush. It runs in a
@@ -1893,8 +1920,30 @@ export function flushStdout(): Promise<void> {
 
 // the one failure path for runs that never reach a verdict: a machine consumer always gets JSON on
 // stdout under --json; a human gets the message on stderr.
+/** Write one machine-read JSON payload straight to fd 1, looping until every byte is gone. A payload
+ *  queued through `console.log` is dropped past the pipe buffer when the process exits — measured
+ *  2026-09-08 against a 569,183-byte batch report: piped to a reader the output stops at exactly 65,536
+ *  bytes, while the same command redirected to a file is whole, which is why this only ever surfaced
+ *  against a reading process (`scripts/bench.ts`'s sweep read 56 of 59 rows as "unavailable verdict").
+ *  No flush after the fact recovers it: an empty-write callback and a `drain` listener both resolve
+ *  while the bytes are still unwritten. `writeSync` returns only once the OS has taken them, so a
+ *  verdict is whole or the write throws. Human-readable output stays on `console.log` — it is small,
+ *  and a torn line there is not a protocol violation. */
+function reportJson(payload: unknown): void {
+    const buffer = Buffer.from(`${JSON.stringify(payload)}\n`, "utf8");
+    let written = 0;
+    while (written < buffer.length) {
+        try {
+            written += writeSync(1, buffer, written, buffer.length - written);
+        } catch (err) {
+            // a non-blocking pipe whose buffer is full — the reader has not drained yet, so retry
+            if ((err as NodeJS.ErrnoException).code !== "EAGAIN") throw err;
+        }
+    }
+}
+
 function reportError(message: string, json: boolean): void {
-    if (json) console.log(JSON.stringify({ pass: false, error: message }));
+    if (json) reportJson({ pass: false, error: message });
     else console.error(`\n  ✗ ${message}\n`);
 }
 
@@ -1979,6 +2028,14 @@ async function verifyCommand(raw: string[]): Promise<number> {
     checkpoints.push({ name: "server boot", t: Date.now() });
     const url = buildUrl(booter.url, args.query);
 
+    // No display, no headed launch, and headless reaches only a software adapter — refuse by name here
+    // rather than launching into one and reporting the adapter as the finding. A remote browser
+    // (--connect) is launched on its own host, so this host's display says nothing about it.
+    if (!args.connect && !headedLaunchAvailable(process.platform, process.env)) {
+        reportError(noDisplayMessage(), args.json);
+        return EXIT_NO_DISPLAY;
+    }
+
     let browser: Browser | undefined;
     let result: Result | undefined;
     const batchResults: Result[] = [];
@@ -1993,13 +2050,15 @@ async function verifyCommand(raw: string[]): Promise<number> {
             browser = args.connect
                 ? await chromium.connect(args.connect, { timeout: 30_000 })
                 : await chromium.launch({
-                      // S1f: headless rAF timestamps are derived from a display-less frame clock with no
-                      // real compositor/vsync, so they undershoot real block durations (probed:
-                      // 90ms→66.7ms, 120ms→100ms, below ~90ms never reported — `rum-intake-driver.ts:31-36`).
-                      // The rAF-delta sampler needs a real display to produce valid readings, so the
-                      // attribution run goes headed when `SHALLOT_HEADED` is set — scoped to `--attribution`
-                      // only, not the default for every `shallot verify` consumer.
-                      headless: !(args.attribution && process.env.SHALLOT_HEADED),
+                      // Headed, always. A headless launch reaches only a software rasterizer (measured
+                      // 2026-09-08: headed `nvidia / lovelace`, headless `google / swiftshader` under
+                      // every WebGPU flag set tried), which the display gate below refuses — so headless
+                      // is not a cheaper mode, it is a mode that cannot verify. It also fixes the rAF
+                      // sampler: a display-less frame clock has no real compositor/vsync, so its
+                      // timestamps undershoot real block durations (probed: 90ms→66.7ms, 120ms→100ms,
+                      // below ~90ms never reported). A browser window appears on the session's display
+                      // for the run's duration; `headedLaunchAvailable` refuses above when there is none.
+                      headless: false,
                       // the published real-GPU recipe (`src/harness/browser.ts`) — its JSDoc carries the
                       // headless-shell/SwiftShader finding this channel exists to avoid.
                       ...REAL_GPU_LAUNCH,
@@ -2637,7 +2696,7 @@ async function maybeScreenshot(page: Page, path: string | undefined): Promise<vo
  *  otherwise — `labels` are the `--run` specs in the same order as `results`. @internal */
 export function reportBatch(results: Result[], labels: string[], json: boolean): void {
     if (json) {
-        console.log(JSON.stringify(results));
+        reportJson(results);
         return;
     }
     results.forEach((result, i) => {
@@ -2649,7 +2708,7 @@ export function reportBatch(results: Result[], labels: string[], json: boolean):
 /** render one completed verify result for the human or JSON CLI boundary. @internal */
 export function report(result: Result, json: boolean): void {
     if (json) {
-        console.log(JSON.stringify(result));
+        reportJson(result);
         return;
     }
     const mark = (ok: boolean) => (ok ? "✓" : "✗");

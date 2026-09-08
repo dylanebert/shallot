@@ -126,7 +126,7 @@ describe("changed-path selector", () => {
 });
 
 describe("manifest-owned verify transport", () => {
-    test("loads each manifest revision and executes its cwd/argv/exit through native and Node transports", async () => {
+    test("loads each manifest revision and executes its cwd/argv/exit through the local CLI", async () => {
         const project = realpathSync(mkdtempSync(resolve(tmpdir(), "shallot-manifest-verify-")));
         const cli = resolve(project, "driver.mjs");
         const observed = resolve(project, "observed.json");
@@ -139,7 +139,7 @@ describe("manifest-owned verify transport", () => {
         const command = `bun run --cwd ${project} gate`;
         try {
             setGate("bunx shallot verify . --screenshot native.png --query exit=7");
-            expect(await runCommand(command, { wsl: false, cli })).toEqual({
+            expect(await runCommand(command, { cli })).toEqual({
                 ok: false,
                 warnings: 0,
             });
@@ -148,60 +148,15 @@ describe("manifest-owned verify transport", () => {
                 argv: ["verify", ".", "--screenshot", "native.png", "--query", "exit=7"],
                 runtime: "bun",
             });
-            setGate("bunx shallot verify . --screenshot bridge.png --query exit=0");
-            const bridge = async () => ({
-                bundle: cli,
-                connectUrl: "ws://127.0.0.1:12345/fixture",
-            });
-            expect(
-                await runCommand(command, {
-                    wsl: true,
-                    prerequisite: () => null,
-                    bridge,
-                    port: async () => 23456,
-                }),
-            ).toEqual({ ok: true, warnings: 0 });
+            setGate("bunx shallot verify . --port 34567 --query exit=0");
+            expect(await runCommand(command, { cli })).toEqual({ ok: true, warnings: 0 });
             expect(await Bun.file(observed).json()).toEqual({
                 cwd: project,
-                argv: [
-                    "verify",
-                    ".",
-                    "--screenshot",
-                    "bridge.png",
-                    "--query",
-                    "exit=0",
-                    "--connect",
-                    "ws://127.0.0.1:12345/fixture",
-                    "--port",
-                    "23456",
-                ],
-                runtime: "node",
+                argv: ["verify", ".", "--port", "34567", "--query", "exit=0"],
+                runtime: "bun",
             });
-            setGate("bunx shallot verify . --port 34567 --query exit=7");
-            expect(
-                (
-                    await runCommand(command, {
-                        wsl: true,
-                        prerequisite: () => null,
-                        bridge,
-                        port: async () => {
-                            throw new Error("must preserve explicit port");
-                        },
-                    })
-                ).ok,
-            ).toBe(false);
-            expect((await Bun.file(observed).json()).argv).toEqual([
-                "verify",
-                ".",
-                "--port",
-                "34567",
-                "--query",
-                "exit=7",
-                "--connect",
-                "ws://127.0.0.1:12345/fixture",
-            ]);
             setGate("bunx shallot verify . && echo false-green");
-            await expect(runCommand(command, { wsl: false, cli })).rejects.toThrow(
+            await expect(runCommand(command, { cli })).rejects.toThrow(
                 "unsupported verify gate composition",
             );
             setGate("bun --eval 'process.exit(7)'");
@@ -275,39 +230,6 @@ describe("manifest-owned verify transport", () => {
         } finally {
             rmSync(project, { recursive: true, force: true });
         }
-    });
-
-    test("missing bridge refuses through a real selector subprocess before launching a driver", async () => {
-        const reader = resolve(import.meta.dir, "test-changed.ts");
-        // Use ocean's actual registry row and actual manifest; only seat discovery is
-        // controlled. No ambient bridge is started, disabled or contacted.
-        const child = Bun.spawn(
-            [
-                "bun",
-                "--eval",
-                `
-            import {main,runCommand} from ${JSON.stringify(reader)};
-            try {
-                process.exit(await main(['--base','HEAD','--diff','HEAD'], {
-                    paths: async () => ['examples/showcase/ocean/shallot.json'],
-                    displaySkip: () => null,
-                    displayRequired: true,
-                    run: command => runCommand(command, {wsl:true, prerequisite:()=> 'controlled missing host bridge', bridge:async()=>{throw new Error('driver must not start');}})
-                }));
-            } catch (error) { console.error(error.message); process.exit(2); }
-        `,
-            ],
-            { stdout: "pipe", stderr: "pipe" },
-        );
-        const [stdout, stderr, code] = await Promise.all([
-            new Response(child.stdout).text(),
-            new Response(child.stderr).text(),
-            child.exited,
-        ]);
-        expect(code).toBe(2);
-        expect(stdout).toContain("examples/showcase/ocean");
-        expect(stderr).toContain("verify bridge unavailable: controlled missing host bridge");
-        expect(stderr).not.toContain("driver must not start");
     });
 });
 

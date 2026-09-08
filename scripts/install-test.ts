@@ -27,13 +27,7 @@ import { harnessArms, harnessContract } from "./install-test/harness";
 import { outputFlow } from "./install-test/output";
 import { runtimeArms } from "./install-test/runtime";
 import { projectTumble, tumbleArms } from "./install-test/tumble";
-import {
-    type ShaderArtifactSummary,
-    skipReason,
-    teardownBridge,
-    type VerifyResult,
-    verify,
-} from "./verify";
+import { type ShaderArtifactSummary, skipReason, type VerifyResult, verify } from "./verify";
 
 const ENGINE_DIR = resolve(import.meta.dir, "../packages/shallot");
 const WIDGET_DIR = resolve(import.meta.dir, "install-test/widget");
@@ -1021,7 +1015,6 @@ async function recipeFlow(work: string, engineTgz: string, sandbox: string, name
                 result?.pass === true && result.booted === true && result.rendered === true,
                 verifyDiagnostic(result),
             );
-            await teardownBridge();
         }
     }
 }
@@ -1107,7 +1100,7 @@ async function ejectedFlow(work: string, engineTgz: string) {
         `import { projectPlugin } from "@dylanebert/shallot/vite";\n` +
             `import { REAL_GPU_LAUNCH } from "@dylanebert/shallot/harness/browser";\n` +
             `if (typeof projectPlugin !== "function") throw new Error("projectPlugin: not a function");\n` +
-            `if (JSON.stringify(REAL_GPU_LAUNCH) !== '${JSON.stringify({ channel: "chromium", args: ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures"] })}') throw new Error("REAL_GPU_LAUNCH: wrong options");\n` +
+            `if (JSON.stringify(REAL_GPU_LAUNCH) !== '${JSON.stringify({ channel: "chromium", args: ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures", "--class=kex-gate"] })}') throw new Error("REAL_GPU_LAUNCH: wrong options");\n` +
             `console.log("NODE_RESOLVE_OK " + REAL_GPU_LAUNCH.channel);\n`,
     );
     const nodeResolve = run(["node", "node-resolve-check.mjs"], proj);
@@ -1164,7 +1157,6 @@ async function ejectedFlow(work: string, engineTgz: string) {
     // unexplained rather than routed around; the exclusion stays documented in MIGRATION.md as the
     // defensive default (it IS load-bearing for the zero-config path, red-proven at 5b-2f-5 and pinned
     // by `toolchain.test.ts`), but asserting it must break an ejected boot would pin a false invariant.
-    await teardownBridge();
 }
 
 // The engine's shaders are TGSL: JS function bodies transpiled to WGSL at BUILD time by
@@ -1562,7 +1554,6 @@ async function identityBrowserFlow(work: string, engineTgz: string) {
             );
         }
     }
-    await teardownBridge();
 
     console.log("typegpu peer identity (browser, zero-config sandbox)…");
     const sandboxDir = join(work, "identity-browser-sandbox");
@@ -1578,7 +1569,6 @@ async function identityBrowserFlow(work: string, engineTgz: string) {
         checkIdentityVerdict("zero-config sandbox, normal config", normal, true);
         checkPrebundled("zero-config sandbox, normal config", normal, false);
     }
-    await teardownBridge();
 
     // No perturbed arm for this fixture — measured 2026-08-10, two ways: (1) stripping `typegpu` out of
     // `devConfig`'s `optimizeDeps.exclude` (`SHALLOT_TEST_STRIP_OPTIMIZE_EXCLUDE`, tried first) and (2)
@@ -1615,7 +1605,6 @@ async function identityBrowserFlow(work: string, engineTgz: string) {
         checkIdentityVerdict("ejected fixture, normal config", normal, true);
         checkPrebundled("ejected fixture, normal config", normal, false);
     }
-    await teardownBridge();
 
     const perturbedConfig = stripTypegpuExclude(normalConfig);
     const ejectedPerturbedDir = join(work, "identity-browser-ejected-perturbed");
@@ -1650,7 +1639,6 @@ async function identityBrowserFlow(work: string, engineTgz: string) {
             errors.slice(0, 400),
         );
     }
-    await teardownBridge();
 }
 
 // A pinned, deliberately different patch version for the second physical copy — not the identical
@@ -2189,7 +2177,6 @@ if (import.meta.main) {
                     verifyDiagnostic(result),
                 );
             }
-            await teardownBridge();
         }
 
         if (install.ok) {

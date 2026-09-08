@@ -9,7 +9,6 @@ import {
     queryFlags,
     REPO_ROOT,
     skipReason,
-    teardownBridge,
     type VerifyResult,
     verify,
     verifyBatch,
@@ -593,7 +592,6 @@ async function main(): Promise<void> {
                 console.error(
                     "\n--for resolved a path no scenario covers — nothing would be swept",
                 );
-                await teardownBridge();
                 process.exit(1);
             }
             names = [...new Set(matches.flatMap((m) => m.scenarios))];
@@ -602,7 +600,6 @@ async function main(): Promise<void> {
         }
         if (names.length === 0) {
             console.error("\nno scenario selected — nothing to sweep");
-            await teardownBridge();
             process.exit(1);
         }
         const started = Date.now();
@@ -610,7 +607,6 @@ async function main(): Promise<void> {
         console.log(
             `\nselected ${names.length} scenario(s) in ${((Date.now() - started) / 1000).toFixed(1)}s`,
         );
-        await teardownBridge();
         if (!passed) {
             console.error("sweep FAILED");
             process.exit(1);
@@ -646,7 +642,6 @@ async function main(): Promise<void> {
     if (missing) {
         console.log(`\n${assetSkipMessage(args.scenario, missing)}`);
         console.log('population: {"selected":1,"executed":0,"pass":0,"fail":0,"unavailable":1}');
-        await teardownBridge();
         process.exit(process.env.SHALLOT_DISPLAY_REQUIRED === "1" ? 1 : 0);
     }
 
@@ -681,7 +676,6 @@ async function main(): Promise<void> {
     // release the shared WSL bridge so the process exits — its rendezvous + client servers and the host
     // browser subprocess otherwise keep the event loop alive past the verdict (a no-op off WSL). The
     // failure paths above `process.exit`, firing the bridge's sync exit hook; the pass path drains cleanly.
-    await teardownBridge();
     console.log("\ngym run passed");
 }
 
