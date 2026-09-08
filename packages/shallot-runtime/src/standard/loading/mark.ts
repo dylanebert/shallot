@@ -106,25 +106,6 @@ export function compose(width: number, height: number, layers: readonly Layer[])
     return out;
 }
 
-/** Trim transparent margin. */
-export function crop(grid: Grid): Grid {
-    let minX = Infinity;
-    let maxX = -1;
-    let minY = Infinity;
-    let maxY = -1;
-    grid.forEach((row, y) =>
-        row.forEach((tone, x) => {
-            if (!tone) return;
-            minX = Math.min(minX, x);
-            maxX = Math.max(maxX, x);
-            minY = Math.min(minY, y);
-            maxY = Math.max(maxY, y);
-        }),
-    );
-    if (maxX < 0) return [];
-    return grid.slice(minY, maxY + 1).map((row) => row.slice(minX, maxX + 1));
-}
-
 /** The canonical lockup: mark `m` in gold, the name in ink on its lower half, four pixels apart. */
 export function lockup(): Grid {
     const mark = fromBlocks(MARK.m);
@@ -170,21 +151,6 @@ export function toText(cells: Cell[][]): string {
                 .map((c) => c.ch)
                 .join("")
                 .replace(/\s+$/, ""),
-        )
-        .join("\n");
-}
-
-/** Cells → HTML spans. Rows keep their full width so a frame never re-centers as it animates. */
-export function toHtml(cells: Cell[][], palette: Palette): string {
-    return cells
-        .map((row) =>
-            row
-                .map((c) => {
-                    if (!c.fg) return " ";
-                    const bg = c.bg ? `;background:${palette[c.bg]}` : "";
-                    return `<span style="color:${palette[c.fg]}${bg}">${c.ch}</span>`;
-                })
-                .join(""),
         )
         .join("\n");
 }
@@ -332,13 +298,6 @@ export function splashFrame(tick: number): Grid {
             for (let k = 0; k < 4; k++) (out[NAME_Y + y] as (Tone | null)[])[x + k] = "gold";
     }
     return out;
-}
-
-/** Every splash frame as ANSI lines, ready to write with cursor-up between them. */
-export function splashAnsi(palette: Palette = DARK): string[] {
-    const frames: string[] = [];
-    for (let t = 0; t <= END_TICK; t++) frames.push(toAnsi(toCells(splashFrame(t)), palette));
-    return frames;
 }
 
 /**

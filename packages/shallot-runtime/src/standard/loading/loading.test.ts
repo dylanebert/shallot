@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { minimalDark, shallotDark } from "./";
+import { DARK, lockup, toSvg } from "./mark";
 
 function createMockElement(tag: string) {
     const el: Record<string, any> = {
@@ -44,9 +45,13 @@ describe("Loading", () => {
     describe("DOM lifecycle", () => {
         let mockBody: Record<string, any>;
         let createdElements: Record<string, any>[];
+        let frames: number;
+        let reduced: boolean;
 
         beforeEach(() => {
             createdElements = [];
+            frames = 0;
+            reduced = false;
             mockBody = createMockElement("body");
             mockBody.style.position = "static";
 
@@ -63,11 +68,18 @@ describe("Loading", () => {
             };
             (globalThis as any).document = mockDoc;
             (globalThis as any).getComputedStyle = () => ({ position: "static" });
+            (globalThis as any).matchMedia = () => ({ matches: reduced });
+            // queued, never run: one splash frame renders synchronously and the test reads it
+            (globalThis as any).requestAnimationFrame = () => ++frames;
+            (globalThis as any).cancelAnimationFrame = () => {};
         });
 
         afterEach(() => {
             delete (globalThis as any).document;
             delete (globalThis as any).getComputedStyle;
+            delete (globalThis as any).matchMedia;
+            delete (globalThis as any).requestAnimationFrame;
+            delete (globalThis as any).cancelAnimationFrame;
         });
 
         test("show creates overlay and returns cleanup", () => {
@@ -100,7 +112,7 @@ describe("Loading", () => {
             const loading = shallotDark();
             const cleanup = loading.show()!;
             loading.update(0.5);
-            const bar = createdElements[4]; // overlay, panel, logo, track, bar
+            const bar = createdElements[4]; // overlay, panel, splash, track, bar
             expect(bar.style.width).toBe("50%");
 
             cleanup(); // nulls the bar ref
@@ -108,11 +120,23 @@ describe("Loading", () => {
             expect(bar.style.width).toBe("50%"); // detached bar unchanged, not "75%"
         });
 
-        test("shallot variant has logo and track", () => {
+        test("shallot variant mounts the splash and the track", () => {
             const loading = shallotDark();
             loading.show();
             const panel = mockBody.children[0].children[0]; // overlay → centered panel
             expect(panel.children.length).toBe(2);
+            // tick zero is the empty grid; the splash is live, sized to the lockup, and animating
+            expect(panel.children[0].innerHTML).toContain('viewBox="0 0 208 56"');
+            expect(frames).toBeGreaterThan(0);
+        });
+
+        test("reduced motion renders the resting lockup once", () => {
+            reduced = true;
+            const loading = shallotDark();
+            loading.show();
+            const splash = mockBody.children[0].children[0].children[0];
+            expect(splash.innerHTML).toBe(toSvg(lockup(), DARK, 4));
+            expect(frames).toBe(0);
         });
 
         test("minimal variant has track only", () => {

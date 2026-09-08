@@ -10,7 +10,7 @@ import {
     toSvg,
     toText,
     word,
-} from "../site/brand/mark";
+} from "../packages/shallot-runtime/src/standard/loading/mark";
 import { brandPage } from "../site/brand/page";
 import { toPng } from "../site/brand/png";
 import { llmsTxt, siteIndex } from "../site/home";
@@ -76,7 +76,13 @@ export async function buildBrand(
     write("wordmark.svg", toSvg(word(), DARK, 1));
     write("wordmark.png", toPng(word(), DARK, 8));
     write("mark.txt", `${toText(toCells(mark))}\n`);
-    write("mark.ts", readFileSync(resolve(root, "site/brand/mark.ts"), "utf8"));
+    write(
+        "mark.ts",
+        readFileSync(
+            resolve(root, "packages/shallot-runtime/src/standard/loading/mark.ts"),
+            "utf8",
+        ),
+    );
 }
 
 /** Writes the home index, `llms.txt`, and the brand pages. `rumMode` picks the Datadog env
