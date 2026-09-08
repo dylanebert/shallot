@@ -86,7 +86,7 @@ bunx shallot dev</pre>
 
 <section>
 <h2>demos</h2>
-<p class="warn" data-webgpu-note hidden>This browser has no WebGPU, so the demos will not run here. <a href="https://caniuse.com/webgpu" target="_blank" rel="noopener">See which browsers do.</a></p>
+<p class="warn" data-webgpu-note hidden><a href="https://caniuse.com/webgpu" target="_blank" rel="noopener">WebGPU not supported.</a> Demos will not run.</p>
 <ul class="demos">
 ${rows}
 </ul>
