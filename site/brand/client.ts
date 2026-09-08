@@ -100,5 +100,9 @@ for (const canvas of document.querySelectorAll<HTMLCanvasElement>("[data-termina
     });
 }
 
+// `?webgpu=0` previews the note on a machine that has WebGPU; `?webgpu=1` hides it on one that
+// doesn't. Without the switch the page reads the real adapter.
 const note = document.querySelector<HTMLElement>("[data-webgpu-note]");
-if (note && !("gpu" in navigator)) note.hidden = false;
+const forced = new URLSearchParams(location.search).get("webgpu");
+const hasGpu = forced === null ? "gpu" in navigator : forced !== "0";
+if (note && !hasGpu) note.hidden = false;

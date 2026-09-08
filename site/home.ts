@@ -22,7 +22,7 @@ export function siteIndex(
     const rows = demos
         .map(
             (d) =>
-                `<li><a class="play" href="./${d.slug}/">${d.title}</a><a class="code" href="${codeUrl(d.slug)}">code</a></li>`,
+                `<li><a class="play" href="./${d.slug}/">${d.slug}</a><a class="code" href="${codeUrl(d.slug)}">code</a></li>`,
         )
         .join("\n");
     const label = mode === "staging" ? `staging · ${ref}` : `v${version} · ${ref}`;
