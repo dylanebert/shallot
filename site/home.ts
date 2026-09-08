@@ -25,7 +25,13 @@ export function siteIndex(
                 `<li><a class="play" href="./${d.slug}/">${d.slug}</a><a class="code" href="${codeUrl(d.slug)}" target="_blank" rel="noopener">code</a></li>`,
         )
         .join("\n");
-    const label = mode === "staging" ? `staging · ${ref}` : `v${version} · ${ref}`;
+    const out = (href: string, text: string) =>
+        `<a href="${href}" target="_blank" rel="noopener">${text}</a>`;
+    const commit = out(`https://github.com/dylanebert/shallot/commit/${ref}`, ref);
+    const label =
+        mode === "staging"
+            ? `staging · ${commit}`
+            : `${out(`https://github.com/dylanebert/shallot/releases/tag/v${version}`, `v${version}`)} · ${commit}`;
     return `<!doctype html>
 <html lang="en">
 <head>
