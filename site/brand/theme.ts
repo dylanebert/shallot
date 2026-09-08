@@ -61,5 +61,5 @@ export function nav(here: "home" | "brand"): string {
         `<a href="${href}"${here === id ? ' class="here"' : ""}>${text}</a>`;
     const home = here === "home" ? "./" : "../";
     const brand = here === "home" ? "./brand/" : "./";
-    return `<nav>${link(home, "home", "shallot")}${link(brand, "brand", "brand")}<span class="sp"></span><a href="https://github.com/dylanebert/shallot" aria-label="GitHub">${GITHUB}</a><a href="https://www.npmjs.com/package/@dylanebert/shallot" aria-label="npm">${PACKAGE}</a></nav>`;
+    return `<nav>${link(home, "home", "shallot")}${link(brand, "brand", "brand")}<span class="sp"></span><a href="https://github.com/dylanebert/shallot" target="_blank" rel="noopener" aria-label="GitHub">${GITHUB}</a><a href="https://www.npmjs.com/package/@dylanebert/shallot" target="_blank" rel="noopener" aria-label="npm">${PACKAGE}</a></nav>`;
 }

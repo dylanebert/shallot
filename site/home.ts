@@ -22,7 +22,7 @@ export function siteIndex(
     const rows = demos
         .map(
             (d) =>
-                `<li><a class="play" href="./${d.slug}/">${d.slug}</a><a class="code" href="${codeUrl(d.slug)}">code</a></li>`,
+                `<li><a class="play" href="./${d.slug}/">${d.slug}</a><a class="code" href="${codeUrl(d.slug)}" target="_blank" rel="noopener">code</a></li>`,
         )
         .join("\n");
     const label = mode === "staging" ? `staging · ${ref}` : `v${version} · ${ref}`;
@@ -65,7 +65,7 @@ ${nav("home")}
 <h2>quick start</h2>
 <div class="steps">
 <pre class="block"><span class="c"># install bun</span>
-curl -fsSL https://<a href="https://bun.sh">bun.sh</a>/install | bash</pre>
+curl -fsSL https://<a href="https://bun.sh" target="_blank" rel="noopener">bun.sh</a>/install | bash</pre>
 <pre class="block"><span class="c"># new project</span>
 bun create shallot my-game
 cd my-game
