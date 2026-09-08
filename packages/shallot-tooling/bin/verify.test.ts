@@ -48,6 +48,7 @@ import {
     harnessInstallMs,
     harnessPass,
     hasStructure,
+    headedLaunchAvailable,
     installHarnessProbe,
     isSoftwareAdapter,
     LEAK_BYTES_PER_SEC,
@@ -55,6 +56,7 @@ import {
     type LoAFScriptEntry,
     loafByCompilePhase,
     type MemorySample,
+    noDisplayMessage,
     parseVerifyArgs,
     pollFrameSample,
     type RawCpuProfile,
@@ -400,13 +402,39 @@ describe("isSoftwareAdapter / displayGateExit — the CLI's own display gate", (
         const noAdapter = displayGateMessage("unknown");
         expect(noAdapter).toContain("no GPU adapter was offered");
     });
+
+    test("headedLaunchAvailable requires a Linux display server and nothing elsewhere", () => {
+        // headed is the only launch that reaches real hardware, so on Linux the whole prerequisite is a
+        // session: either display protocol satisfies it, neither refuses.
+        expect(headedLaunchAvailable("linux", { DISPLAY: ":0" })).toBe(true);
+        expect(headedLaunchAvailable("linux", { WAYLAND_DISPLAY: "wayland-1" })).toBe(true);
+        expect(
+            headedLaunchAvailable("linux", { DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-1" }),
+        ).toBe(true);
+        expect(headedLaunchAvailable("linux", {})).toBe(false);
+        expect(headedLaunchAvailable("linux", { DISPLAY: "", WAYLAND_DISPLAY: "" })).toBe(false);
+        // an unrelated variable does not stand in for one
+        expect(headedLaunchAvailable("linux", { XDG_RUNTIME_DIR: "/run/user/1000" })).toBe(false);
+        // macOS and Windows launches carry their own window server
+        expect(headedLaunchAvailable("darwin", {})).toBe(true);
+        expect(headedLaunchAvailable("win32", {})).toBe(true);
+    });
+
+    test("noDisplayMessage names both variables and the remedy, never the caller's seat", () => {
+        const msg = noDisplayMessage();
+        expect(msg).toContain("DISPLAY");
+        expect(msg).toContain("WAYLAND_DISPLAY");
+        expect(msg).toContain("--connect");
+        expect(msg.toLowerCase()).not.toContain("wsl");
+        expect(msg.toLowerCase()).not.toContain("kex");
+    });
 });
 
 describe("runtime-agnostic boot path", () => {
-    // `scripts/wsl-bridge.ts` bundles this CLI and drives it with node, where `Bun` is undefined, so any
-    // `Bun.` in it is a boot-path defect whatever function holds it — file granularity is the property's
-    // own granularity. Twice measured: `serveDist`'s `Bun.serve`/`Bun.file`, then `pickPort`'s port probe,
-    // each surfacing only as `boot failed: Bun is not defined` on a display-gated bridge run.
+    // A node-target bundle of this CLI runs it where `Bun` is undefined, so any `Bun.` in it is a
+    // boot-path defect whatever function holds it — file granularity is the property's own granularity.
+    // Twice measured: `serveDist`'s `Bun.serve`/`Bun.file`, then `pickPort`'s port probe, each surfacing
+    // only as `boot failed: Bun is not defined` under node.
     test("verify.ts reaches for no bun global", () => {
         const src = readFileSync(join(import.meta.dir, "verify.ts"), "utf8");
         const hits = src

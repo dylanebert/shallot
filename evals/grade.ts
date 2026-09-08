@@ -23,7 +23,7 @@ import { SPAWN_BACKSTOP_MS } from "./harness/lib";
 import { runPlaywright } from "./harness/playwright";
 import { deriveResultKind, type ResultKind, resultKindToPass } from "./harness/result";
 import { startServer } from "./harness/server";
-import { detectDisplay, isWSL } from "./harness/wsl";
+import { detectDisplay } from "./harness/wsl";
 
 const EVALS = import.meta.dir;
 const HARNESS = join(EVALS, "harness");
@@ -153,23 +153,21 @@ if (!detectDisplay()) {
     cpSync(join(HARNESS, "package.json"), join(runDir, "package.json"));
     cpSync(join(HARNESS, "gate.config.ts"), join(runDir, "gate.config.ts"));
     cpSync(join(HARNESS, "lib.ts"), join(runDir, "lib.ts"));
-    // flatten the gate's import so it sits beside lib.ts in the staged run dir
+    // flatten the gate's import so it sits beside lib.ts in the run dir
     const src = readFileSync(taskGate, "utf8").replaceAll('"../../harness/lib"', '"./lib"');
     writeFileSync(join(runDir, "gate.ts"), src);
 
-    // native (non-WSL) runs Playwright in-place, so install its deps there; WSL stages + installs
-    // host-side inside runPlaywright. A failed install here is the harness's own dependency staging
-    // breaking, not the agent's task — caught and mapped to INCOMPLETE (unless typecheck or build
-    // already failed, which outranks it — see ./harness/result's docblock), never let fall through
-    // into a gate run that would grade the task on infrastructure that never finished setting up.
+    // Playwright runs in place, so its deps install here. A failed install is the harness's own
+    // dependency staging breaking, not the agent's task — caught and mapped to INCOMPLETE (unless
+    // typecheck or build already failed, which outranks it — see ./harness/result's docblock), never
+    // let fall through into a gate run that would grade the task on infrastructure that never
+    // finished setting up.
     let stagingError: string | null = null;
-    if (!isWSL) {
-        try {
-            sh(["bun", "install"], runDir);
-            sh(["bunx", "playwright", "install", "chromium"], runDir);
-        } catch (e) {
-            stagingError = e instanceof Error ? e.message : String(e);
-        }
+    try {
+        sh(["bun", "install"], runDir);
+        sh(["bunx", "playwright", "install", "chromium"], runDir);
+    } catch (e) {
+        stagingError = e instanceof Error ? e.message : String(e);
     }
 
     if (stagingError) {
@@ -193,10 +191,6 @@ if (!detectDisplay()) {
                 dir: runDir,
                 config: "gate.config.ts",
                 args: ["gate.ts"],
-                stage: {
-                    name: `shallot-eval-gate`,
-                    files: ["package.json", "gate.config.ts", "lib.ts", "gate.ts"],
-                },
                 env: () => ({ EVAL_URL: url }),
                 timeoutMs: SPAWN_BACKSTOP_MS,
             });
@@ -223,10 +217,9 @@ if (!detectDisplay()) {
                 };
             }
         } catch (e) {
-            // On the WSL path runPlaywright → stageOnWindows throws on a failed PowerShell install;
-            // the native path maps the same failure to INCOMPLETE via its stagingError catch. Mirror
-            // that here — a crashed grader cannot be told apart from any other crash, which is
-            // strictly worse than a stated INCOMPLETE.
+            // A throw escaping the run is mapped the same way its stagingError catch maps an install
+            // failure — a crashed grader cannot be told apart from any other crash, which is strictly
+            // worse than a stated INCOMPLETE.
             result.checks.gate = {
                 ok: null,
                 detail: `dependency staging failed (harness fault, not the task): ${(e instanceof Error ? e.message : String(e)).trim().slice(-600)}`,

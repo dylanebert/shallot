@@ -1,6 +1,6 @@
 import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot-runtime/src/engine/runtime/gpu";
 import { compileConcurrencyRatio } from "../site/rum-compile-vitals";
-import { queryFlags, skipReason, teardownBridge, verify } from "./verify";
+import { queryFlags, skipReason, verify } from "./verify";
 
 // The permanent capture of the boot pipeline-compile chain's own concurrency: nothing else in the
 // tree reads the raw `PIPELINE_COMPILE_MEASURE_PREFIX`-filtered `performance.measure` entries out of
@@ -82,8 +82,6 @@ async function main(): Promise<void> {
         `\nratio ≈ 1.0 reads as fully serial; ratio > 1 reads as N-way overlap. The absolute span is ` +
             `printed ungated — it is a wall-clock reading, not the structural claim (\`compileConcurrencyRatio\`'s own docblock).`,
     );
-
-    await teardownBridge();
 }
 
 await main();

@@ -1,5 +1,5 @@
 import { harnessBucketNames, type LoAFEntry } from "../packages/shallot-tooling/bin/verify";
-import { skipReason, teardownBridge, verify } from "./verify";
+import { skipReason, verify } from "./verify";
 
 // S1 of `shallot-demo-startup-stall`: discriminate the demo's startup ~1s stall by pipeline-label
 // KIND — main-thread-eligible sync path vs genuinely-async GPU-thread await — in one instrumented
@@ -111,8 +111,7 @@ async function main(): Promise<void> {
         return;
     }
 
-    console.log(`booting ${args.dir} over the WSL bridge (--attribution, headed)…`);
-    process.env.SHALLOT_HEADED = "1";
+    console.log(`booting ${args.dir} (--attribution, headed)…`);
     const result = await verify(args.dir, [
         "--attribution",
         "--timeout",
@@ -280,10 +279,8 @@ async function main(): Promise<void> {
 
     // S1f: headed check — the rAF-delta sampler's validity depends on a real display. A headless,
     // display-less frame clock undershoots real block durations (`rum-intake-driver.ts:31-36`:
-    // 90ms→66.7ms, 120ms→100ms, below ~90ms never reported). `stall-attribution.ts` sets
-    // `SHALLOT_HEADED=1` and `verify.ts` reads it to launch `headless: false`, but nothing tested
-    // that the setting actually took effect — the env is set unconditionally inside `main()`, so an
-    // external override cannot turn it off, and the launch flag was unarmed. This arm reads the
+    // 90ms→66.7ms, 120ms→100ms, below ~90ms never reported). `verify.ts` launches headed by default,
+    // but a default is not a reading — nothing else tests that the launch actually took effect. This arm reads the
     // browser's own `navigator.userAgent` back through the attribution result and asserts it does
     // not contain `HeadlessChrome` — the discriminator Playwright's headed vs headless launches
     // differ on (probed: headed = `Chrome/...`, headless = `HeadlessChrome/...`).
@@ -292,7 +289,7 @@ async function main(): Promise<void> {
         console.log(
             `FATAL: attribution run launched headless (UA contains "HeadlessChrome") — ` +
                 `rAF-delta readings are invalid on a display-less frame clock. ` +
-                `Set SHALLOT_HEADED=1 or fix the launch path.`,
+                `Fix the launch path — verify launches headed.`,
         );
         process.exitCode = 1;
     } else {
@@ -444,8 +441,6 @@ async function main(): Promise<void> {
             );
         }
     }
-
-    await teardownBridge();
 }
 
 await main();

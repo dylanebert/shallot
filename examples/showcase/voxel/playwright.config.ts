@@ -1,24 +1,15 @@
-import { existsSync, readFileSync } from "node:fs";
 import { defineConfig } from "@playwright/test";
-import { ENDPOINT_FILE } from "./playwright.global-setup";
 
 // The voxel showcase's own browser driver — bring-your-own, as a real user would. shallot exports no
 // Playwright harness (bun ships `bun test` and tells you to bring Playwright); the reusable part is the
 // gate logic in `src/gate.ts`, written against the published surface. The web server is `shallot dev` (the
 // standalone runtime, no editor), so the gate runs against the same path a user opens. This is full device
-// testing: it needs a capable WebGPU GPU. In WSL the only adapter is software (llvmpipe), which fails
-// shallot's device floor — `playwright.global-setup.ts` routes the run through `scripts/wsl-bridge.ts`'s
-// host-GPU bridge there, so this reads `connectOptions` back from what it found (a worker process re-imports
-// this file fresh, after global setup has already written it). Off WSL, and when the bridge's own
-// prerequisites are absent, no endpoint file exists and this falls through to the local/native launch below
-// — same as it always has, display-gated by the adapter-name skip in `test/voxel.playwright.ts`.
+// testing: it needs a capable WebGPU GPU, so the launch is local and headed on the
+// session's display — `playwright.global-setup.ts` refuses to start without one, and the adapter-name
+// skip in `test/voxel.playwright.ts` is the second guard against a software adapter.
 
 const PORT = 3100;
 const URL = `http://localhost:${PORT}`;
-
-const endpoint = existsSync(ENDPOINT_FILE)
-    ? (JSON.parse(readFileSync(ENDPOINT_FILE, "utf8")) as { wsEndpoint: string })
-    : null;
 
 export default defineConfig({
     testDir: "./test",
@@ -37,6 +28,13 @@ export default defineConfig({
         timeout: 180_000,
     },
     use: {
+        // headed always. Measured on this seat (Omarchy/Hyprland, RTX 4090, driver 610.57.04,
+        // 2026-09-08): headed system Chrome over a localhost origin reports `nvidia / lovelace`, while
+        // headless reports `google / swiftshader` — or no adapter at all — under every flag set tried.
+        // The channel does not avoid the software fallback headless. A window appears on the session's
+        // display during a run; `playwright.global-setup.ts` refuses to start when there is no display,
+        // so this never silently degrades to software.
+        headless: false,
         baseURL: URL,
         channel: "chrome",
         launchOptions: {
@@ -46,6 +44,5 @@ export default defineConfig({
                 "--enable-dawn-features=allow_unsafe_apis",
             ],
         },
-        ...(endpoint ? { connectOptions: { wsEndpoint: endpoint.wsEndpoint } } : {}),
     },
 });

@@ -2,13 +2,7 @@ import { resolve } from "node:path";
 import { Glob } from "bun";
 import { EXAMPLE_GATES, type ExampleGate } from "./example-gates";
 import { type CpuGate, OCEAN_CPU_GATES } from "./ocean-oracle-gates";
-import {
-    REPO_ROOT,
-    skipReason,
-    teardownBridge,
-    type VerifyCommandDeps,
-    verifyCommand,
-} from "./verify";
+import { REPO_ROOT, skipReason, type VerifyCommandDeps, verifyCommand } from "./verify";
 
 const WHOLE_ROSTER = new Set(["bun.lock"]);
 const DISPLAY_REQUIRED_ENV = "SHALLOT_DISPLAY_REQUIRED";
@@ -172,7 +166,6 @@ export async function main(argv = process.argv.slice(2), deps: MainDeps = {}): P
             allPass = result.ok && allPass;
         }
     } finally {
-        await teardownBridge();
     }
     if (allPass) console.log("PASS: all selected rows passed.");
     return allPass ? 0 : 1;

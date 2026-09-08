@@ -619,12 +619,10 @@ export async function runTui(
 
     // Past this point the run is committed to the engine — register the TGSL transform (exactly once
     // this process; see the module doc) before any import below reaches a TGSL-bearing module. `Bun.plugin`
-    // (the global, not `import { plugin } from "bun"`) — `scripts/wsl-bridge.ts` bundles the whole
-    // `cli.ts` graph to a `--target node` node-runnable bundle for its `verify --connect` browser launch,
-    // and a static `import("bun")` anywhere in that graph fails that unrelated build ("Browser build
-    // cannot import() Bun builtin: 'bun'") even though this line never runs under node — dump-cells-
-    // ascii.ts's own top-level `import { plugin } from "bun"` is safe only because that script sits
-    // outside the bundled graph entirely.
+    // (the global, not `import { plugin } from "bun"`): a static `import("bun")` anywhere in the `cli.ts`
+    // graph fails any `--target node` bundle of it ("Browser build cannot import() Bun builtin: 'bun'"),
+    // even though this line never runs under node — dump-cells-ascii.ts's own top-level
+    // `import { plugin } from "bun"` is safe only because that script sits outside that graph entirely.
     const typegpuBunPlugin = (await import("unplugin-typegpu/bun")).default;
     Bun.plugin(typegpuBunPlugin({ include: /\.tsx?$/ }));
 

@@ -38,7 +38,9 @@ export function linuxRunEnv(
     return env;
 }
 
-/** the powershell.exe command line that launches a windows build from its WSL-resolved host path. */
+/** the powershell.exe command line that launches a windows build from its WSL-resolved host path.
+ *  Consumer-facing, like the matching branch in `native.ts`: `shallot run` ships, and a user running a
+ *  Windows target from their own WSL install is who this serves. */
 export function windowsRunCommand(winPath: string, projectName: string): string {
     return `cd '${winPath}'; .\\${projectName}.exe`;
 }

@@ -1,7 +1,4 @@
-import { existsSync } from "node:fs";
-import { createServer } from "node:net";
 import { resolve } from "node:path";
-import { type Bridge, bridgePrereq, start as startBridge } from "./wsl-bridge";
 
 // Shared thin wrapper the repo bench/flows scripts drive the shipped gate through. `shallot verify` boots
 // the target (an ejected vite app — the gym or a flow project), picks its own port, runs the published
@@ -173,14 +170,11 @@ export interface ShaderArtifactSummary {
     messages?: Array<{ type: string; message: string; lineNum: number; linePos: number }>;
 }
 
-const isWSL = process.platform === "linux" && existsSync("/proc/sys/fs/binfmt_misc/WSLInterop");
-
-// verify needs a conformant WebGPU adapter, which WSL's software adapter isn't (testing.md). On WSL the
-// `wsl-bridge` drives the Windows host's real-GPU Chrome — proceed when the host has the interop + node/bun
-// the bridge needs, else skip honestly naming what's missing. Elsewhere: native hardware, skip only a
-// headless Linux box with no display. Returns a human reason to skip, or null to proceed.
+// verify drives a headed browser against local hardware, so its one prerequisite is a display: on Linux
+// a session with neither DISPLAY nor WAYLAND_DISPLAY has no headed launch and therefore no conformant
+// adapter (measured: headless Chrome falls back to a software rasterizer, which misses the device floor).
+// Returns a human reason to skip, or null to proceed.
 export function skipReason(): string | null {
-    if (isWSL) return bridgePrereq();
     if (process.platform === "linux" && !(process.env.DISPLAY || process.env.WAYLAND_DISPLAY)) {
         return "no display";
     }
@@ -226,31 +220,6 @@ export function extractBatchResult(stdout: string): VerifyResult[] | null {
     return found;
 }
 
-// On WSL the same drive logic runs, but against the host's real-GPU browser over the `wsl-bridge`: the verify
-// CLI is bundled for node (Bun's Playwright client can't drive a connected browser here) and pointed at the
-// bridge's ws endpoint with `--connect`. The bridge is started once and reused across a sweep's cells.
-let bridge: Promise<Bridge> | null = null;
-function wslBridge(): Promise<Bridge> {
-    if (!bridge) bridge = startBridge();
-    return bridge;
-}
-
-/** Tear down the shared WSL bridge if a sweep started one, so the driving process can exit. The bridge's
- *  rendezvous + client TCP servers and the host browser-server subprocess stay live between `verify` calls
- *  (reused across a sweep) and keep the event loop alive past the last verdict — without this a driver that
- *  ends by draining its loop (rather than `process.exit`) hangs. A sweep calls it once when done; native
- *  runs never start a bridge, so it's a no-op there. Idempotent — safe to call more than once. */
-export async function teardownBridge(): Promise<void> {
-    const started = bridge;
-    if (!started) return;
-    bridge = null;
-    try {
-        await (await started).teardown();
-    } catch {
-        // best-effort — the bridge's own rendezvous watchdog is the backstop if this can't complete
-    }
-}
-
 // shared spawn: `shallot verify <dir> --json <extra>` from the repo root, stdout captured and (unless
 // `quiet`) echoed. `verify`/`verifyBatch` differ only in how they parse the resulting stdout — a single
 // object vs a JSON array — so the spawn itself has one source of truth. Returns the stdout and the
@@ -260,10 +229,10 @@ async function spawnVerify(
     extra: string[],
     quiet: boolean,
 ): Promise<{ stdout: string; exitCode: number }> {
-    const cmd = isWSL ? await wslCmd(dir, extra) : ["bun", CLI, "verify", dir, "--json", ...extra];
+    const cmd = ["bun", CLI, "verify", dir, "--json", ...extra];
     // `env: { ...process.env }` is required because Bun.spawn does NOT propagate runtime
-    // process.env changes (e.g. `process.env.SHALLOT_HEADED = "1"` set by stall-attribution.ts)
-    // to the child process — only pre-existing shell env vars are inherited by default.
+    // process.env changes to the child process — only pre-existing shell env vars are inherited by
+    // default, so a driver that sets one for the verify run must pass the whole environment.
     const proc = Bun.spawn(cmd, {
         cwd: repoRoot,
         stdout: "pipe",
@@ -428,49 +397,13 @@ export async function verifyBatch(
     return batchOutcome(stdout, exitCode, runs);
 }
 
-// the WSL spawn: the node-bundled verify, driving the bridge's remote browser. A fixed `--port` skips the
-// CLI's own `Bun.serve` port probe (undefined under node) — vite binds it on WSL and the host browser reaches
-// it back over localhost forwarding, so the port must be one both sides agree on.
-async function wslCmd(dir: string, extra: string[]): Promise<string[]> {
-    return verifyCommand([dir, "--json", ...extra], { wsl: true });
-}
-
 export interface VerifyCommandDeps {
-    wsl?: boolean;
-    prerequisite?: () => string | null;
-    bridge?: () => Promise<Pick<Bridge, "bundle" | "connectUrl">>;
-    port?: () => Promise<number>;
+    /** the CLI entrypoint to spawn — the repo's own by default; a test drives a stub through it. */
     cli?: string;
 }
 
-/** Resolve the repository transport without replacing the project's verify arguments. */
-export async function verifyCommand(
-    argv: string[],
-    deps: VerifyCommandDeps = {},
-): Promise<string[]> {
-    if (!(deps.wsl ?? isWSL)) return ["bun", deps.cli ?? CLI, "verify", ...argv];
-    const missing = (deps.prerequisite ?? bridgePrereq)();
-    if (missing) throw new Error(`verify bridge unavailable: ${missing}`);
-    if (argv.includes("--connect"))
-        throw new Error("project verify --connect conflicts with repository bridge transport");
-    const b = await (deps.bridge ?? wslBridge)();
-    return [
-        "node",
-        b.bundle,
-        "verify",
-        ...argv,
-        "--connect",
-        b.connectUrl,
-        ...(argv.includes("--port") ? [] : ["--port", String(await (deps.port ?? bridgePort)())]),
-    ];
+/** The command that runs a project's own verify gate: the local CLI, with the project's verify
+ *  arguments passed through untouched. */
+export function verifyCommand(argv: string[], deps: VerifyCommandDeps = {}): string[] {
+    return ["bun", deps.cli ?? CLI, "verify", ...argv];
 }
-
-const bridgePort = (): Promise<number> =>
-    new Promise((res, rej) => {
-        const s = createServer();
-        s.on("error", rej);
-        s.listen(0, "127.0.0.1", () => {
-            const p = (s.address() as { port: number }).port;
-            s.close(() => res(p));
-        });
-    });

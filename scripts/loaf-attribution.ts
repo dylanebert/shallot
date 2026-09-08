@@ -1,6 +1,6 @@
 import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot-runtime/src/engine/runtime/gpu";
 import { type LoAFEntry, loafByCompilePhase } from "../packages/shallot-tooling/bin/verify";
-import { queryFlags, skipReason, teardownBridge, verify } from "./verify";
+import { queryFlags, skipReason, verify } from "./verify";
 
 // The probe the boot roadmap item names: the compile vital sees async compiles only, so two large
 // pre-compile LoAF spikes had no owner. Entry-level LoAF fields say a frame was slow and never what
@@ -82,8 +82,7 @@ async function main(): Promise<void> {
 
     console.log(`booting ${args.dir} (--attribution, headed) to attribute the boot's LoAF spikes…`);
     // headed for the same reason `stall-attribution.ts` is: a display-less frame clock undershoots
-    // real block durations, and every number below is a frame-timing reading.
-    process.env.SHALLOT_HEADED = "1";
+    // real block durations, and every number below is a frame-timing reading. `verify` launches headed.
     const result = await verify(args.dir, [
         "--attribution",
         "--timeout",
@@ -144,7 +143,6 @@ async function main(): Promise<void> {
                 `of it. ${report.unclassified.length} entries unclassified.`,
         );
         printEntries("unclassified (no compile boundary)", report.unclassified);
-        await teardownBridge();
         return;
     }
 
@@ -173,8 +171,6 @@ async function main(): Promise<void> {
             `below the spec's per-script reporting threshold, a real reading rather than a missing ` +
             `measurement (this file's header) — never fold it into the top script.`,
     );
-
-    await teardownBridge();
 }
 
 await main();
