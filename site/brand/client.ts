@@ -1,41 +1,104 @@
-import { END_TICK, runSplash, splashFrame, toCells, toHtml, toSvg } from "./mark";
+import { DARK, END_TICK, type Grid, runSplash, splashFrame, TICK_MS, toSvg } from "./mark";
 
-// Browser entry for the site pages. Splashes the lockup in: `[data-splash]` as half-block text,
-// `[data-splash-svg]` as pixel squares. Click replays. Reads the theme tokens off the root so the
-// toggle recolors a resting frame. Shows the WebGPU note only where WebGPU is missing.
+// Browser entry for the site pages. Splashes the lockup in as pixel squares on `[data-splash-svg]`
+// and paints the terminal on `[data-terminal]`; click replays either. Shows the WebGPU note only
+// where WebGPU is missing.
 
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-function palette() {
-    const style = getComputedStyle(document.documentElement);
-    const read = (name: string) => style.getPropertyValue(name).trim();
-    return { gold: read("--gold"), dim: read("--dim"), ink: read("--ink"), bg: read("--bg") };
-}
 const vars = { gold: "var(--gold)", dim: "var(--dim)", ink: "var(--ink)", bg: "var(--bg)" };
-
-const replays: (() => void)[] = [];
-const rests: (() => void)[] = [];
-
-for (const el of document.querySelectorAll<HTMLElement>("[data-splash]")) {
-    const render = (grid: ReturnType<typeof splashFrame>) => toHtml(toCells(grid), palette());
-    const replay = runSplash(el, render, reduced);
-    el.addEventListener("click", replay);
-    replays.push(replay);
-    rests.push(() => {
-        el.innerHTML = render(splashFrame(END_TICK + 1));
-    });
-}
 
 for (const el of document.querySelectorAll<HTMLElement>("[data-splash-svg]")) {
     const scale = Number(el.dataset.scale ?? "4");
-    const replay = runSplash(el, (grid) => toSvg(grid, vars, scale), reduced);
-    el.addEventListener("click", replay);
-    replays.push(replay);
+    el.addEventListener(
+        "click",
+        runSplash(el, (grid) => toSvg(grid, vars, scale), reduced),
+    );
 }
 
-document.querySelector("[data-toggle]")?.addEventListener("click", () => {
-    for (const rest of rests) rest();
-});
+// A terminal, as a terminal paints it: text in the real font, block cells as flush fills at the
+// cell's own geometry. What `bun create shallot` prints, splash included.
+for (const canvas of document.querySelectorAll<HTMLCanvasElement>("[data-terminal]")) {
+    const font = 13;
+    const lines = [
+        "$ bun create shallot my-game",
+        null,
+        "· wrote my-game/shallot.json",
+        "· wrote my-game/main.scene",
+        "· ready in 41ms",
+        "$ ",
+    ];
+    const splashRows = 7;
+    const rows = lines.length - 1 + splashRows;
+    const cols = 64;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) continue;
+    let cw = font * 0.6;
+    const ch = Math.round(font * 1.2);
+    const size = () => {
+        canvas.width = cols * cw * dpr;
+        canvas.height = rows * ch * dpr;
+        canvas.style.width = `${cols * cw}px`;
+        canvas.style.height = `${rows * ch}px`;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.font = `${font}px "JetBrains Mono", monospace`;
+        ctx.textBaseline = "middle";
+    };
+    const text = (row: number, s: string, color: string) => {
+        ctx.fillStyle = color;
+        ctx.fillText(s, 0, row * ch + ch / 2);
+    };
+    const cells = (grid: Grid, row: number) => {
+        grid.forEach((line, y) =>
+            line.forEach((tone, x) => {
+                if (!tone) return;
+                ctx.fillStyle = DARK[tone];
+                ctx.fillRect(x * cw, row * ch + (y * ch) / 2, cw + 0.5, ch / 2 + 0.5);
+            }),
+        );
+    };
+    const after = [END_TICK + 4, END_TICK + 7, END_TICK + 10, END_TICK + 13];
+    const draw = (tick: number) => {
+        ctx.clearRect(0, 0, cols * cw, rows * ch);
+        text(0, lines[0] ?? "", DARK.ink);
+        cells(splashFrame(Math.min(tick, END_TICK + 1)), 1);
+        let row = 1 + splashRows;
+        lines.slice(2).forEach((line, i) => {
+            const at = after[i] ?? 0;
+            if (tick >= at && line) text(row, line, i === 3 ? DARK.ink : "#a08c78");
+            if (tick >= at && i === 3) {
+                ctx.fillStyle = DARK.gold;
+                ctx.fillRect(2 * cw, row * ch, cw, ch);
+            }
+            row++;
+        });
+    };
+    let start = 0;
+    let last = -1;
+    let raf = 0;
+    const loop = () => {
+        const tick = reduced ? (after[3] ?? 0) : Math.floor((performance.now() - start) / TICK_MS);
+        if (tick !== last) {
+            last = tick;
+            draw(tick);
+        }
+        if (tick <= (after[3] ?? 0)) raf = requestAnimationFrame(loop);
+    };
+    const run = () => {
+        cancelAnimationFrame(raf);
+        start = performance.now();
+        last = -1;
+        loop();
+    };
+    canvas.addEventListener("click", run);
+    document.fonts.load(`${font}px "JetBrains Mono"`).then(() => {
+        size();
+        cw = ctx.measureText("█").width;
+        size();
+        run();
+    });
+}
 
 const note = document.querySelector<HTMLElement>("[data-webgpu-note]");
 if (note && !("gpu" in navigator)) note.hidden = false;

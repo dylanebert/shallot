@@ -1,4 +1,4 @@
-import { DARK, fromBlocks, LIGHT, lockup, MARK, toCells, toHtml, toSvg, word } from "./mark";
+import { DARK, fromBlocks, LIGHT, lockup, MARK, toSvg, word } from "./mark";
 import { CSS_PALETTE, FONTS, nav, STYLE, THEME_SCRIPT, TOGGLE } from "./theme";
 
 // The brand page at /shallot/brand/: the assets, shown plainly, and their downloads. Labels only;
@@ -27,7 +27,6 @@ const swatch = (name: string, dark: string, light: string) =>
 export function brandPage(clientScript: string): string {
     const mark = fromBlocks(MARK.m);
     const lock = lockup();
-    const lockText = toHtml(toCells(lock), CSS_PALETTE);
     const downloads = DOWNLOADS.map(
         ([file, label]) => `<a href="./${file}" download>${label}</a>`,
     ).join("");
@@ -44,8 +43,8 @@ ${THEME_SCRIPT}
 .lockup { padding: 56px 24px; display: grid; place-items: center; cursor: pointer; }
 .marks { display: flex; gap: 40px; align-items: flex-end; flex-wrap: wrap; }
 .marks div { display: grid; gap: 8px; justify-items: center; font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--muted); }
-.splash { padding: 40px 24px; display: grid; place-items: center; cursor: pointer; }
-.splash pre { font-size: 15px; overflow: hidden; }
+.term { padding: 18px 20px; background: #0f0d0b; cursor: pointer; overflow-x: auto; }
+.term canvas { display: block; }
 .sws { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 2px; }
 .sw { background: var(--bg2); padding: 12px; display: grid; gap: 4px; font-family: "JetBrains Mono", monospace; font-size: 11px; }
 .sw i { display: block; height: 40px; background: var(--d); border-radius: 2px; margin-bottom: 4px; }
@@ -82,13 +81,8 @@ ${nav("brand")}
 </section>
 
 <section>
-<h2>terminal splash</h2>
-<div class="splash block"><pre data-splash></pre></div>
-</section>
-
-<section>
 <h2>terminal</h2>
-<pre class="block">${lockText}</pre>
+<div class="term block"><canvas data-terminal></canvas></div>
 </section>
 
 <section>
