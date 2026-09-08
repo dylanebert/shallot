@@ -2189,7 +2189,7 @@ if (import.meta.main) {
         await identityBrowserFlow(work, engineTgz);
 
         createShallotFlow(work, engineTgz);
-        compatibilityFlow(work, engineTgz);
+        await compatibilityFlow(work, engineTgz);
         await outputFlow(work, engineTgz);
     } finally {
         if (process.env.SHALLOT_INSTALL_KEEP === "1")
