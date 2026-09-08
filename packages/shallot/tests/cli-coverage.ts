@@ -545,10 +545,38 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "wrong entry there would break that equality).",
     },
     {
+        file: "packages/shallot/src/project/host.ts",
+        arm: "unit",
+        reason:
+            "the A1 project host: plan/discovery/resolution as pure data. Every export is directly " +
+            "asserted by host.test.ts from a real external project root (a temp dir with its own " +
+            "node_modules) — plan's default/extra/local/disabled classification and its authored-spec " +
+            "plus resolved-path pair, headlessEngineNames' unconditional Glaze drop, discoverScenes and " +
+            "isProject over manifest-only/scene-only/neither roots, missingProjectMessage's dir + " +
+            "scaffold command, readProject's manifest/scene/local resolution and its pinned read set " +
+            "(no path outside the project root), localModuleErrors' installed-bare and relative grants " +
+            "plus its missing-module and never-resolve-a-disabled-plugin refusals. emptyPlan is the " +
+            "no-project fallback vite.test.ts drives through projectPlugin()'s load hook.",
+    },
+    {
+        file: "packages/shallot/src/project/command.ts",
+        arm: "unit",
+        reason:
+            "the command entry `bin/tui.ts` reaches a project through. planProject's exit codes " +
+            "(missing project, clean manifest-only, clean scene-only, installed bare plugin, missing " +
+            "dependency before any evaluation), loadLocalPlugins' enabled-evaluated/disabled-never-" +
+            "evaluated sentinel pair and its missing-default refusal, the shared-plan identity against " +
+            "generateModuleFromPlan, and the bare-bun purity arms (no Vite in the loaded module graph, " +
+            "no browser/GPU global, with the Vite-importing toolchain as the reader's control) are all " +
+            "asserted by command.test.ts. SUBPATH_PLUGIN_LOADERS is gated against SUBPATH_PLUGIN_MODULES " +
+            "by catalog.test.ts; loadEnginePlugins/loadHeadlessPlugins reach a real device and are " +
+            "executed by the `shallot tui` runs in bin/tui.probes.ts and scripts/install-test.ts.",
+    },
+    {
         file: "packages/shallot/src/project/generate.ts",
         arm: "unit",
         reason:
-            "plan and generateModule's emitted import lines (engine-barrel grouping by source, local " +
+            "generateModule/generateModuleFromPlan's emitted import lines (engine-barrel grouping by source, local " +
             "default imports and their project-relative path resolution, the missing-default runtime " +
             "guard, capacity threading) are directly asserted by generate.test.ts.",
     },
@@ -558,9 +586,9 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
         reason:
             "normalize's tolerant-parse (absent/corrupt/non-object storage, $schema/capacity, each " +
             "PluginValue field) is directly asserted by manifest.test.ts. localOf has no row of its own " +
-            "test but is exercised through every one of generate.test.ts's plan() cases with a local " +
+            "test but is exercised through every one of host.test.ts's plan() cases with a local " +
             "plugin (Spin's bare-string enabled form, Off's disabled-tuple form, Pkg's bare-package form) " +
-            "— verified: generate.ts's plan() calls localOf(value) directly for every non-default, " +
+            "— verified: host.ts's plan() calls localOf(value) directly for every non-default, " +
             "non-true manifest entry.",
     },
     {

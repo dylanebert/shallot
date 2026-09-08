@@ -17,6 +17,7 @@ const COMPOSITION_SURFACES: readonly RegExp[] = [
     /^examples\/(?:flows|recipes|showcase|gym)\//,
     /^evals\/tasks\//,
     /^packages\/shallot\/bin\/tui\.ts$/,
+    /^packages\/shallot\/src\/project\/command\.ts$/,
     /^packages\/shallot\/scripts\/dump-cells-ascii\.ts$/,
 ];
 
@@ -28,6 +29,7 @@ const PROJECT_GATES: readonly Gate[] = [
     [/^examples\/gym\//, "bun bench"],
     [/^evals\/tasks\/[^/]+\/gate\.ts$/, "bun run test"],
     [/^packages\/shallot\/bin\/tui\.ts$/, "bun test ./packages/shallot/bin"],
+    [/^packages\/shallot\/src\/project\/command\.ts$/, "bun test ./packages/shallot/src/project"],
     [
         /^packages\/shallot\/scripts\/dump-cells-ascii\.ts$/,
         "bun run --cwd packages/shallot dump-cells-ascii",
@@ -43,7 +45,10 @@ function isComposition({ path, source }: SourceFile): boolean {
     return (
         path.endsWith("shallot.json") ||
         /^evals\/tasks\/[^/]+\/gate\.ts$/.test(path) ||
-        /\bplugins\s*:\s*(?:\[|[A-Za-z_$])/.test(source)
+        // both surface forms of a composed plugin list: the explicit property (`plugins: […]`,
+        // `plugins: project.plugins`) and the shorthand a host uses once it holds the list in a
+        // variable of that name (`build({ plugins, … })`, which `bin/tui.ts` now does).
+        /\bplugins\s*:\s*(?:\[|[A-Za-z_$])|\bplugins\s*,\s*$/m.test(source)
     );
 }
 
