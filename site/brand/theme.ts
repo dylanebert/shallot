@@ -35,8 +35,7 @@ section { display: grid; gap: 14px; }
 .top .sp { flex: 1; }
 .top a { display: inline-flex; align-items: center; }
 .top svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
-footer { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--muted); }
-footer .sp { flex: 1; }
+footer { display: grid; gap: 6px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--muted); }
 pre, code { font-family: "JetBrains Mono", ui-monospace, monospace; }
 pre { font-size: 13px; line-height: 1.2; white-space: pre; overflow-x: auto; }
 pre.blocks { color: var(--gold); }

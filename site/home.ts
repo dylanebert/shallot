@@ -3,8 +3,9 @@ import { AGENTS_LINK, CSS_PALETTE, FONTS, STYLE, THEME_SCRIPT, TOGGLE, top } fro
 import type { DemoEntry } from "./roster";
 
 // The site home at /shallot/: the lockup splashing in, the one-line promise, quick start, the
-// demos, and the foot: build label, then the brand link, low-key. The top row is only the GitHub
-// and npm icons; brand is a detail that doesn't earn a place there. The demos themselves are built
+// demos, and the foot: a row of small links (brand, llms.txt, github, npm, changelog), then the
+// copyright, license, and build label. The top row is only the GitHub and npm icons; brand is a
+// detail that doesn't earn a place there. The demos themselves are built
 // separately; `clientScript` is the bundled `site/brand/client.ts`, `rum` the Datadog init
 // snippet (page views only, no frame sampler).
 
@@ -35,6 +36,15 @@ export function siteIndex(
         mode === "staging"
             ? `staging · ${commit}`
             : `${out(`https://github.com/dylanebert/shallot/releases/tag/v${version}`, `v${version}`)} · ${commit}`;
+    const at = mode === "staging" ? ref : `v${version}`;
+    const links = [
+        `<a href="./brand/">brand</a>`,
+        `<a href="./llms.txt">llms.txt</a>`,
+        out("https://github.com/dylanebert/shallot", "github"),
+        out("https://www.npmjs.com/package/@dylanebert/shallot", "npm"),
+        out(`https://github.com/dylanebert/shallot/blob/${at}/CHANGELOG.md`, "changelog"),
+    ].join(" · ");
+    const legal = `© ${new Date().getUTCFullYear()} Dylan Ebert · ${out(`https://github.com/dylanebert/shallot/blob/${at}/LICENSE`, "MIT")} · ${label}`;
     return `<!doctype html>
 <html lang="en">
 <head>
@@ -95,7 +105,7 @@ ${rows}
 </ul>
 </section>
 
-<footer><span>${label}</span><span class="sp"></span><a href="./brand/">brand</a></footer>
+<footer><p>${links}</p><p>${legal}</p></footer>
 </main>
 <script type="module">${clientScript}</script>
 ${rum}</body>
