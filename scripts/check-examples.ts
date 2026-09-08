@@ -21,13 +21,13 @@ const childDirs = (dir: string): string[] =>
 /** True when at least one file under `root` matches `cover`. Walks the glob's own literal prefix rather
  *  than the whole tree, so an orphaned glob is cheap to detect and a live one stops at its first hit. */
 export function globHasSubject(root: string, cover: string): boolean {
+    if (!cover.includes("*")) return existsSync(resolve(root, cover));
     const literal = cover.split("/").slice(
         0,
         cover.split("/").findIndex((p) => p.includes("*")),
     );
     const base = resolve(root, literal.join("/") || ".");
     if (!existsSync(base)) return false;
-    if (!cover.includes("*")) return true;
     const glob = new Glob(cover);
     for (const entry of readdirSync(base, { recursive: true, withFileTypes: true })) {
         if (!entry.isFile()) continue;
@@ -100,6 +100,35 @@ export function checkExamples(root: string, registry: ExampleGate[]): string[] {
             if (!globHasSubject(root, cover))
                 errors.push(`covers glob matches no file: ${row.dir} -> ${cover}`);
         }
+    }
+
+    const covers = registry.flatMap((row) => row.covers.map((cover) => new Glob(cover)));
+    for (const dir of discovered) {
+        let population = 0;
+        for (const file of files(resolve(root, dir), "")) {
+            const rel = relative(root, file).split(sep).join("/");
+            if (
+                rel
+                    .split("/")
+                    .some((part) =>
+                        [
+                            "node_modules",
+                            "dist",
+                            "out",
+                            "build",
+                            "test-results",
+                            "playwright-report",
+                        ].includes(part),
+                    )
+            )
+                continue;
+            if (!/\.(?:[cm]?[jt]sx?|svelte|scene|json|html|css)$/.test(rel)) continue;
+            population++;
+            if (!covers.some((cover) => cover.match(rel)))
+                errors.push(`example source has no covers row: ${rel}`);
+        }
+        if (population === 0)
+            errors.push(`example directory yielded no governed source files: ${dir}`);
     }
 
     for (const scene of files(resolve(root, "examples"), ".scene")) {

@@ -204,6 +204,68 @@ test("either published motion reading satisfies the autonomous showcase arm", ()
     }
 });
 
+test("a live shared cover cannot hide an uncovered example source", () => {
+    const root = make();
+    const rows = registry();
+    rows[1].covers = ["examples/gym/**"];
+    expect(checkExamples(root, rows)).toEqual([
+        "example source has no covers row: examples/flows/flow/main.ts",
+    ]);
+});
+
+test("removed cover, orphaned glob, and renamed or deleted source refuse independently", () => {
+    for (const mutation of ["remove", "orphan", "rename", "delete"]) {
+        const root = make();
+        const rows = registry();
+        rows[1].covers = ["examples/flows/flow/main.ts"];
+        expect(checkExamples(root, rows)).toEqual([]);
+        if (mutation === "remove") rows[1].covers = [];
+        if (mutation === "orphan") rows[1].covers.push("examples/flows/flow/*.svelte");
+        if (mutation === "rename" || mutation === "delete") {
+            rmSync(resolve(root, "examples/flows/flow/main.ts"));
+            if (mutation === "rename")
+                writeFileSync(resolve(root, "examples/flows/flow/renamed.ts"), "export {};\n");
+        }
+        const errors = checkExamples(root, rows).join("\n");
+        expect(errors).toContain(
+            mutation === "remove" ? "declares no covers glob" : "covers glob matches no file",
+        );
+        if (mutation === "rename") expect(errors).toContain("example source has no covers row");
+    }
+});
+
+test("every discovered directory must yield governed files", () => {
+    const root = make();
+    rmSync(resolve(root, "examples/flows/flow/main.ts"));
+    const rows = registry();
+    rows[1].covers = ["examples/gym/**"];
+    expect(checkExamples(root, rows)).toEqual([
+        "example directory yielded no governed source files: examples/flows/flow",
+    ]);
+});
+
+for (const output of [
+    "dist",
+    "out",
+    "build",
+    "node_modules",
+    "test-results",
+    "playwright-report",
+]) {
+    test(`output ${output} is not demanded by source covers`, () => {
+        const root = make();
+        const rows = registry();
+        rows[1].covers = ["examples/flows/flow/main.ts"];
+        mkdirSync(resolve(root, "examples/flows/flow", output));
+        writeFileSync(resolve(root, "examples/flows/flow", output, "generated.ts"), "export {};\n");
+        expect(checkExamples(root, rows)).toEqual([]);
+        writeFileSync(resolve(root, "examples/flows/flow/uncovered.ts"), "export {};\n");
+        expect(checkExamples(root, rows)).toEqual([
+            "example source has no covers row: examples/flows/flow/uncovered.ts",
+        ]);
+    });
+}
+
 test("a complete static fixture is green", () => {
     const root = make();
     expect(checkExamples(root, registry())).toEqual([]);

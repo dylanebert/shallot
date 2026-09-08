@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { parse, parseExpression } from "@babel/parser";
 import { COMPUTED_LOADERS, NON_WORKSPACE_PACKAGES, TOOLING_SEAMS } from "./boundary-seams";
 
 // Distribution boundary: a consumer of the published @dylanebert/shallot surface reaches the engine only
@@ -26,6 +27,10 @@ import { COMPUTED_LOADERS, NON_WORKSPACE_PACKAGES, TOOLING_SEAMS } from "./bound
 // (`bin/**`) is scanned under a second rule: it may reach engine source only through a module the export
 // map publishes, or through a `TOOLING_SEAMS` entry that says why. A specifier built at runtime is a hole
 // in the cone rather than a detail, so a computed `import()`/`require()` needs a `COMPUTED_LOADERS` entry.
+//
+// Limits: plugin-driven resolution and svelte.config aliases need an omission review; aliases also
+// apply to node-side tests (deny-direction over-inclusion). Only literal Vite object aliases and
+// tsconfigs extending the walked ancestor chain are resolvable; other declared forms refuse.
 //
 // Default scans this repo. `--root <dir>` scans an external consumer tree, where every project is a
 // consumer and neither the tooling nor the completeness rule applies.
@@ -102,7 +107,7 @@ export interface Reference {
 const FROM = /(?:^|[\s;}])(?:import|export)\b[\s\S]*?\bfrom\s*["']([^"']+)["']/gm;
 const SIDE_EFFECT = /(?:^|[\s;}])import\s*["']([^"']+)["']/g;
 const CALL_LITERAL = /\b(?:import|require)\s*\(\s*["']([^"']+)["']\s*\)/g;
-const CALL_COMPUTED = /\b(?:import|require)\s*\(\s*(?!["'])/g;
+const CALL_COMPUTED = /\b(?:import|require)\s*\((?!\s*["'][^"']*["']\s*\))/g;
 
 /** Every module specifier a source file names, plus its computed-loader call sites. Pure over text so
  *  each surface form is testable without a tree. */
@@ -179,14 +184,189 @@ function ownerOf(file: string, roots: string[]): string | null {
     return best;
 }
 
+type Syntax = { type?: string; name?: string; value?: unknown; [key: string]: unknown };
+
+function walk(node: unknown, visit: (node: Syntax) => void): void {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+        for (const child of node) walk(child, visit);
+        return;
+    }
+    const syntax = node as Syntax;
+    visit(syntax);
+    for (const [key, child] of Object.entries(syntax)) {
+        if (!["loc", "start", "end", "comments", "tokens"].includes(key)) walk(child, visit);
+    }
+}
+
+function objectValue(node: Syntax): unknown {
+    if (node.type === "ObjectExpression")
+        return Object.fromEntries(
+            (node.properties as Syntax[]).map((p) => [
+                (p.key as Syntax).name ?? (p.key as Syntax).value,
+                objectValue(p.value as Syntax),
+            ]),
+        );
+    if (node.type === "ArrayExpression") return (node.elements as Syntax[]).map(objectValue);
+    return node.value;
+}
+
+function aliasReader(repoRoot: string) {
+    type Alias = { key: string; value: string; wildcard: boolean };
+    const cache = new Map<string, { aliases: Alias[]; errors: string[] }>();
+    return (full: string, spec: string): { targets: string[]; errors: string[] } => {
+        const directory = dirname(full);
+        let result = cache.get(directory);
+        if (!result) {
+            const aliases: Alias[] = [];
+            const errors: string[] = [];
+            const chain: string[] = [];
+            for (
+                let dir = directory;
+                dir === repoRoot || dir.startsWith(repoRoot + sep);
+                dir = dirname(dir)
+            ) {
+                chain.push(dir);
+                if (dir === repoRoot) break;
+            }
+            for (const dir of chain) {
+                const config = resolve(dir, "tsconfig.json");
+                if (existsSync(config)) {
+                    const json = objectValue(
+                        parseExpression(readFileSync(config, "utf8")) as unknown as Syntax,
+                    ) as {
+                        extends?: unknown;
+                        compilerOptions?: { baseUrl?: string; paths?: Record<string, unknown> };
+                    };
+                    const ancestors = chain
+                        .slice(chain.indexOf(dir) + 1)
+                        .map((ancestor) => resolve(ancestor, "tsconfig.json"));
+                    if (
+                        json.extends !== undefined &&
+                        (typeof json.extends !== "string" ||
+                            !ancestors.includes(resolve(dir, json.extends)) ||
+                            !existsSync(resolve(dir, json.extends)))
+                    )
+                        errors.push(
+                            `${relative(repoRoot, config)}: extends must name a tsconfig on the walked ancestor chain`,
+                        );
+                    for (const [key, values] of Object.entries(json.compilerOptions?.paths ?? {})) {
+                        if (
+                            !Array.isArray(values) ||
+                            values.some((value) => typeof value !== "string")
+                        ) {
+                            errors.push(
+                                `${relative(repoRoot, config)}: paths ${key} must be an array of strings`,
+                            );
+                            continue;
+                        }
+                        for (const value of values)
+                            aliases.push({
+                                key,
+                                value: resolve(dir, json.compilerOptions?.baseUrl ?? ".", value),
+                                wildcard: true,
+                            });
+                    }
+                }
+                for (const name of [
+                    "vite.config.ts",
+                    "vite.config.js",
+                    "vite.config.mjs",
+                    "vite.config.mts",
+                ]) {
+                    const path = resolve(dir, name);
+                    if (!existsSync(path)) continue;
+                    walk(
+                        parse(readFileSync(path, "utf8"), {
+                            sourceType: "module",
+                            plugins: ["typescript"],
+                        }),
+                        (node) => {
+                            if (
+                                node.type !== "ObjectProperty" ||
+                                ((node.key as Syntax).name ?? (node.key as Syntax).value) !==
+                                    "alias"
+                            )
+                                return;
+                            const value = node.value as Syntax;
+                            const refuse = (key: string) =>
+                                errors.push(
+                                    `${relative(repoRoot, path)}: alias ${key} must be a literal string-to-string object mapping`,
+                                );
+                            if (value.type !== "ObjectExpression") {
+                                refuse("<form>");
+                                return;
+                            }
+                            for (const property of value.properties as Syntax[]) {
+                                const key = property.key as Syntax | undefined;
+                                const replacement = property.value as Syntax | undefined;
+                                const name = key?.name ?? key?.value;
+                                if (
+                                    property.type !== "ObjectProperty" ||
+                                    property.computed ||
+                                    typeof name !== "string" ||
+                                    replacement?.type !== "StringLiteral"
+                                ) {
+                                    refuse(String(name ?? "<key>"));
+                                    continue;
+                                }
+                                const target = replacement.value as string;
+                                if (!isAbsolute(target) && !target.startsWith(".")) {
+                                    refuse(name);
+                                    continue;
+                                }
+                                aliases.push({
+                                    key: name,
+                                    value: resolve(dir, target),
+                                    wildcard: false,
+                                });
+                            }
+                        },
+                    );
+                }
+            }
+            result = { aliases, errors };
+            cache.set(directory, result);
+        }
+        const targets: string[] = [];
+        for (const { key, value, wildcard } of result.aliases) {
+            if (wildcard) {
+                const [prefix, suffix] = key.split("*");
+                if (
+                    key.includes("*")
+                        ? !spec.startsWith(prefix) || !spec.endsWith(suffix)
+                        : spec !== key
+                )
+                    continue;
+                const middle = key.includes("*")
+                    ? spec.slice(prefix.length, spec.length - suffix.length)
+                    : "";
+                targets.push(value.replace("*", middle));
+            } else if (spec === key || spec.startsWith(`${key}/`))
+                targets.push(value + spec.slice(key.length));
+        }
+        return { targets, errors: result.errors };
+    };
+}
+
 function scanConsumers(
     repoRoot: string,
     roots: string[],
     surface: ReturnType<typeof publishedSurface>,
     oracleSeam: string,
+    ledger: Ledger = { toolingSeams: {}, computedLoaders: {}, nonWorkspacePackages: {} },
+    usedLoaders = new Set<string>(),
+    errors: string[] = [],
 ): Violation[] {
     const violations: Violation[] = [];
+    const aliasTargets = aliasReader(repoRoot);
     for (const root of roots) {
+        const manifest = resolve(root, "package.json");
+        if (
+            existsSync(manifest) &&
+            Object.hasOwn(JSON.parse(readFileSync(manifest, "utf8")), "imports")
+        )
+            errors.push(`${relative(repoRoot, manifest)}: imports aliases are not supported`);
         for (const full of sourceFiles(root)) {
             // process each file once, under its deepest owning project (roots can nest)
             if (ownerOf(full, roots) !== root) continue;
@@ -195,18 +375,43 @@ function scanConsumers(
                 line: r.line,
                 import: spec,
             });
+            errors.push(...aliasTargets(full, "").errors);
             for (const r of references(readFileSync(full, "utf8"))) {
-                if (r.computed || !r.spec) continue;
+                if (r.computed) {
+                    const file = relative(repoRoot, full).split(sep).join("/");
+                    if (ledger.computedLoaders[file]?.trim()) usedLoaders.add(file);
+                    else
+                        violations.push({
+                            ...at(r, "import(<computed>)"),
+                            reason: "builds a module specifier at runtime with no declared bound (scripts/boundary-seams.ts)",
+                        });
+                    continue;
+                }
+                if (!r.spec) continue;
                 const spec = r.spec;
-                if (spec.startsWith(".")) {
-                    const resolved = resolve(dirname(full), spec);
+                const targets = spec.startsWith(".")
+                    ? [resolve(dirname(full), spec)]
+                    : aliasTargets(full, spec).targets;
+                for (const resolved of targets) {
+                    if (
+                        isPublished(spec, surface) &&
+                        [...surface.targets].some((target) => {
+                            const published = resolve(repoRoot, ENGINE_PACKAGE, target);
+                            return [resolved, `${resolved}.ts`, `${resolved}/index.ts`].includes(
+                                published,
+                            );
+                        })
+                    )
+                        continue;
                     if (resolved === root || resolved.startsWith(root + sep)) continue;
                     if (resolved === oracleSeam || resolved.startsWith(oracleSeam + sep)) continue;
                     violations.push({
                         ...at(r, spec),
                         reason: `escapes the project → ${relative(repoRoot, resolved)}`,
                     });
-                } else if (
+                }
+                if (
+                    targets.length === 0 &&
                     (spec === PKG || spec.startsWith(`${PKG}/`)) &&
                     !isPublished(spec, surface)
                 ) {
@@ -228,16 +433,19 @@ function scanTooling(
     repoRoot: string,
     surface: ReturnType<typeof publishedSurface>,
     ledger: Ledger,
+    errors: string[],
 ): { violations: Violation[]; usedSeams: Set<string>; usedLoaders: Set<string> } {
     const violations: Violation[] = [];
     const usedSeams = new Set<string>();
     const usedLoaders = new Set<string>();
+    const aliasTargets = aliasReader(repoRoot);
     const binDir = resolve(repoRoot, ENGINE_PACKAGE, "bin");
     for (const full of sourceFiles(binDir)) {
         const file = relative(repoRoot, full).split(sep).join("/");
+        errors.push(...aliasTargets(full, "").errors);
         for (const r of references(readFileSync(full, "utf8"))) {
             if (r.computed) {
-                if (ledger.computedLoaders[file]) usedLoaders.add(file);
+                if (ledger.computedLoaders[file]?.trim()) usedLoaders.add(file);
                 else
                     violations.push({
                         file,
@@ -248,25 +456,36 @@ function scanTooling(
                 continue;
             }
             const spec = r.spec as string;
-            if (!spec.startsWith("../src")) continue;
-            const target = relative(resolve(repoRoot, ENGINE_PACKAGE), resolve(dirname(full), spec))
-                .split(sep)
-                .join("/");
-            const published = [target, `${target}.ts`, `${target}/index.ts`].some((candidate) =>
-                surface.targets.has(candidate),
-            );
-            if (published) continue;
-            const key = `${file} "${spec}"`;
-            if (ledger.toolingSeams[key]) {
-                usedSeams.add(key);
-                continue;
+            const targets = spec.startsWith(".")
+                ? [resolve(dirname(full), spec)]
+                : spec.startsWith(`${PKG}/src/`)
+                  ? [resolve(repoRoot, ENGINE_PACKAGE, spec.slice(PKG.length + 1))]
+                  : aliasTargets(full, spec).targets;
+            for (const resolved of targets) {
+                if (
+                    !resolved ||
+                    !resolved.startsWith(resolve(repoRoot, ENGINE_PACKAGE, "src") + sep)
+                )
+                    continue;
+                const target = relative(resolve(repoRoot, ENGINE_PACKAGE), resolved)
+                    .split(sep)
+                    .join("/");
+                const published = [target, `${target}.ts`, `${target}/index.ts`].some((candidate) =>
+                    surface.targets.has(candidate),
+                );
+                if (published) continue;
+                const key = `${file} "${spec}"`;
+                if (ledger.toolingSeams[key]?.trim()) {
+                    usedSeams.add(key);
+                    continue;
+                }
+                violations.push({
+                    file,
+                    line: r.line,
+                    import: spec,
+                    reason: `reaches unpublished engine source ${target} with no declared seam (scripts/boundary-seams.ts)`,
+                });
             }
-            violations.push({
-                file,
-                line: r.line,
-                import: spec,
-                reason: `reaches unpublished engine source ${target} with no declared seam (scripts/boundary-seams.ts)`,
-            });
         }
     }
     return { violations, usedSeams, usedLoaders };
@@ -308,13 +527,22 @@ export function checkBoundary(repoRoot: string, ledger: Ledger = REPO_LEDGER): B
         .filter((dir) => existsSync(dir) && statSync(dir).isDirectory());
     const oracleSeam = resolve(repoRoot, ENGINE_PACKAGE, "tests");
 
-    const violations = scanConsumers(repoRoot, consumerRoots, surface, oracleSeam);
-    const tooling = scanTooling(repoRoot, surface, ledger);
+    const usedLoaders = new Set<string>();
+    const errors: string[] = [];
+    const violations = scanConsumers(
+        repoRoot,
+        consumerRoots,
+        surface,
+        oracleSeam,
+        ledger,
+        usedLoaders,
+        errors,
+    );
+    const tooling = scanTooling(repoRoot, surface, ledger, errors);
     violations.push(...tooling.violations);
 
     // Two-way completeness. A source cone proves nothing if a project can sit outside it, or if a
     // declared escape outlives the code it excused.
-    const errors: string[] = [];
     const governed = new Set(declared);
     const seenFixtures = new Set<string>();
     for (const project of projectRoots(repoRoot)) {
@@ -355,10 +583,10 @@ export function checkBoundary(repoRoot: string, ledger: Ledger = REPO_LEDGER): B
             errors.push(`declared tooling seam names no live import: ${key}`);
     }
     for (const file of Object.keys(ledger.computedLoaders)) {
-        if (!tooling.usedLoaders.has(file))
+        if (!tooling.usedLoaders.has(file) && !usedLoaders.has(file))
             errors.push(`declared computed loader names no live call site: ${file}`);
     }
-    return { violations, errors, consumers: consumerRoots.length };
+    return { violations, errors: [...new Set(errors)], consumers: consumerRoots.length };
 }
 
 function report(result: BoundaryResult): boolean {
@@ -393,13 +621,18 @@ if (import.meta.main) {
         );
         const surface = publishedSurface(enginePkg.exports as Record<string, unknown>);
         const roots = projectRoots(external);
+        const errors: string[] = [];
         const violations = scanConsumers(
             external,
             roots,
             surface,
             resolve(repoRoot, ENGINE_PACKAGE, "tests"),
+            undefined,
+            undefined,
+            errors,
         );
-        if (!report({ violations, errors: [], consumers: roots.length })) process.exit(1);
+        if (!report({ violations, errors: [...new Set(errors)], consumers: roots.length }))
+            process.exit(1);
         console.log(`✓ distribution boundary clean (${roots.length} consumer project(s))`);
     } else {
         const result = checkBoundary(repoRoot);

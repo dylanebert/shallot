@@ -167,6 +167,183 @@ describe("consumer escapes", () => {
     });
 });
 
+describe("reader gap controls", () => {
+    for (const alias of [
+        '[{ find: "@private", replacement: "/private" }]',
+        '{ "@private": target }',
+        '{ [name]: "/private" }',
+        '[{ find: /private/, replacement: "/private" }]',
+    ]) {
+        test(`unresolvable Vite alias refuses: ${alias}`, () => {
+            const root = make();
+            write(
+                root,
+                "examples/recipes/demo/vite.config.ts",
+                `export default { resolve: { alias: ${alias} } };`,
+            );
+            expect(checkBoundary(root, EMPTY).errors.join("\n")).toContain("vite.config.ts: alias");
+        });
+    }
+    test("ancestor tsconfig and project-local aliases stay allowed", () => {
+        const root = make();
+        write(root, "tsconfig.json", "{}");
+        write(
+            root,
+            "examples/recipes/demo/tsconfig.json",
+            JSON.stringify({
+                extends: "../../../tsconfig.json",
+                compilerOptions: { paths: { "@local": ["src/main.ts"] } },
+            }),
+        );
+        write(
+            root,
+            "examples/recipes/demo/vite.config.ts",
+            'export default { resolve: { alias: { "@vite": "./src/main.ts" } } };',
+        );
+        write(root, "examples/recipes/demo/src/main.ts", 'import "@local"; import "@vite";');
+        const result = checkBoundary(root, EMPTY);
+        expect(result.errors).toEqual([]);
+        expect(result.violations).toEqual([]);
+    });
+    test("blank tooling dispositions refuse", () => {
+        const root = make();
+        const file = "packages/shallot/bin/tui.ts";
+        write(root, file, 'void import(path); import "../src/project/generate";');
+        const result = checkBoundary(root, {
+            ...EMPTY,
+            computedLoaders: { [file]: " " },
+            toolingSeams: { [`${file} "../src/project/generate"`]: " " },
+        });
+        expect(result.violations).toHaveLength(2);
+    });
+    test("off-chain tsconfig extends refuses", () => {
+        const root = make();
+        write(root, "tsconfig.json", JSON.stringify({ extends: "./other.json" }));
+        expect(checkBoundary(root, EMPTY).errors.join("\n")).toContain("tsconfig.json: extends");
+    });
+    test("non-array tsconfig paths refuses explicitly", () => {
+        const root = make();
+        write(
+            root,
+            "tsconfig.json",
+            JSON.stringify({ compilerOptions: { paths: { "@private": "private" } } }),
+        );
+        expect(checkBoundary(root, EMPTY).errors.join("\n")).toContain(
+            "tsconfig.json: paths @private",
+        );
+    });
+    test("all tooling alias targets are governed", () => {
+        const root = make();
+        write(
+            root,
+            "tsconfig.json",
+            JSON.stringify({
+                compilerOptions: {
+                    paths: {
+                        "@private": [
+                            "packages/shallot/src/standard/render/core.ts",
+                            "packages/shallot/src/project/generate.ts",
+                        ],
+                    },
+                },
+            }),
+        );
+        write(root, "packages/shallot/bin/tui.ts", 'import "@private";');
+        expect(checkBoundary(root, EMPTY).violations[0]?.reason).toContain("no declared seam");
+    });
+    test("consumer package imports refuses even without use", () => {
+        const root = make();
+        write(
+            root,
+            "examples/recipes/demo/package.json",
+            JSON.stringify({ name: "demo", imports: { "#private": "./src/main.ts" } }),
+        );
+        expect(checkBoundary(root, EMPTY).errors.join("\n")).toContain("package.json: imports");
+    });
+    test("real root wildcard paths cannot launder private source", () => {
+        const root = make();
+        write(
+            root,
+            "tsconfig.json",
+            JSON.stringify({
+                compilerOptions: {
+                    paths: { "@dylanebert/shallot/src/*": ["packages/shallot/src/*"] },
+                },
+            }),
+        );
+        write(
+            root,
+            "examples/recipes/demo/src/main.ts",
+            'import "@dylanebert/shallot/src/project/generate";',
+        );
+        expect(checkBoundary(root, EMPTY).violations[0]?.reason).toContain("escapes the project");
+    });
+    test("consumer concatenated imports require a bounded disposition", () => {
+        const root = make();
+        const file = "examples/recipes/demo/src/main.ts";
+        write(root, file, 'void import("../../../packages/shallot/" + "src/project/generate");');
+        expect(checkBoundary(root, EMPTY).violations[0]?.reason).toContain("no declared bound");
+        const result = checkBoundary(root, {
+            ...EMPTY,
+            computedLoaders: { [file]: "fixture bounded loader" },
+        });
+        expect(result.violations).toEqual([]);
+        expect(result.errors).toEqual([]);
+    });
+
+    test("consumer computed imports require a live bounded disposition", () => {
+        const root = make();
+        const file = "examples/recipes/demo/src/main.ts";
+        write(
+            root,
+            file,
+            'const path = "@dylanebert/shallot/src/project/generate"; void import(path);',
+        );
+        expect(checkBoundary(root, EMPTY).violations[0]?.reason).toContain("no declared bound");
+        write(root, file, 'const path = "./plugin.ts"; void import(path);');
+        const ledger = {
+            ...EMPTY,
+            computedLoaders: { [file]: "project-local plugin selected by manifest" },
+        };
+        expect(checkBoundary(root, ledger).violations).toEqual([]);
+        expect(checkBoundary(root, ledger).errors).toEqual([]);
+    });
+
+    for (const config of ["tsconfig.json", "examples/recipes/demo/vite.config.ts"]) {
+        test(`resolved private alias refuses: ${config}`, () => {
+            const root = make();
+            write(
+                root,
+                config,
+                config.endsWith("json")
+                    ? JSON.stringify({
+                          compilerOptions: {
+                              baseUrl: ".",
+                              paths: { "@private": ["packages/shallot/src/project/generate.ts"] },
+                          },
+                      })
+                    : `export default { resolve: { alias: { "@private": ${JSON.stringify(resolve(root, "packages/shallot/src/project/generate.ts"))} } } };`,
+            );
+            write(root, "examples/recipes/demo/src/main.ts", 'export { plan } from "@private";');
+            expect(checkBoundary(root, EMPTY).violations[0]?.reason).toContain(
+                "escapes the project",
+            );
+        });
+    }
+
+    for (const source of [
+        'import "@dylanebert/shallot/src/project/generate";',
+        'export { plan } from "@dylanebert/shallot/src/project/generate";',
+        'void import("@dylanebert/shallot/src/project/generate");',
+    ]) {
+        test(`TUI alternate private spelling refuses: ${source}`, () => {
+            const root = make();
+            write(root, "packages/shallot/bin/tui.ts", source);
+            expect(checkBoundary(root, EMPTY).violations[0]?.reason).toContain("no declared seam");
+        });
+    }
+});
+
 describe("tooling reaches", () => {
     test("a new private engine reach from bin/ refuses", () => {
         const root = make();
@@ -291,6 +468,16 @@ describe("reference extraction", () => {
         expect(specs('import {\n  a,\n  b,\n} from "one";\n')).toEqual(["one"]);
     });
 
+    for (const source of [
+        'void import("/src/" + "edit.ts");',
+        'require("/src/" + name)',
+        "import(`./${name}`)",
+        'import("./x", { with: { type: "json" } })',
+    ]) {
+        test(`non-literal argument is computed: ${source}`, () => {
+            expect(references(source)).toEqual([{ spec: null, line: 1, computed: true }]);
+        });
+    }
     test("a computed call is reported without a specifier", () => {
         const found = references("const m = await import(path);\n");
         expect(found).toHaveLength(1);

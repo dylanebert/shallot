@@ -70,7 +70,7 @@ Exact: `1e-10` or tighter. Truncation: integrator order/step size. Single f32 op
 
 ## Fixtures and pins
 
-Floor needs member install, matching audio JS/declarations/WASM and AVBD inputs. `GLTF_CORPUS_REQUIRED=1`; reconcile passes, not just files/fails. Gym mounts are separate. Missing artifacts block shared imports; build checks need required-mode absence reds. In-tree isn't clean-install proof. Native-FFI cells need a conformant native adapter (macOS arm64 qualified, WSL2 dzn not); elsewhere incomplete, not red.
+Floor needs member install, matching audio JS/declarations/WASM and AVBD inputs. `GLTF_CORPUS_REQUIRED=1`; reconcile passes, not just files/fails. Gym mounts stay separate. Missing artifacts block shared imports; build checks need required-mode absence reds. In-tree isn't pack proof. Native-FFI needs a conformant adapter (macOS arm64 qualified, WSL2 dzn not), else incomplete, not red; no browser-golden claim.
 
 Bump all pins together, resolve lock, confirm one TypeGPU identity before gates. Dependency/manifest edits: `bun run test:changed --all`. `check-docs.ts` pins commands, not history.
 

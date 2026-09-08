@@ -39,6 +39,10 @@ export const TOOLING_SEAMS: Record<string, string> = {
  *  bound that keeps it readable. Every other computed `import()`/`require()` refuses: a specifier this
  *  reader cannot resolve is a hole in the source cone, not a detail. */
 export const COMPUTED_LOADERS: Record<string, string> = {
+    "examples/showcase/roads/test/edit-safety.playwright.ts":
+        "browser-evaluated /src/ URLs into Roads' own src/, served by playwright.config.ts webServer shallot dev .; non-literal spelling leaves imports to the browser instead of Playwright's CJS transform",
+    "examples/showcase/roads/test/touch-smoke.playwright.ts":
+        "browser-evaluated /src/ URLs into Roads' own src/, served by playwright.config.ts webServer shallot dev .; non-literal spelling leaves imports to the browser instead of Playwright's CJS transform",
     "packages/shallot/bin/tui.ts":
         "loads the project's own manifest-declared plugin files, resolved under the project root",
     "packages/shallot/bin/features.ts":
