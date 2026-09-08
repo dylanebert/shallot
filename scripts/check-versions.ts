@@ -30,6 +30,14 @@ for (const field of [
     }
 }
 
+const solver = await Bun.file(resolve(root, "packages/shallot-tumble/package.json")).json();
+if (solver.version !== shallot.version || solver.private !== true)
+    fail("private solver/distribution version mismatch");
+if (
+    Object.keys(solver.dependencies ?? {}).length ||
+    Object.keys(solver.peerDependencies ?? {}).length
+)
+    fail("solver must remain dependency-free");
 const runtime = await Bun.file(resolve(root, "packages/shallot-runtime/package.json")).json();
 if (runtime.version !== shallot.version) fail("runtime/distribution version mismatch");
 for (const field of [
@@ -82,6 +90,7 @@ const lock = JSON.parse(lockText.replace(/,(\s*[}\]])/g, "$1"));
 for (const dir of [
     "packages/shallot",
     "packages/shallot-runtime",
+    "packages/shallot-tumble",
     "packages/shallot-tooling",
     "packages/create-shallot",
 ]) {

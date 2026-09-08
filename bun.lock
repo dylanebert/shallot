@@ -430,6 +430,13 @@
         "playwright",
       ],
     },
+    "packages/shallot-tumble": {
+      "name": "shallot-tumble",
+      "version": "0.10.0",
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
   },
   "packages": {
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
@@ -933,6 +940,8 @@
     "shallot-runtime": ["shallot-runtime@workspace:packages/shallot-runtime"],
 
     "shallot-tooling": ["shallot-tooling@workspace:packages/shallot-tooling"],
+
+    "shallot-tumble": ["shallot-tumble@workspace:packages/shallot-tumble"],
 
     "shebang-command": ["shebang-command@2.0.0", "", { "dependencies": { "shebang-regex": "^3.0.0" } }, "sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA=="],
 

@@ -13,7 +13,7 @@ import { REPO_ROOT, skipReason, teardownBridge, verify } from "./verify";
 //   scripts/bench-tumble.ts`, `bun run flows`, or `bun run recipes` — they all drive that one browser.
 
 const GYM = "examples/gym";
-const INDEX = resolve(REPO_ROOT, "packages/shallot/tests/tumble/samples/index.json");
+const INDEX = resolve(REPO_ROOT, "packages/shallot-tumble/tests/tumble/samples/index.json");
 
 // Standing per-scenario wall budget: a twin that takes longer than this goes RED. Sized well above the
 // heaviest twin's real runtime and well below a hung-scenario watchdog (~300s) — it catches a regression or

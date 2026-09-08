@@ -27,7 +27,7 @@ import { isRegexLiteralStart, scanRegexLiteral } from "./source-mask";
 // (excluding test/fixture files) found 6 hits: 2 in comments, 4 `Math.sin` call sites (the
 // allowlisted ones), 0 extra. `Math.sqrt` is algebraic, not transcendental — rule 1 sanctions
 // it — so it never belonged in a trig sweep's evidence pattern. Re-derive with:
-// `grep -rn 'Math.\(sin\|cos\|tan\|atan2\|asin\|acos\|exp\|log\|pow\|cbrt\|sinh\|cosh\|tanh\)' packages/shallot-runtime/src/standard/tumble/engine/ | grep -v '\.test\.\|\.fixture\.'`
+// `grep -rn 'Math.\(sin\|cos\|tan\|atan2\|asin\|acos\|exp\|log\|pow\|cbrt\|sinh\|cosh\|tanh\)' packages/shallot-tumble/src/standard/tumble/engine/ | grep -v '\.test\.\|\.fixture\.'`
 //
 // **S1b — structural safety.** The predicate's soundness no longer rests on per-sample
 // demonstration. The sweep lexes once with quote / template-literal / comment awareness
@@ -744,13 +744,28 @@ export async function sweep(root: string): Promise<Finding[]> {
 
 if (import.meta.main) {
     const rootArgIdx = process.argv.indexOf("--root");
-    const root = resolve(
+    const roots =
         rootArgIdx >= 0
-            ? process.argv[rootArgIdx + 1]
-            : resolve(import.meta.dir, "../packages/shallot-runtime/src/standard/tumble"),
+            ? [resolve(process.argv[rootArgIdx + 1])]
+            : ["shallot-runtime", "shallot-tumble"].map((owner) =>
+                  resolve(import.meta.dir, `../packages/${owner}/src/standard/tumble`),
+              );
+    const readings = await Promise.all(
+        roots.map(async (root) => ({
+            findings: await sweep(root),
+            stats: await populationStats(root),
+        })),
     );
-
-    const [findings, stats] = await Promise.all([sweep(root), populationStats(root)]);
+    const findings = readings.flatMap((reading) => reading.findings);
+    const stats = readings.reduce(
+        (sum, reading) => ({
+            files: sum.files + reading.stats.files,
+            f32Sites: sum.f32Sites + reading.stats.f32Sites,
+        }),
+        { files: 0, f32Sites: 0 },
+    );
+    if (readings.some((reading) => reading.stats.files === 0))
+        throw Error("tumble sweep: empty population in canonical owner");
 
     if (findings.length > 0) {
         console.error(`✗ ${findings.length} finding(s):\n`);

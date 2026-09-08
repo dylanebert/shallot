@@ -3,7 +3,7 @@
 // committed gold. A self-driven kinematic capsule mover patrols an arena on the plane solver — the drive
 // lives in `update()`, shoving dynamic crates it leans on.
 
-import goldJson from "../../../../packages/shallot/tests/tumble/samples/character-mover.json";
+import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/character-mover.json";
 import { register } from "../gym";
 import {
     buildCharacterMover,

@@ -15,8 +15,8 @@
 
 import { expect, test } from "bun:test";
 import { type Body, BodyType, makeBoxHull, World } from "@dylanebert/shallot/tumble/core";
-import bodyTypeJson from "../../../packages/shallot/tests/tumble/samples/bodies-body-type.json";
-import goldJson from "../../../packages/shallot/tests/tumble/samples/joints-paddle.json";
+import bodyTypeJson from "../../../packages/shallot-tumble/tests/tumble/samples/bodies-body-type.json";
+import goldJson from "../../../packages/shallot-tumble/tests/tumble/samples/joints-paddle.json";
 import { buildBodyType, updateBodyType } from "./tumble-body-type";
 import { beginGrab, driveGrab, endGrab, updateGrab } from "./tumble-grab";
 import { runOracle, type SampleBuild, type SampleGold } from "./tumble-oracle";

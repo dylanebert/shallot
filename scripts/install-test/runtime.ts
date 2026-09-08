@@ -157,12 +157,29 @@ export function inspectRuntime(shipped: string): void {
     const record = JSON.parse(readFileSync(resolve(shipped, "runtime-inputs.json"), "utf8"));
     assert.equal(record.mode, "pack");
     const owner = resolve(root, "packages/shallot-runtime");
-    const inventory = Bun.spawnSync(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", "src"],
-        { cwd: owner },
-    );
-    assert.equal(inventory.exitCode, 0);
-    const sources = [...new Set(inventory.stdout.toString().trim().split("\n").filter(carried))];
+    const solver = resolve(root, "packages/shallot-tumble");
+    const engine = "src/standard/tumble/engine/";
+    const canonical = (file: string) => resolve(file.startsWith(engine) ? solver : owner, file);
+    const sources = [owner, solver].flatMap((dir) => {
+        const inventory = Bun.spawnSync(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", "src"],
+            { cwd: dir },
+        );
+        assert.equal(inventory.exitCode, 0);
+        const files = [
+            ...new Set(
+                inventory.stdout
+                    .toString()
+                    .trim()
+                    .split("\n")
+                    .filter(
+                        (file) => carried(file) && (dir === solver || !file.startsWith(engine)),
+                    ),
+            ),
+        ];
+        assert(files.length > 0, "installed runtime: nonempty canonical owner");
+        return files;
+    });
     const outputs = [
         ...sources,
         "rust/audio/pkg/shallot_audio.js",
@@ -178,7 +195,10 @@ export function inspectRuntime(shipped: string): void {
     assert.deepEqual(
         Object.keys(record.inputs).sort(),
         [
-            ...outputs,
+            ...outputs.map((file) =>
+                file.startsWith(engine) ? `../shallot-tumble/${file}` : file,
+            ),
+            "../shallot-tumble/package.json",
             "package.json",
             "scripts/project.ts",
             "scripts/build.ts",
@@ -188,7 +208,7 @@ export function inspectRuntime(shipped: string): void {
     for (const file of outputs)
         assert.equal(
             hash(resolve(shipped, file)),
-            hash(resolve(owner, file)),
+            hash(canonical(file)),
             `installed runtime: canonical bytes ${file}`,
         );
     for (const [file, expected] of Object.entries(record.inputs))

@@ -40,7 +40,9 @@ export const TOOLING_SEAMS: Record<string, string> = {
  *  bound that keeps it readable. Every other computed `import()`/`require()` refuses: a specifier this
  *  reader cannot resolve is a hole in the source cone, not a detail. */
 export const COMPUTED_LOADERS: Record<string, string> = {
-    "packages/shallot-runtime/src/standard/tumble/engine/pool.ts":
+    "packages/shallot-tumble/scripts/gen-tumble-sample-golds.ts":
+        "Frozen mint recipe: four loads name the absent retired sample base/registry and this owner's body/index files; refuses before loading without that checkout. Never part of shipped solver source.",
+    "packages/shallot-tumble/src/standard/tumble/engine/pool.ts":
         "the Node-only branch loads the fixed node:worker_threads specifier with vite-ignore; the browser branch creates an embedded Blob worker",
     "packages/shallot-tooling/src/project/command.ts":
         "loads enabled manifest plugins only after project planning resolves their paths",
