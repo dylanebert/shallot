@@ -4,7 +4,7 @@ webgpu game engine
 
 - fast by default
 - instant iteration
-- checks itself
+- runs where webgpu does
 
 ## live demos
 

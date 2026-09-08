@@ -40,7 +40,7 @@ export function siteIndex(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>shallot</title>
-<meta name="description" content="webgpu game engine. fast by default, instant iteration, checks itself.">
+<meta name="description" content="webgpu game engine. fast by default, instant iteration, runs where webgpu does.">
 <link rel="icon" href="./brand/mark-32.png">
 ${AGENTS_LINK("home")}
 ${FONTS}
@@ -69,7 +69,7 @@ ${TOGGLE}
 ${nav("home")}
 <header>
 <div data-splash-svg data-scale="5">${toSvg(lockup(), CSS_PALETTE, 5)}</div>
-<p>webgpu game engine. fast by default, instant iteration, checks itself.</p>
+<p>webgpu game engine. fast by default, instant iteration, runs where webgpu does.</p>
 </header>
 
 <section>
@@ -112,7 +112,7 @@ export function llmsTxt(version: string, ref: string, mode: "prod" | "staging"):
         `https://raw.githubusercontent.com/dylanebert/shallot/${at}/${path}`;
     return `# shallot
 
-> webgpu game engine. fast by default, instant iteration, checks itself.
+> webgpu game engine. fast by default, instant iteration, runs where webgpu does.
 
 The source is the reference: every public export carries a JSDoc contract, and there is no docs site to drift from it. Two files carry the consumer surface. Read the first before writing a project; grep the second for the problem you have.
 
