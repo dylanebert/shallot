@@ -30,7 +30,7 @@ for (const canvas of document.querySelectorAll<HTMLCanvasElement>("[data-termina
     ];
     const splashRows = 7;
     const rows = lines.length - 1 + splashRows;
-    const cols = 64;
+    const cols = 56;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const ctx = canvas.getContext("2d");
     if (!ctx) continue;
@@ -40,7 +40,7 @@ for (const canvas of document.querySelectorAll<HTMLCanvasElement>("[data-termina
         canvas.width = cols * cw * dpr;
         canvas.height = rows * ch * dpr;
         canvas.style.width = `${cols * cw}px`;
-        canvas.style.height = `${rows * ch}px`;
+        canvas.style.aspectRatio = `${cols * cw} / ${rows * ch}`;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.font = `${font}px "JetBrains Mono", monospace`;
         ctx.textBaseline = "middle";

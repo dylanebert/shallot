@@ -28,10 +28,9 @@ ${FONTS}
 ${THEME_SCRIPT}
 <style>${STYLE}
 .lockup { padding: 56px 24px; display: grid; place-items: center; cursor: pointer; }
-.marks { display: flex; gap: 40px; align-items: flex-end; flex-wrap: wrap; }
+.marks { display: flex; gap: 28px 40px; align-items: flex-end; flex-wrap: wrap; }
 .marks div { display: grid; gap: 8px; justify-items: center; font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--muted); }
-.term { padding: 18px 20px; background: #0f0d0b; cursor: pointer; overflow-x: auto; }
-.term canvas { display: block; }
+.term { padding: 18px 20px; background: #0f0d0b; cursor: pointer; }
 .sws { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 2px; }
 .sw { background: var(--bg2); padding: 12px; display: grid; gap: 4px; font-family: "JetBrains Mono", monospace; font-size: 11px; }
 .sw i { display: block; height: 40px; background: var(--d); border-radius: 2px; margin-bottom: 4px; }
@@ -39,7 +38,7 @@ ${THEME_SCRIPT}
 .type { display: grid; gap: 8px; }
 .type .mono { font-family: "JetBrains Mono", monospace; font-size: 24px; font-weight: 700; }
 .type .sans { font-size: 17px; max-width: 60ch; }
-.dl { display: flex; gap: 18px; font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--muted); }
+.dl { display: flex; flex-wrap: wrap; gap: 8px 18px; font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--muted); }
 .dl a::before { content: "↓ "; }
 </style>
 </head>
