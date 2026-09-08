@@ -44,3 +44,37 @@ export const RUM_ENV_SNIPPET_STAGING = "var ddEnv='staging';";
 // and one that drops the wiring (leaving `ddEnv` computed but never read) each red on their own
 // clause instead of one silently covering for the other.
 export const RUM_ENV_USAGE = "Object.assign({env:ddEnv},";
+
+// Datadog RUM browser-agent CDN major, pinned — checked 2026-08-25 against the served
+// `/us1/v6/datadog-rum.js` bundle: `addDurationVital(name, {startTime, duration, context})` is
+// present as the one-shot form the Locked decision calls for (`startDurationVital`/
+// `stopDurationVital` also exist, unused here). Bump this only after re-checking that shape.
+const DATADOG_RUM_CDN_MAJOR = 6;
+const DATADOG_RUM_CDN_URL = `https://www.datadoghq-browser-agent.com/us1/v${DATADOG_RUM_CDN_MAJOR}/datadog-rum.js`;
+
+// `crossOrigin='anonymous'` on the injected script element: `shallot verify`'s dist/dev preview sends
+// `Cross-Origin-Embedder-Policy: require-corp` (`packages/shallot-tooling/src/project/vite.ts`, unconditional on
+// every serve surface — for the multithreaded WASM kernel, unrelated to RUM) and the CDN never sends a
+// `Cross-Origin-Resource-Policy` header, so a plain no-cors `<script src>` load is blocked
+// (`net::ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep`, reproduced 2026-08-25 —
+// every `bun run demos` entry point failed on it). The CDN does answer a CORS request with
+// `Access-Control-Allow-Origin: *` (verified against a request carrying an `Origin` header), and a
+// CORS-mode load is exempt from the CORP check entirely — so `crossOrigin` fixes the verify-only failure
+// without needing a header change in `packages/shallot` (out of scope) or the deployed site, which never
+// sets COEP (a static host can't set headers, the doc comment above `CROSS_ORIGIN_ISOLATION` already notes).
+export function datadogInitSnippet(mode: "prod" | "staging" = "prod"): string {
+    const envSnippet = mode === "staging" ? RUM_ENV_SNIPPET_STAGING : RUM_ENV_SNIPPET;
+    return `${RUM_INJECTION_MARKER}
+<script>
+(function(h,o,u,n,d) {
+    h=h[d]=h[d]||{q:[],onReady:function(c){h.q.push(c)}}
+    d=o.createElement(u);d.async=1;d.src=n;d.crossOrigin='anonymous'
+    n=o.getElementsByTagName(u)[0];n.parentNode.insertBefore(d,n)
+})(window,document,'script','${DATADOG_RUM_CDN_URL}','DD_RUM')
+window.DD_RUM.onReady(function() {
+    ${envSnippet}
+    window.DD_RUM.init(${RUM_ENV_USAGE}${JSON.stringify(RUM_CONFIG)}));
+});
+</script>
+`;
+}

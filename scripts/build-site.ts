@@ -22,16 +22,14 @@ import { Glob } from "bun";
 // docblock records the same measurement for the reader who only sees the pure module.
 import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot-runtime/src/engine/runtime/gpu";
 import { llmsTxt, siteIndex } from "../site/home";
-import { ROSTER } from "../site/roster";
-import {
-    RUM_CONFIG,
-    RUM_ENV_SNIPPET,
-    RUM_ENV_SNIPPET_STAGING,
-    RUM_ENV_USAGE,
-    RUM_INJECTION_MARKER,
-} from "../site/rum-config";
+import { type DemoEntry, ROSTER } from "../site/roster";
+import { datadogInitSnippet } from "../site/rum-config";
 import { demoFingerprints, type SiteMode, writeStamp } from "../site/site-stamp";
 import { buildBrand, bundleClient } from "./build-pages";
+
+// the RUM init snippet lives in `site/rum-config.ts` so the pages build can inject it too;
+// re-exported here because the site tests import it from this module
+export { datadogInitSnippet };
 
 // `bun run site` — build every showcase demo as an ejected consumer of the *published* package,
 // then assemble the site index. Each demo is copied out of the workspace to a scratch tree under
@@ -59,40 +57,6 @@ import { buildBrand, bundleClient } from "./build-pages";
 const root = resolve(import.meta.dir, "..");
 const showcaseDir = resolve(root, "examples/showcase");
 const outDir = resolve(root, "out/site");
-
-// Datadog RUM browser-agent CDN major, pinned — checked 2026-08-25 against the served
-// `/us1/v6/datadog-rum.js` bundle: `addDurationVital(name, {startTime, duration, context})` is
-// present as the one-shot form the Locked decision calls for (`startDurationVital`/
-// `stopDurationVital` also exist, unused here). Bump this only after re-checking that shape.
-const DATADOG_RUM_CDN_MAJOR = 6;
-const DATADOG_RUM_CDN_URL = `https://www.datadoghq-browser-agent.com/us1/v${DATADOG_RUM_CDN_MAJOR}/datadog-rum.js`;
-
-// `crossOrigin='anonymous'` on the injected script element: `shallot verify`'s dist/dev preview sends
-// `Cross-Origin-Embedder-Policy: require-corp` (`packages/shallot-tooling/src/project/vite.ts`, unconditional on
-// every serve surface — for the multithreaded WASM kernel, unrelated to RUM) and the CDN never sends a
-// `Cross-Origin-Resource-Policy` header, so a plain no-cors `<script src>` load is blocked
-// (`net::ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep`, reproduced 2026-08-25 —
-// every `bun run demos` entry point failed on it). The CDN does answer a CORS request with
-// `Access-Control-Allow-Origin: *` (verified against a request carrying an `Origin` header), and a
-// CORS-mode load is exempt from the CORP check entirely — so `crossOrigin` fixes the verify-only failure
-// without needing a header change in `packages/shallot` (out of scope) or the deployed site, which never
-// sets COEP (a static host can't set headers, the doc comment above `CROSS_ORIGIN_ISOLATION` already notes).
-export function datadogInitSnippet(mode: "prod" | "staging" = "prod"): string {
-    const envSnippet = mode === "staging" ? RUM_ENV_SNIPPET_STAGING : RUM_ENV_SNIPPET;
-    return `${RUM_INJECTION_MARKER}
-<script>
-(function(h,o,u,n,d) {
-    h=h[d]=h[d]||{q:[],onReady:function(c){h.q.push(c)}}
-    d=o.createElement(u);d.async=1;d.src=n;d.crossOrigin='anonymous'
-    n=o.getElementsByTagName(u)[0];n.parentNode.insertBefore(d,n)
-})(window,document,'script','${DATADOG_RUM_CDN_URL}','DD_RUM')
-window.DD_RUM.onReady(function() {
-    ${envSnippet}
-    window.DD_RUM.init(${RUM_ENV_USAGE}${JSON.stringify(RUM_CONFIG)}));
-});
-</script>
-`;
-}
 
 /** Bundles `site/rum-runtime.ts` (which imports the pure sampler) to a single browser-target ESM
  * script — inlined so every demo page, at any output depth (`visualization/demos/*.html`
@@ -195,10 +159,6 @@ Options:
 
     const idx = args.indexOf("--demo");
     const only = idx !== -1 ? args[idx + 1] : undefined;
-    if (only && !ROSTER.some((d) => d.slug === only)) {
-        console.error(`no demo "${only}" — one of: ${ROSTER.map((d) => d.slug).join(", ")}`);
-        process.exit(2);
-    }
 
     const staging = args.includes("--staging");
     const mode: "prod" | "staging" = staging ? "staging" : "prod";
@@ -211,7 +171,21 @@ Options:
     const ref = Bun.spawnSync(["git", "rev-parse", "--short", "HEAD"], { cwd: root });
     const refShort = ref.stdout.toString().trim() || "unknown";
 
-    const demos = only ? ROSTER.filter((d) => d.slug === only) : ROSTER;
+    // where the demo sources come from: this tree, or the last release tag when the tree's
+    // version is ahead of what npm serves (`demoSource` below)
+    const source = staging ? treeSource(version) : await releaseSource(version);
+    if (only && !source.roster.some((d) => d.slug === only)) {
+        console.error(`no demo "${only}" — one of: ${source.roster.map((d) => d.slug).join(", ")}`);
+        process.exit(2);
+    }
+    const roster = source.roster;
+    const showcase = source.showcaseDir;
+    const demos = only ? roster.filter((d) => d.slug === only) : roster;
+    if (source.kind === "tag") {
+        console.log(
+            `release source: workspace is ${version}, npm latest is ${source.version} — demos from ${source.tag}`,
+        );
+    }
 
     // clean + recreate the output dir — a single-demo build only clears that demo's slot,
     // so a prior full build's other demos survive
@@ -230,12 +204,12 @@ Options:
     const extensionNames = new Set<string>();
     for (const demo of demos) {
         const demoPkg = (await Bun.file(
-            resolve(showcaseDir, demo.slug, "package.json"),
+            resolve(showcase, demo.slug, "package.json"),
         ).json()) as DemoPackage;
         for (const name of workspaceExtensionDependencies(demoPkg)) extensionNames.add(name);
     }
 
-    let enginePin = version;
+    let enginePin = source.version;
     const packDest = mkdtempSync(join(tmpdir(), "shallot-site-pack-"));
     const extensionPins = new Map<string, string>();
     const pack = (name: string, packageDir: string): string => {
@@ -264,7 +238,7 @@ Options:
     try {
         for (const demo of demos) {
             const slug = demo.slug;
-            const srcDir = resolve(showcaseDir, slug);
+            const srcDir = resolve(showcase, slug);
             if (!existsSync(srcDir)) {
                 console.error(`✗ showcase dir not found: ${srcDir}`);
                 process.exit(1);
@@ -354,16 +328,17 @@ Options:
         rmSync(packDest, { recursive: true, force: true });
     }
 
-    // emit the site index — always lists the full roster so a single-demo build's index
-    // still references the other demos from a prior full build
-    // the site's own pages beside the demos: the index and /brand/ with its downloads
-    // (`scripts/build-pages.ts`); one client bundle serves both
+    // the site's own pages beside the demos: the index (always the full roster, so a `--demo`
+    // build's index still lists the others), llms.txt, and /brand/ with its downloads
+    // (`scripts/build-pages.ts`); one client bundle and one RUM init snippet serve them all
     const client = await bundleClient();
+    const rum = datadogInitSnippet(mode);
     writeFileSync(
         resolve(outDir, "index.html"),
-        siteIndex(ROSTER, version, refShort, mode, client),
+        siteIndex(roster, source.version, refShort, mode, client, rum),
     );
-    await buildBrand(outDir, client);
+    writeFileSync(resolve(outDir, "llms.txt"), llmsTxt(source.version, refShort, mode));
+    await buildBrand(outDir, client, rum);
 
     // record what each demo was built from, so `check-site.ts` can tell an artifact of *these*
     // sources from an artifact of some other sources before it judges the artifact
@@ -371,15 +346,19 @@ Options:
     // `mode` is not merged — it names the mode this run built in.
     const siteMode: SiteMode = staging
         ? { kind: "staging", pin: enginePin }
-        : { kind: "prod", version };
-    writeStamp(
-        outDir,
-        demoFingerprints(
-            root,
-            demos.map((d) => d.slug),
-        ),
-        siteMode,
-    );
+        : source.kind === "tag"
+          ? { kind: "prod", version: source.version, tag: source.tag }
+          : { kind: "prod", version };
+    // tag sources are immutable, so their entries record the tag rather than a tree fingerprint
+    const fingerprints =
+        source.kind === "tag"
+            ? Object.fromEntries(demos.map((d) => [d.slug, `tag:${source.tag}`]))
+            : demoFingerprints(
+                  root,
+                  demos.map((d) => d.slug),
+              );
+    writeStamp(outDir, fingerprints, siteMode);
+    if (source.kind === "tag") rmSync(source.root, { recursive: true, force: true });
 
     const total = sizes.reduce((sum, s) => sum + parseSize(s.size), 0);
     console.log(`\n=== summary ===`);
@@ -389,8 +368,91 @@ Options:
     console.log(`  total: ${formatSize(total)}`);
     console.log(`\n  index: ${resolve(outDir, "index.html")}`);
     console.log(
-        `  built from: ${staging ? `staging (${enginePin})` : `v${version}`} (${refShort})`,
+        `  built from: ${staging ? `staging (${enginePin})` : `v${source.version}`} (${refShort})${source.kind === "tag" ? `, demos from ${source.tag}` : ""}`,
     );
+}
+
+/** Where the demos' sources come from. `tree` is this checkout; `tag` is an extracted release tag. */
+type DemoSource =
+    | { kind: "tree"; version: string; roster: DemoEntry[]; showcaseDir: string; root: string }
+    | {
+          kind: "tag";
+          version: string;
+          tag: string;
+          roster: DemoEntry[];
+          showcaseDir: string;
+          root: string;
+      };
+
+function treeSource(version: string): DemoSource {
+    return { kind: "tree", version, roster: ROSTER, showcaseDir, root };
+}
+
+const deriveTitle = (slug: string): string =>
+    slug
+        .split("-")
+        .map((seg) => seg.charAt(0).toUpperCase() + seg.slice(1))
+        .join(" ");
+
+/** The version npm serves as `latest`. A production build pins demos to a published package, so
+ * this is the only version it can build against. */
+export async function publishedLatest(): Promise<string> {
+    const response = await fetch("https://registry.npmjs.org/@dylanebert%2Fshallot/latest");
+    if (!response.ok)
+        throw new Error(`npm registry answered ${response.status} for @dylanebert/shallot`);
+    const body = (await response.json()) as { version?: string };
+    if (!body.version) throw new Error("npm registry returned no version for @dylanebert/shallot");
+    return body.version;
+}
+
+/**
+ * Production demo source. When the workspace version is what npm serves, the tree is the source
+ * (a tag-push deploy, right after publish). When the workspace is ahead — a dispatch deploy
+ * between releases — the demos come from the last release tag, extracted with `git archive`, so
+ * the published package builds the showcase it shipped with while the pages come from this tree.
+ */
+async function releaseSource(version: string): Promise<DemoSource> {
+    const latest = await publishedLatest();
+    if (latest === version) return treeSource(version);
+    const tag = `v${latest}`;
+    const exists = Bun.spawnSync(["git", "rev-parse", "--verify", "--quiet", `refs/tags/${tag}`], {
+        cwd: root,
+    });
+    if (exists.exitCode !== 0) {
+        const fetched = Bun.spawnSync(["git", "fetch", "--quiet", "origin", "tag", tag], {
+            cwd: root,
+        });
+        if (fetched.exitCode !== 0)
+            throw new Error(`release tag ${tag} is not in this checkout and could not be fetched`);
+    }
+    const dir = mkdtempSync(join(tmpdir(), "shallot-site-release-"));
+    const tar = join(dir, "showcase.tar");
+    const archive = Bun.spawnSync(
+        ["git", "archive", "--format=tar", "-o", tar, tag, "examples/showcase"],
+        { cwd: root },
+    );
+    if (archive.exitCode !== 0) throw new Error(`git archive ${tag} examples/showcase failed`);
+    const extract = Bun.spawnSync(["tar", "-xf", tar, "-C", dir]);
+    if (extract.exitCode !== 0) throw new Error(`could not extract ${tar}`);
+    rmSync(tar, { force: true });
+    const tree = Bun.spawnSync(["git", "ls-tree", "--name-only", "-d", tag, "examples/showcase/"], {
+        cwd: root,
+    });
+    const slugs = tree.stdout
+        .toString()
+        .split("\n")
+        .filter(Boolean)
+        .map((p) => p.slice("examples/showcase/".length))
+        .sort();
+    const roster = slugs.map((slug) => ({ slug, title: deriveTitle(slug) }));
+    return {
+        kind: "tag",
+        version: latest,
+        tag,
+        roster,
+        showcaseDir: resolve(dir, "examples/showcase"),
+        root: dir,
+    };
 }
 
 // The standalone tsconfig — the root tsconfig.json's compilerOptions inlined, minus the

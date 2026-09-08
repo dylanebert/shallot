@@ -86,8 +86,11 @@ ${datadogInitSnippet()}    </body>
 `,
         );
     }
-    // the site index carries no RUM injection (clause 5's index leg)
-    writeFileSync(resolve(out, "index.html"), `<!doctype html>\n<html><body></body></html>\n`);
+    // the site index carries the init alone (clause 5's page leg)
+    writeFileSync(
+        resolve(out, "index.html"),
+        `<!doctype html>\n<html><body>${datadogInitSnippet()}</body></html>\n`,
+    );
     return out;
 }
 
@@ -290,7 +293,10 @@ ${datadogInitSnippet(mode)}    </body>
 `,
         );
     }
-    writeFileSync(resolve(out, "index.html"), `<!doctype html>\n<html><body></body></html>\n`);
+    writeFileSync(
+        resolve(out, "index.html"),
+        `<!doctype html>\n<html><body>${datadogInitSnippet(mode)}</body></html>\n`,
+    );
     return out;
 }
 
@@ -376,7 +382,10 @@ ${datadogInitSnippet("prod")}    <!-- var ddEnv='staging'; -->
 `,
             );
         }
-        writeFileSync(resolve(out, "index.html"), `<!doctype html>\n<html><body></body></html>\n`);
+        writeFileSync(
+            resolve(out, "index.html"),
+            `<!doctype html>\n<html><body>${datadogInitSnippet()}</body></html>\n`,
+        );
         stampFresh(out, PROD_MODE);
         const { exitCode, out: log } = runCheck(out, { SITE_OUT_REQUIRED: "1" });
         expect(exitCode).toBe(1);

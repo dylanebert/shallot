@@ -104,8 +104,8 @@ test("build-site — the index always lists the full roster (ROSTER, not demos)"
     // Before the fix, a single-demo build's index only listed the filtered demos.
     // The call site is `siteIndex(ROSTER, version, refShort)` — check the call, not the function
     // definition (whose parameter is named `demos`).
-    expect(src).toMatch(/siteIndex\(ROSTER,\s*version/);
+    expect(src).toMatch(/siteIndex\(roster,\s*source\.version/);
     // Ensure the call does NOT pass the filtered `demos` variable to siteIndex.
     // The filtered list is `const demos = only ? ROSTER.filter(...) : ROSTER` — the call must use ROSTER.
-    expect(src).not.toMatch(/siteIndex\(demos,\s*version/);
+    expect(src).not.toMatch(/siteIndex\(demos,/);
 });
