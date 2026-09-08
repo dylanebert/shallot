@@ -1,9 +1,10 @@
 import { lockup, toSvg } from "./brand/mark";
-import { AGENTS_LINK, CSS_PALETTE, FONTS, nav, STYLE, THEME_SCRIPT, TOGGLE } from "./brand/theme";
+import { AGENTS_LINK, CSS_PALETTE, FONTS, LINKS, STYLE, THEME_SCRIPT, TOGGLE } from "./brand/theme";
 import type { DemoEntry } from "./roster";
 
 // The site home at /shallot/: the lockup splashing in, the one-line promise, quick start, the
-// demos, and the build label in the foot. The nav is the one both pages share. The demos themselves are built
+// demos, and the foot: build label, then the brand link and outbound links, low-key. No top nav;
+// brand is a detail that doesn't earn one. The demos themselves are built
 // separately; `clientScript` is the bundled `site/brand/client.ts`, `rum` the Datadog init
 // snippet (page views only, no frame sampler).
 
@@ -46,7 +47,7 @@ ${AGENTS_LINK("home")}
 ${FONTS}
 ${THEME_SCRIPT}
 <style>${STYLE}
-header { display: grid; gap: 18px; padding: 24px 0 8px; }
+header { display: grid; gap: 18px; padding: 8px 0; }
 header p { font-size: 17px; text-wrap: balance; }
 .demos { list-style: none; }
 .demos li { display: flex; align-items: center; border-bottom: 1px solid var(--line); font-family: "JetBrains Mono", monospace; font-size: 13px; }
@@ -66,7 +67,6 @@ header p { font-size: 17px; text-wrap: balance; }
 <body>
 ${TOGGLE}
 <main>
-${nav("home")}
 <header>
 <div data-splash-svg data-scale="5">${toSvg(lockup(), CSS_PALETTE, 5)}</div>
 <p>webgpu game engine. fast by default, instant iteration, runs where webgpu does.</p>
@@ -94,7 +94,7 @@ ${rows}
 </ul>
 </section>
 
-<footer>${label}</footer>
+<footer><span>${label}</span><span class="sp"></span><a href="./brand/">brand</a>${LINKS}</footer>
 </main>
 <script type="module">${clientScript}</script>
 ${rum}</body>

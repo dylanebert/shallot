@@ -1,7 +1,9 @@
 import { DARK, LIGHT, type Palette } from "./mark";
 
-// Shared page chrome for the site's own pages (home, brand): tokens, the theme toggle, and the
-// half-block `pre` rules. Dark is the brand; light is the same assets on paper behind a toggle.
+// Shared page chrome for the site's own pages (home, brand): tokens, the theme toggle, the outbound
+// links, and the half-block `pre` rules. Dark is the brand; light is the same assets on paper behind
+// a toggle. Neither page has a top nav: home leads with the lockup, and brand is a detail reached
+// from the foot of home with a back arrow to return.
 
 /** A palette whose values are CSS custom properties, so inline SVG follows the page theme. */
 export const CSS_PALETTE: Palette = {
@@ -29,12 +31,12 @@ a { color: inherit; text-decoration: none; }
 a:hover { color: var(--gold); }
 h2 { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 section { display: grid; gap: 14px; }
-nav { display: flex; gap: 18px; align-items: center; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; color: var(--muted); padding-right: 44px; }
-nav .sp { flex: 1; }
-nav a { display: inline-flex; align-items: center; }
-nav a.here { color: var(--ink); }
-nav svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
-footer { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+.links { display: inline-flex; gap: 18px; align-items: center; }
+.links a { display: inline-flex; align-items: center; }
+.links svg, .back svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.back { display: inline-flex; align-items: center; color: var(--muted); }
+footer { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+footer .sp { flex: 1; }
 pre, code { font-family: "JetBrains Mono", ui-monospace, monospace; }
 pre { font-size: 13px; line-height: 1.2; white-space: pre; overflow-x: auto; }
 pre.blocks { color: var(--gold); }
@@ -46,7 +48,7 @@ canvas { display: block; max-width: 100%; height: auto; }
 .toggle { position: fixed; top: 14px; right: 14px; width: 30px; height: 30px; border: 1px solid var(--line); background: var(--bg); color: var(--muted); border-radius: 2px; cursor: pointer; display: grid; place-items: center; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1; }
 .toggle:hover { color: var(--gold); }
 .toggle:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-@media (max-width: 480px) { main { padding: 28px 16px 64px; } nav { flex-wrap: wrap; } }
+@media (max-width: 480px) { main { padding: 28px 16px 64px; } }
 `;
 
 /** Applies the saved theme before first paint; the toggle flips and stores it. */
@@ -60,11 +62,11 @@ const GITHUB =
 const PACKAGE =
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/></svg>';
 
-/** The one nav both pages share: home and brand on the left, GitHub and npm on the right. */
-export function nav(here: "home" | "brand"): string {
-    const link = (href: string, id: "home" | "brand", text: string) =>
-        `<a href="${href}"${here === id ? ' class="here"' : ""}>${text}</a>`;
-    const home = here === "home" ? "./" : "../";
-    const brand = here === "home" ? "./brand/" : "./";
-    return `<nav>${link(home, "home", "shallot")}${link(brand, "brand", "brand")}<span class="sp"></span><a href="https://github.com/dylanebert/shallot" target="_blank" rel="noopener" aria-label="GitHub">${GITHUB}</a><a href="https://www.npmjs.com/package/@dylanebert/shallot" target="_blank" rel="noopener" aria-label="npm">${PACKAGE}</a></nav>`;
-}
+const ARROW =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>';
+
+/** GitHub and npm, as icons; sits in the foot of home. */
+export const LINKS = `<span class="links"><a href="https://github.com/dylanebert/shallot" target="_blank" rel="noopener" aria-label="GitHub">${GITHUB}</a><a href="https://www.npmjs.com/package/@dylanebert/shallot" target="_blank" rel="noopener" aria-label="npm">${PACKAGE}</a></span>`;
+
+/** The back arrow at the top of a subpage, pointing at home. */
+export const BACK = `<a class="back" href="../" aria-label="Back to shallot">${ARROW}</a>`;

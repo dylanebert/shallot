@@ -1,7 +1,8 @@
 import { DARK, fromBlocks, LIGHT, lockup, MARK, toSvg, word } from "./mark";
-import { AGENTS_LINK, CSS_PALETTE, FONTS, nav, STYLE, THEME_SCRIPT, TOGGLE } from "./theme";
+import { AGENTS_LINK, BACK, CSS_PALETTE, FONTS, STYLE, THEME_SCRIPT, TOGGLE } from "./theme";
 
-// The brand page at /shallot/brand/: the assets, shown plainly, and their downloads. Labels only;
+// The brand page at /shallot/brand/: a back arrow to home, then the assets, shown plainly, and
+// their downloads. Labels only;
 // the sheet that argued for these choices is not the page. Inline SVG uses CSS-variable fills so
 // the toggle flips every asset; downloads carry real hex per theme.
 
@@ -46,7 +47,7 @@ ${THEME_SCRIPT}
 <body>
 ${TOGGLE}
 <main>
-${nav("brand")}
+${BACK}
 <section>
 <div class="lockup block"><div data-splash-svg data-scale="6">${svg(lock, 6)}</div></div>
 ${dl([
