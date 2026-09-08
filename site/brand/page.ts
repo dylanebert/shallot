@@ -1,5 +1,5 @@
 import { DARK, fromBlocks, LIGHT, lockup, MARK, toCells, toHtml, toSvg, word } from "./mark";
-import { CSS_PALETTE, FONTS, footer, STYLE, THEME_SCRIPT, TOGGLE } from "./theme";
+import { CSS_PALETTE, FONTS, nav, STYLE, THEME_SCRIPT, TOGGLE } from "./theme";
 
 // The brand page at /shallot/brand/: the assets, shown plainly, and their downloads. Labels only;
 // the sheet that argued for these choices is not the page. Inline SVG uses CSS-variable fills so
@@ -60,6 +60,7 @@ ${THEME_SCRIPT}
 <body>
 ${TOGGLE}
 <main>
+${nav("brand")}
 <section>
 <div class="lockup block"><div data-splash-svg data-scale="6">${svg(lock, 6)}</div></div>
 </section>
@@ -113,7 +114,6 @@ ${swatch("muted", "#a08c78", "#6e655c")}
 <h2>download</h2>
 <div class="dl">${downloads}</div>
 </section>
-${footer('<a href="../">shallot</a>', "brand")}
 </main>
 <script type="module">${clientScript}</script>
 </body>

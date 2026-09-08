@@ -25,10 +25,12 @@ a { color: inherit; text-decoration: none; }
 a:hover { color: var(--gold); }
 h2 { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 section { display: grid; gap: 14px; }
-footer { display: flex; gap: 18px; align-items: center; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--muted); padding-top: 8px; }
-footer .sp { flex: 1; }
-footer a { display: inline-flex; align-items: center; gap: 6px; }
-footer svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+nav { display: flex; gap: 18px; align-items: center; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; color: var(--muted); padding-right: 44px; }
+nav .sp { flex: 1; }
+nav a { display: inline-flex; align-items: center; }
+nav a.here { color: var(--ink); }
+nav svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+footer { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--muted); }
 pre, code { font-family: "JetBrains Mono", ui-monospace, monospace; }
 pre { font-size: 13px; line-height: 1.2; white-space: pre; overflow-x: auto; }
 pre.blocks { color: var(--gold); }
@@ -39,7 +41,7 @@ svg { display: block; }
 .toggle { position: fixed; top: 14px; right: 14px; width: 30px; height: 30px; border: 1px solid var(--line); background: var(--bg); color: var(--muted); border-radius: 2px; cursor: pointer; display: grid; place-items: center; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1; }
 .toggle:hover { color: var(--gold); }
 .toggle:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-@media (max-width: 480px) { main { padding: 28px 16px 64px; } footer { flex-wrap: wrap; } }
+@media (max-width: 480px) { main { padding: 28px 16px 64px; } nav { flex-wrap: wrap; } }
 `;
 
 /** Applies the saved theme before first paint; the toggle flips and stores it. */
@@ -53,7 +55,11 @@ const GITHUB =
 const PACKAGE =
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/></svg>';
 
-/** The page foot: where you are, where else to go, and what this build is. */
-export function footer(links: string, label: string): string {
-    return `<footer>${links}<span class="sp"></span><a href="https://github.com/dylanebert/shallot" aria-label="GitHub">${GITHUB}</a><a href="https://www.npmjs.com/package/@dylanebert/shallot" aria-label="npm">${PACKAGE}</a><span>${label}</span></footer>`;
+/** The one nav both pages share: home and brand on the left, GitHub and npm on the right. */
+export function nav(here: "home" | "brand"): string {
+    const link = (href: string, id: "home" | "brand", text: string) =>
+        `<a href="${href}"${here === id ? ' class="here"' : ""}>${text}</a>`;
+    const home = here === "home" ? "./" : "../";
+    const brand = here === "home" ? "./brand/" : "./";
+    return `<nav>${link(home, "home", "shallot")}${link(brand, "brand", "brand")}<span class="sp"></span><a href="https://github.com/dylanebert/shallot" aria-label="GitHub">${GITHUB}</a><a href="https://www.npmjs.com/package/@dylanebert/shallot" aria-label="npm">${PACKAGE}</a></nav>`;
 }

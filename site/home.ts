@@ -1,9 +1,9 @@
 import { lockup, toSvg } from "./brand/mark";
-import { CSS_PALETTE, FONTS, footer, STYLE, THEME_SCRIPT, TOGGLE } from "./brand/theme";
+import { CSS_PALETTE, FONTS, nav, STYLE, THEME_SCRIPT, TOGGLE } from "./brand/theme";
 import type { DemoEntry } from "./roster";
 
 // The site home at /shallot/: the lockup splashing in, the one-line promise, quick start, the
-// demos, and a foot line. No nav: everything is on the page. The demos themselves are built
+// demos, and the build label in the foot. The nav is the one both pages share. The demos themselves are built
 // separately; `clientScript` is the bundled `site/brand/client.ts`.
 
 export function siteIndex(
@@ -52,6 +52,7 @@ header p { font-size: 17px; text-wrap: balance; }
 <body>
 ${TOGGLE}
 <main>
+${nav("home")}
 <header>
 <div data-splash-svg data-scale="5">${toSvg(lockup(), CSS_PALETTE, 5)}</div>
 <p>WebGPU game engine. Fast by default, instant iteration, runs anywhere.</p>
@@ -63,7 +64,7 @@ ${TOGGLE}
 cd my-game
 bun install
 bunx shallot dev</pre>
-<p class="muted needs">Needs <a href="https://bun.sh" style="color:var(--ink)">bun</a>. Everything else installs with the project, engine included.</p>
+<p class="muted needs">Requires <a href="https://bun.sh" style="color:var(--ink)">bun</a>.</p>
 </section>
 
 <section>
@@ -74,7 +75,7 @@ ${rows}
 <p class="muted needs" data-webgpu-note hidden>This browser has no WebGPU. The demos need Chrome, Edge, or Safari 26+ on desktop.</p>
 </section>
 
-${footer('<a href="./brand/">brand</a>', label)}
+<footer>${label}</footer>
 </main>
 <script type="module">${clientScript}</script>
 </body>
