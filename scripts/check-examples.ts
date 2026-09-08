@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { relative, resolve, sep } from "node:path";
+import { Glob } from "bun";
 import { EXAMPLE_GATES, type ExampleGate } from "./example-gates";
 
 const text = (path: string): string => readFileSync(path, "utf8");
@@ -16,6 +17,25 @@ const childDirs = (dir: string): string[] =>
               .map((entry) => entry.name)
               .sort()
         : [];
+
+/** True when at least one file under `root` matches `cover`. Walks the glob's own literal prefix rather
+ *  than the whole tree, so an orphaned glob is cheap to detect and a live one stops at its first hit. */
+export function globHasSubject(root: string, cover: string): boolean {
+    if (!cover.includes("*")) return existsSync(resolve(root, cover));
+    const literal = cover.split("/").slice(
+        0,
+        cover.split("/").findIndex((p) => p.includes("*")),
+    );
+    const base = resolve(root, literal.join("/") || ".");
+    if (!existsSync(base)) return false;
+    const glob = new Glob(cover);
+    for (const entry of readdirSync(base, { recursive: true, withFileTypes: true })) {
+        if (!entry.isFile()) continue;
+        const rel = relative(root, resolve(entry.parentPath, entry.name)).split(sep).join("/");
+        if (glob.match(rel)) return true;
+    }
+    return false;
+}
 
 /** Returns every corpus-shape violation. Keeping this pure result seam makes each clause fixture-testable. */
 export function checkExamples(root: string, registry: ExampleGate[]): string[] {
@@ -43,6 +63,13 @@ export function checkExamples(root: string, registry: ExampleGate[]): string[] {
         const row = registry.find((entry) => entry.dir === `examples/recipes/${recipe}`);
         const scenes = files(dir, ".scene").map(text).join("\n");
         const smoke = resolve(dir, "src/smoke.ts");
+        // Every recipe row — static or smoked — runs through the one selector. A bare
+        // `bunx shallot verify <dir>` row is spawned by the stage-close selector through `sh -c` and
+        // never reaches `scripts/verify.ts`, so it misses the WSL bridge and reds on the software
+        // adapter instead of driving the host's real GPU. One gate shape keeps every row attributable.
+        const expectedGate = `bun run recipes --recipe ${recipe}`;
+        if (row && row.gate !== expectedGate)
+            errors.push(`recipe gate must use selector "${expectedGate}": ${recipe}`);
         if (row?.static) {
             if (/\banimator\s*=|\bbody\s*=/.test(scenes))
                 errors.push(`static recipe scene declares animator or body: ${recipe}`);
@@ -51,9 +78,6 @@ export function checkExamples(root: string, registry: ExampleGate[]): string[] {
         }
         if (!existsSync(smoke))
             errors.push(`recipe has neither src/smoke.ts nor static reason: ${recipe}`);
-        const expectedGate = `bun run recipes --recipe ${recipe}`;
-        if (row && row.gate !== expectedGate)
-            errors.push(`smoked recipe gate must use selector "${expectedGate}": ${recipe}`);
         const manifestPath = resolve(dir, "shallot.json");
         const manifest = existsSync(manifestPath) ? text(manifestPath) : "";
         if (!/["']?\.\/src\/smoke(?:\.ts)?["']?/.test(manifest))
@@ -62,6 +86,49 @@ export function checkExamples(root: string, registry: ExampleGate[]): string[] {
             recipesSource.match(/const CHECKS[^=]*=\s*\{([\s\S]*?)\n\};/)?.[1] ?? "";
         if (!new RegExp(`(?:["']${recipe}["']|\\b${recipe}\\b)\\s*:`).test(checksBlock))
             errors.push(`recipe has no CHECKS entry: ${recipe}`);
+    }
+
+    // Two-way cone completeness: a row with no cover is never selected, and a glob matching nothing is a
+    // cone that silently stopped covering its subject (a renamed or deleted directory). Both read green
+    // in the selector's dry-run, which is why they are refused here instead.
+    for (const row of registry) {
+        if (row.covers.length === 0) {
+            errors.push(`registry row declares no covers glob: ${row.dir}`);
+            continue;
+        }
+        for (const cover of row.covers) {
+            if (!globHasSubject(root, cover))
+                errors.push(`covers glob matches no file: ${row.dir} -> ${cover}`);
+        }
+    }
+
+    const covers = registry.flatMap((row) => row.covers.map((cover) => new Glob(cover)));
+    for (const dir of discovered) {
+        let population = 0;
+        for (const file of files(resolve(root, dir), "")) {
+            const rel = relative(root, file).split(sep).join("/");
+            if (
+                rel
+                    .split("/")
+                    .some((part) =>
+                        [
+                            "node_modules",
+                            "dist",
+                            "out",
+                            "build",
+                            "test-results",
+                            "playwright-report",
+                        ].includes(part),
+                    )
+            )
+                continue;
+            if (!/\.(?:[cm]?[jt]sx?|svelte|scene|json|html|css)$/.test(rel)) continue;
+            population++;
+            if (!covers.some((cover) => cover.match(rel)))
+                errors.push(`example source has no covers row: ${rel}`);
+        }
+        if (population === 0)
+            errors.push(`example directory yielded no governed source files: ${dir}`);
     }
 
     for (const scene of files(resolve(root, "examples"), ".scene")) {
@@ -83,6 +150,9 @@ export function checkExamples(root: string, registry: ExampleGate[]): string[] {
                 `showcase Playwright spec does not import isDegradedBootMessage: ${spec.slice(root.length + 1)}`,
             );
     }
+    // Either published motion reading counts: `assertMotion` is the one-shot form, `frameDifference`
+    // the non-throwing one a retrying `expect.poll` needs. The property is an imported motion arm from
+    // the published harness, not one spelling of it.
     for (const row of registry.filter((entry) => entry.tier === "showcase" && entry.motion)) {
         const specs = files(resolve(root, row.dir), ".playwright.ts").map(text).join("\n");
         if (

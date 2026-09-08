@@ -44,7 +44,7 @@ Exact goldens: labels, raw calls (needn't equal), non-lazy GPU bytes. Pin produc
 
 Harvest through production: three independent agreeing samples unless mechanism-exact with corroboration. Samples cannot make nondeterminism exact. Tighten quantities; exemptions key subject/quantity. Attribute bytes per label. Control reds against recorded-green trees; retire proxies when mechanisms are gated. Larger windows cannot suppress unbounded tails.
 
-Counts miss compile/transport time; sync spans are stubs unless forced. Compare built/dev before claiming player cost. `scripts/boot-cost.ts`: release-scale, not cold-start gate. Asset counts blind, bundle bytes ungated, cold-pipeline cost unmeasured. Spikes weren't codegen; ingestion/compile contention observed, non-script/larger stalls unresolved. Noise justified no repair; remeasure seat-bound.
+Counts miss compile/transport time; sync spans are stubs unless forced. Compare built/dev before claiming player cost. `scripts/boot-cost.ts`: release-scale, not cold-start gate. Asset counts blind, bundle bytes ungated, cold-pipeline cost unmeasured.
 
 Attribution kind isn't magnitude; non-script remainder isn't a JS owner. Assert launched conditions; no cross-seat causal deltas. GPU timestamps, not RAF; CPU-mixed averages, pure-GPU minimum.
 
@@ -70,7 +70,7 @@ Exact: `1e-10` or tighter. Truncation: integrator order/step size. Single f32 op
 
 ## Fixtures and pins
 
-Floor needs member install, matching audio JS/declarations/WASM and AVBD inputs. `GLTF_CORPUS_REQUIRED=1`; reconcile passes, not just files/fails. Gym mounts are separate. Missing artifacts block shared imports; build checks need required-mode absence reds. In-tree isn't clean-install proof.
+Floor needs member install, matching audio JS/declarations/WASM and AVBD inputs. `GLTF_CORPUS_REQUIRED=1`; reconcile passes, not just files/fails. Gym mounts stay separate. Missing artifacts block shared imports; build checks need required-mode absence reds. In-tree isn't pack proof. Native-FFI needs a conformant adapter (macOS arm64 qualified, WSL2 dzn not), else incomplete, not red; no browser-golden claim.
 
 Bump all pins together, resolve lock, confirm one TypeGPU identity before gates. Dependency/manifest edits: `bun run test:changed --all`. `check-docs.ts` pins commands, not history.
 

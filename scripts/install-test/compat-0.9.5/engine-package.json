@@ -1,0 +1,119 @@
+{
+    "name": "@dylanebert/shallot",
+    "version": "0.9.5",
+    "description": "WebGPU game engine. Procedural-first, ECS, declarative scenes. In development.",
+    "sideEffects": [
+        "./src/standard/index.ts",
+        "./src/standard/defaults.ts"
+    ],
+    "license": "MIT",
+    "author": "Dylan Ebert <dylan.ebert@gmail.com>",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/dylanebert/shallot.git",
+        "directory": "packages/shallot"
+    },
+    "homepage": "https://github.com/dylanebert/shallot",
+    "bugs": "https://github.com/dylanebert/shallot/issues",
+    "keywords": ["webgpu", "game-engine", "ecs", "3d", "graphics", "physics", "rendering"],
+    "type": "module",
+    "main": "./src/index.ts",
+    "types": "./src/index.ts",
+    "exports": {
+        ".": "./src/index.ts",
+        "./extras": "./src/extras/index.ts",
+        "./harness": "./src/harness/index.ts",
+        "./harness/pixels": "./src/harness/pixels.ts",
+        "./harness/browser": {
+            "types": "./src/harness/browser.ts",
+            "default": "./dist/harness-browser.js"
+        },
+        "./document": "./src/document/index.ts",
+        "./vite": {
+            "types": "./src/project/vite.ts",
+            "default": "./dist/vite.js"
+        },
+        "./ecs/core": "./src/engine/ecs/core.ts",
+        "./scene/core": "./src/engine/scene/core.ts",
+        "./utils/core": "./src/engine/utils/core.ts",
+        "./fog/core": "./src/standard/fog/core.ts",
+        "./glaze": "./src/standard/glaze/index.ts",
+        "./part/core": "./src/standard/part/core.ts",
+        "./render/core": "./src/standard/render/core.ts",
+        "./sear/core": "./src/standard/sear/core.ts",
+        "./physics/core": "./src/standard/physics/core.ts",
+        "./avbd": "./src/standard/avbd/index.ts",
+        "./avbd/core": "./src/standard/avbd/core.ts",
+        "./character/core": "./src/standard/character/core.ts",
+        "./tumble/core": "./src/standard/tumble/core.ts",
+        "./bvh/core": "./src/standard/bvh/core.ts",
+        "./audio/core": "./src/standard/audio/core.ts",
+        "./gltf/core": "./src/extras/gltf/core.ts",
+        "./skin/core": "./src/extras/skin/core.ts",
+        "./tween/core": "./src/extras/tween/core.ts",
+        "./runtime": "./src/engine/runtime/index.ts",
+        "./src/*": "./src/*"
+    },
+    "bin": {
+        "shallot": "./bin/cli.ts"
+    },
+    "files": [
+        "src",
+        "!src/**/*.test.ts",
+        "!src/**/*.fixture.ts",
+        "!src/**/*.gold.json",
+        "!src/extras/gltf/fixtures",
+        "bin",
+        "!bin/**/*.test.ts",
+        "!bin/**/*.probes.ts",
+        "rust/audio/pkg",
+        "rust/window",
+        "!rust/window/target",
+        "!rust/window/target/**",
+        "assets",
+        "examples",
+        "dist",
+        "AGENTS.md",
+        "MIGRATION.md",
+        "shallot.schema.json"
+    ],
+    "scripts": {
+        "prepack": "bun run ./scripts/prepack.ts && bun run ./scripts/build-tooling.ts",
+        "postpack": "bun run ./scripts/postpack.ts",
+        "build": "bun run ./scripts/build.ts",
+        "audio:wasm-bench": "bun run ./scripts/audio-wasm-bench.ts",
+        "test": "bun test",
+        "test:fixture": "bun run scripts/run-tumble-fixtures.ts",
+        "test:fixture:mt": "TUMBLE_THREADS=${TUMBLE_THREADS:-4} bun run scripts/run-tumble-fixtures.ts",
+        "test:fixture:auto": "TUMBLE_THREADS=auto bun run scripts/run-tumble-fixtures.ts",
+        "test:exit": "bun run scripts/tumble-exit-test.ts",
+        "gen-tumble-fixtures": "bun run scripts/gen-tumble-fixtures.ts",
+        "gen-tumble-gold": "bun run scripts/gen-tumble-gold.ts"
+    },
+    "dependencies": {
+        "@webgpu/types": "^0.1.70",
+        "meshoptimizer": "^0.22.0",
+        "unplugin-typegpu": "~0.12.1",
+        "vite": "^8.0.0"
+    },
+    "peerDependencies": {
+        "playwright": "^1.0.0",
+        "typegpu": "~0.12.0"
+    },
+    "peerDependenciesMeta": {
+        "playwright": {
+            "optional": true
+        }
+    },
+    "devDependencies": {
+        "@types/bun": "latest",
+        "bun-webgpu": "^0.1.4",
+        "fast-check": "^4.6.0",
+        "js-yaml": "^4.1.0",
+        "typegpu": "~0.12.0",
+        "wgpu-matrix": "^3.4.0"
+    },
+    "trustedDependencies": [
+        "webgpu"
+    ]
+}

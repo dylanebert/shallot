@@ -3,6 +3,7 @@ import { Glob } from "bun";
 import { resolve } from "path";
 import { template } from "../packages/create-shallot/index";
 import { TEST_TIER_SUFFIX_NAMES } from "../packages/shallot/tests/test-tiers";
+import { FIXTURE_DIR as COMPAT_FIXTURE_DIR } from "./check-compat-pin";
 import { EXAMPLE_GATES } from "./example-gates";
 import { OCEAN_CPU_GATES } from "./ocean-oracle-gates";
 
@@ -285,7 +286,15 @@ if (!manifestTracked.success) {
     );
     process.exit(1);
 }
-const manifestFiles = manifestTracked.stdout.toString().split("\0").filter(Boolean);
+// The frozen previous-release baseline pins the versions that release shipped with. Comparing it
+// against today's manifests would refuse the fixture for being what it is — a snapshot of the past —
+// so it is outside this arm, the same way it is outside the instruction corpus.
+const COMPAT_FIXTURE_PREFIX = `${COMPAT_FIXTURE_DIR}/`;
+const manifestFiles = manifestTracked.stdout
+    .toString()
+    .split("\0")
+    .filter(Boolean)
+    .filter((file) => !file.startsWith(COMPAT_FIXTURE_PREFIX));
 if (manifestFiles.length === 0) {
     console.error(
         "✗ `git ls-files 'package.json' '**/package.json'` matched nothing — the manifest-pin arm would be vacuously green.",
@@ -1127,9 +1136,16 @@ if (!instructionListing.success || !instructionModes.success) {
     console.error("✗ instruction ratchet: Git population unavailable");
     process.exit(1);
 }
+// A frozen published artifact carries its own emitted AGENTS/CLAUDE files. Those are fixture bytes, not
+// instructions any agent working in this repo loads, so they are outside the corpus the ratchet governs —
+// and the exclusion is one literal prefix, checked below to still name a real directory, so it cannot
+// quietly widen into a place real instructions could hide.
+const INSTRUCTION_FIXTURE_PREFIX = COMPAT_FIXTURE_PREFIX;
 const instructionFiles = [...new Set(instructionListing.stdout.toString().split("\0"))]
-    .filter((file) =>
-        /(?:^|\/)(?:AGENTS|CLAUDE)\.md$|(?:^|\/)\.claude\/rules\/[^/]+\.md$/.test(file),
+    .filter(
+        (file) =>
+            /(?:^|\/)(?:AGENTS|CLAUDE)\.md$|(?:^|\/)\.claude\/rules\/[^/]+\.md$/.test(file) &&
+            !file.startsWith(INSTRUCTION_FIXTURE_PREFIX),
     )
     .sort();
 const symlinkFiles = new Set(

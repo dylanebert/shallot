@@ -7,7 +7,8 @@
             "evals/**/*.ts",
             "scripts/**/*.ts",
             "site/**/*.ts",
-            "!examples/*/public"
+            "!examples/*/public",
+            "!scripts/install-test/compat-0.9.5"
         ]
     },
     "linter": {

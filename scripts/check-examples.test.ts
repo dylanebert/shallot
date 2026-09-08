@@ -18,6 +18,10 @@ const make = (): string => {
         resolve(root, "examples/recipes/static/public/scenes/main.scene"),
         "<entity />\n",
     );
+    // every cone in the fixture registry needs a real subject, or the completeness clause reds the
+    // baseline and no mutation below can be attributed to itself
+    writeFileSync(resolve(root, "examples/flows/flow/main.ts"), "export const flow = 1;\n");
+    writeFileSync(resolve(root, "examples/gym/main.ts"), "export const gym = 1;\n");
     writeFileSync(
         resolve(root, "scripts/recipes.ts"),
         "const CHECKS: Record<string, string[]> = {\n    moving: ['moves'],\n};\n",
@@ -33,7 +37,7 @@ const registry = (motion = false): ExampleGate[] => [
         dir: "examples/recipes/static",
         tier: "recipes",
         covers: ["examples/recipes/static/**"],
-        gate: "bunx shallot verify examples/recipes/static",
+        gate: "bun run recipes --recipe static",
         static: "fixture has no runtime behavior",
     },
     {
@@ -110,7 +114,21 @@ test("smoked recipe rows must use the recipe selector", () => {
         },
     ];
     expect(checkExamples(root, rows)).toContain(
-        'smoked recipe gate must use selector "bun run recipes --recipe moving": moving',
+        'recipe gate must use selector "bun run recipes --recipe moving": moving',
+    );
+});
+
+// A bare `bunx shallot verify` row is spawned by the stage-close selector through `sh -c`, missing the
+// WSL bridge. The static rows used to be exempt from the selector rule and carried exactly that shape.
+test("a static recipe row must use the selector too", () => {
+    const root = make();
+    const rows = registry().map((row) =>
+        row.dir === "examples/recipes/static"
+            ? { ...row, gate: "bunx shallot verify examples/recipes/static" }
+            : row,
+    );
+    expect(checkExamples(root, rows)).toContain(
+        'recipe gate must use selector "bun run recipes --recipe static": static',
     );
 });
 
@@ -136,6 +154,12 @@ test("every animator attribute names a clip and cannot use the static opt-out", 
     expect(errors).toContain("static recipe scene declares animator or body: static");
 });
 
+test("autonomous showcase rows require an imported motion arm", () => {
+    const root = make();
+    expect(checkExamples(root, registry(true))).toContain(
+        "autonomous showcase has no imported motion arm: examples/showcase/demo",
+    );
+});
 for (const helper of ["assertMotion", "frameDifference"]) {
     test(`autonomous showcase accepts the published ${helper} presence`, () => {
         const root = make();
@@ -163,6 +187,82 @@ for (const extra of [
             "autonomous showcase has no imported motion arm: examples/showcase/demo",
         ]);
         expect(checkExamples(root, registry(false))).toEqual([]);
+    });
+}
+
+test("either published motion reading satisfies the autonomous showcase arm", () => {
+    for (const symbol of ["assertMotion", "frameDifference"]) {
+        const root = make();
+        mkdirSync(resolve(root, "examples/showcase/demo/test"), { recursive: true });
+        writeFileSync(
+            resolve(root, "examples/showcase/demo/test/motion.playwright.ts"),
+            `import { ${symbol} } from "@dylanebert/shallot/harness";\n`,
+        );
+        expect(checkExamples(root, registry(true)).join("\n")).not.toContain(
+            "no imported motion arm",
+        );
+    }
+});
+
+test("a live shared cover cannot hide an uncovered example source", () => {
+    const root = make();
+    const rows = registry();
+    rows[1].covers = ["examples/gym/**"];
+    expect(checkExamples(root, rows)).toEqual([
+        "example source has no covers row: examples/flows/flow/main.ts",
+    ]);
+});
+
+test("removed cover, orphaned glob, and renamed or deleted source refuse independently", () => {
+    for (const mutation of ["remove", "orphan", "rename", "delete"]) {
+        const root = make();
+        const rows = registry();
+        rows[1].covers = ["examples/flows/flow/main.ts"];
+        expect(checkExamples(root, rows)).toEqual([]);
+        if (mutation === "remove") rows[1].covers = [];
+        if (mutation === "orphan") rows[1].covers.push("examples/flows/flow/*.svelte");
+        if (mutation === "rename" || mutation === "delete") {
+            rmSync(resolve(root, "examples/flows/flow/main.ts"));
+            if (mutation === "rename")
+                writeFileSync(resolve(root, "examples/flows/flow/renamed.ts"), "export {};\n");
+        }
+        const errors = checkExamples(root, rows).join("\n");
+        expect(errors).toContain(
+            mutation === "remove" ? "declares no covers glob" : "covers glob matches no file",
+        );
+        if (mutation === "rename") expect(errors).toContain("example source has no covers row");
+    }
+});
+
+test("every discovered directory must yield governed files", () => {
+    const root = make();
+    rmSync(resolve(root, "examples/flows/flow/main.ts"));
+    const rows = registry();
+    rows[1].covers = ["examples/gym/**"];
+    expect(checkExamples(root, rows)).toEqual([
+        "example directory yielded no governed source files: examples/flows/flow",
+    ]);
+});
+
+for (const output of [
+    "dist",
+    "out",
+    "build",
+    "node_modules",
+    "test-results",
+    "playwright-report",
+]) {
+    test(`output ${output} is not demanded by source covers`, () => {
+        const root = make();
+        const rows = registry();
+        rows[1].covers = ["examples/flows/flow/main.ts"];
+        mkdirSync(resolve(root, "examples/flows/flow", output));
+        writeFileSync(resolve(root, "examples/flows/flow", output, "generated.ts"), "export {};\n");
+        expect(checkExamples(root, rows)).toEqual([]);
+        writeFileSync(resolve(root, "examples/flows/flow/uncovered.ts"), "export {};\n");
+        expect(checkExamples(root, rows)).toEqual([
+            "example source has no covers row: examples/flows/flow/uncovered.ts",
+        ]);
     });
 }
 
