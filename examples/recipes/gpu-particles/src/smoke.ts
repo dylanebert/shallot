@@ -2,9 +2,15 @@ import { Compute, type Plugin, type State } from "@dylanebert/shallot";
 import { installHarness, type Verdict } from "@dylanebert/shallot/harness";
 import { Draws } from "@dylanebert/shallot/render/core";
 import { Surfaces } from "@dylanebert/shallot/sear/core";
+import {
+    PARTICLE_BYTES,
+    PARTICLE_COUNT,
+    Particle,
+    particleState,
+    particlesStepped,
+    SPAWN_Y,
+} from "shallot-gpu-particles";
 import * as d from "typegpu/data";
-import { PARTICLE_BYTES, PARTICLE_COUNT, Particle, SPAWN_Y } from "./kernel";
-import { particleState, particlesStepped } from "./particles";
 
 const READY_MS = 5000;
 const STRIDE = d.sizeOf(Particle) / 4; // f32 lanes per particle: posSeed.xyzw + vel.xyzw

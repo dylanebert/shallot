@@ -91,7 +91,13 @@ export const EXAMPLE_GATES: ExampleGate[] = [
     {
         dir: "examples/recipes/gpu-particles",
         tier: "recipes",
-        covers: ["examples/recipes/gpu-particles/**", "packages/shallot/src/**"],
+        // the producer implementation is owned by the private `shallot-gpu-particles` workspace, so a
+        // change there selects this recipe — its only in-repo consumer.
+        covers: [
+            "examples/recipes/gpu-particles/**",
+            "packages/shallot-gpu-particles/**",
+            "packages/shallot/src/**",
+        ],
         gate: "bun run recipes --recipe gpu-particles",
     },
     {
