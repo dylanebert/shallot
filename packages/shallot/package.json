@@ -52,8 +52,7 @@
         "./skin/core": "./src/extras/skin/core.ts",
         "./text/core": "./src/extras/text/core.ts",
         "./animation/core": "./src/extras/animation/core.ts",
-        "./runtime": "./src/engine/runtime/index.ts",
-        "./src/*": "./src/*"
+        "./runtime": "./src/engine/runtime/index.ts"
     },
     "bin": {
         "shallot": "./bin/cli.ts"
@@ -74,12 +73,13 @@
         "assets",
         "examples",
         "dist",
+        "runtime-inputs.json",
         "AGENTS.md",
         "MIGRATION.md",
         "shallot.schema.json"
     ],
     "scripts": {
-        "prepack": "bun run ./scripts/prepack.ts && bun run ../shallot-tooling/scripts/build.ts && bun run ../shallot-tooling/scripts/build.ts --check",
+        "prepack": "bun run ./scripts/prepack.ts && bun run ../shallot-runtime/scripts/project.ts --pack && bun run ../shallot-runtime/scripts/project.ts --check --pack && bun run ../shallot-tooling/scripts/build.ts && bun run ../shallot-tooling/scripts/build.ts --check",
         "postpack": "bun run ./scripts/postpack.ts",
         "build": "bun run ./scripts/build.ts",
         "audio:wasm-bench": "bun run ./scripts/audio-wasm-bench.ts",

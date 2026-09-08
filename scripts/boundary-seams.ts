@@ -26,13 +26,13 @@ export const TOOLING_SEAMS: Record<string, string> = {
         "differential against the independently executed page sampler",
     // verify's node-side diagnostics. These are tool-facing readings with no author-facing contract, so
     // they stay unpublished rather than growing the surface.
-    'packages/shallot-tooling/bin/verify.ts "../../shallot/src/engine/runtime/gpu"':
+    'packages/shallot-tooling/bin/verify.ts "../../shallot-runtime/src/engine/runtime/gpu"':
         "adapter identity for the run's hardware line",
-    'packages/shallot-tooling/bin/verify.ts "../../shallot/src/engine/runtime/log"':
+    'packages/shallot-tooling/bin/verify.ts "../../shallot-runtime/src/engine/runtime/log"':
         "the log predicate the console reader shares",
-    'packages/shallot-tooling/bin/verify.ts "../../shallot/src/extras/profile/benchmark"':
+    'packages/shallot-tooling/bin/verify.ts "../../shallot-runtime/src/extras/profile/benchmark"':
         "the benchmark measurement shape the --json envelope carries",
-    'packages/shallot-tooling/bin/verify.ts "../../shallot/src/harness/degraded-boot"':
+    'packages/shallot-tooling/bin/verify.ts "../../shallot-runtime/src/harness/degraded-boot"':
         "the degraded-boot predicate, published only through ./harness's barrel",
 };
 
@@ -40,6 +40,8 @@ export const TOOLING_SEAMS: Record<string, string> = {
  *  bound that keeps it readable. Every other computed `import()`/`require()` refuses: a specifier this
  *  reader cannot resolve is a hole in the source cone, not a detail. */
 export const COMPUTED_LOADERS: Record<string, string> = {
+    "packages/shallot-runtime/src/standard/tumble/engine/pool.ts":
+        "the Node-only branch loads the fixed node:worker_threads specifier with vite-ignore; the browser branch creates an embedded Blob worker",
     "packages/shallot-tooling/src/project/command.ts":
         "loads enabled manifest plugins only after project planning resolves their paths",
     "packages/shallot-tooling/src/project/command.test.ts":

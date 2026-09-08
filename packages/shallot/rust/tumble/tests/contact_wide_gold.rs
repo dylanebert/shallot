@@ -22,7 +22,7 @@ fn col<T: Copy>(v: &mut [T]) -> Col<'_, T> {
     unsafe { Col::of(v) }
 }
 
-const GOLD: &str = include_str!("../../../src/standard/tumble/engine/contact_wide.gold.json");
+const GOLD: &str = include_str!("../../../../shallot-runtime/src/standard/tumble/engine/contact_wide.gold.json");
 
 fn from_bits(hex: &str) -> f32 {
     f32::from_bits(u32::from_str_radix(hex.trim_start_matches("0x"), 16).expect("hex"))

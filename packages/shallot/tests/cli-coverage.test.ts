@@ -207,7 +207,7 @@ describe("CLI_COVERAGE against the real repo (both directions)", () => {
             "packages/shallot-tooling/bin/*.ts",
             "packages/shallot-tooling/src/project/*.ts",
             "packages/create-shallot/index.ts",
-            "packages/shallot/src/extras/outline/*.ts",
+            "packages/shallot-runtime/src/extras/outline/*.ts",
         ]);
     });
 

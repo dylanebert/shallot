@@ -69,7 +69,7 @@ jobs:
         run: rustup target add wasm32-unknown-unknown
 
       - name: Build audio wasm
-        working-directory: packages/shallot/rust/audio
+        working-directory: packages/shallot-runtime/rust/audio
         run: |
           set -e
           mkdir -p pkg

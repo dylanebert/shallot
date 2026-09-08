@@ -166,6 +166,107 @@ describe("runtime direction with a private tooling owner", () => {
     }
 });
 
+describe("canonical runtime ownership", () => {
+    for (const [source, allowed] of [
+        ['import "@dylanebert/shallot";', true],
+        ['export * from "@dylanebert/shallot/render/core";', true],
+        ['import "./standard/render/core";', true],
+        ['import "../../../examples/recipes/demo/src/main";', false],
+        ['void import("@outside");', false],
+    ] as const) {
+        test(source, () => {
+            const root = make();
+            for (const owner of ["shallot-runtime", "shallot-tooling"])
+                write(
+                    root,
+                    `packages/${owner}/package.json`,
+                    JSON.stringify({ name: owner, private: true }),
+                );
+            write(root, "packages/shallot-runtime/src/index.ts", "export const engine = 1;");
+            write(
+                root,
+                "packages/shallot-runtime/src/standard/render/core.ts",
+                "export const core = 1;",
+            );
+            write(
+                root,
+                "tsconfig.json",
+                JSON.stringify({
+                    compilerOptions: {
+                        paths: { "@outside": ["examples/recipes/demo/src/main.ts"] },
+                    },
+                }),
+            );
+            expect(checkBoundary(root, EMPTY).violations).toEqual([]);
+            write(root, "packages/shallot-runtime/src/consumer.ts", source);
+            const result = checkBoundary(root, EMPTY);
+            expect(result.errors).toEqual([]);
+            expect(result.violations.map((v) => v.reason)).toEqual(
+                allowed
+                    ? []
+                    : ["runtime leaves its canonical owner without a declared runtime export"],
+            );
+        });
+    }
+});
+
+describe("runtime unresolved and aliased exits", () => {
+    for (const [source, alias] of [
+        ['import "@dylanebert/shallot/not-exported";', false],
+        ['import "shallot-gpu-particles";', false],
+        ["void import(path);", false],
+        ['import "@dylanebert/shallot";', true],
+    ] as const) {
+        test(`${source} alias=${alias}`, () => {
+            const root = make();
+            for (const owner of ["shallot-runtime", "shallot-tooling", "shallot-gpu-particles"])
+                write(
+                    root,
+                    `packages/${owner}/package.json`,
+                    JSON.stringify({ name: owner, private: true }),
+                );
+            write(root, "packages/shallot-runtime/src/index.ts", "export const engine = 1;");
+            if (alias)
+                write(
+                    root,
+                    "tsconfig.json",
+                    JSON.stringify({
+                        compilerOptions: {
+                            paths: {
+                                "@dylanebert/shallot": ["examples/recipes/demo/src/main.ts"],
+                            },
+                        },
+                    }),
+                );
+            expect(checkBoundary(root, EMPTY).violations).toEqual([]);
+            write(root, "packages/shallot-runtime/src/consumer.ts", source);
+            const result = checkBoundary(root, EMPTY);
+            expect(result.errors).toEqual([]);
+            expect(
+                result.violations.filter((v) => v.file.startsWith("packages/shallot-runtime/")),
+            ).toHaveLength(1);
+        });
+    }
+    test("runtime computed disposition is live in both directions", () => {
+        const root = make();
+        for (const owner of ["shallot-runtime", "shallot-tooling"])
+            write(
+                root,
+                `packages/${owner}/package.json`,
+                JSON.stringify({ name: owner, private: true }),
+            );
+        const file = "packages/shallot-runtime/src/pool.ts";
+        write(root, file, 'const spec = "node:worker_threads"; void import(spec);');
+        const ledger = { ...EMPTY, computedLoaders: { [file]: "bounded Node host adapter" } };
+        expect(checkBoundary(root, ledger).violations).toEqual([]);
+        expect(checkBoundary(root, ledger).errors).toEqual([]);
+        write(root, file, 'import "node:worker_threads";');
+        expect(checkBoundary(root, ledger).errors.join("\n")).toContain(
+            "declared computed loader names no live call site",
+        );
+    });
+});
+
 describe("consumer escapes", () => {
     test("a consumer reaching an unpublished subpath refuses", () => {
         const root = make();

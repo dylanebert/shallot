@@ -30,6 +30,20 @@ for (const field of [
     }
 }
 
+const runtime = await Bun.file(resolve(root, "packages/shallot-runtime/package.json")).json();
+if (runtime.version !== shallot.version) fail("runtime/distribution version mismatch");
+for (const field of [
+    "dependencies",
+    "peerDependencies",
+    "optionalDependencies",
+    "peerDependenciesMeta",
+]) {
+    for (const [name, range] of Object.entries(runtime[field] ?? {})) {
+        if (JSON.stringify(shallot[field]?.[name]) !== JSON.stringify(range))
+            fail(`runtime dependency projection mismatch: ${field}.${name}`);
+    }
+}
+
 // Runtime dependencies must resolve to a PUBLISHED version. A `link:` / `file:` / `workspace:`
 // protocol (handy for local co-development) survives verbatim into the published tarball and is
 // unresolvable for an npm consumer — it silently broke the default physics backend once.
@@ -49,7 +63,7 @@ for (const [name, range] of Object.entries(shallot.dependencies ?? {})) {
 // `rust/window`'s is tracked for reproducible native builds). `rust/tumble` is `publish = false`
 // and versions independently of the release.
 for (const crate of [
-    "packages/shallot/rust/audio/Cargo.toml",
+    "packages/shallot-runtime/rust/audio/Cargo.toml",
     "packages/shallot-tooling/rust/window/Cargo.toml",
 ]) {
     const text = await Bun.file(resolve(root, crate)).text();
@@ -65,7 +79,12 @@ for (const crate of [
 // strip them at the boundary (no lockfile string value ends in a comma before a closing brace).
 const lockText = await Bun.file(resolve(root, "bun.lock")).text();
 const lock = JSON.parse(lockText.replace(/,(\s*[}\]])/g, "$1"));
-for (const dir of ["packages/shallot", "packages/shallot-tooling", "packages/create-shallot"]) {
+for (const dir of [
+    "packages/shallot",
+    "packages/shallot-runtime",
+    "packages/shallot-tooling",
+    "packages/create-shallot",
+]) {
     const version = lock.workspaces?.[dir]?.version;
     if (version !== shallot.version) {
         fail(

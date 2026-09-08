@@ -13,7 +13,7 @@ use serde_json::Value;
 use tumble_kernel::tree::{self, Rebuild, STACK_SIZE, STRIDE};
 
 fn load() -> Value {
-    let raw = include_str!("../../../src/standard/tumble/engine/tree.gold.json");
+    let raw = include_str!("../../../../shallot-runtime/src/standard/tumble/engine/tree.gold.json");
     serde_json::from_str(raw).expect("parse tree.gold.json")
 }
 

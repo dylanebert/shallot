@@ -48,18 +48,23 @@
 // stage.
 
 import { describe, expect, test } from "bun:test";
-import { build, type Plugin } from "../src";
-import { clear, getComponent, getTraits } from "../src/engine/ecs/core";
-import { AnimationPlugin } from "../src/extras/animation";
-import { GltfPlugin } from "../src/extras/gltf";
-import { LinesPlugin } from "../src/extras/lines";
-import { LiveSkinSystem, Skin, SkinPlugin, skinTraits } from "../src/extras/skin";
-import { PartPlugin } from "../src/standard/part";
-import { RenderPlugin } from "../src/standard/render";
-import { Draws, Surfaces } from "../src/standard/render/core";
-import { SearPlugin } from "../src/standard/sear";
-import { SlabPlugin } from "../src/standard/slab";
-import { TransformsPlugin } from "../src/standard/transforms";
+import { build, type Plugin } from "../../shallot-runtime/src";
+import { clear, getComponent, getTraits } from "../../shallot-runtime/src/engine/ecs/core";
+import { AnimationPlugin } from "../../shallot-runtime/src/extras/animation";
+import { GltfPlugin } from "../../shallot-runtime/src/extras/gltf";
+import { LinesPlugin } from "../../shallot-runtime/src/extras/lines";
+import {
+    LiveSkinSystem,
+    Skin,
+    SkinPlugin,
+    skinTraits,
+} from "../../shallot-runtime/src/extras/skin";
+import { PartPlugin } from "../../shallot-runtime/src/standard/part";
+import { RenderPlugin } from "../../shallot-runtime/src/standard/render";
+import { Draws, Surfaces } from "../../shallot-runtime/src/standard/render/core";
+import { SearPlugin } from "../../shallot-runtime/src/standard/sear";
+import { SlabPlugin } from "../../shallot-runtime/src/standard/slab";
+import { TransformsPlugin } from "../../shallot-runtime/src/standard/transforms";
 import {
     conform,
     conformSequence,

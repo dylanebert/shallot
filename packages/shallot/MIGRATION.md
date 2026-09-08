@@ -1,4 +1,27 @@
-# Migrating from 0.8 to 0.9
+# Migrating to 0.10
+
+Keep one `@dylanebert/shallot` installation. The `shallot` CLI, scaffold commands, manifest defaults, `vite` and `harness/browser` subpaths remain included. Version 0.10 also includes `shallot tui`, with `--frames` for bounded terminal runs; 0.9.5 predates that command. Runtime and tooling now have separate private source owners; you do not install either owner. Terminal projects explicitly enable `"Cells": true` and put `cells` on the camera; an ordinary scaffold without Cells is refused with that remedy. TUI omits Glaze and supports bounded headless runs, not a replacement browser presentation.
+
+The `@dylanebert/shallot/src/*` wildcard is removed. Use the bare package for author APIs (including `State`, `Physics` and loading themes), `/runtime` for platform/device services, `/harness` for verification, and the named `*/core` extension subpaths. The former loading-module import becomes `import { shallotDark } from "@dylanebert/shallot"`. Arbitrary implementation files have no supported replacement; request a public seam rather than resolving package directories yourself.
+
+Runtime exports remain raw TypeScript. Keep the exact-once TGSL transform and ejected/framework configuration below; do not prebundle the engine or TypeGPU. Plain Node configuration imports still use the compiled `/vite` and `/harness/browser` entries. Raw runtime source still needs its supported transform/loader, not Node's default package loader.
+
+The original 0.9.5 scaffold's TypeScript configuration selects only WebGPU globals. Its `tsc --noEmit` reports missing `ImportMeta.env` and Node worker types in 0.9.5; the Node type-context errors also occur in 0.10. For that project, install `bun add -d @types/node@^26.0.0`, then use `bunx tsc --noEmit --types @webgpu/types,node,vite/client`, or add those same entries to `compilerOptions.types`. This supplies the Vite configuration and runtime host-adapter type contexts; it does not add them to your browser bundle.
+
+## Other 0.10 API changes
+
+These changes predate the internal package move but affect a project coming from 0.9.5:
+
+- `/tween/core` becomes `/animation/core`. `Composite`, `Fill`, ownership, sampling and easing helpers keep their behavior. Author animations with `Animator`, `AnimationPlugin` and registered `keyframes`/`script`/`mixer` playables instead of `Tween`, `Sequence`, `TweenState`, `TweenPlugin`, `tween` and `sequence`. `shallot recipe animate-with-clips` is the runnable authoring example.
+- `/document` and the bare `Document`, `Readback`, `ReadbackSystem` and `Session` exports are removed with the retired editor/document layer. There is no replacement undo/history or edit-mode session API. Runtime `load` and `serialize` remain available for scene save/load; callers that require editor history must own it themselves.
+
+## Self-contained browser output
+
+Installation weight is not application weight. A built application needs no npm installation, but its declared resources must be served with it. Put fonts/models/textures in your project's public asset directory and use local URLs. For world-space text, register `font("./fonts/body.ttf", "body")` before building the scene and select `font: body` on labels. A local registered face avoids Text's default remote Inter request; Cells likewise needs its configured local face. Preserve the font's license when copying it.
+
+The default text/Cells faces use Google Fonts; application-chosen remote URLs remain network dependencies. They are not an offline configuration. Bundle-emitted audio/codec WASM and physics workers are part of the application output when used: deploy the entire output directory, not only its JavaScript. Multi-thread physics requires cross-origin isolation headers; hosts without those headers use the existing single-thread path. Verify the built output with external requests blocked for the configuration you intend to ship.
+
+## Migrating from 0.8 to 0.9
 
 This port touches GPU code only: the ECS, scene, and ordinary component APIs keep their 0.8 shape. What moves is the GPU substrate. Layouts now come from TypeGPU schemas, custom shaders use TGSL, and render registries carry typed resources.
 

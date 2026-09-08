@@ -29,7 +29,7 @@ import {
 // hull.ts:1410 minH, distance.ts:1154 kToleranceSquared — plus eight sites equal to the C
 // reference only by coincidence); S2 moved the three and wrapped the eight, and the check now
 // pins 0 so a regression (a new bare non-exact literal) reds rather than drifting silently.
-const REAL_ROOT = resolve(import.meta.dir, "../src/standard/tumble");
+const REAL_ROOT = resolve(import.meta.dir, "../../shallot-runtime/src/standard/tumble");
 
 // Fixture trees live under the OS tmpdir, never the repo — same `--root`-style isolation as
 // check-scripts.test.ts / check-exports.test.ts, so a planted violation never touches a tracked

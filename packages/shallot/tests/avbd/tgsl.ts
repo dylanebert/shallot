@@ -9,4 +9,4 @@ export {
     collideRoundedPolytope,
     polyMake,
     SatResult,
-} from "../../src/standard/avbd/collide";
+} from "../../../shallot-runtime/src/standard/avbd/collide";

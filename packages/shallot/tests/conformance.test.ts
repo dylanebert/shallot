@@ -19,7 +19,7 @@
 // a red-capable arm needs, so the red arm stays to prove the harness still catches a violation.
 
 import { describe, expect, test } from "bun:test";
-import { type Plugin, sparse, u32 } from "../src";
+import { type Plugin, sparse, u32 } from "../../shallot-runtime/src";
 import { conform, isPipelineCompiling, roster } from "./conformance-roster";
 
 describe("reload conformance", () => {

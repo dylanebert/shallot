@@ -1,7 +1,7 @@
 // The terrain mesh + surface: registers the fixed W×H grid (grid.ts) as a `Meshes`/`Draws` entry whose
 // vertex content the height kernel (generate.ts) fills, and a custom sear surface that shades the result
 // from slope + height alone, then composites one overlay sample over that base by coverage (the road
-// network's substrate, `../overlay/` — same-surface sampling, no second draw, no depth bias: the spec's
+// network's substrate, `../overlay` — same-surface sampling, no second draw, no depth bias: the spec's
 // Locked decision).
 //
 // Unlike voxel's mesher, the index list here never changes (grid.ts's `gridIndices` is a pure function

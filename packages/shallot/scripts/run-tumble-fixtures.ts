@@ -7,13 +7,15 @@
 // Usage: bun run scripts/run-tumble-fixtures.ts   (from packages/shallot)
 
 import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 import { Glob } from "bun";
 
-const files = [...new Glob("src/**/*.fixture.ts").scanSync(".")].map((f) => `./${f}`);
+const owner = resolve(import.meta.dir, "../../shallot-runtime");
+const files = [...new Glob("src/**/*.fixture.ts").scanSync(owner)].map((f) => `./${f}`);
 if (files.length === 0) {
     console.error("[test:fixture] no fixture files found under src/");
     process.exit(1);
 }
 
-const r = spawnSync("bun", ["test", ...files], { stdio: "inherit" });
+const r = spawnSync("bun", ["test", ...files], { cwd: owner, stdio: "inherit" });
 process.exit(r.status ?? 1);

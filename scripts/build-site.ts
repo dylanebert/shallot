@@ -20,7 +20,7 @@ import { Glob } from "bun";
 // modules for `--target browser`). `define` inlines the literal at build time instead, so the
 // browser bundle carries the string and nothing else — `site/rum-compile-vitals.ts`'s own
 // docblock records the same measurement for the reader who only sees the pure module.
-import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot/src/engine/runtime/gpu";
+import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot-runtime/src/engine/runtime/gpu";
 import { type DemoEntry, ROSTER } from "../site/roster";
 import {
     RUM_CONFIG,

@@ -19,10 +19,7 @@
         "noUnusedLocals": false,
         "noUnusedParameters": false,
         "noPropertyAccessFromIndexSignature": false,
-        "types": ["@webgpu/types"],
-        "paths": {
-            "@dylanebert/shallot/src/*": ["./packages/shallot/src/*"]
-        }
+        "types": ["@webgpu/types"]
     },
     "include": ["packages", "examples", "scripts", "evals"],
     "exclude": ["**/dist", "**/build", "packages/shallot/examples", "scripts/install-test/compat-0.9.5"]

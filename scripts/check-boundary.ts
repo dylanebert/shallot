@@ -38,6 +38,7 @@ import { COMPUTED_LOADERS, NON_WORKSPACE_PACKAGES, TOOLING_SEAMS } from "./bound
 const PKG = "@dylanebert/shallot";
 const ENGINE_PACKAGE = "packages/shallot";
 const TOOLING_PACKAGE = "packages/shallot-tooling";
+const RUNTIME_PACKAGE = "packages/shallot-runtime";
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".svelte"];
 
 export interface Violation {
@@ -471,6 +472,7 @@ function scanTooling(
                     resolved &&
                     !resolved.startsWith(resolve(repoRoot, TOOLING_PACKAGE) + sep) &&
                     !resolved.startsWith(resolve(repoRoot, ENGINE_PACKAGE, "src") + sep) &&
+                    !resolved.startsWith(resolve(repoRoot, RUNTIME_PACKAGE, "src") + sep) &&
                     !resolved.startsWith(resolve(repoRoot, ENGINE_PACKAGE, "tests") + sep)
                 ) {
                     const key = `${file} "${spec}"`;
@@ -486,10 +488,19 @@ function scanTooling(
                 }
                 if (
                     !resolved ||
-                    !resolved.startsWith(resolve(repoRoot, ENGINE_PACKAGE, "src") + sep)
+                    (!resolved.startsWith(resolve(repoRoot, ENGINE_PACKAGE, "src") + sep) &&
+                        !resolved.startsWith(resolve(repoRoot, RUNTIME_PACKAGE, "src") + sep))
                 )
                     continue;
-                const target = relative(resolve(repoRoot, ENGINE_PACKAGE), resolved)
+                const target = relative(
+                    resolve(
+                        repoRoot,
+                        resolved.startsWith(resolve(repoRoot, RUNTIME_PACKAGE) + sep)
+                            ? RUNTIME_PACKAGE
+                            : ENGINE_PACKAGE,
+                    ),
+                    resolved,
+                )
                     .split(sep)
                     .join("/");
                 const published = [target, `${target}.ts`, `${target}/index.ts`].some((candidate) =>
@@ -518,13 +529,28 @@ export function runtimeDirection(
     repoRoot: string,
     exports: Record<string, unknown>,
     errors: string[],
+    ledger: Ledger,
+    usedLoaders: Set<string>,
 ): Violation[] {
     if (!existsSync(resolve(repoRoot, TOOLING_PACKAGE, "package.json"))) return [];
-    const sourceRoot = resolve(repoRoot, ENGINE_PACKAGE, "src");
-    const composite = resolve(sourceRoot, "harness/index.ts");
-    const browser = resolve(sourceRoot, "harness/browser.ts");
-    const project = resolve(sourceRoot, "project");
+    const publicRoot = resolve(repoRoot, ENGINE_PACKAGE, "src");
+    const sourceRoot = existsSync(resolve(repoRoot, RUNTIME_PACKAGE, "package.json"))
+        ? resolve(repoRoot, RUNTIME_PACKAGE, "src")
+        : publicRoot;
+    const composite = resolve(publicRoot, "harness/index.ts");
+    const browser = resolve(publicRoot, "harness/browser.ts");
+    const project = resolve(publicRoot, "project");
     const tooling = resolve(repoRoot, TOOLING_PACKAGE);
+    const runtimeOwner = resolve(sourceRoot, "..");
+    const rootManifest = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8"));
+    const privateNames = workspaceRoots(repoRoot, rootManifest.workspaces)
+        .filter((path) => path !== ENGINE_PACKAGE && resolve(repoRoot, path) !== runtimeOwner)
+        .flatMap((path) => {
+            const manifest = resolve(repoRoot, path, "package.json");
+            return existsSync(manifest)
+                ? [JSON.parse(readFileSync(manifest, "utf8")).name as string]
+                : [];
+        });
     const aliases = aliasReader(repoRoot);
     const violations: Violation[] = [];
     const forbidden = (path: string) => {
@@ -535,7 +561,8 @@ export function runtimeDirection(
             path === project ||
             path.startsWith(project + sep) ||
             path === tooling ||
-            path.startsWith(tooling + sep)
+            path.startsWith(tooling + sep) ||
+            path.startsWith(resolve(repoRoot, ENGINE_PACKAGE, "dist") + sep)
         );
     };
     for (const file of sourceFiles(sourceRoot)) {
@@ -547,6 +574,18 @@ export function runtimeDirection(
         )
             continue;
         for (const ref of references(readFileSync(file, "utf8"))) {
+            if (ref.computed) {
+                const path = relative(repoRoot, file).split(sep).join("/");
+                if (ledger.computedLoaders[path]?.trim()) usedLoaders.add(path);
+                else
+                    violations.push({
+                        file: path,
+                        line: ref.line,
+                        import: "import(<computed>)",
+                        reason: "builds a module specifier at runtime with no declared bound (scripts/boundary-seams.ts)",
+                    });
+                continue;
+            }
             if (!ref.spec) continue;
             const alias = aliases(file, ref.spec);
             errors.push(...alias.errors);
@@ -574,6 +613,40 @@ export function runtimeDirection(
                     import: ref.spec,
                     reason: "runtime reaches tooling or the distribution's composite harness",
                 });
+            } else if (
+                ref.spec === PKG ||
+                ref.spec.startsWith(PKG + "/") ||
+                privateNames.some(
+                    (name) => ref.spec === name || ref.spec!.startsWith(name + "/"),
+                ) ||
+                targets.some(
+                    (target) => target !== runtimeOwner && !target.startsWith(runtimeOwner + sep),
+                )
+            ) {
+                const key =
+                    ref.spec === PKG
+                        ? "."
+                        : ref.spec.startsWith(PKG + "/")
+                          ? `.${ref.spec.slice(PKG.length)}`
+                          : "";
+                const declared = exports[key];
+                const target = typeof declared === "string" ? declared : undefined;
+                const canonical = target?.startsWith("./src/")
+                    ? resolve(sourceRoot, target.slice("./src/".length))
+                    : "";
+                const published = target ? resolve(repoRoot, ENGINE_PACKAGE, target) : "";
+                const bound = targets.every((path) =>
+                    [path, `${path}.ts`, `${path}/index.ts`].some(
+                        (candidate) => candidate === canonical || candidate === published,
+                    ),
+                );
+                if (!canonical || !existsSync(canonical) || !bound)
+                    violations.push({
+                        file: relative(repoRoot, file),
+                        line: ref.line,
+                        import: ref.spec,
+                        reason: "runtime leaves its canonical owner without a declared runtime export",
+                    });
             }
         }
     }
@@ -611,7 +684,7 @@ export function checkBoundary(repoRoot: string, ledger: Ledger = REPO_LEDGER): B
     const surface = publishedSurface(enginePkg.exports as Record<string, unknown>);
     const declared = workspaceRoots(repoRoot, rootPkg.workspaces as string[]);
     const consumerDirs = declared.filter(
-        (dir) => dir !== ENGINE_PACKAGE && dir !== TOOLING_PACKAGE,
+        (dir) => dir !== ENGINE_PACKAGE && dir !== TOOLING_PACKAGE && dir !== RUNTIME_PACKAGE,
     );
     const consumerRoots = consumerDirs
         .map((dir) => resolve(repoRoot, dir))
@@ -631,7 +704,7 @@ export function checkBoundary(repoRoot: string, ledger: Ledger = REPO_LEDGER): B
     );
     const tooling = scanTooling(repoRoot, surface, ledger, errors);
     violations.push(...tooling.violations);
-    violations.push(...runtimeDirection(repoRoot, enginePkg.exports, errors));
+    violations.push(...runtimeDirection(repoRoot, enginePkg.exports, errors, ledger, usedLoaders));
 
     // Two-way completeness. A source cone proves nothing if a project can sit outside it, or if a
     // declared escape outlives the code it excused.

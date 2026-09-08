@@ -16,7 +16,7 @@ describe("changed-path selector", () => {
         expect(dirs(["examples/recipes/moving-platform/src/plugin.ts"])).toEqual([
             "examples/recipes/moving-platform",
         ]);
-        expect(dirs(["packages/shallot/src/standard/render/plugin.ts"])).toEqual(
+        expect(dirs(["packages/shallot-runtime/src/standard/render/plugin.ts"])).toEqual(
             EXAMPLE_GATES.map((row) => row.dir),
         );
         expect(dirs(["bun.lock"])).toEqual(EXAMPLE_GATES.map((row) => row.dir));
@@ -92,10 +92,9 @@ describe("changed-path selector", () => {
     test("every explicit root test path resolves at least one default-tier test file", async () => {
         const root = resolve(import.meta.dir, "..");
         const pkg = await Bun.file(resolve(root, "package.json")).json();
-        const tokens = pkg.scripts.test
-            .match(/(?:^|\s)(?!bun$)([^\s]+)/g)
-            .map((s: string) => s.trim())
-            .slice(2);
+        const command = /(?:^| && )bun test\s+([^&]+)$/.exec(pkg.scripts.test);
+        expect(command).not.toBeNull();
+        const tokens = command![1].trim().split(/\s+/);
         for (const token of tokens) {
             expect(existsSync(resolve(root, token))).toBe(true);
             const scan = new Glob("**/*.test.ts").scanSync({ cwd: resolve(root, token) });
@@ -106,7 +105,9 @@ describe("changed-path selector", () => {
     test("the derived default cone launches no by-path tier", async () => {
         const root = resolve(import.meta.dir, "..");
         const pkg = await Bun.file(resolve(root, "package.json")).json();
-        const dirs = pkg.scripts.test.split(/\s+/).slice(2);
+        const command = /(?:^| && )bun test\s+([^&]+)$/.exec(pkg.scripts.test);
+        expect(command).not.toBeNull();
+        const dirs = command![1].trim().split(/\s+/);
         const byPathSuffixes = TEST_TIER_SUFFIX_NAMES.filter((name) => name !== "test");
         const tierCommand = new RegExp(
             `(?:\\.(?:${byPathSuffixes.join("|")})\\.ts|shallot\\s+verify|bun\\s+(?:bench|run\\s+(?:flows|recipes|test:install)))`,

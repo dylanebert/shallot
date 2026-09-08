@@ -69,7 +69,7 @@ jobs:
       # Runs check-site.ts (the site membership + root-absolute gate) with
       # SITE_OUT_REQUIRED=1. The full `bun check` suite includes scripts/format.ts, which imports
       # the engine barrel, which transitively imports the gitignored audio wasm
-      # (packages/shallot/rust/audio/pkg/shallot_audio.js) — so the full suite is red in a
+      # (packages/shallot-runtime/rust/audio/pkg/shallot_audio.js) — so the full suite is red in a
       # fresh CI checkout without a Rust build step, and this workflow adds none (the
       # ejected demo build path installs the published package, whose tarball ships
       # rust/audio/pkg). check-site.ts imports only site/roster (no engine, no wasm), so it

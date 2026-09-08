@@ -28,7 +28,7 @@ import { resolve } from "node:path";
 
 const pkgRoot = resolve(import.meta.dir, "..");
 const kernelDir = resolve(pkgRoot, "rust/tumble");
-const engineDir = resolve(pkgRoot, "src/standard/tumble/engine");
+const engineDir = resolve(pkgRoot, "../shallot-runtime/src/standard/tumble/engine");
 
 /** Shadow-stack size of the shared build (link arg). Partitioned into per-thread slices by the pool
  * (src/pool.ts); raising it raises the thread ceiling and the module's declared page count. */

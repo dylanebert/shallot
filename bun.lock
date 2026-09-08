@@ -389,6 +389,23 @@
         "typegpu": "~0.12.4",
       },
     },
+    "packages/shallot-runtime": {
+      "name": "shallot-runtime",
+      "version": "0.10.0",
+      "dependencies": {
+        "@types/node": "^26.0.0",
+        "@webgpu/types": "^0.1.70",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "fast-check": "^4.6.0",
+        "typegpu": "~0.12.4",
+        "wgpu-matrix": "^3.4.0",
+      },
+      "peerDependencies": {
+        "typegpu": "~0.12.4",
+      },
+    },
     "packages/shallot-tooling": {
       "name": "shallot-tooling",
       "version": "0.10.0",
@@ -912,6 +929,8 @@
     "semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
     "shallot-gpu-particles": ["shallot-gpu-particles@workspace:packages/shallot-gpu-particles"],
+
+    "shallot-runtime": ["shallot-runtime@workspace:packages/shallot-runtime"],
 
     "shallot-tooling": ["shallot-tooling@workspace:packages/shallot-tooling"],
 

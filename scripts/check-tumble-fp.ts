@@ -27,7 +27,7 @@ import { isRegexLiteralStart, scanRegexLiteral } from "./source-mask";
 // (excluding test/fixture files) found 6 hits: 2 in comments, 4 `Math.sin` call sites (the
 // allowlisted ones), 0 extra. `Math.sqrt` is algebraic, not transcendental — rule 1 sanctions
 // it — so it never belonged in a trig sweep's evidence pattern. Re-derive with:
-// `grep -rn 'Math.\(sin\|cos\|tan\|atan2\|asin\|acos\|exp\|log\|pow\|cbrt\|sinh\|cosh\|tanh\)' packages/shallot/src/standard/tumble/engine/ | grep -v '\.test\.\|\.fixture\.'`
+// `grep -rn 'Math.\(sin\|cos\|tan\|atan2\|asin\|acos\|exp\|log\|pow\|cbrt\|sinh\|cosh\|tanh\)' packages/shallot-runtime/src/standard/tumble/engine/ | grep -v '\.test\.\|\.fixture\.'`
 //
 // **S1b — structural safety.** The predicate's soundness no longer rests on per-sample
 // demonstration. The sweep lexes once with quote / template-literal / comment awareness
@@ -747,7 +747,7 @@ if (import.meta.main) {
     const root = resolve(
         rootArgIdx >= 0
             ? process.argv[rootArgIdx + 1]
-            : resolve(import.meta.dir, "../packages/shallot/src/standard/tumble"),
+            : resolve(import.meta.dir, "../packages/shallot-runtime/src/standard/tumble"),
     );
 
     const [findings, stats] = await Promise.all([sweep(root), populationStats(root)]);

@@ -43,7 +43,7 @@ export const CLI_POPULATION_GLOBS: readonly string[] = [
     "packages/shallot-tooling/bin/*.ts",
     "packages/shallot-tooling/src/project/*.ts",
     "packages/create-shallot/index.ts",
-    "packages/shallot/src/extras/outline/*.ts",
+    "packages/shallot-runtime/src/extras/outline/*.ts",
 ];
 
 /** converts a `dir/*.ts`-style glob to a RegExp, re-housed from `coverage.ts` rather than imported —
@@ -507,7 +507,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "decodeRgba wherever pixelProbes are declared), not only bench/flows/recipes.",
     },
     {
-        file: "packages/shallot/src/extras/outline/index.ts",
+        file: "packages/shallot-runtime/src/extras/outline/index.ts",
         arm: "tier",
         reason:
             "the component, OutlineSystem's per-camera mask→JFA→composite dispatch, and OutlinePlugin's " +
@@ -521,7 +521,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "registers a plugin.",
     },
     {
-        file: "packages/shallot/src/extras/outline/passes.ts",
+        file: "packages/shallot-runtime/src/extras/outline/passes.ts",
         arm: "unit",
         reason:
             "jfaSteps' clamp/power-of-two ladder and groupByMesh's batching are directly asserted by " +

@@ -464,10 +464,9 @@ describe("the cap in a real bun test child", () => {
         // Re-derive: `node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts.test)"`
         const rootPkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
         const testScript: string = rootPkg.scripts.test;
-        const defaultGatePaths = testScript
-            .replace(/^bun\s+test\s*/, "")
-            .split(/\s+/)
-            .filter(Boolean);
+        const command = /(?:^| && )bun test\s+([^&]+)$/.exec(testScript);
+        expect(command).not.toBeNull();
+        const defaultGatePaths = command![1].trim().split(/\s+/);
 
         // By-path tier paths: listed literally from the documented tier split, NOT derived from
         // test files on disk. Each entry names where it is declared and how a reader re-derives it.
