@@ -537,9 +537,9 @@ interface OverlayOptions {
     position?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
 }
 
-const BG = "rgba(14,13,12,0.88)";
+const BG = "rgba(20,18,16,0.88)";
 const FG = "#cdc5bc";
-const FG_BRIGHT = "#f0ece8";
+const FG_BRIGHT = "#f0e6d6";
 const DIM = "#706860";
 const ACCENT = "#d49560";
 const WARN = "#e05050";

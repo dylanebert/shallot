@@ -206,10 +206,10 @@ const POINTER_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none
 const TERRAIN_ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 3 4 8 5-5 5 15H2L8 3z"/></svg>`;
 
 const TOOLBAR_CSS = `
-.voxel-toolbar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; padding: 4px; pointer-events: auto; background: rgba(14, 13, 12, 0.72); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 10px; backdrop-filter: blur(8px); z-index: 20; }
-.voxel-tool { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; background: transparent; border: none; border-radius: 7px; color: #a09890; cursor: pointer; transition: background 120ms, color 120ms; }
-.voxel-tool:hover { background: rgba(255, 255, 255, 0.06); color: #f0ece8; }
-.voxel-tool.active { background: rgba(232, 168, 107, 0.16); color: #e8a86b; }
+.voxel-toolbar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; padding: 4px; pointer-events: auto; background: rgba(20, 18, 16, 0.72); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 10px; backdrop-filter: blur(8px); z-index: 20; }
+.voxel-tool { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; background: transparent; border: none; border-radius: 7px; color: #a08c78; cursor: pointer; transition: background 120ms, color 120ms; }
+.voxel-tool:hover { background: rgba(255, 255, 255, 0.06); color: #f0e6d6; }
+.voxel-tool.active { background: rgba(212, 149, 96, 0.16); color: #d49560; }
 `;
 
 // the modern top toolbar: two Lucide icon buttons (pointer / terrain), the active one warm-accented. Returns
