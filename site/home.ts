@@ -1,15 +1,17 @@
 import { lockup, toSvg } from "./brand/mark";
-import { CSS_PALETTE, FONTS, STYLE, THEME_SCRIPT, TOGGLE } from "./brand/theme";
+import { CSS_PALETTE, FONTS, footer, STYLE, THEME_SCRIPT, TOGGLE } from "./brand/theme";
 import type { DemoEntry } from "./roster";
 
-// The site home at /shallot/: lockup, the three promises, quick start, the demo roster, and
-// links out. Static HTML plus the theme toggle; the demos themselves are built separately.
+// The site home at /shallot/: the lockup splashing in, the one-line promise, quick start, the
+// demos, and a foot line. No nav: everything is on the page. The demos themselves are built
+// separately; `clientScript` is the bundled `site/brand/client.ts`.
 
 export function siteIndex(
     demos: DemoEntry[],
     version: string,
     ref: string,
     mode: "prod" | "staging",
+    clientScript: string = "",
 ): string {
     // staging labels by ref, never by version tag — a staging build routinely runs ahead of the
     // last release, so `v${version}` may name a GitHub tag that doesn't exist yet.
@@ -20,7 +22,7 @@ export function siteIndex(
     const rows = demos
         .map(
             (d) =>
-                `<tr><td><a href="./${d.slug}/">${d.title}</a></td><td><a href="${codeUrl(d.slug)}">code</a></td></tr>`,
+                `<li><a class="play" href="./${d.slug}/">${d.title}</a><a class="code" href="${codeUrl(d.slug)}">code</a></li>`,
         )
         .join("\n");
     const label = mode === "staging" ? `staging · ${ref}` : `v${version} · ${ref}`;
@@ -30,26 +32,28 @@ export function siteIndex(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>shallot</title>
+<meta name="description" content="WebGPU game engine. Fast by default, instant iteration, runs anywhere.">
 <link rel="icon" href="./brand/mark-32.png">
 ${FONTS}
 ${THEME_SCRIPT}
 <style>${STYLE}
 header { display: grid; gap: 18px; padding: 24px 0 8px; }
-header p { font-size: 17px; max-width: 48ch; }
-table { border-collapse: collapse; font-family: "JetBrains Mono", monospace; font-size: 13px; width: 100%; max-width: 480px; }
-td { padding: 8px 0; border-bottom: 1px solid var(--line); }
-td:last-child { text-align: right; color: var(--muted); }
-tr:last-child td { border-bottom: none; }
-.meta { font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--muted); }
+header p { font-size: 17px; text-wrap: balance; }
+.demos { list-style: none; }
+.demos li { display: flex; align-items: center; border-bottom: 1px solid var(--line); font-family: "JetBrains Mono", monospace; font-size: 13px; }
+.demos li:last-child { border-bottom: none; }
+.demos .play { flex: 1; padding: 10px 0; }
+.demos .code { padding: 10px 0 10px 24px; color: var(--muted); }
+.demos .code:hover { color: var(--gold); }
+.needs { font-size: 13px; }
+[hidden] { display: none !important; }
 </style>
 </head>
 <body>
 ${TOGGLE}
 <main>
-<nav><a href="./" style="color:var(--gold)">shallot</a><a href="#demos">demos</a><a href="./brand/">brand</a><span class="sp"></span><a href="https://github.com/dylanebert/shallot">github</a><a href="https://www.npmjs.com/package/@dylanebert/shallot">npm</a></nav>
-
 <header>
-${toSvg(lockup(), CSS_PALETTE, 5)}
+<div data-splash-svg data-scale="5">${toSvg(lockup(), CSS_PALETTE, 5)}</div>
 <p>WebGPU game engine. Fast by default, instant iteration, runs anywhere.</p>
 </header>
 
@@ -59,17 +63,20 @@ ${toSvg(lockup(), CSS_PALETTE, 5)}
 cd my-game
 bun install
 bunx shallot dev</pre>
-<p class="muted">A project is plain data plus code: a manifest, a scene file, and TypeScript plugins you edit in your IDE. The source is the reference; every public export carries its contract.</p>
+<p class="muted needs">Needs <a href="https://bun.sh" style="color:var(--ink)">bun</a>. Everything else installs with the project, engine included.</p>
 </section>
 
-<section id="demos">
+<section>
 <h2>demos</h2>
-<table><tbody>
+<ul class="demos">
 ${rows}
-</tbody></table>
-<p class="meta">${label} · WebGPU required: Chrome, Edge, or Safari 26+ on desktop.</p>
+</ul>
+<p class="muted needs" data-webgpu-note hidden>This browser has no WebGPU. The demos need Chrome, Edge, or Safari 26+ on desktop.</p>
 </section>
+
+${footer('<a href="./brand/">brand</a>', label)}
 </main>
+<script type="module">${clientScript}</script>
 </body>
 </html>
 `;

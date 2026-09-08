@@ -340,3 +340,34 @@ export function splashAnsi(palette: Palette = DARK): string[] {
     for (let t = 0; t <= END_TICK; t++) frames.push(toAnsi(toCells(splashFrame(t)), palette));
     return frames;
 }
+
+/**
+ * Drives the splash into `el` at thirty ticks a second: `render` turns each frame's grid into
+ * markup. Ticks are quantized to the clock, so a fast display shows no extra frames. Honors
+ * reduced motion by rendering the resting lockup once. Returns a replay function.
+ */
+export function runSplash(
+    el: Element,
+    render: (grid: Grid) => string,
+    reduced: boolean = false,
+): () => void {
+    let start = 0;
+    let last = -1;
+    let raf = 0;
+    const frame = () => {
+        const tick = reduced ? END_TICK + 1 : Math.floor((performance.now() - start) / TICK_MS);
+        if (tick !== last) {
+            last = tick;
+            el.innerHTML = render(splashFrame(Math.min(tick, END_TICK + 1)));
+        }
+        if (tick <= END_TICK) raf = requestAnimationFrame(frame);
+    };
+    const replay = () => {
+        cancelAnimationFrame(raf);
+        start = performance.now();
+        last = -1;
+        frame();
+    };
+    replay();
+    return replay;
+}

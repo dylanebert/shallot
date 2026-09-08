@@ -25,8 +25,10 @@ a { color: inherit; text-decoration: none; }
 a:hover { color: var(--gold); }
 h2 { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 section { display: grid; gap: 14px; }
-nav { display: flex; gap: 22px; align-items: center; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; }
-nav .sp { flex: 1; }
+footer { display: flex; gap: 18px; align-items: center; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--muted); padding-top: 8px; }
+footer .sp { flex: 1; }
+footer a { display: inline-flex; align-items: center; gap: 6px; }
+footer svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 pre, code { font-family: "JetBrains Mono", ui-monospace, monospace; }
 pre { font-size: 13px; line-height: 1.2; white-space: pre; overflow-x: auto; }
 pre.blocks { color: var(--gold); }
@@ -37,7 +39,7 @@ svg { display: block; }
 .toggle { position: fixed; top: 14px; right: 14px; width: 30px; height: 30px; border: 1px solid var(--line); background: var(--bg); color: var(--muted); border-radius: 2px; cursor: pointer; display: grid; place-items: center; font-family: system-ui, sans-serif; font-size: 14px; line-height: 1; }
 .toggle:hover { color: var(--gold); }
 .toggle:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-@media (max-width: 480px) { main { padding: 28px 16px 64px; } nav { flex-wrap: wrap; gap: 14px; } }
+@media (max-width: 480px) { main { padding: 28px 16px 64px; } footer { flex-wrap: wrap; } }
 `;
 
 /** Applies the saved theme before first paint; the toggle flips and stores it. */
@@ -45,3 +47,13 @@ export const THEME_SCRIPT = `<script>(function(){try{var t=localStorage.getItem(
 
 export const TOGGLE = `<button class="toggle" type="button" aria-label="Toggle light and dark" data-toggle>◐</button>
 <script>document.querySelector("[data-toggle]").addEventListener("click",function(){var r=document.documentElement;var next=r.dataset.theme==="light"?"":"light";if(next)r.dataset.theme=next;else delete r.dataset.theme;try{localStorage.setItem("shallot-theme",next||"dark");}catch(e){}});</script>`;
+
+const GITHUB =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>';
+const PACKAGE =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/></svg>';
+
+/** The page foot: where you are, where else to go, and what this build is. */
+export function footer(links: string, label: string): string {
+    return `<footer>${links}<span class="sp"></span><a href="https://github.com/dylanebert/shallot" aria-label="GitHub">${GITHUB}</a><a href="https://www.npmjs.com/package/@dylanebert/shallot" aria-label="npm">${PACKAGE}</a><span>${label}</span></footer>`;
+}

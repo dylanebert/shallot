@@ -1,5 +1,5 @@
 import { DARK, fromBlocks, LIGHT, lockup, MARK, toCells, toHtml, toSvg, word } from "./mark";
-import { CSS_PALETTE, FONTS, STYLE, THEME_SCRIPT, TOGGLE } from "./theme";
+import { CSS_PALETTE, FONTS, footer, STYLE, THEME_SCRIPT, TOGGLE } from "./theme";
 
 // The brand page at /shallot/brand/: the assets, shown plainly, and their downloads. Labels only;
 // the sheet that argued for these choices is not the page. Inline SVG uses CSS-variable fills so
@@ -41,7 +41,7 @@ export function brandPage(clientScript: string): string {
 ${FONTS}
 ${THEME_SCRIPT}
 <style>${STYLE}
-.lockup { padding: 56px 24px; display: grid; place-items: center; }
+.lockup { padding: 56px 24px; display: grid; place-items: center; cursor: pointer; }
 .marks { display: flex; gap: 40px; align-items: flex-end; flex-wrap: wrap; }
 .marks div { display: grid; gap: 8px; justify-items: center; font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--muted); }
 .splash { padding: 40px 24px; display: grid; place-items: center; cursor: pointer; }
@@ -60,10 +60,8 @@ ${THEME_SCRIPT}
 <body>
 ${TOGGLE}
 <main>
-<nav><a href="../">shallot</a><a href="./" style="color:var(--gold)">brand</a><span class="sp"></span><a href="https://github.com/dylanebert/shallot">github</a></nav>
-
 <section>
-<div class="lockup block">${svg(lock, 6)}</div>
+<div class="lockup block"><div data-splash-svg data-scale="6">${svg(lock, 6)}</div></div>
 </section>
 
 <section>
@@ -83,7 +81,7 @@ ${TOGGLE}
 </section>
 
 <section>
-<h2>splash</h2>
+<h2>terminal splash</h2>
 <div class="splash block"><pre data-splash></pre></div>
 </section>
 
@@ -115,6 +113,7 @@ ${swatch("muted", "#a08c78", "#6e655c")}
 <h2>download</h2>
 <div class="dl">${downloads}</div>
 </section>
+${footer('<a href="../">shallot</a>', "brand")}
 </main>
 <script type="module">${clientScript}</script>
 </body>

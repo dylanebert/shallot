@@ -31,7 +31,7 @@ import {
     RUM_INJECTION_MARKER,
 } from "../site/rum-config";
 import { demoFingerprints, type SiteMode, writeStamp } from "../site/site-stamp";
-import { buildBrand } from "./build-pages";
+import { buildBrand, bundleClient } from "./build-pages";
 
 // `bun run site` — build every showcase demo as an ejected consumer of the *published* package,
 // then assemble the site index. Each demo is copied out of the workspace to a scratch tree under
@@ -356,9 +356,14 @@ Options:
 
     // emit the site index — always lists the full roster so a single-demo build's index
     // still references the other demos from a prior full build
-    writeFileSync(resolve(outDir, "index.html"), siteIndex(ROSTER, version, refShort, mode));
-    // the site's own pages beside the demos: /brand/ and its downloads (`scripts/build-pages.ts`)
-    await buildBrand(outDir);
+    // the site's own pages beside the demos: the index and /brand/ with its downloads
+    // (`scripts/build-pages.ts`); one client bundle serves both
+    const client = await bundleClient();
+    writeFileSync(
+        resolve(outDir, "index.html"),
+        siteIndex(ROSTER, version, refShort, mode, client),
+    );
+    await buildBrand(outDir, client);
 
     // record what each demo was built from, so `check-site.ts` can tell an artifact of *these*
     // sources from an artifact of some other sources before it judges the artifact

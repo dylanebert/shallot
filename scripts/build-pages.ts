@@ -13,7 +13,7 @@ import { ROSTER } from "../site/roster";
 
 const root = resolve(import.meta.dir, "..");
 
-async function bundleClient(): Promise<string> {
+export async function bundleClient(): Promise<string> {
     const result = await Bun.build({
         entrypoints: [resolve(root, "site/brand/client.ts")],
         target: "browser",
@@ -40,14 +40,14 @@ function framed(grid: ReturnType<typeof fromBlocks>, size: number): ReturnType<t
 }
 
 /** Writes the brand page and every download into `out/brand/`. */
-export async function buildBrand(outDir: string): Promise<void> {
+export async function buildBrand(outDir: string, clientScript?: string): Promise<void> {
     const dir = resolve(outDir, "brand");
     mkdirSync(dir, { recursive: true });
     const mark = fromBlocks(MARK.m);
     const lock = lockup();
     const write = (name: string, data: string | Uint8Array) =>
         writeFileSync(resolve(dir, name), data);
-    write("index.html", brandPage(await bundleClient()));
+    write("index.html", brandPage(clientScript ?? (await bundleClient())));
     write("mark.svg", toSvg(mark, DARK, 1));
     write("mark.png", toPng(mark, DARK, 8));
     write("mark-16.png", toPng(framed(mark, 16), DARK, 1));
@@ -68,8 +68,9 @@ export async function buildPages(
     mode: "prod" | "staging",
 ): Promise<void> {
     mkdirSync(outDir, { recursive: true });
-    writeFileSync(resolve(outDir, "index.html"), siteIndex(ROSTER, version, ref, mode));
-    await buildBrand(outDir);
+    const client = await bundleClient();
+    writeFileSync(resolve(outDir, "index.html"), siteIndex(ROSTER, version, ref, mode, client));
+    await buildBrand(outDir, client);
 }
 
 if (import.meta.main) {

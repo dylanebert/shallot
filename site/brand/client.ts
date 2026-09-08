@@ -1,36 +1,41 @@
-import { END_TICK, splashFrame, TICK_MS, toCells, toHtml } from "./mark";
+import { END_TICK, runSplash, splashFrame, toCells, toHtml, toSvg } from "./mark";
 
-// Browser entry for the brand page: runs the splash into every `[data-splash]` pre, replays on
-// click, and follows the page theme by reading the tokens off the root element.
+// Browser entry for the site pages. Splashes the lockup in: `[data-splash]` as half-block text,
+// `[data-splash-svg]` as pixel squares. Click replays. Reads the theme tokens off the root so the
+// toggle recolors a resting frame. Shows the WebGPU note only where WebGPU is missing.
+
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 function palette() {
     const style = getComputedStyle(document.documentElement);
     const read = (name: string) => style.getPropertyValue(name).trim();
     return { gold: read("--gold"), dim: read("--dim"), ink: read("--ink"), bg: read("--bg") };
 }
+const vars = { gold: "var(--gold)", dim: "var(--dim)", ink: "var(--ink)", bg: "var(--bg)" };
 
-for (const pre of document.querySelectorAll<HTMLPreElement>("[data-splash]")) {
-    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let start = 0;
-    let last = -1;
-    let raf = 0;
-    const frame = () => {
-        const tick = reduced ? END_TICK + 1 : Math.floor((performance.now() - start) / TICK_MS);
-        if (tick !== last) {
-            last = tick;
-            pre.innerHTML = toHtml(toCells(splashFrame(Math.min(tick, END_TICK + 1))), palette());
-        }
-        if (tick <= END_TICK) raf = requestAnimationFrame(frame);
-    };
-    const run = () => {
-        cancelAnimationFrame(raf);
-        start = performance.now();
-        last = -1;
-        frame();
-    };
-    pre.addEventListener("click", run);
-    document.querySelector("[data-toggle]")?.addEventListener("click", () => {
-        pre.innerHTML = toHtml(toCells(splashFrame(END_TICK + 1)), palette());
+const replays: (() => void)[] = [];
+const rests: (() => void)[] = [];
+
+for (const el of document.querySelectorAll<HTMLElement>("[data-splash]")) {
+    const render = (grid: ReturnType<typeof splashFrame>) => toHtml(toCells(grid), palette());
+    const replay = runSplash(el, render, reduced);
+    el.addEventListener("click", replay);
+    replays.push(replay);
+    rests.push(() => {
+        el.innerHTML = render(splashFrame(END_TICK + 1));
     });
-    run();
 }
+
+for (const el of document.querySelectorAll<HTMLElement>("[data-splash-svg]")) {
+    const scale = Number(el.dataset.scale ?? "4");
+    const replay = runSplash(el, (grid) => toSvg(grid, vars, scale), reduced);
+    el.addEventListener("click", replay);
+    replays.push(replay);
+}
+
+document.querySelector("[data-toggle]")?.addEventListener("click", () => {
+    for (const rest of rests) rest();
+});
+
+const note = document.querySelector<HTMLElement>("[data-webgpu-note]");
+if (note && !("gpu" in navigator)) note.hidden = false;
