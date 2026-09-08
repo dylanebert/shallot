@@ -21,7 +21,8 @@ import { Glob } from "bun";
 // browser bundle carries the string and nothing else — `site/rum-compile-vitals.ts`'s own
 // docblock records the same measurement for the reader who only sees the pure module.
 import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot-runtime/src/engine/runtime/gpu";
-import { type DemoEntry, ROSTER } from "../site/roster";
+import { siteIndex } from "../site/home";
+import { ROSTER } from "../site/roster";
 import {
     RUM_CONFIG,
     RUM_ENV_SNIPPET,
@@ -30,6 +31,7 @@ import {
     RUM_INJECTION_MARKER,
 } from "../site/rum-config";
 import { demoFingerprints, type SiteMode, writeStamp } from "../site/site-stamp";
+import { buildBrand } from "./build-pages";
 
 // `bun run site` — build every showcase demo as an ejected consumer of the *published* package,
 // then assemble the site index. Each demo is copied out of the workspace to a scratch tree under
@@ -48,11 +50,11 @@ import { demoFingerprints, type SiteMode, writeStamp } from "../site/site-stamp"
 // `siteIndex`); everything else — eject, install, `bunx shallot build`, RUM injection, artifact
 // assembly — is shared verbatim between modes.
 //
-// The page itself is static HTML: system monospace, no web fonts, no JS, one small style block,
-// readable at 360px. Each row carries a play link to the built demo and a code link to the
+// The index itself is `site/home.ts` and the brand page `site/brand/page.ts`, both emitted by
+// `scripts/build-pages.ts` (also runnable alone as `bun run site:pages` to iterate on them without
+// a demo build). Each demo row carries a play link to the built demo and a code link to the
 // version-pinned tag path on GitHub (staging: the built ref, since a staging build's version may
-// have no matching tag yet). The page labels what it was built from (version plus ref, or the ref
-// alone in staging mode).
+// have no matching tag yet). The page labels what it was built from.
 
 const root = resolve(import.meta.dir, "..");
 const showcaseDir = resolve(root, "examples/showcase");
@@ -355,6 +357,8 @@ Options:
     // emit the site index — always lists the full roster so a single-demo build's index
     // still references the other demos from a prior full build
     writeFileSync(resolve(outDir, "index.html"), siteIndex(ROSTER, version, refShort, mode));
+    // the site's own pages beside the demos: /brand/ and its downloads (`scripts/build-pages.ts`)
+    await buildBrand(outDir);
 
     // record what each demo was built from, so `check-site.ts` can tell an artifact of *these*
     // sources from an artifact of some other sources before it judges the artifact
@@ -439,76 +443,6 @@ function parseSize(s: string): number {
     if (unit === "K") return n * 1024;
     if (unit === "M") return n * 1024 * 1024;
     return n;
-}
-
-function siteIndex(
-    demos: DemoEntry[],
-    version: string,
-    ref: string,
-    mode: "prod" | "staging",
-): string {
-    // staging labels by ref, never by version tag — a staging build routinely runs ahead of the
-    // last release, so `v${version}` may name a GitHub tag that doesn't exist yet.
-    const codeUrl = (slug: string) =>
-        mode === "staging"
-            ? `https://github.com/dylanebert/shallot/tree/${ref}/examples/showcase/${slug}`
-            : `https://github.com/dylanebert/shallot/tree/v${version}/examples/showcase/${slug}`;
-
-    const rows = demos
-        .map((d) => {
-            const play = `./${d.slug}/`;
-            const code = codeUrl(d.slug);
-            return `            <tr>
-                <td><a href="${play}">${d.title}</a></td>
-                <td><a href="${code}">code</a></td>
-            </tr>`;
-        })
-        .join("\n");
-
-    return `<!doctype html>
-<html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>shallot — demos</title>
-        <style>
-            * { box-sizing: border-box; margin: 0; padding: 0; }
-            body {
-                background: #0c0a09;
-                color: #e6e0d8;
-                font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Menlo", "Consolas", monospace;
-                padding: 1.25rem 1rem 3rem;
-                line-height: 1.5;
-            }
-            h1 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem; }
-            .meta { color: #8a8078; font-size: 0.8rem; margin-bottom: 1rem; }
-            .warn { color: #c9a227; font-size: 0.8rem; margin-bottom: 1.25rem; }
-            table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-            td { padding: 0.45rem 0.6rem 0.45rem 0; vertical-align: top; }
-            tr { border-bottom: 1px solid #1e1a16; }
-            tr:last-child { border-bottom: none; }
-            a { color: #6cb6ff; text-decoration: none; }
-            a:hover { text-decoration: underline; }
-            td:first-child { white-space: nowrap; }
-            td:last-child { white-space: nowrap; text-align: right; }
-            @media (max-width: 360px) {
-                body { padding: 1rem 0.75rem 2rem; }
-                td { padding: 0.4rem 0.4rem 0.4rem 0; }
-            }
-        </style>
-    </head>
-    <body>
-        <h1>shallot</h1>
-        <p class="meta">${mode === "staging" ? `staging · ${ref}` : `v${version} · ${ref}`}</p>
-        <p class="warn">WebGPU required — Chrome, Edge, or Safari 26+ on desktop.</p>
-        <table>
-            <tbody>
-${rows}
-            </tbody>
-        </table>
-    </body>
-</html>
-`;
 }
 
 if (import.meta.main) {
