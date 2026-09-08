@@ -4,8 +4,8 @@ import { Orbit } from "./index";
 import { OrbitSmooth } from "./smooth";
 
 // palette + font match the profile HUD (extras/profile) so the two overlays read as one toolset
-const BG = "rgba(14,13,12,0.88)";
-const FG = "#f0ece8";
+const BG = "rgba(20,18,16,0.88)";
+const FG = "#f0e6d6";
 const ACCENT = "#d49560";
 const BORDER = "rgba(255,255,255,0.06)";
 const FONT = "'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Fira Code', monospace";

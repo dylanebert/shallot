@@ -72,8 +72,8 @@ const TuningSystem: System = {
             top: "12px",
             right: "12px",
             padding: "8px",
-            background: "rgba(14,13,12,0.9)",
-            color: "#f0ece8",
+            background: "rgba(20,18,16,0.9)",
+            color: "#f0e6d6",
             font: "11px 'JetBrains Mono', monospace",
             pointerEvents: "auto",
         });
