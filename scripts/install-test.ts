@@ -840,7 +840,7 @@ function createShallotFlow(work: string, engineTgz: string) {
 
     // the shipped verify gate, run as an installed agent would: --help is a clean exit, and a project
     // with no playwright gets the distinct exit 3 + the actionable install command (a browser run itself
-    // is display/GPU-gated in WSL — not asserted here).
+    // is display/GPU-gated — not asserted here).
     const help = run(["bun", CLI, "verify", "--help"], proj);
     check("shallot verify --help exits 0", help.ok, help.ok ? "" : help.out.slice(-200));
     const noPw = Bun.spawnSync(["bun", CLI, "verify", "."], {
@@ -2162,7 +2162,7 @@ if (import.meta.main) {
             // pipelines are asserted, catching the 5b-2f-5 prebundle-before-transform defect the checks
             // above structurally could not (`scripts/verify.ts`'s `verify()` is the same shipped gate
             // `bun bench` / `bun run flows` / `bun run recipes` drive; display-gated identically, native
-            // hardware only — WSL runs it for real against the Windows host's GPU via the bridge).
+            // hardware only).
             console.log(
                 "shallot verify (a real browser boot — warms the installed engine's pipelines)…",
             );

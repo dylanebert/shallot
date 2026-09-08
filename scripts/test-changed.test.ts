@@ -208,7 +208,7 @@ describe("manifest-owned verify transport", () => {
                         paths: async () => ['examples/showcase/ocean/shallot.json'],
                         displaySkip: () => null,
                         displayRequired: true,
-                        run: command => runCommand(command, {wsl:false, cli:${JSON.stringify(cli)}})
+                        run: command => runCommand(command, {cli:${JSON.stringify(cli)}})
                     }));`,
                     ],
                     { stdout: "pipe", stderr: "pipe" },

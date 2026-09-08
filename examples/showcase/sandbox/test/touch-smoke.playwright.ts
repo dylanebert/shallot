@@ -7,7 +7,7 @@ import { adapterName, SOFTWARE } from "./gpu-adapter";
 // aims through Pointer Lock, which has no touch equivalent (Out of scope: touch FPS scheme), so this demo
 // carries no touch-interaction assertion, only the clean-load + notice pair. Runs by path —
 // `cd examples/showcase/sandbox && bunx playwright test test/touch-smoke.playwright.ts` — display-gated
-// (WSL bridge, `playwright.global-setup.ts`), never part of `bun run test`.
+// (`playwright.global-setup.ts`), never part of `bun run test`.
 
 test.use({
     hasTouch: true,

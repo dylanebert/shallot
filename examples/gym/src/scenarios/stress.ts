@@ -764,7 +764,7 @@ async function submissionAxis(bench: BenchmarkAPI): Promise<Check[]> {
     // inducedRatio (induced system's own p99/mean): OCC_K = 1.25 (`paceChecks`, above) is derived from
     // GPU-timestamped per-occurrence occupancy jitter (≈1.04 measured) — a driver completion-fence signal.
     // This axis's inducedRatio is a CPU wall-clock p99/mean on a harness that owns ~99% of the frame, where a
-    // host stall (GC, OS scheduling, the WSL→Windows bridge) lands inside the measured span by near-certainty
+    // host stall (GC, OS scheduling, a browser-transport hop) lands inside the measured span by near-certainty
     // — a noise floor OCC_K was never derived against. Red 1/5–1/9 runs across 13 sequential samples with no
     // real regression found; a tripled sample window didn't fix it (falsified by its own 9th run, 1.42×).
     //

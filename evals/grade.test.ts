@@ -1,14 +1,9 @@
-// S3 arm — evals/grade.ts mapping of stageOnWindows throw to INCOMPLETE
+// A gate that could not run maps to INCOMPLETE, never to a crash and never to a pass.
 //
-// Invariant: a staging throw (stageOnWindows failed) maps to INCOMPLETE, not a crash.
-// The S2 fix added a catch block in grade.ts that maps the throw to gate.ok = null, and
-// deriveResultKind (the pure derivation in ./harness/result) maps gateOk=null with ok
-// typecheck/build to INCOMPLETE. This arm drives the pure derivation directly — grade.ts
-// itself is a top-level script (argv parsing, top-level await) that can never be imported.
-//
-// The companion arm (wsl.test.ts) pins that stageOnWindows actually throws on a failed
-// staging. Together they cover the wsl.ts:49 site: the throw fires, and the grader maps it
-// to INCOMPLETE rather than crashing.
+// grade.ts catches a gate-setup throw and sets gate.ok = null; deriveResultKind (the pure
+// derivation in ./harness/result) maps gateOk=null with an ok typecheck and build to INCOMPLETE.
+// This arm drives that derivation directly — grade.ts itself is a top-level script (argv parsing,
+// top-level await) that can never be imported.
 
 import { expect, test } from "bun:test";
 import { deriveResultKind, resultKindToPass } from "./harness/result";

@@ -91,7 +91,7 @@ bun run build
 |---|---|---|
 | mac | Xcode Command Line Tools | same, plus a CEF runtime download on first build (or set `CEF_PATH`) |
 | linux | WebKitGTK dev headers (no usable WebGPU; use `--portable`) | `libx11-dev` (X11 dev headers to link the CEF shell), plus CEF runtime download on first build (or `CEF_PATH`) |
-| windows | cross-compiled via cargo-xwin (`cargo install cargo-xwin`; no local Windows toolchain needed) | Visual Studio with the C++ workload incl. ATL, from WSL only (the build bridges to the Windows host) |
+| windows | cross-compiled via cargo-xwin (`cargo install cargo-xwin`; no local Windows toolchain needed) | a Windows host with Visual Studio and the C++ workload incl. ATL — cargo-xwin's clang-cl cannot build CEF's `libcef_dll_wrapper`, so the portable target needs the real MSVC toolchain |
 
 Portable builds bundle the Chromium runtime (CEF) instead of the system webview. The CEF runtime auto-downloads on first build unless `CEF_PATH` points to a local copy. Release builds download a prebuilt shell when one exists for the installed version; debug builds and any release miss always compile from source.
 

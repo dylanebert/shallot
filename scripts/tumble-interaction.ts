@@ -16,7 +16,7 @@ import { skipReason, verify } from "./verify";
 //     labels ON-SCREEN (post-cull, `overlay-labels`, on events-joint-break's six threshold labels).
 // Visuals and input never feed the gold oracle; these are additive checks on the same run.
 //
-//   ⚠ ONE bridge session at a time. On WSL the bridge is a SINGLE shared host browser; never run this
+//   ⚠ Display gates self-terminate and run alone (AGENTS.md); never run this
 //   alongside another `bun bench`, `bun run scripts/bench-tumble.ts`, `bun run flows`, or `bun run recipes`.
 
 const GYM = "examples/gym";
@@ -119,7 +119,7 @@ async function main(): Promise<void> {
         console.log(`Usage: bun run scripts/tumble-interaction.ts [--only <slug>]
 
 Drives the tumble gym host's interaction + visual probe through \`shallot verify\` on a real device,
-reusing one bridge session. Display-gated (native hardware / the WSL host bridge). ONE bridge session at a
+reusing one browser session. Display-gated (native hardware). Display gates run alone, one at a
 time — never run concurrent with another bench / scripts/bench-tumble.ts / flows / recipes.
 
 Options:

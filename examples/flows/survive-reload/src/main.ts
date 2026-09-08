@@ -15,7 +15,7 @@ const N_KEY = "shallot:flow-survive:n";
 
 // a never-ready placeholder pins verify to the harness path from the first synchronous statement of
 // module evaluation — before `await run()`, on both boots. Set after the await, it loses a race: the
-// unified wait polls ~500ms apart (wider over the wsl-bridge), the whole placeholder window (run
+// unified wait polls ~500ms apart, the whole placeholder window (run
 // resolves → ~21 climb frames → reload) fits between two polls, and verify then settles on the
 // restored boot's static frame as a bare smoke — never seeing the dance. The restored boot's
 // installHarness replaces this with the real, ready harness.

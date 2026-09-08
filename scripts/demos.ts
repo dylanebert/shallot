@@ -20,7 +20,7 @@ import { skipReason, type VerifyResult, verify } from "./verify";
 // stops finding pages is visible in its own output.
 //
 // Display-gated exactly like flows and recipes: verify needs a real display + a conformant WebGPU
-// adapter, so on WSL / headless it skips honestly (native hardware only). Unlike those routine
+// adapter, so on a display-less host it skips honestly (native hardware only). Unlike those routine
 // regression gates, a skip here exits nonzero — this is a release gate, and a skipped release gate
 // is not green. The green run is native hardware with every demo verified.
 //

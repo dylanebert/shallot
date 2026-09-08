@@ -50,13 +50,13 @@ for (const canvas of document.querySelectorAll<HTMLCanvasElement>("[data-termina
         ctx.fillText(s, 0, row * ch + ch / 2);
     };
     const cells = (grid: Grid, row: number) => {
-        grid.forEach((line, y) =>
+        grid.forEach((line, y) => {
             line.forEach((tone, x) => {
                 if (!tone) return;
                 ctx.fillStyle = DARK[tone];
                 ctx.fillRect(x * cw, row * ch + (y * ch) / 2, cw + 0.5, ch / 2 + 0.5);
-            }),
-        );
+            });
+        });
     };
     const after = [END_TICK + 4, END_TICK + 7, END_TICK + 10, END_TICK + 13];
     const draw = (tick: number) => {

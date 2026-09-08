@@ -8,7 +8,7 @@ import { oneFingerDrag } from "./touch-drag";
 // `Input.dispatchTouchEvent` — the same integration-honest instrument gym's own touch gate uses, never
 // Playwright's synthetic `dispatchEvent` (bypasses the touch-action/listener path this asserts). Runs by
 // path — `cd examples/showcase/voxel && bunx playwright test test/touch-smoke.playwright.ts` — display-gated
-// (WSL bridge, `playwright.global-setup.ts`), never part of `bun run test`.
+// (`playwright.global-setup.ts`), never part of `bun run test`.
 
 test.use({
     hasTouch: true,

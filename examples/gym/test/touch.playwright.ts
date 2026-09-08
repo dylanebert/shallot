@@ -20,7 +20,7 @@ import { oneFingerDrag, pinch, twoFingerDrag, twoToOneFingerDrag } from "./touch
 // mock harness, confirmed here on real touch.
 //
 // Run by path — `cd examples/gym && bunx playwright test` (or `bun run gate` in that dir), display-gated
-// (WSL bridge, `../playwright.global-setup.ts`) — never part of the default `bun run test` sweep.
+// (`../playwright.global-setup.ts`) — never part of the default `bun run test` sweep.
 
 // Software rasterizers by the name they report in `GPUAdapterInfo` — the same display-gate pattern
 // `examples/showcase/roads/test/roads.playwright.ts` uses (that file's header has the full rationale).

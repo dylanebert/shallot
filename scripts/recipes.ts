@@ -9,8 +9,8 @@ import { skipReason, verify } from "./verify";
 // car advances under throttle, the profiler reports GPU time. A static recipe (one whose registry row
 // carries a `static` reason) has no runtime observable, so its verdict is verify's own boot + nonblank
 // render. Both drive the shipped `shallot verify` through `./verify`, which is what makes the row
-// attributable off a native seat: that wrapper owns the WSL bridge to the host's real-GPU browser, while a
-// bare `bunx shallot verify` row spawned through `sh -c` reaches only WSL's software adapter and reds.
+// attributable: that wrapper owns the display guard, while a bare `bunx shallot verify` row spawned
+// through `sh -c` reaches only a software adapter and reds.
 //
 // Display-gated exactly like flows: verify needs a real display + a conformant WebGPU adapter, so on a
 // headless box it skips honestly. The green run is native; here it proves the wiring.

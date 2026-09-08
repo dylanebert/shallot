@@ -93,15 +93,15 @@ export type Layer = { grid: Grid; x: number; y: number };
 export function compose(width: number, height: number, layers: readonly Layer[]): Grid {
     const out: Grid = Array.from({ length: height }, () => Array<Tone | null>(width).fill(null));
     for (const { grid, x, y } of layers) {
-        grid.forEach((row, gy) =>
+        grid.forEach((row, gy) => {
             row.forEach((tone, gx) => {
                 const px = x + gx;
                 const py = y + gy;
                 if (tone && py >= 0 && py < height && px >= 0 && px < width) {
                     (out[py] as (Tone | null)[])[px] = tone;
                 }
-            }),
-        );
+            });
+        });
     }
     return out;
 }
@@ -112,15 +112,15 @@ export function crop(grid: Grid): Grid {
     let maxX = -1;
     let minY = Infinity;
     let maxY = -1;
-    grid.forEach((row, y) =>
+    grid.forEach((row, y) => {
         row.forEach((tone, x) => {
             if (!tone) return;
             minX = Math.min(minX, x);
             maxX = Math.max(maxX, x);
             minY = Math.min(minY, y);
             maxY = Math.max(maxY, y);
-        }),
-    );
+        });
+    });
     if (maxX < 0) return [];
     return grid.slice(minY, maxY + 1).map((row) => row.slice(minX, maxX + 1));
 }
@@ -280,7 +280,11 @@ function lcg(seed: number): () => number {
 
 function landing(grid: Grid): Map<Point, number> {
     const pixels: Point[] = [];
-    grid.forEach((row, y) => row.forEach((tone, x) => tone && pixels.push({ x, y })));
+    grid.forEach((row, y) => {
+        row.forEach((tone, x) => {
+            if (tone) pixels.push({ x, y });
+        });
+    });
     const rnd = lcg(5);
     const jitter = new Map(pixels.map((p) => [p, rnd()]));
     const key = (p: Point) => (BAYER[p.y % 4] as readonly number[])[p.x % 4] as number;
@@ -320,11 +324,11 @@ export function splashFrame(tick: number): Grid {
     let x = NAME_X;
     for (let i = 0; i < typed; i++) {
         const glyph = GLYPHS[i] as Grid;
-        glyph.forEach((row, gy) =>
+        glyph.forEach((row, gy) => {
             row.forEach((tone, gx) => {
                 if (tone) (out[NAME_Y + gy] as (Tone | null)[])[x + gx] = "ink";
-            }),
-        );
+            });
+        });
         x += (glyph[0]?.length ?? 0) + 1;
     }
     if (tick >= HIT_TICK && tick < END_TICK) {

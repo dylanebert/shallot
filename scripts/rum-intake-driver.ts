@@ -1,11 +1,11 @@
 // Node-runnable driver for the RUM slow-frame intake proof, and (spec `shallot-compile-vitals`
 // S2) the `pipeline_compile` two-sided wire proof — both in `scripts/rum-intake-check.ts`.
-// Bundled to a node target and spawned with `node` — `scripts/wsl-bridge.ts`'s documented fact 2:
+// Bundled to a node target and spawned with `node`:
 // Bun's Playwright client hangs on this platform (`chromium.launch`/`chromium.connect` never
 // resolve), Node's client doesn't. No real GPU is needed here: the RUM sampler
 // (`site/rum-runtime.ts`) is rAF-based and main-thread, independent of WebGPU init, so a plain
 // local headless launch (software adapter, WebGPU unavailable) is enough to drive it — no
-// wsl-bridge host tunnel, no real-hardware contention.
+// display gate, no real-hardware contention.
 //
 // Two instruments per scenario, not one — the machine this runs on shares a box with unrelated
 // concurrent work (other specs' dev servers, capture harnesses), so a bare "did any intake

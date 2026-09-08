@@ -58,7 +58,7 @@ const DAWN_ZERO_WARNING = "DispatchWorkgroups with a workgroup count of 0 is unu
 
 // Software rasterizers by the name they report in `GPUAdapterInfo`: Chromium's SwiftShader, Mesa's two,
 // and D3D's WARP. Deliberately a name list rather than a capability probe — SwiftShader clears shallot's
-// whole base floor (all three `BASE_FEATURES` plus 10 storage buffers per stage, measured under WSL
+// whole base floor (all three `BASE_FEATURES` plus 10 storage buffers per stage, measured on the retired WSL seat
 // 2026-08-10), so nothing about the floor distinguishes it, and it is only the *execution* that dies.
 // Bias narrow: an unlisted software adapter re-crashes loudly, while an over-broad pattern would skip
 // this gate on real hardware and report green having tested nothing. Reuses the same regex the

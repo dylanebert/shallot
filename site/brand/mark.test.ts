@@ -60,7 +60,11 @@ describe("splash", () => {
     test("the mark is complete at the hit and the name is not", () => {
         const at = splashFrame(HIT_TICK);
         const mark = fromBlocks(MARK.m);
-        mark.forEach((row, y) => row.forEach((tone, x) => tone && expect(at[y]?.[x]).toBeTruthy()));
+        mark.forEach((row, y) => {
+            row.forEach((tone, x) => {
+                if (tone) expect(at[y]?.[x]).toBeTruthy();
+            });
+        });
         expect(at.flat().filter((t) => t === "ink").length).toBe(0);
     });
 
