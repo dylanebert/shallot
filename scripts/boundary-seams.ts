@@ -14,15 +14,13 @@ export const TOOLING_SEAMS: Record<string, string> = {
         "manifest resolution, pending the A1 project-host seam",
     'packages/shallot/bin/native.ts "../src/project/manifest"':
         "manifest resolution, pending the A1 project-host seam",
-    'packages/shallot/bin/tui.ts "../src/project/assets"':
-        "manifest read, pending the A1 project-host seam",
-    'packages/shallot/bin/tui.ts "../src/project/engine"':
-        "subpath plugin modules, pending the A1 project-host seam",
-    'packages/shallot/bin/tui.ts "../src/project/generate"':
-        "shared project plan, pending the A1 project-host seam",
-    // the TUI's own engine reach: the barrel type only. `../src` (the published `.` target) is what it
-    // actually loads at runtime.
-    'packages/shallot/bin/tui.ts "../src/engine"': "Plugin type for the loaded manifest plugins",
+    // the A1 project-host seam itself: one command entry per tool, carrying plan/discovery/resolution
+    // and the plugin loaders. Bounded on purpose — a tool reaches the project through this module or
+    // not at all, so a future tooling extraction moves one import, not a private-path family.
+    'packages/shallot/bin/tui.ts "../src/project/command"':
+        "the shared project-host command entry (plan, discovery, resolution, plugin loading)",
+    'packages/shallot/bin/toolchain.ts "../src/project/command"':
+        "project discovery and its missing-project diagnostic, shared with the terminal command",
     // verify's node-side diagnostics. These are tool-facing readings with no author-facing contract, so
     // they stay unpublished rather than growing the surface.
     'packages/shallot/bin/verify.ts "../src/engine/runtime/gpu"':
@@ -43,8 +41,6 @@ export const COMPUTED_LOADERS: Record<string, string> = {
         "browser-evaluated /src/ URLs into Roads' own src/, served by playwright.config.ts webServer shallot dev .; non-literal spelling leaves imports to the browser instead of Playwright's CJS transform",
     "examples/showcase/roads/test/touch-smoke.playwright.ts":
         "browser-evaluated /src/ URLs into Roads' own src/, served by playwright.config.ts webServer shallot dev .; non-literal spelling leaves imports to the browser instead of Playwright's CJS transform",
-    "packages/shallot/bin/tui.ts":
-        "loads the project's own manifest-declared plugin files, resolved under the project root",
     "packages/shallot/bin/features.ts":
         "loads the project's own manifest-declared local plugins to read their feature declarations",
     "packages/shallot/bin/bun-native.ts":

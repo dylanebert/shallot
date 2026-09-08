@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { resolve } from "node:path";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import {
     buildDisposeAll,
     cellsBytesToGrid,
@@ -441,5 +443,30 @@ describe("importBunWebgpu / runTui — missing bun-webgpu", () => {
     test("runTui rejects bad flags before ever reaching bun-webgpu (EXIT_SETUP, distinct code)", async () => {
         const code = await runTui(["--nope"]);
         expect(code).toBe(EXIT_SETUP);
+    });
+
+    // Precedence, pinned: a real project that simply never enabled "Cells" still hears about the absent
+    // peer first (the install gate's own scaffold rung reads exit 3 there, not a manifest complaint).
+    // Moving the cells check ahead of the peer import reds this arm.
+    test("a project without Cells reports the absent peer first, not the manifest", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "shallot-tui-no-cells-"));
+        writeFileSync(join(dir, "shallot.json"), JSON.stringify({ plugins: { Orbit: true } }));
+        const code = await runTui([dir], () =>
+            Promise.reject(new Error("Cannot find module 'bun-webgpu'")),
+        );
+        expect(code).toBe(EXIT_NO_BUN_WEBGPU);
+    });
+
+    // The project half of the same ordering: a directory that is no project at all refuses at setup,
+    // with the scaffold hint, before the peer import (nothing of the project is read or loaded).
+    test("a dir that is no project exits EXIT_SETUP before the peer import", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "shallot-tui-no-project-"));
+        let loaderCalls = 0;
+        const code = await runTui([dir], () => {
+            loaderCalls++;
+            return Promise.reject(new Error("Cannot find module 'bun-webgpu'"));
+        });
+        expect(code).toBe(EXIT_SETUP);
+        expect(loaderCalls).toBe(0);
     });
 });
