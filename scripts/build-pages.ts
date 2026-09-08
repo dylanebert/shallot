@@ -16,10 +16,12 @@ import { toPng } from "../site/brand/png";
 import { llmsTxt, siteIndex } from "../site/home";
 import { ROSTER } from "../site/roster";
 
-// `bun run site:pages` — the site's own pages without the demos: out/site/index.html and
+// `bun run site:pages` — the site's own pages without the demos: out/site/index.html, llms.txt and
 // out/site/brand/ with its downloads. `build-site.ts` calls the same function after the demo
 // loop, so this is also how to iterate on the pages locally without a demo build. Serve
-// out/site with any static server to view.
+// out/site with any static server to view. Run alone it builds in staging mode: every link and
+// label names the local commit, never a release tag the tree may be ahead of. Production labels
+// come from `bun run site`, which pins to the published version.
 
 const root = resolve(import.meta.dir, "..");
 
@@ -95,6 +97,8 @@ if (import.meta.main) {
     const ref = Bun.spawnSync(["git", "rev-parse", "--short", "HEAD"], { cwd: root });
     const refShort = ref.stdout.toString().trim() || "unknown";
     const outDir = resolve(root, "out/site");
-    await buildPages(outDir, pkg.version, refShort, "prod");
-    console.log(`pages: ${outDir}/index.html, ${outDir}/brand/`);
+    await buildPages(outDir, pkg.version, refShort, "staging");
+    console.log(
+        `pages (staging · ${refShort}): ${outDir}/index.html, ${outDir}/llms.txt, ${outDir}/brand/`,
+    );
 }
