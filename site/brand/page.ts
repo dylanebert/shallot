@@ -1,5 +1,5 @@
 import { DARK, fromBlocks, LIGHT, lockup, MARK, toSvg, word } from "./mark";
-import { AGENTS_LINK, BACK, CSS_PALETTE, FONTS, STYLE, THEME_SCRIPT, TOGGLE } from "./theme";
+import { AGENTS_LINK, CSS_PALETTE, FONTS, STYLE, THEME_SCRIPT, TOGGLE, top } from "./theme";
 
 // The brand page at /shallot/brand/: a back arrow to home, then the assets, shown plainly, and
 // their downloads. Labels only;
@@ -47,7 +47,7 @@ ${THEME_SCRIPT}
 <body>
 ${TOGGLE}
 <main>
-${BACK}
+${top("brand")}
 <section>
 <div class="lockup block"><div data-splash-svg data-scale="6">${svg(lock, 6)}</div></div>
 ${dl([

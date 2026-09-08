@@ -2,8 +2,8 @@ import { DARK, LIGHT, type Palette } from "./mark";
 
 // Shared page chrome for the site's own pages (home, brand): tokens, the theme toggle, the outbound
 // links, and the half-block `pre` rules. Dark is the brand; light is the same assets on paper behind
-// a toggle. Neither page has a top nav: home leads with the lockup, and brand is a detail reached
-// from the foot of home with a back arrow to return.
+// a toggle. The top row holds only the outbound icons (and, on a subpage, the back arrow): brand is
+// a detail reached from the foot of home, not a top-level destination.
 
 /** A palette whose values are CSS custom properties, so inline SVG follows the page theme. */
 export const CSS_PALETTE: Palette = {
@@ -31,10 +31,10 @@ a { color: inherit; text-decoration: none; }
 a:hover { color: var(--gold); }
 h2 { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 section { display: grid; gap: 14px; }
-.links { display: inline-flex; gap: 18px; align-items: center; }
-.links a { display: inline-flex; align-items: center; }
-.links svg, .back svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
-.back { display: inline-flex; align-items: center; color: var(--muted); }
+.top { display: flex; gap: 18px; align-items: center; color: var(--muted); padding-right: 44px; }
+.top .sp { flex: 1; }
+.top a { display: inline-flex; align-items: center; }
+.top svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
 footer { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; color: var(--muted); }
 footer .sp { flex: 1; }
 pre, code { font-family: "JetBrains Mono", ui-monospace, monospace; }
@@ -65,8 +65,10 @@ const PACKAGE =
 const ARROW =
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>';
 
-/** GitHub and npm, as icons; sits in the foot of home. */
-export const LINKS = `<span class="links"><a href="https://github.com/dylanebert/shallot" target="_blank" rel="noopener" aria-label="GitHub">${GITHUB}</a><a href="https://www.npmjs.com/package/@dylanebert/shallot" target="_blank" rel="noopener" aria-label="npm">${PACKAGE}</a></span>`;
+const LINKS = `<a href="https://github.com/dylanebert/shallot" target="_blank" rel="noopener" aria-label="GitHub">${GITHUB}</a><a href="https://www.npmjs.com/package/@dylanebert/shallot" target="_blank" rel="noopener" aria-label="npm">${PACKAGE}</a>`;
 
-/** The back arrow at the top of a subpage, pointing at home. */
-export const BACK = `<a class="back" href="../" aria-label="Back to shallot">${ARROW}</a>`;
+/** The top row: GitHub and npm icons on the right; on a subpage, a back arrow to home on the left. */
+export function top(here: "home" | "brand"): string {
+    const back = here === "home" ? "" : `<a href="../" aria-label="Back to shallot">${ARROW}</a>`;
+    return `<div class="top">${back}<span class="sp"></span>${LINKS}</div>`;
+}
