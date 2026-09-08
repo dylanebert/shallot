@@ -53,6 +53,7 @@ header p { font-size: 17px; text-wrap: balance; }
 .demos .code { padding: 10px 0 10px 24px; color: var(--muted); }
 .demos .code:hover { color: var(--gold); }
 .needs { font-size: 13px; }
+.warn { color: var(--gold); font-size: 14px; }
 .steps { display: grid; gap: 8px; }
 .steps .c { color: var(--muted); }
 .steps a { color: inherit; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
@@ -84,10 +85,10 @@ bunx shallot dev</pre>
 
 <section>
 <h2>demos</h2>
+<p class="warn" data-webgpu-note hidden>This browser has no WebGPU, so the demos will not run here. They need Chrome, Edge, or Safari 26+ on desktop.</p>
 <ul class="demos">
 ${rows}
 </ul>
-<p class="muted needs" data-webgpu-note hidden>This browser has no WebGPU. The demos need Chrome, Edge, or Safari 26+ on desktop.</p>
 </section>
 
 <footer>${label}</footer>
