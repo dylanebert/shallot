@@ -2,13 +2,12 @@
 paths:
     - "packages/shallot/src/**/*.test.ts"
     - "packages/shallot/tests/**/*.ts"
-    - "packages/shallot/bin/*.test.ts"
-    - "packages/shallot/bin/*.probes.ts"
+    - "packages/shallot-tooling/**/*.{test,probes}.ts"
     - "scripts/install-test.ts"
     - "scripts/stall-attribution.ts"
     - "scripts/compile-concurrency.ts"
     - "scripts/loaf-attribution.ts"
-    - "packages/shallot/scripts/build-tooling.ts"
+    - "packages/shallot-tooling/scripts/build.ts"
     - "examples/showcase/ocean/test/**/*.test.ts"
     - "examples/showcase/ocean/test/**/*.oracle.ts"
     - "site/rum-*.ts"
@@ -16,7 +15,7 @@ paths:
 
 # Testing
 
-Gates never write. Run `bun run format`, `bun check`, `bun run test` from root. Budget lowering: `style.md`; default paths: manifest.
+Gates never write. Root: `bun run format`, `bun check`, `bun run test`. Budgets: `style.md`; default paths: manifest.
 
 ## What a change class owes
 
@@ -86,4 +85,4 @@ Cycle order: bump all `check-versions.ts` sites/deferred changelog entries; `bun
 
 Dogfood against registry-installed tracked-pin floors, never links. Peers/dev deps first, tarball last; reread installed versions. Preserve ignored artifacts; restore manifests/locks, inspect gitlinks/shared-root installs, leave RC runnable. Human live render required: hand over command; decoded stills only support it; name absent image proof.
 
-Read prose against artifacts. Migration changes only for breaking major/minors; dated facts/ignored locks aren't version sites. Deploy via `site.yml`, not disabled `pages.yml`. Confirm deployed version, six archives/checksums and covered bytes. `bun run scripts/e2e-prebuilt.ts`: no-cargo proof; untraversed branches untested.
+Read prose against artifacts. Migration changes only for major/minors; historical facts aren't version sites. Deploy via `site.yml`, not disabled `pages.yml`. Confirm deployed version, six archives/checksums and covered bytes. `bun run scripts/e2e-prebuilt.ts`: no-cargo proof; untraversed branches untested.

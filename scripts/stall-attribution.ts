@@ -1,4 +1,4 @@
-import { harnessBucketNames, type LoAFEntry } from "../packages/shallot/bin/verify";
+import { harnessBucketNames, type LoAFEntry } from "../packages/shallot-tooling/bin/verify";
 import { skipReason, teardownBridge, verify } from "./verify";
 
 // S1 of `shallot-demo-startup-stall`: discriminate the demo's startup ~1s stall by pipeline-label

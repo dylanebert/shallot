@@ -41,7 +41,7 @@ const REPO_ROOT = resolve(import.meta.dir, "..");
 
 const STAGE_NAME = "shallot-verify-bridge";
 const BUNDLE = resolve(REPO_ROOT, "node_modules/.cache/shallot-wsl-verify.mjs");
-const BIN_DIR = resolve(REPO_ROOT, "packages/shallot/bin");
+const BIN_DIR = resolve(REPO_ROOT, "packages/shallot-tooling/bin");
 const POOL = 8;
 
 function sh(cmd: string): { ok: boolean; out: string } {
@@ -229,7 +229,7 @@ function buildBundle(): void {
         [
             "bun",
             "build",
-            "packages/shallot/bin/cli.ts",
+            "packages/shallot-tooling/bin/cli.ts",
             "--target",
             "node",
             "--outfile",

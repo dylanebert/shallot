@@ -22,6 +22,7 @@ import {
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { harnessArms, harnessContract } from "./install-test/harness";
 import {
     type ShaderArtifactSummary,
     skipReason,
@@ -33,8 +34,7 @@ import {
 const ENGINE_DIR = resolve(import.meta.dir, "../packages/shallot");
 const WIDGET_DIR = resolve(import.meta.dir, "install-test/widget");
 const PARTICLES_DIR = resolve(import.meta.dir, "../packages/shallot-gpu-particles");
-const CREATE_SHALLOT = resolve(import.meta.dir, "../packages/create-shallot/index.ts");
-const CREATE_SHALLOT_PKG = resolve(import.meta.dir, "../packages/create-shallot/package.json");
+const CREATE_SHALLOT_DIR = resolve(import.meta.dir, "../packages/create-shallot");
 const CLI = "node_modules/@dylanebert/shallot/bin/cli.ts"; // the installed CLI, run as a real user would
 
 const freePort = (): Promise<number> =>
@@ -764,7 +764,20 @@ function createShallotFlow(work: string, engineTgz: string) {
     console.log("bun create shallot (scaffold → install → build the starter)…");
     const parent = join(work, "scaffold");
     mkdirSync(parent, { recursive: true });
-    const created = run(["bun", CREATE_SHALLOT, "starter-app"], parent);
+    const scaffoldTgz = pack(CREATE_SHALLOT_DIR, join(work, "scaffold-pack"));
+    writeFileSync(
+        join(parent, "package.json"),
+        JSON.stringify({
+            private: true,
+            dependencies: { "create-shallot": `file:${scaffoldTgz}` },
+        }),
+    );
+    const scaffoldInstall = run(["bun", "install"], parent);
+    check("the packed scaffold installs", scaffoldInstall.ok, scaffoldInstall.out.slice(-400));
+    if (!scaffoldInstall.ok) return;
+    const scaffoldRoot = join(parent, "node_modules/create-shallot");
+    check("the scaffold is a physical install", realpathSync(scaffoldRoot) === scaffoldRoot);
+    const created = run(["bun", "node_modules/.bin/create-shallot", "starter-app"], parent);
     check(
         "create-shallot scaffolds a project",
         created.ok,
@@ -777,7 +790,9 @@ function createShallotFlow(work: string, engineTgz: string) {
     // the scaffold must pin @dylanebert/shallot to the scaffold's own version (lockstep-gated by
     // check-versions.ts), not "latest" — a "latest" pin beside exact-tilde typegpu/unplugin-typegpu
     // pins could resolve to a newer engine whose peer ranges the pins don't satisfy.
-    const createPkg = JSON.parse(readFileSync(CREATE_SHALLOT_PKG, "utf8")) as { version: string };
+    const createPkg = JSON.parse(readFileSync(join(scaffoldRoot, "package.json"), "utf8")) as {
+        version: string;
+    };
     const expectedShallotRange = `~${createPkg.version}`;
     check(
         "the scaffold pins @dylanebert/shallot to the scaffold's own version (not latest)",
@@ -1088,7 +1103,7 @@ async function ejectedFlow(work: string, engineTgz: string) {
         `import { projectPlugin } from "@dylanebert/shallot/vite";\n` +
             `import { REAL_GPU_LAUNCH } from "@dylanebert/shallot/harness/browser";\n` +
             `if (typeof projectPlugin !== "function") throw new Error("projectPlugin: not a function");\n` +
-            `if (typeof REAL_GPU_LAUNCH?.channel !== "string") throw new Error("REAL_GPU_LAUNCH: no channel");\n` +
+            `if (JSON.stringify(REAL_GPU_LAUNCH) !== '${JSON.stringify({ channel: "chromium", args: ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures"] })}') throw new Error("REAL_GPU_LAUNCH: wrong options");\n` +
             `console.log("NODE_RESOLVE_OK " + REAL_GPU_LAUNCH.channel);\n`,
     );
     const nodeResolve = run(["node", "node-resolve-check.mjs"], proj);
@@ -1877,7 +1892,8 @@ if (import.meta.main) {
             // imports typegpu directly (a real consumer's shape) is a second entry into Vite's dep
             // scanner distinct from the engine's own bare specifier — the browser-boot rung below only
             // covers this shape because this file reaches it.
-            `import type { Plugin, State, System } from "@dylanebert/shallot";\nimport * as d from "typegpu/data";\nconst SpinSystem: System = { group: "simulation", update(_s: State) {} };\nconst SpinPlugin: Plugin = { name: "Spin", systems: [SpinSystem] };\nconsole.log(d.f32);\nexport default SpinPlugin;\n`,
+            harnessContract +
+                `import type { Plugin, State, System } from "@dylanebert/shallot";\nimport * as d from "typegpu/data";\nconst SpinSystem: System = { group: "simulation", update(_s: State) {} };\nconst SpinPlugin: Plugin = { name: "Spin", systems: [SpinSystem] };\nconsole.log(d.f32);\nexport default SpinPlugin;\n`,
         );
         writeFileSync(
             join(sandbox, "public", "icon.svg"),
@@ -1892,6 +1908,7 @@ if (import.meta.main) {
             install.ok ? "" : install.out.slice(-600),
         );
         if (install.ok) {
+            harnessArms(sandbox);
             writeFileSync(
                 join(sandbox, "missing-plugin.ts"),
                 `import { build } from "@dylanebert/shallot";\n` +

@@ -389,6 +389,30 @@
         "typegpu": "~0.12.4",
       },
     },
+    "packages/shallot-tooling": {
+      "name": "shallot-tooling",
+      "version": "0.10.0",
+      "dependencies": {
+        "@types/node": "^26.0.0",
+        "unplugin-typegpu": "~0.12.3",
+        "vite": "^8.0.16",
+      },
+      "devDependencies": {
+        "@dylanebert/shallot": "workspace:*",
+      },
+      "optionalDependencies": {
+        "pngjs": "^7.0.0",
+      },
+      "peerDependencies": {
+        "bun-webgpu": "0.1.7",
+        "playwright": "^1.0.0",
+        "typegpu": "~0.12.4",
+      },
+      "optionalPeers": [
+        "bun-webgpu",
+        "playwright",
+      ],
+    },
   },
   "packages": {
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
@@ -888,6 +912,8 @@
     "semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
     "shallot-gpu-particles": ["shallot-gpu-particles@workspace:packages/shallot-gpu-particles"],
+
+    "shallot-tooling": ["shallot-tooling@workspace:packages/shallot-tooling"],
 
     "shebang-command": ["shebang-command@2.0.0", "", { "dependencies": { "shebang-regex": "^3.0.0" } }, "sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA=="],
 

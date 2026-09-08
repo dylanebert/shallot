@@ -1,3 +1,3 @@
-import { loadNative } from "../bin/bun-native";
+import { loadNative } from "../../shallot-tooling/bin/bun-native";
 
 await (await loadNative()).setupGlobals();

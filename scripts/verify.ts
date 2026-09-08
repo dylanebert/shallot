@@ -10,7 +10,7 @@ import { type Bridge, bridgePrereq, start as startBridge } from "./wsl-bridge";
 
 const repoRoot = resolve(import.meta.dir, "..");
 export const REPO_ROOT = repoRoot;
-export const CLI = resolve(repoRoot, "packages/shallot/bin/cli.ts");
+export const CLI = resolve(repoRoot, "packages/shallot-tooling/bin/cli.ts");
 
 /** one named check inside a verify Verdict (the published protocol's shape on the wire). */
 export interface Check {

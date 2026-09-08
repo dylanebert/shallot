@@ -6,30 +6,33 @@
  *  does not publish. Keyed `<repo-relative file> <specifier>` — per call site, not per module, so moving
  *  one reader does not silently license the others. */
 export const TOOLING_SEAMS: Record<string, string> = {
-    // the project plan/discovery/resolution the CLI and TUI share. No published seam exposes it yet;
-    // `shallot-release-boundaries` A1 extracts one and these entries retire with it.
-    'packages/shallot/bin/features.ts "../src/project/generate"':
-        "shared project plan, pending the A1 project-host seam",
-    'packages/shallot/bin/features.ts "../src/project/manifest"':
-        "manifest resolution, pending the A1 project-host seam",
-    'packages/shallot/bin/native.ts "../src/project/manifest"':
-        "manifest resolution, pending the A1 project-host seam",
-    // the A1 project-host seam itself: one command entry per tool, carrying plan/discovery/resolution
-    // and the plugin loaders. Bounded on purpose — a tool reaches the project through this module or
-    // not at all, so a future tooling extraction moves one import, not a private-path family.
-    'packages/shallot/bin/tui.ts "../src/project/command"':
-        "the shared project-host command entry (plan, discovery, resolution, plugin loading)",
-    'packages/shallot/bin/toolchain.ts "../src/project/command"':
-        "project discovery and its missing-project diagnostic, shared with the terminal command",
+    'packages/shallot-tooling/bin/bench.test.ts "../../../scripts/bench"':
+        "the CLI parser's production repository runner",
+    'packages/shallot-tooling/bin/recipe.test.ts "../../create-shallot/index"':
+        "compare recipe scaffolding against the sole scaffold source",
+    'packages/shallot-tooling/bin/create-shallot.test.ts "../../create-shallot/index"':
+        "exercise the sole scaffold source",
+    'packages/shallot-tooling/bin/verify.test.ts "../../../examples/gym/src/scenarios/timeouts"':
+        "assert the actual gym scenario budget bindings",
+    'packages/shallot-tooling/bin/verify.test.ts "../../../scripts/bench"':
+        "exercise production batch/bench composition",
+    'packages/shallot-tooling/bin/verify.test.ts "../../../scripts/boot-cost"':
+        "exercise the diagnostic consumer's parser",
+    'packages/shallot-tooling/bin/verify.test.ts "../../../scripts/install-test"':
+        "exercise the packed-consumer diagnostic binding",
+    'packages/shallot-tooling/bin/verify.test.ts "../../../scripts/verify"':
+        "the repository transport's result types",
+    'packages/shallot-tooling/bin/verify.test.ts "../../../site/rum-sampler"':
+        "differential against the independently executed page sampler",
     // verify's node-side diagnostics. These are tool-facing readings with no author-facing contract, so
     // they stay unpublished rather than growing the surface.
-    'packages/shallot/bin/verify.ts "../src/engine/runtime/gpu"':
+    'packages/shallot-tooling/bin/verify.ts "../../shallot/src/engine/runtime/gpu"':
         "adapter identity for the run's hardware line",
-    'packages/shallot/bin/verify.ts "../src/engine/runtime/log"':
+    'packages/shallot-tooling/bin/verify.ts "../../shallot/src/engine/runtime/log"':
         "the log predicate the console reader shares",
-    'packages/shallot/bin/verify.ts "../src/extras/profile/benchmark"':
+    'packages/shallot-tooling/bin/verify.ts "../../shallot/src/extras/profile/benchmark"':
         "the benchmark measurement shape the --json envelope carries",
-    'packages/shallot/bin/verify.ts "../src/harness/degraded-boot"':
+    'packages/shallot-tooling/bin/verify.ts "../../shallot/src/harness/degraded-boot"':
         "the degraded-boot predicate, published only through ./harness's barrel",
 };
 
@@ -37,15 +40,19 @@ export const TOOLING_SEAMS: Record<string, string> = {
  *  bound that keeps it readable. Every other computed `import()`/`require()` refuses: a specifier this
  *  reader cannot resolve is a hole in the source cone, not a detail. */
 export const COMPUTED_LOADERS: Record<string, string> = {
+    "packages/shallot-tooling/src/project/command.ts":
+        "loads enabled manifest plugins only after project planning resolves their paths",
+    "packages/shallot-tooling/src/project/command.test.ts":
+        "the bare-process isolation fixture imports the named command entry under test",
     "examples/showcase/roads/test/edit-safety.playwright.ts":
         "browser-evaluated /src/ URLs into Roads' own src/, served by playwright.config.ts webServer shallot dev .; non-literal spelling leaves imports to the browser instead of Playwright's CJS transform",
     "examples/showcase/roads/test/touch-smoke.playwright.ts":
         "browser-evaluated /src/ URLs into Roads' own src/, served by playwright.config.ts webServer shallot dev .; non-literal spelling leaves imports to the browser instead of Playwright's CJS transform",
-    "packages/shallot/bin/features.ts":
+    "packages/shallot-tooling/bin/features.ts":
         "loads the project's own manifest-declared local plugins to read their feature declarations",
-    "packages/shallot/bin/bun-native.ts":
+    "packages/shallot-tooling/bin/bun-native.ts":
         "loads the downloaded native projection, after its sha256 matches the pinned hash",
-    "packages/shallot/bin/verify.ts":
+    "packages/shallot-tooling/bin/verify.ts":
         "loads the consumer project's own installed playwright, resolved from its package root",
 };
 

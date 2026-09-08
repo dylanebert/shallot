@@ -23,7 +23,7 @@ const REPO_ROOT = resolve(import.meta.dir, "../../..");
 // would still be caught.
 const SCAN_DIRS = [
     "packages/shallot/src",
-    "packages/shallot/bin",
+    "packages/shallot-tooling/bin",
     "packages/shallot/scripts",
     "packages/shallot/tests",
     "scripts",

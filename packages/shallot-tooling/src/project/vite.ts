@@ -1,0 +1,261 @@
+import { existsSync, readFileSync } from "fs";
+import { dirname, isAbsolute, join, relative, resolve } from "path";
+import typegpu from "unplugin-typegpu/vite";
+import type { Plugin, Rollup, ViteDevServer } from "vite";
+import { contentType, manifestPath, resolveAssetPath } from "./assets";
+import { generateModuleFromPlan } from "./generate";
+import { emptyPlan, readProject } from "./host";
+
+// the manifest descriptor half of `assets.ts` is part of this subpath's published surface — the CLI
+// (`bin/build.ts`, `bin/features.ts`, `bin/toolchain.ts`) and consumers already resolve both through
+// `@dylanebert/shallot/vite`. The readers beside them stay internal to `src/project/`.
+export { manifestPath, manifestWarnings } from "./assets";
+// scene discovery is the project host's (`host.ts`) — re-exported here because the CLI and consumers
+// already resolve it through `@dylanebert/shallot/vite`.
+export { discoverScenes } from "./host";
+
+/**
+ * cross-origin isolation headers, applied by every serve surface (`shallot dev`, `shallot run`'s preview,
+ * `shallot verify`'s dev/ejected/dist boots). Tumble physics multithreads only when the page can hold a
+ * shared `WebAssembly.Memory`, which a browser grants only to a cross-origin-isolated document — so the
+ * dev/preview server sends COOP/COEP to enable the multithreaded kernel. A static host that can't set
+ * headers (GitHub Pages) gets the single-thread kernel and one log, a documented fallback. The cost of
+ * `require-corp`: every cross-origin subresource the page loads must be CORS-approved (a cors-mode fetch
+ * against a CORS-enabled host, like extras/text's default gstatic font) or carry CORP — a plain no-cors
+ * cross-origin load (`<img src="https://…">` from a host without CORP) is blocked in the isolated
+ * document. Consumer-facing note: AGENTS.md "Build, run, verify".
+ */
+export const CROSS_ORIGIN_ISOLATION = {
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Embedder-Policy": "require-corp",
+};
+
+/**
+ * the TGSL build transform (`unplugin-typegpu`). The engine's shaders are JS function bodies
+ * transpiled to WGSL at build time — typegpu parses nothing at runtime — so every bundle carrying
+ * engine code needs it, reaching engine source inside `node_modules` too. `shallot dev` / `shallot
+ * build` install it for a manifest project, which owns no vite config. An ejected project that owns
+ * one imports `typegpu` from `unplugin-typegpu/vite` itself. `typegpuPlugin` is the CLI's config-synthesis
+ * helper, not the ejected-consumer route. The direct form is also required for options: consumer TGSL
+ * inside compiled `.svelte` / `.vue` blocks needs an `enforce: "post"` plugin whose `include` repeats
+ * the default JS/TS matcher and adds the component extension. Exactly **one** instance may run in a
+ * bundle: a second pass re-wraps the emitted metadata and corrupts it. `checkTgsl` proves the engine's
+ * `.ts` source was transformed, not a consumer component block.
+ */
+export function typegpuPlugin(): Plugin {
+    return typegpu() as unknown as Plugin;
+}
+
+export function findPublicDirs(projectDir: string): string[] {
+    const dirs: string[] = [];
+    const own = join(projectDir, "public");
+    if (existsSync(own)) dirs.push(own);
+    const parent = join(dirname(projectDir), "public");
+    if (existsSync(parent) && parent !== own) dirs.push(parent);
+    return dirs;
+}
+
+// the glTF importer's two container formats — the unit a live asset-swap watches. A changed `.glb`/`.gltf`
+// maps directly to its cache `src`; its external sidecars (`.bin`, separate textures) re-decode through the
+// container, which any re-export (Blender, glTF-Transform) rewrites — so watching the container covers the
+// re-export workflow. A hand-edit of a sidecar alone (no container rewrite) is the one uncovered case: it
+// needs the asset dependency graph the gltf module doesn't track, the deliberate boundary for this sub-stage.
+const MODEL_EXT = /\.(glb|gltf)$/i;
+
+/**
+ * the glTF asset-cache `src` a changed project file maps to — its path relative to the public dir it sits
+ * under (the path a scene's `part="mesh: …#i"` names and `readBinary` fetches, so the key `invalidate`
+ * consumes), or `null` if it isn't a `.glb`/`.gltf` under a public dir. Always `/`-separated (a fetch path,
+ * not an OS path), so it matches the cache key on Windows too. The watcher uses a match to full-reload
+ * on a model change; an unmatched file falls through to the scene/manifest watch.
+ */
+export function assetSrc(file: string, publicDirs: string[]): string | null {
+    if (!MODEL_EXT.test(file)) return null;
+    for (const dir of publicDirs) {
+        const rel = relative(dir, file);
+        if (rel && !rel.startsWith("..") && !isAbsolute(rel)) return rel.replace(/\\/g, "/");
+    }
+    return null;
+}
+
+// signal a project file changing on disk: the dev server has no live edit session to weigh the change
+// against, so a full page reload is the clean answer — the page re-imports `virtual:project` (already
+// invalidated by the caller) and re-fetches assets.
+function signalChange(server: ViteDevServer) {
+    server.ws.send({ type: "full-reload" });
+}
+
+// serve project public/ assets (the project's own + a shared parent's) with correct MIME
+function configureServer(server: ViteDevServer, projectDir?: string) {
+    const publicDirs: string[] = projectDir ? findPublicDirs(resolve(projectDir)) : [];
+    if (publicDirs.length === 0) return;
+
+    server.middlewares.use((req, res, next) => {
+        if (req.url) {
+            const pathname = new URL(req.url, "http://localhost").pathname;
+            for (const dir of publicDirs) {
+                const filePath = resolveAssetPath(dir, pathname);
+                if (!filePath) continue;
+                const data = readFileSync(filePath);
+                const mime = contentType(filePath);
+                if (mime) res.setHeader("Content-Type", mime);
+                // dev assets must never sit in the browser HTTP cache, or a live model edit re-fetches
+                // the stale bytes after `invalidate` (the worker decode reads the cached response) and the
+                // swap silently shows the old asset. no-store forces a fresh read every load.
+                res.setHeader("Cache-Control", "no-store");
+                res.end(data);
+                return;
+            }
+        }
+        next();
+    });
+}
+
+// vite's asset scanner emits an output asset for every `new URL("…", import.meta.url)` at transform
+// time — before tree-shaking. So a codec wasm ships even when its importing branch is shaken fully
+// dead: orbit imports only `Orbit`, yet draco/basis/audio wasm (~830KB) land in dist/, referenced 0×.
+// Walk the finished bundle and return every emitted asset no surviving file references. Conservative —
+// an asset is kept the moment its hashed name appears in any reachable chunk or asset, so a codec a
+// project actually uses (its `new URL` reference survives in a live chunk) is never dropped. The blind
+// spot is an asset addressed by runtime string-building; the `new URL` codecs emit a literal name.
+export function orphanedAssets(bundle: Rollup.OutputBundle): string[] {
+    const files = Object.values(bundle);
+    const text = (f: Rollup.OutputAsset | Rollup.OutputChunk) =>
+        f.type === "chunk" ? f.code : typeof f.source === "string" ? f.source : "";
+    // never prune a chunk (tree-shaking already pruned JS) or an html entry — seed them as kept roots
+    const kept = new Set(files.filter((f) => f.type === "chunk" || f.fileName.endsWith(".html")));
+    const assets = files.filter(
+        (f): f is Rollup.OutputAsset => f.type === "asset" && !f.fileName.endsWith(".html"),
+    );
+    // references chain (html → js, css → font, asset → asset), so grow kept to a fixpoint
+    let grew = true;
+    while (grew) {
+        grew = false;
+        for (const a of assets) {
+            if (kept.has(a)) continue;
+            const name = a.fileName.slice(a.fileName.lastIndexOf("/") + 1);
+            if ([...kept].some((k) => text(k).includes(name))) {
+                kept.add(a);
+                grew = true;
+            }
+        }
+    }
+    return assets.filter((a) => !kept.has(a)).map((a) => a.fileName);
+}
+
+/**
+ * classify a changed project file: a model asset under a public dir (`"asset"`), a `.scene` or
+ * manifest under the project dir (`"project"`), or neither (`null`). Both the watcher listener
+ * (`onProjectFile`) and the HMR hook (`handleHotUpdate`) call this so the two paths cannot drift in
+ * how they classify an event — the watcher path signals a reload for both arms; the HMR path only
+ * invalidates + swallows default HMR for `"project"` (the reload comes from the watcher, so a single
+ * `.scene` change fires one reload, not two).
+ */
+export function classifyProjectFile(
+    file: string,
+    absDir: string,
+    publicDirs: string[],
+): "asset" | "project" | null {
+    if (assetSrc(file, publicDirs)) return "asset";
+    if (file.startsWith(absDir) && (file.endsWith(".scene") || file === manifestPath(absDir)))
+        return "project";
+    return null;
+}
+
+export function projectPlugin(projectDir?: string): Plugin {
+    const virtualId = "virtual:project";
+    const resolvedId = "\0" + virtualId;
+    let viteServer: ViteDevServer | undefined;
+    let publicDirs: string[] = [];
+
+    return {
+        name: "shallot-project",
+        async resolveId(id, importer) {
+            if (id === virtualId) return resolvedId;
+            // virtual:project is a virtual module with no location, so vite resolves its imports against
+            // the host root. A relative local is already absolutized by the generator, but a bare package
+            // subpath (a project's installed/workspace plugin, e.g. `my-plugin/core/grid`) would miss the
+            // host's node_modules. Resolve those from the PROJECT dir, so a manifest can reference an
+            // installed plugin by subpath (engine `@dylanebert/shallot` imports resolve here too, to the
+            // project's copy).
+            if (importer === resolvedId && projectDir) {
+                const r = await this.resolve(id, join(resolve(projectDir), "__project__.js"), {
+                    skipSelf: true,
+                });
+                if (r) return r;
+            }
+        },
+        // generate the `virtual:project` module from the project's `shallot.json` — static imports for each
+        // enabled plugin (engine via the barrel, locals via their specifier) + the scene + manifest.
+        load(id) {
+            if (id !== resolvedId) return;
+            if (!projectDir) return generateModuleFromPlan(emptyPlan());
+            // one resolved plan, the same shape `bin/tui.ts` runs (src/project/command.ts) — the
+            // browser module and the terminal command classify a manifest exactly once.
+            return generateModuleFromPlan(readProject(resolve(projectDir)));
+        },
+        configureServer(server) {
+            viteServer = server;
+            configureServer(server, projectDir);
+            if (projectDir) {
+                const absDir = resolve(projectDir);
+                publicDirs = findPublicDirs(absDir);
+                server.watcher.add(absDir);
+                // a shared parent public/ sits outside the project dir, so add it explicitly (the project's
+                // own public/ is already covered by absDir) — a model there must still trigger the swap
+                for (const pub of publicDirs) if (!pub.startsWith(absDir)) server.watcher.add(pub);
+                // a `.scene` add/remove changes the scene list; a `shallot.json` edit changes the plugin
+                // set — both re-generate `virtual:project`, so invalidate + reload. Local plugin `.ts`
+                // edits ride HMR instead. The watcher path is the sole signaler — handleHotUpdate only
+                // invalidates + swallows default HMR, so a single `.scene` change fires one reload, not
+                // two (the two paths fire independently on the same change event — handleHotUpdate
+                // runs only for update/change events in Vite 8, so add/unlink were always single-fire
+                // via the watcher path alone).
+                const onProjectFile = (file: string) => {
+                    const kind = classifyProjectFile(file, absDir, publicDirs);
+                    if (kind === "asset") {
+                        signalChange(server);
+                        return;
+                    }
+                    if (kind === "project") {
+                        const mod = server.moduleGraph.getModuleById(resolvedId);
+                        if (mod) server.moduleGraph.invalidateModule(mod);
+                        signalChange(server);
+                    }
+                };
+                server.watcher.on("change", onProjectFile);
+                server.watcher.on("add", onProjectFile);
+                server.watcher.on("unlink", onProjectFile);
+            }
+        },
+        handleHotUpdate({ file }) {
+            if (!projectDir || !viteServer) return;
+            const absDir = resolve(projectDir);
+            if (classifyProjectFile(file, absDir, publicDirs) === "project") {
+                const mod = viteServer.moduleGraph.getModuleById(resolvedId);
+                if (mod) viteServer.moduleGraph.invalidateModule(mod);
+                // no signalChange here — the watcher's onProjectFile already sent the full-reload, so
+                // signaling from both paths double-fires. Returning [] swallows vite's default HMR
+                // (a .scene is not a module, so default HMR would error on it).
+                return [];
+            }
+            // a project src/*.ts edit falls through to vite's default HMR: `virtual:project` imports the
+            // local with no self-accept, so vite full-reloads the page — the clean rebuild path
+        },
+        // drop the assets vite's `new URL` scanner over-emitted (see orphanedAssets). Build-only (a
+        // rollup output hook, never fires in dev), and homed here so every build path inherits it: the
+        // synth build (bin/build.ts) and a standalone's own vite.config both run projectPlugin.
+        generateBundle(_options, bundle) {
+            const orphans = orphanedAssets(bundle);
+            if (!orphans.length) return;
+            let bytes = 0;
+            for (const fileName of orphans) {
+                const a = bundle[fileName];
+                if (a?.type === "asset")
+                    bytes += typeof a.source === "string" ? a.source.length : a.source.byteLength;
+                delete bundle[fileName];
+            }
+            this.info(`pruned ${orphans.length} orphaned asset(s), ${(bytes / 1024) | 0}KB`);
+        },
+    };
+}

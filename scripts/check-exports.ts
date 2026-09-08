@@ -355,6 +355,20 @@ export function extractImports(content: string): ImportEntry[] {
 
 // --- Specifier resolution ---------------------------------------------------
 
+function sourceOwner(root: string, path: string): string {
+    if (!existsSync(resolve(root, "packages/shallot-tooling/package.json"))) return path;
+    if (
+        path.startsWith("packages/shallot/src/project/") ||
+        path === "packages/shallot/src/harness/browser.ts"
+    ) {
+        const owner = path.replace("packages/shallot/", "packages/shallot-tooling/");
+        if (!existsSync(resolve(root, owner)))
+            throw new Error(`missing canonical tooling source: ${owner}`);
+        return owner;
+    }
+    return path;
+}
+
 export function resolveSpecifier(
     fromFile: string,
     specifier: string,
@@ -369,7 +383,7 @@ export function resolveSpecifier(
         const decl = abs.endsWith(".js") ? [abs.replace(/\.js$/, ".d.ts")] : [];
         for (const candidate of [abs + ".ts", join(abs, "index.ts"), ...decl, abs]) {
             if (existsSync(candidate)) {
-                return relative(rootDir, candidate).replace(/\\/g, "/");
+                return sourceOwner(rootDir, relative(rootDir, candidate).replace(/\\/g, "/"));
             }
         }
         return null;
@@ -387,8 +401,12 @@ export function resolveSpecifier(
         if (exact) {
             const t = target(exact);
             if (t) {
-                const resolved = resolve(pkgDir, t);
-                if (existsSync(resolved)) return relative(rootDir, resolved).replace(/\\/g, "/");
+                const resolved = resolve(
+                    rootDir,
+                    sourceOwner(rootDir, relative(rootDir, resolve(pkgDir, t))),
+                );
+                if (existsSync(resolved))
+                    return sourceOwner(rootDir, relative(rootDir, resolved).replace(/\\/g, "/"));
             }
         }
 
@@ -411,7 +429,10 @@ export function resolveSpecifier(
                     resolve(pkgDir, resolvedPath),
                 ]) {
                     if (existsSync(candidate))
-                        return relative(rootDir, candidate).replace(/\\/g, "/");
+                        return sourceOwner(
+                            rootDir,
+                            relative(rootDir, candidate).replace(/\\/g, "/"),
+                        );
                 }
             }
         }
@@ -438,9 +459,14 @@ export function computeEntryFiles(
         const target = typeof value === "string" ? value : (value as { types?: string })?.types;
         if (typeof target !== "string") continue;
 
-        const resolved = resolve(pkgDir, target);
+        const resolved = resolve(
+            rootDir,
+            sourceOwner(rootDir, relative(rootDir, resolve(pkgDir, target))),
+        );
         if (existsSync(resolved)) {
-            entryFiles.push(relative(rootDir, resolved).replace(/\\/g, "/"));
+            entryFiles.push(sourceOwner(rootDir, relative(rootDir, resolved).replace(/\\/g, "/")));
+        } else if (existsSync(resolve(rootDir, "packages/shallot-tooling/package.json"))) {
+            throw new Error(`missing public export target: ${key} → ${resolved}`);
         }
     }
 
@@ -568,9 +594,16 @@ export async function findDeadExports(
     const fileContents = new Map<string, string>();
 
     const srcGlob = new Glob("**/*.ts");
-    for await (const path of srcGlob.scan({ cwd: srcDir })) {
+    const sources = new Set<string>();
+    for (const dir of [srcDir, resolve(rootDir, "packages/shallot-tooling/src")]) {
+        if (!existsSync(dir)) continue;
+        for await (const path of srcGlob.scan({ cwd: dir })) {
+            sources.add(sourceOwner(rootDir, relative(rootDir, resolve(dir, path))));
+        }
+    }
+    for (const path of sources) {
         if (isTestFile(path)) continue;
-        const full = resolve(srcDir, path);
+        const full = resolve(rootDir, path);
         const relPath = relative(rootDir, full).replace(/\\/g, "/");
         const content = await readMasked(full, relPath);
         fileContents.set(relPath, content);
@@ -601,7 +634,8 @@ export async function findDeadExports(
     const consumerDirs = [
         "packages/shallot/src",
         "packages/shallot/tests",
-        "packages/shallot/bin",
+        "packages/shallot-tooling/bin",
+        "packages/shallot-tooling/src",
         "packages/shallot/scripts",
         "scripts",
         "examples",

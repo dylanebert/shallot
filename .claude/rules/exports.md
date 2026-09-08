@@ -2,6 +2,8 @@
 paths:
     - "packages/shallot/src/**/*.ts"
     - "packages/shallot/package.json"
+    - "packages/shallot-tooling/src/**/*.ts"
+    - "packages/shallot-tooling/package.json"
     - "examples/showcase/ocean/src/ocean/**"
 ---
 
@@ -17,9 +19,9 @@ Skin is engine-owned, format-independent pose storage, with no surface: glTF, ph
 
 ## Compiled tooling exports
 
-Runtime exports ship raw TS so TypeGPU sees source. Node-only `./vite` and `./harness/browser` ship conditional `{types: source.ts, default: dist.js}`: types is for type-checking, while Node, Bun and bundlers resolve default with no source fallback. Keep their islands free of engine runtime/TGSL; browser tooling has no imports. New Node-only exports need the same shape and an entry in `scripts/build-tooling.ts`.
+Runtime exports ship raw TS for TypeGPU. Private `shallot-tooling` owns CLI/project/native sources. Its `scripts/build.ts` projects the public bin, source types, assets/crate and compiled `./vite`/`./harness/browser` defaults. One maintained source; no installed workspace reach. Build before linked imports and after postpack clears projections. Node-only islands exclude runtime/TGSL; the browser leaf is import-free.
 
-Do not apply that recipe to dual-context `./harness`: bundlers need its raw source; plain Node cannot load that TS from node_modules. Build tooling through prepack; dist stays ignored, uncommitted and removed by postpack. A linked/workspace checkout must first run the package's `bun run scripts/build-tooling.ts` before specifier imports of either compiled export. Relative in-repo source imports bypass this map, not this distribution requirement.
+The public raw `src/harness/index.ts` composes runtime plus the compiled browser leaf. Runtime's `harness/runtime.ts` and siblings never import that composite or tooling. Preserve the complete public value/type surface. Missing/stale projections fail; never infer ownership from the installed `src/` prefix.
 
 CLI installs the project and TGSL plugins once. Ejected Vite uses direct `unplugin-typegpu/vite`, not CLI-only `typegpuPlugin`; pass the project directory to `projectPlugin(dir)` or it loads an empty manifest. Keep both engine and TypeGPU out of dependency prebundling; component TGSL runs after its framework with matching include IDs. Consumer recipes: `packages/shallot/MIGRATION.md`.
 
