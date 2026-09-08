@@ -46,16 +46,26 @@ test("install-test — the free-port probe is used for the dev server port", () 
 // verifies — so the two labels must differ here, and asserting only the `previous` shape would pass
 // just as well if both carried the flag.
 
-import { readEndpoint, verifyArgs } from "./install-test/compatibility";
+import { readEndpoint, verifyArgs } from "./install-test/browser-server";
 
-test("only the previous label attaches to a browser server", () => {
-    const previous = verifyArgs("previous", "ws://127.0.0.1:4242/abc");
-    const candidate = verifyArgs("candidate", "ws://127.0.0.1:4242/abc");
-    expect(previous).toContain("--connect");
-    expect(previous[previous.indexOf("--connect") + 1]).toBe("ws://127.0.0.1:4242/abc");
-    expect(candidate).not.toContain("--connect");
-    // the verify arguments themselves are the same run on both sides; only the transport differs.
-    expect(previous.slice(0, candidate.length)).toEqual(candidate);
+test("only the previous label attaches to a browser server, at any verified directory", () => {
+    // the output flow verifies a directory other than the app (its `served` argument), so the label
+    // difference has to survive that too — and the verified directory must reach both labels alike.
+    for (const dir of [undefined, ".", "/tmp/output-standalone"]) {
+        const args = (label: "previous" | "candidate") =>
+            dir === undefined
+                ? verifyArgs(label, "ws://127.0.0.1:4242/abc")
+                : verifyArgs(label, "ws://127.0.0.1:4242/abc", dir);
+        const previous = args("previous");
+        const candidate = args("candidate");
+        expect(candidate).toContain(dir ?? ".");
+        expect(previous).toContain(dir ?? ".");
+        expect(previous).toContain("--connect");
+        expect(previous[previous.indexOf("--connect") + 1]).toBe("ws://127.0.0.1:4242/abc");
+        expect(candidate).not.toContain("--connect");
+        // the verify arguments themselves are the same run on both sides; only the transport differs.
+        expect(previous.slice(0, candidate.length)).toEqual(candidate);
+    }
 });
 
 test("the endpoint reader refuses output with no ws:// line, naming the log", () => {
