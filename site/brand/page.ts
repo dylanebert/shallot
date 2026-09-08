@@ -5,19 +5,9 @@ import { CSS_PALETTE, FONTS, nav, STYLE, THEME_SCRIPT, TOGGLE } from "./theme";
 // the sheet that argued for these choices is not the page. Inline SVG uses CSS-variable fills so
 // the toggle flips every asset; downloads carry real hex per theme.
 
-/** Download files the page links to, relative to `brand/`. */
-export const DOWNLOADS = [
-    ["mark.svg", "mark, svg"],
-    ["mark.png", "mark, png 8×"],
-    ["mark-16.png", "favicon 16"],
-    ["mark-32.png", "favicon 32"],
-    ["lockup-dark.svg", "lockup on dark, svg"],
-    ["lockup-light.svg", "lockup on light, svg"],
-    ["lockup-dark.png", "lockup on dark, png 4×"],
-    ["lockup-light.png", "lockup on light, png 4×"],
-    ["mark.txt", "half blocks, text"],
-    ["mark.ts", "code that prints it"],
-] as const;
+/** A row of download links under an asset. */
+const dl = (items: [string, string][]) =>
+    `<div class="dl">${items.map(([file, label]) => `<a href="./${file}" download>${label}</a>`).join("")}</div>`;
 
 const svg = (grid: ReturnType<typeof fromBlocks>, scale: number) => toSvg(grid, CSS_PALETTE, scale);
 
@@ -27,9 +17,6 @@ const swatch = (name: string, dark: string, light: string) =>
 export function brandPage(clientScript: string): string {
     const mark = fromBlocks(MARK.m);
     const lock = lockup();
-    const downloads = DOWNLOADS.map(
-        ([file, label]) => `<a href="./${file}" download>${label}</a>`,
-    ).join("");
     return `<!doctype html>
 <html lang="en">
 <head>
@@ -52,8 +39,8 @@ ${THEME_SCRIPT}
 .type { display: grid; gap: 8px; }
 .type .mono { font-family: "JetBrains Mono", monospace; font-size: 24px; font-weight: 700; }
 .type .sans { font-size: 17px; max-width: 60ch; }
-.dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 2px; font-family: "JetBrains Mono", monospace; font-size: 13px; }
-.dl a { background: var(--bg2); padding: 12px 14px; }
+.dl { display: flex; gap: 18px; font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--muted); }
+.dl a::before { content: "↓ "; }
 </style>
 </head>
 <body>
@@ -62,6 +49,12 @@ ${TOGGLE}
 ${nav("brand")}
 <section>
 <div class="lockup block"><div data-splash-svg data-scale="6">${svg(lock, 6)}</div></div>
+${dl([
+    ["lockup-dark.svg", "svg"],
+    ["lockup-dark.png", "png"],
+    ["lockup-light.svg", "svg, light"],
+    ["lockup-light.png", "png, light"],
+])}
 </section>
 
 <section>
@@ -73,16 +66,30 @@ ${nav("brand")}
 <div>${svg(mark, 1)}<span>1×</span></div>
 <div>${svg(mark, 2)}<span>2×</span></div>
 </div>
+${dl([
+    ["mark.svg", "svg"],
+    ["mark.png", "png"],
+    ["mark-16.png", "favicon 16"],
+    ["mark-32.png", "favicon 32"],
+])}
 </section>
 
 <section>
 <h2>wordmark</h2>
 <div class="block">${svg(word(), 6)}</div>
+${dl([
+    ["wordmark.svg", "svg"],
+    ["wordmark.png", "png"],
+])}
 </section>
 
 <section>
 <h2>terminal</h2>
 <div class="term block"><canvas data-terminal></canvas></div>
+${dl([
+    ["mark.txt", "half blocks"],
+    ["mark.ts", "code that prints it"],
+])}
 </section>
 
 <section>
@@ -104,10 +111,6 @@ ${swatch("muted", "#a08c78", "#6e655c")}
 </div>
 </section>
 
-<section>
-<h2>download</h2>
-<div class="dl">${downloads}</div>
-</section>
 </main>
 <script type="module">${clientScript}</script>
 </body>

@@ -1,6 +1,16 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { DARK, fromBlocks, LIGHT, lockup, MARK, toCells, toSvg, toText } from "../site/brand/mark";
+import {
+    DARK,
+    fromBlocks,
+    LIGHT,
+    lockup,
+    MARK,
+    toCells,
+    toSvg,
+    toText,
+    word,
+} from "../site/brand/mark";
 import { brandPage } from "../site/brand/page";
 import { toPng } from "../site/brand/png";
 import { siteIndex } from "../site/home";
@@ -56,6 +66,8 @@ export async function buildBrand(outDir: string, clientScript?: string): Promise
     write("lockup-light.svg", toSvg(lock, LIGHT, 1));
     write("lockup-dark.png", toPng(lock, DARK, 4, DARK.bg));
     write("lockup-light.png", toPng(lock, LIGHT, 4, LIGHT.bg));
+    write("wordmark.svg", toSvg(word(), DARK, 1));
+    write("wordmark.png", toPng(word(), DARK, 8));
     write("mark.txt", `${toText(toCells(mark))}\n`);
     write("mark.ts", readFileSync(resolve(root, "site/brand/mark.ts"), "utf8"));
 }
