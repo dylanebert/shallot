@@ -32,6 +32,7 @@ import {
 
 const ENGINE_DIR = resolve(import.meta.dir, "../packages/shallot");
 const WIDGET_DIR = resolve(import.meta.dir, "install-test/widget");
+const PARTICLES_DIR = resolve(import.meta.dir, "../packages/shallot-gpu-particles");
 const CREATE_SHALLOT = resolve(import.meta.dir, "../packages/create-shallot/index.ts");
 const CREATE_SHALLOT_PKG = resolve(import.meta.dir, "../packages/create-shallot/package.json");
 const CLI = "node_modules/@dylanebert/shallot/bin/cli.ts"; // the installed CLI, run as a real user would
@@ -466,6 +467,205 @@ export function nativeFlow(work: string, engineTgz: string): void {
     console.log(`native: ${sequence} commands completed`);
 }
 
+/**
+ * The maintained package-shaped plugin, from its own packed tarball into an external project root: the
+ * private `shallot-gpu-particles` workspace is installed as a bare package (a physical `node_modules`
+ * install off a tarball, never a workspace link), enabled by nothing but a manifest entry naming the
+ * package, and observed through the project/plugin seam.
+ *
+ * The probe is a local plugin in the consumer project that reads only the *published* engine surface —
+ * `Compute.typed` and `Draws` — so it can observe "is there producer output" identically in all three
+ * arms without importing (and thereby evaluating) the producer. It writes what it saw to a file each
+ * frame, so the verdict is read off the filesystem rather than off a log line:
+ *
+ *   - enabled: the producer publishes its buffer under the key its own surface binds, registers its
+ *     indirect draw, and its compute pass has actually been dispatched and submitted on an earlier
+ *     frame (`particlesStepped`, read through the installed package's own export — the same module
+ *     instance the manifest loaded, which is also the identity proof for a bare install);
+ *   - disabled (`["shallot-gpu-particles", false]`): the project still boots and renders, and there is
+ *     no producer output at all — no published buffer, no draw, and the package is never imported;
+ *   - absent: the package removed from `node_modules` with the manifest unchanged fails setup before any
+ *     plugin module is evaluated (the A1 dependency arm), naming the specifier.
+ */
+function packedPluginFlow(work: string, engineTgz: string, particlesTgz: string): void {
+    console.log("packed gpu-particles plugin (bare install → manifest → seam observation)…");
+    const project = join(work, "plugin");
+    mkdirSync(join(project, "src"), { recursive: true });
+    mkdirSync(join(project, "public"), { recursive: true });
+    writeFileSync(
+        join(project, "package.json"),
+        `${pkgJson({
+            name: "plugin-consumer",
+            private: true,
+            type: "module",
+            dependencies: {
+                "@dylanebert/shallot": `file:${engineTgz}`,
+                "shallot-gpu-particles": `file:${particlesTgz}`,
+                "bun-webgpu": "0.1.7",
+                typegpu: "~0.12.4",
+            },
+        })}\n`,
+    );
+    writeFileSync(
+        join(project, "public/main.scene"),
+        '<scene><a camera sear cells transform="pos: 0 4 12" /></scene>',
+    );
+    const observation = join(project, "observed.json");
+    writeFileSync(
+        join(project, "src/probe.ts"),
+        [
+            `import { Compute, type Plugin, type State, type System } from "@dylanebert/shallot";`,
+            `import { Draws } from "@dylanebert/shallot/render/core";`,
+            `import { Surfaces } from "@dylanebert/shallot/sear/core";`,
+            `import { writeFileSync } from "node:fs";`,
+            `let stepped: (() => boolean) | null = null;`,
+            `if (process.env.PROBE_READS_PACKAGE === "1") {`,
+            `    const mod = await import("shallot-gpu-particles");`,
+            `    stepped = mod.particlesStepped;`,
+            `}`,
+            `const observe: System = {`,
+            `    name: "probe",`,
+            `    group: "draw",`,
+            `    update(_state: State) {`,
+            `        const typed = Compute.typed.get("particles");`,
+            `        const draw = Draws.get("particles");`,
+            `        const surface = draw ? Surfaces.get(draw.surface) : undefined;`,
+            `        writeFileSync(`,
+            `            ${JSON.stringify(observation)},`,
+            `            JSON.stringify({`,
+            `                published: typed !== undefined,`,
+            `                draw: draw ? draw.name : null,`,
+            `                instances: draw?.args && "indirect" in draw.args ? "indirect" : null,`,
+            `                bindings: Object.keys(surface?.layout.entries ?? {}),`,
+            `                stepped: stepped ? stepped() : null,`,
+            `            }),`,
+            `        );`,
+            `    },`,
+            `};`,
+            `const Probe: Plugin = { name: "Probe", systems: [observe] };`,
+            `export default Probe;`,
+            "",
+        ].join("\n"),
+    );
+
+    const manifest = (enabled: boolean | "absent") =>
+        writeFileSync(
+            join(project, "shallot.json"),
+            `${JSON.stringify(
+                {
+                    scene: "main.scene",
+                    plugins: {
+                        Cells: true,
+                        Particles:
+                            enabled === true
+                                ? "shallot-gpu-particles"
+                                : ["shallot-gpu-particles", enabled === "absent"],
+                        Probe: "./src/probe",
+                    },
+                },
+                null,
+                2,
+            )}\n`,
+        );
+
+    manifest(true);
+    const install = run(["bun", "install"], project);
+    check(
+        "the plugin installs from its own packed tarball",
+        install.ok,
+        install.ok ? "" : install.out.slice(-600),
+    );
+    if (!install.ok) return;
+    const installed = join(project, "node_modules/shallot-gpu-particles");
+    check(
+        "the installed plugin is a physical install, not a workspace link",
+        existsSync(installed) && realpathSync(installed) === installed,
+        existsSync(installed) ? realpathSync(installed) : "absent",
+    );
+    check(
+        "the plugin tarball carries its source and no repo plumbing",
+        existsSync(join(installed, "src/index.ts")) &&
+            existsSync(join(installed, "src/particles.ts")) &&
+            existsSync(join(installed, "src/kernel.ts")) &&
+            !existsSync(join(installed, "tsconfig.json")) &&
+            !existsSync(join(installed, "node_modules")),
+    );
+
+    const frames = ["tui", ".", "--frames", "8", "--tier", "plain"];
+    const read = (): Record<string, unknown> | null =>
+        existsSync(observation) ? JSON.parse(readFileSync(observation, "utf8")) : null;
+
+    // enabled: the producer's output, observed through the published engine surface
+    rmSync(observation, { force: true });
+    const enabled = Bun.spawnSync(["bun", CLI, ...frames], {
+        cwd: project,
+        stdout: "pipe",
+        stderr: "pipe",
+        timeout: 180000,
+        env: { ...process.env, PROBE_READS_PACKAGE: "1" },
+    });
+    const enabledOut = `${enabled.stdout.toString()}\n${enabled.stderr.toString()}`;
+    check(
+        "the installed bare plugin runs in a manifest project",
+        enabled.exitCode === 0,
+        enabled.exitCode === 0 ? "" : enabledOut.slice(-900),
+    );
+    const effect = read();
+    check(
+        "the installed producer publishes its buffer, draw and surface binding",
+        effect?.published === true &&
+            effect?.draw === "particles" &&
+            effect?.instances === "indirect" &&
+            Array.isArray(effect?.bindings) &&
+            (effect.bindings as string[]).includes("particles"),
+        JSON.stringify(effect),
+    );
+    check(
+        "the installed producer's compute pass was dispatched and submitted (one module instance)",
+        effect?.stepped === true,
+        JSON.stringify(effect),
+    );
+
+    // no-effect control: the same project, the same probe, the plugin disabled in the manifest
+    manifest(false);
+    rmSync(observation, { force: true });
+    const disabled = Bun.spawnSync(["bun", CLI, ...frames], {
+        cwd: project,
+        stdout: "pipe",
+        stderr: "pipe",
+        timeout: 180000,
+    });
+    const disabledOut = `${disabled.stdout.toString()}\n${disabled.stderr.toString()}`;
+    check(
+        "the project still runs with the plugin disabled",
+        disabled.exitCode === 0,
+        disabled.exitCode === 0 ? "" : disabledOut.slice(-900),
+    );
+    const control = read();
+    check(
+        "a disabled producer yields no output through the seam",
+        control !== null &&
+            control.published === false &&
+            control.draw === null &&
+            Array.isArray(control.bindings) &&
+            (control.bindings as string[]).length === 0,
+        JSON.stringify(control),
+    );
+
+    // absent control: the manifest still enables it, the package is gone — setup fails first
+    manifest("absent");
+    const hidden = `${installed}.hidden`;
+    renameSync(installed, hidden);
+    rmSync(observation, { force: true });
+    const absent = run(["bun", CLI, ...frames], project);
+    renameSync(hidden, installed);
+    check(
+        "an absent plugin fails setup before any plugin module is evaluated",
+        !absent.ok && /shallot-gpu-particles/.test(absent.out) && !existsSync(observation),
+        absent.out.slice(-600),
+    );
+}
+
 const fails: string[] = [];
 const check = (name: string, cond: boolean, detail = "") => {
     console.log(`  ${cond ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`);
@@ -691,10 +891,10 @@ function createShallotFlow(work: string, engineTgz: string) {
 // the copy's engine dep is version-pinned by the CLI, so here we point it back at the packed tarball
 // (as a real user's registry install would resolve) and build it headlessly. Guards the whole copy-out
 // path: recipe present in the pack, CLI copies it, the pinned dep installs, the project builds.
-function recipeFlow(work: string, engineTgz: string, sandbox: string) {
-    console.log("shallot recipe (copy a recipe out → install → build)…");
-    const dest = join(work, "recipe-out", "joints");
-    const copied = run(["bun", CLI, "recipe", "joints", dest], sandbox);
+async function recipeFlow(work: string, engineTgz: string, sandbox: string, name: string) {
+    console.log(`shallot recipe ${name} (copy a recipe out → install → build)…`);
+    const dest = join(work, "recipe-out", name);
+    const copied = run(["bun", CLI, "recipe", name, dest], sandbox);
     check("shallot recipe copies a recipe out", copied.ok, copied.ok ? "" : copied.out.slice(-400));
     if (!existsSync(join(dest, "package.json"))) return;
     // the CLI pins the engine to the installed version; swap it for the packed tarball the test has
@@ -741,12 +941,70 @@ function recipeFlow(work: string, engineTgz: string, sandbox: string) {
         existsSync(join(dest, "tsconfig.json")),
     );
 
+    // the vendored-plugin projection: `gpu-particles`'s producer is owned by a private workspace the
+    // registry does not carry, so the copy-out is self-contained only if prepack inlined that source,
+    // rewrote the manifest entry and dropped the dependency. A copy still naming the package would
+    // install broken, which is exactly what a second maintained source copy used to prevent.
+    if (name === "gpu-particles") {
+        const manifest = readFileSync(join(dest, "shallot.json"), "utf8");
+        check(
+            "the copied recipe's producer is a local module, not an unpublished package",
+            /\.\/src\/particles\/index/.test(manifest) &&
+                !/shallot-gpu-particles/.test(manifest) &&
+                pkg.dependencies?.["shallot-gpu-particles"] === undefined,
+            manifest.replace(/\s+/g, " "),
+        );
+        check(
+            "the copied recipe carries the projected producer source",
+            existsSync(join(dest, "src/particles/index.ts")) &&
+                existsSync(join(dest, "src/particles/particles.ts")) &&
+                existsSync(join(dest, "src/particles/kernel.ts")),
+        );
+        // no *resolvable* reference may survive: an import specifier or a dependency range naming the
+        // unpublished package would break `bun install`/`vite`. A provenance comment naming its owner
+        // is not a reference and stays — the copy should say where its implementation is maintained.
+        const named = [...new Bun.Glob("**/*.{ts,json}").scanSync({ cwd: dest })].filter((file) => {
+            if (file.startsWith("node_modules/")) return false;
+            const text = readFileSync(join(dest, file), "utf8");
+            return file.endsWith(".json")
+                ? /"shallot-gpu-particles"\s*:/.test(text) ||
+                      /:\s*"shallot-gpu-particles"/.test(text)
+                : /(?:from|import|require)\s*\(?\s*["']shallot-gpu-particles["']/.test(text);
+        });
+        check(
+            "no import or dependency in the copied recipe names the unpublished package",
+            named.length === 0,
+            named.join(", "),
+        );
+        check(
+            "the smoke plugin did not ship with the copy-out",
+            !existsSync(join(dest, "src/smoke.ts")) && !/smoke/.test(manifest),
+        );
+    }
+
     const built = run(["bun", CLI, "build", "."], dest);
     check("the copied recipe builds", built.ok, built.ok ? "" : built.out.slice(-600));
     check(
         "copied recipe build produced dist/index.html",
         existsSync(join(dest, "dist", "index.html")),
     );
+
+    // the copy-out of the maintained plugin recipe earns a real boot: the projection is what a user
+    // actually runs, and a broken inline would build fine and render nothing.
+    if (name === "gpu-particles") {
+        const skip = skipReason();
+        if (skip) {
+            console.log(`  · copy-out verify skipped (needs native hardware: ${skip})`);
+        } else {
+            const result = await verify(dest, ["--timeout", "60000"], true);
+            check(
+                "the copied-out producer recipe boots and renders from the installed engine",
+                result?.pass === true && result.booted === true && result.rendered === true,
+                verifyDiagnostic(result),
+            );
+            await teardownBridge();
+        }
+    }
 }
 
 // MIGRATION.md's "An ejected Vite project" recipe, read straight out of the doc rather than
@@ -1561,15 +1819,17 @@ if (import.meta.main) {
     const work = realpathSync(mkdtempSync(join(tmpdir(), "shallot-install-")));
     const sandbox = join(work, "app");
     try {
-        console.log("packing engine + tui encoder + widget…");
+        console.log("packing engine + tui encoder + widget + gpu-particles…");
         const engineTgz = pack(ENGINE_DIR, join(work, "engine-pack"));
         const widgetTgz = pack(WIDGET_DIR, join(work, "widget-pack"));
+        const particlesTgz = pack(PARTICLES_DIR, join(work, "particles-pack"));
 
         // display-independent, so it runs first: no GPU, no `skipReason()` guard anywhere above it
         identityFlow(work, engineTgz);
         pmIdentityFlow(work, engineTgz, "npm");
         pmIdentityFlow(work, engineTgz, "pnpm");
         nativeFlow(work, engineTgz);
+        packedPluginFlow(work, engineTgz, particlesTgz);
 
         // a real manifest project: installed engine + an installed plugin library + a local plugin, the
         // audio plugin pulling its wasm in. No vite.config, no index.html — the CLI supplies the harness.
@@ -1894,7 +2154,10 @@ if (import.meta.main) {
             await teardownBridge();
         }
 
-        if (install.ok) recipeFlow(work, engineTgz, sandbox);
+        if (install.ok) {
+            await recipeFlow(work, engineTgz, sandbox, "joints");
+            await recipeFlow(work, engineTgz, sandbox, "gpu-particles");
+        }
 
         await ejectedFlow(work, engineTgz);
 

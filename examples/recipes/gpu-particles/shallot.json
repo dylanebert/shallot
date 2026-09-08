@@ -2,7 +2,7 @@
     "scene": "scenes/gpu-particles.scene",
     "plugins": {
         "Orbit": true,
-        "Particles": "./src/particles",
+        "Particles": "shallot-gpu-particles",
         "Smoke": "./src/smoke"
     }
 }

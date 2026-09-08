@@ -5,6 +5,7 @@
     "type": "module",
     "dependencies": {
         "@dylanebert/shallot": "workspace:*",
+        "shallot-gpu-particles": "workspace:*",
         "typegpu": "~0.12.4"
     }
 }
