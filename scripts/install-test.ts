@@ -78,6 +78,160 @@ async function waitFor(cond: () => Promise<boolean>, ms: number): Promise<boolea
 }
 
 /** Exercise the shipped native loader in physical, external installs; retain raw child receipts. */
+/**
+ * The A1 project-host arms, on the real packed install: a manifest whose local plugins are observable at
+ * evaluation (each writes a sentinel file when its module runs), so "a disabled plugin does not load" and
+ * "an invalid dependency fails before side effects" are read from the filesystem rather than from a log
+ * line. Both arms restore the project's own manifest, so the native controls after them are unaffected.
+ */
+function hostSeamArms(
+    layout: string,
+    project: string,
+    cli: (args: string[]) => string[],
+    exec: (name: string, cmd: string[], cwd: string) => { exit: number; out: string },
+    expect: (
+        name: string,
+        result: { exit: number; out: string },
+        exit: number,
+        text: RegExp,
+    ) => void,
+): void {
+    const manifest = join(project, "shallot.json");
+    const original = readFileSync(manifest, "utf8");
+    const sentinel = (name: string) => join(project, `${name}.evaluated`);
+    const plugin = (name: string) => {
+        mkdirSync(join(project, "src"), { recursive: true });
+        writeFileSync(
+            join(project, "src", `${name}.ts`),
+            `import { writeFileSync } from "node:fs";\n` +
+                `writeFileSync(${JSON.stringify(sentinel(name))}, "evaluated");\n` +
+                `export default { name: ${JSON.stringify(name)} };\n`,
+        );
+    };
+    try {
+        plugin("Enabled");
+        plugin("Disabled");
+        for (const name of ["Enabled", "Disabled"]) rmSync(sentinel(name), { force: true });
+        writeFileSync(
+            manifest,
+            JSON.stringify({
+                scene: "main.scene",
+                plugins: {
+                    Cells: true,
+                    Enabled: "./src/Enabled",
+                    Disabled: ["./src/Disabled", false],
+                },
+            }),
+        );
+        expect(
+            `${layout}-tui-disabled-plugin`,
+            exec(
+                `${layout}-tui-disabled-plugin`,
+                cli(["tui", ".", "--frames", "1", "--tier", "plain"]),
+                project,
+            ),
+            0,
+            /./s,
+        );
+        assert(existsSync(sentinel("Enabled")), "the enabled local plugin's module ran");
+        assert(
+            !existsSync(sentinel("Disabled")),
+            "the disabled local plugin's module must never be evaluated",
+        );
+
+        // an invalid dependency: the setup exit, with the sibling plugin still unevaluated
+        for (const name of ["Enabled", "Disabled"]) rmSync(sentinel(name), { force: true });
+        writeFileSync(
+            manifest,
+            JSON.stringify({
+                scene: "main.scene",
+                plugins: { Cells: true, Enabled: "./src/Enabled", Gone: "not-installed-plugin" },
+            }),
+        );
+        expect(
+            `${layout}-tui-missing-dependency`,
+            exec(`${layout}-tui-missing-dependency`, cli(["tui", ".", "--frames", "1"]), project),
+            2,
+            /not-installed-plugin/,
+        );
+        assert(
+            !existsSync(sentinel("Enabled")),
+            "a missing dependency must fail before any plugin module is evaluated",
+        );
+
+        writeFileSync(manifest, original);
+        privateTargetArm(layout, project, exec);
+    } finally {
+        writeFileSync(manifest, original);
+        for (const name of ["Enabled", "Disabled"]) rmSync(sentinel(name), { force: true });
+    }
+}
+
+/**
+ * No private filesystem traversal: a private export target planted inside the installed engine — a real
+ * file, published by a real `exports` key, poisoned so importing it throws — must never be read by a TUI
+ * run. The audit patches `node:fs` before importing the installed command, so every read the run makes
+ * through the fs API is recorded; the arm then requires that none of them lands in the engine's own
+ * `src/` or on its `package.json` (the export-map read this seam removed). Two-sided by construction:
+ * restoring the old export-map read makes `package.json` appear in the audit and reds this arm.
+ */
+function privateTargetArm(
+    layout: string,
+    project: string,
+    exec: (name: string, cmd: string[], cwd: string) => { exit: number; out: string },
+): void {
+    const engineRoot = join(project, "node_modules/@dylanebert/shallot");
+    const enginePkg = join(engineRoot, "package.json");
+    const originalPkg = readFileSync(enginePkg, "utf8");
+    const planted = join(engineRoot, "src/project/planted-target.ts");
+    try {
+        writeFileSync(
+            planted,
+            `throw new Error("PLANTED_PRIVATE_TARGET_READ");\nexport const planted = true;\n`,
+        );
+        const parsed = JSON.parse(originalPkg) as { exports: Record<string, unknown> };
+        parsed.exports = { ...parsed.exports, "./planted": "./src/project/planted-target.ts" };
+        writeFileSync(enginePkg, `${JSON.stringify(parsed, null, 2)}\n`);
+        writeFileSync(
+            join(project, "read-audit.ts"),
+            [
+                `const fsmod = require("node:fs");`,
+                `const engineRoot = ${JSON.stringify(engineRoot)};`,
+                `const reads: string[] = [];`,
+                `for (const fn of ["readFileSync", "existsSync", "readdirSync", "statSync", "openSync"]) {`,
+                `    const orig = fsmod[fn];`,
+                `    fsmod[fn] = (p: unknown, ...rest: unknown[]) => { reads.push(String(p)); return orig(p, ...rest); };`,
+                `}`,
+                `const { runTui } = await import(\`\${engineRoot}/bin/tui.ts\`);`,
+                `const code = await runTui([".", "--frames", "1", "--tier", "plain"]);`,
+                `const forbidden = reads.filter((p) => p.startsWith(\`\${engineRoot}/src/\`) || p === \`\${engineRoot}/package.json\`);`,
+                `console.error(\`READ_AUDIT \${JSON.stringify({ code, forbidden })}\`);`,
+                "",
+            ].join("\n"),
+        );
+        const audit = exec(`${layout}-tui-read-audit`, ["bun", "read-audit.ts"], project);
+        assert.equal(audit.exit, 0, audit.out.slice(-600));
+        assert(!audit.out.includes("PLANTED_PRIVATE_TARGET_READ"), "planted target was imported");
+        const record = /READ_AUDIT (\{.*\})/.exec(audit.out);
+        assert(record, `no read audit recorded: ${audit.out.slice(-400)}`);
+        const { code, forbidden } = JSON.parse(record[1]) as {
+            code: number;
+            forbidden: string[];
+        };
+        assert.equal(code, 0, audit.out.slice(-400));
+        assert.deepEqual(
+            forbidden,
+            [],
+            `the TUI read private engine paths: ${forbidden.join(", ")}`,
+        );
+        console.log(`native: ${layout}-tui-read-audit`);
+    } finally {
+        writeFileSync(enginePkg, originalPkg);
+        rmSync(planted, { force: true });
+        rmSync(join(project, "read-audit.ts"), { force: true });
+    }
+}
+
 export function nativeFlow(work: string, engineTgz: string): void {
     const evidence = join(work, "native");
     mkdirSync(evidence, { recursive: true });
@@ -222,6 +376,7 @@ export function nativeFlow(work: string, engineTgz: string): void {
             0,
             /./s,
         );
+        hostSeamArms(layout, project, cli, exec, expect);
         const peer = join(project, "node_modules/bun-webgpu");
         const platformName = `bun-webgpu-${process.platform}-${process.arch}`;
         const platform =
