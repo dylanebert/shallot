@@ -1,6 +1,15 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { minimalDark, shallotDark } from "./";
-import { DARK, lockup, toSvg } from "./mark";
+import {
+    DARK,
+    END_TICK,
+    HIT_TICK,
+    lockup,
+    progressTick,
+    splashFrame,
+    TICK_MS,
+    toSvg,
+} from "./mark";
 
 function createMockElement(tag: string) {
     const el: Record<string, any> = {
@@ -38,6 +47,12 @@ describe("Loading", () => {
             const cleanup = loading.show();
             expect(cleanup).toBeUndefined();
         });
+
+        test("complete resolves at once with no splash to play", async () => {
+            const loading = shallotDark();
+            loading.show();
+            await loading.complete?.();
+        });
         // the null-bar no-op path `update()` takes here (no overlay, no bar) is positively
         // asserted by "update after cleanup leaves the bar untouched" in the DOM block — same branch
     });
@@ -47,11 +62,17 @@ describe("Loading", () => {
         let createdElements: Record<string, any>[];
         let frames: number;
         let reduced: boolean;
+        let now: number;
+        let queue: FrameRequestCallback[];
+        let nowSpy: ReturnType<typeof spyOn>;
 
         beforeEach(() => {
             createdElements = [];
             frames = 0;
             reduced = false;
+            now = 0;
+            queue = [];
+            nowSpy = spyOn(performance, "now").mockImplementation(() => now);
             mockBody = createMockElement("body");
             mockBody.style.position = "static";
 
@@ -69,12 +90,18 @@ describe("Loading", () => {
             (globalThis as any).document = mockDoc;
             (globalThis as any).getComputedStyle = () => ({ position: "static" });
             (globalThis as any).matchMedia = () => ({ matches: reduced });
-            // queued, never run: one splash frame renders synchronously and the test reads it
-            (globalThis as any).requestAnimationFrame = () => ++frames;
-            (globalThis as any).cancelAnimationFrame = () => {};
+            // queued, drained a frame at a time: the tests that run the outro clock drive them
+            (globalThis as any).requestAnimationFrame = (cb: FrameRequestCallback) => {
+                queue.push(cb);
+                return ++frames;
+            };
+            (globalThis as any).cancelAnimationFrame = () => {
+                queue.length = 0;
+            };
         });
 
         afterEach(() => {
+            nowSpy.mockRestore();
             delete (globalThis as any).document;
             delete (globalThis as any).getComputedStyle;
             delete (globalThis as any).matchMedia;
@@ -120,14 +147,70 @@ describe("Loading", () => {
             expect(bar.style.width).toBe("50%"); // detached bar unchanged, not "75%"
         });
 
-        test("shallot variant mounts the splash and the track", () => {
+        test("shallot variant mounts the splash and the track at rest", () => {
             const loading = shallotDark();
             loading.show();
             const panel = mockBody.children[0].children[0]; // overlay → centered panel
             expect(panel.children.length).toBe(2);
-            // tick zero is the empty grid; the splash is live, sized to the lockup, and animating
-            expect(panel.children[0].innerHTML).toContain('viewBox="0 0 208 56"');
-            expect(frames).toBeGreaterThan(0);
+            // progress drives the landing, so `show` draws tick zero and starts no clock
+            expect(panel.children[0].innerHTML).toBe(toSvg(splashFrame(0), DARK, 4));
+            expect(frames).toBe(0);
+        });
+
+        test("update seeks the splash to the progress tick and never back", () => {
+            const loading = shallotDark();
+            loading.show();
+            const splash = mockBody.children[0].children[0].children[0];
+            const bar = createdElements[4];
+            loading.update(0.5);
+            expect(bar.style.width).toBe("50%");
+            expect(splash.innerHTML).toBe(toSvg(splashFrame(progressTick(0.5)), DARK, 4));
+            loading.update(0.6);
+            loading.update(0.3);
+            expect(splash.innerHTML).toBe(toSvg(splashFrame(progressTick(0.6)), DARK, 4));
+            expect(frames).toBe(0);
+        });
+
+        test("minimal variants carry no complete", () => {
+            expect(minimalDark().complete).toBeUndefined();
+            expect(shallotDark().complete).toBeDefined();
+        });
+
+        test("complete holds until the outro reaches the lockup", async () => {
+            const loading = shallotDark();
+            loading.show();
+            const splash = mockBody.children[0].children[0].children[0];
+            loading.update(1);
+            let done = false;
+            const held = Promise.resolve(loading.complete?.()).then(() => {
+                done = true;
+            });
+            for (let i = 0; i < END_TICK - HIT_TICK; i++) {
+                now += TICK_MS + 0.001;
+                queue.shift()?.(now);
+            }
+            await Promise.resolve();
+            expect(done).toBe(false);
+            now += TICK_MS + 0.001;
+            queue.shift()?.(now);
+            await held;
+            expect(splash.innerHTML).toBe(toSvg(lockup(), DARK, 4));
+        });
+
+        test("reduced-motion complete resolves with no frame queued", async () => {
+            reduced = true;
+            const loading = shallotDark();
+            loading.show();
+            await loading.complete?.();
+            expect(frames).toBe(0);
+        });
+
+        test("complete after cleanup resolves at once", async () => {
+            const loading = shallotDark();
+            const cleanup = loading.show()!;
+            cleanup();
+            await loading.complete?.();
+            expect(frames).toBe(0);
         });
 
         test("reduced motion renders the resting lockup once", () => {

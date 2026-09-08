@@ -73,8 +73,8 @@ export interface Plugin {
 
 /**
  * a startup/error screen driven by the build's progress. the engine calls `show` before loading,
- * `update` across every lifecycle step, and `error` if the build throws. see the built-in
- * {@link shallotDark} family.
+ * `update` across every lifecycle step, `complete` once progress reaches `1`, and `error` instead
+ * if the build throws. see the built-in {@link shallotDark} family.
  * @expand
  */
 export interface Loading {
@@ -82,6 +82,11 @@ export interface Loading {
     show(): (() => void) | void;
     /** report build progress, `0`–`1` across initialize, scene load, and warm */
     update(progress: number): void;
+    /**
+     * progress reached `1`; return a promise to hold the screen (an outro, a minimum dwell) until
+     * it resolves. the engine awaits it, then one frame, then the cleanup. omit to dismiss at once
+     */
+    complete?(): Promise<void> | void;
     /** render the thrown value; the default screen branches on `UnsupportedError` */
     error?(error: unknown): void;
 }
@@ -300,6 +305,7 @@ export async function build(config: Config): Promise<App> {
         });
 
         loading?.update(1);
+        await loading?.complete?.();
         if (cleanup) {
             await new Promise<void>((r) => requestFrame(() => r()));
             cleanup();

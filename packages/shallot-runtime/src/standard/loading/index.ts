@@ -8,7 +8,16 @@
 import pkg from "../../../package.json" with { type: "json" };
 import { UnsupportedError } from "../../engine";
 import type { Loading } from "../../engine/app";
-import { DARK, LIGHT, type Palette, runSplash, toSvg } from "./mark";
+import {
+    DARK,
+    HIT_TICK,
+    LIGHT,
+    type Palette,
+    progressTick,
+    type Splash,
+    splash,
+    toSvg,
+} from "./mark";
 
 interface Theme {
     bg: string;
@@ -156,14 +165,15 @@ function prefersReducedMotion(): boolean {
     );
 }
 
-// the splash the site ships: the lockup lands pixel by pixel, then the name types in. Reduced
-// motion rests on the finished lockup instead. At 4px a square the 52-pixel lockup is 208px wide,
-// just inside the 228px track below it, so the two read as one thing settling into a load.
-function createSplash(theme: Theme): HTMLDivElement {
+// the splash the site ships, driven by progress rather than a clock: the lockup lands pixel by
+// pixel as the build advances, then `complete` plays the name typing in. Reduced motion rests on
+// the finished lockup instead. At 4px a square the 52-pixel lockup is 208px wide, just inside the
+// 228px track below it, so the two read as one thing settling into a load.
+function createSplash(theme: Theme): { el: HTMLDivElement; driver: Splash } {
     const el = document.createElement("div");
     el.style.cssText = "width: 208px; max-width: 100%;";
-    runSplash(el, (grid) => toSvg(grid, theme.mark, 4), prefersReducedMotion());
-    return el;
+    const driver = splash(el, (grid) => toSvg(grid, theme.mark, 4), prefersReducedMotion());
+    return { el, driver };
 }
 
 function diagnosticText(error: Error): string {
@@ -337,18 +347,26 @@ function renderError(overlay: HTMLDivElement, error: unknown, theme: Theme): voi
     renderEngineError(overlay, wrapped, theme);
 }
 
-function loading(theme: Theme, container: HTMLElement | undefined, splash: boolean): Loading {
+function loading(theme: Theme, container: HTMLElement | undefined, withSplash: boolean): Loading {
     let overlay: HTMLDivElement | null = null;
     let bar: HTMLDivElement | null = null;
+    let driver: Splash | null = null;
+    let tick = 0;
 
-    return {
+    const screen: Loading = {
         show() {
             overlay = createOverlay(theme.bg, container);
             if (!overlay) return;
 
             const content = panel(276, "center");
 
-            if (splash) content.appendChild(createSplash(theme));
+            if (withSplash) {
+                const made = createSplash(theme);
+                driver = made.driver;
+                tick = 0;
+                driver.seek(0);
+                content.appendChild(made.el);
+            }
 
             const progressBar = createProgressBar(theme);
             bar = progressBar.bar;
@@ -359,17 +377,29 @@ function loading(theme: Theme, container: HTMLElement | undefined, splash: boole
                 overlay?.remove();
                 overlay = null;
                 bar = null;
+                driver = null;
+                tick = 0;
             };
         },
 
         update(progress) {
             if (bar) bar.style.width = `${progress * 100}%`;
+            // the landing only ever gains pixels: a lower progress never unlights one
+            if (driver) {
+                tick = Math.max(tick, progressTick(progress));
+                driver.seek(tick);
+            }
         },
 
         error(error) {
             if (overlay) renderError(overlay, error, theme);
         },
     };
+
+    // only the splash variants hold: the bar-only screens dismiss the moment the build finishes
+    if (withSplash) screen.complete = () => driver?.play(HIT_TICK);
+
+    return screen;
 }
 
 function shallotLoading(theme: Theme, container?: HTMLElement): Loading {
