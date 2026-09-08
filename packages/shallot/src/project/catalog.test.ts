@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import * as shallot from "@dylanebert/shallot";
 import { DEFAULT_PLUGINS } from "@dylanebert/shallot";
 import * as avbd from "@dylanebert/shallot/avbd";
+import { SUBPATH_PLUGIN_LOADERS } from "./command";
 import { DEFAULT_PLUGIN_NAMES, KNOWN_ENGINE_PLUGINS, SUBPATH_PLUGIN_MODULES } from "./engine";
 
 // The manifest references an engine plugin by its `.name` (e.g. "Orbit"); the generated `virtual:project`
@@ -47,6 +48,15 @@ describe("engine plugin naming convention", () => {
             [...pluginExports(shallot), ...pluginExports(avbd)].map(([, p]) => p.name),
         );
         expect(KNOWN_ENGINE_PLUGINS).toEqual(real);
+    });
+
+    test("every subpath plugin the generator declares has a headless loader in the command entry", () => {
+        // the browser generator emits the subpath specifier; the command entry imports that same
+        // published module directly (rather than reading this package's export map at runtime). A
+        // backend plugin added to one and not the other would resolve in the browser and miss headless.
+        expect([...SUBPATH_PLUGIN_LOADERS].sort()).toEqual(
+            Object.keys(SUBPATH_PLUGIN_MODULES).sort(),
+        );
     });
 
     test("SUBPATH_PLUGIN_MODULES (the generator's dep-free list) names a real plugin on its declared subpath", () => {
