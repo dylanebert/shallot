@@ -14,7 +14,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 export interface PinnedPackage {
@@ -30,13 +30,14 @@ export interface CompatPin {
     why: string;
     capturedFrom: string;
     packages: Record<string, PinnedPackage>;
+    inputs: Record<string, string[]>;
 }
 
 export const FIXTURE_DIR = "scripts/install-test/compat-0.9.5";
 
 /** Every way the frozen baseline can be inconsistent with itself. Pure over the tree so the clauses are
  *  fixture-testable without a network. */
-export function checkPin(root: string): string[] {
+export function checkPin(root: string, realized = true): string[] {
     const dir = resolve(root, FIXTURE_DIR);
     const errors: string[] = [];
     const pinPath = resolve(dir, "PIN.json");
@@ -55,6 +56,21 @@ export function checkPin(root: string): string[] {
             errors.push(`${name}: tarball url does not name version ${p.version}`);
         if (!(p.fileCount > 0) || !(p.unpackedSize > 0))
             errors.push(`${name}: fileCount and unpackedSize must both be positive`);
+        if (realized) {
+            const tarball = resolve(dir, "tarballs", `${name.split("/").at(-1)}-${p.version}.tgz`);
+            if (!existsSync(tarball))
+                errors.push(
+                    `${name} tarball not realized: run bun run scripts/check-compat-pin.ts --fetch`,
+                );
+            else {
+                const bytes = readFileSync(tarball);
+                if (
+                    subresourceIntegrity(bytes) !== p.integrity ||
+                    createHash("sha1").update(bytes).digest("hex") !== p.shasum
+                )
+                    errors.push(`${name}: realized tarball digest mismatch`);
+            }
+        }
     }
 
     // The inventory is the thing a later move actually breaks: an export or packed artifact that stops
@@ -63,6 +79,19 @@ export function checkPin(root: string): string[] {
     if (!existsSync(inventory)) errors.push(`${FIXTURE_DIR}/engine-files.txt is missing`);
     else {
         const lines = readFileSync(inventory, "utf8").split("\n").filter(Boolean);
+        for (const role of ["ejected", "plugin", "default"]) {
+            if (!Array.isArray(pin.inputs?.[role]) || pin.inputs[role].length === 0)
+                errors.push(`pin names no ${role} original inputs`);
+        }
+        for (const [role, paths] of Object.entries(pin.inputs ?? {})) {
+            if (!Array.isArray(paths)) {
+                errors.push(`input ${role} must be an array of engine inventory paths`);
+                continue;
+            }
+            for (const path of paths)
+                if (!lines.includes(path))
+                    errors.push(`input ${role} names no engine inventory path: ${path}`);
+        }
         const declared = pin.packages["@dylanebert/shallot"]?.fileCount;
         if (declared !== undefined && lines.length !== declared)
             errors.push(
@@ -91,8 +120,10 @@ export function subresourceIntegrity(bytes: Uint8Array): string {
     return `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
 }
 
-async function fetchAndVerify(pin: CompatPin): Promise<string[]> {
+/** Realize both pinned archives only after every downloaded digest agrees. Gates never call this. */
+export async function fetchAndVerify(root: string, pin: CompatPin): Promise<string[]> {
     const errors: string[] = [];
+    const verified: { name: string; bytes: Uint8Array }[] = [];
     for (const [name, p] of Object.entries(pin.packages)) {
         const response = await fetch(p.tarball);
         if (!response.ok) {
@@ -104,19 +135,26 @@ async function fetchAndVerify(pin: CompatPin): Promise<string[]> {
         const shasum = createHash("sha1").update(bytes).digest("hex");
         if (integrity !== p.integrity) errors.push(`${name}: integrity mismatch (${integrity})`);
         if (shasum !== p.shasum) errors.push(`${name}: shasum mismatch (${shasum})`);
-        if (errors.length === 0) console.log(`  ✓ ${name}@${p.version} bytes match the pin`);
+        verified.push({ name: `${name.split("/").at(-1)}-${p.version}.tgz`, bytes });
+    }
+    if (errors.length === 0) {
+        const dir = resolve(root, FIXTURE_DIR, "tarballs");
+        mkdirSync(dir, { recursive: true });
+        for (const { name, bytes } of verified) writeFileSync(resolve(dir, name), bytes);
     }
     return errors;
 }
 
 if (import.meta.main) {
     const root = resolve(import.meta.dir, "..");
-    const errors = checkPin(root);
-    if (errors.length === 0 && process.argv.includes("--fetch")) {
+    const fetching = process.argv.includes("--fetch");
+    const errors = checkPin(root, !fetching);
+    if (errors.length === 0 && fetching) {
         const pin = JSON.parse(
             readFileSync(resolve(root, FIXTURE_DIR, "PIN.json"), "utf8"),
         ) as CompatPin;
-        errors.push(...(await fetchAndVerify(pin)));
+        errors.push(...(await fetchAndVerify(root, pin)));
+        if (errors.length === 0) errors.push(...checkPin(root));
     }
     if (errors.length > 0) {
         console.error(errors.map((e) => `✗ ${e}`).join("\n"));

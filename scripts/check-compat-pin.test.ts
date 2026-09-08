@@ -3,10 +3,24 @@
 // digest edited to match whatever was fetched.
 
 import { afterEach, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+    cpSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
-import { checkPin, FIXTURE_DIR, subresourceIntegrity } from "./check-compat-pin";
+import {
+    type CompatPin,
+    checkPin,
+    FIXTURE_DIR,
+    fetchAndVerify,
+    subresourceIntegrity,
+} from "./check-compat-pin";
 
 const REPO = resolve(import.meta.dir, "..");
 const trees: string[] = [];
@@ -30,8 +44,60 @@ const rewritePin = (root: string, edit: (pin: Record<string, never>) => void): v
     writeFileSync(path, JSON.stringify(pin, null, 4));
 };
 
+test("fetch writes neither archive until both digests verify", async () => {
+    const root = copy();
+    const dir = resolve(root, FIXTURE_DIR, "tarballs");
+    rmSync(dir, { recursive: true, force: true });
+    const bytes = Buffer.from("bounded fetch fixture");
+    const pin = JSON.parse(
+        readFileSync(resolve(root, FIXTURE_DIR, "PIN.json"), "utf8"),
+    ) as CompatPin;
+    for (const p of Object.values(pin.packages)) {
+        p.tarball = `data:application/octet-stream;base64,${bytes.toString("base64")}`;
+        p.integrity = subresourceIntegrity(bytes);
+        p.shasum = require("node:crypto").createHash("sha1").update(bytes).digest("hex");
+    }
+    const good = pin.packages["create-shallot"].integrity;
+    pin.packages["create-shallot"].integrity = "sha512-invalid";
+    expect((await fetchAndVerify(root, pin)).join("\n")).toContain(
+        "create-shallot: integrity mismatch",
+    );
+    expect(existsSync(dir)).toBe(false);
+    pin.packages["create-shallot"].integrity = good;
+    expect(await fetchAndVerify(root, pin)).toEqual([]);
+    for (const name of ["shallot", "create-shallot"])
+        expect(readFileSync(resolve(dir, `${name}-0.9.5.tgz`))).toEqual(bytes);
+});
+
 test("the committed baseline is consistent", () => {
     expect(checkPin(REPO)).toEqual([]);
+});
+
+for (const name of ["shallot", "create-shallot"]) {
+    test(`${name} absent realized tarball reaches its own predicate`, () => {
+        const root = copy();
+        rmSync(resolve(root, FIXTURE_DIR, `tarballs/${name}-0.9.5.tgz`), { force: true });
+        expect(checkPin(root)).toEqual([
+            `${name === "shallot" ? "@dylanebert/shallot" : name} tarball not realized: run bun run scripts/check-compat-pin.ts --fetch`,
+        ]);
+    });
+    test(`${name} corrupt realized tarball reaches its own predicate`, () => {
+        const root = copy();
+        mkdirSync(resolve(root, FIXTURE_DIR, "tarballs"), { recursive: true });
+        writeFileSync(resolve(root, FIXTURE_DIR, `tarballs/${name}-0.9.5.tgz`), "corrupt");
+        expect(checkPin(root)).toEqual([
+            `${name === "shallot" ? "@dylanebert/shallot" : name}: realized tarball digest mismatch`,
+        ]);
+    });
+}
+test("declared original inputs must exist in the engine inventory", () => {
+    const root = copy();
+    rewritePin(root, (pin) => {
+        Object.assign(pin, { inputs: { ejected: ["missing.ts"] } });
+    });
+    expect(checkPin(root).join("\n")).toContain(
+        "input ejected names no engine inventory path: missing.ts",
+    );
 });
 
 test("a missing pin refuses instead of reading as an empty baseline", () => {

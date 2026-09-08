@@ -11,4 +11,13 @@ compared against a real previous consumer rather than against today's templates.
 - `engine-package.json` / `engine-files.txt` — the published engine's manifest and its 424-file tarball
   inventory, so an export, a `files` entry or a packed artifact that disappears is visible as a diff.
 
-Nothing here is regenerated. Replacing it means publishing a new release and freezing that one.
+Run `bun run scripts/check-compat-pin.ts --fetch` to realize both archives into ignored `tarballs/`.
+It writes only after both archives match the pinned SHA-512 and SHA-1 digests. Plain `bun run check`
+requires those bytes present and matching, never downloads or writes them.
+
+`PIN.json`'s `inputs` map names original engine archive paths by role, checked against the inventory:
+ejected Vite/TGSL documentation and config, the GPU-particles plugin's source/manifests/scene, and
+CLI/default implementation. The retained archives supply those bytes for compatibility extraction;
+`scaffold/` remains the original default emitted project. No old input is regenerated from new templates.
+
+Replacing this baseline means publishing a new release and freezing that one.

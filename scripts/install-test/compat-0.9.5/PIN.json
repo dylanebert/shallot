@@ -1,6 +1,17 @@
 {
     "why": "The previous actually-published release, frozen as the compatibility baseline for the package-boundary moves. The scaffold tree below was emitted by `bunx create-shallot@0.9.5`, not regenerated from today's templates; engine-files.txt and engine-package.json come straight out of the published engine tarball.",
     "capturedFrom": "registry.npmjs.org",
+    "inputs": {
+        "ejected": ["README.md", "MIGRATION.md", "src/project/vite.ts"],
+        "plugin": [
+            "examples/recipes/gpu-particles/package.json",
+            "examples/recipes/gpu-particles/shallot.json",
+            "examples/recipes/gpu-particles/src/kernel.ts",
+            "examples/recipes/gpu-particles/src/particles.ts",
+            "examples/recipes/gpu-particles/public/scenes/gpu-particles.scene"
+        ],
+        "default": ["bin/cli.ts", "bin/scaffold.ts", "bin/dev.ts", "bin/build.ts", "src/standard/defaults.ts"]
+    },
     "packages": {
         "@dylanebert/shallot": {
             "version": "0.9.5",
