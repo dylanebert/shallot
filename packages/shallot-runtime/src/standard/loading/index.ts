@@ -260,14 +260,14 @@ function renderUnsupported(overlay: HTMLDivElement, error: UnsupportedError, the
         card.appendChild(list);
     }
 
-    const hint = document.createElement("p");
-    hint.style.cssText = `margin: 0; color: ${theme.muted}; font: 13px/1.5 ${fontStack()};`;
-    hint.textContent = "Use a recent Chromium browser (Chrome, Edge, Brave) on desktop or Android.";
-    card.appendChild(hint);
-
+    // one line, and it is the link: the caniuse table stays current where a browser list would not
     const actions = document.createElement("div");
     actions.style.cssText = `display: flex; gap: 8px;`;
-    actions.appendChild(createLink("Browser support", SUPPORT_URL, theme.amber));
+    const what =
+        error.missing.length > 0
+            ? "Required WebGPU features not supported."
+            : "WebGPU not supported.";
+    actions.appendChild(createLink(what, SUPPORT_URL, theme.amber));
     card.appendChild(actions);
 
     overlay.appendChild(card);
