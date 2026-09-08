@@ -598,20 +598,23 @@ export async function runTui(
         return planned.code;
     }
     const project = planned.plan;
+
+    const bunWebgpu = await importBunWebgpu(bunWebgpuLoader);
+    if (!bunWebgpu) {
+        console.error(noBunWebgpuMessage());
+        return EXIT_NO_BUN_WEBGPU;
+    }
+
     // Glaze composites the rendered scene to a swapchain — never applicable headless, so the host's
-    // headless set drops it unconditionally rather than leaving it to the manifest.
+    // headless set drops it unconditionally rather than leaving it to the manifest. The missing-peer
+    // refusal above stays first: a project that never asked for cells still hears about the absent
+    // bun-webgpu before a manifest complaint (the install gate's own precedence).
     const enabledNames = headlessEngineNames(project);
     if (!enabledNames.includes("Cells")) {
         console.error(
             `shallot tui: ${projectDir}/shallot.json does not enable "Cells" — add "Cells": true to its plugins`,
         );
         return EXIT_SETUP;
-    }
-
-    const bunWebgpu = await importBunWebgpu(bunWebgpuLoader);
-    if (!bunWebgpu) {
-        console.error(noBunWebgpuMessage());
-        return EXIT_NO_BUN_WEBGPU;
     }
 
     // Past this point the run is committed to the engine — register the TGSL transform (exactly once
