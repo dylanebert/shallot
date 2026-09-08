@@ -55,7 +55,7 @@ without-context arm — running the same task with and without `--bare` measures
 - `setup.ts` — pack engine → scaffold via `create-shallot` → install → drop `PROMPT.md`. Emits the dir.
 - `grade.ts` — typecheck + build + boot + drive the gate. Uses `harness/` for the browser path.
 - `harness/lib.ts` — the shared gate driver: boot, screenshot, pixel/region/diff/centroid helpers.
-- `harness/{server,playwright,wsl}.ts` — the self-contained browser path: server boot, `playwright test` runner, display detection.
+- `harness/{server,playwright,display}.ts` — the self-contained browser path: server boot, `playwright test` runner, display detection.
 - `harness/gate.config.ts`, `harness/package.json` — the Playwright config + deps staged to run a gate.
 - `harness/result.ts` — pure derivation of a graded task's result kind (PASS/FAIL/INCOMPLETE) from its typecheck, build, and gate inputs.
 - `tasks/<task>/` — `PROMPT.md` (shown), `gate.ts` + `NOTES.md` (withheld).

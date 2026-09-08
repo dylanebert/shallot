@@ -7,8 +7,8 @@ import { PNG } from "pngjs";
 // the task's positive claim, and emits one envelope on stdout. The grader decodes that envelope; the
 // test's own pass/fail signals only whether the gate could run, never whether the task was met.
 //
-// Self-contained: no imports outside @playwright/test + pngjs, so the WSL→Windows staging copies this
-// file with the gate and nothing else.
+// Self-contained: no imports outside @playwright/test + pngjs, so this file plus the gate is all a
+// Playwright run needs.
 
 export interface Assertion {
     name: string;

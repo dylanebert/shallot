@@ -1,7 +1,4 @@
-import { existsSync } from "node:fs";
-import { createServer } from "node:net";
 import { CLI, REPO_ROOT, skipReason } from "./verify";
-import { type Bridge, start as startBridge } from "./wsl-bridge";
 
 // Re-runnable startup-cost measurement over `shallot verify examples/gym --timings`: phase-checkpoint
 // wall time (server boot → first page load → harness ready → run → capture → teardown, plus the
@@ -27,7 +24,7 @@ import { type Bridge, start as startBridge } from "./wsl-bridge";
 // modes use one spawn path so they stay one source of truth.
 //
 // Display-gated like every `shallot verify` run (testing.md): skips honestly when no real GPU is
-// reachable (`skipReason()`), and drives the WSL bridge automatically where one is needed.
+// reachable (`skipReason()`).
 //
 // A DIFFERENTIAL against a prior tag needs that tag's own `bin/verify.ts` to emit the same `--timings`
 // output this script parses — a HEAD-only reading here is a single-side number, not evidence of a
@@ -122,18 +119,6 @@ function parseArgs(argv: string[]): Args {
     return out;
 }
 
-const isWSL = process.platform === "linux" && existsSync("/proc/sys/fs/binfmt_misc/WSLInterop");
-
-const freePort = (): Promise<number> =>
-    new Promise((res, rej) => {
-        const s = createServer();
-        s.on("error", rej);
-        s.listen(0, "127.0.0.1", () => {
-            const p = (s.address() as { port: number }).port;
-            s.close(() => res(p));
-        });
-    });
-
 interface Spawned {
     stdout: string;
     stderr: string;
@@ -142,29 +127,14 @@ interface Spawned {
     cpuSysMs: number | null;
 }
 
-/** one `shallot verify <dir> --json <extra>` run, WSL-bridge-routed or native, with `extraEnv` reaching
- *  the child explicitly (a plain `process.env` mutation would not — see the header note). `bridge`,
- *  when passed, is reused rather than started fresh (a sweep's-worth of runs share one browser boot). */
+/** one `shallot verify <dir> --json <extra>` run, with `extraEnv` reaching the child explicitly (a
+ *  plain `process.env` mutation would not — see the header note). */
 async function spawnVerify(
     dir: string,
     extra: string[],
     extraEnv: Record<string, string>,
-    bridge: Bridge | null,
 ): Promise<Spawned> {
-    const cmd = bridge
-        ? [
-              "node",
-              bridge.bundle,
-              "verify",
-              dir,
-              "--json",
-              "--connect",
-              bridge.connectUrl,
-              "--port",
-              String(await freePort()),
-              ...extra,
-          ]
-        : ["bun", CLI, "verify", dir, "--json", ...extra];
+    const cmd = ["bun", CLI, "verify", dir, "--json", ...extra];
     const proc = Bun.spawn(cmd, {
         cwd: REPO_ROOT,
         stdout: "pipe",
@@ -233,7 +203,7 @@ async function runBuild(dir: string): Promise<{ exitCode: number | null; stderr:
     return { exitCode: proc.exitCode, stderr };
 }
 
-async function runTimings(args: Args, bridge: Bridge | null): Promise<void> {
+async function runTimings(args: Args): Promise<void> {
     const extra = [
         ...args.query.flatMap((q) => ["--query", q]),
         "--timings",
@@ -242,7 +212,7 @@ async function runTimings(args: Args, bridge: Bridge | null): Promise<void> {
     const byPhase = new Map<string, number[]>();
     const resources: Resources[] = [];
     for (let i = 0; i < args.runs; i++) {
-        const { stdout, exitCode } = await spawnVerify(args.dir, extra, {}, bridge);
+        const { stdout, exitCode } = await spawnVerify(args.dir, extra, {});
         const phases = parsePhases(stdout);
         const res = parseResources(stdout);
         console.log(
@@ -303,14 +273,12 @@ export function parseTransformLine(line: string): TransformEvent | null {
     return m ? { plugin: m[2], ms: Number(m[1]) } : null;
 }
 
-async function runTransform(args: Args, bridge: Bridge | null): Promise<void> {
+async function runTransform(args: Args): Promise<void> {
     const extra = [...args.query.flatMap((q) => ["--query", q]), "--timings"];
-    const { stdout, stderr, exitCode, cpuUserMs, cpuSysMs } = await spawnVerify(
-        args.dir,
-        extra,
-        { DEBUG: "vite:plugin-transform", NO_COLOR: "1" },
-        bridge,
-    );
+    const { stdout, stderr, exitCode, cpuUserMs, cpuSysMs } = await spawnVerify(args.dir, extra, {
+        DEBUG: "vite:plugin-transform",
+        NO_COLOR: "1",
+    });
     console.log(`\ntransform run: exitCode=${exitCode}`);
     const byPlugin = new Map<string, { ms: number; n: number }>();
     for (const line of stderr.split("\n")) {
@@ -369,13 +337,8 @@ async function main(): Promise<void> {
             process.exit(1);
         }
     }
-    const bridge = isWSL ? await startBridge() : null;
-    try {
-        await runTimings(args, bridge);
-        if (args.transform) await runTransform(args, bridge);
-    } finally {
-        if (bridge) await bridge.teardown();
-    }
+    await runTimings(args);
+    if (args.transform) await runTransform(args);
 }
 
 if (import.meta.main) await main();

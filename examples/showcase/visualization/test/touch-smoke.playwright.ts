@@ -11,7 +11,7 @@ import { classifyRendered } from "./rendered";
 // `OrbitPlugin` boot, `src/boot.ts`); the rest are covered by the clean-load loop, matching
 // `visualization.playwright.ts`'s own "every demo renders a positive canvas" shape. Runs by path —
 // `cd examples/showcase/visualization && bunx playwright test test/touch-smoke.playwright.ts` —
-// display-gated by `playwright.global-setup.ts` routing through the WSL bridge for real GPU access, plus
+// display-gated by `playwright.global-setup.ts`, which refuses without a display, plus
 // this file's own adapter-name skip below for a seat where neither the bridge nor a native real GPU is
 // available (mirrors `roads/test/touch-smoke.playwright.ts`); never part of `bun run test`.
 

@@ -86,7 +86,7 @@ describe("camera follow interpolation (scheduler)", () => {
             },
         } satisfies System);
 
-        // drive at an irregular high frame rate (the measured WSL case: ~238fps, dt cv ~12%, 0.6/8.7ms outliers)
+        // drive at an irregular high frame rate (measured on the retired WSL seat: ~238fps, dt cv ~12%, 0.6/8.7ms outliers)
         const rng = makeRng(1);
         for (let f = 0; f < 800; f++) {
             let dt = (1 / 238) * (1 + 0.4 * (rng() * 2 - 1));

@@ -2,12 +2,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { REPO_ROOT, skipReason, verify } from "./verify";
 
-// `bun run scripts/bench-tumble.ts` — the batched real-device gate for the tumble gym sample twins. One browser boot serves every scenario: the WSL bridge (or a local chromium) starts once and is
+// `bun run scripts/bench-tumble.ts` — the batched real-device gate for the tumble gym sample twins. One browser boot serves every scenario: a local chromium starts once and is
 // reused across a `shallot verify examples/gym --query scenario=<slug>` page per twin, so the whole corpus
 // runs in one process on one bridge boot. Every twin's gold assert must pass and its wall time stay under
 // the standing budget; the run prints a per-scenario timing table and exits nonzero on any red row.
 //
-//   ⚠ ONE bridge session at a time. On WSL the bridge is a SINGLE shared host browser (scripts/wsl-bridge.ts);
+//   ⚠ Display gates self-terminate and run alone (AGENTS.md);
 //   two concurrent runs attach to the same browser and close each other's pages
 //   (`browserContext.newPage: … closed`). Never launch this alongside another `bun bench`, `bun run
 //   scripts/bench-tumble.ts`, `bun run flows`, or `bun run recipes` — they all drive that one browser.
@@ -100,7 +100,7 @@ async function main(): Promise<void> {
 
 Runs every tumble gym sample twin through \`shallot verify\` on a real device, reusing one browser session,
 and gates each on its committed gold plus a ${BUDGET_S}s/scenario wall budget. Display-gated (native
-hardware / the WSL host bridge). ONE bridge session at a time — never run concurrent with another bench /
+hardware). Display gates run alone, one at a time — never run concurrent with another bench /
 flows / recipes.
 
 Options:

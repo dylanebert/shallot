@@ -37,3 +37,45 @@ test("install-test — the free-port probe is used for the dev server port", () 
     // The port variable used for the dev server comes from freePort, not a literal.
     expect(src).toMatch(/await\s+freePort\(\)/);
 });
+
+// The previous release's built-verify leg attaches to a browser server; the candidate's does not.
+// 0.9.5's own `bin/verify.ts` hard-codes `headless: true`, and a headless launch reaches only a
+// software rasterizer on a seat whose real adapter is discrete (measured 2026-09-08: the leg reported
+// `google / swiftshader` and its display gate refused). `--connect` is that CLI's one route to real
+// hardware. The candidate keeps its own launch, because that launch is part of what this flow
+// verifies — so the two labels must differ here, and asserting only the `previous` shape would pass
+// just as well if both carried the flag.
+
+import { readEndpoint, verifyArgs } from "./install-test/browser-server";
+
+test("only the previous label attaches to a browser server, at any verified directory", () => {
+    // the output flow verifies a directory other than the app (its `served` argument), so the label
+    // difference has to survive that too — and the verified directory must reach both labels alike.
+    for (const dir of [undefined, ".", "/tmp/output-standalone"]) {
+        const args = (label: "previous" | "candidate") =>
+            dir === undefined
+                ? verifyArgs(label, "ws://127.0.0.1:4242/abc")
+                : verifyArgs(label, "ws://127.0.0.1:4242/abc", dir);
+        const previous = args("previous");
+        const candidate = args("candidate");
+        expect(candidate).toContain(dir ?? ".");
+        expect(previous).toContain(dir ?? ".");
+        expect(previous).toContain("--connect");
+        expect(previous[previous.indexOf("--connect") + 1]).toBe("ws://127.0.0.1:4242/abc");
+        expect(candidate).not.toContain("--connect");
+        // the verify arguments themselves are the same run on both sides; only the transport differs.
+        expect(previous.slice(0, candidate.length)).toEqual(candidate);
+    }
+});
+
+test("the endpoint reader refuses output with no ws:// line, naming the log", () => {
+    expect(readEndpoint("ws://127.0.0.1:9/x\n", "/tmp/s.log")).toBe("ws://127.0.0.1:9/x");
+    expect(readEndpoint("noise\n  ws://127.0.0.1:9/x  \nmore\n", "/tmp/s.log")).toBe(
+        "ws://127.0.0.1:9/x",
+    );
+    // an empty or failed server must not hand "" to --connect and let verify red as though the
+    // adapter were at fault.
+    for (const output of ["", "Error: browser server crashed\n", "listening\n"]) {
+        expect(() => readEndpoint(output, "/tmp/server.log")).toThrow("/tmp/server.log");
+    }
+});

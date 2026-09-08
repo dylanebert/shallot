@@ -91,8 +91,8 @@ export async function runCommand(
         const gate: unknown = manifest.scripts?.gate;
         if (typeof gate !== "string") throw new Error(`${project}: missing manifest gate`);
         if (/\bshallot\s+verify\b/.test(gate)) {
-            // Only the simple, literal command shape is transportable. Shell operators,
-            // expansion and quoting must not be silently discarded or run unbridged.
+            // Only the simple, literal command shape is rewritable. Shell operators,
+            // expansion and quoting must not be silently discarded.
             if (!/^bunx shallot verify(?: [\w./:=+-]+)*$/.test(gate)) {
                 throw new Error(`${project}: unsupported verify gate composition: ${gate}`);
             }
