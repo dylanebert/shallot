@@ -26,6 +26,7 @@ import { compatibilityFlow } from "./install-test/compatibility";
 import { harnessArms, harnessContract } from "./install-test/harness";
 import { outputFlow } from "./install-test/output";
 import { runtimeArms } from "./install-test/runtime";
+import { projectTumble, tumbleArms } from "./install-test/tumble";
 import {
     type ShaderArtifactSummary,
     skipReason,
@@ -1838,7 +1839,7 @@ if (import.meta.main) {
     const sandbox = join(work, "app");
     try {
         console.log("packing engine + tui encoder + widget + gpu-particles…");
-        const engineTgz = pack(ENGINE_DIR, join(work, "engine-pack"));
+        const engineTgz = projectTumble(work, pack(ENGINE_DIR, join(work, "engine-pack")));
         const widgetTgz = pack(WIDGET_DIR, join(work, "widget-pack"));
         const particlesTgz = pack(PARTICLES_DIR, join(work, "particles-pack"));
 
@@ -1913,6 +1914,7 @@ if (import.meta.main) {
         if (install.ok) {
             harnessArms(sandbox);
             runtimeArms(sandbox);
+            tumbleArms(sandbox);
             writeFileSync(
                 join(sandbox, "missing-plugin.ts"),
                 `import { build } from "@dylanebert/shallot";\n` +
