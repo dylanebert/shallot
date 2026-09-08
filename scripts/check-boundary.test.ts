@@ -81,6 +81,91 @@ test("the fixture tree is green before any mutation", () => {
     expect(result.consumers).toBe(1);
 });
 
+describe("runtime direction with a private tooling owner", () => {
+    test("tooling cannot reach a sibling's private source", () => {
+        const root = make();
+        write(
+            root,
+            "packages/shallot-tooling/package.json",
+            JSON.stringify({ name: "shallot-tooling", private: true }),
+        );
+        write(
+            root,
+            "packages/shallot-tooling/src/escape.ts",
+            'import "../../../examples/recipes/demo/src/main";',
+        );
+        const result = checkBoundary(root, EMPTY);
+        expect(result.errors).toEqual([]);
+        expect(result.violations).toHaveLength(1);
+        expect(result.violations[0].reason).toBe(
+            "escapes the private tooling owner without a declared seam",
+        );
+    });
+    for (const source of [
+        'import "../../shallot-tooling/src/harness/browser";',
+        'import "@dylanebert/shallot/harness";',
+        'export * from "./harness";',
+        'void import("@dylanebert/shallot/harness/browser");',
+        'import "@launch";',
+    ]) {
+        test(source, () => {
+            const root = make();
+            write(
+                root,
+                "packages/shallot-tooling/package.json",
+                JSON.stringify({ name: "shallot-tooling", private: true }),
+            );
+            write(
+                root,
+                "packages/shallot-tooling/src/harness/browser.ts",
+                "export const launch = 1;\n",
+            );
+            write(
+                root,
+                "packages/shallot/package.json",
+                JSON.stringify({
+                    name: "@dylanebert/shallot",
+                    exports: {
+                        ".": "./src/index.ts",
+                        "./harness": "./src/harness/index.ts",
+                        "./harness/browser": {
+                            types: "./src/harness/browser.ts",
+                            default: "./dist/harness-browser.js",
+                        },
+                    },
+                }),
+            );
+            write(
+                root,
+                "packages/shallot/src/harness/index.ts",
+                'export * from "./runtime"; export { launch } from "@dylanebert/shallot/harness/browser";',
+            );
+            write(
+                root,
+                "packages/shallot/src/harness/runtime.ts",
+                'import "../standard/render/core";',
+            );
+            write(
+                root,
+                "tsconfig.json",
+                JSON.stringify({
+                    compilerOptions: {
+                        paths: { "@launch": ["packages/shallot-tooling/src/harness/browser.ts"] },
+                    },
+                }),
+            );
+            expect(checkBoundary(root, EMPTY).violations).toEqual([]);
+            write(root, "packages/shallot/src/consumer.ts", source);
+            const result = checkBoundary(root, EMPTY);
+            expect(result.errors).toEqual([]);
+            expect(result.violations).toHaveLength(1);
+            expect(result.violations[0].reason).toBe(
+                "runtime reaches tooling or the distribution's composite harness",
+            );
+        });
+    }
+});
+
 describe("consumer escapes", () => {
     test("a consumer reaching an unpublished subpath refuses", () => {
         const root = make();

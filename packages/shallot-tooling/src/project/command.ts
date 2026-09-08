@@ -16,7 +16,7 @@
 // (`headlessEngineNames`, Glaze dropped — it composites a swapchain no headless run owns) and never
 // touches a terminal, canvas, encoder or frame loop.
 
-import type { Plugin } from "../engine";
+import type { Plugin } from "@dylanebert/shallot";
 import { SUBPATH_PLUGIN_MODULES } from "./engine";
 import {
     headlessEngineNames,
@@ -73,7 +73,7 @@ export function planProject(dir: string, io?: ProjectIo): ProjectCommand {
  *  reading this package's `exports` map at runtime. `catalog.test.ts` gates the keys against
  *  `SUBPATH_PLUGIN_MODULES`, so a new backend plugin cannot land on only one of the two. */
 const SUBPATH_PLUGIN_IMPORTERS: Record<string, () => Promise<Record<string, unknown>>> = {
-    Avbd: () => import("../standard/avbd/index"),
+    Avbd: () => import("@dylanebert/shallot/avbd"),
 };
 
 /** the subpath-plugin names this module can load — the catalog gate's other side. */
@@ -86,7 +86,7 @@ export const SUBPATH_PLUGIN_LOADERS: readonly string[] = Object.keys(SUBPATH_PLU
  * code, so it is imported here, at call time, never at module scope.
  */
 export async function loadEnginePlugins(names: readonly string[]): Promise<Plugin[]> {
-    const barrel = (await import("../index")) as unknown as Record<string, unknown>;
+    const barrel = (await import("@dylanebert/shallot")) as unknown as Record<string, unknown>;
     const plugins: Plugin[] = [];
     for (const name of names) {
         const direct = barrel[`${name}Plugin`];

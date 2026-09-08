@@ -643,10 +643,10 @@ export async function runTui(
     // `cellsGridFor` rides the main barrel (`extras/cells/index.ts`'s author-facing
     // surface); `unpackCell`/`cellGlyphChar` are the `*/core` subpath's decode functions
     // (`dump-cells-ascii.ts`'s own import split, mirrored here).
-    const engine = await import("../src");
+    const engine = await import("@dylanebert/shallot");
     const { cellsGridFor } = engine;
-    const { attachCanvas } = await import("../src/standard/render/core");
-    const { unpackCell, cellGlyphChar } = await import("../src/extras/cells/core");
+    const { attachCanvas } = await import("@dylanebert/shallot/render/core");
+    const { unpackCell, cellGlyphChar } = await import("@dylanebert/shallot/cells/core");
 
     // the plan's plugins, loaded by the host: the headless engine set (Glaze already dropped) plus the
     // manifest's local plugins, each already proven resolvable above.

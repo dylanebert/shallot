@@ -37,6 +37,7 @@ import { COMPUTED_LOADERS, NON_WORKSPACE_PACKAGES, TOOLING_SEAMS } from "./bound
 
 const PKG = "@dylanebert/shallot";
 const ENGINE_PACKAGE = "packages/shallot";
+const TOOLING_PACKAGE = "packages/shallot-tooling";
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".svelte"];
 
 export interface Violation {
@@ -439,8 +440,11 @@ function scanTooling(
     const usedSeams = new Set<string>();
     const usedLoaders = new Set<string>();
     const aliasTargets = aliasReader(repoRoot);
-    const binDir = resolve(repoRoot, ENGINE_PACKAGE, "bin");
-    for (const full of sourceFiles(binDir)) {
+    const privateTooling = existsSync(resolve(repoRoot, TOOLING_PACKAGE, "package.json"));
+    const files = privateTooling
+        ? ["bin", "src"].flatMap((dir) => sourceFiles(resolve(repoRoot, TOOLING_PACKAGE, dir)))
+        : sourceFiles(resolve(repoRoot, ENGINE_PACKAGE, "bin"));
+    for (const full of files) {
         const file = relative(repoRoot, full).split(sep).join("/");
         errors.push(...aliasTargets(full, "").errors);
         for (const r of references(readFileSync(full, "utf8"))) {
@@ -462,6 +466,24 @@ function scanTooling(
                   ? [resolve(repoRoot, ENGINE_PACKAGE, spec.slice(PKG.length + 1))]
                   : aliasTargets(full, spec).targets;
             for (const resolved of targets) {
+                if (
+                    privateTooling &&
+                    resolved &&
+                    !resolved.startsWith(resolve(repoRoot, TOOLING_PACKAGE) + sep) &&
+                    !resolved.startsWith(resolve(repoRoot, ENGINE_PACKAGE, "src") + sep) &&
+                    !resolved.startsWith(resolve(repoRoot, ENGINE_PACKAGE, "tests") + sep)
+                ) {
+                    const key = `${file} "${spec}"`;
+                    if (ledger.toolingSeams[key]?.trim()) usedSeams.add(key);
+                    else
+                        violations.push({
+                            file,
+                            line: r.line,
+                            import: spec,
+                            reason: "escapes the private tooling owner without a declared seam",
+                        });
+                    continue;
+                }
                 if (
                     !resolved ||
                     !resolved.startsWith(resolve(repoRoot, ENGINE_PACKAGE, "src") + sep)
@@ -489,6 +511,73 @@ function scanTooling(
         }
     }
     return { violations, usedSeams, usedLoaders };
+}
+
+/** Runtime owns every maintained source except the fixed public harness composition entry. */
+export function runtimeDirection(
+    repoRoot: string,
+    exports: Record<string, unknown>,
+    errors: string[],
+): Violation[] {
+    if (!existsSync(resolve(repoRoot, TOOLING_PACKAGE, "package.json"))) return [];
+    const sourceRoot = resolve(repoRoot, ENGINE_PACKAGE, "src");
+    const composite = resolve(sourceRoot, "harness/index.ts");
+    const browser = resolve(sourceRoot, "harness/browser.ts");
+    const project = resolve(sourceRoot, "project");
+    const tooling = resolve(repoRoot, TOOLING_PACKAGE);
+    const aliases = aliasReader(repoRoot);
+    const violations: Violation[] = [];
+    const forbidden = (path: string) => {
+        const variants = [path, `${path}.ts`, `${path}/index.ts`];
+        return (
+            variants.includes(composite) ||
+            variants.includes(browser) ||
+            path === project ||
+            path.startsWith(project + sep) ||
+            path === tooling ||
+            path.startsWith(tooling + sep)
+        );
+    };
+    for (const file of sourceFiles(sourceRoot)) {
+        if (
+            file === composite ||
+            file === browser ||
+            file.startsWith(project + sep) ||
+            /\.(test|fixture)\.ts$/.test(file)
+        )
+            continue;
+        for (const ref of references(readFileSync(file, "utf8"))) {
+            if (!ref.spec) continue;
+            const alias = aliases(file, ref.spec);
+            errors.push(...alias.errors);
+            const targets = ref.spec.startsWith(".")
+                ? [resolve(dirname(file), ref.spec)]
+                : [...alias.targets];
+            if (ref.spec === PKG || ref.spec.startsWith(PKG + "/")) {
+                const key = ref.spec === PKG ? "." : `.${ref.spec.slice(PKG.length)}`;
+                const entry = exports[key];
+                const target =
+                    typeof entry === "string"
+                        ? entry
+                        : (entry as { types?: string } | undefined)?.types;
+                if (target) targets.push(resolve(repoRoot, ENGINE_PACKAGE, target));
+                if (key.startsWith("./src/")) targets.push(resolve(repoRoot, ENGINE_PACKAGE, key));
+            }
+            if (
+                ref.spec === "shallot-tooling" ||
+                ref.spec.startsWith("shallot-tooling/") ||
+                targets.some(forbidden)
+            ) {
+                violations.push({
+                    file: relative(repoRoot, file),
+                    line: ref.line,
+                    import: ref.spec,
+                    reason: "runtime reaches tooling or the distribution's composite harness",
+                });
+            }
+        }
+    }
+    return violations;
 }
 
 /** The declared escapes this run reads. Injectable so a fixture tree can carry its own ledger: the real
@@ -521,7 +610,9 @@ export function checkBoundary(repoRoot: string, ledger: Ledger = REPO_LEDGER): B
     );
     const surface = publishedSurface(enginePkg.exports as Record<string, unknown>);
     const declared = workspaceRoots(repoRoot, rootPkg.workspaces as string[]);
-    const consumerDirs = declared.filter((dir) => dir !== ENGINE_PACKAGE);
+    const consumerDirs = declared.filter(
+        (dir) => dir !== ENGINE_PACKAGE && dir !== TOOLING_PACKAGE,
+    );
     const consumerRoots = consumerDirs
         .map((dir) => resolve(repoRoot, dir))
         .filter((dir) => existsSync(dir) && statSync(dir).isDirectory());
@@ -540,6 +631,7 @@ export function checkBoundary(repoRoot: string, ledger: Ledger = REPO_LEDGER): B
     );
     const tooling = scanTooling(repoRoot, surface, ledger, errors);
     violations.push(...tooling.violations);
+    violations.push(...runtimeDirection(repoRoot, enginePkg.exports, errors));
 
     // Two-way completeness. A source cone proves nothing if a project can sit outside it, or if a
     // declared escape outlives the code it excused.

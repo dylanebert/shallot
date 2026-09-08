@@ -10,7 +10,7 @@ import { EXIT_PASS } from "./tui";
 // 5000ms) at just two runs. Mirrors `bin/verify.probes.ts`'s own precedent exactly ("browser probes stay
 // out of the default suite for speed... Run when you touch the probes"):
 //
-//     bun test ./packages/shallot/bin/tui.probes.ts
+//     bun test ./packages/shallot-tooling/bin/tui.probes.ts
 //
 // The sentinel left behind in `tui.test.ts` is the pure/DI half — parseTuiArgs, decodeStdinChunk,
 // cellsBytesToGrid, and runTui's own bun-webgpu-absence wiring via a rejecting DI'd loader (criterion 7,

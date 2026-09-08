@@ -2,7 +2,7 @@
 
 WebGPU engine, no editor/docs site. JSDoc owns APIs; code is truth. Read `packages/shallot/AGENTS.md` (consumer); grep `examples/AGENTS.md` first.
 
-Layout: `packages/shallot/src/{engine,standard,extras,project}/`, `packages/create-shallot/`, `evals/`, `examples/`.
+Owners: `packages/{shallot,shallot-tooling,create-shallot}/`; `evals/`, `examples/`.
 
 ## Rules
 

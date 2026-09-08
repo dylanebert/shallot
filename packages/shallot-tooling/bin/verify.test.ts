@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { isDegradedBootMessage } from "@dylanebert/shallot/harness";
 import { SCENARIO_GATES } from "../../../examples/gym/src/scenarios/timeouts";
 import {
     benchTimeout,
@@ -19,7 +20,6 @@ import { parsePhases, parseResources, parseTransformLine } from "../../../script
 import { verifyDiagnostic } from "../../../scripts/install-test";
 import type { ShaderArtifactSummary, VerifyResult } from "../../../scripts/verify";
 import { initialFrameSamplerState, sampleFrame } from "../../../site/rum-sampler";
-import { isDegradedBootMessage } from "../src/harness";
 import {
     ATTRIBUTION_INIT_SCRIPT,
     batchPass,

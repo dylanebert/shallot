@@ -38,7 +38,7 @@ import { CROSS_ORIGIN_ISOLATION } from "../src/project/vite";
 //
 // RED-FIRST WITNESS (at 8e5a092, the parent commit where the dispatch idiom still exists):
 //   Run in a worktree at 8e5a092 after `bun install && bun run build`:
-//     bun test ./packages/shallot/bin/console-warning.probes.ts
+//     bun test ./packages/shallot-tooling/bin/console-warning.probes.ts
 //   Result: FAIL (exit 1) — 12 `warning`-type console messages carrying the Dawn string appeared
 //   during a real boot of the `render` scenario, one per zero-workgroup dispatch site:
 //     slab-scatter-vec4<f32>, slab-scatter-f32, slab-scatter-u32, slab-scatter-vec2<u32>,
@@ -48,7 +48,7 @@ import { CROSS_ORIGIN_ISOLATION } from "../src/project/vite";
 //   Witnessed 2026-08-24 on darwin/arm64 (M-series Metal), headless Chromium with REAL_GPU_LAUNCH.
 //
 // This is a `.probes.ts` file (browser-launching gate, too slow for the default suite). Run by path:
-//     bun test ./packages/shallot/bin/console-warning.probes.ts
+//     bun test ./packages/shallot-tooling/bin/console-warning.probes.ts
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..");
 const GYM_DIR = resolve(REPO_ROOT, "examples", "gym");

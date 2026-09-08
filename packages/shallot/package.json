@@ -79,7 +79,7 @@
         "shallot.schema.json"
     ],
     "scripts": {
-        "prepack": "bun run ./scripts/prepack.ts && bun run ./scripts/build-tooling.ts",
+        "prepack": "bun run ./scripts/prepack.ts && bun run ../shallot-tooling/scripts/build.ts && bun run ../shallot-tooling/scripts/build.ts --check",
         "postpack": "bun run ./scripts/postpack.ts",
         "build": "bun run ./scripts/build.ts",
         "audio:wasm-bench": "bun run ./scripts/audio-wasm-bench.ts",

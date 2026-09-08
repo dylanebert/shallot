@@ -94,7 +94,7 @@ let loafEntries: LoAFEntry[] = [];
 if (loafSupported) {
     try {
         // `long-animation-frame` entries (`scripts`, `blockingDuration`) aren't in lib.dom's
-        // `PerformanceEntry` yet — same shape as `packages/shallot/bin/verify.ts`'s own LoAF observer.
+        // `PerformanceEntry` yet — same shape as `packages/shallot-tooling/bin/verify.ts`'s own LoAF observer.
         new PerformanceObserver((list) => {
             for (const e of list.getEntries() as any[]) {
                 loafEntries.push({

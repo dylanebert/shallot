@@ -37,11 +37,20 @@ const bindings = Object.fromEntries(
 );
 const readerPath = realpathSync(fileURLToPath(import.meta.url));
 const barrelPath = realpathSync(fileURLToPath(import.meta.resolve("@dylanebert/shallot/harness")));
-const motionPath = realpathSync(join(dirname(barrelPath), "motion.ts"));
 const barrelSource = readFileSync(barrelPath, "utf8");
-expect(
-    barrelSource.match(/export \{[^}]*\bassertMotion\b[^}]*\} from "\.\/motion";/g),
-).toHaveLength(1);
+const runtimeHop = [...barrelSource.matchAll(/export \* from "(\.\/runtime)";/g)];
+expect(runtimeHop).toHaveLength(1);
+const runtimePath = realpathSync(join(dirname(barrelPath), `${runtimeHop[0][1]}.ts`));
+const runtimeSource = readFileSync(runtimePath, "utf8");
+const motionHop = [
+    ...runtimeSource.matchAll(/export \{[^}]*\bassertMotion\b[^}]*\} from "(\.\/motion)";/g),
+];
+expect(motionHop).toHaveLength(1);
+const motionPath = realpathSync(join(dirname(runtimePath), `${motionHop[0][1]}.ts`));
+bindings["runtime harness re-export"] = {
+    path: runtimePath,
+    sha256: hash(readFileSync(runtimePath)),
+};
 expect(harness.assertMotion).toBe(assertMotion);
 
 /** Persist full bytes independently of the reporter, then attach the physical file. */

@@ -30,4 +30,4 @@ await Bun.write(
 );
 
 // window (native host binary)
-await $`cargo build --release`.cwd(resolve(root, "window"));
+await $`cargo build --release`.cwd(resolve(import.meta.dir, "../../shallot-tooling/rust/window"));

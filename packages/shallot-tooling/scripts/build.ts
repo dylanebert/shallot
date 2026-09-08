@@ -14,14 +14,66 @@
 // rather than silently inlining.
 
 import { createHash } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+    cpSync,
+    mkdirSync,
+    mkdtempSync,
+    readdirSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { nativeHash, nativePatchHash, nativeSourceHash } from "../bin/bun-native";
 
-const ROOT = resolve(import.meta.dir, ".."); // packages/shallot
-const OUT = resolve(ROOT, "dist");
+const ROOT = resolve(import.meta.dir, "..");
+const DISTRIBUTION = resolve(ROOT, "../shallot");
+const OUT = resolve(DISTRIBUTION, "dist");
+const leaf = resolve(ROOT, "src/harness/browser.ts");
+if (new Bun.Transpiler({ loader: "ts" }).scan(readFileSync(leaf, "utf8")).imports.length) {
+    throw new Error("build-tooling: browser launch leaf must be import-free");
+}
+const projection = ["bin", "src/project", "src/harness/browser.ts", "rust/window", "assets"];
+const carried = (file: string) =>
+    !/(?:^|\/)(?:target|node_modules)(?:\/|$)|\/\.gitignore$|\.(?:test|probes)\.ts$/.test(file);
+const files = projection
+    .flatMap((path) =>
+        path.endsWith(".ts")
+            ? [path]
+            : readdirSync(resolve(ROOT, path), { recursive: true, withFileTypes: true })
+                  .filter((entry) => entry.isFile() && carried(`${entry.parentPath}/${entry.name}`))
+                  .map((entry) => `${entry.parentPath}/${entry.name}`.slice(ROOT.length + 1)),
+    )
+    .sort();
+const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
+const inputs = Object.fromEntries(
+    [...files, "scripts/build.ts", "package.json"].map((file) => [file, hash(resolve(ROOT, file))]),
+);
+if (process.argv.includes("--check")) {
+    const record = JSON.parse(readFileSync(resolve(OUT, "tooling-inputs.json"), "utf8"));
+    if (JSON.stringify(record.inputs) !== JSON.stringify(inputs))
+        throw new Error("build-tooling: stale source projection");
+    for (const [file, expected] of Object.entries(record.outputs)) {
+        if (hash(resolve(DISTRIBUTION, file)) !== expected)
+            throw new Error(`build-tooling: stale output ${file}`);
+    }
+    console.log(`build-tooling: ${files.length} canonical inputs and their outputs are fresh`);
+    process.exit(0);
+}
+for (const path of projection) {
+    const source = resolve(ROOT, path);
+    const destination = resolve(DISTRIBUTION, path);
+    rmSync(destination, { recursive: true, force: true });
+    cpSync(source, destination, {
+        recursive: true,
+        filter: carried,
+    });
+}
+// The four existing diagnostic seams are assembled beside their runtime definitions in the tarball.
+const verify = resolve(DISTRIBUTION, "bin/verify.ts");
+writeFileSync(verify, readFileSync(verify, "utf8").replaceAll("../../shallot/src/", "../src/"));
 
 // dist/ is regenerated on every pack — never accumulate a stale build's leftovers (a manual `shallot
 // build` run against this package as its own project would otherwise land unrelated output here too).
@@ -107,8 +159,7 @@ for (const { out } of entries) {
 }
 
 const peer = createRequire(import.meta.url).resolve("bun-webgpu");
-const patch = resolve(ROOT, "patches/bun-webgpu-0.1.7.patch");
-const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
+const patch = resolve(DISTRIBUTION, "patches/bun-webgpu-0.1.7.patch");
 if (hash(peer) !== nativeSourceHash || hash(patch) !== nativePatchHash) {
     throw new Error("build-tooling: native source/patch drift");
 }
@@ -120,7 +171,7 @@ try {
     const projected = resolve(temp, "index.js");
     if (hash(projected) !== nativeHash) throw new Error("build-tooling: native projection drift");
     cpSync(projected, resolve(OUT, "native.js"));
-    cpSync(resolve(ROOT, "patches/bun-webgpu-LICENSE"), resolve(OUT, "bun-webgpu-LICENSE"));
+    cpSync(resolve(DISTRIBUTION, "patches/bun-webgpu-LICENSE"), resolve(OUT, "bun-webgpu-LICENSE"));
     writeFileSync(
         resolve(OUT, "bun-webgpu-NOTICE"),
         "bun-webgpu 0.1.7 (https://github.com/kommander/bun-webgpu), Apache-2.0.\n" +
@@ -129,6 +180,13 @@ try {
 } finally {
     rmSync(temp, { recursive: true, force: true });
 }
+const outputs = Object.fromEntries(
+    [...files, ...readdirSync(OUT).map((file) => `dist/${file}`)].map((file) => [
+        file,
+        hash(resolve(DISTRIBUTION, file)),
+    ]),
+);
+writeFileSync(resolve(OUT, "tooling-inputs.json"), JSON.stringify({ inputs, outputs }, null, 2));
 console.log(
-    `build-tooling: compiled ${entries.map((e) => `dist/${e.out}.js`).join(", ")}, dist/native.js`,
+    `build-tooling: compiled ${entries.map((e) => `dist/${e.out}.js`).join(", ")}, dist/native.js; projected ${files.length} tooling inputs`,
 );

@@ -8,7 +8,10 @@
             "scripts/**/*.ts",
             "site/**/*.ts",
             "!examples/*/public",
-            "!scripts/install-test/compat-0.9.5"
+            "!scripts/install-test/compat-0.9.5",
+            "!packages/shallot/bin",
+            "!packages/shallot/src/project",
+            "!packages/shallot/src/harness/browser.ts"
         ]
     },
     "linter": {

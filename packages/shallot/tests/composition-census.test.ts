@@ -16,8 +16,8 @@ type Gate = readonly [RegExp, string];
 const COMPOSITION_SURFACES: readonly RegExp[] = [
     /^examples\/(?:flows|recipes|showcase|gym)\//,
     /^evals\/tasks\//,
-    /^packages\/shallot\/bin\/tui\.ts$/,
-    /^packages\/shallot\/src\/project\/command\.ts$/,
+    /^packages\/shallot-tooling\/bin\/tui\.ts$/,
+    /^packages\/shallot-tooling\/src\/project\/command\.ts$/,
     /^packages\/shallot\/scripts\/dump-cells-ascii\.ts$/,
 ];
 
@@ -28,8 +28,11 @@ const PROJECT_GATES: readonly Gate[] = [
     [/^examples\/showcase\//, "bun run test:changed --all"],
     [/^examples\/gym\//, "bun bench"],
     [/^evals\/tasks\/[^/]+\/gate\.ts$/, "bun run test"],
-    [/^packages\/shallot\/bin\/tui\.ts$/, "bun test ./packages/shallot/bin"],
-    [/^packages\/shallot\/src\/project\/command\.ts$/, "bun test ./packages/shallot/src/project"],
+    [/^packages\/shallot-tooling\/bin\/tui\.ts$/, "bun test ./packages/shallot-tooling/bin"],
+    [
+        /^packages\/shallot-tooling\/src\/project\/command\.ts$/,
+        "bun test ./packages/shallot-tooling/src/project",
+    ],
     [
         /^packages\/shallot\/scripts\/dump-cells-ascii\.ts$/,
         "bun run --cwd packages/shallot dump-cells-ascii",

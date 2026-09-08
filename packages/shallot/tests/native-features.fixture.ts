@@ -1,6 +1,6 @@
 import { ptr, toArrayBuffer } from "bun:ffi";
 import assert from "node:assert/strict";
-import { loadNative } from "../bin/bun-native";
+import { loadNative } from "../../shallot-tooling/bin/bun-native";
 import { BASE_FEATURES, deviceLimits } from "../src/engine/runtime/gpu";
 
 const site = process.argv[2] ?? "device";
