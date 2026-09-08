@@ -96,3 +96,43 @@ ${rows}
 </html>
 `;
 }
+
+/**
+ * `/llms.txt`, the plain-text entry for agents: what shallot is and the raw files to read, pinned to
+ * the built version (staging: the built ref). Nothing here is rendered; the docs live in the repo.
+ */
+export function llmsTxt(version: string, ref: string, mode: "prod" | "staging"): string {
+    const at = mode === "staging" ? ref : `v${version}`;
+    const raw = (path: string) =>
+        `https://raw.githubusercontent.com/dylanebert/shallot/${at}/${path}`;
+    return `# shallot
+
+> webgpu game engine. fast by default, instant iteration, checks itself.
+
+The source is the reference: every public export carries a JSDoc contract, and there is no docs site to drift from it. Two files carry the consumer surface. Read the first before writing a project; grep the second for the problem you have.
+
+## Read
+
+- [Consumer contract](${raw("packages/shallot/AGENTS.md")}): commands, the ECS and plugin conventions, the GPU, render, physics and verify rules. Ships in the npm package as AGENTS.md.
+- [Examples index](${raw("examples/AGENTS.md")}): one line per recipe and showcase project, with the concept each teaches.
+- [README](${raw("README.md")}): quick start, live demos, building from source.
+
+## Start
+
+\`\`\`
+bun create shallot my-game
+cd my-game
+bun install
+bunx shallot dev
+\`\`\`
+
+\`bunx shallot verify\` boots the project in a headless browser and exits 0 or nonzero, so a change can be checked without a person watching.
+
+## Links
+
+- Source: https://github.com/dylanebert/shallot
+- Package: https://www.npmjs.com/package/@dylanebert/shallot
+- Demos: https://dylanebert.com/shallot/
+- Brand: https://dylanebert.com/shallot/brand/
+`;
+}

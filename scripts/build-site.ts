@@ -21,7 +21,7 @@ import { Glob } from "bun";
 // browser bundle carries the string and nothing else — `site/rum-compile-vitals.ts`'s own
 // docblock records the same measurement for the reader who only sees the pure module.
 import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot-runtime/src/engine/runtime/gpu";
-import { siteIndex } from "../site/home";
+import { llmsTxt, siteIndex } from "../site/home";
 import { ROSTER } from "../site/roster";
 import {
     RUM_CONFIG,

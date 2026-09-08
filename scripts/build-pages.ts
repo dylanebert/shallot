@@ -13,7 +13,7 @@ import {
 } from "../site/brand/mark";
 import { brandPage } from "../site/brand/page";
 import { toPng } from "../site/brand/png";
-import { siteIndex } from "../site/home";
+import { llmsTxt, siteIndex } from "../site/home";
 import { ROSTER } from "../site/roster";
 
 // `bun run site:pages` — the site's own pages without the demos: out/site/index.html and
@@ -72,7 +72,7 @@ export async function buildBrand(outDir: string, clientScript?: string): Promise
     write("mark.ts", readFileSync(resolve(root, "site/brand/mark.ts"), "utf8"));
 }
 
-/** Writes the home index plus the brand pages. */
+/** Writes the home index, `llms.txt`, and the brand pages. */
 export async function buildPages(
     outDir: string,
     version: string,
@@ -82,6 +82,7 @@ export async function buildPages(
     mkdirSync(outDir, { recursive: true });
     const client = await bundleClient();
     writeFileSync(resolve(outDir, "index.html"), siteIndex(ROSTER, version, ref, mode, client));
+    writeFileSync(resolve(outDir, "llms.txt"), llmsTxt(version, ref, mode));
     await buildBrand(outDir, client);
 }
 
