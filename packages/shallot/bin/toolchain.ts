@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import {
     loadConfigFromFile,
@@ -6,7 +5,7 @@ import {
     type PluginOption,
     type Plugin as VitePlugin,
 } from "vite";
-import { discoverScenes, manifestPath } from "../src/project/vite";
+import { isProject as hostIsProject, missingProjectMessage } from "../src/project/command";
 
 // One toolchain merge shared by `shallot dev` and `shallot build`. A manifest project is pure data, but a
 // project that needs a framework (Svelte, React) declares it the standard vite way — its own
@@ -14,21 +13,17 @@ import { discoverScenes, manifestPath } from "../src/project/vite";
 // identically here, so a framework project runs the same in dev and a build. No `vite.config` →
 // the synthesized zero-config path (a manifest recipe is unaffected).
 
-/** dir holds a shallot project — a shallot.json manifest or a .scene file. */
+/** dir holds a shallot project — a shallot.json manifest or a .scene file. Discovery itself belongs to
+ *  the project host (`src/project/command.ts`), so `shallot dev`/`build`/`tui` cannot disagree on what
+ *  a project is. */
 export function isProject(projectDir: string): boolean {
-    const abs = resolve(projectDir);
-    return existsSync(manifestPath(abs)) || discoverScenes(abs).length > 0;
+    return hostIsProject(resolve(projectDir));
 }
 
 /** exit with the scaffold hint when dir holds neither a shallot.json manifest nor a .scene file. */
 export function requireProject(projectDir: string): void {
     if (isProject(projectDir)) return;
-    console.error(`\n  ✗ No shallot project found at ${projectDir}`);
-    console.error("    Expected a shallot.json manifest or a .scene file\n");
-    console.error("    To create a project:");
-    console.error("      bun create shallot my-game");
-    console.error("      cd my-game && bun install");
-    console.error("      bunx shallot dev\n");
+    for (const line of missingProjectMessage(projectDir)) console.error(line);
     process.exit(1);
 }
 

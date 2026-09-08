@@ -3,11 +3,10 @@
 
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-// type-only — erased at compile time, so this carries no runtime import and no GPU touch (unlike a
-// value import, verified already at this file's own module doc: `verify.ts` does the same with
-// `GpuDiagnostics`/`ShaderArtifact`).
-import type { Plugin } from "../src/engine";
-import { requireProject } from "./toolchain";
+// The one project seam this command reaches through (`scripts/boundary-seams.ts`): plan, discovery,
+// resolution and the plugin loaders, shared with the browser generator. No Vite, no export-map read and
+// no private engine path of its own — the command entry owns all of that (src/project/command.ts).
+import { headlessEngineNames, loadHeadlessPlugins, planProject } from "../src/project/command";
 import type { RGB, Tier, Cell as TuiCell, Grid as TuiGrid } from "./tui/index";
 // type-only — erased at compile time, so this carries no runtime import and no encoder touch (unlike a
 // value import, verified already at this file's own module doc: `verify.ts` does the same with
@@ -21,8 +20,6 @@ import {
     onResize,
     terminalSize,
 } from "./tui/index";
-
-const PACKAGE_ROOT = resolve(import.meta.dir, "..");
 
 export const usage = `
   shallot tui [dir] — boot a project headless and render its cell grid to this terminal
@@ -522,57 +519,6 @@ export function cellsBytesToGrid(
     });
 }
 
-// ---------------------------------------------------------------------------------------------------
-// project plugin resolution — the manifest → real Plugin objects a Node process needs, generalizing
-// `dump-cells-ascii.ts`'s hand-copied plugin list via `../src/project/generate.ts`'s `plan()` (the same
-// classifier the browser build's `virtual:project` generator uses) so this command boots ANY project's
-// own shallot.json rather than one fixed scene's plugin set.
-// ---------------------------------------------------------------------------------------------------
-
-/** resolve one engine plugin name (`plan()`'s `engine` list) to its real Plugin object: the main barrel
- *  first (every default + most extras), falling back to its declared subpath module (today only `Avbd` —
- *  `SUBPATH_PLUGIN_MODULES`) read off this package's own `exports` map rather than hand-copied, so a
- *  future subpath-only plugin resolves with no edit here. Throws naming the plugin on total failure —
- *  never a silent `undefined` plugin object. */
-async function resolveEnginePlugin(
-    name: string,
-    barrel: Record<string, unknown>,
-    subpathModules: Readonly<Record<string, string>>,
-    pkgExports: Record<string, unknown>,
-): Promise<Plugin> {
-    const direct = barrel[`${name}Plugin`];
-    if (direct) return direct as Plugin;
-    const subpathSpec = subpathModules[name];
-    if (subpathSpec) {
-        const key = `.${subpathSpec.slice("@dylanebert/shallot".length)}`;
-        const target = pkgExports[key];
-        if (typeof target === "string") {
-            const mod = (await import(resolve(PACKAGE_ROOT, target))) as Record<string, unknown>;
-            const plugin = mod[`${name}Plugin`];
-            if (plugin) return plugin as Plugin;
-        }
-    }
-    throw new Error(
-        `shallot tui: shallot.json enables unknown engine plugin "${name}" (no export named "${name}Plugin")`,
-    );
-}
-
-/** resolve one local plugin entry (`plan()`'s `locals` list) — a module whose default export is the
- *  Plugin, the same runtime contract `generate.ts`'s emitted browser module enforces (its own docblock:
- *  "A wrong/missing default is silently `undefined`... the runtime guard below is what makes a mistake
- *  loud"). Mirrored here rather than reused, since that guard lives inline in generated module source
- *  text, not as a callable function. */
-async function resolveLocalPlugin(name: string, path: string): Promise<Plugin> {
-    const mod = (await import(path)) as { default?: Plugin };
-    const plugin = mod.default;
-    if (!plugin || typeof plugin.name !== "string") {
-        throw new Error(
-            `shallot tui: shallot.json plugin "${name}": its module must default-export a Plugin`,
-        );
-    }
-    return plugin;
-}
-
 const TERMINAL_CELL_BUDGET = 10_000;
 const FALLBACK_CELL_GEOMETRY = { width: 1, height: 2 } as const;
 
@@ -619,11 +565,11 @@ export function terminalGridSize(size: { width: number; height: number }): Termi
 }
 
 /**
- * `shallot tui [dir]` — the real entry, reached only past  {@link importBunWebgpu}'s success. Returns the process exit code rather than calling `process.exit`
- * itself (mirrors `runVerify`/`runRecipe`; `cli.ts` calls `process.exit(await runTui(...))`), except for
- * `requireProject` — reused verbatim from `toolchain.ts`, and like `dev.ts`/`build.ts` already do, it
- * exits the process directly on a missing project rather than threading a second return convention through
- * this one command.
+ * `shallot tui [dir]` — the real entry, reached only past  {@link importBunWebgpu}'s success. Returns the
+ * process exit code rather than calling `process.exit` itself (mirrors `runVerify`/`runRecipe`; `cli.ts`
+ * calls `process.exit(await runTui(...))`), including for a missing project or an unresolvable manifest
+ * plugin: the project host's command entry returns {@link EXIT_SETUP} with its diagnostics, before
+ * anything of the project has been imported.
  *
  * `bunWebgpuLoader` forwards to {@link importBunWebgpu}; tests can inject its absence.
  */
@@ -644,7 +590,23 @@ export async function runTui(
     }
 
     const projectDir = resolve(args.dir);
-    requireProject(projectDir); // exits the process on a missing project (toolchain.ts's own contract)
+    // discovery, resolution and dependency validation, all before any project module is evaluated: a
+    // missing project or an unresolvable plugin exits here with nothing loaded and nothing to clean up.
+    const planned = planProject(projectDir);
+    if (!planned.plan) {
+        for (const line of planned.errors) console.error(line);
+        return planned.code;
+    }
+    const project = planned.plan;
+    // Glaze composites the rendered scene to a swapchain — never applicable headless, so the host's
+    // headless set drops it unconditionally rather than leaving it to the manifest.
+    const enabledNames = headlessEngineNames(project);
+    if (!enabledNames.includes("Cells")) {
+        console.error(
+            `shallot tui: ${projectDir}/shallot.json does not enable "Cells" — add "Cells": true to its plugins`,
+        );
+        return EXIT_SETUP;
+    }
 
     const bunWebgpu = await importBunWebgpu(bunWebgpuLoader);
     if (!bunWebgpu) {
@@ -682,42 +644,20 @@ export async function runTui(
     const { cellsGridFor } = engine;
     const { attachCanvas } = await import("../src/standard/render/core");
     const { unpackCell, cellGlyphChar } = await import("../src/extras/cells/core");
-    const { readManifest } = await import("../src/project/assets");
-    const { plan } = await import("../src/project/generate");
-    const { SUBPATH_PLUGIN_MODULES } = await import("../src/project/engine");
 
-    const manifest = readManifest(projectDir);
-    const { engine: engineNames, locals } = plan(manifest, projectDir);
-    // Glaze composites the rendered scene to a swapchain — never applicable headless, the same reason
-    // `dump-cells-ascii.ts` bypasses it via `defaults: false` + an explicit list. Dropped unconditionally
-    // rather than left to the manifest, since a headless run has no swapchain to disable it against.
-    const enabledNames = engineNames.filter((n) => n !== "Glaze");
-    if (!enabledNames.includes("Cells")) {
-        console.error(
-            `shallot tui: ${projectDir}/shallot.json does not enable "Cells" — add "Cells": true to its plugins`,
-        );
-        return EXIT_SETUP;
-    }
+    // the plan's plugins, loaded by the host: the headless engine set (Glaze already dropped) plus the
+    // manifest's local plugins, each already proven resolvable above.
+    const plugins = await loadHeadlessPlugins(project);
 
-    const pkgExports = (
-        JSON.parse(readFileSync(resolve(PACKAGE_ROOT, "package.json"), "utf8")) as {
-            exports: Record<string, unknown>;
-        }
-    ).exports;
-    const enginePlugins = await Promise.all(
-        enabledNames.map((n) => resolveEnginePlugin(n, engine, SUBPATH_PLUGIN_MODULES, pkgExports)),
-    );
-    const localPlugins = await Promise.all(locals.map((l) => resolveLocalPlugin(l.name, l.path)));
-
-    const sceneXml = manifest.scene
-        ? readFileSync(join(projectDir, "public", manifest.scene), "utf8")
+    const sceneXml = project.manifest.scene
+        ? readFileSync(join(projectDir, "public", project.manifest.scene), "utf8")
         : undefined;
 
     const app = await engine.build({
-        plugins: [...enginePlugins, ...localPlugins],
+        plugins,
         defaults: false,
         scene: sceneXml,
-        capacity: manifest.capacity,
+        capacity: project.manifest.capacity,
         // the default loading screen (`standard/loading`) mounts a DOM overlay via
         // `document.createElement`; `installHeadlessDom`'s shim only implements what `InputSystem`/
         // `attachCanvas` read, not a real DOM, and a terminal command has no browser overlay to show
