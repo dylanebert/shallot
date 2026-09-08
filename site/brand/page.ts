@@ -45,7 +45,7 @@ ${THEME_SCRIPT}
 .marks { display: flex; gap: 40px; align-items: flex-end; flex-wrap: wrap; }
 .marks div { display: grid; gap: 8px; justify-items: center; font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--muted); }
 .splash { padding: 40px 24px; display: grid; place-items: center; cursor: pointer; }
-.splash pre { font-size: 15px; }
+.splash pre { font-size: 15px; overflow: hidden; }
 .sws { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 2px; }
 .sw { background: var(--bg2); padding: 12px; display: grid; gap: 4px; font-family: "JetBrains Mono", monospace; font-size: 11px; }
 .sw i { display: block; height: 40px; background: var(--d); border-radius: 2px; margin-bottom: 4px; }
