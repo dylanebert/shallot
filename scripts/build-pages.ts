@@ -15,6 +15,7 @@ import { brandPage } from "../site/brand/page";
 import { toPng } from "../site/brand/png";
 import { llmsTxt, siteIndex } from "../site/home";
 import { ROSTER } from "../site/roster";
+import { datadogInitSnippet } from "../site/rum-config";
 
 // `bun run site:pages` — the site's own pages without the demos: out/site/index.html, llms.txt and
 // out/site/brand/ with its downloads. `build-site.ts` calls the same function after the demo
@@ -52,14 +53,18 @@ function framed(grid: ReturnType<typeof fromBlocks>, size: number): ReturnType<t
 }
 
 /** Writes the brand page and every download into `out/brand/`. */
-export async function buildBrand(outDir: string, clientScript?: string): Promise<void> {
+export async function buildBrand(
+    outDir: string,
+    clientScript?: string,
+    rum: string = "",
+): Promise<void> {
     const dir = resolve(outDir, "brand");
     mkdirSync(dir, { recursive: true });
     const mark = fromBlocks(MARK.m);
     const lock = lockup();
     const write = (name: string, data: string | Uint8Array) =>
         writeFileSync(resolve(dir, name), data);
-    write("index.html", brandPage(clientScript ?? (await bundleClient())));
+    write("index.html", brandPage(clientScript ?? (await bundleClient()), rum));
     write("mark.svg", toSvg(mark, DARK, 1));
     write("mark.png", toPng(mark, DARK, 8));
     write("mark-16.png", toPng(framed(mark, 16), DARK, 1));
@@ -74,18 +79,25 @@ export async function buildBrand(outDir: string, clientScript?: string): Promise
     write("mark.ts", readFileSync(resolve(root, "site/brand/mark.ts"), "utf8"));
 }
 
-/** Writes the home index, `llms.txt`, and the brand pages. */
+/** Writes the home index, `llms.txt`, and the brand pages. `rumMode` picks the Datadog env
+ * derivation the pages carry: the hostname-derived prod snippet tags a localhost preview
+ * "local", so a standalone pages build uses it even while labelling itself staging. */
 export async function buildPages(
     outDir: string,
     version: string,
     ref: string,
     mode: "prod" | "staging",
+    rumMode: "prod" | "staging" = mode,
 ): Promise<void> {
     mkdirSync(outDir, { recursive: true });
     const client = await bundleClient();
-    writeFileSync(resolve(outDir, "index.html"), siteIndex(ROSTER, version, ref, mode, client));
+    const rum = datadogInitSnippet(rumMode);
+    writeFileSync(
+        resolve(outDir, "index.html"),
+        siteIndex(ROSTER, version, ref, mode, client, rum),
+    );
     writeFileSync(resolve(outDir, "llms.txt"), llmsTxt(version, ref, mode));
-    await buildBrand(outDir, client);
+    await buildBrand(outDir, client, rum);
 }
 
 if (import.meta.main) {
@@ -97,7 +109,7 @@ if (import.meta.main) {
     const ref = Bun.spawnSync(["git", "rev-parse", "--short", "HEAD"], { cwd: root });
     const refShort = ref.stdout.toString().trim() || "unknown";
     const outDir = resolve(root, "out/site");
-    await buildPages(outDir, pkg.version, refShort, "staging");
+    await buildPages(outDir, pkg.version, refShort, "staging", "prod");
     console.log(
         `pages (staging · ${refShort}): ${outDir}/index.html, ${outDir}/llms.txt, ${outDir}/brand/`,
     );

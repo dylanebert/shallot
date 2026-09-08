@@ -39,7 +39,8 @@ import { nonWorkspaceShallotDependencies } from "./build-site";
 //   4. no generated path is root-absolute — the site must work at any base path (GitHub Pages
 //      serves at `/shallot/`, a dry-run artifact at root, a local out dir at `file://`). Scans
 //      the output dir if it exists; skips with a note if not (the build hasn't run yet).
-//   5. the Datadog RUM slow-frame injection reaches every demo page and skips the index — every
+//   5. the Datadog RUM slow-frame injection reaches every demo page, and the site pages carry the
+//      init alone — every
 //      `*.html` under each `out/site/<slug>/` (including a nested page like
 //      `visualization/demos/*.html`) carries `RUM_INJECTION_MARKER`, `RUM_ENV_SNIPPET` (the
 //      hostname-derived `env: "prod" | "local"` derivation — localhost previews tag "local" so
@@ -49,7 +50,9 @@ import { nonWorkspaceShallotDependencies } from "./build-site";
 //      injected `<script>` block also has to parse (`new Function(src)`) — the substring checks
 //      pin the seam, this pins that the composed call is runnable, since a dropped paren between
 //      two present fragments passes every substring check while still being broken syntax.
-//      `out/site/index.html` does not carry any of this, since it has no frame loop to observe.
+//      `out/site/index.html` and `brand/index.html` carry the marker, env and wiring for page
+//      views, and must not carry the sampler bundle (`slow_frame`), since a page of text has no
+//      frame loop to observe.
 //      Same `SITE_OUT_REQUIRED` gate as clause 4.
 //   6. every built demo root page has a human-readable <title> — a manifest demo's is the bare
 //      slug (`synthIndex` titles from the ejected dir's basename); an own-index demo's just must
@@ -233,13 +236,23 @@ if (stale.length > 0) {
 // `package.json` exists only in a scratch tree that `scripts/build-site.ts` deletes before this
 // script ever runs. So the build stamp records which pin the run used
 // (`site/site-stamp.ts`'s `SiteMode`), and this leg reads it back: a prod-mode stamp must have
-// pinned the current release version, a staging-mode stamp must have pinned a `file:`-form
+// pinned the current release version (or, for a release-source build, the tag it took the demos
+// from), a staging-mode stamp must have pinned a `file:`-form
 // workspace tarball — never the other way, so a mode mix-up reds here instead of the built
 // artifact silently carrying the wrong pin.
 const stamp = readStamp(outDir);
 if (stamp) {
     if (stamp.mode.kind === "prod") {
-        if (stamp.mode.version !== version) {
+        // a release-source build (`tag` recorded) pins the published version by design: the tree
+        // is ahead of npm and the demos came from that tag, so the pin cannot equal the tree's
+        if (stamp.mode.tag) {
+            if (stamp.mode.tag !== `v${stamp.mode.version}`) {
+                fail(
+                    `✗ build stamp records demos from ${stamp.mode.tag} but a pin of ` +
+                        `v${stamp.mode.version} — the two must name the same release`,
+                );
+            }
+        } else if (stamp.mode.version !== version) {
             fail(
                 `✗ build stamp records prod mode pinned to v${stamp.mode.version}, but ` +
                     `packages/shallot/package.json now names v${version} — rebuild with ` +
@@ -414,11 +427,26 @@ if (noParse.length > 0) {
     process.exit(1);
 }
 
-const indexPath = resolve(outDir, "index.html");
-if (existsSync(indexPath) && readFileSync(indexPath, "utf8").includes(RUM_INJECTION_MARKER)) {
+// The site's own pages carry the init snippet (page views) but never the sampler bundle — there
+// is no frame loop on a page of text, and `slow_frame` vitals from one would be noise.
+const pages = ["index.html", "brand/index.html"];
+const pageDefects: string[] = [];
+for (const rel of pages) {
+    const full = resolve(outDir, rel);
+    if (!existsSync(full)) continue;
+    const html = readFileSync(full, "utf8");
+    if (!html.includes(RUM_INJECTION_MARKER)) pageDefects.push(`${rel}: no RUM injection`);
+    if (!html.includes(ownEnvSnippet)) pageDefects.push(`${rel}: no ${mode} env derivation`);
+    if (html.includes(otherEnvSnippet)) pageDefects.push(`${rel}: carries the other mode's env`);
+    if (!html.includes(RUM_ENV_USAGE)) pageDefects.push(`${rel}: env never wired into init`);
+    if (html.includes("slow_frame")) pageDefects.push(`${rel}: carries the frame sampler`);
+}
+if (pageDefects.length > 0) {
+    console.error(`✗ site page(s) with a RUM defect:\n`);
+    for (const d of pageDefects) console.error(`  ${d}`);
     console.error(
-        "✗ out/site/index.html carries the RUM injection marker — the index has no frame loop" +
-            " to observe and must stay JS-free.",
+        "\nThe home and brand pages carry the Datadog init snippet for page views and nothing" +
+            " else (`scripts/build-pages.ts`).",
     );
     process.exit(1);
 }
@@ -501,5 +529,5 @@ if (process.env.RUM_CONFIG_REQUIRED === "1" && existsSync(outDir)) {
 console.log(
     `✓ site roster clean (${ROSTER.length} demos, ` +
         `all manifested, all workspace-pinned, no escaping imports, no root-absolute paths, ` +
-        `RUM injection + env snippet present on every demo page and absent from the index)`,
+        `RUM injection + env snippet present on every demo page, init alone on the site pages)`,
 );

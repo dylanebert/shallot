@@ -14,7 +14,7 @@ const svg = (grid: ReturnType<typeof fromBlocks>, scale: number) => toSvg(grid, 
 const swatch = (name: string, dark: string, light: string) =>
     `<div class="sw"><i style="--d:${dark};--l:${light}"></i><span>${name}</span><span class="muted">${dark} · ${light}</span></div>`;
 
-export function brandPage(clientScript: string): string {
+export function brandPage(clientScript: string, rum: string = ""): string {
     const mark = fromBlocks(MARK.m);
     const lock = lockup();
     return `<!doctype html>
@@ -113,7 +113,7 @@ ${swatch("muted", "#a08c78", "#6e655c")}
 
 </main>
 <script type="module">${clientScript}</script>
-</body>
+${rum}</body>
 </html>
 `;
 }

@@ -4,7 +4,8 @@ import type { DemoEntry } from "./roster";
 
 // The site home at /shallot/: the lockup splashing in, the one-line promise, quick start, the
 // demos, and the build label in the foot. The nav is the one both pages share. The demos themselves are built
-// separately; `clientScript` is the bundled `site/brand/client.ts`.
+// separately; `clientScript` is the bundled `site/brand/client.ts`, `rum` the Datadog init
+// snippet (page views only, no frame sampler).
 
 export function siteIndex(
     demos: DemoEntry[],
@@ -12,6 +13,7 @@ export function siteIndex(
     ref: string,
     mode: "prod" | "staging",
     clientScript: string = "",
+    rum: string = "",
 ): string {
     // staging labels by ref, never by version tag — a staging build routinely runs ahead of the
     // last release, so `v${version}` may name a GitHub tag that doesn't exist yet.
@@ -95,7 +97,7 @@ ${rows}
 <footer>${label}</footer>
 </main>
 <script type="module">${clientScript}</script>
-</body>
+${rum}</body>
 </html>
 `;
 }

@@ -48,12 +48,15 @@ export const STAMP_FILE = "build-stamp.json";
  * carries the release version it pinned; staging carries the `file:<tgz>` pin `bun pm pack`
  * produced, so a mode mix-up (prod artifact stamped staging, or vice versa) reds on the pin shape
  * instead of passing silently. */
-export type SiteMode = { kind: "prod"; version: string } | { kind: "staging"; pin: string };
+export type SiteMode =
+    | { kind: "prod"; version: string; tag?: string }
+    | { kind: "staging"; pin: string };
 
 function isSiteMode(v: unknown): v is SiteMode {
     if (typeof v !== "object" || v === null) return false;
     const m = v as Record<string, unknown>;
-    if (m.kind === "prod") return typeof m.version === "string";
+    if (m.kind === "prod")
+        return typeof m.version === "string" && (m.tag === undefined || typeof m.tag === "string");
     if (m.kind === "staging") return typeof m.pin === "string";
     return false;
 }
@@ -218,6 +221,9 @@ export function staleDemos(rootDir: string, outDirPath: string, slugs: string[])
             reason: `no readable ${STAMP_FILE} — built before the artifact recorded its sources`,
         }));
     }
+    // demos built from a release tag were never this tree's sources; the tag is immutable, so the
+    // artifact cannot go stale against it
+    if (stamp.mode.kind === "prod" && stamp.mode.tag) return [];
     const current = demoFingerprints(rootDir, present);
     const stale: StaleDemo[] = [];
     for (const slug of present) {
