@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { State } from "../engine";
-import { Physics } from "../standard/physics";
+import type { State } from "../../../shallot-runtime/src/engine";
+import { Physics } from "../../../shallot-runtime/src/standard/physics";
 import { installHarness } from "./runtime";
 
 // a stub State exposing only what installHarness reads: the elapsed clock + membership check.

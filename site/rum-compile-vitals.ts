@@ -3,7 +3,7 @@
 // and reports through `DD_RUM.addDurationVital`; this module is unit-testable on its own
 // (`rum-compile-vitals.test.ts`).
 //
-// The wire: `packages/shallot/src/engine/runtime/gpu.ts`'s `reportCompile` emits
+// The wire: `packages/shallot-runtime/src/engine/runtime/gpu.ts`'s `reportCompile` emits
 // `performance.measure("<prefix><forcer.label>", { start, end })` beside the existing
 // `Compute.precompiled?.(...)` call — called from `compileValidated`'s serial per-forcer path and
 // directly from `precompileAll`'s multi-member batch-then-bisect fast path, so it's the one emitter

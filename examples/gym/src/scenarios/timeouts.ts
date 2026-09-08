@@ -14,7 +14,7 @@
 //   own process, never folded into the shared-boot batch — grounded on the
 //   `stress` sweep-contention finding: a
 //   perf-threshold gate measured under back-to-back sweep contention is not trustworthy.
-// - `covers` — glob(s) into `packages/shallot/src` naming the GPU-side modules this scenario exercises.
+// - `covers` — glob(s) into `packages/shallot-runtime/src` naming the GPU-side modules this scenario exercises.
 //   The coverage check (`coverage.ts`) asserts every glob resolves, every table key is a registered
 //   scenario, and (once 3b populates the rest) every scenario has an entry and every GPU-side module is
 //   either covered or explicitly exempted.
@@ -47,22 +47,22 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     stress: {
         timeoutMs: 180_000,
         isolate: true,
-        covers: ["packages/shallot/src/extras/profile/**/*.ts"],
+        covers: ["packages/shallot-runtime/src/extras/profile/**/*.ts"],
     },
     outline: {
-        covers: ["packages/shallot/src/extras/outline/**/*.ts"],
+        covers: ["packages/shallot-runtime/src/extras/outline/**/*.ts"],
     },
     sprite: {
-        covers: ["packages/shallot/src/extras/sprite/**/*.ts"],
+        covers: ["packages/shallot-runtime/src/extras/sprite/**/*.ts"],
     },
     text: {
-        covers: ["packages/shallot/src/extras/text/**/*.ts"],
+        covers: ["packages/shallot-runtime/src/extras/text/**/*.ts"],
     },
     cells: {
-        covers: ["packages/shallot/src/extras/cells/**/*.ts"],
+        covers: ["packages/shallot-runtime/src/extras/cells/**/*.ts"],
     },
     gltf: {
-        covers: ["packages/shallot/src/extras/gltf/**/*.ts"],
+        covers: ["packages/shallot-runtime/src/extras/gltf/**/*.ts"],
         // keyed to gltf.ts's SOURCES — the same paths loadGltf fetches
         assets: (p) => {
             const source = (p.source as string) ?? "sponza";
@@ -76,8 +76,8 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     // not an incidental import.
     accel: {
         covers: [
-            "packages/shallot/src/standard/bvh/**/*.ts",
-            "packages/shallot/src/extras/lines/**/*.ts",
+            "packages/shallot-runtime/src/standard/bvh/**/*.ts",
+            "packages/shallot-runtime/src/extras/lines/**/*.ts",
         ],
     },
     // `render` is one registered scenario carrying many `mode`-selected rows (barrel header,
@@ -95,13 +95,13 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     render: {
         isolate: true,
         covers: [
-            "packages/shallot/src/standard/render/**/*.ts",
-            "packages/shallot/src/standard/sear/**/*.ts",
-            "packages/shallot/src/standard/part/**/*.ts",
-            "packages/shallot/src/standard/slab/**/*.ts",
-            "packages/shallot/src/extras/sky/**/*.ts",
-            "packages/shallot/src/extras/skin/**/*.ts",
-            "packages/shallot/src/engine/utils/encode.ts",
+            "packages/shallot-runtime/src/standard/render/**/*.ts",
+            "packages/shallot-runtime/src/standard/sear/**/*.ts",
+            "packages/shallot-runtime/src/standard/part/**/*.ts",
+            "packages/shallot-runtime/src/standard/slab/**/*.ts",
+            "packages/shallot-runtime/src/extras/sky/**/*.ts",
+            "packages/shallot-runtime/src/extras/skin/**/*.ts",
+            "packages/shallot-runtime/src/engine/utils/encode.ts",
         ],
         // keyed to render.ts's GLTF_VARIANTS / FOX / SPILL_ASSETS / MULTI / WORKER_* — the same paths
         // loadGltf and the scene preloader fetch. Only the gltf modes need mounts; cull/shaded/fog
@@ -155,9 +155,9 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     // real part/render/sear pipeline — folds into the same modules `render`'s entry already covers.
     "mesh-fixture": {
         covers: [
-            "packages/shallot/src/standard/part/**/*.ts",
-            "packages/shallot/src/standard/render/**/*.ts",
-            "packages/shallot/src/standard/sear/**/*.ts",
+            "packages/shallot-runtime/src/standard/part/**/*.ts",
+            "packages/shallot-runtime/src/standard/render/**/*.ts",
+            "packages/shallot-runtime/src/standard/sear/**/*.ts",
         ],
     },
 
@@ -165,28 +165,28 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     backend: {
         // the substrate swap gate: `--param backend=tumble|avbd` runs the same scene under either
         // backend, so it is a real (if secondary) exerciser of the avbd path.
-        covers: ["packages/shallot/src/standard/avbd/**/*.ts"],
+        covers: ["packages/shallot-runtime/src/standard/avbd/**/*.ts"],
     },
     character: {
         // felt-lag GPU-load probe: `probeChecks`'s "position input→camera carries no GPU readback" check
         // asserts a frame-count delta under a calibrated GPU load — a perf-threshold check (the same
         // felt-lag shape as `stress`), untrustworthy under sweep contention.
         isolate: true,
-        covers: ["packages/shallot/src/standard/avbd/**/*.ts"],
+        covers: ["packages/shallot-runtime/src/standard/avbd/**/*.ts"],
     },
     constraints: {
-        covers: ["packages/shallot/src/standard/avbd/**/*.ts"],
+        covers: ["packages/shallot-runtime/src/standard/avbd/**/*.ts"],
     },
     motor: {
-        covers: ["packages/shallot/src/standard/avbd/**/*.ts"],
+        covers: ["packages/shallot-runtime/src/standard/avbd/**/*.ts"],
     },
     pile: {
-        covers: ["packages/shallot/src/standard/avbd/**/*.ts"],
+        covers: ["packages/shallot-runtime/src/standard/avbd/**/*.ts"],
     },
     sat: {
         // the GPU-SAT codegen gate (hull/rounded narrowphase matrix vs the C gold vectors) — the codegen
         // it validates lives in `standard/avbd`.
-        covers: ["packages/shallot/src/standard/avbd/**/*.ts"],
+        covers: ["packages/shallot-runtime/src/standard/avbd/**/*.ts"],
     },
 
     // ── everything below is a tumble (CPU wasm) scenario: no `covers`, deliberately. Tumble physics is
@@ -246,9 +246,9 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     // `probeTexture` (probe.ts) — verified by import, not guessed.
     "gpu-diagnostic": {
         covers: [
-            "packages/shallot/src/engine/runtime/gpu.ts",
-            "packages/shallot/src/engine/runtime/log.ts",
-            "packages/shallot/src/engine/runtime/probe.ts",
+            "packages/shallot-runtime/src/engine/runtime/gpu.ts",
+            "packages/shallot-runtime/src/engine/runtime/log.ts",
+            "packages/shallot-runtime/src/engine/runtime/probe.ts",
         ],
     },
     // orbit-touch (`shallot-mobile-controls` spec, S4): an Orbit camera targeting a box, driven by the
@@ -273,13 +273,13 @@ export const GATE_EXEMPTIONS: Record<string, string> = {
     //
     // engine/runtime/index.ts: verified — every line is a bare `export { ... } from "./..."`, no logic
     // of its own.
-    "packages/shallot/src/engine/runtime/index.ts": "barrel re-export, no logic of its own",
+    "packages/shallot-runtime/src/engine/runtime/index.ts": "barrel re-export, no logic of its own",
     // engine/runtime/platform.ts: `Runtime`/`now`/`requestFrame`/`readFile`/`readBinary` are cross-cutting
     // environment/timing primitives every scenario exercises identically through `run()`'s frame loop, so
     // no single scenario's assert targets a regression here specifically — its own correctness is
     // unit-tested (`runtime.test.ts`, verified: schedules-frame-callbacks + reads-files + timing cases),
     // not something a real-device scenario would newly catch.
-    "packages/shallot/src/engine/runtime/platform.ts":
+    "packages/shallot-runtime/src/engine/runtime/platform.ts":
         "cross-cutting frame/timing primitive, unit-gated by runtime.test.ts, not a real-device concern",
 
     // extras/orbit/** and extras/animation/** are CPU-only (`NON_GPU_EXTRAS`, coverage.ts), so they are not

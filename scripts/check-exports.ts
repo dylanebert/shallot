@@ -1,4 +1,4 @@
-// ts-prune-shaped: for every symbol exported from `packages/shallot/src/**`, determine whether
+// ts-prune-shaped: for every symbol exported by runtime, tooling and distribution source, determine whether
 // any *external* consumer imports it across `src/`, `examples/`, `scripts/`, and `tests/`.
 // Reports the zero-consumer ones (exported, nobody imports them, not even referenced in-file),
 // the in-file-only ones (exported, referenced within the defining file but not imported
@@ -366,6 +366,19 @@ function sourceOwner(root: string, path: string): string {
             throw new Error(`missing canonical tooling source: ${owner}`);
         return owner;
     }
+    if (
+        existsSync(resolve(root, "packages/shallot-runtime/package.json")) &&
+        path.startsWith("packages/shallot/src/") &&
+        ![
+            "packages/shallot/src/harness/index.ts",
+            "packages/shallot/src/harness/index.test.ts",
+        ].includes(path)
+    ) {
+        const owner = path.replace("packages/shallot/", "packages/shallot-runtime/");
+        if (!existsSync(resolve(root, owner)))
+            throw new Error(`missing canonical runtime source: ${owner}`);
+        return owner;
+    }
     return path;
 }
 
@@ -458,6 +471,15 @@ export function computeEntryFiles(
 
         const target = typeof value === "string" ? value : (value as { types?: string })?.types;
         if (typeof target !== "string") continue;
+        if (
+            existsSync(resolve(rootDir, "packages/shallot-runtime/package.json")) &&
+            target.startsWith("./src/") &&
+            !target.startsWith("./src/project/") &&
+            target !== "./src/harness/browser.ts" &&
+            !existsSync(resolve(pkgDir, target))
+        ) {
+            throw new Error(`missing runtime export projection: ${key} → ${target}`);
+        }
 
         const resolved = resolve(
             rootDir,
@@ -595,7 +617,11 @@ export async function findDeadExports(
 
     const srcGlob = new Glob("**/*.ts");
     const sources = new Set<string>();
-    for (const dir of [srcDir, resolve(rootDir, "packages/shallot-tooling/src")]) {
+    for (const dir of [
+        srcDir,
+        resolve(rootDir, "packages/shallot-runtime/src"),
+        resolve(rootDir, "packages/shallot-tooling/src"),
+    ]) {
         if (!existsSync(dir)) continue;
         for await (const path of srcGlob.scan({ cwd: dir })) {
             sources.add(sourceOwner(rootDir, relative(rootDir, resolve(dir, path))));
@@ -620,6 +646,12 @@ export async function findDeadExports(
         for (const re of reExports) {
             const sourceFile = resolveSpecifier(relPath, re.source, rootDir, packageExports);
             if (sourceFile) resolved.push({ names: re.names, sourceFile });
+            else if (
+                re.source.startsWith(".") ||
+                re.source === PKG ||
+                re.source.startsWith(PKG + "/")
+            )
+                throw new Error(`unresolved source re-export: ${relPath} → ${re.source}`);
         }
         reExportsMap.set(relPath, resolved);
     }
@@ -633,6 +665,7 @@ export async function findDeadExports(
 
     const consumerDirs = [
         "packages/shallot/src",
+        "packages/shallot-runtime/src",
         "packages/shallot/tests",
         "packages/shallot-tooling/bin",
         "packages/shallot-tooling/src",

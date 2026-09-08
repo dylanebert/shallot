@@ -1,4 +1,4 @@
-import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot/src/engine/runtime/gpu";
+import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot-runtime/src/engine/runtime/gpu";
 import { type LoAFEntry, loafByCompilePhase } from "../packages/shallot-tooling/bin/verify";
 import { queryFlags, skipReason, teardownBridge, verify } from "./verify";
 

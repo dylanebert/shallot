@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import * as d from "typegpu/data";
 // the shipped narrowphase, called on the CPU — the same TGSL source the GPU collide pass splices
-import { collideBoxBox, MAX_CONTACTS } from "../../src/standard/avbd/collide";
+import { collideBoxBox, MAX_CONTACTS } from "../../../shallot-runtime/src/standard/avbd/collide";
 import { type Box, type Contact, collide } from "./collide";
 import { add, type Quat, scale, sub, transform, type Vec3 } from "./math";
 import gold from "./sat-gold-vectors.json";

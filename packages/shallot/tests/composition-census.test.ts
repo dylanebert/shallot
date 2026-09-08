@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { $ } from "bun";
-import { resolvePlugins } from "../src/engine/app/compose";
-import { DEFAULT_PLUGINS } from "../src/standard/defaults";
+import { resolvePlugins } from "../../shallot-runtime/src/engine/app/compose";
+import { DEFAULT_PLUGINS } from "../../shallot-runtime/src/standard/defaults";
 import { roster } from "./conformance-roster";
 
 const root = resolve(import.meta.dir, "../../..");

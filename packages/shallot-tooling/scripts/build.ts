@@ -73,7 +73,10 @@ for (const path of projection) {
 }
 // The four existing diagnostic seams are assembled beside their runtime definitions in the tarball.
 const verify = resolve(DISTRIBUTION, "bin/verify.ts");
-writeFileSync(verify, readFileSync(verify, "utf8").replaceAll("../../shallot/src/", "../src/"));
+writeFileSync(
+    verify,
+    readFileSync(verify, "utf8").replaceAll("../../shallot-runtime/src", "../src"),
+);
 
 // dist/ is regenerated on every pack — never accumulate a stale build's leftovers (a manual `shallot
 // build` run against this package as its own project would otherwise land unrelated output here too).

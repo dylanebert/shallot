@@ -1,16 +1,9 @@
 ---
 paths:
-    - "packages/shallot/src/**/*.test.ts"
-    - "packages/shallot/tests/**/*.ts"
-    - "packages/shallot-tooling/**/*.{test,probes}.ts"
-    - "scripts/install-test.ts"
-    - "scripts/stall-attribution.ts"
-    - "scripts/compile-concurrency.ts"
-    - "scripts/loaf-attribution.ts"
-    - "packages/shallot-tooling/scripts/build.ts"
-    - "examples/showcase/ocean/test/**/*.test.ts"
-    - "examples/showcase/ocean/test/**/*.oracle.ts"
-    - "site/rum-*.ts"
+  - "packages/{shallot-runtime/src/**/*.test.ts,shallot-runtime/scripts/*.ts,shallot/tests/**/*.ts,shallot-tooling/**/*.{test,probes}.ts,shallot-tooling/scripts/build.ts}"
+  - "scripts/{install-test.ts,install-test/**/*.ts,stall-attribution.ts,compile-concurrency.ts,loaf-attribution.ts}"
+  - "examples/showcase/ocean/test/**/*.{test,oracle}.ts"
+  - "site/rum-*.ts"
 ---
 
 # Testing

@@ -21,8 +21,11 @@ import {
 } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { compatibilityFlow } from "./install-test/compatibility";
 import { harnessArms, harnessContract } from "./install-test/harness";
+import { outputFlow } from "./install-test/output";
+import { runtimeArms } from "./install-test/runtime";
 import {
     type ShaderArtifactSummary,
     skipReason,
@@ -35,7 +38,7 @@ const ENGINE_DIR = resolve(import.meta.dir, "../packages/shallot");
 const WIDGET_DIR = resolve(import.meta.dir, "install-test/widget");
 const PARTICLES_DIR = resolve(import.meta.dir, "../packages/shallot-gpu-particles");
 const CREATE_SHALLOT_DIR = resolve(import.meta.dir, "../packages/create-shallot");
-const CLI = "node_modules/@dylanebert/shallot/bin/cli.ts"; // the installed CLI, run as a real user would
+const CLI = "node_modules/.bin/shallot"; // execute the installation's declared public bin
 
 const freePort = (): Promise<number> =>
     new Promise((res, rej) => {
@@ -1909,6 +1912,7 @@ if (import.meta.main) {
         );
         if (install.ok) {
             harnessArms(sandbox);
+            runtimeArms(sandbox);
             writeFileSync(
                 join(sandbox, "missing-plugin.ts"),
                 `import { build } from "@dylanebert/shallot";\n` +
@@ -2117,9 +2121,24 @@ if (import.meta.main) {
                     // node_modules too. Ask the server for the module the page imports and read what it
                     // serves. (It does not cover a prebundled `.vite/deps` copy — dep optimization runs on
                     // page load, which this headless boot never performs. The real-browser rung below does.)
-                    const engineMod = await fetch(
-                        `http://localhost:${port}/node_modules/@dylanebert/shallot/src/engine/runtime/gpu.ts`,
+                    const installedRoot = join(sandbox, "node_modules/@dylanebert/shallot");
+                    const runtimeTarget = JSON.parse(
+                        readFileSync(join(installedRoot, "package.json"), "utf8"),
+                    ).exports["./runtime"];
+                    assert.equal(typeof runtimeTarget, "string", "declared raw runtime export");
+                    const runtimeEntry = resolve(installedRoot, runtimeTarget);
+                    const canaryHops = [
+                        ...readFileSync(runtimeEntry, "utf8").matchAll(
+                            /export\s*\{[^}]*\btgslCanary\b[^}]*\}\s*from\s*["']([^"']+)["']/g,
+                        ),
+                    ];
+                    assert.equal(canaryHops.length, 1, "one resolved public canary re-export");
+                    const canarySource = resolve(dirname(runtimeEntry), `${canaryHops[0][1]}.ts`);
+                    assert(
+                        canarySource.startsWith(installedRoot + "/") && existsSync(canarySource),
+                        "canary definition belongs to the installation",
                     );
+                    const engineMod = await fetch(`http://localhost:${port}/@fs${canarySource}`);
                     const served = engineMod.ok ? await engineMod.text() : "";
                     check(
                         "dev serves engine TGSL through the transform",
@@ -2181,8 +2200,12 @@ if (import.meta.main) {
         await identityBrowserFlow(work, engineTgz);
 
         createShallotFlow(work, engineTgz);
+        compatibilityFlow(work, engineTgz);
+        await outputFlow(work, engineTgz);
     } finally {
-        rmSync(work, { recursive: true, force: true });
+        if (process.env.SHALLOT_INSTALL_KEEP === "1")
+            console.log(`install artifacts retained: ${work}`);
+        else rmSync(work, { recursive: true, force: true });
     }
 
     if (fails.length) {

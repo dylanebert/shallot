@@ -48,8 +48,22 @@ const tumbleRoot = resolve(shallotRoot, "..", "tumble.js");
 const samplesDir = resolve(tumbleRoot, "samples");
 const sampleBase = resolve(samplesDir, "src", "sample.ts");
 const sampleIndex = resolve(samplesDir, "src", "samples", "index.ts");
-const enginePath = resolve(pkgRoot, "src", "standard", "tumble", "engine", "index.ts");
-const bodyPath = resolve(pkgRoot, "src", "standard", "tumble", "engine", "body.ts");
+const enginePath = resolve(
+    pkgRoot,
+    "../shallot-runtime/src",
+    "standard",
+    "tumble",
+    "engine",
+    "index.ts",
+);
+const bodyPath = resolve(
+    pkgRoot,
+    "../shallot-runtime/src",
+    "standard",
+    "tumble",
+    "engine",
+    "body.ts",
+);
 const outDir = resolve(pkgRoot, "tests", "tumble", "samples");
 
 if (!existsSync(sampleIndex)) {

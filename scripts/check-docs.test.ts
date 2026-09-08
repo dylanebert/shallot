@@ -205,7 +205,9 @@ beforeAll(async () => {
             "README.md": (text) => text.replace(/^bun run test\s+#.*$/m, oldCone),
         });
         const pkg = JSON.parse(readFileSync(join(fixture, "package.json"), "utf8"));
-        const paths = pkg.scripts.test.replace(/^bun test\s+/, "").split(/\s+/);
+        const command = /(?:^| && )bun test\s+([^&]+)$/.exec(pkg.scripts.test);
+        expect(command).not.toBeNull();
+        const paths = command![1].trim().split(/\s+/);
         const cone = `bun run test # unit tests over ${paths.join(", ")} (bun-webgpu)`;
         const commands = [
             ...OCEAN_CPU_GATES.map((row) => `bun run ${row.script}`),

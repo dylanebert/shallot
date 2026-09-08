@@ -1,10 +1,7 @@
 ---
 paths:
-    - "packages/shallot/src/**/*.ts"
-    - "packages/shallot/package.json"
-    - "packages/shallot-tooling/src/**/*.ts"
-    - "packages/shallot-tooling/package.json"
-    - "examples/showcase/ocean/src/ocean/**"
+  - "packages/{shallot-runtime/src/**/*.ts,shallot-runtime/package.json,shallot/src/harness/*.ts,shallot/package.json,shallot-tooling/src/**/*.ts,shallot-tooling/package.json}"
+  - "examples/showcase/ocean/src/ocean/**"
 ---
 
 # Exports
@@ -19,11 +16,11 @@ Skin is engine-owned, format-independent pose storage, with no surface: glTF, ph
 
 ## Compiled tooling exports
 
-Runtime exports ship raw TS for TypeGPU. Private `shallot-tooling` owns CLI/project/native sources. Its `scripts/build.ts` projects the public bin, source types, assets/crate and compiled `./vite`/`./harness/browser` defaults. One maintained source; no installed workspace reach. Build before linked imports and after postpack clears projections. Node-only islands exclude runtime/TGSL; the browser leaf is import-free.
+Private `shallot-runtime` owns runtime source/audio; `scripts/project.ts` emits bounded development re-exports or full raw pack copies. No installed forwarding escape or duplicate runtime. Private `shallot-tooling` owns CLI/project/native source; its build projects bin/types/assets and compiled `./vite`/`./harness/browser`. Rebuild after postpack clears tooling. Node leaves exclude runtime/TGSL; the browser leaf is import-free.
 
 The public raw `src/harness/index.ts` composes runtime plus the compiled browser leaf. Runtime's `harness/runtime.ts` and siblings never import that composite or tooling. Preserve the complete public value/type surface. Missing/stale projections fail; never infer ownership from the installed `src/` prefix.
 
-CLI installs the project and TGSL plugins once. Ejected Vite uses direct `unplugin-typegpu/vite`, not CLI-only `typegpuPlugin`; pass the project directory to `projectPlugin(dir)` or it loads an empty manifest. Keep both engine and TypeGPU out of dependency prebundling; component TGSL runs after its framework with matching include IDs. Consumer recipes: `packages/shallot/MIGRATION.md`.
+Transform TGSL exactly once. Ejected Vite uses `unplugin-typegpu/vite` and `projectPlugin(dir)` with both packages excluded from prebundling. Framework TGSL runs after its compiler with matching include IDs. Recipes: `packages/shallot/MIGRATION.md`.
 
 ## Distribution layers
 

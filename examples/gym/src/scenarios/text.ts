@@ -28,7 +28,7 @@ import { ColorSystem } from "@dylanebert/shallot/sear/core";
 import { type Check, frames, register, type Scenario, settle } from "../gym";
 
 // The typed shallot text producer's real-GPU coverage: a label drawn through the `typedTextSurface`
-// path (`packages/shallot/src/extras/text/index.ts`), gated the same way `accel`'s line draw is — a
+// path (`packages/shallot-runtime/src/extras/text/index.ts`), gated the same way `accel`'s line draw is — a
 // framebuffer probe that can only read positive if the surface actually put color on screen. `font()`
 // runs before `run()` — `TextPlugin.initialize` only falls back to the remote `DEFAULT_FONT` when the
 // registry is still empty at that point, so a font already registered wins.

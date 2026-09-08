@@ -1,16 +1,16 @@
 {
-    "total": 69017,
+    "total": 68666,
     "files": {
         ".claude/rules/audio.md": {
-            "bytes": 3715,
+            "bytes": 3714,
             "paragraph": 528
         },
         ".claude/rules/avbd.md": {
-            "bytes": 5499,
+            "bytes": 5490,
             "paragraph": 636
         },
         ".claude/rules/ecs.md": {
-            "bytes": 4489,
+            "bytes": 4475,
             "paragraph": 515
         },
         ".claude/rules/examples.md": {
@@ -18,19 +18,19 @@
             "paragraph": 432
         },
         ".claude/rules/exports.md": {
-            "bytes": 4443,
+            "bytes": 4326,
             "paragraph": 539
         },
         ".claude/rules/gpu.md": {
-            "bytes": 6973,
-            "paragraph": 519
+            "bytes": 6916,
+            "paragraph": 462
         },
         ".claude/rules/physics.md": {
-            "bytes": 3997,
+            "bytes": 3987,
             "paragraph": 534
         },
         ".claude/rules/render.md": {
-            "bytes": 6957,
+            "bytes": 6938,
             "paragraph": 472
         },
         ".claude/rules/style.md": {
@@ -38,19 +38,19 @@
             "paragraph": 473
         },
         ".claude/rules/testing.md": {
-            "bytes": 7882,
-            "paragraph": 468
+            "bytes": 7794,
+            "paragraph": 464
         },
         ".claude/rules/tumble.md": {
-            "bytes": 4983,
-            "paragraph": 733
+            "bytes": 4959,
+            "paragraph": 709
         },
         ".claude/rules/visual-identity.md": {
             "bytes": 1224,
             "paragraph": 451
         },
         "AGENTS.md": {
-            "bytes": 4432,
+            "bytes": 4420,
             "paragraph": 627
         },
         "CLAUDE.md": {

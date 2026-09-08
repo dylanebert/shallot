@@ -24,7 +24,7 @@ function unresolvedResources(message: string): string[] {
 
 // By-path full-corpus Tint compilation tier. Run from the shallot root:
 // `bun test ./packages/shallot/tests/standards-compile.tier.ts`.
-// Trigger cone: `packages/shallot/src/**/*.ts` and `packages/shallot/tests/standards*`; the source walk
+// Trigger cone: `packages/shallot-runtime/src/**/*.ts` and `packages/shallot/tests/standards*`; the source walk
 // and its exact population golden make every resolved-kernel addition, removal, or WGSL change relevant.
 // Red proof (2026-08-30): seeding standalone `applyGrade` with an unresolved `s4_missing` reference
 // made this command exit 1 with a non-null GPUValidationError; restoring the seed exited 0.

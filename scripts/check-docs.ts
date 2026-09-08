@@ -804,7 +804,7 @@ if (citationCandidates.length === 0) {
 
 // ── Resolution ──────────────────────────────────────────────────────────────────────────────
 //
-// For .ts paths: try as-is, with `packages/shallot/src/`, with `packages/shallot/`, then suffix
+// For .ts paths: try as-is, legacy distribution prefixes, then canonical-owner suffix
 // match against the tracked set.
 // For identifiers: exact set-membership in the token index (NOT substring matching).
 // For both: if unresolved against the tree, check against the combined roster.
@@ -1058,7 +1058,7 @@ const rosterCommands = new Set(
         ...EXAMPLE_GATES.map((row) => row.gate),
     ].map(expandCommand),
 );
-const testCommand = /^bun test\s+(.+)$/.exec(rootScripts.test ?? "");
+const testCommand = /(?:^| && )bun test\s+([^&]+)$/.exec(rootScripts.test ?? "");
 if (!testCommand || !OCEAN_CPU_GATES.length || !EXAMPLE_GATES.length) {
     console.error("✗ command composition: missing test arguments or empty gate registry");
     process.exit(1);

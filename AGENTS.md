@@ -1,8 +1,8 @@
 # Shallot
 
-WebGPU engine, no editor/docs site. JSDoc owns APIs; code is truth. Read `packages/shallot/AGENTS.md` (consumer); grep `examples/AGENTS.md` first.
+WebGPU engine. JSDoc owns APIs. Read `packages/shallot/AGENTS.md` (consumer); grep `examples/AGENTS.md` first.
 
-Owners: `packages/{shallot,shallot-tooling,create-shallot}/`; `evals/`, `examples/`.
+Owners: `packages/{shallot,shallot-runtime,shallot-tooling,create-shallot}/`; `evals/`, `examples/`.
 
 ## Rules
 
@@ -55,7 +55,7 @@ OS: windows/mac/linux; web build emits dist, run builds/previews; native dev run
 
 ### Verification
 
-Before completion: format, check, test above. Release order: `testing.md` (all-roster AND separate demos). After AVBD/physics: `bun test ./packages/shallot/tests/avbd/*.oracle.ts`; engine/host/twin: `bun test ./examples/gym/src`; tumble fixtures from package per `tumble.md`; Rust audio: `cargo test` from `packages/shallot/rust/audio`.
+Before completion: format, check, test above. Release order: `testing.md` (all-roster AND separate demos). After AVBD/physics: `bun test ./packages/shallot/tests/avbd/*.oracle.ts`; engine/host/twin: `bun test ./examples/gym/src`; tumble fixtures from package per `tumble.md`; Rust audio: `cargo test` from `packages/shallot-runtime/rust/audio`.
 
 GPU changes owe bench; serialize/restore, config.ui/mountOverlay or dev-server changes owe flows; physics-recipe/substrate/tumble changes owe recipes. Display gates self-terminate and run alone. WSL uses `scripts/wsl-bridge.ts`/verify --connect to Windows GPU; skips only for missing host node/bun. Packaging/CLI/manifest/assets/scaffold changes owe test:install; symlinks hide install defects.
 

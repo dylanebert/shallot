@@ -25,10 +25,10 @@
 // devDependency here, and it hands the JSON import to Node untouched. The child is a real `node` process
 // (`node node_modules/@playwright/test/cli.js`), never bun.
 //
-// **Scope, stated rather than implied.** Two subjects, two readers:
-//   · `@dylanebert/shallot/src/standard/loading/index.ts` (`package.json`'s `"./src/*"` export) and its
-//     transitive graph — where the JSON import lives — read under real `node` via Playwright's transform
-//     (the reader the field failure went through, below).
+// **Scope, stated rather than implied.** One declared barrel, two readers:
+//   · `@dylanebert/shallot` and its transitive graph, including the loading module's JSON import,
+//     read under real `node` via Playwright's transform (the reader the field failure went through).
+//     The four loading exports prove that the declared barrel still reaches the regression subject.
 //   · the package barrel `@dylanebert/shallot` (`src/index.ts`) — read under bun, which (like Node)
 //     defines no WebGPU globals, so a module-scope read of `GPUTextureUsage` in the barrel's graph (the
 //     `COLOR_LANES` entry in `standard/sear/codegen.ts`) red here without Playwright until S1 deferred
@@ -53,7 +53,7 @@ const REPO_ROOT = resolve(import.meta.dir, "..");
 const NODE_MODULES = resolve(REPO_ROOT, "node_modules");
 const PW_CLI = resolve(NODE_MODULES, "@playwright/test/cli.js");
 /** the published specifier whose graph carries the JSON import (see the scope note above). */
-const SUBJECT = "@dylanebert/shallot/src/standard/loading/index.ts";
+const SUBJECT = "@dylanebert/shallot";
 /** real exported symbols the child must find — an import that resolves and exports nothing real is not a
  *  loading package (`testing.md` § Install gate: "a real symbol came through, not just that the import
  *  didn't throw"). They aren't *called*: they build DOM nodes and Node has no `document`. */

@@ -7,7 +7,7 @@
 use serde_json::Value;
 use tumble_kernel::math::*;
 
-const GOLD: &str = include_str!("../../../src/standard/tumble/engine/math.gold.json");
+const GOLD: &str = include_str!("../../../../shallot-runtime/src/standard/tumble/engine/math.gold.json");
 
 // Reconstruct an exact f32 from the raw hex bits the C generator emitted — no decimal round-trip.
 fn from_bits(hex: &str) -> f32 {

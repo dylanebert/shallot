@@ -61,6 +61,17 @@ packages/shallot/tests/fixtures/avbd/
 packages/shallot/examples/
 packages/shallot/bin/
 packages/shallot/src/project/
+packages/shallot/src/engine
+packages/shallot/src/standard
+packages/shallot/src/extras
+packages/shallot/src/types
+packages/shallot/rust/audio/
+packages/shallot/src/index.ts
+packages/shallot/src/harness/runtime.ts
+packages/shallot/src/harness/pixels.ts
+packages/shallot/src/harness/motion.ts
+packages/shallot/src/harness/degraded-boot.ts
+packages/shallot/runtime-inputs.json
 packages/shallot/src/harness/browser.ts
 packages/shallot/rust/window/
 packages/shallot/assets/

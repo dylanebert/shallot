@@ -1,14 +1,7 @@
 ---
 paths:
-    - "packages/shallot/src/engine/runtime/**/*.ts"
-    - "packages/shallot/src/engine/utils/encode.ts"
-    - "packages/shallot/src/standard/render/**/*.ts"
-    - "packages/shallot/src/standard/sear/**/*.ts"
-    - "packages/shallot/src/standard/part/**/*.ts"
-    - "packages/shallot/src/standard/slab/**/*.ts"
-    - "packages/shallot/src/standard/bvh/**/*.ts"
-    - "packages/shallot/src/extras/{cells,gltf,lines,outline,profile,skin,sky,sprite,text}/**/*.ts"
-    - "examples/showcase/ocean/src/ocean/**"
+  - "packages/{shallot-runtime/src/engine/runtime/**/*.ts,shallot-runtime/src/engine/utils/encode.ts,shallot-runtime/src/standard/render/**/*.ts,shallot-runtime/src/standard/sear/**/*.ts,shallot-runtime/src/standard/part/**/*.ts,shallot-runtime/src/standard/slab/**/*.ts,shallot-runtime/src/standard/bvh/**/*.ts,shallot-runtime/src/extras/{cells,gltf,lines,outline,profile,skin,sky,sprite,text}/**/*.ts}"
+  - "examples/showcase/ocean/src/ocean/**"
 ---
 
 # GPU

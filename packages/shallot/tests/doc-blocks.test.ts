@@ -10,7 +10,7 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 
-const SRC = resolve(import.meta.dir, "..", "src");
+const SRC = resolve(import.meta.dir, "../../shallot-runtime/src");
 
 /** `/**` openers that appear while already inside a block comment, as `file:line` */
 function nested(src: string, file: string): string[] {

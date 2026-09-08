@@ -40,8 +40,20 @@ const barrelPath = realpathSync(fileURLToPath(import.meta.resolve("@dylanebert/s
 const barrelSource = readFileSync(barrelPath, "utf8");
 const runtimeHop = [...barrelSource.matchAll(/export \* from "(\.\/runtime)";/g)];
 expect(runtimeHop).toHaveLength(1);
-const runtimePath = realpathSync(join(dirname(barrelPath), `${runtimeHop[0][1]}.ts`));
-const runtimeSource = readFileSync(runtimePath, "utf8");
+let runtimePath = realpathSync(join(dirname(barrelPath), `${runtimeHop[0][1]}.ts`));
+let runtimeSource = readFileSync(runtimePath, "utf8");
+const forward =
+    /^export \* from "(\.\.\/\.\.\/\.\.\/shallot-runtime\/src\/harness\/runtime)";\n$/.exec(
+        runtimeSource,
+    );
+if (forward) {
+    bindings["development harness forwarder"] = {
+        path: runtimePath,
+        sha256: hash(readFileSync(runtimePath)),
+    };
+    runtimePath = realpathSync(join(dirname(runtimePath), `${forward[1]}.ts`));
+    runtimeSource = readFileSync(runtimePath, "utf8");
+}
 const motionHop = [
     ...runtimeSource.matchAll(/export \{[^}]*\bassertMotion\b[^}]*\} from "(\.\/motion)";/g),
 ];

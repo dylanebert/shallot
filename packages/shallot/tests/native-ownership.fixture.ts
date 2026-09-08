@@ -2,8 +2,8 @@ import { ptr, toArrayBuffer } from "bun:ffi";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
+import { BASE_FEATURES, deviceLimits } from "../../shallot-runtime/src/engine/runtime/gpu";
 import { loadNative } from "../../shallot-tooling/bin/bun-native";
-import { BASE_FEATURES, deviceLimits } from "../src/engine/runtime/gpu";
 
 const carrier = resolve(import.meta.dir, "../dist/native.js");
 const { createGPUInstance } = await loadNative();

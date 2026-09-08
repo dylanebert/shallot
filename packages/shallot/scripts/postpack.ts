@@ -6,9 +6,11 @@
 
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
+import { $ } from "bun";
 
 rmSync(resolve(import.meta.dir, "../examples"), { recursive: true, force: true });
 rmSync(resolve(import.meta.dir, "../dist"), { recursive: true, force: true });
 for (const path of ["bin", "src/project", "src/harness/browser.ts", "rust/window", "assets"]) {
     rmSync(resolve(import.meta.dir, "..", path), { recursive: true, force: true });
 }
+await $`bun ../shallot-runtime/scripts/project.ts`.cwd(resolve(import.meta.dir, ".."));

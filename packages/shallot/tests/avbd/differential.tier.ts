@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Compute, requestGPU } from "../../src/engine/runtime/gpu";
-import { probeBuffer } from "../../src/engine/runtime/probe";
+import { Compute, requestGPU } from "../../../shallot-runtime/src/engine/runtime/gpu";
+import { probeBuffer } from "../../../shallot-runtime/src/engine/runtime/probe";
 import {
     B_POS,
     BODY_VEC4,
@@ -8,10 +8,10 @@ import {
     CONTACT_META,
     CONTACT_VEC4,
     PhysicsStep,
-} from "../../src/standard/avbd/step";
+} from "../../../shallot-runtime/src/standard/avbd/step";
 import { type Body, body } from "./rigid";
 
-// Trigger cone: `packages/shallot/src/standard/avbd/**/*.ts` and this tier's direct fixtures. Run from
+// Trigger cone: `packages/shallot-runtime/src/standard/avbd/**/*.ts` and this tier's direct fixtures. Run from
 // the shallot root with `bun test ./packages/shallot/tests/avbd/differential.tier.ts`.
 // Red arm: the temporary raw TGSL integer-division mutation makes the geometry-band assertion fail
 // after compilation and execution; the focused run recorded 0 pass / 1 fail / 3 expects before restore.

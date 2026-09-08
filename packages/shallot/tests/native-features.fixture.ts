@@ -1,7 +1,7 @@
 import { ptr, toArrayBuffer } from "bun:ffi";
 import assert from "node:assert/strict";
+import { BASE_FEATURES, deviceLimits } from "../../shallot-runtime/src/engine/runtime/gpu";
 import { loadNative } from "../../shallot-tooling/bin/bun-native";
-import { BASE_FEATURES, deviceLimits } from "../src/engine/runtime/gpu";
 
 const site = process.argv[2] ?? "device";
 const mode = process.argv[3] ?? "ownership";

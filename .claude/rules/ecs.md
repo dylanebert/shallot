@@ -1,10 +1,8 @@
 ---
 paths:
-    - "packages/shallot/src/engine/**/*.ts"
-    - "packages/shallot/src/standard/**/*.ts"
-    - "packages/shallot/src/extras/**/*.ts"
-    - "examples/**/*.scene"
-    - "examples/**/*.ts"
+  - "packages/{shallot-runtime/src/engine/**/*.ts,shallot-runtime/src/standard/**/*.ts,shallot-runtime/src/extras/**/*.ts}"
+  - "examples/**/*.scene"
+  - "examples/**/*.ts"
 ---
 
 # ECS

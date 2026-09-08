@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { decodeDraco, loadDraco } from "../src/extras/gltf/draco";
-import { isGlb, parseGlb } from "../src/extras/gltf/glb";
-import { type GltfJson, type GltfScene, parse } from "../src/extras/gltf/gltf";
-import { decodeMeshopt, loadMeshopt } from "../src/extras/gltf/meshopt";
+import { decodeDraco, loadDraco } from "../../shallot-runtime/src/extras/gltf/draco";
+import { isGlb, parseGlb } from "../../shallot-runtime/src/extras/gltf/glb";
+import { type GltfJson, type GltfScene, parse } from "../../shallot-runtime/src/extras/gltf/gltf";
+import { decodeMeshopt, loadMeshopt } from "../../shallot-runtime/src/extras/gltf/meshopt";
 
 // the shared corpus walk for the glTF conformance suite (roadmap "glTF import — conformance + regression
 // suite"). The CPU half of `loadGltf` — fetch → glb-split → resolve buffers → inject the Draco codec → `parse`

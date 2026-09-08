@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import * as tg from "typegpu/data";
 // the shipped rounded narrowphase, called on the CPU — the same TGSL source the GPU pipeline splices
-import { collideRounded as tgslCollideRounded } from "../../src/standard/avbd/collide";
+import { collideRounded as tgslCollideRounded } from "../../../shallot-runtime/src/standard/avbd/collide";
 import { SPECULATIVE_DISTANCE } from "./collide";
 import { boxHull, tetHull } from "./hull";
 import { COLLISION_MARGIN } from "./manifold";

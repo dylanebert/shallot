@@ -46,7 +46,14 @@ const pkgRoot = resolve(import.meta.dir, "..");
 const shallotRoot = resolve(pkgRoot, "..", "..");
 const refDir = resolve(shallotRoot, "..", "reference", "box3d");
 const buildDir = resolve(refDir, "build-fixtures");
-const outPath = resolve(pkgRoot, "src", "standard", "tumble", "engine", `${name}.gold.json`);
+const outPath = resolve(
+    pkgRoot,
+    "../shallot-runtime/src",
+    "standard",
+    "tumble",
+    "engine",
+    `${name}.gold.json`,
+);
 
 if (!existsSync(refDir)) {
     console.error(`box3d reference missing: ${refDir}`);

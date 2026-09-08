@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { UnsupportedError } from "../../src/engine/runtime/gpu";
+import { UnsupportedError } from "../../../shallot-runtime/src/engine/runtime/gpu";
 import {
     CONTACT_VEC4,
     CONTACTS_PER_PAIR,
     checkContactStore,
     PAIRS_PER_BODY,
-} from "../../src/standard/avbd/step";
+} from "../../../shallot-runtime/src/standard/avbd/step";
 
 // the Phase-4.9 device-limit guard: the per-eid contact store is the step's largest single storage binding,
 // and at a high capacity it exceeds the WebGPU spec defaults. The guard (a pure size-vs-limit check, so it

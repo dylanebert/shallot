@@ -17,26 +17,26 @@ import {
     sparse,
     stringify,
     u32,
-} from "../src";
-import { clear, entries } from "../src/engine/ecs/core";
-import { Compute } from "../src/engine/runtime";
-import { AnimationPlugin } from "../src/extras/animation";
-import { LinesPlugin } from "../src/extras/lines";
-import { OrbitPlugin } from "../src/extras/orbit";
-import { LiveSkin, Skin, SkinPlugin } from "../src/extras/skin";
-import { SpritePlugin } from "../src/extras/sprite";
-import { Avbd, AvbdPlugin } from "../src/standard/avbd";
-import { CharacterPlugin } from "../src/standard/character";
-import { GlazePlugin } from "../src/standard/glaze";
-import { InputPlugin } from "../src/standard/input";
-import { MirrorPlugin } from "../src/standard/mirror";
-import { PartPlugin } from "../src/standard/part";
-import { PlayerPlugin } from "../src/standard/player";
-import { RenderPlugin } from "../src/standard/render";
-import { Draws, Surfaces } from "../src/standard/render/core";
-import { SearPlugin } from "../src/standard/sear";
-import { SlabPlugin } from "../src/standard/slab";
-import { TransformsPlugin } from "../src/standard/transforms";
+} from "../../shallot-runtime/src";
+import { clear, entries } from "../../shallot-runtime/src/engine/ecs/core";
+import { Compute } from "../../shallot-runtime/src/engine/runtime";
+import { AnimationPlugin } from "../../shallot-runtime/src/extras/animation";
+import { LinesPlugin } from "../../shallot-runtime/src/extras/lines";
+import { OrbitPlugin } from "../../shallot-runtime/src/extras/orbit";
+import { LiveSkin, Skin, SkinPlugin } from "../../shallot-runtime/src/extras/skin";
+import { SpritePlugin } from "../../shallot-runtime/src/extras/sprite";
+import { Avbd, AvbdPlugin } from "../../shallot-runtime/src/standard/avbd";
+import { CharacterPlugin } from "../../shallot-runtime/src/standard/character";
+import { GlazePlugin } from "../../shallot-runtime/src/standard/glaze";
+import { InputPlugin } from "../../shallot-runtime/src/standard/input";
+import { MirrorPlugin } from "../../shallot-runtime/src/standard/mirror";
+import { PartPlugin } from "../../shallot-runtime/src/standard/part";
+import { PlayerPlugin } from "../../shallot-runtime/src/standard/player";
+import { RenderPlugin } from "../../shallot-runtime/src/standard/render";
+import { Draws, Surfaces } from "../../shallot-runtime/src/standard/render/core";
+import { SearPlugin } from "../../shallot-runtime/src/standard/sear";
+import { SlabPlugin } from "../../shallot-runtime/src/standard/slab";
+import { TransformsPlugin } from "../../shallot-runtime/src/standard/transforms";
 
 export interface Conformance {
     plugins: Plugin[];

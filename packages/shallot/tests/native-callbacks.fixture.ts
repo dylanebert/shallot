@@ -46,7 +46,9 @@ mock.module("bun:ffi", () => ({
     }),
 }));
 const { loadNative } = await import("../../shallot-tooling/bin/bun-native");
-const { BASE_FEATURES, deviceLimits } = await import("../src/engine/runtime/gpu");
+const { BASE_FEATURES, deviceLimits } = await import(
+    "../../shallot-runtime/src/engine/runtime/gpu"
+);
 const native = await loadNative();
 const gpu = native.createGPUInstance() as any;
 const turn = async () => {

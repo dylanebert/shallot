@@ -7,7 +7,7 @@ import {
     type SweepBody,
     type SweepDiag,
     sweepCharacter,
-} from "../../src/standard/character/sweep";
+} from "../../../shallot-runtime/src/standard/character/sweep";
 import { type Character, character, moveCharacter } from "./character";
 import { boxHull } from "./hull";
 import { length, type Quat, scale, sub, type Vec3 } from "./math";

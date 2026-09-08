@@ -81,7 +81,7 @@ bun install
 bun run build
 ```
 
-`build` compiles the audio wasm kernel (`packages/shallot/rust/audio`) and the native window host (`packages/shallot-tooling/rust/window`). The tumble physics kernel is a committed wasm artifact: rebuild it with `bun run --cwd packages/shallot scripts/build-tumble-kernel.ts` after touching `rust/tumble`.
+`build` compiles the audio wasm kernel (`packages/shallot-runtime/rust/audio`) and the native window host (`packages/shallot-tooling/rust/window`). The tumble physics kernel is a committed wasm artifact: rebuild it with `bun run --cwd packages/shallot scripts/build-tumble-kernel.ts` after touching `rust/tumble`.
 
 ### native build prerequisites
 

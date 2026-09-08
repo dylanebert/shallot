@@ -1,0 +1,20 @@
+{
+    "name": "shallot-runtime",
+    "version": "0.10.0",
+    "private": true,
+    "type": "module",
+    "sideEffects": ["./src/standard/index.ts", "./src/standard/defaults.ts"],
+    "files": ["src", "rust/audio", "scripts", "!**/*.test.ts", "!**/target", "!src/**/*.gold.json", "!src/**/*.fixture.ts", "!src/extras/gltf/fixtures"],
+    "scripts": {
+        "build": "bun scripts/build.ts",
+        "project": "bun scripts/project.ts"
+    },
+    "dependencies": {"@types/node": "^26.0.0", "@webgpu/types": "^0.1.70"},
+    "peerDependencies": {"typegpu": "~0.12.4"},
+    "devDependencies": {
+        "@types/bun": "latest",
+        "typegpu": "~0.12.4",
+        "fast-check": "^4.6.0",
+        "wgpu-matrix": "^3.4.0"
+    }
+}
