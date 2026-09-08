@@ -1,5 +1,5 @@
 import { lockup, toSvg } from "./brand/mark";
-import { CSS_PALETTE, FONTS, nav, STYLE, THEME_SCRIPT, TOGGLE } from "./brand/theme";
+import { AGENTS_LINK, CSS_PALETTE, FONTS, nav, STYLE, THEME_SCRIPT, TOGGLE } from "./brand/theme";
 import type { DemoEntry } from "./roster";
 
 // The site home at /shallot/: the lockup splashing in, the one-line promise, quick start, the
@@ -40,6 +40,7 @@ export function siteIndex(
 <title>shallot</title>
 <meta name="description" content="webgpu game engine. fast by default, instant iteration, checks itself.">
 <link rel="icon" href="./brand/mark-32.png">
+${AGENTS_LINK("home")}
 ${FONTS}
 ${THEME_SCRIPT}
 <style>${STYLE}

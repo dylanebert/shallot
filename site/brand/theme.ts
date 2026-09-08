@@ -11,6 +11,10 @@ export const CSS_PALETTE: Palette = {
     bg: "var(--bg)",
 };
 
+/** Head link to the agents entry, invisible on the page; `/llms.txt` is found by path. */
+export const AGENTS_LINK = (here: "home" | "brand") =>
+    `<link rel="alternate" type="text/plain" href="${here === "home" ? "./" : "../"}llms.txt" title="llms.txt">`;
+
 export const FONTS =
     '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=JetBrains+Mono:wght@400;700&display=swap">';
 
@@ -56,12 +60,11 @@ const GITHUB =
 const PACKAGE =
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/></svg>';
 
-/** The one nav both pages share: home, brand and the agents entry on the left, GitHub and npm on the right. */
+/** The one nav both pages share: home and brand on the left, GitHub and npm on the right. */
 export function nav(here: "home" | "brand"): string {
     const link = (href: string, id: "home" | "brand", text: string) =>
         `<a href="${href}"${here === id ? ' class="here"' : ""}>${text}</a>`;
     const home = here === "home" ? "./" : "../";
     const brand = here === "home" ? "./brand/" : "./";
-    const agents = here === "home" ? "./llms.txt" : "../llms.txt";
-    return `<nav>${link(home, "home", "shallot")}${link(brand, "brand", "brand")}<a href="${agents}">agents</a><span class="sp"></span><a href="https://github.com/dylanebert/shallot" target="_blank" rel="noopener" aria-label="GitHub">${GITHUB}</a><a href="https://www.npmjs.com/package/@dylanebert/shallot" target="_blank" rel="noopener" aria-label="npm">${PACKAGE}</a></nav>`;
+    return `<nav>${link(home, "home", "shallot")}${link(brand, "brand", "brand")}<span class="sp"></span><a href="https://github.com/dylanebert/shallot" target="_blank" rel="noopener" aria-label="GitHub">${GITHUB}</a><a href="https://www.npmjs.com/package/@dylanebert/shallot" target="_blank" rel="noopener" aria-label="npm">${PACKAGE}</a></nav>`;
 }

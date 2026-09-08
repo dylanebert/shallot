@@ -1,5 +1,5 @@
 import { DARK, fromBlocks, LIGHT, lockup, MARK, toSvg, word } from "./mark";
-import { CSS_PALETTE, FONTS, nav, STYLE, THEME_SCRIPT, TOGGLE } from "./theme";
+import { AGENTS_LINK, CSS_PALETTE, FONTS, nav, STYLE, THEME_SCRIPT, TOGGLE } from "./theme";
 
 // The brand page at /shallot/brand/: the assets, shown plainly, and their downloads. Labels only;
 // the sheet that argued for these choices is not the page. Inline SVG uses CSS-variable fills so
@@ -24,6 +24,7 @@ export function brandPage(clientScript: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>shallot brand</title>
 <link rel="icon" href="./mark-32.png">
+${AGENTS_LINK("brand")}
 ${FONTS}
 ${THEME_SCRIPT}
 <style>${STYLE}
