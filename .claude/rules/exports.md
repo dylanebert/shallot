@@ -1,6 +1,6 @@
 ---
 paths:
-  - "packages/{shallot-runtime/src/**/*.ts,shallot-runtime/package.json,shallot/src/harness/*.ts,shallot/package.json,shallot-tooling/src/**/*.ts,shallot-tooling/package.json}"
+  - "packages/{shallot-runtime/src/**/*.ts,shallot-runtime/package.json,shallot-tumble/**/*.ts,shallot-tumble/package.json,shallot/src/harness/*.ts,shallot/package.json,shallot-tooling/src/**/*.ts,shallot-tooling/package.json}"
   - "examples/showcase/ocean/src/ocean/**"
 ---
 
@@ -16,7 +16,7 @@ Skin is engine-owned, format-independent pose storage, with no surface: glTF, ph
 
 ## Compiled tooling exports
 
-Private `shallot-runtime` owns runtime source/audio; `scripts/project.ts` emits bounded development re-exports or full raw pack copies. No installed forwarding escape or duplicate runtime. Private `shallot-tooling` owns CLI/project/native source; its build projects bin/types/assets and compiled `./vite`/`./harness/browser`. Rebuild after postpack clears tooling. Node leaves exclude runtime/TGSL; the browser leaf is import-free.
+Private `shallot-{runtime,tumble,tooling}` own runtime/audio, solver, CLI/project/native. Runtime's `scripts/project.ts`: dev forwards or raw pack copies; one solver, no installed forwards/duplicates. Tooling builds bin/types/assets, `./vite`/`./harness/browser`; rebuild after postpack. Node leaves exclude runtime/TGSL; browser leaf is import-free.
 
 The public raw `src/harness/index.ts` composes runtime plus the compiled browser leaf. Runtime's `harness/runtime.ts` and siblings never import that composite or tooling. Preserve the complete public value/type surface. Missing/stale projections fail; never infer ownership from the installed `src/` prefix.
 

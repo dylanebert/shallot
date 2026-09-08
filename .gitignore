@@ -72,6 +72,7 @@ packages/shallot/src/harness/pixels.ts
 packages/shallot/src/harness/motion.ts
 packages/shallot/src/harness/degraded-boot.ts
 packages/shallot/runtime-inputs.json
+packages/shallot-runtime/src/standard/tumble/engine/
 packages/shallot/src/harness/browser.ts
 packages/shallot/rust/window/
 packages/shallot/assets/

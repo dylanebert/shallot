@@ -2,7 +2,7 @@
 // `ConvexPrimitives` sample (`samples/src/samples/geometry.ts`) ported through the escape hatch, verified
 // bit-exact against its committed gold and rendered via the source-faithful debug-draw + mouse-grab layer.
 
-import goldJson from "../../../../packages/shallot/tests/tumble/samples/geometry-convex-primitives.json";
+import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/geometry-convex-primitives.json";
 import { register } from "../gym";
 import { buildConvexPrimitives } from "../tumble-convex-primitives";
 import type { SampleGold } from "../tumble-oracle";

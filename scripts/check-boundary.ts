@@ -39,6 +39,7 @@ const PKG = "@dylanebert/shallot";
 const ENGINE_PACKAGE = "packages/shallot";
 const TOOLING_PACKAGE = "packages/shallot-tooling";
 const RUNTIME_PACKAGE = "packages/shallot-runtime";
+const SOLVER_PACKAGE = "packages/shallot-tumble";
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".svelte"];
 
 export interface Violation {
@@ -391,6 +392,14 @@ function scanConsumers(
                 }
                 if (!r.spec) continue;
                 const spec = r.spec;
+                if (
+                    root !== resolve(repoRoot, SOLVER_PACKAGE) &&
+                    (spec === "shallot-tumble" || spec.startsWith("shallot-tumble/"))
+                )
+                    violations.push({
+                        ...at(r, spec),
+                        reason: "private solver is not a consumer installation surface",
+                    });
                 const targets = spec.startsWith(".")
                     ? [resolve(dirname(full), spec)]
                     : aliasTargets(full, spec).targets;
@@ -406,7 +415,12 @@ function scanConsumers(
                     )
                         continue;
                     if (resolved === root || resolved.startsWith(root + sep)) continue;
-                    if (resolved === oracleSeam || resolved.startsWith(oracleSeam + sep)) continue;
+                    if (
+                        [oracleSeam, resolve(repoRoot, SOLVER_PACKAGE, "tests")].some(
+                            (seam) => resolved === seam || resolved.startsWith(seam + sep),
+                        )
+                    )
+                        continue;
                     violations.push({
                         ...at(r, spec),
                         reason: `escapes the project → ${relative(repoRoot, resolved)}`,
@@ -461,6 +475,13 @@ function scanTooling(
                 continue;
             }
             const spec = r.spec as string;
+            if (spec === "shallot-tumble" || spec.startsWith("shallot-tumble/"))
+                violations.push({
+                    file,
+                    line: r.line,
+                    import: spec,
+                    reason: "tooling reaches the private solver instead of its public core",
+                });
             const targets = spec.startsWith(".")
                 ? [resolve(dirname(full), spec)]
                 : spec.startsWith(`${PKG}/src/`)
@@ -587,6 +608,23 @@ export function runtimeDirection(
                 continue;
             }
             if (!ref.spec) continue;
+            const solverBridge = resolve(
+                repoRoot,
+                RUNTIME_PACKAGE,
+                "src/standard/tumble/engine/index.ts",
+            );
+            const solverEntry = resolve(
+                repoRoot,
+                SOLVER_PACKAGE,
+                "src/standard/tumble/engine/index",
+            );
+            if (
+                file === solverBridge &&
+                ref.spec.startsWith(".") &&
+                resolve(dirname(file), ref.spec) === solverEntry &&
+                existsSync(`${solverEntry}.ts`)
+            )
+                continue;
             const alias = aliases(file, ref.spec);
             errors.push(...alias.errors);
             const targets = ref.spec.startsWith(".")
@@ -705,6 +743,21 @@ export function checkBoundary(repoRoot: string, ledger: Ledger = REPO_LEDGER): B
     const tooling = scanTooling(repoRoot, surface, ledger, errors);
     violations.push(...tooling.violations);
     violations.push(...runtimeDirection(repoRoot, enginePkg.exports, errors, ledger, usedLoaders));
+    const solverSource = resolve(repoRoot, SOLVER_PACKAGE, "src");
+    for (const file of sourceFiles(solverSource)) {
+        if (/\.(test|fixture)\.ts$/.test(file)) continue;
+        for (const ref of references(readFileSync(file, "utf8"))) {
+            if (!ref.spec || ref.spec.startsWith("node:")) continue;
+            const target = resolve(dirname(file), ref.spec);
+            if (!ref.spec.startsWith(".") || !target.startsWith(solverSource + sep))
+                violations.push({
+                    file: relative(repoRoot, file),
+                    line: ref.line,
+                    import: ref.spec,
+                    reason: "solver source leaves its isolated owner",
+                });
+        }
+    }
 
     // Two-way completeness. A source cone proves nothing if a project can sit outside it, or if a
     // declared escape outlives the code it excused.

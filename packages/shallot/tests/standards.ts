@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import tgpu, { isTgpuFn } from "typegpu";
 import { TEST_TIER_SUFFIXES } from "./test-tiers";
 import {
@@ -27,11 +27,19 @@ export interface KernelExport {
 
 export async function sourceModules(): Promise<string[]> {
     const out: string[] = [];
-    for await (const path of new Bun.Glob("**/*.ts").scan({ cwd: SRC_DIR })) {
-        if (/\.d\.ts$/.test(path) || TEST_TIER_SUFFIXES.test(path) || /\.fixture\.ts$/.test(path)) {
-            continue;
+    for (const root of [SRC_DIR, join(import.meta.dir, "../../shallot-tumble/src")]) {
+        const before = out.length;
+        for await (const path of new Bun.Glob("**/*.ts").scan({ cwd: root })) {
+            if (
+                /\.d\.ts$/.test(path) ||
+                TEST_TIER_SUFFIXES.test(path) ||
+                /\.fixture\.ts$/.test(path) ||
+                (root === SRC_DIR && path.startsWith("standard/tumble/engine/"))
+            )
+                continue;
+            out.push(relative(SRC_DIR, join(root, path)));
         }
-        out.push(path);
+        if (out.length === before) throw Error(`standards: empty canonical owner ${root}`);
     }
     return out.sort();
 }
@@ -81,7 +89,7 @@ export async function resolvedKernels(): Promise<ResolvedKernel[]> {
 
 // The declared registry + pure checker half of the TGSL-corpus meta-test. Shape copied from `examples/gym/src/scenarios/timeouts.ts` + `coverage.ts`: plain committed
 // data, a pure checker asserted both directions, red-provable against fixtures. The shared
-// `kernelExports`/`resolvedKernels` seam above walks `packages/shallot-runtime/src`, imports each module,
+// `kernelExports`/`resolvedKernels` seam above walks canonical runtime/solver source, imports each module,
 // identity-deduplicates live TGSL kernels, and resolves them to WGSL; `standards.test.ts` and the
 // compile tier consume that same population. The checks below receive the resulting `Population` and
 // use `tests/wgsl.ts`'s existing checkers (the four discipline checks it already ships and every

@@ -2,7 +2,7 @@
 // (`samples/src/samples/ragdoll.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer.
 
-import goldJson from "../../../../packages/shallot/tests/tumble/samples/ragdoll-ragdoll.json";
+import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/ragdoll-ragdoll.json";
 import { register } from "../gym";
 import type { SampleGold } from "../tumble-oracle";
 import { buildRagdoll } from "../tumble-ragdoll";

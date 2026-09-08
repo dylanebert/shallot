@@ -3,7 +3,7 @@
 // committed gold. The sweeping `castRayClosest` curtain + HUD line/point draw (`render()`) is outside the
 // gold contract — it only feeds debug-draw output, never mutates the world — so only `build()` ports.
 
-import goldJson from "../../../../packages/shallot/tests/tumble/samples/collision-ray-curtain.json";
+import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/collision-ray-curtain.json";
 import { register } from "../gym";
 import type { SampleGold } from "../tumble-oracle";
 import { buildRayCurtain, renderRayCurtain } from "../tumble-ray-curtain";

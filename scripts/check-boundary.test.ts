@@ -166,6 +166,78 @@ describe("runtime direction with a private tooling owner", () => {
     }
 });
 
+describe("private solver ownership", () => {
+    const bridge = "packages/shallot-runtime/src/standard/tumble/engine/index.ts";
+    const entry = "packages/shallot-tumble/src/standard/tumble/engine/index.ts";
+    const forward =
+        'export * from "../../../../../shallot-tumble/src/standard/tumble/engine/index";';
+    for (const [file, source, refusal] of [
+        [bridge, forward, ""],
+        [
+            "packages/shallot-runtime/src/escape.ts",
+            'export * from "../../shallot-tumble/src/standard/tumble/engine/index";',
+            "runtime leaves its canonical owner",
+        ],
+        [entry, 'import "@dylanebert/shallot";', "solver source leaves its isolated owner"],
+        [
+            entry,
+            'export * from "../../../../../shallot-runtime/src/index";',
+            "solver source leaves its isolated owner",
+        ],
+        [
+            "examples/recipes/demo/src/main.ts",
+            'import "shallot-tumble";',
+            "private solver is not a consumer installation surface",
+        ],
+        [
+            "examples/recipes/demo/src/main.ts",
+            'export * from "shallot-tumble/internal";',
+            "private solver is not a consumer installation surface",
+        ],
+        [
+            "packages/shallot-tooling/bin/cli.ts",
+            'import "shallot-tumble";',
+            "tooling reaches the private solver",
+        ],
+        [
+            "examples/recipes/demo/src/main.ts",
+            'import "../../../../packages/shallot-tumble/src/standard/tumble/engine/index";',
+            "escapes the project",
+        ],
+        [
+            "examples/recipes/demo/src/main.ts",
+            'import "../../../../packages/shallot-tumble/tests/oracle";',
+            "",
+        ],
+        ["examples/recipes/demo/src/main.ts", 'import "@dylanebert/shallot/render/core";', ""],
+    ]) {
+        test(`${file}: ${source}`, () => {
+            const root = make();
+            for (const name of ["shallot-runtime", "shallot-tooling", "shallot-tumble"])
+                write(
+                    root,
+                    `packages/${name}/package.json`,
+                    JSON.stringify({ name, private: true }),
+                );
+            write(root, "packages/shallot-runtime/src/index.ts", "export const engine = 1;");
+            write(root, entry, "export class World {}");
+            write(root, bridge, forward);
+            write(root, "packages/shallot-tumble/tests/oracle.ts", "export const truth = 1;");
+            const baseline = checkBoundary(root, EMPTY);
+            expect(baseline.errors).toEqual([]);
+            expect(baseline.violations).toEqual([]);
+            write(root, file, source);
+            const result = checkBoundary(root, EMPTY);
+            expect(result.errors).toEqual([]);
+            if (refusal)
+                expect(
+                    result.violations.some((violation) => violation.reason.includes(refusal)),
+                ).toBe(true);
+            else expect(result.violations).toEqual([]);
+        });
+    }
+});
+
 describe("canonical runtime ownership", () => {
     for (const [source, allowed] of [
         ['import "@dylanebert/shallot";', true],

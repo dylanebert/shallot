@@ -358,6 +358,15 @@ export function extractImports(content: string): ImportEntry[] {
 function sourceOwner(root: string, path: string): string {
     if (!existsSync(resolve(root, "packages/shallot-tooling/package.json"))) return path;
     if (
+        existsSync(resolve(root, "packages/shallot-tumble/package.json")) &&
+        /^packages\/shallot(?:-runtime)?\/src\/standard\/tumble\/engine\//.test(path)
+    ) {
+        const owner = path.replace(/^packages\/shallot(?:-runtime)?\//, "packages/shallot-tumble/");
+        if (!existsSync(resolve(root, owner)))
+            throw Error(`missing canonical solver source: ${owner}`);
+        return owner;
+    }
+    if (
         path.startsWith("packages/shallot/src/project/") ||
         path === "packages/shallot/src/harness/browser.ts"
     ) {
@@ -620,6 +629,7 @@ export async function findDeadExports(
     for (const dir of [
         srcDir,
         resolve(rootDir, "packages/shallot-runtime/src"),
+        resolve(rootDir, "packages/shallot-tumble/src"),
         resolve(rootDir, "packages/shallot-tooling/src"),
     ]) {
         if (!existsSync(dir)) continue;
@@ -666,6 +676,9 @@ export async function findDeadExports(
     const consumerDirs = [
         "packages/shallot/src",
         "packages/shallot-runtime/src",
+        "packages/shallot-tumble/src",
+        "packages/shallot-tumble/scripts",
+        "packages/shallot-tumble/tests",
         "packages/shallot/tests",
         "packages/shallot-tooling/bin",
         "packages/shallot-tooling/src",

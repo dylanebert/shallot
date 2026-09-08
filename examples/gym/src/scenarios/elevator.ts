@@ -3,7 +3,7 @@
 // committed gold and rendered via the source-faithful debug-draw layer. The motor-speed reversal lives
 // in `update()`.
 
-import goldJson from "../../../../packages/shallot/tests/tumble/samples/joints-elevator.json";
+import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/joints-elevator.json";
 import { register } from "../gym";
 import { buildElevator, updateElevator } from "../tumble-elevator";
 import type { SampleGold } from "../tumble-oracle";

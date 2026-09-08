@@ -1,6 +1,6 @@
 ---
 paths:
-  - "packages/{shallot-runtime/src/**/*.test.ts,shallot-runtime/scripts/*.ts,shallot/tests/**/*.ts,shallot-tooling/**/*.{test,probes}.ts,shallot-tooling/scripts/build.ts}"
+  - "packages/{shallot-runtime/src/**/*.test.ts,shallot-runtime/scripts/*.ts,shallot-tumble/**/*.ts,shallot/tests/**/*.ts,shallot-tooling/**/*.{test,probes}.ts,shallot-tooling/scripts/build.ts}"
   - "scripts/{install-test.ts,install-test/**/*.ts,stall-attribution.ts,compile-concurrency.ts,loaf-attribution.ts}"
   - "examples/showcase/ocean/test/**/*.{test,oracle}.ts"
   - "site/rum-*.ts"
@@ -8,7 +8,7 @@ paths:
 
 # Testing
 
-Gates never write. Root: `bun run format`, `bun check`, `bun run test`. Budgets: `style.md`; default paths: manifest.
+Gates never write. Root commands: AGENTS.md; budgets: style.md; test paths: manifest.
 
 ## What a change class owes
 
