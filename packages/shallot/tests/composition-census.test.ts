@@ -14,7 +14,8 @@ type Gate = readonly [RegExp, string];
 
 /** Composition-bearing host surfaces. This discovers the population; PROJECT_GATES only classifies it. */
 const COMPOSITION_SURFACES: readonly RegExp[] = [
-    /^examples\/(?:recipes|showcase|gym)\//,
+    /^examples\/(?:recipes|showcase)\//,
+    /^bench\//,
     /^packages\/shallot\/tests\/flows\//,
     /^evals\/tasks\//,
     /^packages\/shallot-cli\/bin\/tui\.ts$/,
@@ -30,7 +31,7 @@ const PROJECT_GATES: readonly Gate[] = [
     ],
     [/^examples\/recipes\//, "bun run recipes"],
     [/^examples\/showcase\//, "bun run test:changed --all"],
-    [/^examples\/gym\//, "bun bench"],
+    [/^bench\//, "bun bench"],
     [/^evals\/tasks\/[^/]+\/gate\.ts$/, "bun run test"],
     [/^packages\/shallot-cli\/bin\/tui\.ts$/, "bun test ./packages/shallot-cli/bin"],
     [
