@@ -44,7 +44,8 @@ for (const line of (entry ?? "").split("\n")) {
                 realpathSync(bin) === realpathSync(expected);
         } else if (token) {
             reachable =
-                token in scripts || (token.includes("/") && existsSync(resolve(root, token)));
+                Object.hasOwn(scripts, token) ||
+                (token.includes("/") && existsSync(resolve(root, token)));
         }
         if (!reachable) commandErrors.push(`AGENTS.md: unreachable repository command: ${command}`);
     }
