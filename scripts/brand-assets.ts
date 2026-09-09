@@ -64,7 +64,7 @@ export function iconTargets(): string[] {
 }
 
 export const SCAFFOLD = "packages/create-shallot/index.ts";
-export const NATIVE_ICON = "packages/shallot-tooling/assets/icon-1024.png";
+export const NATIVE_ICON = "packages/shallot-cli/assets/icon-1024.png";
 
 /** The scaffold's inline `ICON`, rewritten around the render. */
 export function scaffoldSource(source: string): string {

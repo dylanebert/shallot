@@ -53,7 +53,7 @@ const DATADOG_RUM_CDN_MAJOR = 6;
 const DATADOG_RUM_CDN_URL = `https://www.datadoghq-browser-agent.com/us1/v${DATADOG_RUM_CDN_MAJOR}/datadog-rum.js`;
 
 // `crossOrigin='anonymous'` on the injected script element: `shallot verify`'s dist/dev preview sends
-// `Cross-Origin-Embedder-Policy: require-corp` (`packages/shallot-tooling/src/project/vite.ts`, unconditional on
+// `Cross-Origin-Embedder-Policy: require-corp` (`packages/shallot-cli/src/project/vite.ts`, unconditional on
 // every serve surface — for the multithreaded WASM kernel, unrelated to RUM) and the CDN never sends a
 // `Cross-Origin-Resource-Policy` header, so a plain no-cors `<script src>` load is blocked
 // (`net::ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep`, reproduced 2026-08-25 —

@@ -406,8 +406,8 @@
         "typegpu": "~0.12.4",
       },
     },
-    "packages/shallot-tooling": {
-      "name": "shallot-tooling",
+    "packages/shallot-cli": {
+      "name": "shallot-cli",
       "version": "0.10.0",
       "dependencies": {
         "@types/node": "^26.0.0",
@@ -939,7 +939,7 @@
 
     "shallot-runtime": ["shallot-runtime@workspace:packages/shallot-runtime"],
 
-    "shallot-tooling": ["shallot-tooling@workspace:packages/shallot-tooling"],
+    "shallot-cli": ["shallot-cli@workspace:packages/shallot-cli"],
 
     "shallot-tumble": ["shallot-tumble@workspace:packages/shallot-tumble"],
 

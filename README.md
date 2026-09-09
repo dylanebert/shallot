@@ -81,7 +81,7 @@ bun install
 bun run build
 ```
 
-`build` compiles the audio wasm kernel (`packages/shallot-runtime/rust/audio`) and the native window host (`packages/shallot-tooling/rust/window`). The tumble physics kernel is a committed wasm artifact: rebuild it with `bun run --cwd packages/shallot-tumble scripts/build-tumble-kernel.ts` after touching `rust/tumble`.
+`build` compiles the audio wasm kernel (`packages/shallot-runtime/rust/audio`) and the native window host (`packages/shallot-cli/rust/window`). The tumble physics kernel is a committed wasm artifact: rebuild it with `bun run --cwd packages/shallot-tumble scripts/build-tumble-kernel.ts` after touching `rust/tumble`.
 
 ### native build prerequisites
 
@@ -98,7 +98,7 @@ Portable builds bundle the Chromium runtime (CEF) instead of the system webview.
 ### layout
 
 - `packages/shallot/` — public engine-and-tools distribution, `@dylanebert/shallot`
-- `packages/shallot-{runtime,tooling,tumble}/` — private source owners, projected into that distribution
+- `packages/shallot-{runtime,cli,tumble}/` — private source owners, projected into that distribution
 - `packages/create-shallot/` — `bun create shallot` scaffold
 - `examples/` — example projects against the engine
 - `evals/` — agent-agnostic eval suite

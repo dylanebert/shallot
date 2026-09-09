@@ -18,7 +18,7 @@ export async function loadNative(): Promise<typeof import("bun-webgpu")> {
     );
     if (!existsSync(file)) {
         throw new Error(
-            "Shallot native projection is missing. In a source checkout, run bun packages/shallot-tooling/scripts/build.ts from the repository root after install or pack. For an installed package, reinstall @dylanebert/shallot.",
+            "Shallot native projection is missing. In a source checkout, run bun packages/shallot-cli/scripts/build.ts from the repository root after install or pack. For an installed package, reinstall @dylanebert/shallot.",
         );
     }
     const hash = createHash("sha256").update(readFileSync(file)).digest("hex");

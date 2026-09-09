@@ -65,7 +65,7 @@ export function inspectOutput(dist: string) {
     const modules = graph.flatMap((chunk) => chunk.modules);
     assert(modules.length > 10, "built output: empty retained module population");
     const forbidden =
-        /(?:\/node_modules\/(?:vite|unplugin-typegpu|playwright|@playwright)\/|\/shallot-tooling\/|\/@dylanebert\/shallot\/(?:bin\/|src\/project\/|dist\/(?:vite|native|harness-browser)\.js))/;
+        /(?:\/node_modules\/(?:vite|unplugin-typegpu|playwright|@playwright)\/|\/shallot-cli\/|\/@dylanebert\/shallot\/(?:bin\/|src\/project\/|dist\/(?:vite|native|harness-browser)\.js))/;
     for (const module of modules)
         assert(!forbidden.test(module.id), `built output: tooling module ${module.id}`);
     for (const chunk of graph)
@@ -238,7 +238,7 @@ export async function outputFlow(work: string, candidate: string): Promise<void>
                 }
                 writeFileSync(
                     join(app, "index.html"),
-                    '<!doctype html><html><body style="margin:0"><canvas style="display:block;width:100vw;height:100vh"></canvas><script type="module" src="/src/main.ts"></script></body></html>',
+                    '<!doctype html><html><body style="margin:0"><canvas style="display:block;width:100vw;height:100vh"></canvas><script>window.__harness={ready:false};</script><script type="module" src="/src/main.ts"></script></body></html>',
                 );
                 writeFileSync(
                     join(app, "vite.config.ts"),
@@ -365,10 +365,14 @@ export async function outputFlow(work: string, candidate: string): Promise<void>
                     }
                     if (kind === "minimal") {
                         try {
+                            const marker = "harness.run=async()=>{";
+                            assert.equal(mainSource.split(marker).length, 2);
                             writeFileSync(
                                 mainPath,
-                                mainSource +
-                                    '\nawait fetch("https://outside.invalid/required.bin");\n',
+                                mainSource.replace(
+                                    marker,
+                                    `${marker}await fetch("https://outside.invalid/required.bin");`,
+                                ),
                             );
                             exec(
                                 `${label}-${kind}-remote-build`,

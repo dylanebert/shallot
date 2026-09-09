@@ -86,12 +86,12 @@ describe("runtime direction with a private tooling owner", () => {
         const root = make();
         write(
             root,
-            "packages/shallot-tooling/package.json",
-            JSON.stringify({ name: "shallot-tooling", private: true }),
+            "packages/shallot-cli/package.json",
+            JSON.stringify({ name: "shallot-cli", private: true }),
         );
         write(
             root,
-            "packages/shallot-tooling/src/escape.ts",
+            "packages/shallot-cli/src/escape.ts",
             'import "../../../examples/recipes/demo/src/main";',
         );
         const result = checkBoundary(root, EMPTY);
@@ -102,7 +102,7 @@ describe("runtime direction with a private tooling owner", () => {
         );
     });
     for (const source of [
-        'import "../../shallot-tooling/src/harness/browser";',
+        'import "../../shallot-cli/src/harness/browser";',
         'import "@dylanebert/shallot/harness";',
         'export * from "./harness";',
         'void import("@dylanebert/shallot/harness/browser");',
@@ -112,12 +112,12 @@ describe("runtime direction with a private tooling owner", () => {
             const root = make();
             write(
                 root,
-                "packages/shallot-tooling/package.json",
-                JSON.stringify({ name: "shallot-tooling", private: true }),
+                "packages/shallot-cli/package.json",
+                JSON.stringify({ name: "shallot-cli", private: true }),
             );
             write(
                 root,
-                "packages/shallot-tooling/src/harness/browser.ts",
+                "packages/shallot-cli/src/harness/browser.ts",
                 "export const launch = 1;\n",
             );
             write(
@@ -150,7 +150,7 @@ describe("runtime direction with a private tooling owner", () => {
                 "tsconfig.json",
                 JSON.stringify({
                     compilerOptions: {
-                        paths: { "@launch": ["packages/shallot-tooling/src/harness/browser.ts"] },
+                        paths: { "@launch": ["packages/shallot-cli/src/harness/browser.ts"] },
                     },
                 }),
             );
@@ -195,7 +195,7 @@ describe("private solver ownership", () => {
             "private solver is not a consumer installation surface",
         ],
         [
-            "packages/shallot-tooling/bin/cli.ts",
+            "packages/shallot-cli/bin/cli.ts",
             'import "shallot-tumble";',
             "tooling reaches the private solver",
         ],
@@ -213,7 +213,7 @@ describe("private solver ownership", () => {
     ]) {
         test(`${file}: ${source}`, () => {
             const root = make();
-            for (const name of ["shallot-runtime", "shallot-tooling", "shallot-tumble"])
+            for (const name of ["shallot-runtime", "shallot-cli", "shallot-tumble"])
                 write(
                     root,
                     `packages/${name}/package.json`,
@@ -248,7 +248,7 @@ describe("canonical runtime ownership", () => {
     ] as const) {
         test(source, () => {
             const root = make();
-            for (const owner of ["shallot-runtime", "shallot-tooling"])
+            for (const owner of ["shallot-runtime", "shallot-cli"])
                 write(
                     root,
                     `packages/${owner}/package.json`,
@@ -291,7 +291,7 @@ describe("runtime unresolved and aliased exits", () => {
     ] as const) {
         test(`${source} alias=${alias}`, () => {
             const root = make();
-            for (const owner of ["shallot-runtime", "shallot-tooling", "shallot-gpu-particles"])
+            for (const owner of ["shallot-runtime", "shallot-cli", "shallot-gpu-particles"])
                 write(
                     root,
                     `packages/${owner}/package.json`,
@@ -321,7 +321,7 @@ describe("runtime unresolved and aliased exits", () => {
     }
     test("runtime computed disposition is live in both directions", () => {
         const root = make();
-        for (const owner of ["shallot-runtime", "shallot-tooling"])
+        for (const owner of ["shallot-runtime", "shallot-cli"])
             write(
                 root,
                 `packages/${owner}/package.json`,

@@ -1,5 +1,5 @@
+import { type LoAFEntry, loafByCompilePhase } from "../packages/shallot-cli/bin/verify";
 import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot-runtime/src/engine/runtime/gpu";
-import { type LoAFEntry, loafByCompilePhase } from "../packages/shallot-tooling/bin/verify";
 import { queryFlags, skipReason, verify } from "./verify";
 
 // The probe the boot roadmap item names: the compile vital sees async compiles only, so two large

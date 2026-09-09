@@ -43,7 +43,7 @@ describe("canonical runtime public closure", () => {
     const make = () =>
         fixture({
             "packages/shallot/package.json": JSON.stringify({ exports: entries }),
-            "packages/shallot-tooling/package.json": "{}",
+            "packages/shallot-cli/package.json": "{}",
             "packages/shallot-runtime/package.json": "{}",
             "packages/shallot/src/index.ts": 'export * from "../../shallot-runtime/src/index";',
             "packages/shallot-runtime/src/index.ts": "export const publicValue = 1;",

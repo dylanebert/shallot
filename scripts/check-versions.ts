@@ -15,7 +15,7 @@ if (shallot.version !== create.version) {
     );
 }
 
-const tooling = await Bun.file(resolve(root, "packages/shallot-tooling/package.json")).json();
+const tooling = await Bun.file(resolve(root, "packages/shallot-cli/package.json")).json();
 if (tooling.version !== shallot.version) fail("tooling/distribution version mismatch");
 for (const field of [
     "dependencies",
@@ -72,7 +72,7 @@ for (const [name, range] of Object.entries(shallot.dependencies ?? {})) {
 // and versions independently of the release.
 for (const crate of [
     "packages/shallot-runtime/rust/audio/Cargo.toml",
-    "packages/shallot-tooling/rust/window/Cargo.toml",
+    "packages/shallot-cli/rust/window/Cargo.toml",
 ]) {
     const text = await Bun.file(resolve(root, crate)).text();
     const version = text.match(/^version = "(.+)"/m)?.[1];
@@ -91,7 +91,7 @@ for (const dir of [
     "packages/shallot",
     "packages/shallot-runtime",
     "packages/shallot-tumble",
-    "packages/shallot-tooling",
+    "packages/shallot-cli",
     "packages/create-shallot",
 ]) {
     const version = lock.workspaces?.[dir]?.version;

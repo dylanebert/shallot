@@ -31,7 +31,7 @@ import { makeGrid } from "./tui/index";
 // mirroring `bin/verify.probes.ts`'s own precedent for exactly this class of check ("browser probes stay
 // out of the default suite for speed... Run when you touch the probes") — run it directly:
 //
-//     bun test ./packages/shallot-tooling/bin/tui.probes.ts
+//     bun test ./packages/shallot-cli/bin/tui.probes.ts
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const RECIPE_DIR = resolve(REPO_ROOT, "examples/recipes/render-to-a-terminal");
 

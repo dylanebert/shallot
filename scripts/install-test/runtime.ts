@@ -203,6 +203,7 @@ export function inspectRuntime(shipped: string): void {
             "scripts/project.ts",
             "scripts/build.ts",
             "../shallot/package.json",
+            "../shallot/scripts/projections.ts",
         ].sort(),
     );
     for (const file of outputs)

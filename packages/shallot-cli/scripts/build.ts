@@ -26,16 +26,16 @@ import {
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { toolingRoots as projection, toolingDist } from "../../shallot/scripts/projections";
 import { nativeHash, nativePatchHash, nativeSourceHash } from "../bin/bun-native";
 
 const ROOT = resolve(import.meta.dir, "..");
 const DISTRIBUTION = resolve(ROOT, "../shallot");
-const OUT = resolve(DISTRIBUTION, "dist");
+const OUT = resolve(DISTRIBUTION, toolingDist);
 const leaf = resolve(ROOT, "src/harness/browser.ts");
 if (new Bun.Transpiler({ loader: "ts" }).scan(readFileSync(leaf, "utf8")).imports.length) {
     throw new Error("build-tooling: browser launch leaf must be import-free");
 }
-const projection = ["bin", "src/project", "src/harness/browser.ts", "rust/window", "assets"];
 const carried = (file: string) =>
     !/(?:^|\/)(?:target|node_modules)(?:\/|$)|\/\.gitignore$|\.(?:test|probes)\.ts$/.test(file);
 const files = projection
@@ -49,10 +49,12 @@ const files = projection
     .sort();
 const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
 const inputs = Object.fromEntries(
-    [...files, "scripts/build.ts", "package.json"].map((file) => [file, hash(resolve(ROOT, file))]),
+    [...files, "scripts/build.ts", "package.json", "../shallot/scripts/projections.ts"].map(
+        (file) => [file, hash(resolve(ROOT, file))],
+    ),
 );
 if (process.argv.includes("--check")) {
-    const record = JSON.parse(readFileSync(resolve(OUT, "tooling-inputs.json"), "utf8"));
+    const record = JSON.parse(readFileSync(resolve(OUT, "cli-inputs.json"), "utf8"));
     if (JSON.stringify(record.inputs) !== JSON.stringify(inputs))
         throw new Error("build-tooling: stale source projection");
     for (const [file, expected] of Object.entries(record.outputs)) {
@@ -189,7 +191,7 @@ const outputs = Object.fromEntries(
         hash(resolve(DISTRIBUTION, file)),
     ]),
 );
-writeFileSync(resolve(OUT, "tooling-inputs.json"), JSON.stringify({ inputs, outputs }, null, 2));
+writeFileSync(resolve(OUT, "cli-inputs.json"), JSON.stringify({ inputs, outputs }, null, 2));
 console.log(
     `build-tooling: compiled ${entries.map((e) => `dist/${e.out}.js`).join(", ")}, dist/native.js; projected ${files.length} tooling inputs`,
 );

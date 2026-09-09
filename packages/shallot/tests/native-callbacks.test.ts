@@ -1,7 +1,7 @@
 import { CFunction, toArrayBuffer } from "bun:ffi";
 import { expect, test } from "bun:test";
+import { loadNative } from "../../shallot-cli/bin/bun-native";
 import { BASE_FEATURES, deviceLimits } from "../../shallot-runtime/src/engine/runtime/gpu";
-import { loadNative } from "../../shallot-tooling/bin/bun-native";
 
 const { createGPUInstance } = await loadNative();
 const descriptor = (adapter: GPUAdapter) => ({

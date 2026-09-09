@@ -105,6 +105,31 @@ beforeAll(async () => {
             }
         };
         await run("baseline", {});
+        await run("prototype is not a declared script", {
+            "AGENTS.md": (text) => text.replace("bun run build", "bun toString"),
+        });
+        expect(readings.get("prototype is not a declared script")?.exitCode).toBe(1);
+        expect(readings.get("prototype is not a declared script")?.output).toContain(
+            "unreachable repository command: bun toString",
+        );
+        await run("unreachable documented path", {
+            "AGENTS.md": (text) =>
+                text.replace("packages/shallot-cli/bin/cli.ts", "packages/shallot-cli/bin/gone.ts"),
+        });
+        await run("registry lookup is not tree resolution", {
+            "AGENTS.md": (text) =>
+                text.replace("bun packages/shallot-cli/bin/cli.ts", "bunx shallot"),
+        });
+        for (const kind of ["bin", "files"]) {
+            await run(`unregistered ${kind} target`, {
+                "packages/shallot/package.json": (text) => {
+                    const pkg = JSON.parse(text);
+                    if (kind === "bin") pkg.bin.shallot = "./bin/gone.ts";
+                    else pkg.files.push("unregistered-pack-output");
+                    return JSON.stringify(pkg);
+                },
+            });
+        }
         const audio = ".claude/rules/audio.md";
         const deadAudio = ["Missing", "AudioCitation"].join("");
         for (const marker of ["retired", "gone", "anti-pattern"]) {
@@ -134,6 +159,13 @@ beforeAll(async () => {
         await run("paragraph growth", paragraphGrowth);
         await run("lower refuses byte growth", byteGrowth, ["--lower"]);
         await run("lower refuses paragraph growth", paragraphGrowth, ["--lower"]);
+        const calibration = Bun.spawnSync(["bun", "run", "scripts/check-docs.ts", "--lower"], {
+            cwd: fixture,
+        });
+        console.log(
+            `[docs fixture calibration] exit=${calibration.exitCode}\n${calibration.stdout}${calibration.stderr}`,
+        );
+        expect(calibration.exitCode).toBe(0);
         const totalGrowth = {
             [baselineFile]: (text: string) => {
                 const budget = JSON.parse(text);
@@ -147,10 +179,7 @@ beforeAll(async () => {
             "valid lowering",
             {
                 [visual]: (text) =>
-                    text.replace(
-                        "Shallot's visual language across shipped UI surfaces: examples, overlays, the profiler HUD.\n",
-                        "",
-                    ),
+                    text.replace("Shipped UI: examples, overlays, profiler HUD.\n", ""),
             },
             ["--lower"],
         );
@@ -268,6 +297,21 @@ beforeAll(async () => {
         rmSync(container, { recursive: true, force: true });
     }
 }, 60000);
+
+for (const [name, diagnostic] of [
+    ["prototype is not a declared script", "unreachable repository command: bun toString"],
+    ["unreachable documented path", "unreachable repository command"],
+    ["registry lookup is not tree resolution", "unreachable repository command: bunx shallot"],
+    ["unregistered bin target", "bin: ./bin/gone.ts is missing"],
+    ["unregistered files target", "files: unregistered-pack-output is missing"],
+]) {
+    test(`command resolution refuses ${name}`, () => {
+        const reading = readings.get(name)!;
+        expect(reading.exitCode).toBe(1);
+        expect(reading.output).toContain("✗ command resolution:");
+        expect(reading.output).toContain(diagnostic);
+    });
+}
 
 for (const name of [
     "baseline",
