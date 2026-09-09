@@ -58,7 +58,7 @@ Strip empty→reads→atomics→math→suspects; restore. Active set (solver col
 
 ## Native targets and webview backends
 
-Default wry webviews; portable CEF. Mac LDS/no subgroups; Linux needs portable. Build mismatch warns. Admission by features/limits, not browser name: a floor-meeting configuration owes rendered proof, and Firefox/Windows is unqualified. Intel Mac unaudited.
+Default wry webviews; portable CEF. Mac LDS/no subgroups; Linux needs portable. Admission by features/limits, not browser name: a floor-meeting configuration owes rendered proof, and Firefox/Windows is unqualified. Intel Mac unaudited.
 
 ## DXC shader compilation
 

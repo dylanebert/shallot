@@ -5,19 +5,14 @@ import { normalize } from "../src/project/manifest";
 import { manifestPath } from "../src/project/vite";
 import { installGpuGlobals } from "./gpu-globals";
 
-// Required features (beyond the base floor) a wry/system-webview backend can't provide, keyed by
-// target — the hard "won't run" gaps the build warns about. `subgroups` is NOT one: physics lists it
-// as a `preferredFeatures` (LDS fallback on WKWebView), so it's never in the required set and a macOS
-// system-webview physics build runs. Windows WebView2 is full Chromium. Linux WebKitGTK has no usable
-// WebGPU at all — a different shape, handled directly in verdict(). Every CEF (`--portable`) build
-// ships its own Chromium, so it never appears here. One required feature beyond the floor exists today
-// — `ProfilePlugin`'s `timestamp-query`. WebView2 has every feature, and the 2026-06-19 WKWebView audit
-// (CLAUDE.md "Targets") recorded the then-floor complete with only `subgroups` absent, which is what
-// records it as having `timestamp-query` — so no gap stands, and the map is the seam for the first one
-// that does. See gpu.ts BASE_FEATURES + Plugin.features.
-const WEBVIEW_UNSUPPORTED: Record<string, readonly string[]> = {
+/** System-webview gaps beyond the base floor; null means the base floor itself is unavailable.
+ * WKWebView's Safari 26.5 / Apple Silicon audit met the floor including timestamp-query;
+ * subgroups is preferred (LDS fallback). WebView2 is Chromium; WebKitGTK has no usable WebGPU.
+ */
+export const WEBVIEW_UNSUPPORTED: Record<string, readonly string[] | null> = {
     mac: [],
     windows: [],
+    linux: null,
 };
 
 function readManifest(absDir: string) {
@@ -60,23 +55,26 @@ export async function requiredFeatures(projectDir: string): Promise<string[]> {
     return [...features];
 }
 
-/**
- * build-time warning lines for a (target, portable) backend given the project's required features —
- * empty when the chosen backend can render the app. Never blocks: a warned build still produces an
- * artifact that reaches the engine's diagnostic tier at launch, matching the loud-boundary contract.
- */
+/** Refusal lines for a backend missing the base floor or required plugin features; preferred
+ * features never enter `required`. Empty means allowed. Portable CEF supplies its own Chromium. */
 export function verdict(target: string, portable: boolean, required: readonly string[]): string[] {
-    if (portable) return []; // CEF ships its own Chromium — every feature, every platform
-    if (target === "linux") {
-        return [
-            "linux default uses WebKitGTK, which has no usable WebGPU — the app reaches the diagnostic",
-            "tier at launch. Rebuild with --portable for the bundled Chromium runtime.",
-        ];
-    }
-    const missing = (WEBVIEW_UNSUPPORTED[target] ?? []).filter((f) => required.includes(f));
+    if (portable) return [];
+    const unsupported = WEBVIEW_UNSUPPORTED[target];
+    const missing =
+        unsupported === null
+            ? ["WebGPU base floor"]
+            : (unsupported ?? []).filter((f) => required.includes(f));
     if (missing.length === 0) return [];
     return [
-        `${target} default uses the system webview, which lacks: ${missing.join(", ")} (required by`,
-        "the project's plugins). Rebuild with --portable for the bundled Chromium runtime.",
+        `Cannot build ${target}: the system webview lacks required ${missing.join(", ")}.`,
+        "Rebuild with --portable for the bundled Chromium runtime.",
     ];
+}
+
+/** Refuse before native emission or launch when the selected backend cannot run the project. */
+export async function requireBackend(projectDir: string, target: string, portable: boolean) {
+    const lines = verdict(target, portable, await requiredFeatures(projectDir));
+    if (lines.length === 0) return;
+    for (const line of lines) console.error(`  ${line}`);
+    process.exit(1);
 }

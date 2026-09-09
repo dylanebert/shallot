@@ -3,6 +3,7 @@ import { basename, resolve } from "node:path";
 import { preview } from "vite";
 import { CROSS_ORIGIN_ISOLATION } from "../src/project/vite";
 import { buildWeb } from "./build";
+import { requireBackend } from "./features";
 import { bundleNativeLinux, bundleNativeMac, bundleNativeWindows, nativeOutDir } from "./native";
 
 export type RunTarget =
@@ -65,6 +66,12 @@ export async function runProject(
         return;
     }
 
+    if (runTarget.kind === "unknown") {
+        console.error(`unknown target: ${runTarget.target}`);
+        process.exit(1);
+    }
+    await requireBackend(projectDir, runTarget.kind, portable);
+
     if (runTarget.kind === "mac") {
         const outputDir = nativeOutDir(projectDir, "mac", release, portable);
         console.log(`\n  building ${basename(projectDir)}...\n`);
@@ -95,11 +102,6 @@ export async function runProject(
         process.stdout.write(result.stdout);
         process.stderr.write(result.stderr);
         process.exit(result.exitCode);
-    }
-
-    if (runTarget.kind === "unknown") {
-        console.error(`unknown target: ${runTarget.target}`);
-        process.exit(1);
     }
 
     const outputDir = nativeOutDir(projectDir, "windows", release, portable);

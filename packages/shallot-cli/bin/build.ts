@@ -9,7 +9,7 @@ import {
     projectPlugin,
     typegpuPlugin,
 } from "../src/project/vite";
-import { requiredFeatures, verdict } from "./features";
+import { requireBackend } from "./features";
 import { bundleNativeLinux, bundleNativeMac, bundleNativeWindows, nativeOutDir } from "./native";
 import { composeViteConfig, loadProjectConfig } from "./toolchain";
 
@@ -120,11 +120,7 @@ export async function buildProject(
         const release = opts.release ?? false;
         const portable = opts.portable ?? false;
 
-        // warn (don't block) when the chosen backend can't satisfy the app's required features — the
-        // build still produces an artifact that reaches the engine's diagnostic tier at launch.
-        for (const line of verdict(target, portable, await requiredFeatures(projectDir))) {
-            console.warn(`  ! ${line}`);
-        }
+        await requireBackend(projectDir, target, portable);
 
         const outputDir = nativeOutDir(projectDir, target, release, portable);
         const label = relative(projectDir, outputDir);
