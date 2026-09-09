@@ -50,7 +50,12 @@ const OWN_ICONS: Record<string, string> = {
 
 /** The trees holding app icons: the example corpus, plus the relocated flow fixtures, which are ejected
  *  apps that still link an icon even though they now live beside the code they claim about. */
-const ICON_TREES = ["examples", "packages/shallot/tests/flows"];
+const ICON_TREES = [
+    "examples",
+    "packages/shallot/tests/flows",
+    "bench",
+    "packages/shallot/tests/orbit-touch",
+];
 
 /** Tracked app icons that carry the default, relative to the repo root. */
 export function iconTargets(): string[] {

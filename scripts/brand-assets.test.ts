@@ -17,6 +17,28 @@ import {
 
 const read = (file: string) => readFileSync(resolve(ROOT, file), "utf8");
 
+// Independently enumerated current-app roots; historical install-compat fixtures are not apps.
+const expectedDefaults = [
+    "bench",
+    ..."animate-with-clips annotate-the-world billboards-and-sprites breakable-joints build-a-scene compute-and-readback custom-material day-night-sky drive-a-vehicle first-person game-loop gpu-particles import-a-model joints measure-performance moving-platform overlay-ui physics-playground play-sound ragdoll render-to-a-terminal respond-to-input save-and-restore stylize-the-look surface-friction"
+        .split(" ")
+        .map((name) => `examples/recipes/${name}`),
+    ..."ascii collapse ocean roads sandbox visualization voxel"
+        .split(" ")
+        .map((name) => `examples/showcase/${name}`),
+    ..."blank survive-reload ui-containment"
+        .split(" ")
+        .map((name) => `packages/shallot/tests/flows/${name}`),
+    "packages/shallot/tests/orbit-touch",
+]
+    .map((path) => `${path}/public/icon.svg`)
+    .sort();
+
+test("default icon membership reaches all 37 retained app icons", () => {
+    expect(expectedDefaults.length).toBe(37);
+    expect(iconTargets().sort()).toEqual(expectedDefaults);
+});
+
 test("every default example icon is the rendered mark", () => {
     const targets = iconTargets();
     expect(targets.length).toBeGreaterThan(30);

@@ -1,5 +1,5 @@
 {
-    "total": 67402,
+    "total": 67325,
     "files": {
         ".claude/rules/audio.md": {
             "bytes": 3714,
@@ -38,7 +38,7 @@
             "paragraph": 473
         },
         ".claude/rules/testing.md": {
-            "bytes": 7772,
+            "bytes": 7758,
             "paragraph": 459
         },
         ".claude/rules/tumble.md": {
@@ -50,8 +50,8 @@
             "paragraph": 288
         },
         "AGENTS.md": {
-            "bytes": 4190,
-            "paragraph": 614
+            "bytes": 4127,
+            "paragraph": 436
         },
         "CLAUDE.md": {
             "bytes": 169,

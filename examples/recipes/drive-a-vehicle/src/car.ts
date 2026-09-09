@@ -19,7 +19,7 @@ import {
 // bookkeeping, so the joint frames stay simple.
 //
 // wheel joints (suspension + spin motor + steering) have no published substrate-surface equivalent yet, so
-// this recipe rides the escape hatch; the gym twin `joints-driving` is the oracle-gated gold.
+// this recipe rides the escape hatch; `packages/shallot-tumble/tests/tumble-golds.tier.ts` replays the `joints-driving` gold.
 
 type V3 = { x: number; y: number; z: number };
 type Wheel = ReturnType<NonNullable<typeof Tumble.world>["createWheelJoint"]>;

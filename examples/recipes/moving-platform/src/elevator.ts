@@ -17,7 +17,8 @@ import { StepSystem } from "@dylanebert/shallot/physics/core";
 // derived from `state.time.elapsed`, never a module-level accumulator (ecs.md "reload-safety").
 //
 // A motor on a prismatic joint (with hard translation limits and a live speed target) is the richer
-// version, past the substrate on the `Tumble.world` escape hatch — verified in the gym twin `joints-elevator`.
+// version, past the substrate on the `Tumble.world` escape hatch — gold-tested as `joints-elevator`
+// in `packages/shallot-tumble/tests/tumble-golds.tier.ts`.
 
 const BASE_Y = 3; // the platform's mid-travel height
 const AMP = 1.5; // metres above/below mid — a 3 m peak-to-peak stroke

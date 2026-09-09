@@ -1,8 +1,7 @@
 // The runtime budget check `gym.ts`'s `installHarness` folds into every scenario's verdict: exact
 // equality per **axis**, not per scenario, because pipeline count is exact on every registered scenario
 // whether or not its byte axis is exempt. Pure over already-read numbers, so it needs no live `Profile`
-// or GPU. The both-directions registry meta-check that used to sit beside it left with the gate-table
-// meta-checks; the table below is data read by its consumers, not a registry asserted against itself.
+// or GPU.
 import type { Check, Param, Params } from "../gym";
 import {
     AXES,
@@ -46,9 +45,8 @@ export type MeasuredBudget = { [K in Axis]: number };
  *  depending on which axes it budgets vs. exempts (`render` emits only
  *  `budget:pipelines`, its `budget:bytes` axis exempt). `table` and `exemptions` default to the real
  *  registry — `installHarness` never passes them — and are parameters (not a module-level read) so a
- *  fixture can drive the exempt branch without mutating the real table, the same injection shape
- *  {@link checkBudgetEntries} already uses. Pure over the table + exemptions + the caller's already-read
- *  numbers. */
+ *  fixture can drive the exempt branch without mutating the real table. Pure over the table,
+ *  exemptions and the caller's already-read numbers. */
 export function assertBudget(
     name: string,
     atDefaultParams: boolean,

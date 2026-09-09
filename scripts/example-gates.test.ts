@@ -50,6 +50,22 @@ test("a runtime module no example claims selects nothing", () => {
     expect(selectExampleGates([`${RUNTIME_SRC}/standard/fog/index.ts`])).toEqual([]);
 });
 
+test("bench binds only the retained sweep command", () => {
+    expect(EXAMPLE_GATES.filter((row) => row.dir === "bench").map((row) => row.gate)).toEqual([
+        "bun bench --sweep",
+    ]);
+});
+
+for (const subject of ["slab", "mirror"]) {
+    test(`compute-and-readback selects for ${subject}`, () => {
+        expect(
+            selectExampleGates([`${RUNTIME_SRC}/standard/${subject}/index.ts`]).map(
+                (row) => row.dir,
+            ),
+        ).toContain("examples/recipes/compute-and-readback");
+    });
+}
+
 test("every row's cone starts with its own directory", () => {
     for (const row of EXAMPLE_GATES)
         expect({ dir: row.dir, own: row.covers[0] }).toEqual({

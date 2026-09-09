@@ -4,7 +4,8 @@ import { Body, Color, Part, type Plugin, type State } from "@dylanebert/shallot"
 // body slides or grips. five boxes are released across a tilted ramp with friction ramping low → high: the
 // slippery box on the left slides off, the grippy box on the right holds. friction is authored right on the
 // `Body` (no escape hatch — it is one of the substrate's own fields, alongside shape/pos/mass), so this whole
-// scene is ordinary substrate physics. The gym twin is `shapes-inclined-plane`, the oracle-gated gold.
+// scene is ordinary substrate physics. `packages/shallot-tumble/tests/tumble-golds.tier.ts`
+// replays the `shapes-inclined-plane` gold.
 
 const TILT = (40 * Math.PI) / 180;
 const COUNT = 5;

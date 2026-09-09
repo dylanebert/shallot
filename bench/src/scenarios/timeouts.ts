@@ -14,9 +14,6 @@
 //   `stress` sweep-contention finding: a
 //   perf-threshold gate measured under back-to-back sweep contention is not trustworthy.
 // - `covers` — glob(s) into `packages/shallot-runtime/src` naming the GPU-side modules this scenario exercises.
-//   The coverage check (`coverage.ts`) asserts every glob resolves, every table key is a registered
-//   scenario, and (once 3b populates the rest) every scenario has an entry and every GPU-side module is
-//   either covered or explicitly exempted.
 //
 // stress: the bottleneck-saturation atom ramps four resource axes (compute, bandwidth, submission,
 // cpu-memory) to the felt-lag wall and then runs fixed-frame profiler measure windows AT that wall — each
@@ -79,8 +76,8 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
             "packages/shallot-runtime/src/extras/lines/**/*.ts",
         ],
     },
-    // `render` is one registered scenario carrying many `mode`-selected rows (barrel header,
-    // bench/src/scenarios/index.ts) — skin-live and background/sky are rows of it, not their own
+    // `render` is one registered scenario carrying many `mode`-selected rows — skin-live and
+    // background/sky are rows of it, not their own
     // scenarios, so their coverage folds into this one entry rather than a same-named table key that
     // wouldn't match a registered scenario. `isolate`: `assertFog`'s "march-cost" check is a per-step
     // GPU-timing tripwire (fog:march / sear:color ratio bounded under `PerStepMax`) — a perf-threshold
@@ -189,10 +186,7 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     },
 
     // ── the tumble (CPU wasm) scenarios carry no `covers`, deliberately. Tumble physics is
-    // bit-exact-gated by `bun test` + the committed fixtures/gold corpus (`tumble.md`), not by this
-    // check's GPU-src population, which excludes `standard/tumble` for exactly that reason. Registered
-    // names are resolved from the real roster (`scenarioNames()`), not guessed, since a scenario name
-    // mismatch here would silently pass `checkCompleteness` on the wrong key.
+    // bit-exact-gated by the committed fixtures/gold corpus (`tumble.md`).
 
     // hand-authored tumble/diagnostic scenarios, no GPU-src coverage claim:
     queries: {}, // Tumble.world spatial-query surface (castRayClosest/castShape/overlapAABB)
@@ -208,35 +202,6 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
             "packages/shallot-runtime/src/engine/runtime/probe.ts",
         ],
     },
-};
-
-/** every module path this scenario's checks are explicitly exempted from covering, and why. An honest
- *  partial list is deliberate ("an honest initial exemption list is the point"), not a gap. A reason
- *  names the property
- *  that is actually load-bearing — no GPU surface — never a structural shape a reader would have to
- *  re-verify: "barrel re-export" was twice the stated reason for a file that was nothing of the kind. */
-export const GATE_EXEMPTIONS: Record<string, string> = {
-    // NOT `standard/sear/index.ts`: it's a genuine barrel too, but `render`'s `covers` glob already
-    // matches every file under `standard/sear/**`, so exempting it would be shadowed — the coverage check
-    // (`coverage.ts`) asserts covered ∩ exempt = ∅ for exactly this reason.
-    //
-    // engine/runtime/index.ts: verified — every line is a bare `export { ... } from "./..."`, no logic
-    // of its own.
-    "packages/shallot-runtime/src/engine/runtime/index.ts": "barrel re-export, no logic of its own",
-    // engine/runtime/platform.ts: `Runtime`/`now`/`requestFrame`/`readFile`/`readBinary` are cross-cutting
-    // environment/timing primitives every scenario exercises identically through `run()`'s frame loop, so
-    // no single scenario's assert targets a regression here specifically — its own correctness is
-    // unit-tested (`runtime.test.ts`, verified: schedules-frame-callbacks + reads-files + timing cases),
-    // not something a real-device scenario would newly catch.
-    "packages/shallot-runtime/src/engine/runtime/platform.ts":
-        "cross-cutting frame/timing primitive, unit-gated by runtime.test.ts, not a real-device concern",
-
-    // extras/orbit/** and extras/animation/** are CPU-only (`NON_GPU_EXTRAS`, coverage.ts), so they are not
-    // exempted here — the classification lives beside the population, not as exemptions in this table.
-
-    // extras/cells/**: covered by the `cells` scenario's own `covers` glob above, not exempted — an
-    // exemption row here would be shadowed (`coverage.ts` asserts covered ∩ exempt = ∅), and shadowing is
-    // exactly the earlier defect this table's own doc comment names.
 };
 
 /** converts a `dir/**\/*.ts`-style glob to a RegExp. `*` matches within one path segment; `**` matches

@@ -1,7 +1,7 @@
 ---
 paths:
   - "packages/{shallot-runtime/src/**/*.test.ts,shallot-runtime/scripts/*.ts,shallot-tumble/**/*.ts,shallot/tests/**/*.ts,shallot-cli/**/*.{test,probes}.ts,shallot-cli/scripts/build.ts}"
-  - "scripts/{install-test.ts,install-test/**/*.ts,boot-cost.ts}"
+  - "scripts/{install-test.ts,install-test/**/*.ts,boot-cost.ts,stall-attribution*.ts}"
   - "bench/**/*.ts"
   - "examples/showcase/ocean/test/**/*.{test,oracle}.ts"
   - "site/rum-*.ts"
@@ -65,7 +65,7 @@ One browser session/file, phased assertions. Probe adapter names before waits; s
 
 Suffix owner: `tests/test-tiers.ts`. Fast `.test.ts`; heavy CPU `.oracle.ts`/corpus `.tier.ts` by explicit `./` path on header triggers, keeping split sentinels. Browser/subprocess `.probes.ts` by-path, pure siblings fast: `bun run test:tui-probes`. `.lab.ts` temporary; `.playwright.ts` uses project configs.
 
-Outside-cone tests need invoking gates. Headed by-path tiers run alone under `SHALLOT_DISPLAY_REQUIRED=1` — `flow-*.tier.ts`, `verify-blank.tier.ts`, `tests/orbit-touch` — triggered by AGENTS.md prose, not a selector row the ratchet can see.
+Outside-cone tests need gates. AGENTS.md triggers flows, blank, orbit-touch and live stall-attribution separately; run headed, alone under `SHALLOT_DISPLAY_REQUIRED=1`. Prose bindings aren't selector coverage.
 
 Isolation diagnoses, never exempts: derive smaller scans or promote to oracle/tier with reasons; no cap raises.
 

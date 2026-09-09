@@ -1191,10 +1191,8 @@ export const HARNESS_INPAGE_FUNCTION_NAMES = new Set([decodeSample.name, decodeR
 /** the bucket names an attribution run's CPU profile must NOT carry: any bucket classified from a call
  *  frame whose function name belongs to the verify harness's own in-page helpers. Returns the offending
  *  bucket names — empty when the profile is decontaminated (no harness frames in the bucket table).
- *  S1c's Validation criterion: no call frame belonging to the verify harness appears in the attribution
- *  run's profiled window, asserted by an arm over the attribution run's own captured profile rather than
- *  read off the printed table. `verify.test.ts` owns the arms, including a red-when-broken witness that a
- *  no-op implementation greens on the contaminated shape. */
+ *  `scripts/stall-attribution.ts` asserts this over the actual nonempty capture and observed headed UA.
+ *  `verify.test.ts` proves classifier discrimination with fixtures, not live capture cleanliness. */
 export function harnessBucketNames(summary: CpuProfileSummary): string[] {
     const offending = new Set<string>();
     for (const entry of summary.entries) {

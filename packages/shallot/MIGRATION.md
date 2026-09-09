@@ -314,7 +314,7 @@ The label must be unique in a build. Allocate and bind throwaway inputs inside t
 
 0.9 still adopts an external `GPUDevice`, wraps an external `GPUBuffer`, unwraps typed layouts, bind groups, buffers, and pipelines, and resolves typed functions into raw WGSL. Shallot continues to own encoders and render passes, so a TypeGPU pipeline can execute inside an existing pass through `.with(pass)`.
 
-The repository's [`examples/flows/no-walls`](https://github.com/dylanebert/shallot/tree/main/examples/flows/no-walls) flow exercises every direction. Use those escapes at integration boundaries. Keep engine-authored kernels in TGSL so their schemas, CPU tests, lint rules, and diagnostics remain active.
+The repository's [`packages/shallot/tests/flows/no-walls`](https://github.com/dylanebert/shallot/tree/main/packages/shallot/tests/flows/no-walls) flow exercises every direction. Use those escapes at integration boundaries. Keep engine-authored kernels in TGSL so their schemas, CPU tests, lint rules, and diagnostics remain active.
 
 ## Verify the port
 

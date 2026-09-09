@@ -83,7 +83,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         tier: "recipes",
         covers: [
             "examples/recipes/compute-and-readback/**",
-            ...src("engine/runtime", "extras/text"),
+            ...src("engine/runtime", "extras/text", "standard/slab", "standard/mirror"),
         ],
         gate: "bun run recipes --recipe compute-and-readback",
     },
@@ -322,6 +322,6 @@ export const EXAMPLE_GATES: ExampleGate[] = [
             "bench/**",
             ...new Set(Object.values(SCENARIO_GATES).flatMap((gate) => gate.covers ?? [])),
         ],
-        gate: "bun bench --sweep && bun run --cwd bench gate",
+        gate: "bun bench --sweep",
     },
 ];

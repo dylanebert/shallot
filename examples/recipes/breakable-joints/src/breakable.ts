@@ -16,7 +16,7 @@ import {
 // tumble physics past the substrate's `Spring`/`Joint`.
 //
 // break-on-threshold + the joint-event stream have no published substrate-surface equivalent yet, so this
-// recipe rides the escape hatch; the gym twin `events-joint-break` is the oracle-gated gold.
+// recipe rides the escape hatch; `packages/shallot-tumble/tests/tumble-golds.tier.ts` replays the `events-joint-break` gold.
 
 const IDENT = { v: { x: 0, y: 0, z: 0 }, s: 1 };
 const COUNT = 6;
