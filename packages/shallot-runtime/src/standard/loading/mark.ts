@@ -207,16 +207,18 @@ export function toSvg(grid: Grid, palette: Palette, scale: number = 1): string {
 
 // --- splash ---------------------------------------------------------------------------------
 //
-// Doubling: pixels switch on in place in ordered-dither (Bayer) sequence, in beats that shorten.
-// Each pixel lands dim and goes full a tick later. On the hit the name types one letter per
-// tick; the cursor stays three ticks after the last letter and goes out. Thirty ticks a second.
-// Every frame is a grid, so the same function drives the page and an ANSI terminal.
+// Doubling: pixels switch on in place in ordered-dither (Bayer) sequence, in beats that shorten,
+// centre outwards within each dither level. Each pixel lands dim and goes full a tick later. On
+// the hit the name types a letter every two ticks; the cursor stays six ticks after the last
+// letter and goes out. Thirty ticks a second. Every frame is a grid, so the same function drives
+// the page and an ANSI terminal.
 
 export const TICK_MS = 1000 / 30;
 const ANTICIPATION = 3;
 const BEATS = [2, 2, 2, 1, 1, 1, 1] as const;
-const COUNTS = [3, 6, 10, 14, 18, 22] as const;
-const CURSOR_TICKS = 3;
+const COUNTS = [2, 3, 5, 7, 9, 11] as const;
+const LETTER_TICKS = 2;
+const CURSOR_TICKS = 6;
 const BAYER = [
     [0, 8, 2, 10],
     [12, 4, 14, 6],
@@ -228,7 +230,7 @@ const BAYER = [
 export const HIT_TICK = ANTICIPATION + BEATS.reduce((a, b) => a + b, 0);
 
 /** Last tick with any change; the frame after it is the lockup. */
-export const END_TICK = HIT_TICK + NAME.length + CURSOR_TICKS;
+export const END_TICK = HIT_TICK + NAME.length * LETTER_TICKS + CURSOR_TICKS;
 
 type Point = { x: number; y: number };
 
@@ -250,7 +252,15 @@ function landing(grid: Grid): Map<Point, number> {
     const rnd = lcg(5);
     const jitter = new Map(pixels.map((p) => [p, rnd()]));
     const key = (p: Point) => (BAYER[p.y % 4] as readonly number[])[p.x % 4] as number;
-    pixels.sort((a, b) => key(a) - key(b) || (jitter.get(a) ?? 0) - (jitter.get(b) ?? 0));
+    // centre of mass of the lit pixels: within one dither level the nearest cells land first, so
+    // the sparse early beats read as one cluster growing outwards rather than scattered dust
+    const cx = pixels.reduce((a, p) => a + p.x, 0) / pixels.length;
+    const cy = pixels.reduce((a, p) => a + p.y, 0) / pixels.length;
+    const radius = (p: Point) => (p.x - cx) ** 2 + (p.y - cy) ** 2;
+    pixels.sort(
+        (a, b) =>
+            key(a) - key(b) || radius(a) - radius(b) || (jitter.get(a) ?? 0) - (jitter.get(b) ?? 0),
+    );
     const ticks = new Map<Point, number>();
     let i = 0;
     COUNTS.forEach((n, k) => {
@@ -282,7 +292,7 @@ export function splashFrame(tick: number): Grid {
     for (const [p, land] of LANDING) {
         if (tick >= land) (out[p.y] as (Tone | null)[])[p.x] = tick - land < 1 ? "dim" : "gold";
     }
-    const typed = Math.max(0, Math.min(NAME.length, tick - HIT_TICK));
+    const typed = Math.max(0, Math.min(NAME.length, Math.floor((tick - HIT_TICK) / LETTER_TICKS)));
     let x = NAME_X;
     for (let i = 0; i < typed; i++) {
         const glyph = GLYPHS[i] as Grid;

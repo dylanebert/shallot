@@ -79,6 +79,43 @@ describe("splash", () => {
         }
     });
 
+    test("the outro spends twenty ticks on the name and its cursor", () => {
+        expect(END_TICK - HIT_TICK).toBe(20);
+    });
+
+    test("the landing is sparse at the midpoint and starts at the centre", () => {
+        const mark = fromBlocks(MARK.m);
+        const cells: { x: number; y: number }[] = [];
+        for (let y = 0; y < mark.length; y++)
+            for (let x = 0; x < (mark[0]?.length ?? 0); x++) if (mark[y]?.[x]) cells.push({ x, y });
+        const cx = cells.reduce((a, p) => a + p.x, 0) / cells.length;
+        const cy = cells.reduce((a, p) => a + p.y, 0) / cells.length;
+        const dist = (p: { x: number; y: number }) => Math.hypot(p.x - cx, p.y - cy);
+
+        const half = splashFrame(progressTick(0.5))
+            .flat()
+            .filter((t) => t === "gold" || t === "dim").length;
+        expect(half).toBeLessThanOrEqual(cells.length / 2);
+
+        // replay the landing tick by tick and read the order pixels switch on in
+        const order: { x: number; y: number }[] = [];
+        const seen = new Set<string>();
+        for (let t = 0; t <= HIT_TICK; t++) {
+            const frame = splashFrame(t);
+            for (let y = 0; y < frame.length; y++) {
+                const row = frame[y] ?? [];
+                for (let x = 0; x < row.length; x++) {
+                    if (!row[x] || seen.has(`${x},${y}`)) continue;
+                    seen.add(`${x},${y}`);
+                    order.push({ x, y });
+                }
+            }
+        }
+        const mean = (ps: { x: number; y: number }[]) =>
+            ps.reduce((a, p) => a + dist(p), 0) / ps.length;
+        expect(mean(order.slice(0, 6))).toBeLessThan(mean(cells));
+    });
+
     test("no frame carries a colour outside the three tones", () => {
         for (let t = 0; t <= END_TICK + 1; t++) {
             for (const v of splashFrame(t).flat())

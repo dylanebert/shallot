@@ -176,7 +176,16 @@ describe("Loading", () => {
             expect(shallotDark().complete).toBeDefined();
         });
 
-        test("complete holds until the outro reaches the lockup", async () => {
+        // the dead air the overlay owes after the lockup lands, `HOLD_TICKS` in index.ts
+        const HoldTicks = 6;
+        // one tick of the shared clock, with the microtasks a resolved promise hands on
+        const tick = async () => {
+            now += TICK_MS + 0.001;
+            queue.shift()?.(now);
+            await new Promise((r) => setTimeout(r, 0));
+        };
+
+        test("complete holds until the outro reaches the lockup, then a beat longer", async () => {
             const loading = shallotDark();
             loading.show();
             const splash = mockBody.children[0].children[0].children[0];
@@ -185,16 +194,40 @@ describe("Loading", () => {
             const held = Promise.resolve(loading.complete?.()).then(() => {
                 done = true;
             });
-            for (let i = 0; i < END_TICK - HIT_TICK; i++) {
-                now += TICK_MS + 0.001;
-                queue.shift()?.(now);
-            }
-            await Promise.resolve();
+            for (let i = 0; i < END_TICK - HIT_TICK; i++) await tick();
             expect(done).toBe(false);
-            now += TICK_MS + 0.001;
-            queue.shift()?.(now);
-            await held;
+            await tick();
             expect(splash.innerHTML).toBe(toSvg(lockup(), DARK, 4));
+
+            // the lockup is drawn and the screen stays: dead air before the overlay goes
+            for (let i = 0; i < HoldTicks - 1; i++) await tick();
+            expect(done).toBe(false);
+            await tick();
+            await held;
+            expect(done).toBe(true);
+            expect(splash.innerHTML).toBe(toSvg(lockup(), DARK, 4));
+        });
+
+        test("complete fades the track out and leaves the splash", async () => {
+            const loading = shallotDark();
+            loading.show();
+            const track = mockBody.children[0].children[0].children[1];
+            const splash = mockBody.children[0].children[0].children[0];
+            loading.update(1);
+            loading.complete?.();
+            expect(track.style.opacity).toBe("0");
+            expect(track.style.cssText).toContain("transition: opacity");
+            expect(splash.innerHTML).not.toBe("");
+        });
+
+        test("reduced-motion complete hides the track outright", async () => {
+            reduced = true;
+            const loading = shallotDark();
+            loading.show();
+            const track = mockBody.children[0].children[0].children[1];
+            await loading.complete?.();
+            expect(track.style.opacity).toBe("0");
+            expect(track.style.transition).toBe("none");
         });
 
         test("reduced-motion complete resolves with no frame queued", async () => {
