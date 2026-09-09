@@ -4,7 +4,6 @@
     "Tumble": true,
     "Gltf": true,
     "Orbit": true,
-    "Ragdoll": "./src/ragdoll",
-    "Smoke": "./src/smoke"
+    "Ragdoll": "./src/ragdoll"
   }
 }

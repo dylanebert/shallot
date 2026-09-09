@@ -10,7 +10,7 @@ const make = (): string => {
     const root = mkdtempSync(resolve(tmpdir(), "shallot-check-examples-"));
     fixtures.push(root);
     mkdirSync(resolve(root, "examples/recipes/static/public/scenes"), { recursive: true });
-    mkdirSync(resolve(root, "examples/flows/flow"), { recursive: true });
+    mkdirSync(resolve(root, "examples/showcase/second"), { recursive: true });
     mkdirSync(resolve(root, "examples/showcase/demo/test"), { recursive: true });
     mkdirSync(resolve(root, "examples/gym"), { recursive: true });
     mkdirSync(resolve(root, "scripts"), { recursive: true });
@@ -20,7 +20,7 @@ const make = (): string => {
     );
     // every cone in the fixture registry needs a real subject, or the completeness clause reds the
     // baseline and no mutation below can be attributed to itself
-    writeFileSync(resolve(root, "examples/flows/flow/main.ts"), "export const flow = 1;\n");
+    writeFileSync(resolve(root, "examples/showcase/second/main.ts"), "export const second = 1;\n");
     writeFileSync(resolve(root, "examples/gym/main.ts"), "export const gym = 1;\n");
     writeFileSync(
         resolve(root, "scripts/recipes.ts"),
@@ -41,10 +41,10 @@ const registry = (motion = false): ExampleGate[] => [
         static: "fixture has no runtime behavior",
     },
     {
-        dir: "examples/flows/flow",
-        tier: "flows",
-        covers: ["examples/flows/flow/**"],
-        gate: "bun run flows --flow flow",
+        dir: "examples/showcase/second",
+        tier: "showcase",
+        covers: ["examples/showcase/second/**"],
+        gate: "bun run --cwd examples/showcase/second gate",
     },
     {
         dir: "examples/showcase/demo",
@@ -66,10 +66,12 @@ afterEach(() => {
 
 test("registry coverage is bidirectional", () => {
     const root = make();
-    mkdirSync(resolve(root, "examples/flows/unregistered"));
+    mkdirSync(resolve(root, "examples/showcase/unregistered"));
     const rows = [...registry(), { ...registry()[0], dir: "examples/recipes/missing" }];
     const errors = checkExamples(root, rows);
-    expect(errors).toContain("example directory has no registry row: examples/flows/unregistered");
+    expect(errors).toContain(
+        "example directory has no registry row: examples/showcase/unregistered",
+    );
     expect(errors).toContain("registry row names no example directory: examples/recipes/missing");
 });
 
@@ -91,7 +93,9 @@ test("moving recipes require smoke, manifest wiring, and a CHECKS row", () => {
         },
     ];
     const errors = checkExamples(root, rows).join("\n");
-    expect(errors).toContain("recipe has neither src/smoke.ts nor static reason: moving");
+    expect(errors).toContain(
+        "recipe has neither src/smoke.ts nor a static or boot-only reason: moving",
+    );
     expect(errors).toContain("recipe manifest does not wire src/smoke.ts: moving");
     expect(errors).not.toContain("recipe has no CHECKS entry: moving");
 });
@@ -209,7 +213,7 @@ test("a live shared cover cannot hide an uncovered example source", () => {
     const rows = registry();
     rows[1].covers = ["examples/gym/**"];
     expect(checkExamples(root, rows)).toEqual([
-        "example source has no covers row: examples/flows/flow/main.ts",
+        "example source has no covers row: examples/showcase/second/main.ts",
     ]);
 });
 
@@ -217,14 +221,14 @@ test("removed cover, orphaned glob, and renamed or deleted source refuse indepen
     for (const mutation of ["remove", "orphan", "rename", "delete"]) {
         const root = make();
         const rows = registry();
-        rows[1].covers = ["examples/flows/flow/main.ts"];
+        rows[1].covers = ["examples/showcase/second/main.ts"];
         expect(checkExamples(root, rows)).toEqual([]);
         if (mutation === "remove") rows[1].covers = [];
-        if (mutation === "orphan") rows[1].covers.push("examples/flows/flow/*.svelte");
+        if (mutation === "orphan") rows[1].covers.push("examples/showcase/second/*.svelte");
         if (mutation === "rename" || mutation === "delete") {
-            rmSync(resolve(root, "examples/flows/flow/main.ts"));
+            rmSync(resolve(root, "examples/showcase/second/main.ts"));
             if (mutation === "rename")
-                writeFileSync(resolve(root, "examples/flows/flow/renamed.ts"), "export {};\n");
+                writeFileSync(resolve(root, "examples/showcase/second/renamed.ts"), "export {};\n");
         }
         const errors = checkExamples(root, rows).join("\n");
         expect(errors).toContain(
@@ -236,11 +240,11 @@ test("removed cover, orphaned glob, and renamed or deleted source refuse indepen
 
 test("every discovered directory must yield governed files", () => {
     const root = make();
-    rmSync(resolve(root, "examples/flows/flow/main.ts"));
+    rmSync(resolve(root, "examples/showcase/second/main.ts"));
     const rows = registry();
     rows[1].covers = ["examples/gym/**"];
     expect(checkExamples(root, rows)).toEqual([
-        "example directory yielded no governed source files: examples/flows/flow",
+        "example directory yielded no governed source files: examples/showcase/second",
     ]);
 });
 
@@ -255,13 +259,16 @@ for (const output of [
     test(`output ${output} is not demanded by source covers`, () => {
         const root = make();
         const rows = registry();
-        rows[1].covers = ["examples/flows/flow/main.ts"];
-        mkdirSync(resolve(root, "examples/flows/flow", output));
-        writeFileSync(resolve(root, "examples/flows/flow", output, "generated.ts"), "export {};\n");
+        rows[1].covers = ["examples/showcase/second/main.ts"];
+        mkdirSync(resolve(root, "examples/showcase/second", output));
+        writeFileSync(
+            resolve(root, "examples/showcase/second", output, "generated.ts"),
+            "export {};\n",
+        );
         expect(checkExamples(root, rows)).toEqual([]);
-        writeFileSync(resolve(root, "examples/flows/flow/uncovered.ts"), "export {};\n");
+        writeFileSync(resolve(root, "examples/showcase/second/uncovered.ts"), "export {};\n");
         expect(checkExamples(root, rows)).toEqual([
-            "example source has no covers row: examples/flows/flow/uncovered.ts",
+            "example source has no covers row: examples/showcase/second/uncovered.ts",
         ]);
     });
 }
@@ -269,4 +276,43 @@ for (const output of [
 test("a complete static fixture is green", () => {
     const root = make();
     expect(checkExamples(root, registry())).toEqual([]);
+});
+
+// The boot-only disposition, both directions. A row whose census check was deleted still MOVES — its
+// scene keeps its bodies and animators — so it cannot reuse `static`, whose clause refuses exactly that.
+// What it must not keep is the deleted smoke: resurrecting one would gate the row on the claim the
+// census threw out.
+test("a boot-only recipe may keep a moving scene but not a smoke file", () => {
+    const root = make();
+    mkdirSync(resolve(root, "examples/recipes/reframed/public/scenes"), { recursive: true });
+    writeFileSync(
+        resolve(root, "examples/recipes/reframed/public/scenes/main.scene"),
+        '<a body="mass: 1" animator="clip: idle" />\n',
+    );
+    const row: ExampleGate = {
+        dir: "examples/recipes/reframed",
+        tier: "recipes",
+        covers: ["examples/recipes/reframed/**"],
+        gate: "bun run recipes --recipe reframed",
+        bootOnly: "the check asserted something other than the concept",
+    };
+    expect(checkExamples(root, [...registry(), row])).toEqual([]);
+
+    // the same scene under `static` reds — the two dispositions are not interchangeable
+    const asStatic = { ...row, bootOnly: undefined, static: "no runtime behavior" };
+    expect(checkExamples(root, [...registry(), asStatic])).toContain(
+        "static recipe scene declares animator or body: reframed",
+    );
+
+    // and a resurrected smoke reds the boot-only row
+    mkdirSync(resolve(root, "examples/recipes/reframed/src"), { recursive: true });
+    writeFileSync(resolve(root, "examples/recipes/reframed/src/smoke.ts"), "export {};\n");
+    expect(checkExamples(root, [...registry(), row])).toContain(
+        "boot-only recipe also has src/smoke.ts: reframed",
+    );
+
+    // declaring both is itself a refusal
+    expect(
+        checkExamples(root, [...registry(), { ...row, static: "no runtime behavior" }]),
+    ).toContain("recipe declares both static and bootOnly: reframed");
 });

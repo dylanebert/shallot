@@ -3,7 +3,6 @@
   "plugins": {
     "Orbit": true,
     "OrbitTuning": true,
-    "Cells": true,
-    "Smoke": "./src/smoke"
+    "Cells": true
   }
 }

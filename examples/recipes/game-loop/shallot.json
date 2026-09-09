@@ -2,7 +2,6 @@
   "scene": "scenes/game-loop.scene",
   "plugins": {
     "Orbit": true,
-    "Spin": "./src/spin",
-    "Smoke": "./src/smoke"
+    "Spin": "./src/spin"
   }
 }

@@ -1,6 +1,6 @@
 # orbit-on-drag — expected artifacts (withheld)
 
-Problem shape from `examples/recipes/orbit-camera` + `respond-to-input`: input wiring with a
+Problem shape from `examples/recipes/respond-to-input`: input wiring with a
 controlled, causal observation.
 
 What a correct project does:

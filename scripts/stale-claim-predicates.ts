@@ -277,7 +277,7 @@ const INDEX_TOKEN_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
 
 /**
  * Build a one-pass token index over `*.ts`/`*.rs`/`*.wgsl` files.
- * Excludes `node_modules`, `scripts/check-docs.ts`, `scripts/rosters.ts`,
+ * Excludes `node_modules`, `scripts/check-docs.ts`, `scripts/foreign-namespaces.ts`,
  * and `scripts/stale-claim-predicates.ts` (their comments mention the symbols
  * they check, which would false-resolve dead citations).
  */
@@ -288,7 +288,7 @@ export async function buildTokenIndex(trackedFiles: string[], root: string): Pro
             (f.endsWith(".ts") || f.endsWith(".rs") || f.endsWith(".wgsl")) &&
             !f.includes("node_modules") &&
             f !== "scripts/check-docs.ts" &&
-            f !== "scripts/rosters.ts" &&
+            f !== "scripts/foreign-namespaces.ts" &&
             f !== "scripts/stale-claim-predicates.ts",
     );
     for (const f of sourceFiles) {

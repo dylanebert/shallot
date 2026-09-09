@@ -51,12 +51,11 @@ Examples live under `examples/`, indexed by [`examples/AGENTS.md`](examples/AGEN
 - `recipes/` — one minimal project per problem: first-person character, physics playground, import a model, day-night sky, and more.
 - `showcase/` — full projects rather than one concept each, several under real-device gates: `collapse`, `roads`, `sandbox`, `visualization`, `voxel`.
 - `gym/` — machine-verdict scenarios: the real-device test and benchmark tier.
-- `flows/` — ejected standalone apps for behavior a unit test can't reach (`survive-reload`, `ui-containment`, `no-walls`, `blank`), driven by `bun run flows`.
 
 Run a recipe standalone:
 
 ```bash
-bunx shallot dev examples/recipes/orbit-camera
+bunx shallot dev examples/recipes/build-a-scene
 ```
 
 A new project starts from `bun create shallot <name>` — the scaffold is the single source, so there's no in-repo starter copy.

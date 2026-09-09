@@ -16,9 +16,19 @@ describe("changed-path selector", () => {
         expect(dirs(["examples/recipes/moving-platform/src/plugin.ts"])).toEqual([
             "examples/recipes/moving-platform",
         ]);
-        expect(dirs(["packages/shallot-runtime/src/standard/render/plugin.ts"])).toEqual(
-            EXAMPLE_GATES.map((row) => row.dir),
-        );
+        // a runtime edit no longer selects the whole roster: `standard/render` selects only the rows
+        // whose surviving check claims about it (the S1 ratchet is `example-gates.test.ts`).
+        expect(dirs(["packages/shallot-runtime/src/standard/render/plugin.ts"])).toEqual([
+            "examples/recipes/day-night-sky",
+            "examples/recipes/gpu-particles",
+            "examples/showcase/collapse",
+            "examples/showcase/ocean",
+            "examples/showcase/roads",
+            "examples/showcase/sandbox",
+            "examples/showcase/voxel",
+            "examples/gym",
+        ]);
+        expect(dirs(["packages/shallot-runtime/src/standard/fog/index.ts"])).toEqual([]);
         expect(dirs(["bun.lock"])).toEqual(EXAMPLE_GATES.map((row) => row.dir));
         expect(dirs(["examples/showcase/visualization/package.json"])).toEqual(
             EXAMPLE_GATES.map((row) => row.dir),

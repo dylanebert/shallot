@@ -4,7 +4,6 @@
     "Audio": true,
     "Orbit": true,
     "Text": true,
-    "AudioDemo": "./src/demo",
-    "Smoke": "./src/smoke"
+    "AudioDemo": "./src/demo"
   }
 }

@@ -4,7 +4,6 @@
     "workspaces": [
         "packages/*",
         "examples/gym",
-        "examples/flows/*",
         "examples/recipes/*",
         "examples/showcase/*"
     ],
@@ -21,7 +20,6 @@
         "test:tui-probes": "bun test ./packages/shallot-cli/bin/tui.probes.ts",
         "test:ocean-fold": "FOLD_ENSEMBLE_MODE=full bun test --timeout 30000 ./examples/showcase/ocean/test/fold-anchor.oracle.ts",
         "bench": "bun run scripts/bench.ts",
-        "flows": "bun run scripts/flows.ts",
         "recipes": "bun run scripts/recipes.ts",
         "site": "bun run scripts/build-site.ts",
         "site:pages": "bun run scripts/build-pages.ts",

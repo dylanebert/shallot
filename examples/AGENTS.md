@@ -7,7 +7,6 @@ Grep first: `.claude/rules/examples.md`. Manifests: `bunx shallot dev examples/r
 - scene — `recipes/build-a-scene/` — declarative/code.
 - game loop — `recipes/game-loop/` — ECS/plugin.
 - input — `recipes/respond-to-input/` — held/edge/mouse.
-- orbit — `recipes/orbit-camera/` — framing.
 - first-person — `recipes/first-person/` — controller/platform.
 - physics — `recipes/physics-playground/` — bodies/joints; gym pile/suspension.
 
@@ -20,7 +19,6 @@ Grep first: `.claude/rules/examples.md`. Manifests: `bunx shallot dev examples/r
 
 - import glTF — `recipes/import-a-model/` — mesh refs/load/place.
 - day-night sky — `recipes/day-night-sky/` — procedural sun/time.
-- fog/light shafts — `recipes/fog-and-light-shafts/` — god rays.
 - stylize — `recipes/stylize-the-look/` — outlines.
 - material — `recipes/custom-material/` — WGSL surface/backdrop.
 - compute/readback — `recipes/compute-and-readback/` — slab/Mirror.
@@ -36,16 +34,7 @@ Grep first: `.claude/rules/examples.md`. Manifests: `bunx shallot dev examples/r
 
 ## Gym
 
-`gym/`: `bun bench --scenario <name>`; gates/bench/demo. Roster: `gym/src/scenarios/index.ts`; teaching: recipes. Touch: `gym/test/touch.playwright.ts`.
-
-## Flows
-
-`bun run flows` wraps shipped verify.
-
-- `flows/no-walls/` — adopted device/raw WGSL draw, boundary/pixel gate.
-- `flows/survive-reload/` — value/warm entity reload/storage/restore.
-- `flows/ui-containment/` — invalid fixed UI clipped from host chrome.
-- `flows/blank/` — expected pixel failure despite harness ok.
+`gym/`: `bun bench --scenario <name>`; gates/bench/demo. Roster: `gym/src/scenarios/index.ts`; cones: `gym/src/scenarios/timeouts.ts`; teaching: recipes. Touch: `gym/test/touch.playwright.ts`.
 
 ## Showcase
 

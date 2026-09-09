@@ -733,7 +733,7 @@ if (rosterFindings.length > 0) {
 // arm's population.
 //
 // Resolution is a one-pass token index over `*.ts`/`*.rs`/`*.wgsl` (excluding `node_modules`,
-// `scripts/check-docs.ts`, `scripts/rosters.ts`, `scripts/stale-claim-predicates.ts`), NOT
+// `scripts/check-docs.ts`, `scripts/foreign-namespaces.ts`, `scripts/stale-claim-predicates.ts`), NOT
 // `git grep --fixed-strings`:
 // substring matching reads 8 sites green off longer tokens (e.g. `spotInner` matches
 // `spotInnerF`, `hullSat` matches `hullSatWgsl`, `InFragmentStage` matches
@@ -741,7 +741,7 @@ if (rosterFindings.length > 0) {
 // identifier words and does exact set-membership — `spotInner` only resolves if `spotInner`
 // appears as a standalone token, not as a substring of `spotInnerF`.
 //
-// Foreign-namespace roster classes live in the committed `scripts/rosters.ts`. The
+// Foreign-namespace roster classes live in the committed `scripts/foreign-namespaces.ts`. The
 // per-entry allowlist is retired — the arm carries no per-site residue. Each roster entry
 // is asserted THREE WAYS: (1) the entry is genuinely cited by at least one rule file,
 // (2) the symbol/path is genuinely absent from the tree (disjointness law, round 7),
@@ -756,7 +756,7 @@ if (rosterFindings.length > 0) {
 // `packages/shallot/`), so the glob does not reach them; a reader can verify with
 // `git ls-files '**/AGENTS.md' '**/CLAUDE.md'` that no hit starts with `.claude/rules/`.
 
-import { FOREIGN_NAMESPACES } from "./rosters";
+import { FOREIGN_NAMESPACES } from "./foreign-namespaces";
 import { buildTokenIndex, extractCandidates, resolvesAnywhere } from "./stale-claim-predicates";
 
 // ── Population: scan .claude/rules/**/*.md for identifier-shaped tokens ────────────────────
@@ -790,7 +790,7 @@ if (ruleFiles.length === 0) {
 //
 // Build a Set<string> of every identifier token in every tracked source file. Resolution is
 // exact set-membership, not `git grep --fixed-strings` (substring matching). Excludes
-// `node_modules`, `scripts/check-docs.ts`, `scripts/rosters.ts`, and
+// `node_modules`, `scripts/check-docs.ts`, `scripts/foreign-namespaces.ts`, and
 // `scripts/stale-claim-predicates.ts` (their comments mention the symbols they check, which
 // would false-resolve dead citations).
 
@@ -886,7 +886,7 @@ if (totalRosterEntries !== PINNED_ROSTER_ENTRY_COUNT) {
         `✗ roster entry count mismatch: pinned ${PINNED_ROSTER_ENTRY_COUNT}, actual ${totalRosterEntries}.
 ` +
             `  Update PINNED_ROSTER_ENTRY_COUNT in scripts/check-docs.ts to match, ` +
-            `or prune the uncited entries from scripts/rosters.ts.`,
+            `or prune the uncited entries from scripts/foreign-namespaces.ts.`,
     );
     process.exit(1);
 }
@@ -911,7 +911,7 @@ if (uncitedRosterEntries.length > 0) {
             uncitedRosterEntries.map((e) => `    ${e}`).join("\n") +
             `
   Every roster entry must be cited by at least one rule file (both ways: a real ` +
-            `member, genuinely needed). Prune uncited entries from scripts/rosters.ts.`,
+            `member, genuinely needed). Prune uncited entries from scripts/foreign-namespaces.ts.`,
     );
     process.exit(1);
 }
@@ -938,7 +938,7 @@ if (rosterInTree.length > 0) {
             `
   Every roster entry must be absent from the tree token index (disjointness law: ` +
             `each disjunct's member set is disjoint from every other's, so each surviving ` +
-            `member is load-bearing). Prune the redundant entries from scripts/rosters.ts.`,
+            `member is load-bearing). Prune the redundant entries from scripts/foreign-namespaces.ts.`,
     );
     process.exit(1);
 }
@@ -1010,8 +1010,8 @@ if (staleCitations.length > 0) {
 // (43 `roads-interactive.md`, 1 `shallot-boot-noise.md`, 2
 // `shallot-demo-slow-frame-attribution.md`) → exit 1.
 // Mutation proof: adding `// see zzz-dead-pointer-mutation-proof.md` to a comment in
-// `scripts/rosters.ts` reds this arm (witnessed 2026-08-26, exit 1 —
-// `scripts/rosters.ts:100: zzz-dead-pointer-mutation-proof.md` moves the count from 46
+// `scripts/foreign-namespaces.ts` reds this arm (witnessed 2026-08-26, exit 1 —
+// `scripts/foreign-namespaces.ts:100: zzz-dead-pointer-mutation-proof.md` moves the count from 46
 // to 47).
 
 // A citation resolves only if its basename is tracked in this repo, so the gate

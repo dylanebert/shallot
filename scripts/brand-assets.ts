@@ -45,18 +45,22 @@ export function nativeIcon(): Uint8Array {
 // project's own; lose that marker and the file falls back into the regenerated population, so a
 // corrupted icon still reds instead of reading as a deliberate one.
 const OWN_ICONS: Record<string, string> = {
-    "examples/flows/no-walls/public/icon.svg": 'fill="#f233b3"',
+    "packages/shallot/tests/flows/no-walls/public/icon.svg": 'fill="#f233b3"',
 };
 
-/** Tracked example icons that carry the default, relative to the repo root. */
+/** The trees holding app icons: the example corpus, plus the relocated flow fixtures, which are ejected
+ *  apps that still link an icon even though they now live beside the code they claim about. */
+const ICON_TREES = ["examples", "packages/shallot/tests/flows"];
+
+/** Tracked app icons that carry the default, relative to the repo root. */
 export function iconTargets(): string[] {
-    const tracked = Bun.spawnSync(["git", "ls-files", "-z", "examples"], { cwd: ROOT });
+    const tracked = Bun.spawnSync(["git", "ls-files", "-z", ...ICON_TREES], { cwd: ROOT });
     if (!tracked.success) throw new Error("brand-assets: `git ls-files` failed");
     const files = tracked.stdout
         .toString()
         .split("\0")
         .filter((file) => file.endsWith("/public/icon.svg"));
-    if (files.length === 0) throw new Error("brand-assets: no example icons — the check is empty");
+    if (files.length === 0) throw new Error("brand-assets: no app icons — the check is empty");
     return files.filter((file) => {
         const own = OWN_ICONS[file];
         return !own || !readFileSync(resolve(ROOT, file), "utf8").includes(own);

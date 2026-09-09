@@ -24,7 +24,7 @@ test("every default example icon is the rendered mark", () => {
 });
 
 test("a project's own icon stays its own", () => {
-    const own = "examples/flows/no-walls/public/icon.svg";
+    const own = "packages/shallot/tests/flows/no-walls/public/icon.svg";
     expect(iconTargets()).not.toContain(own);
     expect(read(own)).toContain('fill="#f233b3"');
 });

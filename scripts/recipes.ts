@@ -32,17 +32,10 @@ interface Recipe {
 // on verify pass + verdict.ok, just without named-check assertions).
 const CHECKS: Record<string, string[]> = {
     "annotate-the-world": ["world annotation advances"],
-    "billboards-and-sprites": ["radial sprite meter advances"],
     "day-night-sky": ["day night sun advances"],
-    "first-person": ["first person responds"],
-    "game-loop": ["game loop responds"],
     "overlay-ui": ["overlay hud advances"],
     "physics-playground": ["playground spawns dynamic body"],
-    "play-sound": ["play sound responds"],
-    ragdoll: ["ragdoll responds"],
-    "render-to-a-terminal": ["terminal key orbit responds"],
     "respond-to-input": ["respond to input responds"],
-    "save-and-restore": ["save writes authored world"],
     "stylize-the-look": ["outline selection advances"],
     "moving-platform": ["platform slides"],
     "animate-with-clips": ["both clips move their targets"],
@@ -78,11 +71,15 @@ const dynamicDirs = existsSync(recipesRoot)
           )
           .map((e) => e.name)
     : [];
+// A row with either reason has no verdict of its own: `static` never moves, `bootOnly` moves but has
+// no check asserting its subject yet. Both gate on verify's own boot + nonblank render.
 const STATIC_REASONS = new Map(
-    EXAMPLE_GATES.filter((row) => row.tier === "recipes" && row.static).map((row) => [
-        row.dir.slice("examples/recipes/".length),
-        row.static as string,
-    ]),
+    EXAMPLE_GATES.filter((row) => row.tier === "recipes" && (row.static ?? row.bootOnly)).map(
+        (row): [string, string] => [
+            row.dir.slice("examples/recipes/".length),
+            (row.static ?? row.bootOnly) as string,
+        ],
+    ),
 );
 const RECIPES: Recipe[] = rosterFrom([...dynamicDirs, ...STATIC_REASONS.keys()], STATIC_REASONS);
 

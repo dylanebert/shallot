@@ -22,6 +22,8 @@ export const TOOLING_SEAMS: Record<string, string> = {
         "exercise the packed-consumer diagnostic binding",
     'packages/shallot-cli/bin/verify.test.ts "../../../scripts/verify"':
         "the repository transport's result types",
+    'packages/shallot-cli/bin/verify-blank.tier.ts "../../../scripts/verify"':
+        "the repository transport the blank red-proof drives verify through",
     'packages/shallot-cli/bin/verify.test.ts "../../../site/rum-sampler"':
         "differential against the independently executed page sampler",
     // verify's node-side diagnostics. These are tool-facing readings with no author-facing contract, so
@@ -70,4 +72,12 @@ export const NON_WORKSPACE_PACKAGES: Record<string, string> = {
         "the synthetic malformed-install fixture the packed install gate publishes into a temp tree",
     "scripts/install-test/compat-0.9.5/scaffold":
         "the project create-shallot@0.9.5 emitted, frozen byte-for-byte as the compatibility baseline",
+    "packages/shallot/tests/flows/blank":
+        "the ejected app the verify red-proof tier boots; a fixture the workspace install must not hoist",
+    "packages/shallot/tests/flows/no-walls":
+        "the ejected app the adopted-device tier boots; a fixture the workspace install must not hoist",
+    "packages/shallot/tests/flows/survive-reload":
+        "the ejected app the reload tier boots; a fixture the workspace install must not hoist",
+    "packages/shallot/tests/flows/ui-containment":
+        "the ejected app the overlay-containment tier boots; a fixture the workspace install must not hoist",
 };

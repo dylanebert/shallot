@@ -157,15 +157,12 @@ export async function main(argv = process.argv.slice(2), deps: MainDeps = {}): P
         return required || !allPass ? 1 : 0;
     }
 
-    try {
-        for (const row of display) {
-            const result = await run(row.gate);
-            console.log(
-                `${result.ok ? "PASS" : "FAIL"}: display ${row.dir} (${result.warnings} warnings)`,
-            );
-            allPass = result.ok && allPass;
-        }
-    } finally {
+    for (const row of display) {
+        const result = await run(row.gate);
+        console.log(
+            `${result.ok ? "PASS" : "FAIL"}: display ${row.dir} (${result.warnings} warnings)`,
+        );
+        allPass = result.ok && allPass;
     }
     if (allPass) console.log("PASS: all selected rows passed.");
     return allPass ? 0 : 1;

@@ -36,8 +36,13 @@ const leaf = resolve(ROOT, "src/harness/browser.ts");
 if (new Bun.Transpiler({ loader: "ts" }).scan(readFileSync(leaf, "utf8")).imports.length) {
     throw new Error("build-tooling: browser launch leaf must be import-free");
 }
+// A by-path gate file never rides the distribution. The suffixes are spelled one per clause rather than
+// as one alternation, because a restated tier roster is itself refused (`check-docs.ts`).
 const carried = (file: string) =>
-    !/(?:^|\/)(?:target|node_modules)(?:\/|$)|\/\.gitignore$|\.(?:test|probes)\.ts$/.test(file);
+    !/(?:^|\/)(?:target|node_modules)(?:\/|$)|\/\.gitignore$/.test(file) &&
+    !file.endsWith(".test.ts") &&
+    !file.endsWith(".probes.ts") &&
+    !file.endsWith(".tier.ts");
 const files = projection
     .flatMap((path) =>
         path.endsWith(".ts")

@@ -1,6 +1,5 @@
 // Per-scenario gate metadata — plain data with no imports, so a driver reads it node-side WITHOUT
-// booting a page (the same committed-data shape bench-tumble.ts reads its twin list from
-// tests/tumble/samples/index.json). `bun bench --for src/standard/sear/pipelines.ts` has to resolve a
+// booting a page. `bun bench --for src/standard/sear/pipelines.ts` has to resolve a
 // path to scenario names before any browser exists, which a `covers:` field inside a scenario's own
 // registration cannot do — so this stays a side table, not a field on the registered scenario objects, and it
 // deliberately touches none of the scenario files it describes.
@@ -189,53 +188,11 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
         covers: ["packages/shallot-runtime/src/standard/avbd/**/*.ts"],
     },
 
-    // ── everything below is a tumble (CPU wasm) scenario: no `covers`, deliberately. Tumble physics is
+    // ── the tumble (CPU wasm) scenarios carry no `covers`, deliberately. Tumble physics is
     // bit-exact-gated by `bun test` + the committed fixtures/gold corpus (`tumble.md`), not by this
     // check's GPU-src population, which excludes `standard/tumble` for exactly that reason. Registered
-    // names are gold slugs / sample names, not filenames — resolved from the real roster
-    // (`scenarioNames()`), not guessed, since a scenario name mismatch here would silently pass
-    // `checkCompleteness` on the wrong key.
-
-    // tumble.js sample twins (`sampleScenario`, bit-exact vs a committed gold — no perf-threshold
-    // assert to isolate):
-    "stacking-arch": {},
-    "stacking-box-pyramid": {},
-    "stacking-dominoes": {},
-    "joints-bridge": {},
-    "joints-cantilever": {},
-    "joints-driving": {},
-    "joints-elevator": {},
-    "joints-filter": {},
-    "joints-paddle": {},
-    "joints-parallel": {},
-    "joints-pendulum": {},
-    "joints-rope": {},
-    "joints-suspension": {},
-    "bodies-body-type": {},
-    "bodies-motion-locks": {},
-    "bodies-spinning-book": {},
-    "collision-overlap-box": {},
-    "collision-ray-curtain": {},
-    "collision-shape-cast": {},
-    "continuous-bullet-vs-stack": {},
-    "continuous-thin-wall": {},
-    "determinism-falling-ragdolls": {},
-    "events-hit": {},
-    "events-joint-break": {},
-    "events-sensor-sweep": {},
-    "geometry-convex-hull": {},
-    "geometry-convex-primitives": {},
-    "geometry-hull-reduction": {},
-    "shapes-inclined-plane": {},
-    "shapes-restitution": {},
-    "shapes-shape-soup": {},
-    "mesh-terrain": {},
-    "mesh-torus": {},
-    "ragdoll-ragdoll": {},
-    "compound-simple": {},
-    "compound-spheres": {},
-    "compound-tile-floor": {},
-    "character-mover": {},
+    // names are resolved from the real roster (`scenarioNames()`), not guessed, since a scenario name
+    // mismatch here would silently pass `checkCompleteness` on the wrong key.
 
     // hand-authored tumble/diagnostic scenarios, no GPU-src coverage claim:
     queries: {}, // Tumble.world spatial-query surface (castRayClosest/castShape/overlapAABB)

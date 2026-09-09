@@ -22,7 +22,7 @@ Witnessed at the round 7 working state on branch `audit-stale-claim-sweep/S1`, r
 |---|----------|------|-------------|
 | (i) | Seeded backticked dead symbol: `` `advanceColor` `` → `` `zombieUploadPass` `` in avbd.md:114 (in place) | 1 | stale citation |
 | (ii) | Bare dead symbol: `` `advanceColor` `` → bare `zombieUploadPass` in avbd.md:114 (in place) | 1 | stale citation |
-| (iii) | Roster swap-in (count-neutral): in scripts/rosters.ts replace "PowerVR" with "zombieUploadPass" (roster count stays 43); in avbd.md:114 replace the solo-backticked `advanceColor` with `zombieUploadPass` (citation count stays above the floor) | 1 | stale citation (PowerVR at gpu.md:257, :265) |
+| (iii) | Roster swap-in (count-neutral): in scripts/foreign-namespaces.ts replace "PowerVR" with "zombieUploadPass" (roster count stays 43); in avbd.md:114 replace the solo-backticked `advanceColor` with `zombieUploadPass` (citation count stays above the floor) | 1 | stale citation (PowerVR at gpu.md:257, :265) |
 | (iv) | Substring: `` `advanceColor` `` → `` `spotInner` `` in avbd.md:114 (substring of live `spotInnerF`) | 1 | stale citation |
 | (v) | Launder-via-marker: `` `advanceColor` `` → `` `zombieUploadPass` (retired) `` in avbd.md:114 | 1 | marker-exempted count mismatch (21 vs 20) |
 | (vi) | Weak-shape bare: `` `advanceColor` `` → bare `zombie_upload_pass` (snake) in avbd.md:114 | 1 | stale citation |

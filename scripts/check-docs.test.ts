@@ -149,7 +149,7 @@ beforeAll(async () => {
             ["array", JSON.stringify(suffixes.map((suffix) => `.${suffix}.ts`))],
         ]) {
             await run(`tier ${name} restatement`, {
-                "scripts/rosters.ts": (text) => `${text}\n// ${roster}\n`,
+                "scripts/foreign-namespaces.ts": (text) => `${text}\n// ${roster}\n`,
             });
         }
         const visual = ".claude/rules/visual-identity.md";
@@ -218,7 +218,7 @@ beforeAll(async () => {
         await run("closed vocabulary", {}, [], addMember("nested/INSTRUCTIONS.md"));
         await run("ignored member", {}, [], addMember("dist/AGENTS.md"));
         await run("pointers", {
-            "scripts/rosters.ts": (text) =>
+            "scripts/foreign-namespaces.ts": (text) =>
                 text + "\n// see zzz-vacuity-dead-seed.md\n// see README.md\n// see checks.md\n",
         });
         await run("old release clause", {
@@ -370,7 +370,7 @@ for (const shape of ["regex", "array"]) {
         const reading = readings.get(`tier ${shape} restatement`)!;
         expect(reading.exitCode).toBe(1);
         expect(reading.output).toContain("✗ tier-suffix roster arm:");
-        expect(reading.output).toContain("scripts/rosters.ts:");
+        expect(reading.output).toContain("scripts/foreign-namespaces.ts:");
         expect(reading.output).toContain("carries a literal tier-suffix roster");
     });
 }
@@ -378,9 +378,9 @@ for (const shape of ["regex", "array"]) {
 test("pointer validity refuses dead and private-only basenames, grants a live basename", () => {
     const reading = readings.get("pointers")!;
     expect(reading.exitCode).toBe(1);
-    expect(reading.output).toMatch(/rosters\.ts:\d+: zzz-vacuity-dead-seed\.md/);
-    expect(reading.output).toMatch(/rosters\.ts:\d+: checks\.md/);
-    expect(reading.output).not.toMatch(/rosters\.ts:\d+: README\.md/);
+    expect(reading.output).toMatch(/foreign-namespaces\.ts:\d+: zzz-vacuity-dead-seed\.md/);
+    expect(reading.output).toMatch(/foreign-namespaces\.ts:\d+: checks\.md/);
+    expect(reading.output).not.toMatch(/foreign-namespaces\.ts:\d+: README\.md/);
 });
 
 for (const [name, diagnostic] of [

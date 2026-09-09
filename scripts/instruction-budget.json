@@ -1,5 +1,5 @@
 {
-    "total": 68218,
+    "total": 67535,
     "files": {
         ".claude/rules/audio.md": {
             "bytes": 3714,
@@ -14,7 +14,7 @@
             "paragraph": 515
         },
         ".claude/rules/examples.md": {
-            "bytes": 2981,
+            "bytes": 2904,
             "paragraph": 432
         },
         ".claude/rules/exports.md": {
@@ -42,7 +42,7 @@
             "paragraph": 464
         },
         ".claude/rules/tumble.md": {
-            "bytes": 4713,
+            "bytes": 4565,
             "paragraph": 696
         },
         ".claude/rules/visual-identity.md": {
@@ -50,7 +50,7 @@
             "paragraph": 288
         },
         "AGENTS.md": {
-            "bytes": 4305,
+            "bytes": 4259,
             "paragraph": 614
         },
         "CLAUDE.md": {
@@ -58,7 +58,7 @@
             "paragraph": 156
         },
         "examples/AGENTS.md": {
-            "bytes": 3496,
+            "bytes": 3084,
             "paragraph": 514
         },
         "packages/shallot/AGENTS.md": {

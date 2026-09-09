@@ -2,12 +2,8 @@
 paths:
   - "packages/shallot-runtime/src/standard/tumble/**/*.ts"
   - "packages/shallot-tumble/**"
-  - "examples/gym/src/tumble-*.ts"
+  - "packages/shallot-tumble/tests/**/*.ts"
   - "examples/gym/src/scenarios/**"
-  - "scripts/bench-tumble.ts"
-  - "scripts/tumble-interaction.ts"
-  - "scripts/tumble-repro.ts"
-  - "scripts/tumble-repro-driver.mjs"
   - "scripts/check-tumble-fp.ts"
 ---
 
@@ -37,4 +33,4 @@ Private `packages/shallot-tumble` owns the solver, Rust and oracles; runtime own
 
 Kernel: `cargo test`, then from `packages/shallot-tumble` `bun run scripts/build-tumble-kernel.ts`; commit both wasm artifacts, even panic-line changes. MT changes also run `bun run test:fixture`, `bun run test:fixture:mt` at `TUMBLE_THREADS=2` and 8, `bun run test:fixture:auto`, `bun run test:exit`. Keep joint-event assertions at ST/2/8: hashes cannot see events. Decompose serial/kernel costs; memory-traffic wins need same-window interleaved pre-change A/B before landing.
 
-Engine/host/twin changes run root `bun test ./examples/gym/src` (gold worlds in separate processes). Corpus/render changes run `bun run scripts/bench-tumble.ts`; grab/solids/overlay/input changes run `bun run scripts/tumble-interaction.ts`, input-to-pixels also `bun run scripts/tumble-repro.ts --gate`. Require synthetic AND trusted input, independent static-breach/finite guards. Derive visuals from world shapes. Serialize bridges; tiers: `testing.md`.
+Engine/host/twin changes run root `bun run test` (the sentinel; gold worlds in separate processes) and the full corpus by path: `bun test ./packages/shallot-tumble/tests/tumble-golds.tier.ts`. The real-device twin drivers retired with the sample-twin scenarios they drove; the breach rule they shared survives as `detectBreach` in `tumble-watch.ts`, gated red-first by `tumble-watch.test.ts`. Serialize bridges; tiers: `testing.md`.

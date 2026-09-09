@@ -44,11 +44,11 @@ Attribution kind isn't magnitude; non-script remainder isn't a JS owner. Assert 
 
 Observe, don't guess causes; empty diagnostics mean incomplete. Flush before exit; reject empty/non-numeric flags. RUM: read emitters, clean profiles.
 
-`verify` reads console/pixels; motion needs differing frames. Gym needs a scenario. `bin/verify.ts` owns center-vs-corner ready/post-run OR: flashes pass, capture fails closed, paint isn't identity. Reframe, don't soften; assert buffer identity. Only app `noRender` opts out visibly. Blank flow is negative control. Leak: idle, derived rate, manual `--leak` control on changes; GC ungated. Instrument failure is incomplete; determined failure outranks unavailable.
+`verify` reads console/pixels; motion needs differing frames. Gym needs a scenario. `bin/verify.ts` owns center-vs-corner ready/post-run OR: flashes pass, capture fails closed, paint isn't identity. Reframe, don't soften; assert buffer identity. Only app `noRender` opts out visibly. Blank tier is negative control. Leak: idle, derived rate, manual `--leak` control on changes; GC ungated. Instrument failure is incomplete; determined failure outranks unavailable.
 
 ## Tiers
 
-CRUD/reload: bugs/novel lifecycles/dynamic adds; conformance: novel state/registries. ECS/app tests own atoms, flows end-to-end. Pairwise GPU matrices plus compile. `tests/standards.ts`: corpus/limits.
+CRUD/reload: bugs/novel lifecycles/dynamic adds; conformance: novel state/registries. ECS/app tests own atoms, tiers end-to-end. Pairwise GPU matrices plus compile. `tests/standards.ts`: corpus/limits.
 
 One browser session/file, phased assertions. Probe/log adapter names before waits; software can pass feature floors. Only device-dependent gates skip; skips aren't proof.
 

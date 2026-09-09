@@ -41,7 +41,7 @@ export function globHasSubject(root: string, cover: string): boolean {
 export function checkExamples(root: string, registry: ExampleGate[]): string[] {
     const errors: string[] = [];
     const discovered = [
-        ...(["recipes", "flows", "showcase"] as const).flatMap((tier) =>
+        ...(["recipes", "showcase"] as const).flatMap((tier) =>
             childDirs(resolve(root, "examples", tier)).map((name) => `examples/${tier}/${name}`),
         ),
         ...(existsSync(resolve(root, "examples/gym")) ? ["examples/gym"] : []),
@@ -70,14 +70,25 @@ export function checkExamples(root: string, registry: ExampleGate[]): string[] {
         const expectedGate = `bun run recipes --recipe ${recipe}`;
         if (row && row.gate !== expectedGate)
             errors.push(`recipe gate must use selector "${expectedGate}": ${recipe}`);
+        if (row?.static && row?.bootOnly)
+            errors.push(`recipe declares both static and bootOnly: ${recipe}`);
         if (row?.static) {
             if (/\banimator\s*=|\bbody\s*=/.test(scenes))
                 errors.push(`static recipe scene declares animator or body: ${recipe}`);
             if (existsSync(smoke)) errors.push(`static recipe also has src/smoke.ts: ${recipe}`);
             continue;
         }
+        // A boot-only row does move — it just has no check asserting its subject yet, so unlike a static
+        // row its scene may carry dynamics. What it must not carry is a smoke file: the deleted check is
+        // the whole reason the row is boot-only, and a resurrected one would gate on the wrong claim.
+        if (row?.bootOnly) {
+            if (existsSync(smoke)) errors.push(`boot-only recipe also has src/smoke.ts: ${recipe}`);
+            continue;
+        }
         if (!existsSync(smoke))
-            errors.push(`recipe has neither src/smoke.ts nor static reason: ${recipe}`);
+            errors.push(
+                `recipe has neither src/smoke.ts nor a static or boot-only reason: ${recipe}`,
+            );
         const manifestPath = resolve(dir, "shallot.json");
         const manifest = existsSync(manifestPath) ? text(manifestPath) : "";
         if (!/["']?\.\/src\/smoke(?:\.ts)?["']?/.test(manifest))

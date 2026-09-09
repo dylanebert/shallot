@@ -66,6 +66,7 @@
         "bin",
         "!bin/**/*.test.ts",
         "!bin/**/*.probes.ts",
+        "!bin/**/*.tier.ts",
         "rust/audio/pkg",
         "rust/window",
         "!rust/window/target",

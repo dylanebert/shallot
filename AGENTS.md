@@ -8,7 +8,7 @@ Owners: `packages/shallot{,-runtime,-cli,-tumble}`, `packages/create-shallot`; e
 
 Read `.claude/rules/style.md` always; matching rules below via authoritative `paths:` frontmatter. Repo-root globs govern delivery, not authority. Claude Code loads on matching reads; others read manually. Edit frontmatter, not duplicate globs.
 
-In `.claude/rules/`: `audio.md`, `avbd.md`, `ecs.md`, `examples.md`, `exports.md`, `gpu.md`, `physics.md`, `render.md`, `testing.md`, `tumble.md`, `visual-identity.md`. Testing includes `scripts/stall-attribution.ts`, `scripts/compile-concurrency.ts`, `scripts/loaf-attribution.ts`, `site/rum-*.ts` and its frontmatter paths. Also read `tumble.md` for `scripts/tumble-repro*`.
+In `.claude/rules/`: `audio.md`, `avbd.md`, `ecs.md`, `examples.md`, `exports.md`, `gpu.md`, `physics.md`, `render.md`, `testing.md`, `tumble.md`, `visual-identity.md`. Testing includes `scripts/stall-attribution.ts`, `scripts/compile-concurrency.ts`, `scripts/loaf-attribution.ts`, `site/rum-*.ts` and its frontmatter paths.
 
 ## Architecture
 
@@ -39,7 +39,6 @@ bun bench --list | --for <paths...> | --sweep [--for <paths...>]
 bun run scripts/physics-bench.ts
 bun local [name]                          # Packed local scaffold
 bun run test:install                      # Pack engine/plugin, install, build/dev/create
-bun run flows [--flow <name>]
 bun run recipes [--recipe <name>]
 ```
 
@@ -48,13 +47,13 @@ bun packages/shallot-cli/bin/cli.ts <dev|build|run|verify> [dir]
 # build/run: [--target <os>] [--portable]; build: [--release]
 ```
 
-OS: windows/mac/linux; web build emits dist, run builds/previews; native dev runs debug, Windows cross-compiled with cargo-xwin. Shipped verify owns browser Verdict/exit, published `/harness`; bench/flows/recipes wrap it, no private tier. Gym defaults render; slugs select atoms. Screenshots never gate. Laws: `examples.md`.
+OS: windows/mac/linux; web build emits dist, run builds/previews; native dev runs debug, Windows cross-compiled with cargo-xwin. Shipped verify owns browser Verdict/exit, published `/harness`; bench/recipes wrap it, no private tier. Gym defaults render; slugs select atoms. Screenshots never gate. Laws: `examples.md`.
 
 ### Verification
 
-Before completion: format, check, test above. Release order: `testing.md` (all-roster AND separate demos). After AVBD/physics: `bun test ./packages/shallot/tests/avbd/*.oracle.ts`; engine/host/twin: `bun test ./examples/gym/src`; tumble fixtures from package per `tumble.md`; Rust audio: `cargo test` from `packages/shallot-runtime/rust/audio`.
+Before completion: format, check, test above. Release order: `testing.md` (all-roster AND separate demos). After AVBD/physics: `bun test ./packages/shallot/tests/avbd/*.oracle.ts`; tumble golds: `bun test ./packages/shallot-tumble/tests/tumble-golds.tier.ts`; tumble fixtures from package per `tumble.md`; Rust audio: `cargo test` from `packages/shallot-runtime/rust/audio`.
 
-GPU changes owe bench; serialize/restore, config.ui/mountOverlay or dev-server changes owe flows; physics-recipe/substrate/tumble changes owe recipes. Display gates self-terminate, run headed on the seat's own display and run alone; no display refuses, never skips green. Packaging/CLI/manifest/assets/scaffold changes owe test:install; symlinks hide install defects.
+GPU changes owe bench; serialize/restore, config.ui/mountOverlay or dev-server changes owe `flow-*.tier.ts`; physics-recipe/substrate/tumble changes owe recipes. Display gates self-terminate, run headed on the seat's own display and run alone; no display refuses, never skips green. Packaging/CLI/manifest/assets/scaffold changes owe test:install; symlinks hide install defects.
 
 ## Examples
 
