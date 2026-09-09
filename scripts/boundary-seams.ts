@@ -45,7 +45,7 @@ export const COMPUTED_LOADERS: Record<string, string> = {
     "packages/shallot-tumble/src/standard/tumble/engine/pool.ts":
         "the Node-only branch loads the fixed node:worker_threads specifier with vite-ignore; the browser branch creates an embedded Blob worker",
     "packages/shallot-cli/src/project/command.ts":
-        "loads enabled manifest plugins only after project planning resolves their paths",
+        "eagerly resolves every enabled entry from the project root, then imports those resolved identities",
     "packages/shallot-cli/src/project/command.test.ts":
         "the bare-process isolation fixture imports the named command entry under test",
     "examples/showcase/roads/test/edit-safety.playwright.ts":
@@ -53,7 +53,7 @@ export const COMPUTED_LOADERS: Record<string, string> = {
     "examples/showcase/roads/test/touch-smoke.playwright.ts":
         "browser-evaluated /src/ URLs into Roads' own src/, served by playwright.config.ts webServer shallot dev .; non-literal spelling leaves imports to the browser instead of Playwright's CJS transform",
     "packages/shallot-cli/bin/features.ts":
-        "loads the project's own manifest-declared local plugins to read their feature declarations",
+        "preflights all enabled project-root entry identities before engine/local evaluation, then reads required features from those identities",
     "packages/shallot-cli/bin/bun-native.ts":
         "loads the downloaded native projection, after its sha256 matches the pinned hash",
     "packages/shallot-cli/bin/verify.ts":

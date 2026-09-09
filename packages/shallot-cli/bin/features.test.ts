@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { requiredFeatures, verdict, WEBVIEW_UNSUPPORTED } from "./features";
 
 const dirs: string[] = [];
@@ -71,11 +71,59 @@ describe("verdict", () => {
 });
 
 describe("requiredFeatures", () => {
+    for (const missing of [false, true])
+        test(`external bare required union, missing=${missing}`, () => {
+            const dir = temporary();
+            const plugin = join(dir, "node_modules/root-features");
+            mkdirSync(plugin, { recursive: true });
+            writeFileSync(
+                join(plugin, "package.json"),
+                JSON.stringify({ name: "root-features", main: "index.js" }),
+            );
+            const sentinel = join(dir, "evaluated");
+            writeFileSync(
+                join(plugin, "index.js"),
+                `import { writeFileSync } from "node:fs";
+            writeFileSync(${JSON.stringify(sentinel)}, "yes");
+            export default { name: "Local", features: ["timestamp-query"], preferredFeatures: ["subgroups"] };`,
+            );
+            writeFileSync(
+                join(dir, "shallot.json"),
+                JSON.stringify({
+                    plugins: {
+                        Local: "root-features",
+                        ...(missing ? { Gone: "missing-enabled-entry" } : {}),
+                        Disabled: ["not-installed-disabled", false],
+                    },
+                }),
+            );
+            const script = `
+            import assert from "node:assert/strict";
+            import { existsSync } from "node:fs";
+            import { requiredFeatures } from ${JSON.stringify(resolve(import.meta.dir, "features.ts"))};
+            ${
+                missing
+                    ? `await assert.rejects(requiredFeatures(${JSON.stringify(dir)}), /Gone/);
+            assert.equal(existsSync(${JSON.stringify(sentinel)}), false, "feature preflight before effects");`
+                    : `assert.deepEqual(await requiredFeatures(${JSON.stringify(dir)}), ["timestamp-query"], "external project required union");`
+            }
+        `;
+            const run = Bun.spawnSync([process.execPath, "-e", script], { cwd: dir });
+            expect(run.stderr.toString()).toBe("");
+            expect(run.exitCode).toBe(0);
+        });
     function project(manifest: object): string {
         const dir = temporary();
         writeFileSync(join(dir, "shallot.json"), JSON.stringify(manifest));
         return dir;
     }
+
+    test("resolved evaluation failures and absent defaults retain their feature-reader policy", async () => {
+        const dir = project({ plugins: { Throwing: "./throwing.js", NoDefault: "./empty.js" } });
+        writeFileSync(join(dir, "throwing.js"), "throw new Error('evaluation failure');");
+        writeFileSync(join(dir, "empty.js"), "export const notDefault = true;");
+        expect(await requiredFeatures(dir)).toEqual([]);
+    });
 
     test("a physics project requires nothing beyond the base floor — subgroups is preferred", async () => {
         // the BVH broadphase prefers subgroups but falls back to LDS, so physics lists it as a

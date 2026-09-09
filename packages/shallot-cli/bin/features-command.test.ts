@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -25,10 +25,16 @@ for (const command of ["build", "run"]) {
             dirs.push(dir);
             writeFileSync(
                 join(dir, "shallot.json"),
-                JSON.stringify({ plugins: { Physics: true, Local: "./plugin.ts" } }),
+                JSON.stringify({ plugins: { Physics: true, Local: "external-floor-plugin" } }),
+            );
+            const plugin = join(dir, "node_modules/external-floor-plugin");
+            mkdirSync(plugin, { recursive: true });
+            writeFileSync(
+                join(plugin, "package.json"),
+                JSON.stringify({ name: "external-floor-plugin", main: "index.js" }),
             );
             writeFileSync(
-                join(dir, "plugin.ts"),
+                join(plugin, "index.js"),
                 `
 console.log("PLUGIN_LOADED");
 export default { name: "Local", ${required ? "features" : "preferredFeatures"}: ["timestamp-query", "subgroups"] };

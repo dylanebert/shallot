@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Rollup } from "vite";
+import { build, type Rollup } from "vite";
+import { loadLocalPlugins } from "./command";
+import { readProject } from "./host";
 import {
     assetSrc,
     classifyProjectFile,
@@ -25,6 +27,68 @@ const asset = (fileName: string, source: string | Uint8Array) =>
     ({ type: "asset", fileName, source }) as Rollup.OutputAsset;
 const bundle = (...files: (Rollup.OutputChunk | Rollup.OutputAsset)[]) =>
     Object.fromEntries(files.map((f) => [f.fileName, f])) as Rollup.OutputBundle;
+
+test("real project build preserves browser conditions separately from Bun", async () => {
+    const dir = projectDir();
+    const pkg = join(dir, "node_modules/conditional-binding");
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(
+        join(pkg, "package.json"),
+        JSON.stringify({
+            name: "conditional-binding",
+            exports: { ".": { browser: "./browser.js", bun: "./bun.js", default: "./default.js" } },
+        }),
+    );
+    for (const [file, name] of [
+        ["browser", "BrowserEntry"],
+        ["bun", "BunEntry"],
+        ["default", "WrongDefault"],
+    ])
+        writeFileSync(join(pkg, `${file}.js`), `export default { name: '${name}' };`);
+    const defaults = readProject(dir).engine;
+    writeFileSync(
+        join(dir, "shallot.json"),
+        JSON.stringify({
+            plugins: {
+                ...Object.fromEntries(defaults.map((name) => [name, false])),
+                Local: "conditional-binding",
+            },
+        }),
+    );
+    expect((await loadLocalPlugins(readProject(dir)))[0].name).toBe("BunEntry");
+    writeFileSync(
+        join(dir, "entry.js"),
+        `import project from 'virtual:project'; export default project.locals[0].plugin.name;`,
+    );
+    const result = await build({
+        configFile: false,
+        root: dir,
+        logLevel: "silent",
+        plugins: [projectPlugin(dir)],
+        build: {
+            write: false,
+            minify: false,
+            lib: { entry: join(dir, "entry.js"), formats: ["es"] },
+        },
+    });
+    const chunks = [result]
+        .flat()
+        .flatMap((result) => ("output" in result ? result.output : []))
+        .filter((output) => output.type === "chunk");
+    expect(chunks).toHaveLength(1);
+    const output = join(dir, "built.mjs");
+    writeFileSync(output, chunks[0].code);
+    const evaluated = Bun.spawnSync(
+        [
+            process.execPath,
+            "-e",
+            `import value from ${JSON.stringify(output)}; console.log(value);`,
+        ],
+        { cwd: dir },
+    );
+    expect(evaluated.exitCode).toBe(0);
+    expect(evaluated.stdout.toString().trim()).toBe("BrowserEntry");
+});
 
 describe("orphanedAssets", () => {
     test("drops a wasm no chunk references (the new-URL over-emit), keeps the live entry", () => {

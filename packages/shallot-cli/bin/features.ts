@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { plan } from "../src/project/generate";
+import { resolveLocalModules } from "../src/project/host";
 import { normalize } from "../src/project/manifest";
 import { manifestPath } from "../src/project/vite";
 import { installGpuGlobals } from "./gpu-globals";
@@ -28,12 +29,15 @@ function readManifest(absDir: string) {
  * runtime computes at `build()` (engine/app: `plugins.flatMap(p => p.features)`), resolved statically
  * from `shallot.json`. Imports the engine barrel under the GPU-constants shim, since the barrel
  * evaluates GPU module code at import (sear's top-level `GPUShaderStage`); local plugins import from
- * their specifier the same way. A local that fails to import is the web build's problem to surface.
+ * their project-resolved identity. Missing entries refuse before evaluation; an already-resolved
+ * local that fails during evaluation remains the web build's problem to surface.
  */
 export async function requiredFeatures(projectDir: string): Promise<string[]> {
     installGpuGlobals(); // install GPUShaderStage etc. so the barrel + locals import under the plain `bun` CLI
     const absDir = resolve(projectDir);
-    const { engine, locals } = plan(readManifest(absDir), absDir);
+    const project = plan(readManifest(absDir), absDir);
+    const locals = resolveLocalModules({ dir: absDir, locals: project.locals });
+    const { engine } = project;
 
     const shallot = (await import("@dylanebert/shallot")) as unknown as Record<
         string,

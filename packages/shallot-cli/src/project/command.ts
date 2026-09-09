@@ -26,6 +26,7 @@ import {
     type ProjectIo,
     type ProjectPlan,
     readProject,
+    resolveLocalModules,
 } from "./host";
 
 export {
@@ -117,7 +118,7 @@ export async function loadEnginePlugins(names: readonly string[]): Promise<Plugi
  */
 export async function loadLocalPlugins(plan: ProjectPlan): Promise<Plugin[]> {
     const plugins: Plugin[] = [];
-    for (const local of plan.locals) {
+    for (const local of resolveLocalModules(plan)) {
         const mod = (await import(local.path)) as { default?: Plugin };
         const plugin = mod.default;
         if (!plugin || typeof plugin.name !== "string") {
