@@ -13,11 +13,11 @@ Pull requests are by invitation only. Shallot is a single-author engine at this 
 The gate before pushing is `bun check` and `bun run test`. The slow suites are separate: run the one covering what you changed, by path.
 
 - `bun test ./packages/shallot/tests/avbd/*.oracle.ts` — AVBD/physics
-- `bun test ./examples/gym/src` — the engine or host layer
+- `bun test ./bench` — the bench scenario tier's CPU checks
 - `bun run --cwd packages/shallot-tumble test:fixture` — tumble kernel changes
 - `cargo test` in `packages/shallot-runtime/rust/audio` — rust audio changes
 - `bun run test:install` — packaging, CLI, manifest, or scaffold changes
-- `bun run flows` / `bun run recipes` — serialize-restore, overlay UI, physics recipes
+- `bun run recipes` — the physics and API recipes
 - `bun bench --for <the files you changed>` — after GPU changes; it names the gating scenarios, and `--sweep` runs them
 
 The GPU suites are display-gated: without a display they skip, and a skip is not a pass.

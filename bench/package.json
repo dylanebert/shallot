@@ -1,0 +1,19 @@
+{
+    "name": "bench",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "preview": "vite preview"
+    },
+    "dependencies": {
+        "@dylanebert/shallot": "workspace:*",
+        "typegpu": "~0.12.4"
+    },
+    "devDependencies": {
+        "unplugin-typegpu": "~0.12.3",
+        "vite": "^8.0.16"
+    }
+}

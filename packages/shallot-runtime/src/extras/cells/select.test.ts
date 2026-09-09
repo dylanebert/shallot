@@ -302,7 +302,7 @@ describe("background detection (s3r item 8's own repair)", () => {
 
 // fillIndexForLuma's own in-range property, swept across its whole luma domain — device-free, unlike the
 // real facade-ink measurement, which now lives entirely against a real device readback
-// (`examples/gym/src/scenarios/cells.ts`'s `assertFacadeInk`, rendering `FACADE_BAND_LUMAS` through this
+// (`bench/src/scenarios/cells.ts`'s `assertFacadeInk`, rendering `FACADE_BAND_LUMAS` through this
 // mapping and the real draw pipeline, since only a real dispatch can measure rendered ink over a per-pixel
 // threshold). The old version of this population was `FACADE_LUMA_SWEEP`, a 101-point sweep the facade-ink
 // measurement itself averaged over; that measurement moved to the device (round-1's criterion-8 rejection:

@@ -50,7 +50,6 @@ Examples live under `examples/`, indexed by [`examples/AGENTS.md`](examples/AGEN
 
 - `recipes/` — one minimal project per problem: first-person character, physics playground, import a model, day-night sky, and more.
 - `showcase/` — full projects rather than one concept each, several under real-device gates: `collapse`, `roads`, `sandbox`, `visualization`, `voxel`.
-- `gym/` — machine-verdict scenarios: the real-device test and benchmark tier.
 
 Run a recipe standalone:
 

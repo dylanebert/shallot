@@ -66,7 +66,7 @@ export interface Profile {
      *  labels collapse. {@link compiledPipelines} counts distinct labels instead, and a repeated label
      *  overwrites, so a pipeline built under an existing label moves that count by zero while this one
      *  still moves. The gym budgets gate both as exact goldens for that reason (`budget:pipeline-calls`,
-     *  `examples/gym/src/scenarios/budgets.ts`). The two are NOT equal in general: TypeGPU derives
+     *  `bench/src/scenarios/budgets.ts`). The two are NOT equal in general: TypeGPU derives
      *  several raw pipelines from one named typed pipeline. */
     readonly pipelineCalls: number;
     /** wall-clock span from the first pipeline build start to the last build end */

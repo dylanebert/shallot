@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { isDegradedBootMessage } from "@dylanebert/shallot/harness";
-import { SCENARIO_GATES } from "../../../examples/gym/src/scenarios/timeouts";
+import { SCENARIO_GATES } from "../../../bench/src/scenarios/timeouts";
 import {
     benchTimeout,
     type ForMatch,
@@ -621,7 +621,7 @@ describe("stepWait — the unified wait decision", () => {
 
 // shallot-boot-stall-repair S1d. The three states a wait can time out in are the three the loop's own
 // counters distinguish, and the branch that motivated the function is the first: `shallot verify
-// examples/gym` with no `?scenario=` lands on gym's index page (a list of links, no canvas), and read
+// bench` with no `?scenario=` lands on gym's index page (a list of links, no canvas), and read
 // `booted: false, samples: 0, errors: []` after a 60s clock — indistinguishable from a broken boot.
 describe("waitDiagnosis — what a timed-out wait names", () => {
     test("only a timeout carries one", () => {
@@ -1164,7 +1164,7 @@ describe("formatRoster", () => {
 });
 
 // `missingAssets` drives both the sweep's and the single-scenario run's skip path: it reads the
-// filesystem under examples/gym/public/ before booting a page, so a missing mount skips instantly with
+// filesystem under bench/public/ before booting a page, so a missing mount skips instantly with
 // a named announcement instead of a 60s ready timeout. The `assets` declarations in timeouts.ts are a
 // side table nothing else polices — a declared path drifting from the path the scenario actually fetches
 // would surface only at runtime, so these tests pin the declared paths to what the loader expects.
@@ -1203,24 +1203,21 @@ describe("missingAssets", () => {
     // the drift rung that matters: the asset check resolves against REPO_ROOT, not process.cwd(), so a
     // bench run from a non-root cwd still finds (or misses) the same mounts. Before the fix, resolving
     // the relative GYM against a foreign cwd made the check cwd-dependent — a false skip from /tmp, or a
-    // false pass from a subdir that happened to shadow examples/gym/public/. This holds the fix: a temp
+    // false pass from a subdir that happened to shadow bench/public/. This holds the fix: a temp
     // cwd that shadows the mount path with a real file must NOT make `missingAssets` report the asset as
     // present, because the check never reads that cwd.
     test("the result is independent of process.cwd() (a shadowing cwd does not false-pass)", () => {
         const original = process.cwd();
         const shadow = mkdtempSync(join(import.meta.dir, "shadow-cwd-"));
         try {
-            // plant a file at <shadow>/examples/gym/public/sponza/Sponza-KTX-Draco.glb — the relative
+            // plant a file at <shadow>/bench/public/sponza/Sponza-KTX-Draco.glb — the relative
             // path the pre-fix resolve(GYM, "public", p) would have read from process.cwd().
-            mkdirSync(join(shadow, "examples/gym/public/sponza"), { recursive: true });
-            writeFileSync(
-                join(shadow, "examples/gym/public/sponza/Sponza-KTX-Draco.glb"),
-                "shadow",
-            );
+            mkdirSync(join(shadow, "bench/public/sponza"), { recursive: true });
+            writeFileSync(join(shadow, "bench/public/sponza/Sponza-KTX-Draco.glb"), "shadow");
 
             const rootAsset = resolve(
                 import.meta.dir,
-                "../../../examples/gym/public/sponza/Sponza-KTX-Draco.glb",
+                "../../../bench/public/sponza/Sponza-KTX-Draco.glb",
             );
             const exists = (path: string) => path !== rootAsset && existsSync(path);
             const fromRoot = missingAssets("gltf", [], exists);
@@ -1295,11 +1292,11 @@ describe("forUnmatchedReason", () => {
 });
 
 describe("forExitCode", () => {
-    // the instrument red this replaces: `bun bench --for examples/gym` matched no `covers` glob (they
+    // the instrument red this replaces: `bun bench --for bench` matched no `covers` glob (they
     // all spell `packages/shallot/src/...`), swept nothing and exited 0, so the gym gate row reported
     // success without running a single scenario.
     test("an unmatched, non-excluded path refuses", () => {
-        expect(forExitCode([{ path: "examples/gym", scenarios: [] }])).toBe(1);
+        expect(forExitCode([{ path: "bench", scenarios: [] }])).toBe(1);
     });
 
     test("a declared tumble exclusion stays green", () => {
@@ -1316,7 +1313,7 @@ describe("forExitCode", () => {
         expect(
             forExitCode([
                 { path: "a.ts", scenarios: ["outline"] },
-                { path: "examples/gym", scenarios: [] },
+                { path: "bench", scenarios: [] },
             ]),
         ).toBe(1);
     });

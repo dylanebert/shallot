@@ -429,7 +429,7 @@ describe("the cap in a real bun test child", () => {
     /**
      * The bare-discovery safety arm. `bunfig.toml`'s `root = "."` scopes `bun test` discovery to
      * the repo root, so a bare `bun test` collects every `.test.ts`/`.spec.ts` file under the repo
-     * — including `examples/gym/src` and `examples/showcase/{roads,voxel}/src`, which the default
+     * — including `bench/src` and `examples/showcase/{roads,voxel}/src`, which the default
      * gate (`bun run test`) excludes by passing explicit paths. The safety property: every
      * `.test.ts`/`.spec.ts` file bare `bun test` would discover — tracked **and** untracked — is
      * run by some declared gate (the default gate or a documented by-path tier). A file in neither
@@ -471,9 +471,9 @@ describe("the cap in a real bun test child", () => {
         // By-path tier paths: listed literally from the documented tier split, NOT derived from
         // test files on disk. Each entry names where it is declared and how a reader re-derives it.
         const byPathTierPaths = [
-            // Declared in `.claude/rules/testing.md` line 37: "run `bun test ./examples/gym/src`".
-            // Re-derive: `grep -n 'bun test ./examples/gym/src' .claude/rules/testing.md`
-            "examples/gym/src",
+            // Declared in `.claude/rules/testing.md` line 37: "run `bun test ./bench/src`".
+            // Re-derive: `grep -n 'bun test ./bench/src' .claude/rules/testing.md`
+            "bench/src",
             // Declared in `examples/showcase/roads/package.json` `test` script:
             //   "bun test --cwd ../../.. ./examples/showcase/roads/src"
             // Re-derive: `node -e "console.log(JSON.parse(require('fs').readFileSync('examples/showcase/roads/package.json','utf8')).scripts.test)"`

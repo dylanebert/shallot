@@ -256,14 +256,14 @@ beforeAll(async () => {
             "README.md": (text) =>
                 text.replace(
                     /^bun run test\s+#.*$/m,
-                    cone.replace(" (bun-webgpu)", ", examples/gym/src (bun-webgpu)"),
+                    cone.replace(" (bun-webgpu)", ", bench/src (bun-webgpu)"),
                 ),
         });
         await run("manifest moves independently", {
             "README.md": (text) => text.replace(/^bun run test\s+#.*$/m, cone),
             "package.json": (text) => {
                 const changed = JSON.parse(text);
-                changed.scripts.test += " examples/gym/src";
+                changed.scripts.test += " bench/src";
                 return JSON.stringify(changed);
             },
         });
@@ -386,8 +386,8 @@ test("pointer validity refuses dead and private-only basenames, grants a live ba
 for (const [name, diagnostic] of [
     ["old release clause", "false subsumption: bun run demos"],
     ["old README cone", "stale root test cone"],
-    ["extra cone member", "extra [examples/gym/src]"],
-    ["manifest moves independently", "missing [examples/gym/src]"],
+    ["extra cone member", "extra [bench/src]"],
+    ["manifest moves independently", "missing [bench/src]"],
     ["unselected commands", "false subsumption: bun run site"],
     ["registry moves independently", `false subsumption: ${EXAMPLE_GATES[0].gate}`],
     ["unclassified command claims", "subsumption needs explicit row commands"],

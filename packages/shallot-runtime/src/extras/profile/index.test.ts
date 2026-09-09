@@ -147,7 +147,7 @@ describe("ProfilePlugin", () => {
             // pipeline is real but the distinct-label count didn't move, so that count alone cannot see a
             // pipeline multiplied under an existing label. `pipelineCalls` counts the call itself, so the
             // gym's `budget:pipeline-calls` golden moves where `budget:pipelines` can't
-            // (`examples/gym/src/scenarios/budgets.ts`).
+            // (`bench/src/scenarios/budgets.ts`).
             expect(Profile.pipelineCalls).toBe(callsBefore + 1);
             expect(Profile.compiledPipelines.size).toBe(distinctBefore);
         } finally {

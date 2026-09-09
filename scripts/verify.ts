@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import type { Result } from "../packages/shallot-cli/bin/verify";
 
 // Shared thin wrapper the repo bench/flows scripts drive the shipped gate through. `shallot verify` boots
 // the target (an ejected vite app — the gym or a flow project), picks its own port, runs the published
@@ -9,166 +10,44 @@ const repoRoot = resolve(import.meta.dir, "..");
 export const REPO_ROOT = repoRoot;
 export const CLI = resolve(repoRoot, "packages/shallot-cli/bin/cli.ts");
 
-/** one named check inside a verify Verdict (the published protocol's shape on the wire). */
-export interface Check {
-    name: string;
-    ok: boolean;
-    detail?: string;
-    data?: Record<string, number>;
-}
+// The result types are `bin/verify.ts`'s own, re-exported rather than mirrored: this wrapper reads what
+// that CLI printed, so a field it declares and a field this file declares can only ever drift. `Check`
+// and `Verdict` come from the published harness protocol, the same source the CLI reads them from.
+export type { Check, Verdict } from "@dylanebert/shallot/harness";
+export type {
+    CpuProfileBucket,
+    CpuProfileEntry,
+    CpuProfileSummary,
+    LoAFEntry,
+    LoAFScriptEntry,
+    MemoryStats as Memory,
+    RenderProbe,
+} from "../packages/shallot-cli/bin/verify";
 
-/** the `--memory` leak sample verify reports (informational, never gates). */
-export interface Memory {
-    start: number;
-    end: number;
-    growthPerSecond: number;
-    leak: boolean;
-    gcCount: number;
-    gcPauseMs: number;
-}
-
-/** the Verdict a project's harness returns, as verify serializes it. `metrics` is a pass-through extra a
- *  gym scenario fills with the profiler measurement; a driver casts it to `BenchmarkMeasurement`. */
-export interface Verdict {
-    ok?: boolean;
-    checks?: Check[];
-    metrics?: unknown;
-    [extra: string]: unknown;
-}
-
-/** the `shallot verify --json` Result (bin/verify.ts). A setup failure emits `{ pass:false, error }`. */
-export interface VerifyResult {
+/** the `shallot verify --json` Result as a driver reads it back off stdout: `bin/verify.ts`'s own
+ *  {@link Result}, every field optional because a setup failure emits `{ pass:false, error }` and nothing
+ *  else, plus that `error` — the one field the envelope carries and the Result type does not. `artifacts`
+ *  narrows to {@link ShaderArtifactSummary}: a driver reads the diagnostic, never the WGSL source. */
+export type VerifyResult = Omit<Partial<Result>, "artifacts"> & {
     pass: boolean;
-    url?: string;
     error?: string;
-    hardware?: string;
-    verdict?: Verdict;
-    memory?: Memory | null;
-    errors?: string[];
-    /** warning-typed console messages that did not promote to `errors` (`bin/verify.ts` Result). */
-    warnings?: string[];
-    booted?: boolean;
-    /** `true` rendered structure, `false` blank, `"opt-out"` when the harness declared `noRender`
-     *  (renders nothing by design — the pixel gate was skipped). */
-    rendered?: boolean | "opt-out";
-    /** shader compilation artifacts, present only on failure — carries the GPU diagnostic text
-     *  (compilation errors, validation messages) the page captured. The driver surfaces this so a
-     *  red with empty `errors` still names its diagnostic rather than printing `[]`. */
     artifacts?: ShaderArtifactSummary[];
-    /** the render probe — samples taken, last centre/corner RGB, spread against `structured`'s
-     *  threshold, elapsed wait, and how the wait concluded — so a blank-render red carries its
-     *  measurement rather than printing `[]`. Absent on a setup failure (a crash before the settle
-     *  path ran emits `{ pass:false, error }` with no probe). */
-    renderProbe?: RenderProbe;
-    /** `--attribution` only: `bin/verify.ts`'s `Result.attribution` — the startup pipeline-compile
-     *  breakdown (`Profile.compile` per label, ProfilePlugin projects only), read once at the boot
-     *  wait's settle point and again `ATTRIBUTION_IDLE_MS` later (a label or count present only in
-     *  `compileAfterIdle` is a compile that landed after the boot wait), plus any `longtask` entries
-     *  recorded across the boot window. `compileMeasures` is every raw `performance` `measure` entry
-     *  over the same window, unfiltered — a caller feeds it through `compileConcurrencyRatio`
-     *  (`site/rum-compile-vitals.ts`) rather than re-deriving the ratio here. */
-    attribution?: {
-        compile: AttributionCompile | null;
-        compileAfterIdle: AttributionCompile | null;
-        longTasks: { start: number; duration: number }[];
-        longAnimationFrames: LoAFEntry[];
-        rafDeltas: { delta: number; timestamp: number }[];
-        compileMeasures: { name: string; startTime: number; duration: number }[];
-        userAgent: string;
-    } | null;
-    /** `--attribution` only (S1b): the CDP CPU-profile self-time breakdown, per
-     *  `bin/verify.ts`'s `Result.cpuProfile` — null when CDP's `Profiler` domain wasn't reachable. */
-    cpuProfile?: CpuProfileSummary | null;
-}
+};
 
-/** the slice of `bin/verify.ts`'s `CpuProfileSummary` a driver reads. */
-export interface CpuProfileEntry {
-    key: string;
-    functionName: string;
-    url: string;
-    lineNumber: number;
-    selfMs: number;
-}
+/** one captured shader record, as `bin/verify.ts` declares it on `Result.artifacts`. */
+type ShaderArtifact = NonNullable<Result["artifacts"]>[number];
 
-/** one named candidate mechanism's total self time. */
-export interface CpuProfileBucket {
-    name: string;
-    selfMs: number;
-}
-
-export interface CpuProfileSummary {
-    totalMs: number;
-    entries: CpuProfileEntry[];
-    buckets: CpuProfileBucket[];
-}
-
-/** one `PerformanceScriptTiming` off a LoAF entry's `scripts` array — mirrors `bin/verify.ts`'s
- *  `LoAFScriptEntry`. This is the per-script attribution that names WHICH JS delayed a frame; the
- *  entry-level duration pair cannot. */
-export interface LoAFScriptEntry {
-    startTime: number;
-    duration: number;
-    executionStart: number | undefined;
-    invoker: string;
-    invokerType: string;
-    sourceURL: string;
-    sourceFunctionName: string;
-    sourceCharPosition: number | undefined;
-    forcedStyleAndLayoutDuration: number | undefined;
-    pauseDuration: number | undefined;
-}
-
-/** a single `long-animation-frame` PerformanceObserver entry (S1e) — mirrors `bin/verify.ts`'s
- *  `LoAFEntry`. `renderStart`/`styleAndLayoutStart` are present on a supporting engine and undefined
- *  on one that doesn't provide them. `scripts` is empty on an engine reporting no script breakdown,
- *  and empty for a frame whose delay was not script work — a real reading either way, never a gap to
- *  be summed into a top script. */
-export interface LoAFEntry {
-    start: number;
-    duration: number;
-    blockingDuration: number;
-    renderStart: number | undefined;
-    styleAndLayoutStart: number | undefined;
-    scripts: LoAFScriptEntry[];
-}
-
-/** the slice of `bin/verify.ts`'s `BenchmarkCompileStats` a driver reads. */
-export interface AttributionCompile {
-    totalMs: number;
-    pipelines: Record<string, number>;
-    pipelineCount: number;
-    pipelineCalls: number;
-}
-
-/** the render probe `verify`'s settle path records on its Result — the pixel evidence behind the
- *  `rendered` verdict. Carries the frame samples the wait loop took, the last centre/corner RGB and
- *  the spread against `structured`'s threshold, the elapsed wait, and how the wait concluded — so a
- *  blank-render red names its measurement rather than printing `[]`. */
-export interface RenderProbe {
-    /** frame samples the wait loop captured (non-null `pollFrameSample` returns). */
-    samples: number;
-    /** last centre RGB [r,g,b] the probe measured, or null if no sample was ever taken. */
-    center: number[] | null;
-    /** last corner RGB [r,g,b] the probe measured, or null if no sample was ever taken. */
-    corner: number[] | null;
-    /** the centre-vs-corner spread (sum of abs channel diffs) of the last sample, or null. */
-    spread: number | null;
-    /** the threshold `structured` gates on (`STRUCTURE_THRESHOLD`). */
-    threshold: number;
-    /** elapsed milliseconds from the first poll to the wait outcome. */
-    elapsed: number;
-    /** how the wait concluded: `harness` (window.__harness appeared), `settled` (two consecutive
-     *  structured shots below the diff epsilon), or `timeout` (the deadline expired). */
-    outcome: "harness" | "settled" | "timeout";
-}
-
-/** the minimal slice of `bin/verify.ts`'s `ShaderArtifact` a driver reads for diagnostics. */
-export interface ShaderArtifactSummary {
-    label: string;
-    stage: string;
-    compilationError?: { errorClass: string; message: string };
-    messages?: Array<{ type: string; message: string; lineNum: number; linePos: number }>;
-}
+/** the diagnostic slice a driver surfaces when a red carries no console error: the record's identity, its
+ *  compilation error and the human-readable parts of its messages. Narrower than {@link ShaderArtifact} on
+ *  purpose — a driver never prints the WGSL source, hash or byte offsets — but every field's type is that
+ *  record's, so the CLI stays the one definition. */
+export type ShaderArtifactSummary = Pick<ShaderArtifact, "label" | "stage"> & {
+    compilationError?: ShaderArtifact["compilationError"];
+    messages?: Pick<
+        ShaderArtifact["messages"][number],
+        "type" | "message" | "lineNum" | "linePos"
+    >[];
+};
 
 // verify drives a headed browser against local hardware, so its one prerequisite is a display: on Linux
 // a session with neither DISPLAY nor WAYLAND_DISPLAY has no headed launch and therefore no conformant

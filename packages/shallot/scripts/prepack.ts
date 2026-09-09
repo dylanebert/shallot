@@ -175,7 +175,7 @@ const HEADER = `# Examples
 Problem-indexed patterns, shipped with the engine. Grep for the problem you have, then read that recipe's
 source under this directory — plugin modules in \`src/\`, the scene in \`public/scenes/\`, plugin enablement
 in \`shallot.json\`. They aren't wired to run in place: \`bunx shallot recipe <name> [dir]\` copies one out
-into a runnable, version-matched project. The gym and showcase tiers, and the live corpus, are at
+into a runnable, version-matched project. The bench and showcase tiers, and the live corpus, are at
 github.com/dylanebert/shallot.
 
 `;
@@ -183,9 +183,9 @@ github.com/dylanebert/shallot.
 export function shippedIndex(src: string): string {
     const md = readFileSync(resolve(src, "AGENTS.md"), "utf8");
     const start = md.indexOf("## Recipes");
-    const end = md.indexOf("## Gym");
+    const end = md.indexOf("## Bench");
     if (start < 0 || end < 0)
-        throw new Error("examples/AGENTS.md: expected ## Recipes and ## Gym sections");
+        throw new Error("examples/AGENTS.md: expected ## Recipes and ## Bench sections");
     return `${HEADER}${md.slice(start, end).trimEnd()}\n`;
 }
 

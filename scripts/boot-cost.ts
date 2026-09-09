@@ -1,6 +1,6 @@
 import { CLI, REPO_ROOT, skipReason } from "./verify";
 
-// Re-runnable startup-cost measurement over `shallot verify examples/gym --timings`: phase-checkpoint
+// Re-runnable startup-cost measurement over `shallot verify bench --timings`: phase-checkpoint
 // wall time (server boot → first page load → harness ready → run → capture → teardown, plus the
 // harness-install probe and the resource-timing readout `bin/verify.ts` already emits under
 // `--timings`) across N sequential runs, and — with `--transform` — one additional run's per-plugin
@@ -58,7 +58,7 @@ server — same phase table and resource readout, one instrument, so a dev run a
 side by side.
 
 Options:
-  --dir <path>    project to verify (default: examples/gym)
+  --dir <path>    project to verify (default: bench)
   --query <k=v>   --query passthrough to verify (repeatable; default: scenario=render, seed=1,
                   warmup=60, frames=240 — the params this repo's headline startup number used)
   --runs <n>      number of --timings runs to median across (default: 3)
@@ -72,7 +72,7 @@ function parseArgs(argv: string[]): Args {
         process.exit(0);
     }
     const out: Args = {
-        dir: "examples/gym",
+        dir: "bench",
         query: ["scenario=render", "seed=1", "warmup=60", "frames=240"],
         runs: 3,
         transform: false,

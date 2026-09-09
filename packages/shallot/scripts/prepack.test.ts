@@ -153,7 +153,7 @@ describe("the real corpus", () => {
     test("the shipped index still derives from the corpus doc", () => {
         const index = shippedIndex(resolve(REPO, "examples"));
         expect(index).toContain("## Recipes");
-        expect(index).not.toContain("## Gym");
+        expect(index).not.toContain("## Bench");
         expect(index).toContain("shallot recipe");
     });
 });

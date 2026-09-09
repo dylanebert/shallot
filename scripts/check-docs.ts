@@ -63,7 +63,7 @@ console.log(
 );
 
 // The doc set is what git tracks, not what the filesystem holds. A `**/*.md` scan reads whatever a
-// particular checkout happens to have on disk: `examples/gym/dist/` after any build (448 files),
+// particular checkout happens to have on disk: `bench/dist/` after any build (448 files),
 // and the glTF sample corpus through the `gym/public/gltf-samples` symlink wherever that corpus is
 // checked out (451 more) — third-party and generated files we neither own nor should gate on, and present or
 // absent depending on what the last command did. Asking git makes the scope identical in every

@@ -12,7 +12,7 @@ export const TOOLING_SEAMS: Record<string, string> = {
         "compare recipe scaffolding against the sole scaffold source",
     'packages/shallot-cli/bin/create-shallot.test.ts "../../create-shallot/index"':
         "exercise the sole scaffold source",
-    'packages/shallot-cli/bin/verify.test.ts "../../../examples/gym/src/scenarios/timeouts"':
+    'packages/shallot-cli/bin/verify.test.ts "../../../bench/src/scenarios/timeouts"':
         "assert the actual gym scenario budget bindings",
     'packages/shallot-cli/bin/verify.test.ts "../../../scripts/bench"':
         "exercise production batch/bench composition",
@@ -78,6 +78,8 @@ export const NON_WORKSPACE_PACKAGES: Record<string, string> = {
         "the ejected app the adopted-device tier boots; a fixture the workspace install must not hoist",
     "packages/shallot/tests/flows/survive-reload":
         "the ejected app the reload tier boots; a fixture the workspace install must not hoist",
+    "packages/shallot/tests/orbit-touch":
+        "the ejected app the headed touch tier's own Playwright runner boots; a fixture the workspace install must not hoist",
     "packages/shallot/tests/flows/ui-containment":
         "the ejected app the overlay-containment tier boots; a fixture the workspace install must not hoist",
 };

@@ -6,7 +6,7 @@ import type { CDPSession } from "@playwright/test";
 // neither Firefox/WebKit nor a synthetic `dispatchEvent` PointerEvent can drive the real
 // touch-action/listener path the input substrate depends on (`shallot-mobile-controls` spec, Locked
 // decision). Full gesture coverage (pinch, two-finger pan/drag, the 2→1 finger transition) lives in
-// gym's own copy (`examples/gym/test/touch-dispatch.ts`) — duplicated here, not imported, matching this
+// gym's own copy (`packages/shallot/tests/orbit-touch/touch-dispatch.ts`) — duplicated here, not imported, matching this
 // corpus's own precedent for small shared shapes across example projects (`.claude/rules/examples.md`:
 // recipes "never import from each other... a small shared shape duplicates rather than coupling
 // entries").

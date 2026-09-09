@@ -1,8 +1,7 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { BenchmarkMeasurement } from "@dylanebert/shallot/extras";
-import { globToRegExp } from "../examples/gym/src/scenarios/coverage";
-import { SCENARIO_GATES, type ScenarioGate } from "../examples/gym/src/scenarios/timeouts";
+import { globToRegExp, SCENARIO_GATES, type ScenarioGate } from "../bench/src/scenarios/timeouts";
 import {
     type Check,
     type Memory,
@@ -15,15 +14,15 @@ import {
 } from "./verify";
 
 // `bun bench` — a thin wrapper over the shipped gate. It maps today's arg surface onto `shallot verify
-// examples/gym --json` (verify boots the ejected gym vite app, picks its own port, drives the published
+// bench --json` (verify boots the ejected bench vite app, picks its own port, drives the published
 // `window.__harness`, returns a JSON verdict), then formats the profiler metrics + checks + memory the way
-// the dissolved gym launcher did. No port logic, no server boot here — verify owns all of it.
+// the retired launcher did. No port logic, no server boot here — verify owns all of it.
 //
-// One gym scenario per run (default: render). `--scenario stress` drives the CPU-memory allocation probe
+// One bench scenario per run (default: render). `--scenario stress` drives the CPU-memory allocation probe
 // (`--alloc`); every other scenario samples the retained-leak slope (`--memory`, informational). Exits
 // nonzero when the run fails (a false verdict, a page error, or a setup failure).
 
-const GYM = "examples/gym";
+const GYM = "bench";
 
 interface Args {
     scenario: string;
@@ -44,11 +43,11 @@ interface Args {
 function help(): void {
     console.log(`Usage: bun bench [options]
 
-Runs one gym scenario (examples/gym) through \`shallot verify\` on a real device and routes its
+Runs one bench scenario through \`shallot verify\` on a real device and routes its
 verdict: metrics → printed frame-time, checks → pass/fail gate.
 
 Options:
-  --scenario <name>    which scenario to run (default: render). See examples/gym.
+  --scenario <name>    which scenario to run (default: render). See bench.
   --seed <n>           determinism seed (default: 1)
   --count <n>          per-scenario size param (scenario default if omitted)
   --warmup <n>         warmup frames (default: 60)
@@ -89,7 +88,7 @@ function parseParamStrings(params: readonly string[]): Record<string, string> {
 }
 
 /** the public asset paths a scenario needs for the given params, or `null` when it needs none.
- *  Checks the filesystem under `examples/gym/public/` — cheaper and more honest than an in-page
+ *  Checks the filesystem under `bench/public/` — cheaper and more honest than an in-page
  *  fetch, and it skips before booting a page so no ready timeout burns. Returns the missing paths
  *  so the caller can name them in the skip announcement. */
 export function missingAssets(
@@ -108,7 +107,7 @@ export function missingAssets(
 
 /** the skip announcement for a scenario whose assets are absent. */
 function assetSkipMessage(scenario: string, missing: string[]): string {
-    return `· ${scenario} — skipped (assets not found: ${missing.join(", ")} — mount them locally under examples/gym/public/, see .claude/rules/testing.md)`;
+    return `· ${scenario} — skipped (assets not found: ${missing.join(", ")} — mount them locally under bench/public/, see .claude/rules/testing.md)`;
 }
 
 /** `--list`'s roster, sorted — pure so the sort/format is unit-tested without booting a page. */
@@ -319,7 +318,7 @@ export function parseArgs(argv: string[]): Args {
 
 // Mixed fixed/variable timing: the frame interval (variable, rAF/vsync paced) is reported with its
 // decomposition (cpu + GPU fence-wait + idle gap). GPU is split by clock — sim passes per fixed step,
-// render passes per frame. Salvaged from the dissolved gym launcher (harness/gym/format.ts).
+// render passes per frame. Salvaged from the retired launcher's formatter.
 function printMeasurement(label: string, r: BenchmarkMeasurement): void {
     const bar = "=".repeat(40);
     console.log(`\n${bar}`);
@@ -409,7 +408,7 @@ function printMeasurement(label: string, r: BenchmarkMeasurement): void {
 }
 
 // Returns true if every check passed; prints a one-line verdict per check. `ok` is the published protocol's
-// field (the gym launcher's `pass` translated at the harness boundary).
+// field (the scenario's own `pass` translated at the harness boundary).
 function printChecks(checks: Check[]): boolean {
     console.log(`  Checks:`);
     let allPass = true;
@@ -428,7 +427,7 @@ function printMemory(m: Memory): void {
     );
 }
 
-// `--list`'s real-registration seam: registering a scenario module needs the WebGPU constants gym's own
+// `--list`'s real-registration seam: registering a scenario module needs the WebGPU constants the page's own
 // modules reference at import time (GPUTextureUsage etc.), which only exist once the polyfill installs —
 // hence the dynamic imports, deferred until after `setupGlobals()`, rather than static ones that would
 // hoist and run before it. `SCENARIO_GATES`' keys track this roster 1:1 (`coverage.ts`'s completeness
@@ -438,8 +437,8 @@ async function registeredScenarios(): Promise<string[]> {
     const { loadNative } = await import("../packages/shallot-cli/bin/bun-native");
     const { setupGlobals } = await loadNative();
     await setupGlobals();
-    const { scenarioNames } = await import("../examples/gym/src/gym");
-    await import("../examples/gym/src/scenarios/index");
+    const { scenarioNames } = await import("../bench/src/gym");
+    await import("../bench/src/scenarios/index");
     return scenarioNames();
 }
 
@@ -647,7 +646,7 @@ async function main(): Promise<void> {
 
     const result = await verify(GYM, extra);
     if (!result) {
-        console.error("\ngym run FAILED — no JSON result from shallot verify");
+        console.error("\nbench run FAILED — no JSON result from shallot verify");
         process.exit(1);
     }
     if (args.screenshot) console.log(`\nscreenshot → ${resolve(args.screenshot)}`);
@@ -670,10 +669,10 @@ async function main(): Promise<void> {
     if (result.error) console.error(`\n${result.error}`);
 
     if (failed) {
-        console.error("\ngym run FAILED");
+        console.error("\nbench run FAILED");
         process.exit(1);
     }
-    console.log("\ngym run passed");
+    console.log("\nbench run passed");
 }
 
 // guard so importing this module (bin/verify.test.ts exercises benchTimeout) doesn't launch a bench run.

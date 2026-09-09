@@ -1,8 +1,8 @@
 // A registry over the CLI/toolchain layer's
 // tier-of-truth ("Classify by tier-of-truth, then close what nothing reaches. No coverage floor" — the
 // spec's Locked decision), asserted both directions against a mechanically walked file population
-// (`examples/gym/src/scenarios/coverage.ts`'s pattern, re-housed rather than imported so this package
-// doesn't reach into `examples/gym`). Granularity is the file, never a hand-declared region — the spec's
+// (`bench/src/scenarios/coverage.ts`'s pattern, re-housed rather than imported so this package
+// doesn't reach into `bench`). Granularity is the file, never a hand-declared region — the spec's
 // own words: "Per-region detail lives in the row's prose reason, and the spec does not claim per-region
 // completeness is asserted, because it isn't." So exactly one row per walked file; a file whose content
 // splits across tiers still gets one row, whose `arm` is the *weakest* tier any part of the file's
@@ -47,7 +47,7 @@ export const CLI_POPULATION_GLOBS: readonly string[] = [
 ];
 
 /** converts a `dir/*.ts`-style glob to a RegExp, re-housed from `coverage.ts` rather than imported —
- *  `examples/gym` is off limits to this package. `*` matches within one path segment (no `**` support:
+ *  `bench` is off limits to this package. `*` matches within one path segment (no `**` support:
  *  every glob above is one directory deep, so cross-segment matching is untested surface). */
 export function globToRegExp(glob: string): RegExp {
     let pattern = "";

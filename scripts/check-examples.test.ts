@@ -12,7 +12,7 @@ const make = (): string => {
     mkdirSync(resolve(root, "examples/recipes/static/public/scenes"), { recursive: true });
     mkdirSync(resolve(root, "examples/showcase/second"), { recursive: true });
     mkdirSync(resolve(root, "examples/showcase/demo/test"), { recursive: true });
-    mkdirSync(resolve(root, "examples/gym"), { recursive: true });
+    mkdirSync(resolve(root, "bench"), { recursive: true });
     mkdirSync(resolve(root, "scripts"), { recursive: true });
     writeFileSync(
         resolve(root, "examples/recipes/static/public/scenes/main.scene"),
@@ -21,7 +21,7 @@ const make = (): string => {
     // every cone in the fixture registry needs a real subject, or the completeness clause reds the
     // baseline and no mutation below can be attributed to itself
     writeFileSync(resolve(root, "examples/showcase/second/main.ts"), "export const second = 1;\n");
-    writeFileSync(resolve(root, "examples/gym/main.ts"), "export const gym = 1;\n");
+    writeFileSync(resolve(root, "bench/main.ts"), "export const gym = 1;\n");
     writeFileSync(
         resolve(root, "scripts/recipes.ts"),
         "const CHECKS: Record<string, string[]> = {\n    moving: ['moves'],\n};\n",
@@ -54,10 +54,10 @@ const registry = (motion = false): ExampleGate[] => [
         motion,
     },
     {
-        dir: "examples/gym",
-        tier: "gym",
-        covers: ["examples/gym/**"],
-        gate: "bun bench --for examples/gym",
+        dir: "bench",
+        tier: "bench",
+        covers: ["bench/**"],
+        gate: "bun bench --for bench",
     },
 ];
 afterEach(() => {
@@ -211,7 +211,7 @@ test("either published motion reading satisfies the autonomous showcase arm", ()
 test("a live shared cover cannot hide an uncovered example source", () => {
     const root = make();
     const rows = registry();
-    rows[1].covers = ["examples/gym/**"];
+    rows[1].covers = ["bench/**"];
     expect(checkExamples(root, rows)).toEqual([
         "example source has no covers row: examples/showcase/second/main.ts",
     ]);
@@ -242,7 +242,7 @@ test("every discovered directory must yield governed files", () => {
     const root = make();
     rmSync(resolve(root, "examples/showcase/second/main.ts"));
     const rows = registry();
-    rows[1].covers = ["examples/gym/**"];
+    rows[1].covers = ["bench/**"];
     expect(checkExamples(root, rows)).toEqual([
         "example directory yielded no governed source files: examples/showcase/second",
     ]);

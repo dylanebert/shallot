@@ -8,7 +8,7 @@ Owners: `packages/shallot{,-runtime,-cli,-tumble}`, `packages/create-shallot`; e
 
 Read `.claude/rules/style.md` always; matching rules below via authoritative `paths:` frontmatter. Repo-root globs govern delivery, not authority. Claude Code loads on matching reads; others read manually. Edit frontmatter, not duplicate globs.
 
-In `.claude/rules/`: `audio.md`, `avbd.md`, `ecs.md`, `examples.md`, `exports.md`, `gpu.md`, `physics.md`, `render.md`, `testing.md`, `tumble.md`, `visual-identity.md`. Testing includes `scripts/stall-attribution.ts`, `scripts/compile-concurrency.ts`, `scripts/loaf-attribution.ts`, `site/rum-*.ts` and its frontmatter paths.
+In `.claude/rules/`: `audio.md`, `avbd.md`, `ecs.md`, `examples.md`, `exports.md`, `gpu.md`, `physics.md`, `render.md`, `testing.md`, `tumble.md`, `visual-identity.md`. Testing includes `scripts/boot-cost.ts`, `site/rum-*.ts` and its frontmatter paths.
 
 ## Architecture
 
@@ -47,7 +47,7 @@ bun packages/shallot-cli/bin/cli.ts <dev|build|run|verify> [dir]
 # build/run: [--target <os>] [--portable]; build: [--release]
 ```
 
-OS: windows/mac/linux; web build emits dist, run builds/previews; native dev runs debug, Windows cross-compiled with cargo-xwin. Shipped verify owns browser Verdict/exit, published `/harness`; bench/recipes wrap it, no private tier. Gym defaults render; slugs select atoms. Screenshots never gate. Laws: `examples.md`.
+OS: windows/mac/linux; web build emits dist, run builds/previews; native dev runs debug, Windows cross-compiled with cargo-xwin. Shipped verify owns browser Verdict/exit, published `/harness`; bench/recipes wrap it, no private tier. Bench defaults render; slugs select atoms. Screenshots never gate. Laws: `examples.md`.
 
 ### Verification
 
@@ -57,4 +57,4 @@ GPU changes owe bench; serialize/restore, config.ui/mountOverlay or dev-server c
 
 ## Examples
 
-Tiers/conventions: `examples/AGENTS.md`, `examples.md`. Sole hello source: `packages/create-shallot/index.ts`, no starter copy; emitted AGENTS points to engine, CLAUDE imports it. Examples ship icon.svg, dispose State on HMR/unmount, obey package AGENTS UI containment; only ejected never-embedded gym/visualization may own viewport.
+Tiers/conventions: `examples/AGENTS.md`, `examples.md`. Sole hello source: `packages/create-shallot/index.ts`, no starter copy; emitted AGENTS points to engine, CLAUDE imports it. Examples ship icon.svg, dispose State on HMR/unmount, obey package AGENTS UI containment; only ejected never-embedded bench/visualization may own viewport.

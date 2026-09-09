@@ -44,7 +44,7 @@ export function checkExamples(root: string, registry: ExampleGate[]): string[] {
         ...(["recipes", "showcase"] as const).flatMap((tier) =>
             childDirs(resolve(root, "examples", tier)).map((name) => `examples/${tier}/${name}`),
         ),
-        ...(existsSync(resolve(root, "examples/gym")) ? ["examples/gym"] : []),
+        ...(existsSync(resolve(root, "bench")) ? ["bench"] : []),
     ];
     const registered = registry.map((row) => row.dir);
     for (const dir of discovered.filter((dir) => !registered.includes(dir)))

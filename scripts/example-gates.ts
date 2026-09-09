@@ -1,6 +1,6 @@
-import { SCENARIO_GATES } from "../examples/gym/src/scenarios/timeouts";
+import { SCENARIO_GATES } from "../bench/src/scenarios/timeouts";
 
-export type ExampleTier = "recipes" | "showcase" | "gym";
+export type ExampleTier = "recipes" | "showcase" | "bench";
 
 export interface ExampleGate {
     dir: string;
@@ -312,16 +312,16 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         motion: true,
     },
     {
-        dir: "examples/gym",
-        tier: "gym",
-        // The gym selects by its scenarios' own declared cones, not by a blanket runtime glob: each
+        dir: "bench",
+        tier: "bench",
+        // The bench selects by its scenarios' own declared cones, not by a blanket runtime glob: each
         // scenario's `covers` in `timeouts.ts` already names the GPU-side modules it exercises, and
         // `bun bench --for <path>` selects with the same table. Deriving the row's cone from it keeps one
         // source of truth — a scenario that stops covering a module stops selecting the row.
         covers: [
-            "examples/gym/**",
+            "bench/**",
             ...new Set(Object.values(SCENARIO_GATES).flatMap((gate) => gate.covers ?? [])),
         ],
-        gate: "bun bench --sweep && bun run --cwd examples/gym gate",
+        gate: "bun bench --sweep && bun run --cwd bench gate",
     },
 ];

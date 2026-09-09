@@ -1956,7 +1956,7 @@ if (import.meta.main) {
             !existsSync(join(shipped, "examples/recipes/build-a-scene/tsconfig.json")) &&
                 !existsSync(join(shipped, "examples/recipes/build-a-scene/node_modules")),
         );
-        // repo test files import across the monorepo root (scripts/, examples/gym), paths that dangle
+        // repo test files import across the monorepo root (scripts/, bench), paths that dangle
         // in a consumer install — the `files` surface must exclude every *.test.ts, bin included.
         const leakedTests = [...new Bun.Glob("**/*.test.ts").scanSync({ cwd: shipped })];
         check(
@@ -1978,7 +1978,7 @@ if (import.meta.main) {
             : "";
         check(
             "the shipped index carries recipes with no dangling gym/showcase tier",
-            /## Recipes/.test(idx) && !/## Gym/.test(idx) && !/## Showcase/.test(idx),
+            /## Recipes/.test(idx) && !/## Bench/.test(idx) && !/## Showcase/.test(idx),
         );
         check(
             "the shipped index names `shallot recipe` as the copy-out command",

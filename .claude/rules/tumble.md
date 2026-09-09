@@ -3,7 +3,7 @@ paths:
   - "packages/shallot-runtime/src/standard/tumble/**/*.ts"
   - "packages/shallot-tumble/**"
   - "packages/shallot-tumble/tests/**/*.ts"
-  - "examples/gym/src/scenarios/**"
+  - "bench/src/scenarios/**"
   - "scripts/check-tumble-fp.ts"
 ---
 

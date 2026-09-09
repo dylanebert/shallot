@@ -281,7 +281,7 @@ export const localBoundaryMagnitude = tgpu.fn(
  * densest-glyph ends are not a facade and were never the reference's own quantity. `select.test.ts`'s
  * flat-neighborhood fixture for the shared-face-boundary gate (`localBoundaryMagnitude`) independently
  * uses 0.517/0.529 from this same region, for the same reason — it's where a real facade sits. Exported
- * so the real-device measurement (`examples/gym/src/scenarios/cells.ts`'s `assertFacadeInk`) reads the
+ * so the real-device measurement (`bench/src/scenarios/cells.ts`'s `assertFacadeInk`) reads the
  * same band this docblock names rather than a re-typed copy that could drift from it.
  */
 export const FACADE_BAND_LUMAS: readonly number[] = [0.52, 0.56, 0.6];
@@ -298,7 +298,7 @@ export const FACADE_PIXEL_LUMA_THRESHOLD = 0.18;
 /**
  * the facade-ink band's floor and ceiling (rule 3: "the target is the number").
  * Ratios of the densest-glyph control's own reading, not copied from the reference's crops unread:
- * {@link fillIndexForLuma}'s device caller (`examples/gym/src/scenarios/cells.ts`'s `assertFacadeInk`)
+ * {@link fillIndexForLuma}'s device caller (`bench/src/scenarios/cells.ts`'s `assertFacadeInk`)
  * renders a blank-glyph control (0% of pixels above {@link FACADE_PIXEL_LUMA_THRESHOLD}, by construction —
  * the blank glyph paints nothing) and a densest-glyph control (this cells face's `@`/`W` entries,
  * `RAMP_TABLE`'s own coverage ceiling, ~19.7% at that arm's cell pixel size); `FACADE_INK_FLOOR` and

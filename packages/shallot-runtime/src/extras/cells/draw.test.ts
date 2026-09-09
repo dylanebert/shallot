@@ -44,7 +44,7 @@ describe("cellFootprintPx", () => {
     });
 
     test("collapses to the old per-axis formula on a square cell — the gym bench fixtures' own shape", () => {
-        // every examples/gym/src/scenarios/cells.ts fixture uses cellW === cellH, where
+        // every bench/src/scenarios/cells.ts fixture uses cellW === cellH, where
         // min(cellW, cellH) === cellW === cellH and the isotropic scale is indistinguishable from
         // multiplying each axis by its own cell dimension — this is why the s3r item 9 defect was
         // invisible to that gate.

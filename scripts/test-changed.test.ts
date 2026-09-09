@@ -26,7 +26,7 @@ describe("changed-path selector", () => {
             "examples/showcase/roads",
             "examples/showcase/sandbox",
             "examples/showcase/voxel",
-            "examples/gym",
+            "bench",
         ]);
         expect(dirs(["packages/shallot-runtime/src/standard/fog/index.ts"])).toEqual([]);
         expect(dirs(["bun.lock"])).toEqual(EXAMPLE_GATES.map((row) => row.dir));

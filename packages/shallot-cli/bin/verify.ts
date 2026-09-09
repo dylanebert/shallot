@@ -1193,8 +1193,8 @@ export const HARNESS_INPAGE_FUNCTION_NAMES = new Set([decodeSample.name, decodeR
  *  bucket names — empty when the profile is decontaminated (no harness frames in the bucket table).
  *  S1c's Validation criterion: no call frame belonging to the verify harness appears in the attribution
  *  run's profiled window, asserted by an arm over the attribution run's own captured profile rather than
- *  read off the printed table. The fixture tests (verify.test.ts) are the unit-level arms beside it; the
- *  live assertion runs in `scripts/stall-attribution.ts` against the real `--attribution` run's profile. */
+ *  read off the printed table. `verify.test.ts` owns the arms, including a red-when-broken witness that a
+ *  no-op implementation greens on the contaminated shape. */
 export function harnessBucketNames(summary: CpuProfileSummary): string[] {
     const offending = new Set<string>();
     for (const entry of summary.entries) {
@@ -1232,7 +1232,7 @@ export interface RenderProbe {
  *
  * shallot-boot-stall-repair S1d: a timeout printed `booted: false`, `samples: 0`, `errors: []` and named
  * nothing, so a page verify structurally cannot check — one with no `<canvas>` at all, e.g. `shallot verify
- * examples/gym` with no `?scenario=`, whose index page is a list of links — read exactly like a slow or
+ * bench` with no `?scenario=`, whose index page is a list of links — read exactly like a slow or
  * broken boot. The three branches are the three states the wait can time out in, and each is decided from
  * data the wait already collected: no sample ever captured (nothing to screenshot), samples that never
  * carried structure (a blank canvas), and structure that never went stable (an animated scene, which
@@ -1249,7 +1249,7 @@ export function waitDiagnosis(
         return (
             "no capturable <canvas> ever appeared — this page presents nothing verify can sample. " +
             "A project that selects its scene from the URL needs that selection passed: " +
-            "`--query scenario=<name>` (examples/gym), or whatever query its entry point reads."
+            "`--query scenario=<name>` (bench), or whatever query its entry point reads."
         );
     }
     if (!sawStructure) {

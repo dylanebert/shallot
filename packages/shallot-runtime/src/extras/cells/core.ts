@@ -8,7 +8,7 @@
 // main `extras` barrel itself: none of this is a component, singleton, or registration function a game
 // author calls (`exports.md`'s barrel-vs-`*/core` split), and `Cell` / `createCellGrid` are exactly the
 // kind of generic name that subpath exists to avoid colliding on the bare barrel (`exports.md`'s Naming
-// section). The `examples/gym` `cells` scenario is this subpath's consumer — it drives every producer here
+// section). The `bench` `cells` scenario is this subpath's consumer — it drives every producer here
 // through a `Mirror` readback, with no canvas of its own.
 //
 // Deliberately NOT re-exported here — every one of these is `@internal` in its defining file, meaning no

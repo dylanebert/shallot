@@ -123,7 +123,7 @@ async function runUrl(
         // scenario knobs ride `--query`; warmup/frames become gym params the harness run() coerces. --memory
         // samples the retained-leak slope (informational). hardware + memory land in the JSON if a caller wants.
         const res = await verify(
-            "examples/gym",
+            "bench",
             [
                 ...queryFlags([...query.split("&"), `warmup=${WARMUP}`, `frames=${FRAMES}`]),
                 "--memory",

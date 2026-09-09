@@ -87,7 +87,7 @@ export async function resolvedKernels(): Promise<ResolvedKernel[]> {
         }));
 }
 
-// The declared registry + pure checker half of the TGSL-corpus meta-test. Shape copied from `examples/gym/src/scenarios/timeouts.ts` + `coverage.ts`: plain committed
+// The declared registry + pure checker half of the TGSL-corpus meta-test. Shape copied from `bench/src/scenarios/timeouts.ts` + `coverage.ts`: plain committed
 // data, a pure checker asserted both directions, red-provable against fixtures. The shared
 // `kernelExports`/`resolvedKernels` seam above walks canonical runtime/solver source, imports each module,
 // identity-deduplicates live TGSL kernels, and resolves them to WGSL; `standards.test.ts` and the
@@ -261,7 +261,7 @@ export function checkStandards(population: Population, registry: StandardsRegist
 // both directions, red-provable with no filesystem.
 
 /** a named CPU differential: the `.test.ts` file (repo-relative, from the shallot repo root — the
- *  same convention `examples/gym/src/scenarios/timeouts.ts`'s `covers` globs use) that calls this
+ *  same convention `bench/src/scenarios/timeouts.ts`'s `covers` globs use) that calls this
  *  kernel on the CPU, and the exported symbol it calls. Two fields because "a file exists" alone
  *  proves nothing — a differential test file that stopped calling its kernel (a rename, a refactor
  *  that dropped the direct call) would still be "the named file exists" and silently stop meaning

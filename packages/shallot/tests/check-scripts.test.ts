@@ -194,14 +194,14 @@ describe("workspacePkgPaths", () => {
         const root = fixture({
             "packages/a/package.json": "{}",
             "packages/b/package.json": "{}",
-            "examples/gym/package.json": "{}",
+            "bench/package.json": "{}",
         });
-        const paths = await workspacePkgPaths(root, ["packages/*", "examples/gym"]);
+        const paths = await workspacePkgPaths(root, ["packages/*", "bench"]);
         expect(paths.sort()).toEqual(
             [
                 join(root, "packages/a/package.json"),
                 join(root, "packages/b/package.json"),
-                join(root, "examples/gym/package.json"),
+                join(root, "bench/package.json"),
             ].sort(),
         );
     });
