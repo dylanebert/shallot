@@ -25,6 +25,7 @@ import { dirname, join, resolve } from "node:path";
 import { compatibilityFlow } from "./install-test/compatibility";
 import { harnessArms, harnessContract } from "./install-test/harness";
 import { outputFlow } from "./install-test/output";
+import { projectFlow } from "./install-test/project";
 import { runtimeArms } from "./install-test/runtime";
 import { projectTumble, tumbleArms } from "./install-test/tumble";
 import { type ShaderArtifactSummary, skipReason, type VerifyResult, verify } from "./verify";
@@ -1832,6 +1833,7 @@ if (import.meta.main) {
         const particlesTgz = pack(PARTICLES_DIR, join(work, "particles-pack"));
 
         // display-independent, so it runs first: no GPU, no `skipReason()` guard anywhere above it
+        projectFlow(engineTgz, join(work, "project-seam"));
         identityFlow(work, engineTgz);
         pmIdentityFlow(work, engineTgz, "npm");
         pmIdentityFlow(work, engineTgz, "pnpm");

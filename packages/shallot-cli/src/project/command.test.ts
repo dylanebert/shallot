@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { EXIT_OK, EXIT_SETUP, loadLocalPlugins, planProject } from "./command";
@@ -57,7 +57,7 @@ describe("planProject", () => {
         expect(result.plan?.scenes).toEqual([join("public", "main.scene")]);
     });
 
-    test("an installed bare plugin beside a local one plans clean from the project root", () => {
+    test("an installed bare plugin beside a local one loads from the project root", () => {
         const root = externalRoot("bare-plugin");
         const dir = join(root, "node_modules", "bare-plugin");
         mkdirSync(dir, { recursive: true });
@@ -74,6 +74,26 @@ describe("planProject", () => {
         const result = planProject(root);
         expect(result.code).toBe(EXIT_OK);
         expect(result.plan?.locals.map((l) => l.name)).toEqual(["Spin", "Bare"]);
+        const run = spawnSync(
+            process.execPath,
+            [
+                "-e",
+                `
+            import assert from "node:assert/strict";
+            const { planProject, loadLocalPlugins } = await import(${JSON.stringify(resolve(import.meta.dir, "command.ts"))});
+            const project = ${JSON.stringify(root)};
+            const result = planProject(project);
+            assert.equal(result.code, 0);
+            let loaded;
+            try { loaded = await loadLocalPlugins(result.plan); } catch { loaded = []; }
+            assert.equal(loaded.length, 2, "external project entries must load");
+            assert.strictEqual(loaded[1], (await import(Bun.resolveSync("bare-plugin", project))).default, "project module identity");
+        `,
+            ],
+            { encoding: "utf8", cwd: root },
+        );
+        expect(run.stderr).toBe("");
+        expect(run.status).toBe(0);
     });
 
     test("a missing dependency exits setup before any plugin module is evaluated", () => {
@@ -95,6 +115,38 @@ describe("planProject", () => {
 });
 
 describe("loadLocalPlugins", () => {
+    test("direct readProject loading refuses all entries before earlier effects", () => {
+        const root = externalRoot("eager");
+        const sentinel = join(root, "early.txt");
+        writeLocalPlugin(root, "early.ts", sentinel, "Early");
+        writeFileSync(
+            join(root, "shallot.json"),
+            JSON.stringify({
+                plugins: {
+                    Early: "./src/early",
+                    Gone: "missing-enabled-entry",
+                },
+            }),
+        );
+        const run = spawnSync(
+            process.execPath,
+            [
+                "-e",
+                `
+            import assert from "node:assert/strict";
+            import { existsSync } from "node:fs";
+            const { readProject, loadLocalPlugins } = await import(${JSON.stringify(resolve(import.meta.dir, "command.ts"))});
+            let error;
+            try { await loadLocalPlugins(readProject(${JSON.stringify(root)})); } catch (e) { error = e; }
+            assert.equal(existsSync(${JSON.stringify(sentinel)}), false, "later missing entry must prevent earlier evaluation");
+            assert.match(String(error), /Gone/);
+        `,
+            ],
+            { encoding: "utf8", cwd: root },
+        );
+        expect(run.stderr).toBe("");
+        expect(run.status).toBe(0);
+    });
     test("an enabled local is evaluated; a disabled local is never evaluated", async () => {
         const root = externalRoot("disabled");
         const onSentinel = join(root, "on.txt");
@@ -127,6 +179,74 @@ describe("loadLocalPlugins", () => {
         if (!result.plan) throw new Error("no plan");
         await expect(loadLocalPlugins(result.plan)).rejects.toThrow('"Nope"');
     });
+});
+
+test("nested loaders discriminate same-name CLI decoys and scoped subpaths", () => {
+    const parent = externalRoot("binding");
+    const root = join(parent, "game");
+    const owner = resolve(import.meta.dir, "../..");
+    const name = "nested-binding-fixture";
+    const decoy = join(owner, "node_modules", name);
+    expect(existsSync(decoy)).toBe(false);
+    const sentinel = join(parent, "decoy");
+    try {
+        for (const dir of [join(root, "node_modules", name), decoy]) {
+            mkdirSync(dir, { recursive: true });
+            writeFileSync(join(dir, "package.json"), JSON.stringify({ name, main: "index.js" }));
+            writeFileSync(
+                join(dir, "index.js"),
+                dir === decoy
+                    ? `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(sentinel)}, 'yes'); export default { name: 'Decoy', features: ['decoy-only'] };`
+                    : `export default { name: 'Project', features: ['timestamp-query'], preferredFeatures: ['subgroups'] };`,
+            );
+        }
+        const scoped = join(root, "node_modules/@fixture/scoped");
+        mkdirSync(scoped, { recursive: true });
+        writeFileSync(
+            join(scoped, "package.json"),
+            JSON.stringify({ name: "@fixture/scoped", exports: { "./entry": "./index.js" } }),
+        );
+        writeFileSync(join(scoped, "index.js"), `export default { name: 'Scoped' };`);
+        writeFileSync(
+            join(root, "shallot.json"),
+            JSON.stringify({
+                plugins: {
+                    Local: name,
+                    Scoped: "@fixture/scoped/entry",
+                    Disabled: ["uninstalled-disabled", false],
+                },
+            }),
+        );
+        const run = spawnSync(
+            process.execPath,
+            [
+                "-e",
+                `
+            import assert from 'node:assert/strict';
+            import { existsSync } from 'node:fs';
+            import { requiredFeatures } from ${JSON.stringify(resolve(owner, "bin/features.ts"))};
+            const { planProject, loadLocalPlugins } = await import(${JSON.stringify(resolve(import.meta.dir, "command.ts"))});
+            const dir = ${JSON.stringify(root)};
+            const result = planProject(dir); assert.equal(result.code, 0);
+            const first = await loadLocalPlugins({ ...result.plan, locals: result.plan.locals.slice(0, 1) });
+            assert.strictEqual(first[0], (await import(Bun.resolveSync(${JSON.stringify(name)}, dir))).default, 'project identity, not CLI decoy');
+            const loaded = await loadLocalPlugins(result.plan);
+            for (const [i, spec] of [${JSON.stringify(name)}, '@fixture/scoped/entry'].entries())
+                assert.strictEqual(loaded[i], (await import(Bun.resolveSync(spec, dir))).default, 'project identity, not CLI decoy');
+            assert.deepEqual(await requiredFeatures(dir), ['timestamp-query'], 'project required union, not CLI decoy');
+            assert.equal(existsSync(${JSON.stringify(sentinel)}), false);
+            const decoy = (await import(Bun.resolveSync(${JSON.stringify(name)}, ${JSON.stringify(owner)}))).default;
+            assert.notStrictEqual(decoy, loaded[0]);
+            assert.equal(existsSync(${JSON.stringify(sentinel)}), true, 'CLI-root foil evaluates decoy');
+        `,
+            ],
+            { encoding: "utf8", cwd: parent },
+        );
+        expect(run.stderr).toBe("");
+        expect(run.status).toBe(0);
+    } finally {
+        rmSync(decoy, { recursive: true, force: true });
+    }
 });
 
 describe("one resolved plan, two consumers", () => {

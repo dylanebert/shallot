@@ -5,7 +5,7 @@
 //
 // Nothing here imports Vite, a browser API or a GPU global, and nothing here loads a plugin module: a
 // plan is data the caller may inspect, log or refuse before any module evaluation happens
-// (`command.ts` owns the loading half and runs it only after `localModuleErrors` is empty). That split
+// (Bun loaders resolve the complete entry set again at load time). That split
 // is what lets a dependency mistake fail with an exit code instead of a half-imported project.
 //
 // Presentation is deliberately absent: the host names the enabled plugins and, for a headless run, says
@@ -191,13 +191,29 @@ export function localModuleErrors(
     project: ProjectPlan,
     resolver: (spec: string, dir: string) => string | null = resolveFromProject,
 ): string[] {
-    if (!project.dir) return [];
+    return resolveModules(project, resolver).errors;
+}
+
+function resolveModules(
+    project: Pick<ProjectPlan, "dir" | "locals">,
+    resolver = resolveFromProject,
+) {
     const errors: string[] = [];
+    const locals: PlannedLocal[] = [];
     for (const local of project.locals) {
-        if (resolver(local.path, project.dir)) continue;
-        errors.push(
-            `shallot.json plugin "${local.name}": cannot resolve its module "${local.spec}" from ${project.dir}`,
-        );
+        const path = project.dir ? resolver(local.path, project.dir) : null;
+        if (path) locals.push({ ...local, path });
+        else
+            errors.push(
+                `shallot.json plugin "${local.name}": cannot resolve its module "${local.spec}" from ${project.dir}`,
+            );
     }
-    return errors;
+    return { locals, errors };
+}
+
+/** resolve every enabled entry before evaluation, retaining browser-authored paths in the plan. */
+export function resolveLocalModules(project: Pick<ProjectPlan, "dir" | "locals">): PlannedLocal[] {
+    const { locals, errors } = resolveModules(project);
+    if (errors.length) throw new Error(errors.join("\n"));
+    return locals;
 }
