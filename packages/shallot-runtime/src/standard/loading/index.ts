@@ -16,8 +16,15 @@ import {
     progressTick,
     type Splash,
     splash,
+    TICK_MS,
     toSvg,
 } from "./mark";
+
+/** Ticks of dead air after the lockup lands, before the overlay is dismissed. */
+const HOLD_TICKS = 6;
+
+/** The track fades over the hold, so the lockup is alone on screen when the overlay goes. */
+const FADE_MS = Math.round(HOLD_TICKS * TICK_MS);
 
 interface Theme {
     bg: string;
@@ -135,6 +142,7 @@ function createProgressBar(theme: Theme): { track: HTMLDivElement; bar: HTMLDivE
         height: 4px;
         background: ${theme.track};
         overflow: hidden;
+        transition: opacity ${FADE_MS}ms ease-out;
     `;
 
     const bar = document.createElement("div");
@@ -169,11 +177,28 @@ function prefersReducedMotion(): boolean {
 // pixel as the build advances, then `complete` plays the name typing in. Reduced motion rests on
 // the finished lockup instead. At 4px a square the 52-pixel lockup is 208px wide, just inside the
 // 228px track below it, so the two read as one thing settling into a load.
-function createSplash(theme: Theme): { el: HTMLDivElement; driver: Splash } {
+function createSplash(theme: Theme): { el: HTMLDivElement; driver: Splash; reduced: boolean } {
     const el = document.createElement("div");
     el.style.cssText = "width: 208px; max-width: 100%;";
-    const driver = splash(el, (grid) => toSvg(grid, theme.mark, 4), prefersReducedMotion());
-    return { el, driver };
+    const reduced = prefersReducedMotion();
+    const driver = splash(el, (grid) => toSvg(grid, theme.mark, 4), reduced);
+    return { el, driver, reduced };
+}
+
+/** Resolves `ticks` after the call, on the same clock the splash runs on. */
+function hold(ticks: number): Promise<void> {
+    if (typeof requestAnimationFrame !== "function") return Promise.resolve();
+    const until = performance.now() + ticks * TICK_MS;
+    return new Promise<void>((resolve) => {
+        const frame = () => {
+            if (performance.now() >= until) {
+                resolve();
+                return;
+            }
+            requestAnimationFrame(frame);
+        };
+        requestAnimationFrame(frame);
+    });
 }
 
 function diagnosticText(error: Error): string {
@@ -350,7 +375,9 @@ function renderError(overlay: HTMLDivElement, error: unknown, theme: Theme): voi
 function loading(theme: Theme, container: HTMLElement | undefined, withSplash: boolean): Loading {
     let overlay: HTMLDivElement | null = null;
     let bar: HTMLDivElement | null = null;
+    let track: HTMLDivElement | null = null;
     let driver: Splash | null = null;
+    let reduced = false;
     let tick = 0;
 
     const screen: Loading = {
@@ -363,6 +390,7 @@ function loading(theme: Theme, container: HTMLElement | undefined, withSplash: b
             if (withSplash) {
                 const made = createSplash(theme);
                 driver = made.driver;
+                reduced = made.reduced;
                 tick = 0;
                 driver.seek(0);
                 content.appendChild(made.el);
@@ -370,6 +398,7 @@ function loading(theme: Theme, container: HTMLElement | undefined, withSplash: b
 
             const progressBar = createProgressBar(theme);
             bar = progressBar.bar;
+            track = progressBar.track;
             content.appendChild(progressBar.track);
             overlay.appendChild(content);
 
@@ -377,6 +406,7 @@ function loading(theme: Theme, container: HTMLElement | undefined, withSplash: b
                 overlay?.remove();
                 overlay = null;
                 bar = null;
+                track = null;
                 driver = null;
                 tick = 0;
             };
@@ -397,7 +427,18 @@ function loading(theme: Theme, container: HTMLElement | undefined, withSplash: b
     };
 
     // only the splash variants hold: the bar-only screens dismiss the moment the build finishes
-    if (withSplash) screen.complete = () => driver?.play(HIT_TICK);
+    if (withSplash) {
+        screen.complete = async () => {
+            if (!driver) return;
+            // the bar has said all it can; it clears so the outro plays against the ground alone
+            if (track) {
+                if (reduced) track.style.transition = "none";
+                track.style.opacity = "0";
+            }
+            await driver.play(HIT_TICK);
+            if (!reduced) await hold(HOLD_TICKS);
+        };
+    }
 
     return screen;
 }
