@@ -156,6 +156,8 @@ console.log("NODE_LEAF_OK");\n`,
         )
         .filter((file) => !/\.(test|probes)\.ts$|\/\.gitignore$/.test(file))
         .sort();
+    expectedInputs.push("../shallot/scripts/projections.ts");
+    expectedInputs.sort();
     assert(expectedInputs.length > 40, "nonempty tooling source population");
     assert.deepEqual(
         Object.keys(record.inputs).sort(),

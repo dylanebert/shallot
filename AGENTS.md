@@ -44,11 +44,8 @@ bun run recipes [--recipe <name>]
 ```
 
 ```bash
-bunx shallot dev [dir]
-bunx shallot build [dir]
-bunx shallot build --target <os> [--portable] [--release]
-bunx shallot run [dir] [--target <os>] [--portable]
-bunx shallot verify [dir]
+bun packages/shallot-tooling/bin/cli.ts <dev|build|run|verify> [dir]
+# build/run: [--target <os>] [--portable]; build: [--release]
 ```
 
 OS: windows/mac/linux; web build emits dist, run builds/previews; native dev runs debug, Windows cross-compiled with cargo-xwin. Shipped verify owns browser Verdict/exit, published `/harness`; bench/flows/recipes wrap it, no private tier. Gym defaults render; slugs select atoms. Screenshots never gate. Laws: `examples.md`.

@@ -105,6 +105,27 @@ beforeAll(async () => {
             }
         };
         await run("baseline", {});
+        await run("unreachable documented path", {
+            "AGENTS.md": (text) =>
+                text.replace(
+                    "packages/shallot-tooling/bin/cli.ts",
+                    "packages/shallot-tooling/bin/gone.ts",
+                ),
+        });
+        await run("registry lookup is not tree resolution", {
+            "AGENTS.md": (text) =>
+                text.replace("bun packages/shallot-tooling/bin/cli.ts", "bunx shallot"),
+        });
+        for (const kind of ["bin", "files"]) {
+            await run(`unregistered ${kind} target`, {
+                "packages/shallot/package.json": (text) => {
+                    const pkg = JSON.parse(text);
+                    if (kind === "bin") pkg.bin.shallot = "./bin/gone.ts";
+                    else pkg.files.push("unregistered-pack-output");
+                    return JSON.stringify(pkg);
+                },
+            });
+        }
         const audio = ".claude/rules/audio.md";
         const deadAudio = ["Missing", "AudioCitation"].join("");
         for (const marker of ["retired", "gone", "anti-pattern"]) {
@@ -268,6 +289,20 @@ beforeAll(async () => {
         rmSync(container, { recursive: true, force: true });
     }
 }, 60000);
+
+for (const [name, diagnostic] of [
+    ["unreachable documented path", "unreachable repository command"],
+    ["registry lookup is not tree resolution", "unreachable repository command: bunx shallot"],
+    ["unregistered bin target", "bin: ./bin/gone.ts is missing"],
+    ["unregistered files target", "files: unregistered-pack-output is missing"],
+]) {
+    test(`command resolution refuses ${name}`, () => {
+        const reading = readings.get(name)!;
+        expect(reading.exitCode).toBe(1);
+        expect(reading.output).toContain("✗ command resolution:");
+        expect(reading.output).toContain(diagnostic);
+    });
+}
 
 for (const name of [
     "baseline",

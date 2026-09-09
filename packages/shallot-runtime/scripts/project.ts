@@ -10,9 +10,17 @@ import {
     writeFileSync,
 } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
+import { runtimeRoots as roots, runtimeRecord } from "../../shallot/scripts/projections";
 
 const owner = resolve(import.meta.dir, "..");
 const distribution = resolve(owner, "../shallot");
+const record = resolve(distribution, runtimeRecord);
+if (process.argv.includes("--check") && !existsSync(record)) {
+    console.error(
+        "runtime projection: missing runtime-inputs.json; run `bun run build` from the repository root",
+    );
+    process.exit(1);
+}
 const solver = resolve(owner, "../shallot-tumble");
 const engine = "src/standard/tumble/engine";
 const canonical = (file: string) => resolve(file.startsWith(`${engine}/`) ? solver : owner, file);
@@ -83,18 +91,6 @@ if (
 )
     throw Error("runtime projection: declared forwarding population changed");
 if (manifest.version !== runtime.version) throw Error("runtime projection: version mismatch");
-const roots = [
-    "src/index.ts",
-    "src/engine",
-    "src/standard",
-    "src/extras",
-    "src/types",
-    "src/harness/runtime.ts",
-    "src/harness/pixels.ts",
-    "src/harness/motion.ts",
-    "src/harness/degraded-boot.ts",
-    "rust/audio/pkg",
-];
 const mode = process.argv.includes("--pack") ? "pack" : "development";
 const files = mode === "pack" ? copies : [...forwards, ...assets].sort();
 const forward = (file: string) => {
@@ -106,14 +102,16 @@ const forward = (file: string) => {
     return `export * from ${JSON.stringify(target)};\n`;
 };
 const inputs = Object.fromEntries(
-    [...copies, "package.json", "scripts/project.ts", "scripts/build.ts"].map((file) => [
-        relative(owner, canonical(file)),
-        hash(canonical(file)),
-    ]),
+    [
+        ...copies,
+        "package.json",
+        "scripts/project.ts",
+        "scripts/build.ts",
+        "../shallot/scripts/projections.ts",
+    ].map((file) => [relative(owner, canonical(file)), hash(canonical(file))]),
 );
 inputs["../shallot-tumble/package.json"] = hash(resolve(solver, "package.json"));
 inputs["../shallot/package.json"] = hash(resolve(distribution, "package.json"));
-const record = resolve(distribution, "runtime-inputs.json");
 if (process.argv.includes("--check")) {
     const bridges = walk(resolve(owner, engine));
     if (
