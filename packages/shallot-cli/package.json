@@ -1,5 +1,5 @@
 {
-    "name": "shallot-tooling",
+    "name": "shallot-cli",
     "private": true,
     "version": "0.10.0",
     "type": "module",

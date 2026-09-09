@@ -1,4 +1,4 @@
-import { loadNative } from "../packages/shallot-tooling/bin/bun-native";
+import { loadNative } from "../packages/shallot-cli/bin/bun-native";
 import { type Check, queryFlags, skipReason, verify } from "./verify";
 
 // SMALL_N's module graph (avbd/step → physics/core → sear) references GPU enum constants at module

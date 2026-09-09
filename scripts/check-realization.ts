@@ -30,7 +30,7 @@ export async function checkRealization(root: string): Promise<string[]> {
             if (kind === "files" && [recipeRoot, toolingDist].includes(target)) return true;
             for (const [owner, roots] of [
                 ["shallot-runtime", runtimeRoots],
-                ["shallot-tooling", toolingRoots],
+                ["shallot-cli", toolingRoots],
             ] as const) {
                 for (const entry of roots) {
                     if (kind === "files" && target === entry) return true;

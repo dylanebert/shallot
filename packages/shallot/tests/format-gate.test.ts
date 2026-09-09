@@ -69,7 +69,7 @@ test("formatting needs no native projection; native setup still refuses its abse
             [
                 "bun",
                 "-e",
-                'const { loadNative } = await import("./packages/shallot-tooling/bin/bun-native.ts"); await loadNative();',
+                'const { loadNative } = await import("./packages/shallot-cli/bin/bun-native.ts"); await loadNative();',
             ],
             { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
         );

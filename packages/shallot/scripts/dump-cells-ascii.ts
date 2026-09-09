@@ -27,7 +27,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { plugin } from "bun";
 import typegpuBunPlugin from "unplugin-typegpu/bun";
-import { loadNative } from "../../shallot-tooling/bin/bun-native";
+import { loadNative } from "../../shallot-cli/bin/bun-native";
 
 // TGSL function bodies are transpiled at load time (`tests/tgsl.ts`'s own docblock: without this
 // transform every kernel resolves with no metadata and CPU-called kernels return NaN). `bunfig.toml`'s

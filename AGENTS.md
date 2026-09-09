@@ -2,7 +2,7 @@
 
 WebGPU engine. JSDoc owns APIs. Read `packages/shallot/AGENTS.md` (consumer); grep `examples/AGENTS.md` first.
 
-Owners: `packages/shallot{,-runtime,-tooling,-tumble}`, `packages/create-shallot`; evals, examples.
+Owners: `packages/shallot{,-runtime,-cli,-tumble}`, `packages/create-shallot`; evals, examples.
 
 ## Rules
 
@@ -44,7 +44,7 @@ bun run recipes [--recipe <name>]
 ```
 
 ```bash
-bun packages/shallot-tooling/bin/cli.ts <dev|build|run|verify> [dir]
+bun packages/shallot-cli/bin/cli.ts <dev|build|run|verify> [dir]
 # build/run: [--target <os>] [--portable]; build: [--release]
 ```
 

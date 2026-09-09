@@ -54,7 +54,7 @@ const inputs = Object.fromEntries(
     ),
 );
 if (process.argv.includes("--check")) {
-    const record = JSON.parse(readFileSync(resolve(OUT, "tooling-inputs.json"), "utf8"));
+    const record = JSON.parse(readFileSync(resolve(OUT, "cli-inputs.json"), "utf8"));
     if (JSON.stringify(record.inputs) !== JSON.stringify(inputs))
         throw new Error("build-tooling: stale source projection");
     for (const [file, expected] of Object.entries(record.outputs)) {
@@ -191,7 +191,7 @@ const outputs = Object.fromEntries(
         hash(resolve(DISTRIBUTION, file)),
     ]),
 );
-writeFileSync(resolve(OUT, "tooling-inputs.json"), JSON.stringify({ inputs, outputs }, null, 2));
+writeFileSync(resolve(OUT, "cli-inputs.json"), JSON.stringify({ inputs, outputs }, null, 2));
 console.log(
     `build-tooling: compiled ${entries.map((e) => `dist/${e.out}.js`).join(", ")}, dist/native.js; projected ${files.length} tooling inputs`,
 );

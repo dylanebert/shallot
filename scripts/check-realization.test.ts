@@ -12,7 +12,7 @@ test("declared realization grants physical and registered targets, refuses missi
     };
     try {
         write("package.json", { workspaces: ["packages/*"] });
-        write("packages/shallot-tooling/bin/cli.ts", "canonical CLI");
+        write("packages/shallot-cli/bin/cli.ts", "canonical CLI");
         const pkg = {
             bin: { shallot: "./bin/cli.ts" },
             files: [

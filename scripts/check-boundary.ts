@@ -37,7 +37,7 @@ import { COMPUTED_LOADERS, NON_WORKSPACE_PACKAGES, TOOLING_SEAMS } from "./bound
 
 const PKG = "@dylanebert/shallot";
 const ENGINE_PACKAGE = "packages/shallot";
-const TOOLING_PACKAGE = "packages/shallot-tooling";
+const TOOLING_PACKAGE = "packages/shallot-cli";
 const RUNTIME_PACKAGE = "packages/shallot-runtime";
 const SOLVER_PACKAGE = "packages/shallot-tumble";
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".svelte"];
@@ -641,8 +641,8 @@ export function runtimeDirection(
                 if (key.startsWith("./src/")) targets.push(resolve(repoRoot, ENGINE_PACKAGE, key));
             }
             if (
-                ref.spec === "shallot-tooling" ||
-                ref.spec.startsWith("shallot-tooling/") ||
+                ref.spec === "shallot-cli" ||
+                ref.spec.startsWith("shallot-cli/") ||
                 targets.some(forbidden)
             ) {
                 violations.push({

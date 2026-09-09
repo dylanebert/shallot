@@ -7,7 +7,7 @@ import { resolve } from "node:path";
 
 const repoRoot = resolve(import.meta.dir, "..");
 export const REPO_ROOT = repoRoot;
-export const CLI = resolve(repoRoot, "packages/shallot-tooling/bin/cli.ts");
+export const CLI = resolve(repoRoot, "packages/shallot-cli/bin/cli.ts");
 
 /** one named check inside a verify Verdict (the published protocol's shape on the wire). */
 export interface Check {

@@ -137,10 +137,10 @@ console.log("NODE_LEAF_OK");\n`,
         },
         () => exec("compiled aggregate replacement", raw, false, /HARNESS_SURFACE/),
     );
-    const record = JSON.parse(readFileSync(join(shipped, "dist/tooling-inputs.json"), "utf8"));
+    const record = JSON.parse(readFileSync(join(shipped, "dist/cli-inputs.json"), "utf8"));
     const hash = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
-    const owner = resolve(import.meta.dir, "../../packages/shallot-tooling");
-    const tracked = Bun.spawnSync(["git", "ls-files", "--", "packages/shallot-tooling"], {
+    const owner = resolve(import.meta.dir, "../../packages/shallot-cli");
+    const tracked = Bun.spawnSync(["git", "ls-files", "--", "packages/shallot-cli"], {
         cwd: resolve(import.meta.dir, "../.."),
     });
     assert.equal(tracked.exitCode, 0, "canonical source inventory");
@@ -148,7 +148,7 @@ console.log("NODE_LEAF_OK");\n`,
         .toString()
         .trim()
         .split("\n")
-        .map((file) => file.replace("packages/shallot-tooling/", ""))
+        .map((file) => file.replace("packages/shallot-cli/", ""))
         .filter((file) =>
             /^(bin\/|src\/project\/|src\/harness\/browser\.ts$|rust\/window\/|assets\/|scripts\/build\.ts$|package\.json$)/.test(
                 file,

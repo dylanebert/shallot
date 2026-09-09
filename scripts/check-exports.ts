@@ -356,7 +356,7 @@ export function extractImports(content: string): ImportEntry[] {
 // --- Specifier resolution ---------------------------------------------------
 
 function sourceOwner(root: string, path: string): string {
-    if (!existsSync(resolve(root, "packages/shallot-tooling/package.json"))) return path;
+    if (!existsSync(resolve(root, "packages/shallot-cli/package.json"))) return path;
     if (
         existsSync(resolve(root, "packages/shallot-tumble/package.json")) &&
         /^packages\/shallot(?:-runtime)?\/src\/standard\/tumble\/engine\//.test(path)
@@ -370,7 +370,7 @@ function sourceOwner(root: string, path: string): string {
         path.startsWith("packages/shallot/src/project/") ||
         path === "packages/shallot/src/harness/browser.ts"
     ) {
-        const owner = path.replace("packages/shallot/", "packages/shallot-tooling/");
+        const owner = path.replace("packages/shallot/", "packages/shallot-cli/");
         if (!existsSync(resolve(root, owner)))
             throw new Error(`missing canonical tooling source: ${owner}`);
         return owner;
@@ -496,7 +496,7 @@ export function computeEntryFiles(
         );
         if (existsSync(resolved)) {
             entryFiles.push(sourceOwner(rootDir, relative(rootDir, resolved).replace(/\\/g, "/")));
-        } else if (existsSync(resolve(rootDir, "packages/shallot-tooling/package.json"))) {
+        } else if (existsSync(resolve(rootDir, "packages/shallot-cli/package.json"))) {
             throw new Error(`missing public export target: ${key} → ${resolved}`);
         }
     }
@@ -630,7 +630,7 @@ export async function findDeadExports(
         srcDir,
         resolve(rootDir, "packages/shallot-runtime/src"),
         resolve(rootDir, "packages/shallot-tumble/src"),
-        resolve(rootDir, "packages/shallot-tooling/src"),
+        resolve(rootDir, "packages/shallot-cli/src"),
     ]) {
         if (!existsSync(dir)) continue;
         for await (const path of srcGlob.scan({ cwd: dir })) {
@@ -680,8 +680,8 @@ export async function findDeadExports(
         "packages/shallot-tumble/scripts",
         "packages/shallot-tumble/tests",
         "packages/shallot/tests",
-        "packages/shallot-tooling/bin",
-        "packages/shallot-tooling/src",
+        "packages/shallot-cli/bin",
+        "packages/shallot-cli/src",
         "packages/shallot/scripts",
         "scripts",
         "examples",

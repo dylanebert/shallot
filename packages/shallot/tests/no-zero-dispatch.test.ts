@@ -24,8 +24,8 @@ const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const SCAN_DIRS = [
     "packages/shallot-runtime/src",
     "packages/shallot/src",
-    "packages/shallot-tooling/src",
-    "packages/shallot-tooling/bin",
+    "packages/shallot-cli/src",
+    "packages/shallot-cli/bin",
     "packages/shallot/scripts",
     "packages/shallot/tests",
     "scripts",
