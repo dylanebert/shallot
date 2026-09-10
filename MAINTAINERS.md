@@ -27,8 +27,8 @@ Freshness returns to upstream on merge.
 
 ```bash
 bun run build                             # After bun install: audio WASM, dist/ tooling, physics kernel
-bun run test                              # Unit gate; needs build and a native adapter
-bun check                                 # Read-only tsc/Biome/checks; pack test is check-pack
+bun check                                 # Gate: tsc, Biome, check-pack, check-docs
+bun run test                              # Empty; tests re-admitted by declaration (ARCHIVE.md)
 bun run format                            # Biome + scenes
 bun run prepack                           # dist/ tooling only; bun pm pack runs it
 ```

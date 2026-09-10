@@ -2,13 +2,5 @@
     "name": "ascii",
     "version": "0.0.0",
     "private": true,
-    "type": "module",
-    "scripts": {
-        "gate": "playwright test"
-    },
-    "devDependencies": {
-        "@playwright/test": "^1.63.0",
-        "@types/pngjs": "^6.0.5",
-        "pngjs": "^7.0.0"
-    }
+    "type": "module"
 }
