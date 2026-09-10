@@ -35,7 +35,7 @@ const kernelDir = resolve(pkgRoot, "rust/physics");
 const engineDir = resolve(pkgRoot, "src/standard/physics/engine");
 
 /** The dated nightly for the shared build; needs rust-src for -Zbuild-std. */
-const NIGHTLY = "nightly-2026-09-01";
+const NIGHTLY = "nightly-2026-09-10";
 const INSTALL = `rustup toolchain install ${NIGHTLY} --component rust-src --target wasm32-unknown-unknown`;
 
 /** Shadow-stack size of the shared build (link arg). Partitioned into per-thread slices by the pool
