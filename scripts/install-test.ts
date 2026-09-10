@@ -237,15 +237,15 @@ function identityProbeScript(withPaths = false): string {
     );
 }
 
-// `shallot recipe <name> <dir>` copies a recipe out of the installed package into a runnable project;
+// `shallot add <name> <dir>` copies a recipe out of the installed package into a runnable project;
 // the copy's engine dep is version-pinned by the CLI, so here we point it back at the packed tarball
 // (as a real user's registry install would resolve) and build it headlessly. Guards the whole copy-out
 // path: recipe present in the pack, CLI copies it, the pinned dep installs, the project builds.
 async function recipeFlow(work: string, engineTgz: string, sandbox: string, name: string) {
-    console.log(`shallot recipe ${name} (copy a recipe out → install → build)…`);
+    console.log(`shallot add ${name} (copy a recipe out → install → build)…`);
     const dest = join(work, "recipe-out", name);
-    const copied = run(["bun", CLI, "recipe", name, dest], sandbox);
-    check("shallot recipe copies a recipe out", copied.ok, copied.ok ? "" : copied.out.slice(-400));
+    const copied = run(["bun", CLI, "add", name, dest], sandbox);
+    check("shallot add copies a recipe out", copied.ok, copied.ok ? "" : copied.out.slice(-400));
     if (!existsSync(join(dest, "package.json"))) return;
     // the CLI pins the engine to the installed version; swap it for the packed tarball the test has
     const pkg = JSON.parse(readFileSync(join(dest, "package.json"), "utf8"));
@@ -797,8 +797,8 @@ if (import.meta.main) {
             /## Recipes/.test(idx) && !/## Gym/.test(idx) && !/## Showcase/.test(idx),
         );
         check(
-            "the shipped index names `shallot recipe` as the copy-out command",
-            /shallot recipe/.test(idx),
+            "the shipped contract names `shallot add` as the copy-out command",
+            /shallot add/.test(readFileSync(join(shipped, "AGENTS.md"), "utf8")),
         );
 
         if (install.ok) {

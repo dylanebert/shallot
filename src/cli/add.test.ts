@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listRecipes, occupied, pinEngine, runRecipe } from "./recipe";
-import { CLAUDE_IMPORT, ENGINE_REFERENCE, recipeDoc } from "./scaffold";
+import { listRecipes, occupied, pinEngine, runAdd } from "./add";
+import { CLAUDE_IMPORT, ENGINE_REFERENCE, recipeDoc } from "./add-fragments";
 
 // a fixture corpus: two runnable recipes + a stray non-recipe dir (no shallot.json)
 function corpus(): { recipesDir: string; version: string } {
@@ -115,24 +115,24 @@ describe("listRecipes", () => {
     });
 });
 
-describe("runRecipe", () => {
+describe("runAdd", () => {
     test("errors when the corpus is absent", async () => {
         const env = { recipesDir: join(tmpdir(), "shallot-absent-corpus-2"), version: "1.0.0" };
-        expect(await runRecipe([], env)).toBe(1);
+        expect(await runAdd([], env)).toBe(1);
     });
 
     test("bare invocation lists and exits 0", async () => {
-        expect(await runRecipe([], corpus())).toBe(0);
+        expect(await runAdd([], corpus())).toBe(0);
     });
 
     test("unknown recipe name exits 1", async () => {
-        expect(await runRecipe(["no-such-recipe"], corpus())).toBe(1);
+        expect(await runAdd(["no-such-recipe"], corpus())).toBe(1);
     });
 
     test("copies a recipe out and pins its engine dep", async () => {
         const env = corpus();
         const dest = join(mkdtempSync(join(tmpdir(), "shallot-copyout-")), "orbit-camera");
-        expect(await runRecipe(["orbit-camera", dest], env)).toBe(0);
+        expect(await runAdd(["orbit-camera", dest], env)).toBe(0);
         expect(existsSync(join(dest, "src", "main.ts"))).toBe(true);
         const pkg = JSON.parse(readFileSync(join(dest, "package.json"), "utf8"));
         expect(pkg.dependencies["@dylanebert/shallot"]).toBe("1.2.3");
@@ -141,7 +141,7 @@ describe("runRecipe", () => {
     test("emits the agent-surface pointer + a standalone tsconfig", async () => {
         const env = corpus();
         const dest = join(mkdtempSync(join(tmpdir(), "shallot-copyout-doc-")), "orbit-camera");
-        expect(await runRecipe(["orbit-camera", dest], env)).toBe(0);
+        expect(await runAdd(["orbit-camera", dest], env)).toBe(0);
         const doc = readFileSync(join(dest, "AGENTS.md"), "utf8");
         expect(doc).toContain("node_modules/@dylanebert/shallot/AGENTS.md");
         expect(doc).toContain("node_modules/@dylanebert/shallot/examples/AGENTS.md");
@@ -155,12 +155,12 @@ describe("runRecipe", () => {
         const env = corpus();
         const dest = mkdtempSync(join(tmpdir(), "shallot-nonempty-"));
         writeFileSync(join(dest, "keep.txt"), "mine");
-        expect(await runRecipe(["build-a-scene", dest], env)).toBe(1);
+        expect(await runAdd(["build-a-scene", dest], env)).toBe(1);
         expect(existsSync(join(dest, "shallot.json"))).toBe(false);
     });
 });
 
-// The engine pointer is single-sourced in scaffold.ts; the create-shallot repository carries its own copy.
+// The engine pointer is single-sourced in add-fragments.ts; the create-shallot repository carries its own copy.
 describe("scaffold pointer is one source", () => {
     test("recipe copy-out doc embeds the ENGINE_REFERENCE stanza", () => {
         expect(recipeDoc("orbit-camera")).toContain(ENGINE_REFERENCE);

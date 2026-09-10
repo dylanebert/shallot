@@ -204,7 +204,7 @@ export async function main(raw: string[]): Promise<void> {
         process.exit(2);
     }
     if (parsed.kind === "add") {
-        const { runRecipe: runAdd } = await import("./recipe");
+        const { runAdd } = await import("./add");
         process.exit(await runAdd(parsed.rest));
     }
     if (parsed.kind === "external") {
