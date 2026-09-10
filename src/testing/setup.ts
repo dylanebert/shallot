@@ -1,3 +1,3 @@
-import { loadNative } from "../../bin/bun-native";
+import { loadNative } from "../engine/runtime/bun-native";
 
 await (await loadNative()).setupGlobals();

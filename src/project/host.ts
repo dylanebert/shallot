@@ -121,8 +121,15 @@ export function isProject(dir: string): boolean {
     return existsSync(manifestPath(dir)) || discoverScenes(dir).length > 0;
 }
 
+/** exit with the scaffold hint when dir holds neither a shallot.json manifest nor a .scene file. */
+export function requireProject(dir: string): void {
+    if (isProject(dir)) return;
+    for (const line of missingProjectMessage(dir)) console.error(line);
+    process.exit(1);
+}
+
 /** the diagnostic for a directory that is no project — one message, printed by every command that
- *  needs one (`bin/toolchain.ts`'s `requireProject`, `planProject`'s setup exit). */
+ *  needs one (`requireProject`, `planProject`'s setup exit). */
 export function missingProjectMessage(dir: string): string[] {
     return [
         `\n  ✗ No shallot project found at ${dir}`,

@@ -10,7 +10,7 @@ const watchdog = setTimeout(() => {
     process.exit(2);
 }, 4000);
 try {
-    const { loadNative } = await import(join(engine, "bin/bun-native.ts"));
+    const { loadNative } = await import(join(engine, "src/engine/runtime/bun-native.ts"));
     const native = await loadNative();
     await native.setupGlobals();
     const gpu = navigator.gpu as any;

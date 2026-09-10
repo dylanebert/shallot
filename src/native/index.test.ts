@@ -13,7 +13,7 @@ import {
     missingCrateDiagnostic,
     nativeOutDir,
     resolveCargoInvocation,
-} from "./native";
+} from ".";
 
 describe("nativeOutDir", () => {
     test("builds <projectDir>/build/<platform>/<profile>-<mode>", () => {

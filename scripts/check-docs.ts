@@ -75,7 +75,7 @@ for (const line of (entry ?? "").split("\n")) {
         let reachable = false;
         if (match?.[1] === "bunx") {
             const bin = resolve(root, "node_modules/.bin", token!);
-            const expected = resolve(root, "bin/cli.ts");
+            const expected = resolve(root, "bin/shallot.ts");
             reachable =
                 token === "shallot" &&
                 existsSync(bin) &&

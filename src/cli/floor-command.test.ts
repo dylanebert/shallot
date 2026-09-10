@@ -37,7 +37,7 @@ function fixture(required: boolean, gap: boolean) {
     const preload = join(dir, "preload.ts");
     writeFileSync(
         preload,
-        `import { WEBVIEW_UNSUPPORTED } from ${JSON.stringify(resolve(import.meta.dir, "features.ts"))}; ${gap ? 'WEBVIEW_UNSUPPORTED.mac = ["timestamp-query"];' : ""}`,
+        `import { WEBVIEW_UNSUPPORTED } from ${JSON.stringify(resolve(import.meta.dir, "../engine/runtime/floor.ts"))}; ${gap ? 'WEBVIEW_UNSUPPORTED.mac = ["timestamp-query"];' : ""}`,
     );
     const id = crypto.randomUUID();
     const receipt = join(dir, "config-receipt.json");
@@ -70,7 +70,7 @@ function commandReceipt(
             process.execPath,
             "--preload",
             project.preload,
-            resolve(import.meta.dir, "cli.ts"),
+            resolve(import.meta.dir, "../../bin/shallot.ts"),
             command,
             project.dir,
             "--target",
@@ -244,7 +244,7 @@ function argumentsAre(site: Site, args: string): void {
 
 for (const command of ["build", "run"] as const) {
     test(`CLI ${command} dispatch binding preserves project and options`, () => {
-        const tree = ast("cli.ts");
+        const tree = ast("index.ts");
         const local = imported(tree, `${command}Project`, `./${command}`);
         const branch = sites(tree).filter(
             ({ node }) =>
@@ -275,8 +275,8 @@ for (const command of ["build", "run"] as const) {
         test(`${command} ${target} native binding preserves target, output and options`, () => {
             const tree = ast(`${command}.ts`);
             const bundle = `bundleNative${target[0].toUpperCase()}${target.slice(1)}`;
-            const local = imported(tree, bundle, "./native");
-            const output = imported(tree, "nativeOutDir", "./native");
+            const local = imported(tree, bundle, "../native");
+            const output = imported(tree, "nativeOutDir", "../native");
             const invokes = calls(tree, local);
             expect(invokes).toHaveLength(1);
             const call = invokes[0];
@@ -355,8 +355,8 @@ for (const command of ["build", "run"] as const) {
 
 for (const target of ["Windows", "Mac", "Linux"]) {
     test(`native ${target} binding reaches real buildWeb with its project`, () => {
-        const tree = ast("native.ts");
-        const local = imported(tree, "buildWeb", "./build");
+        const tree = ast("../native/index.ts");
+        const local = imported(tree, "buildWeb", "../cli/build");
         const all = calls(tree, local);
         expect(all).toHaveLength(3);
         const invokes = all.filter(

@@ -13,12 +13,12 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, relative, resolve } from "node:path";
-import { normalize } from "../src/project/manifest";
-import { manifestPath } from "../src/project/vite";
-import { buildWeb } from "./build";
+import { buildWeb } from "../cli/build";
+import { normalize } from "../project/manifest";
+import { manifestPath } from "../project/vite";
 
-const RUST_CRATE = resolve(import.meta.dir, "../rust/window");
-const DEFAULT_ICON = resolve(import.meta.dir, "../assets/icon-1024.png");
+const RUST_CRATE = resolve(import.meta.dir, "../../rust/window");
+const DEFAULT_ICON = resolve(import.meta.dir, "../../assets/icon-1024.png");
 const WIN_TARGET = "x86_64-pc-windows-msvc";
 const MAC_TARGET = "aarch64-apple-darwin";
 const LINUX_TARGET = "x86_64-unknown-linux-gnu";
@@ -326,7 +326,7 @@ function getPackageVersion(): string | null {
     if (!import.meta.dir.includes("node_modules")) return null;
     try {
         const pkg = JSON.parse(
-            readFileSync(resolve(import.meta.dir, "..", "package.json"), "utf8"),
+            readFileSync(resolve(import.meta.dir, "../..", "package.json"), "utf8"),
         );
         return pkg.version ?? null;
     } catch {

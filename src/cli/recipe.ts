@@ -9,7 +9,7 @@ import { CLAUDE_IMPORT, RECIPE_TSCONFIG, recipeDoc } from "./scaffold";
 // `bun install && bunx shallot dev` runs green. Paths resolve relative to this package, never cwd — the
 // corpus lives beside the CLI (`bin/` and `examples/` are siblings at the package root).
 
-const PACKAGE_ROOT = resolve(import.meta.dir, "..");
+const PACKAGE_ROOT = resolve(import.meta.dir, "../..");
 const ENGINE = "@dylanebert/shallot";
 
 interface Env {

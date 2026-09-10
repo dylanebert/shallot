@@ -1,15 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { type CliArgs, parseCliArgs } from "./cli";
+import { chmodSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join, resolve } from "node:path";
+import { type CliArgs, parseCliArgs, resolveExternal } from "./index";
 
 describe("parseCliArgs", () => {
-    test("routes recipe before the shared parse, carrying the rest of argv untouched", () => {
-        const r = parseCliArgs(["recipe", "joints", "dest"]);
-        expect(r).toEqual({ kind: "delegate", cmd: "recipe", rest: ["joints", "dest"] });
+    test("routes add and unknown verbs before the shared parse, carrying the rest of argv untouched", () => {
+        const r = parseCliArgs(["add", "joints", "dest"]);
+        expect(r).toEqual({ kind: "add", rest: ["joints", "dest"] });
+        const x = parseCliArgs(["deploy", "--prod", "dest"]);
+        expect(x).toEqual({ kind: "external", verb: "deploy", rest: ["--prod", "dest"] });
+        expect(parseCliArgs(["create", "game"])).toEqual({ kind: "create" });
+        expect(parseCliArgs(["check"])).toEqual({ kind: "check" });
     });
 
-    test("bare invocation prints usage, exit 0; an unrecognized subcommand exits 1", () => {
+    test("bare invocation prints usage, exit 0", () => {
         expect(parseCliArgs([])).toEqual({ kind: "usage", exitCode: 0 });
-        expect(parseCliArgs(["nope"])).toEqual({ kind: "usage", exitCode: 1 });
     });
 
     test("--help / -h short-circuits to usage exit 0, even with other flags present", () => {
@@ -98,4 +104,23 @@ describe("parseCliArgs", () => {
             'invalid --port value "8080.5" — expected an integer',
         );
     });
+});
+
+test("an unknown verb resolves to shallot-<verb> on PATH and runs with the remaining args", () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "shallot-ext-")));
+    const bin = join(dir, "shallot-hello");
+    writeFileSync(bin, '#!/bin/sh\necho "hello:$*"\n');
+    chmodSync(bin, 0o755);
+    expect(resolveExternal("hello", { PATH: dir }, dir)).toBe(bin);
+    expect(resolveExternal("absent", { PATH: dir }, dir)).toBeNull();
+    expect(resolveExternal("../hello", { PATH: dir }, dir)).toBeNull();
+
+    const cli = resolve(import.meta.dir, "../../bin/shallot.ts");
+    const env = { ...process.env, PATH: `${dir}${delimiter}${process.env.PATH}` };
+    const run = Bun.spawnSync(["bun", cli, "hello", "a", "--b"], { cwd: dir, env });
+    expect(run.exitCode).toBe(0);
+    expect(run.stdout.toString().trim()).toBe("hello:a --b");
+    const miss = Bun.spawnSync(["bun", cli, "absent"], { cwd: dir, env });
+    expect(miss.exitCode).toBe(1);
+    expect(miss.stderr.toString()).toContain("unknown command: absent");
 });

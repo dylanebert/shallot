@@ -44,7 +44,7 @@ export function harnessArms(project: string): void {
     writeFileSync(join(project, "harness-types.ts"), types);
     writeFileSync(
         join(project, "harness-preload.ts"),
-        `import { installGpuGlobals } from "./node_modules/@dylanebert/shallot/bin/gpu-globals.ts"; installGpuGlobals();\n`,
+        `import { installGpuGlobals } from "./node_modules/@dylanebert/shallot/src/cli/gpu-globals.ts"; installGpuGlobals();\n`,
     );
     writeFileSync(
         join(project, "harness-node.mjs"),

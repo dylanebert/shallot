@@ -197,7 +197,7 @@ function projectArms(
                             process.execPath,
                             "-e",
                             `${prelude}
-                        const { installGpuGlobals } = await import(${quote(join(dirname(features), "gpu-globals.ts"))}); installGpuGlobals();
+                        const { installGpuGlobals } = await import(${quote(join(dirname(features), "../../cli/gpu-globals.ts"))}); installGpuGlobals();
                         const origin = ${quote(dirname(plugin))};
                         const bindings = {};
                         for (const spec of ['@dylanebert/shallot', 'typegpu']) {
@@ -348,7 +348,7 @@ export function projectFlow(tarball: string, evidence: string) {
     assert.deepEqual(installed, archive, "archive/install exact file hashes");
     inspectRuntime(shipped);
     const command = join(shipped, "src/project/command.ts");
-    projectArms(command, join(shipped, "bin/features.ts"), parent, evidence, true);
+    projectArms(command, join(shipped, "src/engine/runtime/floor.ts"), parent, evidence, true);
     browserArm(command, Bun.resolveSync("@dylanebert/shallot/vite", parent), parent, evidence);
     const restored = Object.fromEntries(
         readdirSync(shipped, { recursive: true, withFileTypes: true })

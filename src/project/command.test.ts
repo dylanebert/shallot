@@ -224,7 +224,7 @@ test("nested loaders discriminate same-name CLI decoys and scoped subpaths", () 
                 `
             import assert from 'node:assert/strict';
             import { existsSync } from 'node:fs';
-            import { requiredFeatures } from ${JSON.stringify(resolve(owner, "bin/features.ts"))};
+            import { requiredFeatures } from ${JSON.stringify(resolve(owner, "src/engine/runtime/floor.ts"))};
             const { planProject, loadLocalPlugins } = await import(${JSON.stringify(resolve(import.meta.dir, "command.ts"))});
             const dir = ${JSON.stringify(root)};
             const result = planProject(dir); assert.equal(result.code, 0);
@@ -279,11 +279,11 @@ describe("one resolved plan, two consumers", () => {
 
 // The purity claim of the A1 row: the command entry loads in a bare `bun` process with no Vite in its
 // loaded module graph and no browser/GPU global installed. `require.cache` is the observable — Bun
-// records every loaded dependency there — and the control below imports `bin/toolchain.ts`, which really
+// records every loaded dependency there — and the control below imports `toolchain.ts`, which really
 // does import Vite, so a reader that could never see Vite fails that arm instead of passing this one
 // vacuously.
 const ENTRY = resolve(import.meta.dir, "command.ts");
-const TOOLCHAIN = resolve(import.meta.dir, "../../bin/toolchain.ts");
+const TOOLCHAIN = resolve(import.meta.dir, "./toolchain.ts");
 const BROWSER_GLOBALS = [
     "document",
     "window",

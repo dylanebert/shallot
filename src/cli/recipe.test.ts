@@ -166,7 +166,6 @@ describe("scaffold pointer is one source", () => {
         expect(recipeDoc("orbit-camera")).toContain(ENGINE_REFERENCE);
     });
 
-
     // The scaffolded CLAUDE.md imports AGENTS.md rather than copying it, so an edit to one can't drift.
     test("the scaffolded CLAUDE.md is the AGENTS.md import, not a copy", () => {
         expect(CLAUDE_IMPORT.split("\n")[0]).toBe("@AGENTS.md");

@@ -1,13 +1,14 @@
 import { basename, relative, resolve } from "node:path";
 import { createServer, searchForWorkspaceRoot, type Plugin as VitePlugin } from "vite";
+import { requireProject } from "../project/host";
+import { composeViteConfig, loadProjectConfig } from "../project/toolchain";
 import {
     CROSS_ORIGIN_ISOLATION,
     findPublicDirs,
     projectPlugin,
     typegpuPlugin,
-} from "../src/project/vite";
+} from "../project/vite";
 import { synthIndex } from "./build";
-import { composeViteConfig, loadProjectConfig, requireProject } from "./toolchain";
 
 // serve the synthesized entry at `/` — a manifest project owns no index.html, so the CLI provides one.
 // `transformIndexHtml` runs the page through vite's HTML pipeline (HMR client, inline-module extraction),
@@ -80,7 +81,7 @@ export function devConfig(
                 allow: [
                     searchForWorkspaceRoot(absProjectDir),
                     absProjectDir,
-                    resolve(import.meta.dir, ".."),
+                    resolve(import.meta.dir, "../.."),
                     ...findPublicDirs(absProjectDir),
                 ],
             },

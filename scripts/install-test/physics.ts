@@ -229,7 +229,7 @@ export function physicsArms(project: string): void {
     writeFileSync(join(project, "physics-types.ts"), types);
     writeFileSync(
         join(project, "physics-preload.ts"),
-        'import { installGpuGlobals } from "./node_modules/@dylanebert/shallot/bin/gpu-globals.ts"; installGpuGlobals();\n',
+        'import { installGpuGlobals } from "./node_modules/@dylanebert/shallot/src/cli/gpu-globals.ts"; installGpuGlobals();\n',
     );
     const command = (mode: string) => [
         "bun",

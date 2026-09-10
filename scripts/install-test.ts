@@ -153,7 +153,10 @@ export function nativeFlow(work: string, engineTgz: string): void {
         assert.equal(install.exit, 0, install.out);
         const shipped = join(project, "node_modules/@dylanebert/shallot");
         assert.equal(realpathSync(shipped), shipped, "engine is a physical install");
-        assert(existsSync(join(shipped, "bin/bun-native.ts")), "tar contains bin/bun-native.ts");
+        assert(
+            existsSync(join(shipped, "src/engine/runtime/bun-native.ts")),
+            "tar contains src/engine/runtime/bun-native.ts",
+        );
         writeFileSync(
             join(project, "native.fixture.ts"),
             readFileSync(join(import.meta.dir, "install-test/native.fixture.ts")),
