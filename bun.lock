@@ -187,7 +187,6 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "file:../../..",
-        "shallot-gpu-particles": "workspace:*",
         "typegpu": "~0.12.4",
       },
     },
@@ -370,14 +369,6 @@
       "name": "create-shallot",
       "version": "0.10.0",
       "bin": "./index.ts",
-    },
-    "packages/shallot-gpu-particles": {
-      "name": "shallot-gpu-particles",
-      "version": "0.0.0",
-      "peerDependencies": {
-        "@dylanebert/shallot": "file:../..",
-        "typegpu": "~0.12.4",
-      },
     },
     "packages/shallot-tumble": {
       "name": "shallot-tumble",
@@ -883,8 +874,6 @@
     "save-and-restore": ["save-and-restore@workspace:examples/recipes/save-and-restore"],
 
     "semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
-
-    "shallot-gpu-particles": ["shallot-gpu-particles@workspace:packages/shallot-gpu-particles"],
 
     "shallot-tumble": ["shallot-tumble@workspace:packages/shallot-tumble"],
 
