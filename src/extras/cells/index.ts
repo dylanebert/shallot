@@ -15,13 +15,7 @@ import { Compute, unpackColor } from "../../engine";
 import { GlazeSystem } from "../../standard/glaze";
 import { Camera, OverlaySystem, Render, RenderPlugin, Views } from "../../standard/render";
 import { ColorSystem } from "../../standard/sear";
-import {
-    createGlyphAtlas,
-    disposeAtlases,
-    ensureString,
-    type GlyphAtlas,
-    loadFont,
-} from "../text/core";
+import { createGlyphAtlas, disposeAtlases, ensureString, type GlyphAtlas, loadFont } from "../text";
 import { drawCells, resetDrawPipeline } from "./draw";
 import {
     buildGlyphSizeTable,
@@ -213,3 +207,71 @@ export function cells(fontUrl = DEFAULT_FONT): Plugin {
 
 /** the ASCII-native render target using the default JetBrains Mono face. */
 export const CellsPlugin: Plugin = cells();
+
+// Cells' extension surface, for a custom pipeline or tooling consumer: the GPU cell layout (`Cell` + its
+// byte/lane constants), the codec (`packCell` / `unpackCell`), the grid allocator, the content producer
+// (`recordSelect`), the glyph uv-rect + size table builders, the web sink's instanced draw, and the glyph
+// ramp. None of it is on the `extras` barrel: nothing here is a component, singleton, or registration
+// function a game author calls, and `Cell` / `createCellGrid` are generic names that would collide on the
+// bare barrel.
+//
+// Deliberately NOT exported: every `@internal` piece a sibling file or its own test imports directly
+// (`GridParams` / `gridLayout`, the reset hooks, the bind-group layouts + kernel/shader factories, and the
+// pure sub-pieces `reinhard` / `luma`). A custom pipeline reuses the producer functions below, never a
+// kernel's private wiring; `CellsPlugin.dispose` is the only lifecycle owner.
+export {
+    CELL_AT,
+    CELL_BYTES,
+    CELL_U32S,
+    Cell,
+    type DecodedCell,
+    packCell,
+    unpackCell,
+} from "./cell";
+export {
+    cellFootprintPx,
+    DrawParams as CellsDrawParams,
+    drawCells,
+    drawPipeline,
+    glyphFootprintT,
+    resetDrawPipeline,
+} from "./draw";
+export {
+    buildGlyphSizeTable,
+    buildGlyphUvTable,
+    type GlyphSizeBuffer,
+    type GlyphUvBuffer,
+    glyphSizeRect,
+    glyphSizeTable,
+    glyphUvRect,
+    glyphUvTable,
+    MISSING_GLYPH_SIZE,
+    MISSING_GLYPH_UV,
+} from "./glyphs";
+export {
+    CELL_TARGET_DEVICE_PX,
+    type CellGrid,
+    type CellGridSize,
+    createCellGrid,
+    deriveCellGridSize,
+} from "./grid";
+export {
+    CELL_DIRECTIONAL_GLYPHS,
+    CELL_FILL_GLYPHS,
+    CELL_GLYPH_COUNT,
+    cellGlyphChar,
+    cellGlyphString,
+} from "./ramp";
+export {
+    BG_MATCH_EPSILON,
+    directionalGlyphIndex,
+    EDGE_MAGNITUDE_THRESHOLD,
+    FACADE_BAND_LUMAS,
+    FACADE_INK_CEILING,
+    FACADE_INK_FLOOR,
+    FACADE_PIXEL_LUMA_THRESHOLD,
+    fillIndexForLuma,
+    NO_BACKGROUND,
+    recordSelect,
+    resetSelectPipelines,
+} from "./select";

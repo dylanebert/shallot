@@ -10,7 +10,7 @@ import {
     VsIn,
     vsPatchSchema,
 } from "../../standard/render";
-import { LIVE_SKIN_VS, SkinParams } from "../skin/core";
+import { LIVE_SKIN_VS, SkinParams } from "../skin";
 import { MaterialData } from "./palette";
 import { materialFns } from "./shade";
 

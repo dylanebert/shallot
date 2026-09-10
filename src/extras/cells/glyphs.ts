@@ -6,7 +6,7 @@
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { Compute } from "../../engine";
-import { ensureString, type GlyphAtlas } from "../text/core";
+import { ensureString, type GlyphAtlas } from "../text";
 import { CELL_GLYPH_COUNT, cellGlyphChar, cellGlyphString } from "./ramp";
 
 /** the zero-area uv-rect sentinel a font-absent glyph packs (`ramp.ts`'s module doc) — `u1 <= u0`, so the

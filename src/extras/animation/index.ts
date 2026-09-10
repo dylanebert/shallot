@@ -1,7 +1,7 @@
 import { entity, f32, type Plugin, type Single, type System, sparse, u8, u32 } from "../../engine";
 import { camel, getComponent, lanes } from "../../engine/ecs";
 import { Registry } from "../../engine/utils";
-import { type Playable, Pose } from "./core";
+import { type Playable, Pose } from "./playable";
 
 /** play control for an {@link Animator}. */
 export const AnimationState = {
@@ -169,4 +169,4 @@ export {
     type Strip,
     script,
     type Track,
-} from "./core";
+} from "./playable";

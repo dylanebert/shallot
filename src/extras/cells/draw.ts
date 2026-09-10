@@ -27,7 +27,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute } from "../../engine";
 import { Render } from "../../standard/render";
-import { sdfToSignedDistance, textSrgbToLinear } from "../text/core";
+import { sdfToSignedDistance, textSrgbToLinear } from "../text";
 import { Cell } from "./cell";
 import type { GlyphSizeBuffer, GlyphUvBuffer } from "./glyphs";
 
@@ -259,7 +259,7 @@ export function drawPipeline(): TgpuRenderPipeline<d.Vec4f> {
     return _pipeline;
 }
 
-/** drop the memoized draw pipeline + params buffer (`grid.ts`'s `resetPipeline` shape). @internal */
+/** drop the memoized draw pipeline + params buffer. @internal */
 export function resetDrawPipeline(): void {
     _pipeline = null;
     _paramsBuffer?.destroy();

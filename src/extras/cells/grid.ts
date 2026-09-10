@@ -1,11 +1,10 @@
 // The cell grid's compute-pass contract: the bind group layout + kernel a fill pass writes cells
-// through, and the headless producer (`createCellGrid` / `fillCellGrid`) S1 ships to prove the shape —
-// allocate, dispatch, read back through `standard/mirror`'s existing buffer-level readback, no new
-// readback machinery of its own. S3's web sink and S4's terminal encoder both consume the same
-// `CellGrid.buffer`; only the kernel body that decides *what* a cell holds is expected to change once a
-// real scene exists to sample — this fill pass writes a deterministic test pattern standing in for that.
+// through, and the headless grid allocator (`createCellGrid`), read back through `standard/mirror`'s
+// existing buffer-level readback with no readback machinery of its own. The web sink and the terminal
+// encoder both consume the same `CellGrid.buffer`; the fill kernel writes a deterministic test pattern
+// standing in for a real scene sample.
 
-import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuComputePipeline } from "typegpu";
+import tgpu, { type StorageFlag, type TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { Compute } from "../../engine";
 import { Cell, packCell } from "./cell";
@@ -86,21 +85,6 @@ const fillKernel = tgpu.computeFn({
     gridLayout.$.cells[i].bg = packed.z;
 });
 
-let _pipeline: TgpuComputePipeline | null = null;
-
-function pipeline(): TgpuComputePipeline {
-    if (_pipeline) return _pipeline;
-    _pipeline = Compute.root.createComputePipeline({ compute: fillKernel }).$name("cells-fill");
-    return _pipeline;
-}
-
-/** drop the memoized fill pipeline. Pipelines bind to the root that created them, so a re-adopted device
- *  needs a fresh one — mirrors `extras/text/sdf.ts`'s `resetPipelines`.
- *  @internal */
-export function resetPipeline(): void {
-    _pipeline = null;
-}
-
 /**
  * a headless cell grid: the GPU-owned buffer plus the dims a fill pass needs, sized `cols * rows *`
  * {@link CELL_BYTES}. Sibling of `extras/text`'s glyph buffer — `buffer` is a plain `TgpuBuffer`, so a
@@ -116,7 +100,7 @@ export interface CellGrid {
 
 /**
  * allocate a headless cell grid of `cols * rows` cells against the adopted device (`Compute.root`).
- * Empty until {@link fillCellGrid} dispatches the compute pass. `glyphCount` must be at least 1 — the
+ * Empty until a fill pass dispatches over it. `glyphCount` must be at least 1 — the
  * fill kernel wraps the test-pattern glyph index against it.
  *
  * @example const grid = createCellGrid(80, 24, CELL_GLYPH_COUNT); // the printable-ASCII ramp, ramp.ts
@@ -129,39 +113,6 @@ export function createCellGrid(cols: number, rows: number, glyphCount: number): 
         .$usage("storage")
         .$name("cells-grid");
     return { cols, rows, glyphCount, buffer };
-}
-
-/**
- * dispatch the fill compute pass over `grid`, writing every cell in place — the headless producer this
- * stage ships. Encodes, submits, and returns; read the result back with `mirror(grid.buffer)`.
- *
- * @example
- * const grid = createCellGrid(80, 24, CELL_GLYPH_COUNT);
- * fillCellGrid(grid);
- * const m = mirror(grid.buffer);
- * // MirrorSystem (or a manual Mirror.flush) populates m.snapshot on a later frame
- */
-export function fillCellGrid(grid: CellGrid): void {
-    const device = Compute.device;
-    const params = Compute.root
-        .createBuffer(GridParams, { cols: grid.cols, rows: grid.rows, glyphCount: grid.glyphCount })
-        .$usage("uniform");
-    const group = Compute.root.createBindGroup(gridLayout, { params, cells: grid.buffer });
-    const encoder = device.createCommandEncoder({ label: "cells-fill" });
-    const pass = encoder.beginComputePass({
-        label: "cells-fill",
-        timestampWrites: Compute.span?.("cells:fill"),
-    });
-    pipeline()
-        .with(group)
-        .with(pass)
-        .dispatchWorkgroups(Math.ceil(grid.cols / WG), Math.ceil(grid.rows / WG));
-    pass.end();
-    device.queue.submit([encoder.finish()]);
-    // destroyed once the submit is in flight — mirrors extras/text/sdf.ts's SDFGenerator.flush temp
-    // buffers, which the same reasoning covers: the driver keeps a destroyed buffer alive for work
-    // already submitted against it.
-    params.destroy();
 }
 
 /** the emitted fill-pass WGSL — the device-free structural seam its test resolves.

@@ -124,7 +124,7 @@ export const FACE_BOUNDARY_MAGNITUDE_THRESHOLD = 0.5 / (CELL_FILL_GLYPHS.length 
  */
 export const BG_MATCH_EPSILON = 0.004;
 
-/** the sentinel background reference {@link recordSelect} / {@link dispatchSelect} default to when the
+/** the sentinel background reference {@link recordSelect} defaults to when the
  *  caller has no known background color (e.g. a synthetic test texture with no camera behind it):
  *  tonemapped by the same `reinhard()` the kernel applies to a real reference, `reinhard(-1e6)` lands at
  *  `≈1.000001`, outside every luma a real scene sample's own reinhard-compressed average can reach
@@ -489,7 +489,7 @@ function pipelines(): { avg: TgpuComputePipeline; select: TgpuComputePipeline } 
 }
 
 /** drop the memoized select pipelines + the intermediate average and params buffers — a re-adopted device
- *  needs fresh ones (`grid.ts`'s `resetPipeline` shape). @internal */
+ *  needs fresh ones. @internal */
 export function resetSelectPipelines(): void {
     _avgBuffer?.destroy();
     _avgBuffer = null;
@@ -506,8 +506,7 @@ export function resetSelectPipelines(): void {
  * differential arm), writing every cell of `cells` (a `Cell` storage buffer sized `cols * rows`,
  * `grid.ts`'s `CellGrid.buffer` shape). Allocates/reuses its own intermediate average buffer, sized to
  * `cols * rows`. Records only — the caller submits (`CellsPlugin` shares one per-frame `Render.encoder`
- * with the draw pass that reads this dispatch's output; {@link dispatchSelect} is the standalone,
- * submit-its-own-encoder convenience wrapper for a test or gym scenario with no frame encoder of its own).
+ * with the draw pass that reads this dispatch's output).
  *
  * `bg` is the raw linear (un-tonemapped) color of the source's own empty background — a camera's
  * unpacked-to-linear `Camera.clearColor` in production — so a cell whose source region is untouched
@@ -557,29 +556,6 @@ export function recordSelect(
         .with(selectPass)
         .dispatchWorkgroups(...dispatchDims);
     selectPass.end();
-}
-
-/**
- * standalone convenience: record + submit both passes in their own command buffer. For a test or gym
- * scenario with no per-frame `Render.encoder` to share (`grid.ts`'s `fillCellGrid` shape) — production
- * (`CellsPlugin`) calls {@link recordSelect} directly against the shared frame encoder instead. `bg` is
- * {@link recordSelect}'s own background-reference parameter, same default.
- *
- * @example dispatchSelect(cellsBuffer, cols, rows, framebufferView, srcW, srcH, [0.02, 0.02, 0.02]);
- */
-export function dispatchSelect(
-    cells: CellBuffer,
-    cols: number,
-    rows: number,
-    source: GPUTextureView,
-    srcW: number,
-    srcH: number,
-    bg: readonly [number, number, number] = NO_BACKGROUND,
-): void {
-    const device = Compute.device;
-    const encoder = device.createCommandEncoder({ label: "cells-select" });
-    recordSelect(encoder, cells, cols, rows, source, srcW, srcH, bg);
-    device.queue.submit([encoder.finish()]);
 }
 
 /** the emitted select-pass WGSL (both kernels) — the device-free structural seam its test resolves.
