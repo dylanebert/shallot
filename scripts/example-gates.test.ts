@@ -168,10 +168,7 @@ const EXPECTED_RUNTIME_MODULE_ROWS: Record<string, string[]> = {
         "examples/showcase/voxel",
         "examples/gym",
     ],
-    "extras/animation": [
-        "examples/recipes/animate-with-clips",
-        "examples/showcase/visualization",
-    ],
+    "extras/animation": ["examples/recipes/animate-with-clips", "examples/showcase/visualization"],
     "extras/cells": ["examples/showcase/ascii", "examples/gym"],
     "extras/gltf": ["examples/gym"],
     "extras/lines": ["examples/showcase/voxel", "examples/gym"],
@@ -276,7 +273,9 @@ function runtimeModules(): string[] {
         ...new Set(
             runtimeImplementationFiles().flatMap((file) => {
                 const parts = file.slice(`${RUNTIME_SRC}/`.length).split("/");
-                return ["engine", "extras", "standard"].includes(parts[0]) && parts[1] && !parts[1].endsWith(".ts")
+                return ["engine", "extras", "standard"].includes(parts[0]) &&
+                    parts[1] &&
+                    !parts[1].endsWith(".ts")
                     ? [`${parts[0]}/${parts[1]}`]
                     : [];
             }),

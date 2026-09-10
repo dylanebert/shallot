@@ -319,7 +319,9 @@ describe("changed-path execution tiers", () => {
                 }),
             ).toBe(1);
             expect(
-                logs.some((line) => line.startsWith("FAIL: selected display gates need native hardware")),
+                logs.some((line) =>
+                    line.startsWith("FAIL: selected display gates need native hardware"),
+                ),
             ).toBe(true);
             expect(logs.some((line) => line.includes("display rows were unavailable"))).toBe(false);
 
@@ -366,7 +368,9 @@ describe("changed-path execution tiers", () => {
         };
         const unavailable = await runHost(false);
         expect(unavailable.code).toBe(0);
-        expect(unavailable.stdout).toContain("UNAVAILABLE: selected display gates need native hardware");
+        expect(unavailable.stdout).toContain(
+            "UNAVAILABLE: selected display gates need native hardware",
+        );
         expect(unavailable.stdout).toContain("display rows were unavailable");
 
         const required = await runHost(true);

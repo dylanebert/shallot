@@ -271,7 +271,13 @@ export const EXAMPLE_GATES: ExampleGate[] = [
     {
         dir: "examples/flows/ui-containment",
         tier: "flows",
-        covers: ["examples/flows/ui-containment/**", ...HARNESS, ...BOOT, ...BARRELS, ...src("engine/app")],
+        covers: [
+            "examples/flows/ui-containment/**",
+            ...HARNESS,
+            ...BOOT,
+            ...BARRELS,
+            ...src("engine/app"),
+        ],
         gate: "bun run flows --flow ui-containment",
     },
     {
