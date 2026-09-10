@@ -8,7 +8,6 @@ paths:
   - "scripts/build.ts"
   - "scripts/{install-test.ts,install-test/**/*.ts}"
   - "examples/showcase/ocean/test/**/*.{test,oracle}.ts"
-  - "site/rum-*.ts"
 ---
 
 # Testing
@@ -83,4 +82,4 @@ Cycle order: bump all `check-versions.ts` sites/deferred changelog entries; `bun
 
 Dogfood against registry-installed tracked-pin floors, never links. Peers/dev deps first, tarball last; reread installed versions. Preserve ignored artifacts; restore manifests/locks, inspect gitlinks/shared-root installs, leave RC runnable. Human live render required: hand over command; decoded stills only support it; name absent image proof.
 
-Read prose against artifacts. Migration changes only for major/minors; historical facts aren't version sites. Deploy via `site.yml`, not disabled `pages.yml`. Confirm deployed version, six archives/checksums and covered bytes.
+Read prose against artifacts. Migration changes only for major/minors; historical facts aren't version sites. Confirm deployed version, six archives/checksums and covered bytes.
