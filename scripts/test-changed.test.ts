@@ -12,13 +12,25 @@ const dirs = (paths: string[]) => selectExampleGates(paths).map((row) => row.dir
 const cpus = (paths: string[]) => selectCpuGates(paths).map((row) => row.script);
 
 describe("changed-path selector", () => {
-    test("example selection preserves exact and whole-roster cones", () => {
+    test("example selection preserves assertion cones and whole-roster escalation", () => {
         expect(dirs(["examples/recipes/moving-platform/src/plugin.ts"])).toEqual([
             "examples/recipes/moving-platform",
         ]);
-        expect(dirs(["packages/shallot-runtime/src/standard/render/plugin.ts"])).toEqual(
-            EXAMPLE_GATES.map((row) => row.dir),
-        );
+        expect(dirs(["packages/shallot-runtime/src/standard/render/plugin.ts"])).toEqual([
+            "examples/recipes/day-night-sky",
+            "examples/recipes/gpu-particles",
+            "examples/flows/no-walls",
+            "examples/showcase/collapse",
+            "examples/showcase/ocean",
+            "examples/showcase/roads",
+            "examples/showcase/sandbox",
+            "examples/showcase/visualization",
+            "examples/showcase/voxel",
+            "examples/gym",
+        ]);
+        expect(dirs(["packages/shallot-runtime/src/standard/fog/index.ts"])).toEqual([
+            "examples/gym",
+        ]);
         expect(dirs(["bun.lock"])).toEqual(EXAMPLE_GATES.map((row) => row.dir));
         expect(dirs(["examples/showcase/visualization/package.json"])).toEqual(
             EXAMPLE_GATES.map((row) => row.dir),
@@ -54,6 +66,38 @@ describe("changed-path selector", () => {
             expect(row.recordedFraction).toBeLessThanOrEqual(0.5);
             for (const cover of row.covers)
                 expect(files.some((file) => new Glob(cover).match(file))).toBe(true);
+        }
+    });
+
+    test("a deleted example cover remains a changed path and selects its display row", async () => {
+        const root = mkdtempSync(resolve(tmpdir(), "shallot-changed-example-delete-"));
+        const run = (...args: string[]) => {
+            const result = Bun.spawnSync(["git", ...args], { cwd: root });
+            expect(result.success, result.stderr.toString()).toBe(true);
+        };
+        const deleted = "examples/recipes/annotate-the-world/src/smoke.ts";
+        const path = resolve(root, deleted);
+        mkdirSync(resolve(path, ".."), { recursive: true });
+        try {
+            run("init", "-q");
+            run("config", "user.email", "gate@example.invalid");
+            run("config", "user.name", "Gate Fixture");
+            writeFileSync(path, "fixture", { flush: true });
+            run("add", ".");
+            run("commit", "-qm", "base");
+            run("rm", "-q", deleted);
+            run("commit", "-qm", "delete");
+            const oldCwd = process.cwd();
+            process.chdir(root);
+            try {
+                const paths = await changedPaths("HEAD^", "HEAD");
+                expect(paths).toContain(deleted);
+                expect(dirs(paths)).toEqual(["examples/recipes/annotate-the-world"]);
+            } finally {
+                process.chdir(oldCwd);
+            }
+        } finally {
+            rmSync(root, { recursive: true, force: true });
         }
     });
 
@@ -262,21 +306,139 @@ describe("changed-path execution tiers", () => {
     });
 
     test("required display refusal and CPU failure are red", async () => {
-        expect(
-            await main(args, {
+        const logs: string[] = [];
+        const old = console.log;
+        console.log = (...parts) => logs.push(parts.join(" "));
+        try {
+            expect(
+                await main(args, {
+                    paths: async () => ["examples/showcase/ocean/src/ocean/fft.ts"],
+                    run: async () => ({ ok: true, warnings: 0 }),
+                    displaySkip: () => "fixture seat",
+                    displayRequired: true,
+                }),
+            ).toBe(1);
+            expect(
+                logs.some((line) =>
+                    line.startsWith("FAIL: selected display gates need native hardware"),
+                ),
+            ).toBe(true);
+            expect(logs.some((line) => line.includes("display rows were unavailable"))).toBe(false);
+
+            logs.length = 0;
+            expect(
+                await main(args, {
+                    paths: async () => ["examples/showcase/ocean/src/ocean/fft.ts"],
+                    run: async () => ({ ok: false, warnings: 0 }),
+                    displaySkip: () => "fixture seat",
+                }),
+            ).toBe(1);
+            expect(logs.some((line) => line.startsWith("FAIL: CPU ocean realization"))).toBe(true);
+        } finally {
+            console.log = old;
+        }
+    });
+
+    test("SHALLOT_DISPLAY_REQUIRED=1 is loaded from the host environment", async () => {
+        const reader = resolve(import.meta.dir, "test-changed.ts");
+        const source = `
+            import { main } from ${JSON.stringify(reader)};
+            process.exitCode = await main(["--base", "base", "--diff", "head"], {
                 paths: async () => ["examples/showcase/ocean/src/ocean/fft.ts"],
                 run: async () => ({ ok: true, warnings: 0 }),
-                displaySkip: () => "fixture",
-                displayRequired: true,
-            }),
-        ).toBe(1);
+                displaySkip: () => "fixture seat",
+            });
+        `;
+        const runHost = async (required: boolean) => {
+            const env = { ...process.env };
+            delete env.SHALLOT_DISPLAY_REQUIRED;
+            if (required) env.SHALLOT_DISPLAY_REQUIRED = "1";
+            const child = Bun.spawn([process.execPath, "--eval", source], {
+                env,
+                stdout: "pipe",
+                stderr: "pipe",
+            });
+            const [stdout, stderr, code] = await Promise.all([
+                new Response(child.stdout).text(),
+                new Response(child.stderr).text(),
+                child.exited,
+            ]);
+            expect(stderr).toBe("");
+            return { stdout, code };
+        };
+        const unavailable = await runHost(false);
+        expect(unavailable.code).toBe(0);
+        expect(unavailable.stdout).toContain(
+            "UNAVAILABLE: selected display gates need native hardware",
+        );
+        expect(unavailable.stdout).toContain("display rows were unavailable");
+
+        const required = await runHost(true);
+        expect(required.code).toBe(1);
+        expect(required.stdout).toContain("FAIL: selected display gates need native hardware");
+        expect(required.stdout).not.toContain("display rows were unavailable");
+    });
+
+    test("main routes the selected CPU row before its display row with exact commands", async () => {
+        const commands: string[] = [];
         expect(
             await main(args, {
                 paths: async () => ["examples/showcase/ocean/src/ocean/fft.ts"],
-                run: async () => ({ ok: false, warnings: 0 }),
-                displaySkip: () => "fixture",
+                run: async (command) => {
+                    commands.push(command);
+                    return { ok: true, warnings: 0 };
+                },
+                displaySkip: () => null,
+            }),
+        ).toBe(0);
+        expect(commands).toEqual([
+            "bun run test:ocean-realization",
+            "bun run --cwd examples/showcase/ocean gate",
+        ]);
+    });
+
+    test("display rows still accumulate a later failure after an earlier pass", async () => {
+        const commands: string[] = [];
+        expect(
+            await main(args, {
+                paths: async () => ["examples/showcase/ocean/src/ocean/fft.ts"],
+                run: async (command) => {
+                    commands.push(command);
+                    return { ok: commands.length === 1, warnings: 0 };
+                },
+                displaySkip: () => null,
             }),
         ).toBe(1);
+        expect(commands).toEqual([
+            "bun run test:ocean-realization",
+            "bun run --cwd examples/showcase/ocean gate",
+        ]);
+    });
+
+    test("a compound gate propagates either child failure instead of swallowing it", async () => {
+        expect(EXAMPLE_GATES.find((row) => row.tier === "gym")?.gate).toBe(
+            "bun bench --sweep && bun run --cwd examples/gym gate",
+        );
+        const root = realpathSync(mkdtempSync(resolve(import.meta.dir, "..", ".tmp-gym-command-")));
+        const marker = resolve(root, "marker");
+        const command = `bun run --cwd ${root} gate`;
+        const setGate = (gate: string) =>
+            writeFileSync(resolve(root, "package.json"), JSON.stringify({ scripts: { gate } }));
+        try {
+            setGate(
+                `bun -e 'process.exit(7)' && bun -e 'Bun.write(${JSON.stringify(marker)}, "ran")'`,
+            );
+            expect((await runCommand(command)).ok).toBe(false);
+            expect(existsSync(marker)).toBe(false);
+
+            setGate(
+                `bun -e 'Bun.write(${JSON.stringify(marker)}, "ran")' && bun -e 'process.exit(7)'`,
+            );
+            expect((await runCommand(command)).ok).toBe(false);
+            expect(existsSync(marker)).toBe(true);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
     });
 
     test("zero selection is distinct and runs nothing", async () => {
