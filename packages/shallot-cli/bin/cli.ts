@@ -14,7 +14,7 @@ const usage = `
     dev       Run the project standalone, with hot reload
     build     Build for distribution
     run       Build and run
-    verify    Boot the project in a headless browser and check it renders (shallot verify --help)
+    verify    Boot the project in full Chromium headlessly and check it renders (shallot verify --help)
     recipe    Copy an example recipe out of the package (bare: list them)
     tui       Boot the project headless and render its cell grid to this terminal (shallot tui --help)
 

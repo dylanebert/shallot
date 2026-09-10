@@ -44,7 +44,7 @@ const FLOW_LIST = FLOWS.join(" | ");
 
 async function noWalls(): Promise<boolean> {
     console.log("\n--- no-walls ---");
-    const result = await verify("examples/flows/no-walls", ["--timeout", "60000"]);
+    const result = await verify("examples/flows/no-walls", ["--headed", "--timeout", "60000"]);
     let ok = result?.pass === true && result.rendered === true && result.verdict?.ok === true;
     for (const name of NO_WALLS_CHECKS) {
         if (!result?.verdict?.checks?.some((c) => c.name === name && c.ok)) {
@@ -58,7 +58,11 @@ async function noWalls(): Promise<boolean> {
 
 async function surviveReload(): Promise<boolean> {
     console.log("\n--- survive-reload ---");
-    const result = await verify("examples/flows/survive-reload", ["--timeout", "60000"]);
+    const result = await verify("examples/flows/survive-reload", [
+        "--headed",
+        "--timeout",
+        "60000",
+    ]);
     let ok = result?.pass === true && result.verdict?.ok === true;
     for (const name of SURVIVE_CHECKS) {
         if (!result?.verdict?.checks?.some((c) => c.name === name && c.ok)) {
@@ -77,7 +81,11 @@ async function surviveReload(): Promise<boolean> {
 async function uiContainment(): Promise<boolean> {
     console.log("\n--- ui-containment ---");
     const shot = join(tmpdir(), `shallot-flow-ui-${Date.now()}.png`);
-    const result = await verify("examples/flows/ui-containment", ["--screenshot", shot]);
+    const result = await verify("examples/flows/ui-containment", [
+        "--headed",
+        "--screenshot",
+        shot,
+    ]);
     if (result?.pass !== true) {
         console.log("FAIL: ui-containment — verify did not pass");
         return false;
@@ -134,7 +142,7 @@ async function uiContainment(): Promise<boolean> {
 // asserting verdict.ok pins the failure to the pixel gate reading the blank, not to a broken boot.
 async function blankRedProof(): Promise<boolean> {
     console.log("\n--- blank (red-proof) ---");
-    const result = await verify("examples/flows/blank", ["--timeout", "60000"]);
+    const result = await verify("examples/flows/blank", ["--headed", "--timeout", "60000"]);
     const wentRed =
         result?.pass === false && result?.rendered === false && result?.verdict?.ok === true;
     if (wentRed) {

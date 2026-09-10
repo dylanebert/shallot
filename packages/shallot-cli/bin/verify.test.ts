@@ -55,6 +55,7 @@ import {
     type LoAFEntry,
     type LoAFScriptEntry,
     loafByCompilePhase,
+    localLaunchOptions,
     type MemorySample,
     noDisplayMessage,
     parseVerifyArgs,
@@ -134,6 +135,7 @@ describe("parseVerifyArgs", () => {
         expect(a.dir).toBe(".");
         expect(a.dist).toBe(false);
         expect(a.json).toBe(false);
+        expect(a.headed).toBe(false);
         expect(a.timeoutMs).toBe(60_000);
         expect(a.query).toEqual([]);
     });
@@ -143,6 +145,7 @@ describe("parseVerifyArgs", () => {
             "examples/x",
             "--dist",
             "--json",
+            "--headed",
             "--screenshot",
             "out.png",
             "--port",
@@ -153,6 +156,7 @@ describe("parseVerifyArgs", () => {
         expect(a.dir).toBe("examples/x");
         expect(a.dist).toBe(true);
         expect(a.json).toBe(true);
+        expect(a.headed).toBe(true);
         expect(a.screenshot).toBe("out.png");
         expect(a.port).toBe(5300);
         expect(a.timeoutMs).toBe(9000);
@@ -168,6 +172,26 @@ describe("parseVerifyArgs", () => {
         expect(parseVerifyArgs([]).connect).toBeUndefined();
         expect(parseVerifyArgs(["--connect", "ws://host:9/abc"]).connect).toBe("ws://host:9/abc");
         expect(parseVerifyArgs(["--connect=ws://host:9/abc"]).connect).toBe("ws://host:9/abc");
+    });
+
+    test("--headed is explicit and endpoint-owned --connect rejects it", () => {
+        expect(parseVerifyArgs(["--headed"]).headed).toBe(true);
+        expect(() => parseVerifyArgs(["--headed", "--connect", "ws://host:9/abc"])).toThrow(
+            "cannot be combined",
+        );
+    });
+
+    test("local launches keep the full Chromium recipe and only flip headless mode", () => {
+        const recipe = {
+            channel: "chromium" as const,
+            args: [
+                "--enable-unsafe-webgpu",
+                "--enable-features=WebGPUDeveloperFeatures",
+                "--class=kex-gate",
+            ],
+        };
+        expect(localLaunchOptions(false)).toEqual({ headless: true, ...recipe });
+        expect(localLaunchOptions(true)).toEqual({ headless: false, ...recipe });
     });
 
     test("unknown option throws", () => {
@@ -353,13 +377,13 @@ describe("bootArm", () => {
     });
 });
 
-// The CLI's own display gate: on a software adapter the run clears every feature/limit check and then
+// The CLI's own hardware gate: on a software adapter the run clears every feature/limit check and then
 // dies mid-execution (`GPU device lost`, oversized `mappedAtCreation`) — measured 2026-08-18 running this
 // exact CLI against `examples/showcase/voxel` and `roads` on the retired WSL seat's SwiftShader fallback, hardware
 // read as "google / swiftshader". `isSoftwareAdapter` is the pure classification that refuses it before
 // any check runs; `displayGateExit` is the refusal-path seam reduced to its exit code, with no device
 // execution (`testing.md`: a default-suite verdict must not depend on device execution).
-describe("isSoftwareAdapter / displayGateExit — the CLI's own display gate", () => {
+describe("isSoftwareAdapter / displayGateExit — the CLI's own hardware gate", () => {
     test("real-hardware identity strings pass", () => {
         expect(isSoftwareAdapter("nvidia / ... / geforce rtx 4090 / ...")).toBe(false);
         expect(isSoftwareAdapter("apple / metal / apple m2 / apple m2")).toBe(false);
@@ -404,8 +428,8 @@ describe("isSoftwareAdapter / displayGateExit — the CLI's own display gate", (
     });
 
     test("headedLaunchAvailable requires a Linux display server and nothing elsewhere", () => {
-        // headed is the only launch that reaches real hardware, so on Linux the whole prerequisite is a
-        // session: either display protocol satisfies it, neither refuses.
+        // Only an explicit headed launch needs a Linux display; the public headless default remains
+        // display-independent. Either display protocol satisfies the headed prerequisite, neither refuses.
         expect(headedLaunchAvailable("linux", { DISPLAY: ":0" })).toBe(true);
         expect(headedLaunchAvailable("linux", { WAYLAND_DISPLAY: "wayland-1" })).toBe(true);
         expect(

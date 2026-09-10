@@ -2,15 +2,13 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { REAL_GPU_LAUNCH } from "@dylanebert/shallot/harness/browser";
 
-// The frozen previous release's CLI hard-codes a headless launch, and a headless launch reaches only a
-// software rasterizer on a seat whose real adapter is discrete — its own display gate then refuses.
-// `--connect` is that CLI's one route to real hardware, so these flows stand up a browser server and
-// attach to it. Shared by the compatibility and output flows, which both run a `previous` label.
+// The frozen previous release's CLI hard-codes a headless launch, so these flows stand up a matching
+// full-Chromium browser server and attach to it. The server uses the previous install's own Playwright;
+// shared by the compatibility and output flows, which both run a `previous` label.
 
-/** the launch options the previous release's browser server takes: the published real-GPU recipe,
- *  headed. Headless reaches only a software rasterizer on this class of seat, and 0.9.5's own verify
- *  hard-codes `headless: true`, which is exactly why it needs a server to attach to. */
-export const CONNECT_LAUNCH = { ...REAL_GPU_LAUNCH, headless: false };
+/** the launch options the previous release's browser server takes: the published full-Chromium recipe,
+ *  headless, matching its historical `verify` mode while retaining real hardware through the channel. */
+export const CONNECT_LAUNCH = { ...REAL_GPU_LAUNCH, headless: true };
 
 /** the `shallot verify` argv for one label. Only `previous` attaches to a browser server: its CLI
  *  predates the headed default and can reach real hardware no other way, while `candidate` must keep

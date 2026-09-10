@@ -82,6 +82,7 @@ async function runProbe(p: Probe): Promise<boolean> {
     console.log(`\n--- ${p.slug} (${p.query.join(", ")}) ---`);
     const query = [`scenario=${p.slug}`, `warmup=${WARMUP}`, `frames=${FRAMES}`, ...p.query];
     const result = await verify(GYM, [
+        "--headed",
         ...query.flatMap((q) => ["--query", q]),
         "--timeout",
         "120000",

@@ -43,6 +43,7 @@ async function main(): Promise<void> {
         `booting ${args.dir} (--attribution) to read the boot pipeline-compile concurrency ratio…`,
     );
     const result = await verify(args.dir, [
+        "--headed",
         "--attribution",
         "--timeout",
         "30000",

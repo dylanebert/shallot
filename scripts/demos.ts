@@ -130,7 +130,7 @@ async function runDemo(slug: string): Promise<DemoOutcome> {
         const label = entryHtml.slice(demoOut.length + 1);
         const scratch = makeScratch(demoOut, entryHtml);
         try {
-            const result = await verify(scratch, ["--dist", "--timeout", "60000"]);
+            const result = await verify(scratch, ["--headed", "--dist", "--timeout", "60000"]);
             if (result === null) {
                 console.log(`  FAIL: ${label} — verify crashed before reporting`);
                 allPass = false;

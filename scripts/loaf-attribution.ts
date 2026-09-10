@@ -80,10 +80,13 @@ async function main(): Promise<void> {
         return;
     }
 
-    console.log(`booting ${args.dir} (--attribution, headed) to attribute the boot's LoAF spikes…`);
-    // headed for the same reason `stall-attribution.ts` is: a display-less frame clock undershoots
-    // real block durations, and every number below is a frame-timing reading. `verify` launches headed.
+    console.log(
+        `booting ${args.dir} (--attribution, --headed) to attribute the boot's LoAF spikes…`,
+    );
+    // Headed is explicit because a display-less frame clock undershoots real block durations, and every
+    // number below is a frame-timing reading.
     const result = await verify(args.dir, [
+        "--headed",
         "--attribution",
         "--timeout",
         "30000",

@@ -45,6 +45,7 @@ async function runTwin(slug: string): Promise<Row> {
     const result = await verify(
         GYM,
         [
+            "--headed",
             "--query",
             `scenario=${slug}`,
             "--query",
