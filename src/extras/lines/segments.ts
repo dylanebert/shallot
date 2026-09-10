@@ -12,8 +12,8 @@ import { DrawIndexedIndirect } from "../../standard/render";
 import { Segment } from "./surface";
 
 // one segment = two world endpoints + a pixel width + a packed sRGBA color, 32 bytes / two vec4 reads
-// (read-all per instance coalesces near the floor, the archived GPU rules). `a.xyz` shares its 16-byte slot with `width`,
-// `b.xyz` with `color`. Stride derived from the schema (the archived GPU rules: a second hand-authored stride is layout
+// (read-all per instance coalesces near the floor). `a.xyz` shares its 16-byte slot with `width`,
+// `b.xyz` with `color`. Stride derived from the schema (a second hand-authored stride is layout
 // drift waiting to happen).
 const SEGMENT_BYTES = d.sizeOf(Segment);
 const SEGMENT_FLOATS = SEGMENT_BYTES / 4;
@@ -30,7 +30,7 @@ let _count = 0;
 // the producer's GPU publication. `count` is the segments packed this frame (reset after the upload);
 // `args` is the `DrawIndexedIndirect` buffer whose `instanceCount` lane the live segment count drives.
 // Internal — the unit test reads `count` to check the immediate-API expansion; `args` is COPY_SRC so a
-// gym Mirror can read back the produced instance count
+// Mirror can read back the produced instance count
 interface Lines {
     readonly count: number;
     args: (TgpuBuffer<typeof DrawIndexedIndirect> & { usableAsIndirect: true }) | null;

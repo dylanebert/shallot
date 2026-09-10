@@ -250,10 +250,10 @@ const identityXform = tgpu
     .$name("identityXform");
 
 // the first interstage location a custom varying pins to — after the five fixed non-builtin fields
-// (worldNormal/eid/world/uv/localPos at 0–4); the archived GPU rules' 4-slot custom budget keeps 5+ within the 16 cap
+// (worldNormal/eid/world/uv/localPos at 0–4); the 4-slot custom budget keeps 5+ within the 16 cap
 const VARYING_BASE = 5;
 
-// archived GPU rule 9's hard budget: 4 custom interpolator slots per surface. The vs side is N-general (the
+// the hard budget: 4 custom interpolator slots per surface. The vs side is N-general (the
 // copier templates over `Object.keys`), so this bound is the fragment entry's — its transpiled body must
 // statically name `input.v0`…`input.v3`, one arm per count (`typedVaryingFs`)
 const MAX_VARYINGS = 4;
@@ -980,7 +980,7 @@ const shadowForce = tgpu
  *
  * The entry body is transpiled TGSL, so it must *statically* name each `input.v<i>` — hence the bounded
  * per-count dispatch below: one explicit arm per count, 1 through {@link MAX_VARYINGS}, and a loud throw
- * past it (archived GPU rule 9's hard 4-slot custom interpolator budget). Everything else — the copier's
+ * past it (the hard 4-slot custom interpolator budget). Everything else — the copier's
  * signature, the interstage locations, the vs side — is already N-general.
  *
  * The `Ctx` the copier constructs must be the exact schema instance `surface.fs` was declared against —

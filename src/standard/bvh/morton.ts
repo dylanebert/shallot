@@ -10,14 +10,14 @@
 // (reference/NexusBVH). A degenerate extent yields a defined code rather than a NaN one:
 // the divisor is guarded as well as the result, so a coplanar axis (ext = 0) codes as 0
 // and a NaN extent no longer reaches the quantizer at all. That matches the oracle's
-// `if (ext <= 0) return 0` branch (tests/bvh/oracle.ts mortonCodes), and it is the
-// deterministic-consumer exception the archived GPU rules' NaN policy names for the BVH centroid — every
+// `if (ext <= 0) return 0` branch, and it is the
+// deterministic-consumer exception the NaN policy names for the BVH centroid — every
 // other path here computes through.
 //
 // Embarrassingly parallel — no subgroup ops, no shared memory, one grid-stride loop.
 // The one float subtlety is the normalize divide. The oracle models it in f32
 // (Math.fround) so the 10-bit quantization lands in the same bin as this GPU math,
-// and the `accel` gym scenario's build gate's bit-identical check holds exactly on the
+// and a bit-identical check holds exactly on a
 // fixture set. It is NOT exact in bulk: WGSL allows f32 divide up to 2.5 ULP and real
 // hardware (NVIDIA Ada, observed) isn't correctly-rounded, so a centroid within ~1 ULP
 // of a bin boundary lands ±1 bin off (~one prim per ~12k at 1M uniform-random). That

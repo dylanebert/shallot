@@ -172,7 +172,7 @@ export interface Compute {
      * optional indirect-draw tally hook installed by `ProfilePlugin`. A pass reports the
      * `drawIndexedIndirect` commands it issues (the honest count, post the skip), and the profiler
      * derives Dawn's injected indirect-draw validation floor (`#draws × ~1µs`, untimed by
-     * `timestampWrites` because it runs before the pass, the archived GPU rules "WebGPU-specific traps"). A `?.`
+     * `timestampWrites` because it runs before the pass). A `?.`
      * no-op without the plugin, mirroring {@link span}. A bundle reports its *recorded* draw count;
      * the injected validation runs the same for a replay
      */
@@ -636,8 +636,8 @@ export const BASE_FEATURES = [
     // a fused postfx composite writes the swapchain from a compute pass; on Mac/Windows the
     // preferred canvas format is bgra8unorm, and a storage view of it needs this feature
     "bgra8unorm-storage",
-    // the default HDR scene offscreen + sear's MSAA color target are rg11b10ufloat (the archived render rules "Camera
-    // passes"): grants it render-attachment + multisample + resolve. Half the bandwidth of rgba16float at
+    // the default HDR scene offscreen + sear's MSAA color target are rg11b10ufloat:
+    // grants it render-attachment + multisample + resolve. Half the bandwidth of rgba16float at
     // 4× MSAA, on the whole floor (desktop / Steam Deck / recent Android all support it)
     "rg11b10ufloat-renderable",
 ] as const;
@@ -1232,7 +1232,7 @@ async function acquireDevice(
  * buffer sizes pass the adapter's full values through (physics' compacted contact store needs the
  * full size past the 128 MB / 256 MB spec defaults at high capacity, and a consumer overreaching
  * the true limit still fails loud at bind-group validation). `maxStorageBuffersPerShaderStage`
- * forwards the hardcoded floor of 10 (the archived GPU rules' deliberate ceiling), not the adapter's value;
+ * forwards the hardcoded floor of 10 (a deliberate ceiling), not the adapter's value;
  * `acquireDevice` pre-gates the adapter against that floor, so this never rejects `requestDevice`.
  *
  * The split-stage storage limits are a 2024 spec addition absent on older mobile WebGPU, where the

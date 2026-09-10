@@ -137,8 +137,7 @@ export function zSlice(view: ClusterView, viewZ: number): number {
  * cluster `(x, y, z)`'s view-space AABB (camera looks down −Z, so `min.z` is
  * the slice's far boundary). Tile `(0, 0)` spans NDC `(-1, -1)`; a perspective
  * frustum's tile corners scale with depth, so the AABB takes min/max across
- * the slice's two boundary depths. The GPU pass is the WGSL twin; the gym
- * Mirror assert pins them together
+ * the slice's two boundary depths. The GPU pass is the WGSL twin
  */
 export function clusterAabb(
     view: ClusterView,
@@ -164,8 +163,8 @@ export function clusterAabb(
 /**
  * the cluster indices a point light's influence sphere touches:
  * sphere-vs-AABB by squared distance from the view-space center to each
- * cluster's box. The TS twin of the light-cull WGSL test; the gym Mirror
- * assert pins them together. `center` is the light's view-space position
+ * cluster's box. The TS twin of the light-cull WGSL test.
+ * `center` is the light's view-space position
  */
 export function lightClusters(
     view: ClusterView,
@@ -334,7 +333,7 @@ export const ClusterSystem: System = {
 
 // bound once, on the forced precompile (which drains after every plugin has warmed). Every input is
 // this module's own, allocated in `warmClusters` before the forcer is registered — so a missing one is
-// a wiring bug and throws, never a silently skipped frame (the archived ECS rules Anti-patterns)
+// a wiring bug and throws, never a silently skipped frame
 function bindGrid(): TgpuComputePipeline {
     if (_bound) return _bound;
     if (!_pipe || !_typedViews || !_typedAabbs)
@@ -360,8 +359,8 @@ export function warmClusters(): void {
         .$usage("storage")
         .$name("shallot-cluster-views");
     Clusters.views = root.unwrap(_typedViews);
-    // typegpu grants COPY_SRC on every buffer it creates, which is what the gym Mirror assert against
-    // the TS oracle reads the AABBs back through
+    // typegpu grants COPY_SRC on every buffer it creates, which is what a Mirror readback
+    // reads the AABBs back through
     _typedAabbs = root
         .createBuffer(d.arrayOf(d.vec4f, MAX_VIEWS * CLUSTER_COUNT * 2))
         .$usage("storage")
@@ -544,7 +543,7 @@ const hits = tgpu.fn(
 // transforms one light to this view's space, then every thread tests the whole batch against its cluster
 // AABB — the mat4 transform runs once per workgroup, not once per cluster. Two sweeps (count, then
 // reserve + write) avoid a function-private index array (the Metal dynamically-indexed-private-array
-// miscompile, the archived GPU rules). The batch loop bound comes through `uniformLoad` so the in-loop barriers pass
+// miscompile). The batch loop bound comes through `uniformLoad` so the in-loop barriers pass
 // uniformity analysis; out-of-range threads mask on `live` instead of returning, for the same reason.
 const cullKernel = tgpu.computeFn({
     workgroupSize: [64],
@@ -656,7 +655,7 @@ const OVERFLOW_PERIOD = 240;
 
 // bound once, on the forced precompile. A typed bind group takes a raw GPUBuffer, which is what keeps
 // the slab mirrors' and `membership`'s reach-in open. Every input is stable post-warm, so a missing one
-// is a wiring bug and gets the named throw — never a skipped frame (the archived ECS rules Anti-patterns)
+// is a wiring bug and gets the named throw — never a skipped frame
 function bindCompact(): TgpuComputePipeline {
     if (_compactBound) return _compactBound;
     if (!_compactPipe || !_typedLights)
@@ -789,7 +788,7 @@ export function warmLightCull(state: State): void {
 
     _typedLights = root.createBuffer(PointLightsRw).$usage("storage").$name("shallot-lights");
     LightCull.lights = root.unwrap(_typedLights);
-    // COPY_SRC throughout for the gym Mirror asserts against the TS oracle (typegpu grants it on the
+    // COPY_SRC throughout for Mirror readback (typegpu grants it on the
     // buffers it creates)
     LightCull.grid = device.createBuffer({
         label: "shallot-light-grid",

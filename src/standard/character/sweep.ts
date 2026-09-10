@@ -20,7 +20,7 @@ type Vec3 = [number, number, number];
 type Quat = [number, number, number, number];
 
 // the controller constants — mirror the f64 controller oracle (the spec); the CPU == oracle
-// gate (`character-sweep.oracle.ts`) keeps the two homes in sync, the `SPECULATIVE_DISTANCE` shape
+// gate keeps the two homes in sync, the `SPECULATIVE_DISTANCE` shape
 //.
 /** depenetration iterations per tick — a corner needs a few pushes to resolve both planes */
 const MAX_SLIDE_ITERS = 6;
@@ -124,7 +124,7 @@ interface Closest {
 // closest point on an OBB (box-local) to a query — the box / sphere / capsule shortcut (collide.ts
 // closestPointBox). Clamping into [−half, half] gives the surface point when the query is outside; inside,
 // push out along the least-clearance face. `+ signedDist` outside, `−` inside. Geometrically exact — it
-// reproduces the oracle's `closestPointOnHull(boxHull)` to float precision (the gym GPU == oracle gate).
+// reproduces the oracle's `closestPointOnHull(boxHull)` to float precision.
 function closestPointBox(pl: Vec3, half: Vec3): Closest {
     const d: Vec3 = [
         clamp(pl[0], -half[0], half[0]),

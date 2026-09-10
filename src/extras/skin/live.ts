@@ -17,8 +17,8 @@ import { SlabPlugin, slab } from "../../standard/slab";
 // the layout, the pose-write API, and the WGSL the GPU reader splices.
 //
 // All the per-instance palettes and all the per-mesh joints/weights live in ONE storage binding — `skinData`
-// — to stay under the 10-storage-buffer ceiling (the archived GPU rules; the skin surface has zero headroom). The buffer is
-// block-concatenated (the archived GPU rules consolidation #4): region A holds the dynamic per-instance palette blocks at
+// — to stay under the 10-storage-buffer ceiling (the skin surface has zero headroom). The buffer is
+// block-concatenated: region A holds the dynamic per-instance palette blocks at
 // the front (so instance bases stay stable as it grows), region B the static per-mesh joints/weights after
 // it. This file owns the CPU-side layout arithmetic + the pose-write API + the flush; the surface `vs` (the
 // GPU reader) and the rig converter (the JW producer) build on it. The LBS blend math it must reproduce is
@@ -275,7 +275,7 @@ export function skinPoint(
 /**
  * linear-blend skin a normal — the CPU twin of the `skin-live` surface `vs` normal path. `n' =
  * normalize(Σ wᵢ·xformNormal(palette[base+1+jᵢ], n))`; normals blend as plain vec3 and renormalize, never
- * oct across the blend (archived GPU rule 9, the VAT lesson). `xformNormal` is the inverse-scale rotate
+ * oct across the blend (the VAT lesson). `xformNormal` is the inverse-scale rotate
  * (`R·(n/s)`, the inverse-transpose for a TRS frame), the zero-scale lane dropped to 0.
  */
 export function skinNormal(
@@ -322,7 +322,7 @@ export function skinNormal(
 // a live instance's palette block: `base` is the vec4 index of its header in region A; `size` the block's
 // vec4 count (cached so free returns it to the hole list without recomputing). `stamp` is the owning
 // entity's create-stamp — a realias to a new same-jointCount instance would otherwise inherit this pose
-// (alloc is idempotent on the block, not on membership; the archived ECS rules "An eid is a borrow").
+// (alloc is idempotent on the block, not on membership; an eid is a borrow).
 interface Block {
     base: number;
     jointCount: number;
@@ -343,7 +343,7 @@ const _initialAB = new ArrayBuffer(INITIAL_PALETTE_CAP * VEC4_BYTES);
  * the block layout. Producers author through the eid-keyed pose-write API ({@link LiveSkin.alloc} /
  * {@link LiveSkin.writePalette} / {@link LiveSkin.free}) and register a mesh's joints/weights once
  * ({@link LiveSkin.registerMesh}); {@link LiveSkinSystem} flushes dirty blocks to the GPU each frame. Reset
- * on every build ({@link LiveSkin.reset}), so it survives a State rebuild (the archived ECS rules reload-safety).
+ * on every build ({@link LiveSkin.reset}), so it survives a State rebuild.
  */
 export const LiveSkin = {
     // region A (palettes) shadow: [0, paletteEnd) vec4 used of paletteCap; f32 + u32 views of one buffer.
@@ -730,20 +730,20 @@ const liveTint = tgpu
 }`)
     .$name("liveTint");
 
-/** the per-instance tint helper, read from the palette block's header (the color fold, the archived GPU rules
- *  consolidation #3): `color` is packed into the header's first u32 — synced from the `Color` component by
+/** the per-instance tint helper, read from the palette block's header (the color fold):
+ *  `color` is packed into the header's first u32 — synced from the `Color` component by
  *  the flush — so a live-skin surface carries no separate `color` storage binding and stays at the
  *  10-storage ceiling. `skin[eid].x` is the header's vec4 base in `skinData`; `skin` / `skinData` /
  *  `unpackLdrColor` are all referenced by name (the latter sear-spliced for every surface). */
 export const liveTintWgsl = chunk("liveTintWgsl", [liveTint], spliceNs);
 
 /** the live-skin `vs`: decode this vertex's 4 joint influences from `skinData` region B (keyed by `vidx`, the
- *  skinned mesh's local vertex index — 2 verts per vec4, 8 B/vertex, archived GPU rule 6), then blend the
+ *  skinned mesh's local vertex index — 2 verts per vec4, 8 B/vertex), then blend the
  *  instance's palette Xforms (region A, based at `skin[eid].x`). `p' = Σ wᵢ·xformPoint(palette[base+1+jᵢ],
  *  localPos)` — algebraically the matrix LBS `bakeVat` bakes (the equivalence gate pins them equal), so the
  *  palette entries being Xform-shaped lets the VS reuse the spliced xformWgsl() `xformPoint`/`xformNormal`
  *  verbatim (zero new transform WGSL). The normal blends as a plain vec3 and renormalizes — never oct across
- *  a blend (archived GPU rule 9, the VAT lesson). Palettes are object-space (root-relative), so the standard
+ *  a blend (the VAT lesson). Palettes are object-space (root-relative), so the standard
  *  instance transform (`transforms[eid]`, applied here after the blend) still carries the skinned pose to
  *  world space — the instance's root stays the meaningful `Transform` in the firehose. Weights are
  *  pre-normalized at import, so there's no runtime renorm; a zero-weight influence skips its palette read

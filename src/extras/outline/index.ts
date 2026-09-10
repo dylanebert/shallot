@@ -18,7 +18,7 @@
 //      the seed's color/width, blends the band over the scene in linear, and writes the rgba16float scratch.
 //
 // Runs in the post-color seam, ordered `after: [ColorSystem, OverlaySystem]` (an overlay — on top of any
-// scene-transform effect like fog, see the archived render rules "the post-color seam") `before: [GlazeSystem]`. The
+// scene-transform effect like fog) `before: [GlazeSystem]`. The
 // composite goes through `sceneTransform` (a compute pass, like glaze) rather than a render pass into
 // `view.framebuffer`, so it never assumes the framebuffer's format/usage — a fog scratch is rgba16float
 // storage, not a render attachment — which is what let the two effects collide. Both anchor refs drop

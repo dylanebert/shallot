@@ -1063,7 +1063,7 @@ export const SearPlugin: Plugin = {
     // Material sets metallic > 0 (dielectric 0), so a bare Part shades exactly like the pre-PBR diffuse.
     initialize(state) {
         // a fresh State recreates its own off-screen shadow cameras lazily — drop any eids cached by
-        // a prior build so this re-run never aliases recycled entities (the archived ECS rules module-scope contract)
+        // a prior build so this re-run never aliases recycled entities (the module-scope contract)
         resetPointShadows();
         resetCascades();
         initMaterial();

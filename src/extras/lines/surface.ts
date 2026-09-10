@@ -29,7 +29,7 @@ export const lineLayout = surfaceLayout({
 });
 
 /**
- * the two custom interpolators the quad crosses (locations 5–6, archived GPU rule 9's 4-slot budget). `edge`
+ * the two custom interpolators the quad crosses (locations 5–6, within the 4-slot custom budget). `edge`
  * packs the AA pair (`x` = signed distance from the segment centreline in pixels, `y` = the half-width the
  * fs compares it against). Two, not one: rgb + alpha + one AA shape parameter is five independent floats —
  * straight-alpha blending can't fold alpha into rgb, and `min(w,1)` / `max(w,1)*0.5` aren't mutually

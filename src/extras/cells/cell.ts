@@ -1,13 +1,13 @@
-// Cell — the GPU cell layout the terminal grid producer writes and both sinks (S3's web instanced draw,
-// S4's terminal ANSI encoder) read: one glyph atlas index plus two packed LDR colors (fg, bg) — sRGB-
+// Cell — the GPU cell layout the terminal grid producer writes and both sinks (the web instanced draw,
+// the terminal ANSI encoder) read: one glyph atlas index plus two packed LDR colors (fg, bg) — sRGB-
 // encoded rgb + linear alpha, `pack4x8unorm`-packed exactly like every other packed color slab in this
 // engine (`packLdrColor`, `engine/utils/encode.ts`). Locked: ANSI SGR truecolor bytes are sRGB by
-// definition, so a cell forwarded byte-for-byte to S4's terminal encoder is only correct if these bytes
+// definition, so a cell forwarded byte-for-byte to the terminal encoder is only correct if these bytes
 // already are sRGB — a linear pack would forward linear values as if they were sRGB and read visibly
 // wrong on every non-mid-grey color. The CPU↔GPU boundary a compute pass and a CPU readback share, a
 // sibling of the glyph instance layout (`extras/text/glyph.ts`) simplified to what a monospace cell
 // needs — no world position, no atlas UV, no entity id, those ride the sink's own draw (`grid.ts`'s
-// compute pass + S3's instanced quad). This file owns the layout alone, so a device-free test can pin it
+// compute pass + the web instanced quad). This file owns the layout alone, so a device-free test can pin it
 // with no GPU.
 
 import tgpu from "typegpu";
@@ -49,12 +49,11 @@ export const CELL_AT = {
  * linear, `pack4x8unorm`-pack) — the same codec every other packed-color slab in this engine uses, so a
  * cell producer shares its color space and its rounding/clamping behavior with the rest of the renderer
  * instead of inventing a second one, and the stored bytes are already sRGB — the space ANSI SGR
- * truecolor needs, with no conversion at S4's encoder. One TGSL source: `bun test` calls it directly on
+ * truecolor needs, with no conversion at the terminal encoder. One TGSL source: `bun test` calls it directly on
  * the CPU, a compute kernel resolves the identical body (`grid.ts`'s fill pass). `packLdrColor`'s CPU arm
  * uses `Math.round` after its f32 input conversion. WGSL packing specifies
  * `floor(0.5 + 255*clamp(a,0,1))` with permitted intermediate rounding; the CPU
- * construction is not a universal GPU-byte oracle. The cells scenario owns the
- * real-device operation-contract and packing checks (`bun bench --scenario cells`).
+ * construction is not a universal GPU-byte oracle.
  *
  * @example const cell = packCell(glyphIndex, vec4f(1, 0, 0, 1), vec4f(0, 0, 0, 1)); // red on black
  */

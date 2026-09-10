@@ -1,23 +1,15 @@
-import { SUBPATH_PLUGIN_MODULES } from "./engine";
 import { type ProjectPlan, plan } from "./host";
 import type { Manifest } from "./manifest";
 
 // Generates the `virtual:project` module source from a `shallot.json` manifest — the one place a manifest
 // becomes static imports. Pure over (manifest, absDir, scenes), so `generate.test.ts` pins the emitted
-// import lines without a running vite. Engine plugins resolve to a lean named import — the main
-// barrel (`import { OrbitPlugin } from "@dylanebert/shallot"`, tree-shaken) for most, or a backend
-// plugin's own subpath (`SUBPATH_PLUGIN_MODULES`) when
-// it isn't barrel-listed; a local/external plugin is a module whose **default export** is the Plugin
+// import lines without a running vite. Engine plugins resolve to a lean named import from the main
+// barrel (`import { OrbitPlugin } from "@dylanebert/shallot"`, tree-shaken); a local/external plugin is a module whose **default export** is the Plugin
 // (Expo / Obsidian / Babel convention — the package declares its entry, e.g. a subpath `my-plugin/grid`
 // default-exporting GridPlugin). The runtime guard below fails loud when a default import resolved to
 // something that isn't a Plugin (a default import is silently `undefined` otherwise), naming the manifest key.
 
 const ENGINE = "@dylanebert/shallot";
-
-/** the module specifier an engine plugin name imports from: its declared subpath, else the main barrel. */
-function engineSource(name: string): string {
-    return SUBPATH_PLUGIN_MODULES[name] ?? ENGINE;
-}
 
 // Planning itself lives in `host.ts` — the browser generator and the command entry consume the same
 // resolved plan, so a manifest classifies once. Re-exported here because the CLI's feature reader
@@ -40,17 +32,8 @@ export function generateModuleFromPlan(project: ProjectPlan): string {
     const idents = engine.map((n) => `${n}Plugin`);
     const lines: string[] = [];
 
-    // group by resolved source (barrel vs. a backend plugin's own subpath) so each import line pulls
-    // only from the module that actually exports those names — preserves first-seen source order.
-    const bySource = new Map<string, string[]>();
-    for (const name of engine) {
-        const source = engineSource(name);
-        const identsForSource = bySource.get(source) ?? [];
-        identsForSource.push(`${name}Plugin`);
-        bySource.set(source, identsForSource);
-    }
-    for (const [source, sourceIdents] of bySource) {
-        lines.push(`import { ${sourceIdents.join(", ")} } from ${JSON.stringify(source)};`);
+    if (idents.length > 0) {
+        lines.push(`import { ${idents.join(", ")} } from ${JSON.stringify(ENGINE)};`);
     }
     // a local plugin is the module's default export (the package declares this entry). A wrong/missing
     // default is silently `undefined`, so the runtime guard below is what makes a mistake loud.

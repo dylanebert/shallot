@@ -83,18 +83,18 @@ const _paramsF32 = new Float32Array(_paramsBuf);
 // PlayCanvas model), allocated lazily on the first casting frame. `_pointParams` is the PointCaster
 // uniform array the FS matches compacted lights against — always bound on group 1 (an empty slot's
 // pos.w = -1 never matches a real eid, so the no-caster path reads the fallback atlas never).
-// Published as "pointShadows" so the gym Mirror can pin the metadata to the TS oracle.
+// Published as "pointShadows" so a Mirror can pin the metadata to the TS oracle.
 // `_pointAtlasView` doubles as the seam: non-null once the atlas exists.
 //
 // The atlas renders in one pass, one indirect draw per casting mesh (the re-gather concatenates each mesh's
-// per-combo culled members into one run — the archived GPU rules "WebGPU-specific traps"). `_faceVP` is the combo-major
+// per-combo culled members into one run). `_faceVP` is the combo-major
 // face viewProj uniform the VS projects by; the re-gather state (`pointRegather` etc) is below
 let _pointAtlas: GPUTexture | null = null;
 let _pointAtlasView: GPUTextureView | null = null;
 let _pointParams: GPUBuffer | null = null;
 // the per-(caster, face) allocated atlas-UV rects, indexed slot·6 + face — the receiver samples it (color
 // group 1) and the atlas VS reads it for the tile-discard bounds (point group 1). Published "pointTileRects"
-// so the gym Mirror can pin the allocation; (re)sized at warm when the PointShadows config is final
+// so a Mirror can pin the allocation; (re)sized at warm when the PointShadows config is final
 let _pointTileRects: GPUBuffer | null = null;
 let _pointFrames: PointShadowFrame[] = [];
 // pos + nf + spotA/B/C vec4s per caster — (re)sized at warm, when the PointShadows config is final
@@ -240,8 +240,8 @@ const _castDraws: { draw: Draw; r: Recorded }[] = [];
 // warn-once (per episode — resets once every point caster shares one indirect buffer again) for a caster
 // dropped because its producer owns a second indirect buffer: renderPointShadows re-gathers only the
 // FIRST-seen buffer (the cascade twin's `_cascadeBatches` batches every distinct source instead — batching
-// the point atlas the same way is unbuilt; this is the loud floor the archived GPU rules' "when you hit the limit" asks
-// for on every drop path in this file, until a real second-indirect-buffer caster earns the batching rewrite)
+// the point atlas the same way is unbuilt; this is the loud floor every drop path
+// in this file owes, until a real second-indirect-buffer caster earns the batching rewrite)
 let _batchDropWarned = false;
 // per-frame re-gather meta scratch (no per-frame alloc): the view slot each dense combo culled into, and the
 // (surface,mesh) pair each casting draw owns — `Regather.run` reads these. Shared across the point + cascade
@@ -444,7 +444,7 @@ export function resetShadowAtlas(device: GPUDevice): void {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     // the point-shadow atlas also allocates lazily; the params buffer always exists (always bound on
-    // group 1, cleared to empty slots). COPY_SRC + published by name for the gym's metadata Mirror
+    // group 1, cleared to empty slots). COPY_SRC + published by name for a metadata Mirror
     _pointAtlas?.destroy();
     _pointAtlas = null;
     _pointAtlasView = null;
@@ -471,7 +471,7 @@ export function resetShadowAtlas(device: GPUDevice): void {
     );
     // the per-(caster, face) tile rects — bound on both the color shadow group (the receiver) and the point
     // group (the atlas VS's discard bounds). Always exists (cleared to zero), COPY_SRC + published for the
-    // gym Mirror. 6 vec4 per caster
+    // Mirror. 6 vec4 per caster
     _pointTileRects?.destroy();
     _pointTileRects = device.createBuffer({
         label: "sear-point-tilerects",

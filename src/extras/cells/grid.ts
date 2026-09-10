@@ -51,7 +51,7 @@ export const gridLayout = tgpu.bindGroupLayout({
 });
 
 // A diagonal glyph-ramp sweep with a fg/bg gradient over cell coordinates — deterministic, no scene
-// input, standing in for a real render-target sample until a sink supplies one (S3). The schema, bind
+// input, standing in for a real render-target sample until a sink supplies one. The schema, bind
 // group, and dispatch shape are what a real producer reuses; only this body's content source is expected
 // to change.
 const fillKernel = tgpu.computeFn({

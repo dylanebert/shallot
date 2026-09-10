@@ -1,8 +1,8 @@
 // Scene-bounds reduction — primitive AABBs → one scene AABB, the first stage of the
 // LBVH builder. The build's first pass: Morton
-// normalization (Phase 3) needs the scene extent before any code is computed.
+// normalization needs the scene extent before any code is computed.
 //
-// Subgroup-first, the the archived GPU rules "reduce in workgroup, then one atomic" rule in its
+// Subgroup-first, the "reduce in workgroup, then one atomic" rule in its
 // subgroup form: each lane folds its grid-stride slice, `subgroupMin`/`subgroupMax`
 // reduces across the subgroup, a second subgroup op folds the per-subgroup partials,
 // and one lane does a single atomicMin/Max per axis to the global slot — no LDS tree
@@ -20,8 +20,7 @@
 // which makes integer atomicMin/Max agree with float ordering across the whole range.
 // A finalize pass decodes the six back to the f32 scene AABB. min/max introduce no
 // rounding and the bitcast is bijective, so the result is bit-exact against the CPU
-// oracle (tests/bvh/oracle.ts sceneBounds) — the Phase 2 gate, validated on the real
-// GPU by the `accel` gym scenario's build gate, including degenerate (coplanar, single-prim).
+// oracle, including degenerate (coplanar, single-prim).
 //
 // Designed for subgroup width 32, correct at 64 (the platform floor). The level-2
 // reduce assumes the per-subgroup partials fit one subgroup (numSub <= sgsize, true
@@ -125,7 +124,7 @@ const fold = tgpu
     })
     .$name("foldSlice");
 
-// one global atomic per axis per workgroup — the the archived GPU rules "reduce in the workgroup, then ONE atomic"
+// one global atomic per axis per workgroup — the "reduce in the workgroup, then ONE atomic"
 // rule's publish step. Six ordered-u32 slots: [min.xyz, max.xyz].
 const publish = tgpu
     .fn([Extremes])((t) => {
@@ -206,7 +205,7 @@ const ldsReduce = tgpu
         const t = fold(input.gid.x, input.nwg.x * WG);
 
         // LDS tree reduce over the WG lanes: each lane seeds its slot, then a halving tree folds to
-        // slot 0. The canonical no-subgroup reduce (the the archived GPU rules rule's pre-subgroup form).
+        // slot 0. The canonical no-subgroup reduce (the rule's pre-subgroup form).
         ldsMin.$[tid] = d.vec3f(t.mn);
         ldsMax.$[tid] = d.vec3f(t.mx);
         std.workgroupBarrier();
@@ -359,7 +358,7 @@ export async function createSceneBounds(
         reduce(encoder: GPUCommandEncoder): void {
             device.queue.writeBuffer(scratch, 0, init);
 
-            // profile under one accumulating row (no-op without ProfilePlugin → the gym measure unaffected)
+            // profile under one accumulating row (no-op without ProfilePlugin)
             const reducePass = encoder.beginComputePass({
                 timestampWrites: Compute.span?.("bvh:bounds"),
             });

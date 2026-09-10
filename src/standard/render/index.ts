@@ -282,8 +282,8 @@ async function initRender(): Promise<void> {
     if (!Compute.device) return;
     const { device } = Compute;
 
-    // clear the render registries so each build re-registers from a clean slate (the archived ECS rules "clear then
-    // rebuild"). This runs in RenderPlugin.initialize, before any producer / sear re-registers (they
+    // clear the render registries so each build re-registers from a clean slate (clear then
+    // rebuild). This runs in RenderPlugin.initialize, before any producer / sear re-registers (they
     // depend on RenderPlugin), so a producer toggled off leaves no stale surface / draw /
     // mesh behind to be drawn against its torn-down buffers. A same-set rebuild is unchanged (every
     // plugin re-registers); a first build clears empty registries (a no-op).

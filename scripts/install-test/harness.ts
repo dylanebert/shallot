@@ -6,16 +6,12 @@ import { join, resolve } from "node:path";
 export const harnessContract = `
 import * as harness from "@dylanebert/shallot/harness";
 import leaf from "@dylanebert/shallot/harness/browser" with { type: "json" };
-const names = ["installHarness", "isDegradedBootMessage", "assertMotion", "frameDifference", "pixelProbePass", "probePixels", "REAL_GPU_LAUNCH"].sort();
+const names = ["installHarness", "pixelProbePass", "probePixels", "REAL_GPU_LAUNCH"].sort();
 if (JSON.stringify(Object.keys(harness).sort()) !== JSON.stringify(names)) throw new Error("HARNESS_SURFACE");
 const launch = { channel: "chromium", args: ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures", "--class=kex-gate"] };
 for (const value of [harness.REAL_GPU_LAUNCH, leaf]) {
     if (JSON.stringify(value) !== JSON.stringify(launch)) throw new Error("HARNESS_LAUNCH");
 }
-if (harness.assertMotion([0], [2], 1) !== 2) throw new Error("HARNESS_MOTION");
-let refused = false;
-try { harness.assertMotion([0], [0], 1); } catch (error) { refused = /samples are parked/.test(String(error)); }
-if (!refused) throw new Error("HARNESS_MOTION_REFUSAL");
 console.log("HARNESS_CONTRACT_OK");
 `;
 

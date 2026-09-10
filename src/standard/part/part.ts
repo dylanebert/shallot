@@ -25,7 +25,7 @@ import {
     scatterLayout,
 } from "./pack";
 
-// stride derived from the schema (the archived GPU rules: a second hand-authored stride is layout drift waiting to
+// stride derived from the schema (a second hand-authored stride is layout drift waiting to
 // happen).
 const DRAW_ARG_STRIDE = d.sizeOf(DrawIndexedIndirect);
 type U32Buffer = TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag;
@@ -70,7 +70,7 @@ export const Color = {
 // count and scatter, so off-screen parts never reach the indirect args — this
 // is niagara's cull → compact → drawIndirect spine. Output is slot-major: each
 // camera owns its own drawArgs records + packedEids region, so the four-up
-// example culls each view independently and the shadow pass (Phase 2) reuses
+// example culls each view independently and the shadow pass reuses
 // the same pack against the sun's frustum as one more slot. registerDraws
 // writes the static indexCount + firstIndex; the per-view dimension grows
 // lazily with the active camera count, the pair dimension with mesh count.

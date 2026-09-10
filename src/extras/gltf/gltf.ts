@@ -912,8 +912,8 @@ function packWeights(w: Float32Array, o: number): number {
  * palette is root-relative, so the instance {@link Transform} carries the pose to world). `R = maxᵥ maxₖ(wᵥₖ>0:
  * |bⱼ| + |restPosᵥ − bⱼ|)` where `bⱼ` is joint j's bind position (`inverse(inverseBind)` translation): a vertex
  * at rest offset `|restPosᵥ − bⱼ|` from a pivot `|bⱼ|` from the origin reaches at most their sum under any
- * rotation of that joint — exact for single-joint rotation, conservative for a chain (the gym gate validates
- * it at max pose). The rest AABB inflated by joint travel, the VAT all-frames-sphere twin.
+ * rotation of that joint — exact for single-joint rotation, conservative for a chain.
+ * The rest AABB inflated by joint travel, the VAT all-frames-sphere twin.
  */
 export function reachBound(input: SkinInput): [number, number, number, number] {
     const jointCount = input.joints.length;

@@ -72,7 +72,7 @@ const MIN_GLYPH_EM = 0.001;
  * *narrower* of the cell's two dimensions on both axes, so a footprint never overflows into a neighboring
  * cell. A per-axis factor (`cellW` on x, `cellH` on y, independently) was the s3r item 9 defect: it
  * re-stretches every glyph by the cell's own aspect ratio on top of the glyph's true shape, invisible on
- * a square test fixture (`cellW === cellH`, every `examples/gym/src/scenarios/cells.ts` cell — the two
+ * a square test fixture (`cellW === cellH` — the two
  * factors collapse to the same number there, `draw.test.ts`'s own regression pins that collapse) and
  * highly visible on the real 80×24 grid's narrow-by-tall cells, where `min(cellW, cellH)` and
  * `max(cellW, cellH)` differ by roughly 2×. One shared scalar keeps a glyph's own aspect (both axes move

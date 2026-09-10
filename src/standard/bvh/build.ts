@@ -1,8 +1,8 @@
 // LBVH binary BVH build + refit — sorted Morton codes → BVH2, the coherence-safe
 // builder. Replaces the
 // single-kernel H-PLOC build (and its atomic-climb refit), which relied on
-// cross-workgroup memory ordering WGSL cannot express (no device-scope fence — see
-// the archived GPU rules "Cross-workgroup ordering"). Cheaper to rebuild every frame, at the cost
+// cross-workgroup memory ordering WGSL cannot express (no device-scope fence).
+// Cheaper to rebuild every frame, at the cost
 // of lower SAH than PLOC — the right trade for the forest's per-frame rebuild, whose
 // consumer (shadow any-hit) is the least SAH-sensitive ray.
 //
@@ -40,9 +40,9 @@
 // rightChild = prim index. Child pointers stay local (0-based within the BLAS); the
 // traverser adds the slot base, so concatenated in-place BLASes need no rebase.
 // `NODE_BASE` (count[1]) offsets only the physical read/write address for the in-place
-// caster build (the archived GPU rules binding rule 3 — folded into the count buffer's header).
+// caster build (folded into the count buffer's header).
 //
-// Validated on the real GPU by the `accel` gym scenario's build gate: per fixture, readback
+// Validated on the real GPU by a build gate: per fixture, readback
 // the nodes and check the oracle's invariants + SAH within tolerance + ray-vs-brute-
 // force agreement; `checkForestProbe` rebuilds the live caster path pipelined over
 // frozen geometry and asserts ray-invariance across reps (the coherence gate H-PLOC

@@ -65,8 +65,7 @@ export interface Profile {
     /** raw `create*Pipeline(Async)` invocations since attach — every constructor call, counted before
      *  labels collapse. {@link compiledPipelines} counts distinct labels instead, and a repeated label
      *  overwrites, so a pipeline built under an existing label moves that count by zero while this one
-     *  still moves. The gym budgets gate both as exact goldens for that reason (`budget:pipeline-calls`,
-     *  `examples/gym/src/scenarios/budgets.ts`). The two are NOT equal in general: TypeGPU derives
+     *  still moves. The two are NOT equal in general: TypeGPU derives
      *  several raw pipelines from one named typed pipeline. */
     readonly pipelineCalls: number;
     /** wall-clock span from the first pipeline build start to the last build end */
@@ -75,7 +74,7 @@ export interface Profile {
     readonly fenceWaitMs: number;
     /** live GPU buffer bytes, summed over every buffer allocated since attach and decremented on
      *  `destroy()`: exact and device-independent for a fixed scenario at fixed params, the byte-budget
-     *  gate's total (the archived testing rules' exact-equality structural rung). */
+     *  gate's total. */
     readonly bufferBytes: number;
     /** live GPU texture bytes, the texture twin of {@link bufferBytes}. */
     readonly textureBytes: number;
@@ -876,7 +875,7 @@ function createOverlay(opts?: OverlayOptions): Overlay {
     const gpu = section(root, "gpu");
     const gpuPool = createRowPool(gpu.body, 16);
     // the untimed GPU cost the profiler can predict: Dawn's injected indirect-draw validation
-    // (#drawIndexedIndirect × INDIRECT_FLOOR_US, the archived GPU rules). Per-pass below + a Σ on the caption. It lives in
+    // (#drawIndexedIndirect × INDIRECT_FLOOR_US). Per-pass below + a Σ on the caption. It lives in
     // the gpu section because it's a GPU cost — NOT under fence wait, which is a pipelined residual it
     // doesn't sum into (fence can read below the floor when the frame isn't GPU-bound)
     const indirectCaption = el("div", {

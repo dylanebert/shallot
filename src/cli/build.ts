@@ -60,7 +60,7 @@ export function buildConfig(projectDir: string) {
 }
 
 export async function buildWeb(projectDir: string): Promise<void> {
-    // ejected shape: the project owns its index.html + vite.config (gym, showcase/visualization), so
+    // ejected shape: the project owns its index.html + vite.config (showcase/visualization), so
     // build with its own vite.
     if (existsSync(resolve(projectDir, "index.html"))) {
         console.log(`\n  building ${basename(projectDir)} → dist/\n`);

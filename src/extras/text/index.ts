@@ -126,7 +126,7 @@ export const Text = {
 const surfaceName = (id: number) => `text${id}`;
 const atlasName = (id: number) => `textAtlas${id}`;
 
-// the two custom interstage slots (archived GPU rule 9's 4-slot budget): `uvSize` folds the mixed atlas uv
+// the two custom interstage slots (within the 4-slot custom budget): `uvSize` folds the mixed atlas uv
 // (`.xy`) and the world quad size (`.zw`, what the fs's AA math scales `fwidth(localPos)` by) into one
 // vec4 — `vsPatchSchema` has no `uv` field to override (only `world`/`worldNormal`/`clip` + varyings), so
 // the atlas uv can't ride the built-in. `gcolor` unpacks `unpack4x8unorm` in the vs (a per-instance

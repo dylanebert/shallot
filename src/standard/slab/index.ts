@@ -27,8 +27,7 @@ import {
 // Toji's persistent-staging pattern — packing dirty bits straight into a mapped buffer, then scattering
 // them on the GPU, beats a per-slot `writeBuffer` at every K measured: CPU-side pack+encode+submit is
 // 0.020 ms vs 0.240 ms at K=1024 and 0.68 ms vs 59.7 ms at K=65536 (lovelace, 2026-07-29, a throwaway
-// gym microbench). Validated on the real GPU by the `render` gym scenario (transport round-trip assert
-// + `slab:flush` span).
+// microbench).
 
 const warned = new Set<string>();
 
@@ -56,8 +55,7 @@ function createStager(device: GPUDevice, bytes: number): GPUBuffer {
  * types yield a {@link Single}, `vec2` yields a {@link Pair}, `vec4` yields
  * a {@link Quad}. {@link SlabSystem} flushes dirty slots into the canonical
  * GPU buffer once per frame via Toji's persistent-staging + scatter compute
- * (far cheaper than a per-slot `writeBuffer` at any K; the `render` gym
- * scenario exercises this)
+ * (far cheaper than a per-slot `writeBuffer` at any K)
  *
  * write-only by design. GPU→CPU readback is a different shape
  * (frame-stamped, opt-in, per-consumer extract) with its own primitive —

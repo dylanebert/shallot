@@ -7,8 +7,8 @@
 // glaze's tonemap), so the result is part of the HDR scene the tonemap rolls off. A scene opts in with one `Fog` singleton; a camera opts in with sear's `Depth` lane
 // (the march needs scene depth). Both absent → the pass no-ops, no auto-add. The march primitives + the Fog
 // uniform schema live in `./march`; the typed pipeline (the two bind-group layouts + the compute kernel
-// calling them) lives in `./pipeline`. Both the kernel and the CPU-side oracle the gym fog probe diffs
-// against are the same TGSL source (extinction + clustered + sun in-scatter) — this file is the ECS/system/
+// calling them) lives in `./pipeline`. Both the kernel and the CPU-side oracle
+// are the same TGSL source (extinction + clustered + sun in-scatter) — this file is the ECS/system/
 // plugin half: the component, the per-frame uniform pack, and the per-camera dispatch.
 import type { TgpuBindGroup, TgpuBuffer, TgpuComputePipeline, UniformFlag } from "typegpu";
 import type { Plugin, System } from "../../engine";
@@ -300,8 +300,8 @@ export const FogPlugin: Plugin = {
 // splices the same integration the production `FogSystem` runs), the `Fog` uniform layout + `packFog`, and
 // the CPU-side march oracles the GPU readback is diffed against. Every march primitive is one TGSL function
 // that resolves to the spliced WGSL and runs on the CPU, so the chunks and the oracle are the same source.
-// The extinction half (S1: `fogMarchWgsl` / `fogTransmittance`), the clustered in-scatter half (S2: light
-// shafts — `fogInScatterWgsl` / `henyeyGreenstein` / `fogInScatter`), and the sun half (S3: the directional
+// The extinction half (`fogMarchWgsl` / `fogTransmittance`), the clustered in-scatter half (light
+// shafts — `fogInScatterWgsl` / `henyeyGreenstein` / `fogInScatter`), and the sun half (the directional
 // shaft — `sunInScatter` / `fogSunInScatter`). The happy path (`Fog`, `FogPlugin`) is on the index barrel.
 export type { FogScatter, FogSun } from "./march";
 export {

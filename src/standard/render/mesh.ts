@@ -120,7 +120,7 @@ let _placeholderIndices: MeshIndex | null = null;
  * local-space axis-aligned bounds `{ min, max }` of a vertex buffer (the shared
  * `posU + normalV` layout, position in the first three floats per record).
  * Pure: the one position-AABB scan both the cull sphere ({@link meshBounds})
- * and the unorm16 dequant range (the per-mesh `MeshQuant`, archived GPU rule 6) derive
+ * and the unorm16 dequant range (the per-mesh `MeshQuant`) derive
  * from, so they share one source. An empty buffer returns a zero box.
  */
 function meshAabb(vertices: Float32Array): {
@@ -273,7 +273,7 @@ const MESH_QUANT_FLOATS = 12;
  * `position` is the 8 B/vertex depth/shadow stream (w0, w1: pos + meshId only).
  * `quant` is `MeshQuant` per mesh (the position + uv AABB the decode dequantizes
  * against, selected by meshId). The f32 stays the lossless authoring form: only
- * the GPU mirror quantizes (the slab packed-mirror discipline, the archived ECS rules).
+ * the GPU mirror quantizes (the slab packed-mirror discipline).
  */
 export interface QuantStreams {
     main: Uint32Array;
@@ -420,7 +420,7 @@ export function flushMeshes(): void {
 
 /**
  * drop every registered mesh + any staged-but-unflushed data, resetting the registry for a fresh build
- * (`RenderPlugin.initialize`, the archived ECS rules "clear then rebuild"). Static producers re-stage via {@link mesh} in
+ * (`RenderPlugin.initialize`, clear then rebuild). Static producers re-stage via {@link mesh} in
  * their own initialize, so a producer toggled off leaves no stale slice to be paired against
  * a live surface (the pack registers a Draw per `(surface, mesh)` pair, including a dead one otherwise).
  */

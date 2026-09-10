@@ -417,7 +417,7 @@ const _cascProj = new Float32Array(16);
 const _cascTileMat = new Float32Array(16);
 
 /** the pooled cascade cameras' eids, one per active cascade (the first {@link cascadeCount} valid). Each is a
- * depth-only frustum-culled view slot: the per-cascade cull. The gym oracle reads each one's
+ * depth-only frustum-culled view slot: the per-cascade cull. An oracle reads each one's
  * `Views.get(eid).slot` + `computeViewProj(eid, 1)` to pin the pack's per-cascade survivor counts to a CPU
  * frustum test, the {@link pointComboEids} shape over cascade slots. */
 export function cascadeComboEids(): number[] {
@@ -654,7 +654,7 @@ export function updateCascades(state: State, main: number): void {
 // over-amplification). The viewProjs are computed here CPU-side (one per combo, the tile placement folded
 // in — {@link tileTransform}); sear re-gathers the per-combo culled members into one contiguous run per
 // casting mesh + a per-instance combo index, so the atlas still renders in **one indirect draw per casting
-// mesh** (the Dawn ~1µs/indirect-draw floor — the archived GPU rules "WebGPU-specific traps"), now reading per-combo
+// mesh** (the Dawn ~1µs/indirect-draw floor), now reading per-combo
 // *culled* counts. The face/cone frustum is widened by a constant texel margin (the PlayCanvas seam fix)
 // and the receiver clamps its 3×3 PCF taps to the tile interior, so a sample never bleeds into a neighbour.
 
@@ -968,7 +968,7 @@ export function pointComboCount(): number {
 
 /** the pooled combo cameras' eids, one per active combo (combo-major: each caster's faces/cone in turn,
  * the first {@link pointComboCount} valid). Each is a depth-only frustum-culled view slot: the per-combo
- * cull. The gym oracle reads each combo's `Views.get(eid).slot` + `computeViewProj(eid, 1)` to pin the
+ * cull. An oracle reads each combo's `Views.get(eid).slot` + `computeViewProj(eid, 1)` to pin the
  * pack's per-combo survivor counts to a CPU frustum test (the combo's frustum is what the pack culls
  * against, == the pre-fold proj·view the atlas VS folds the tile into). */
 export function pointComboEids(): number[] {

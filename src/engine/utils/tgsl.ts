@@ -173,7 +173,7 @@ export const idiv = tgpu.fn(
 
 /** WGSL `workgroupUniformLoad(&v)`: a control barrier whose result the uniformity analysis treats as
  *  uniform, which is what makes a `workgroupBarrier` inside a flag-gated loop legal (the decoupled-
- *  fallback scan's early-exit, the archived GPU rules "the decoupled-scan exception"). GPU-only — a workgroup variable
+ *  fallback scan's early-exit). GPU-only — a workgroup variable
  *  has no CPU meaning. Bind one loader per variable at module scope and read it as `.$` at the call
  *  site, which emits the intrinsic inline against that variable.
  *

@@ -4,7 +4,7 @@ import type { CharState } from "./sweep";
 // (the per-character controller pose) and CONSUMES `moves` / `jumped` each fixed tick; a controller — Player,
 // or a custom one — writes intent through `move` / `jump` and reads the swept result through `pose` /
 // `grounded`. The maps are the shared seam between the drive API and the sweep: module state, cleared by
-// `resetDrive` on dispose (reload-safety). Living in a sibling keeps the drive off the main barrel: it is the character barrel.s
+// `resetDrive` on dispose (reload-safety). Living in a sibling keeps the drive off the main barrel: it is the character barrel's
 // extension surface, not the `Character`-component happy path.
 
 // the CPU controller state per character eid — the sweep owns it across fixed ticks (pose, velocity, jump
