@@ -487,75 +487,6 @@ if (chainOverages.length > 0) {
     process.exit(1);
 }
 
-// ── Arm (b): showcase index completeness (both directions) ──────────────────────────────────────
-//
-// Every `examples/showcase/*/` dir with at least one tracked file must have an index line in
-// `examples/AGENTS.md`, and every index line must name a dir with tracked content. Both directions
-// are reported — a stale index line is as much a defect as a missing one.
-//
-// The population is derived from the TRACKED set (git ls-files), not the filesystem: a dir whose
-// tracked content was deleted by a sibling lane but whose untracked dist/node_modules/test-results/
-// remain would be a false positive under a filesystem walk — the arm would flag a dir without an
-// index line that has no tracked content to index. Asking git makes the scope identical in every
-// checkout, which is the property that matters (same law as the doc scan above).
-
-const SHOWCASE_DIR = "examples/showcase";
-const showcaseTracked = Bun.spawnSync(["git", "ls-files", "-z", SHOWCASE_DIR], {
-    cwd: root,
-});
-if (!showcaseTracked.success) {
-    console.error(
-        "✗ `git ls-files` failed — the showcase arm needs a git checkout to scope its dir set.",
-    );
-    process.exit(1);
-}
-const showcaseDirs = new Set<string>();
-for (const path of showcaseTracked.stdout.toString().split("\0").filter(Boolean)) {
-    const rel = path.slice(SHOWCASE_DIR.length + 1);
-    const parts = rel.split("/");
-    if (parts.length < 2) continue; // directly under showcase/, not a subdir (e.g. .gitkeep)
-    showcaseDirs.add(parts[0]);
-}
-if (showcaseDirs.size === 0) {
-    console.error(
-        "✗ `git ls-files examples/showcase/` matched no subdir — the showcase arm would be vacuously green.",
-    );
-    process.exit(1);
-}
-
-const agentsMd = await Bun.file(resolve(root, "examples/AGENTS.md")).text();
-const showcaseIndexRe = /`showcase\/([^`/]+)\//g;
-const indexedShowcases = new Set<string>();
-for (const [, name] of agentsMd.matchAll(showcaseIndexRe)) {
-    indexedShowcases.add(name);
-}
-
-const missingIndex = [...showcaseDirs].filter((d) => !indexedShowcases.has(d)).sort();
-const staleIndex = [...indexedShowcases].filter((d) => !showcaseDirs.has(d)).sort();
-
-if (missingIndex.length > 0 || staleIndex.length > 0) {
-    const parts: string[] = [];
-    if (missingIndex.length > 0) {
-        parts.push(
-            `showcase dir(s) without an index line in examples/AGENTS.md: ${missingIndex.join(", ")}`,
-        );
-    }
-    if (staleIndex.length > 0) {
-        parts.push(
-            `index line(s) in examples/AGENTS.md naming no showcase dir: ${staleIndex.join(", ")}`,
-        );
-    }
-    console.error(
-        `✗ showcase index mismatch (${parts.length} direction(s)):\n` +
-            parts.map((p) => `  ${p}`).join("\n"),
-    );
-    console.error(
-        "\nEvery `examples/showcase/*/` dir must have an index line in `examples/AGENTS.md`, and " +
-            "every index line must name a real dir. Both directions are checked.",
-    );
-    process.exit(1);
-}
-
 // ── Arm (d): tier-suffix roster — one constant, derived consumers ─────────────────────────
 // Prose explains tier obligations without duplicating the constant as a heading/bullet roster.
 const rosterFindings: string[] = [];
@@ -863,7 +794,6 @@ console.log(
     `✓ doc commands clean (${scanTargets.length} file(s)), ` +
         `install/scaffold/fixture/manifest pins match the manifests (${scanned} doc(s), ${fixtureMatched} fixture line(s), ${manifestPkgCount} manifest(s)), ` +
         `entry-doc chains under budget (${ENTRY_DOC_CHAINS.length} chain(s)), ` +
-        `showcase index complete (${showcaseDirs.size} dir(s)), ` +
         `tier restatements absent (${suffixWords.length} suffix(es)), ` +
         `pointer-validity clean (${pointerCitationCount} .md citation(s))`,
 );

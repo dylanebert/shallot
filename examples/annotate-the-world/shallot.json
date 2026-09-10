@@ -1,4 +1,6 @@
 {
+    "kind": "recipe",
+    "description": "Annotate the world with text, lines and arrows.",
     "scene": "scenes/annotate-the-world.scene",
     "plugins": {
         "Text": true,

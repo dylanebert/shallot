@@ -1,4 +1,6 @@
 {
+    "kind": "recipe",
+    "description": "Break joints under load with escape-hatch events.",
     "scene": "scenes/breakable-joints.scene",
     "plugins": {
         "Orbit": true,

@@ -1,4 +1,6 @@
 {
+    "kind": "recipe",
+    "description": "Play spatial sound from sources to a listener.",
     "scene": "scenes/play-sound.scene",
     "plugins": {
         "Audio": true,

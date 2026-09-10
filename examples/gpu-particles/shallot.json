@@ -1,4 +1,6 @@
 {
+    "kind": "recipe",
+    "description": "Simulate particles in compute and draw them from the vertex buffer.",
     "scene": "scenes/gpu-particles.scene",
     "plugins": {
         "Orbit": true,

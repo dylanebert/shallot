@@ -1,4 +1,6 @@
 {
+  "kind": "recipe",
+  "description": "Write a custom WGSL surface or backdrop material.",
   "scene": "scenes/custom-material.scene",
   "plugins": {
     "Orbit": true,

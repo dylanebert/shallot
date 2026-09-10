@@ -1,4 +1,6 @@
 {
+    "kind": "recipe",
+    "description": "Save and restore a scene as XML in storage.",
     "scene": "scenes/save-and-restore.scene",
     "plugins": {
         "Orbit": true,

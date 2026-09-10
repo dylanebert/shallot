@@ -1,4 +1,6 @@
 {
+    "kind": "recipe",
+    "description": "Control how bodies slide with Body.friction.",
     "scene": "scenes/surface-friction.scene",
     "plugins": {
         "Orbit": true,

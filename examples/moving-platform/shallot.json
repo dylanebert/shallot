@@ -1,4 +1,6 @@
 {
+    "kind": "recipe",
+    "description": "Carry bodies on a kinematic moving platform.",
     "scene": "scenes/moving-platform.scene",
     "plugins": {
         "Orbit": true,

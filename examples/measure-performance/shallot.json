@@ -1,4 +1,6 @@
 {
+    "kind": "recipe",
+    "description": "Measure frame cost with the profiler.",
     "scene": "scenes/measure-performance.scene",
     "plugins": {
         "Profile": true,

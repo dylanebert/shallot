@@ -1,4 +1,6 @@
 {
+    "kind": "recipe",
+    "description": "Drop physics bodies and joints into a scene.",
     "scene": "scenes/physics-playground.scene",
     "plugins": {
         "Orbit": true,

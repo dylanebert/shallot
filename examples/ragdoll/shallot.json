@@ -1,4 +1,6 @@
 {
+    "kind": "recipe",
+    "description": "Turn a skinned model into a ragdoll with LiveSkin and the Physics escape hatch.",
     "scene": "scenes/ragdoll.scene",
     "plugins": {
         "Physics": true,

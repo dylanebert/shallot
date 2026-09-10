@@ -1,4 +1,6 @@
 {
+    "kind": "recipe",
+    "description": "Run a compute pass and read the result back with slab and Mirror.",
     "scene": "scenes/compute-and-readback.scene",
     "plugins": {
         "Orbit": true,

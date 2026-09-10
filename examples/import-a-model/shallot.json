@@ -1,4 +1,6 @@
 {
+    "kind": "recipe",
+    "description": "Import a glTF model: mesh refs, loading and placement.",
     "scene": "scenes/import-a-model.scene",
     "plugins": {
         "Gltf": true,

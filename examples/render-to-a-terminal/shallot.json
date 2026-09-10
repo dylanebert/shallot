@@ -1,4 +1,6 @@
 {
+    "kind": "recipe",
+    "description": "Render the scene to a character-cell grid with the Cells plugin.",
     "scene": "scenes/render-to-a-terminal.scene",
     "plugins": {
         "Orbit": true,

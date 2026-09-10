@@ -1,4 +1,6 @@
 {
+    "kind": "recipe",
+    "description": "Overlay or embed UI on the canvas with mountOverlay or run.",
     "scene": "scenes/overlay-ui.scene",
     "plugins": {
         "Orbit": true,

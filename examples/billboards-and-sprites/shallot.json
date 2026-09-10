@@ -1,4 +1,6 @@
 {
+    "kind": "recipe",
+    "description": "Draw billboards and sprites, with their modes and a meter.",
     "scene": "scenes/billboards-and-sprites.scene",
     "plugins": {
         "Sprite": true,
