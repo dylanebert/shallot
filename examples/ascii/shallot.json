@@ -4,7 +4,6 @@
   "scene": "scenes/ascii.scene",
   "plugins": {
     "Orbit": true,
-    "OrbitTuning": true,
     "Cells": true
   }
 }

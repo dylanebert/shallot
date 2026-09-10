@@ -485,4 +485,3 @@ export const OrbitPlugin: Plugin = {
 };
 
 export { OrbitOverlayPlugin } from "./overlay";
-export { OrbitTuningPlugin } from "./tuning";

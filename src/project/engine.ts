@@ -29,7 +29,6 @@ export const EXTRA_PLUGIN_NAMES = [
     "Mirror",
     "Orbit",
     "OrbitOverlay",
-    "OrbitTuning",
     "Outline",
     "Player",
     "Profile",
