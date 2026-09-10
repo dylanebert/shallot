@@ -1,16 +1,16 @@
 {
-    "total": 68107,
+    "total": 67765,
     "files": {
         ".claude/rules/audio.md": {
-            "bytes": 3714,
+            "bytes": 3677,
             "paragraph": 528
         },
         ".claude/rules/avbd.md": {
-            "bytes": 5490,
+            "bytes": 5444,
             "paragraph": 636
         },
         ".claude/rules/ecs.md": {
-            "bytes": 4475,
+            "bytes": 4428,
             "paragraph": 515
         },
         ".claude/rules/examples.md": {
@@ -18,52 +18,52 @@
             "paragraph": 432
         },
         ".claude/rules/exports.md": {
-            "bytes": 4284,
+            "bytes": 4154,
             "paragraph": 539
         },
         ".claude/rules/gpu.md": {
-            "bytes": 6894,
-            "paragraph": 462
+            "bytes": 6797,
+            "paragraph": 366
         },
         ".claude/rules/physics.md": {
-            "bytes": 3987,
+            "bytes": 3940,
             "paragraph": 534
         },
         ".claude/rules/render.md": {
-            "bytes": 6938,
+            "bytes": 6881,
             "paragraph": 472
         },
         ".claude/rules/style.md": {
-            "bytes": 2784,
+            "bytes": 2753,
             "paragraph": 473
         },
         ".claude/rules/testing.md": {
-            "bytes": 7742,
+            "bytes": 7709,
             "paragraph": 464
         },
         ".claude/rules/tumble.md": {
-            "bytes": 4713,
+            "bytes": 4688,
             "paragraph": 696
         },
         ".claude/rules/visual-identity.md": {
-            "bytes": 1222,
-            "paragraph": 288
+            "bytes": 1197,
+            "paragraph": 263
         },
         "AGENTS.md": {
-            "bytes": 4281,
-            "paragraph": 614
+            "bytes": 4986,
+            "paragraph": 511
         },
         "CLAUDE.md": {
-            "bytes": 169,
-            "paragraph": 156
+            "bytes": 123,
+            "paragraph": 94
+        },
+        "MAINTAINERS.md": {
+            "bytes": 4563,
+            "paragraph": 767
         },
         "examples/AGENTS.md": {
             "bytes": 3444,
             "paragraph": 514
-        },
-        "AGENTS.md": {
-            "bytes": 4989,
-            "paragraph": 511
         }
     }
 }
