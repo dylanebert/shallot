@@ -1,6 +1,7 @@
 {
     "kind": "recipe",
     "description": "Render the scene to a character-cell grid with the Cells plugin.",
+    "problem": "I want my scene drawn as text characters.",
     "scene": "scenes/render-to-a-terminal.scene",
     "plugins": {
         "Orbit": true,

@@ -1,6 +1,7 @@
 {
     "kind": "recipe",
     "description": "Play spatial sound from sources to a listener.",
+    "problem": "I want a sound that comes from a place in the world and pans as it moves.",
     "scene": "scenes/play-sound.scene",
     "plugins": {
         "Audio": true,

@@ -1,6 +1,7 @@
 {
     "kind": "recipe",
     "description": "Play animation clips with Animator playables.",
+    "problem": "I want an object to bounce on a loop without writing a per-frame system.",
     "scene": "scenes/animate-with-clips.scene",
     "plugins": {
         "Animation": true,

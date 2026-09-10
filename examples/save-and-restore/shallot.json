@@ -1,6 +1,7 @@
 {
     "kind": "recipe",
     "description": "Save and restore a scene as XML in storage.",
+    "problem": "I want to save the game and load it back later.",
     "scene": "scenes/save-and-restore.scene",
     "plugins": {
         "Orbit": true,

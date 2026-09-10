@@ -1,6 +1,7 @@
 {
     "kind": "recipe",
     "description": "Drive a vehicle with W/S/A/D through the Physics escape hatch.",
+    "problem": "I want a car I can drive with WASD.",
     "scene": "scenes/drive-a-vehicle.scene",
     "plugins": {
         "Orbit": true,

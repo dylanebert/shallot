@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "
 import { resolve } from "node:path";
 
 // `bun run examples:index [--check]`: emit `examples/AGENTS.md` from each `examples/*/shallot.json`
-// `kind` + `description`. The index is never hand-written; `--check` reds when the committed file
+// `kind` + `problem` (or `description` where no problem is declared). The index is never hand-written; `--check` reds when the committed file
 // differs from what the declarations generate. Every example dir must declare both fields.
 
 const root = resolve(import.meta.dir, "..");
@@ -20,12 +20,20 @@ for (const name of readdirSync(examples).sort()) {
         errors.push(`examples/${name}/ has no shallot.json`);
         continue;
     }
-    const { kind, description } = JSON.parse(readFileSync(path, "utf8"));
+    const { kind, description, problem } = JSON.parse(readFileSync(path, "utf8"));
     if (!KINDS.includes(kind))
         errors.push(`examples/${name}/shallot.json: kind must be ${KINDS.join(" | ")}`);
     else if (typeof description !== "string" || description.trim() === "")
         errors.push(`examples/${name}/shallot.json: description is missing`);
-    else rows.push({ name, kind, description: description.trim() });
+    else
+        rows.push({
+            name,
+            kind,
+            description: (typeof problem === "string" && problem.trim() !== ""
+                ? problem
+                : description
+            ).trim(),
+        });
 }
 if (errors.length > 0) {
     for (const e of errors) console.error(`✗ ${e}`);
