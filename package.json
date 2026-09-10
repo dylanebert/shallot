@@ -34,6 +34,7 @@
         ".": "./src/index.ts",
         "./extras": "./src/extras/index.ts",
         "./harness": "./src/harness/index.ts",
+        "./harness/check": "./src/harness/check.ts",
         "./harness/pixels": "./src/harness/pixels.ts",
         "./harness/browser": {
             "types": "./src/harness/browser.d.ts",

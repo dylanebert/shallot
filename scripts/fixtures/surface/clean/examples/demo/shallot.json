@@ -1,0 +1,11 @@
+{
+    "kind": "recipe",
+    "check": {
+        "claim": "demo recipe runs",
+        "class": "process",
+        "tier": "browser",
+        "premises": ["playwright"],
+        "budget": 20000,
+        "file": "check.test.ts"
+    }
+}

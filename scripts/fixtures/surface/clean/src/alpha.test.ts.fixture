@@ -1,0 +1,4 @@
+import { check } from "@dylanebert/shallot/harness/check";
+
+check("alpha holds", { claim: "alpha holds", class: "pure", tier: "step", premises: [], budget: 50 }, () => {});
+check("alpha refuses", { claim: "alpha refuses", class: "pure", tier: "step", premises: ["cmake"], budget: 200 }, () => {});
