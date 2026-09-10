@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { body, flat, IDIV_LEAF, integerDiscipline, noDivision } from "../../../tests/wgsl";
 import { Compute, precompile, precompileAll, requestGPU } from "../../engine/runtime";
+import { body, flat, IDIV_LEAF, integerDiscipline, noDivision } from "../../testing/wgsl";
 import { createSceneBounds } from "./bounds";
 import { createBuild } from "./build";
 import { createBvh } from "./core";

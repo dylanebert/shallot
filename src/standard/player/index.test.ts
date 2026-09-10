@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { attach } from "../../../tests/helpers";
 import { State, type System } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
+import { attach } from "../../testing/helpers";
 import { moves } from "../character/drive";
 import { InputPlugin, Inputs, setInputEnabled } from "../input";
 import { Body } from "../physics";

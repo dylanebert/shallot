@@ -3,7 +3,6 @@
     "plugins": {
         "Orbit": true,
         "Physics": true,
-        "Joints": "./src/joints",
-        "JointsSmoke": "./src/smoke"
+        "Joints": "./src/joints"
     }
 }

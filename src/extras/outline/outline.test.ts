@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { body, noIntegerDivision } from "../../../tests/wgsl";
+import { body, noIntegerDivision } from "../../testing/wgsl";
 import { groupByMesh, jfaSteps, maskWgsl, outlineWgsl } from "./passes";
 
 // The JFA step ladder decides how many fullscreen passes the outline runs (the screen × log(width) cost),

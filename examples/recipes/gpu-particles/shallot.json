@@ -2,7 +2,6 @@
     "scene": "scenes/gpu-particles.scene",
     "plugins": {
         "Orbit": true,
-        "Particles": "./src/particles/index",
-        "Smoke": "./src/smoke"
+        "Particles": "./src/particles/index"
     }
 }

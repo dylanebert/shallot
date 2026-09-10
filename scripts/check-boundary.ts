@@ -32,8 +32,6 @@ const NON_WORKSPACE_PACKAGES: Record<string, string> = {
     "evals/harness": "eval harness installed per run, never part of the repo workspace graph",
     "scripts/install-test/widget":
         "the synthetic malformed-install fixture the packed install gate publishes into a temp tree",
-    "scripts/install-test/compat-0.9.5/scaffold":
-        "the project create-shallot@0.9.5 emitted, frozen byte-for-byte as the compatibility baseline",
 };
 
 // Distribution boundary: a consumer of the published @dylanebert/shallot surface reaches the engine only
@@ -48,12 +46,6 @@ const NON_WORKSPACE_PACKAGES: Record<string, string> = {
 //      specifier onto the same files, so aliasing does not launder it).
 //
 // Both are violations. Cross-project access goes through the package name, into a published subpath only.
-//
-// The one narrow allowance: a relative import that escapes the project is permitted iff it resolves inside
-// `tests/` — the CPU-oracle cross-check seam (the f64 avbd solver/joint + the bvh
-// fixtures/oracle a gym scenario diffs the GPU against). Those f64 references are the executable spec,
-// load-bearing and unpublished by design; killing the share would force duplicating them. Engine *access*
-// still must use the published exports — the allowance is the tests/ oracle only, not `src/`.
 //
 // The population is every declared workspace except the engine package itself, so a new workspace is
 // governed by construction rather than by remembering to list it. The package's own `src/` and `bin/`
@@ -384,7 +376,6 @@ function scanConsumers(
     repoRoot: string,
     roots: string[],
     surface: ReturnType<typeof publishedSurface>,
-    oracleSeam: string,
     sampleSeam: string,
     ledger: Ledger = { computedLoaders: {}, nonWorkspacePackages: {} },
     usedLoaders = new Set<string>(),
@@ -436,12 +427,7 @@ function scanConsumers(
                     )
                         continue;
                     if (resolved === root || resolved.startsWith(root + sep)) continue;
-                    if (
-                        [oracleSeam, sampleSeam].some(
-                            (seam) => resolved === seam || resolved.startsWith(seam + sep),
-                        )
-                    )
-                        continue;
+                    if (resolved === sampleSeam || resolved.startsWith(sampleSeam + sep)) continue;
                     violations.push({
                         ...at(r, spec),
                         reason: `escapes the project → ${relative(repoRoot, resolved)}`,
@@ -516,8 +502,7 @@ export function checkBoundary(repoRoot: string, ledger: Ledger = REPO_LEDGER): B
     const consumerRoots = consumerDirs
         .map((dir) => resolve(repoRoot, dir))
         .filter((dir) => existsSync(dir) && statSync(dir).isDirectory());
-    const oracleSeam = resolve(repoRoot, ENGINE_PACKAGE, "tests");
-    // the committed physics sample scenes and golds the gym's sample twins replay
+    // the committed physics sample scenes and golds consumers replay
     const sampleSeam = resolve(repoRoot, ENGINE_PACKAGE, "src/standard/physics/samples");
 
     const usedLoaders = new Set<string>();
@@ -526,7 +511,6 @@ export function checkBoundary(repoRoot: string, ledger: Ledger = REPO_LEDGER): B
         repoRoot,
         consumerRoots,
         surface,
-        oracleSeam,
         sampleSeam,
         ledger,
         usedLoaders,
@@ -605,7 +589,7 @@ function report(result: BoundaryResult): boolean {
         console.error(
             "\nA consumer must reach the engine through the published @dylanebert/shallot\n" +
                 "surface — a declared `exports` subpath — never a relative path into repo-only\n" +
-                "code (scripts/, tests/) nor an unpublished internal (src/...).",
+                "code (scripts/) nor an unpublished internal (src/...).",
         );
     }
     if (result.errors.length > 0) {
@@ -632,9 +616,8 @@ if (import.meta.main) {
             external,
             roots,
             surface,
-            resolve(repoRoot, ENGINE_PACKAGE, "tests"),
             // an external tree never reaches the repo's sample seam
-            resolve(repoRoot, ENGINE_PACKAGE, "tests"),
+            resolve(repoRoot, ENGINE_PACKAGE, "src/standard/physics/samples"),
             undefined,
             undefined,
             errors,

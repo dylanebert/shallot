@@ -19,7 +19,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { Glob } from "bun";
-import { TEST_TIER_SUFFIXES } from "../tests/test-tiers";
+import { TEST_TIER_SUFFIXES } from "./test-tiers";
 
 // Regex-literal scanning for the source maskers here.
 //

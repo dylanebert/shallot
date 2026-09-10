@@ -1,9 +1,8 @@
 {
-  "scene": "scenes/day-night-sky.scene",
-  "plugins": {
-    "Sky": true,
-    "Orbit": true,
-    "SkyTune": "./src/tune",
-    "Smoke": "./src/smoke"
-  }
+    "scene": "scenes/day-night-sky.scene",
+    "plugins": {
+        "Sky": true,
+        "Orbit": true,
+        "SkyTune": "./src/tune"
+    }
 }

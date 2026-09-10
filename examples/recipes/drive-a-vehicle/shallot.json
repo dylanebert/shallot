@@ -4,7 +4,6 @@
         "Orbit": true,
         "Text": true,
         "Physics": true,
-        "Car": "./src/car",
-        "CarSmoke": "./src/smoke"
+        "Car": "./src/car"
     }
 }

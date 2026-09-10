@@ -11,7 +11,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { EXAMPLE_GATES } from "./example-gates";
 
 const root = resolve(import.meta.dir, "..");
 type Reading = { exitCode: number; output: string };
@@ -218,13 +217,6 @@ beforeAll(async () => {
             "scripts/check-scripts.ts": (text) =>
                 text + "\n// see zzz-vacuity-dead-seed.md\n// see README.md\n// see checks.md\n",
         });
-        await run("old release clause", {
-            ".claude/rules/testing.md": (text) =>
-                text.replace(
-                    /then `SHALLOT_DISPLAY_REQUIRED=1 bun run test:changed --all`.*?then merge/,
-                    "then `bun run test:changed --all` (the whole-roster release gate, subsuming `bun run bench`, recipes, and every showcase gate; a skip is not green), then merge",
-                ),
-        });
         const oldCone =
             "bun run test       # unit tests over src, bin, tests, scripts, evals, showcase/visualization/test (bun-webgpu)";
         await run("old README cone", {
@@ -235,16 +227,8 @@ beforeAll(async () => {
         expect(command).not.toBeNull();
         const paths = command![1].trim().split(/\s+/);
         const cone = `bun run test # unit tests over ${paths.join(", ")} (bun-webgpu)`;
-        const commands = [...EXAMPLE_GATES.map((row) => row.gate)];
-        await run("all legitimate rows and exact cone", {
-            "README.md": (text) =>
-                text.replace(/^bun run test\s+#.*$/m, cone) +
-                commands
-                    .map(
-                        (command) =>
-                            `\n\n\`bun run test:changed -- --all\` subsumes \`${command}\`.`,
-                    )
-                    .join(""),
+        await run("exact cone", {
+            "README.md": (text) => text.replace(/^bun run test\s+#.*$/m, cone),
         });
         await run("extra cone member", {
             "README.md": (text) =>
@@ -260,26 +244,6 @@ beforeAll(async () => {
                 changed.scripts.test += " examples/gym/src";
                 return JSON.stringify(changed);
             },
-        });
-        await run("registry moves independently", {
-            "README.md": (text) =>
-                text + `\n\n\`bun run test:changed --all\` subsumes \`${EXAMPLE_GATES[0].gate}\`.`,
-            "scripts/example-gates.ts": (text) =>
-                text.replace(
-                    `gate: ${JSON.stringify(EXAMPLE_GATES[0].gate)}`,
-                    'gate: "bun run bench"',
-                ),
-        });
-        await run("unclassified command claims", {
-            "README.md": (text) =>
-                text + "\n\n`bun run test:changed --all` subsumes `bun run bench` and demos.",
-        });
-        await run("unselected commands", {
-            "README.md": (text) =>
-                text +
-                ["bun run bench", "bun run test:install", "bun run recipes --recipe nonexistent"]
-                    .map((command) => `\n\n\`bun run test:changed --all\` subsumes \`${command}\`.`)
-                    .join(""),
         });
     } finally {
         rmSync(container, { recursive: true, force: true });
@@ -372,13 +336,9 @@ test("pointer validity refuses dead and private-only basenames, grants a live ba
 });
 
 for (const [name, diagnostic] of [
-    ["old release clause", "false subsumption: bun run bench"],
     ["old README cone", "stale root test cone"],
     ["extra cone member", "extra [examples/gym/src]"],
     ["manifest moves independently", "missing [examples/gym/src]"],
-    ["unselected commands", "false subsumption: bun run bench"],
-    ["registry moves independently", `false subsumption: ${EXAMPLE_GATES[0].gate}`],
-    ["unclassified command claims", "subsumption needs explicit row commands"],
 ]) {
     test(`command composition refuses ${name} after preceding guards`, () => {
         const reading = readings.get(name)!;
@@ -388,8 +348,8 @@ for (const [name, diagnostic] of [
     });
 }
 
-test("command composition grants every registered command and the exact manifest cone", () => {
-    const reading = readings.get("all legitimate rows and exact cone")!;
+test("command composition grants the exact manifest cone", () => {
+    const reading = readings.get("exact cone")!;
     expect(reading.exitCode).toBe(0);
     expect(reading.output).toContain("✓ command composition");
 });

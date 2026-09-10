@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import * as d from "typegpu/data";
-import { allFixtures, primMax, primMin } from "../../../tests/bvh/fixtures";
+import { allFixtures, primMax, primMin } from "../../testing/bvh/fixtures";
 import {
     mortonCodes,
     interleaveBits32 as oracleInterleave,
     mortonCode as oracleQuantize,
     sceneBounds,
     type Vec3,
-} from "../../../tests/bvh/oracle";
-import { flat, integerDiscipline, noIntegerDivision } from "../../../tests/wgsl";
+} from "../../testing/bvh/oracle";
+import { flat, integerDiscipline, noIntegerDivision } from "../../testing/wgsl";
 import { interleaveBits32, mortonCode, mortonWgsl } from "./morton";
 
 // Two seams, no device. The Morton math is a pair of TGSL functions, so the CPU arm runs the *same

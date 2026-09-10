@@ -72,4 +72,4 @@ Point/spot share importance-sized tiles (six/one), highest importance not query 
 
 Typed main/position/quant share indexed families; static meshes pack at warm, procedural buffers producer-owned. Correct index/storage/indirect usage, pre-shift atlas indices. Typed overrides validate schema/usage; raw unchecked. Mutate contents, not identities.
 
-Touched shadows: `bun bench --scenario render --param mode=<m>`. Product/CPU/display/golden/release-demo laws: `testing.md`.
+Product/CPU/display/golden/release-demo laws: `testing.md`.

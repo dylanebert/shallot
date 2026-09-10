@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { attach } from "../../../tests/helpers";
 import { InputPlugin, Orbit, OrbitPlugin, OrbitTuningPlugin, State } from "../..";
 import { clear, register } from "../../engine/ecs/core";
+import { attach } from "../../testing/helpers";
 
 // biome-ignore lint/complexity/noBannedTypes: DOM listener mock accepts browser callbacks
 type Fn = Function;

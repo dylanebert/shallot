@@ -1,10 +1,9 @@
 {
-  "scene": "scenes/play-sound.scene",
-  "plugins": {
-    "Audio": true,
-    "Orbit": true,
-    "Text": true,
-    "AudioDemo": "./src/demo",
-    "Smoke": "./src/smoke"
-  }
+    "scene": "scenes/play-sound.scene",
+    "plugins": {
+        "Audio": true,
+        "Orbit": true,
+        "Text": true,
+        "AudioDemo": "./src/demo"
+    }
 }

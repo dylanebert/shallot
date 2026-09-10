@@ -4,12 +4,11 @@
         "includes": [
             "src/**/*.ts",
             "bin/**/*.ts",
-            "tests/**/*.ts",
             "examples/**/*.ts",
             "evals/**/*.ts",
             "scripts/**/*.ts",
+            "rust/physics/scripts/**/*.ts",
             "!examples/*/public",
-            "!scripts/install-test/compat-0.9.5",
             "!bin",
             "!src/project",
             "!src/harness/browser.ts"

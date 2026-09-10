@@ -1,12 +1,5 @@
 [test]
 root = "."
-# The per-file test-duration cap (`tests/test-cap.ts`), appended after the TypeGPU
-# transform (`tgsl.ts`, exactly one instance) and the WebGPU global setup (`setup.ts`, three lines).
-# Sibling preload, never inlined into either.
-#
-# Reach: cwd-only. bun reads `bunfig.toml` from the process's working directory and does not walk
-# ancestors (measured, bun 1.3.14), so this preload — and therefore the cap — is in force only for a
-# `bun test` run from this directory. The `root` key (`.`) scopes discovery to the repo root, but the
-# cap fires on any `bun test` from here regardless of what paths are passed. Pinned in both
-# directions by the configuration-reach arm pair in `tests/test-cap.test.ts`.
-preload = ["./tests/tgsl.ts", "./tests/setup.ts", "./tests/test-cap.ts"]
+# The TypeGPU transform (`tgsl.ts`, exactly one instance) and the WebGPU global setup, both beside
+# the inline tests that need them. bun reads `bunfig.toml` from the working directory only.
+preload = ["./src/testing/tgsl.ts", "./src/testing/setup.ts"]

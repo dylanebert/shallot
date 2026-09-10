@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import tgpu from "typegpu";
-import { body, flat, integerDiscipline } from "../../../tests/wgsl";
 import { State } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
+import { body, flat, integerDiscipline } from "../../testing/wgsl";
 import { Camera, CameraMode } from "./camera";
 import {
     CLUSTER_COUNT,

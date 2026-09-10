@@ -23,7 +23,6 @@ import {
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { compatibilityFlow } from "./install-test/compatibility";
 import { harnessArms, harnessContract } from "./install-test/harness";
 import { outputFlow } from "./install-test/output";
 import { physicsArms, projectPhysics } from "./install-test/physics";
@@ -1364,7 +1363,7 @@ if (import.meta.main) {
         );
         // the version-matched agent context must ship (engine AGENTS.md + the
         // examples index + the recipes corpus), and the shipped index must not dangle at tiers the tarball
-        // omits (gym/showcase live in the repo only).
+        // omits (showcase lives in the repo only).
         const shipped = join(sandbox, "node_modules/@dylanebert/shallot");
         check(
             "the engine AGENTS.md shipped in the tarball",
@@ -1389,22 +1388,13 @@ if (import.meta.main) {
             !existsSync(join(shipped, "examples/recipes/build-a-scene/tsconfig.json")) &&
                 !existsSync(join(shipped, "examples/recipes/build-a-scene/node_modules")),
         );
-        // repo test files import across the monorepo root (scripts/, examples/gym), paths that dangle
+        // repo test files import across the monorepo root (scripts/), paths that dangle
         // in a consumer install — the `files` surface must exclude every *.test.ts, bin included.
         const leakedTests = [...new Bun.Glob("**/*.test.ts").scanSync({ cwd: shipped })];
         check(
             "no test files shipped in the tarball (files surface excludes *.test.ts)",
             leakedTests.length === 0,
             leakedTests.slice(0, 5).join(", "),
-        );
-        // the dynamics-smoke plugins are CI scaffolding — stripped from the shipped corpus (file + manifest
-        // entry) so a copied-out physics recipe carries no `./src/smoke` reference that would fail to build.
-        check(
-            "the shipped physics recipe dropped its smoke plugin (file + manifest entry)",
-            !existsSync(join(shipped, "examples/recipes/joints/src/smoke.ts")) &&
-                !/smoke/.test(
-                    readFileSync(join(shipped, "examples/recipes/joints/shallot.json"), "utf8"),
-                ),
         );
         const idx = existsSync(join(shipped, "examples/AGENTS.md"))
             ? readFileSync(join(shipped, "examples/AGENTS.md"), "utf8")
@@ -1677,7 +1667,6 @@ if (import.meta.main) {
 
         await identityBrowserFlow(work, engineTgz);
 
-        await compatibilityFlow(work, engineTgz);
         await outputFlow(work, engineTgz);
     } finally {
         if (process.env.SHALLOT_INSTALL_KEEP === "1")

@@ -1,5 +1,5 @@
 {
-    "total": 56955,
+    "total": 52922,
     "files": {
         ".claude/rules/audio.md": {
             "bytes": 3677,
@@ -10,8 +10,8 @@
             "paragraph": 515
         },
         ".claude/rules/examples.md": {
-            "bytes": 2743,
-            "paragraph": 432
+            "bytes": 1674,
+            "paragraph": 381
         },
         ".claude/rules/exports.md": {
             "bytes": 4048,
@@ -22,11 +22,11 @@
             "paragraph": 366
         },
         ".claude/rules/physics.md": {
-            "bytes": 6289,
+            "bytes": 6275,
             "paragraph": 534
         },
         ".claude/rules/render.md": {
-            "bytes": 6881,
+            "bytes": 6816,
             "paragraph": 472
         },
         ".claude/rules/style.md": {
@@ -34,8 +34,8 @@
             "paragraph": 473
         },
         ".claude/rules/testing.md": {
-            "bytes": 6872,
-            "paragraph": 464
+            "bytes": 4786,
+            "paragraph": 442
         },
         ".claude/rules/visual-identity.md": {
             "bytes": 1043,
@@ -50,12 +50,12 @@
             "paragraph": 94
         },
         "MAINTAINERS.md": {
-            "bytes": 3848,
-            "paragraph": 493
+            "bytes": 3389,
+            "paragraph": 443
         },
         "examples/AGENTS.md": {
-            "bytes": 2508,
-            "paragraph": 496
+            "bytes": 2168,
+            "paragraph": 445
         }
     }
 }

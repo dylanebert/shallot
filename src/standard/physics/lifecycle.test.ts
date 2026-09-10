@@ -1,7 +1,7 @@
 import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test";
-import { attach } from "../../../tests/helpers";
 import { State, Time } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
+import { attach } from "../../testing/helpers";
 import {
     Body,
     bodyTraits,

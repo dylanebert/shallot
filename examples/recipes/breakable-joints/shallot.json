@@ -3,7 +3,6 @@
     "plugins": {
         "Orbit": true,
         "Physics": true,
-        "Breakable": "./src/breakable",
-        "BreakableSmoke": "./src/smoke"
+        "Breakable": "./src/breakable"
     }
 }

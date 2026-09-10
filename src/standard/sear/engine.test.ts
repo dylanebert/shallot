@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { flat, noIntegerDivision } from "../../../tests/wgsl";
+import { flat, noIntegerDivision } from "../../testing/wgsl";
 import { engineLayout, engineScaffoldWgsl } from "./engine";
 
 // The canonical typed engine substrate: the group-0 layout every typed sear pipeline binds and its shared

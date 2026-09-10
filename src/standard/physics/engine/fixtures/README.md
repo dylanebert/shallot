@@ -25,7 +25,7 @@ Default is freeze — the pin's whole value is the bit-exact contract; re-valida
 pure cost. When a box3d coherence boundary earns a sync, regenerate with the C reference as the mint instrument:
 
 ```
-bun run scripts/physics/gen-fixtures.ts  # from the repo root; scene fixtures (this dir)
+bun run rust/physics/scripts/gen-fixtures.ts  # from the repo root; scene fixtures (this dir)
 bun run physics/gen-gold <name>        # canonical src/standard/physics/engine gold
 ```
 

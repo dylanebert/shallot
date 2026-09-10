@@ -57,7 +57,6 @@ Examples live under `examples/`, indexed by [`examples/AGENTS.md`](examples/AGEN
 
 - `recipes/` — one minimal project per problem: first-person character, physics playground, import a model, day-night sky, and more.
 - `showcase/` — full projects rather than one concept each, under real-device gates: `ascii`, `visualization`. Retired units are Git tags indexed in [`ARCHIVE.md`](ARCHIVE.md).
-- `gym/` — machine-verdict scenarios: the real-device test and benchmark tier.
 
 Run a recipe standalone:
 
@@ -113,7 +112,6 @@ run from the repo root. The `test` script in [`package.json`](package.json) defi
 
 ```bash
 bun run test       # default unit suite (bun-webgpu)
-bun bench          # GPU benchmarks
 bun check          # read-only: tsc + biome + eslint + repo checks + scene-format report
 bun run format     # biome + scene formatter
 bun run build      # rust artifacts

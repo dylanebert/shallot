@@ -1,10 +1,9 @@
 {
-  "scene": "scenes/ragdoll.scene",
-  "plugins": {
-    "Physics": true,
-    "Gltf": true,
-    "Orbit": true,
-    "Ragdoll": "./src/ragdoll",
-    "Smoke": "./src/smoke"
-  }
+    "scene": "scenes/ragdoll.scene",
+    "plugins": {
+        "Physics": true,
+        "Gltf": true,
+        "Orbit": true,
+        "Ragdoll": "./src/ragdoll"
+    }
 }

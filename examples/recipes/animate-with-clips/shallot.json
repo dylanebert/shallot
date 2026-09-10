@@ -1,9 +1,8 @@
 {
-  "scene": "scenes/animate-with-clips.scene",
-  "plugins": {
-    "Animation": true,
-    "Orbit": true,
-    "Bouncer": "./src/bounce",
-    "ClipsSmoke": "./src/smoke"
-  }
+    "scene": "scenes/animate-with-clips.scene",
+    "plugins": {
+        "Animation": true,
+        "Orbit": true,
+        "Bouncer": "./src/bounce"
+    }
 }

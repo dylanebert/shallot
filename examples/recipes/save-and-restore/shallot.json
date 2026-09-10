@@ -1,9 +1,8 @@
 {
-  "scene": "scenes/save-and-restore.scene",
-  "plugins": {
-    "Orbit": true,
-    "Text": true,
-    "Persist": "./src/persist",
-    "Smoke": "./src/smoke"
-  }
+    "scene": "scenes/save-and-restore.scene",
+    "plugins": {
+        "Orbit": true,
+        "Text": true,
+        "Persist": "./src/persist"
+    }
 }
