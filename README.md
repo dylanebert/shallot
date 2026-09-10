@@ -38,7 +38,7 @@ A project is plain data plus code: a `shallot.json` manifest, a `.scene` file, a
 ## add to an existing project
 
 ```bash
-bun add @dylanebert/shallot typegpu@~0.12.4
+bun add @dylanebert/shallot typegpu@~0.12.5
 bun add -d unplugin-typegpu@~0.12.3
 ```
 

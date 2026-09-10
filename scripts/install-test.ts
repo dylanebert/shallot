@@ -127,7 +127,7 @@ export function nativeFlow(work: string, engineTgz: string): void {
                 type: "module",
                 dependencies: {
                     "@dylanebert/shallot": `file:${engineTgz}`,
-                    typegpu: "~0.12.4",
+                    typegpu: "~0.12.5",
                     ...(layout === "absent" ? {} : { "bun-webgpu": "0.1.7" }),
                 },
             }),
@@ -631,9 +631,9 @@ async function ejectedFlow(work: string, engineTgz: string) {
             type: "module",
             dependencies: {
                 "@dylanebert/shallot": `file:${engineTgz}`,
-                typegpu: "~0.12.4",
+                typegpu: "~0.12.5",
                 // a second physical copy for the identity probe below — see `identityFlow`'s comment
-                typegpu2: "npm:typegpu@~0.12.4",
+                typegpu2: "npm:typegpu@~0.12.5",
             },
             devDependencies: { vite: "^8.0.0", "unplugin-typegpu": "~0.12.3" },
         })}\n`,
@@ -745,7 +745,7 @@ const TRANSPILED =
 // break actually turned on. Pure module resolution + a symbol check, no GPU involved, so this runs (and
 // is asserted) before any browser refusal: a display-less host still exercises it (testing.md
 // "Install gate"). `typegpu2` is a genuine
-// second physical copy — an alias install of the identical version (`npm:typegpu@~0.12.4`) landing in
+// second physical copy — an alias install of the identical version (`npm:typegpu@~0.12.5`) landing in
 // its own `node_modules/typegpu2`, a distinct module-graph evaluation with its own `Symbol()` calls, not
 // a re-export of the first. The red arm is the whole point: a probe green on first run with no witnessed
 // red proves nothing.
@@ -761,8 +761,8 @@ function identityFlow(work: string, engineTgz: string) {
             type: "module",
             dependencies: {
                 "@dylanebert/shallot": `file:${engineTgz}`,
-                typegpu: "~0.12.4",
-                typegpu2: "npm:typegpu@~0.12.4",
+                typegpu: "~0.12.5",
+                typegpu2: "npm:typegpu@~0.12.5",
             },
         })}\n`,
     );
@@ -890,7 +890,7 @@ function writeIdentityZeroConfig(dir: string, engineTgz: string) {
             type: "module",
             dependencies: {
                 "@dylanebert/shallot": `file:${engineTgz}`,
-                typegpu: "~0.12.4",
+                typegpu: "~0.12.5",
             },
         })}\n`,
     );
@@ -948,7 +948,7 @@ function writeIdentityEjected(dir: string, engineTgz: string, configText: string
             type: "module",
             dependencies: {
                 "@dylanebert/shallot": `file:${engineTgz}`,
-                typegpu: "~0.12.4",
+                typegpu: "~0.12.5",
             },
             devDependencies: { vite: "^8.0.0", "unplugin-typegpu": "~0.12.3" },
         })}\n`,
@@ -999,8 +999,8 @@ function writeIdentityRedProof(dir: string, engineTgz: string, configText: strin
             type: "module",
             dependencies: {
                 "@dylanebert/shallot": `file:${engineTgz}`,
-                typegpu: "~0.12.4",
-                typegpu2: "npm:typegpu@~0.12.4",
+                typegpu: "~0.12.5",
+                typegpu2: "npm:typegpu@~0.12.5",
             },
             devDependencies: { vite: "^8.0.0", "unplugin-typegpu": "~0.12.3" },
         })}\n`,
@@ -1201,7 +1201,7 @@ async function identityBrowserFlow(work: string, engineTgz: string) {
 }
 
 // A pinned, deliberately different patch version for the second physical copy — not the identical
-// `~0.12.4` alias `identityFlow` uses above. Measured 2026-08-10 (0.11-era pins): pnpm's content-addressable store
+// `~0.12.5` alias `identityFlow` uses above. Measured 2026-08-10 (0.11-era pins): pnpm's content-addressable store
 // dedupes an alias install (`typegpu2: npm:typegpu@~0.11.9`) against the real `typegpu@~0.11.9`
 // dependency down to one physical store entry regardless of the alias name, so the two imports
 // shared a single module instance and the red arm read `RED=true` — a false negative in the harness,
@@ -1234,7 +1234,7 @@ function pmIdentityFlow(work: string, engineTgz: string, manager: "npm" | "pnpm"
             type: "module",
             dependencies: {
                 "@dylanebert/shallot": `file:${engineTgz}`,
-                typegpu: "~0.12.4",
+                typegpu: "~0.12.5",
                 typegpu2: `npm:typegpu@${PM_RED_COPY_VERSION}`,
             },
         })}\n`,
@@ -1412,7 +1412,7 @@ if (import.meta.main) {
                     // the shape a real consumer actually ships: a consumer's own source imports
                     // `typegpu/data` directly (not just transitively through the engine peer dep) —
                     // src/spin.ts below exercises it, so the prebundle-exclusion rung covers it too.
-                    typegpu: "~0.12.4",
+                    typegpu: "~0.12.5",
                 },
             })}\n`,
         );

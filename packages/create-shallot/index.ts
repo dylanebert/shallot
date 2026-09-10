@@ -29,7 +29,7 @@ export function template(name: string): Record<string, string> {
                     version: "0.0.0",
                     private: true,
                     type: "module",
-                    dependencies: { "@dylanebert/shallot": shallotRange, typegpu: "~0.12.4" },
+                    dependencies: { "@dylanebert/shallot": shallotRange, typegpu: "~0.12.5" },
                     devDependencies: { "unplugin-typegpu": "~0.12.3", typescript: "^7.0.2" },
                 },
                 null,

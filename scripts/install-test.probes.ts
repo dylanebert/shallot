@@ -81,7 +81,7 @@ describe("packed missing-crate diagnostic admission", () => {
                     type: "module",
                     dependencies: {
                         "@dylanebert/shallot": `file:${tarball}`,
-                        typegpu: "~0.12.4",
+                        typegpu: "~0.12.5",
                         vite: "^8.0.16",
                     },
                 },

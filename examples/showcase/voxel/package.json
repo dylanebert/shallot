@@ -9,9 +9,9 @@
     },
     "dependencies": {
         "@dylanebert/shallot": "file:../../..",
-        "typegpu": "~0.12.4"
+        "typegpu": "~0.12.5"
     },
     "devDependencies": {
-        "@playwright/test": "^1.58.2"
+        "@playwright/test": "^1.63.0"
     }
 }
