@@ -27,7 +27,7 @@ import {
     shutdown,
     type Body as TumbleBody,
     World,
-} from "./engine";
+} from "../physics/engine";
 import { Tumble, TumblePlugin } from "./index";
 
 // a small tetrahedron, registered under `ShapeKind.Hull`'s id lookup (`Body.halfExtents.w`) — exercises
@@ -877,7 +877,7 @@ describe("compose covers static bodies", () => {
 
 describe("tumble/core mirror", () => {
     test("core re-exports the engine barrel minus shutdown, plus nlerpShortest", async () => {
-        const engine = await import("./engine");
+        const engine = await import("../physics/engine");
         const core = await import("./core");
         const engineKeys = new Set(Object.keys(engine));
         const coreKeys = new Set(Object.keys(core));

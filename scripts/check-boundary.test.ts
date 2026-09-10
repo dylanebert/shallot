@@ -74,10 +74,10 @@ test("the fixture tree is green before any mutation", () => {
 });
 
 describe("private solver ownership", () => {
-    const bridge = "src/standard/tumble/engine/index.ts";
-    const entry = "packages/shallot-tumble/src/standard/tumble/engine/index.ts";
+    const bridge = "src/standard/physics/engine/index.ts";
+    const entry = "src/standard/physics/engine/index.ts";
     const forward =
-        'export * from "../../../../../shallot-tumble/src/standard/tumble/engine/index";';
+        'export * from "../../../../../shallot-tumble/src/standard/physics/engine/index";';
     for (const [file, source, refusal] of [
         [bridge, forward, ""],
         [entry, 'import "@dylanebert/shallot";', "solver source leaves its isolated owner"],
@@ -98,7 +98,7 @@ describe("private solver ownership", () => {
         ],
         [
             "examples/recipes/demo/src/main.ts",
-            'import "../../../../packages/shallot-tumble/src/standard/tumble/engine/index";',
+            'import "../../../../src/standard/physics/engine/index";',
             "escapes the project",
         ],
         [

@@ -2,7 +2,7 @@
 // (`samples/src/samples/joints.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer.
 
-import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/joints-parallel.json";
+import goldJson from "../../../../src/standard/physics/samples/joints-parallel.json";
 import { register } from "../gym";
 import type { SampleGold } from "../tumble-oracle";
 import { buildParallel, renderParallel, updateParallel } from "../tumble-parallel";

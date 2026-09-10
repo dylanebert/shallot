@@ -7,7 +7,7 @@
 // sample port or custom tooling authors a scene the same way the engine's own samples do, without reaching
 // into `engine/` internals.
 //
-// This is an explicit re-export, NOT `export * from "./engine"`, for one reason: the engine barrel exports
+// This is an explicit re-export, NOT `export * from "../physics/engine"`, for one reason: the engine barrel exports
 // `shutdown`, which terminates the process-singleton kernel's worker pool that TumblePlugin shares — a
 // consumer calling it would silently degrade every physics scene to single-thread. `shutdown` is engine-
 // owned lifecycle, deliberately withheld here (`init` / `threads` stay — a standalone author legitimately
@@ -132,4 +132,4 @@ export {
     type WorldDef,
     type WorldState,
     type WorldTransform,
-} from "./engine";
+} from "../physics/engine";

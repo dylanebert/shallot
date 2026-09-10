@@ -16,7 +16,7 @@ import {
 import { Hulls } from "../physics/core";
 import { SlabPlugin } from "../slab";
 import { nlerpShortest, renderScale } from "./compose";
-import { init, type Body as TumbleBody, World as TumbleWorld } from "./engine";
+import { init, type Body as TumbleBody, World as TumbleWorld } from "../physics/engine";
 import { resetConstraints, resyncConstraints, syncJoints, syncSprings } from "./joints";
 import { marshalBody } from "./marshal";
 

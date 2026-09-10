@@ -16,8 +16,8 @@ for (const threads of [0, 2]) {
 import assert from "node:assert/strict";
 import { State, Tumble, TumblePlugin } from "@dylanebert/shallot";
 import { World, init, threads } from "@dylanebert/shallot/tumble/core";
-import { World as CanonicalWorld } from "./packages/shallot-tumble/src/standard/tumble/engine/index.ts";
-import { kernel, workers } from "./packages/shallot-tumble/src/standard/tumble/engine/kernel.ts";
+import { World as CanonicalWorld } from "./src/standard/physics/engine/index.ts";
+import { kernel, workers } from "./src/standard/physics/engine/kernel.ts";
 assert.strictEqual(World, CanonicalWorld, "canonical solver identity");
 await init({ threads: ${threads} });
 const before = { kernel: kernel(), pool: workers() };

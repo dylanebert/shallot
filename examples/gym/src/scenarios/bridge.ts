@@ -2,7 +2,7 @@
 // (`samples/src/samples/joints.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw layer.
 
-import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/joints-bridge.json";
+import goldJson from "../../../../src/standard/physics/samples/joints-bridge.json";
 import { register } from "../gym";
 import { buildBridge } from "../tumble-bridge";
 import type { SampleGold } from "../tumble-oracle";

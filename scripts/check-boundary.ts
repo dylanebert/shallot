@@ -12,7 +12,7 @@ import { parse, parseExpression } from "@babel/parser";
 const COMPUTED_LOADERS: Record<string, string> = {
     "packages/shallot-tumble/scripts/gen-tumble-sample-golds.ts":
         "Frozen mint recipe: four loads name the absent retired sample base/registry and this owner's body/index files; refuses before loading without that checkout. Never part of shipped solver source.",
-    "packages/shallot-tumble/src/standard/tumble/engine/pool.ts":
+    "src/standard/physics/engine/pool.ts":
         "the Node-only branch loads the fixed node:worker_threads specifier with vite-ignore; the browser branch creates an embedded Blob worker",
     "src/project/command.ts":
         "eagerly resolves every enabled entry from the project root, then imports those resolved identities",

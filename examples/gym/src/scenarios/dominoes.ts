@@ -3,7 +3,7 @@
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer. The `rings` knob
 // picks the concentric ring count kicked into a toppling chain reaction.
 
-import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/stacking-dominoes.json";
+import goldJson from "../../../../src/standard/physics/samples/stacking-dominoes.json";
 import { register } from "../gym";
 import { buildDominoes } from "../tumble-dominoes";
 import type { SampleGold } from "../tumble-oracle";

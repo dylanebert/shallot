@@ -3,7 +3,7 @@
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer. The `rows` knob picks
 // the pyramid's base row count.
 
-import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/stacking-box-pyramid.json";
+import goldJson from "../../../../src/standard/physics/samples/stacking-box-pyramid.json";
 import { register } from "../gym";
 import { buildBoxPyramid } from "../tumble-box-pyramid";
 import type { SampleGold } from "../tumble-oracle";

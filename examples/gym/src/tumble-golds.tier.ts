@@ -16,7 +16,7 @@
 // file reachable from this file's `./`-relative imports, walked mechanically. The tier
 // imports `tumble-gold-pool.ts` and `tumble-registry.ts`; `tumble-registry.ts` imports all
 // 38 `tumble-*.ts` build/update modules and 38 committed gold JSON files under
-// `packages/shallot-tumble/tests/tumble/samples/`; `tumble-gold-pool.ts` imports only
+// `src/standard/physics/samples/`; `tumble-gold-pool.ts` imports only
 // `tumble-registry.ts` (for the `GoldEntry` type) and resolves `tumble-gold-runner.ts` at
 // runtime; `tumble-gold-runner.ts` imports `@dylanebert/shallot/tumble/core`,
 // `tumble-oracle.ts`, and `./tumble-registry`. The cone is wider than the set of modules a gold verdict is a function

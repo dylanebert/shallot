@@ -27,7 +27,7 @@ import { isRegexLiteralStart, scanRegexLiteral } from "./check-exports";
 // (excluding test/fixture files) found 6 hits: 2 in comments, 4 `Math.sin` call sites (the
 // allowlisted ones), 0 extra. `Math.sqrt` is algebraic, not transcendental — rule 1 sanctions
 // it — so it never belonged in a trig sweep's evidence pattern. Re-derive with:
-// `grep -rn 'Math.\(sin\|cos\|tan\|atan2\|asin\|acos\|exp\|log\|pow\|cbrt\|sinh\|cosh\|tanh\)' packages/shallot-tumble/src/standard/tumble/engine/ | grep -v '\.test\.\|\.fixture\.'`
+// `grep -rn 'Math.\(sin\|cos\|tan\|atan2\|asin\|acos\|exp\|log\|pow\|cbrt\|sinh\|cosh\|tanh\)' src/standard/physics/engine/ | grep -v '\.test\.\|\.fixture\.'`
 //
 // **S1b — structural safety.** The predicate's soundness no longer rests on per-sample
 // demonstration. The sweep lexes once with quote / template-literal / comment awareness

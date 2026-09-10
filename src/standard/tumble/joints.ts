@@ -6,7 +6,7 @@ import {
     type Body as TumbleBody,
     type Joint as TumbleJoint,
     type World as TumbleWorld,
-} from "./engine";
+} from "../physics/engine";
 
 // Spring/Joint def → tumble joint marshaling — the constraint half of the ECS→tumble path
 // (marshal.ts is the body half). The substrate's ConstraintSystem uploads the full authored set on

@@ -9,7 +9,7 @@ import {
     makeBoxHull,
     type Body as TumbleBody,
     type World as TumbleWorld,
-} from "./engine";
+} from "../physics/engine";
 
 // ECS → tumble marshaling — the ONLY place a Body's authored fields become a tumble rigid body, so the
 // dual-run hash gate (tumble.test.ts) and TumblePlugin's sync system read this one path. The Spring/Joint

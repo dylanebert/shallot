@@ -14,7 +14,7 @@ import {
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "../..");
-const enginePath = "src/standard/tumble/engine";
+const enginePath = "src/standard/physics/engine";
 const canonical = resolve(root, "packages/shallot-tumble", enginePath);
 const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
@@ -176,7 +176,7 @@ const consumer = `
 import assert from "node:assert/strict";
 import { Tumble, TumblePlugin, State } from "@dylanebert/shallot";
 import { BodyType, World, init, threads, makeBoxHull } from "@dylanebert/shallot/tumble/core";
-import { kernel, workers } from "./node_modules/@dylanebert/shallot/src/standard/tumble/engine/kernel.ts";
+import { kernel, workers } from "./node_modules/@dylanebert/shallot/src/standard/physics/engine/kernel.ts";
 const mode = process.argv[2];
 const instantiate = WebAssembly.instantiate;
 let instances = 0;
@@ -279,7 +279,7 @@ export function tumbleArms(project: string): void {
         exec(project, "tumble-lazy-st", command("st"), true, /TUMBLE_REALIZED threads=1/);
         exec(project, "tumble-missing-mt", command("mt"), false, /kernel\.shared\.wasm/);
     });
-    const copy = join(shipped, "src/standard/tumble/engine-copy");
+    const copy = join(shipped, "src/standard/physics/engine-copy");
     assert(!existsSync(copy));
     cpSync(engine, copy, { recursive: true });
     try {
@@ -319,7 +319,7 @@ export function tumbleArms(project: string): void {
     const fixtures = join(shipped, "tests/tumble/fixtures");
     const reader = join(engine, "step.fixture.ts");
     assert(!existsSync(fixtures) && !existsSync(reader), "fixtures are not public package payload");
-    const truth = join(root, "packages/shallot-tumble/tests/tumble/fixtures");
+    const truth = join(root, "src/standard/physics/engine/fixtures");
     const population = readdirSync(truth)
         .filter((file) => file.endsWith(".json"))
         .sort();
@@ -333,7 +333,7 @@ export function tumbleArms(project: string): void {
             `TUMBLE_THREADS=${threads}`,
             "bun",
             "test",
-            "./node_modules/@dylanebert/shallot/src/standard/tumble/engine/step.fixture.ts",
+            "./node_modules/@dylanebert/shallot/src/standard/physics/engine/step.fixture.ts",
         ];
         missing(join(fixtures, population[0]), () =>
             exec(project, "tumble-missing-fixture", fixtureCommand("0"), false, /ENOENT/),

@@ -4,7 +4,7 @@ import { State, Time } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
 import { Body, bodyTraits, Joint, jointTraits, Physics, Spring, springTraits } from "../physics";
 import { Slab } from "../slab";
-import { shutdown, type Joint as TumbleJoint } from "./engine";
+import { shutdown, type Joint as TumbleJoint } from "../physics/engine";
 import { Tumble, TumblePlugin } from "./index";
 import { stiffnessHertz, syncSet } from "./joints";
 

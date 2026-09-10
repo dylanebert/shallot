@@ -3,7 +3,7 @@
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer. `rows` is a rebuild
 // knob (boundedness probe only — the gold exists at defaults).
 
-import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/shapes-shape-soup.json";
+import goldJson from "../../../../src/standard/physics/samples/shapes-shape-soup.json";
 import { register } from "../gym";
 import type { SampleGold } from "../tumble-oracle";
 import { sampleScenario } from "../tumble-sample";

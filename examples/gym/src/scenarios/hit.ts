@@ -2,7 +2,7 @@
 // (`samples/src/samples/events.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer.
 
-import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/events-hit.json";
+import goldJson from "../../../../src/standard/physics/samples/events-hit.json";
 import { register } from "../gym";
 import { buildHitEvents, renderHitEvents } from "../tumble-hit";
 import type { SampleGold } from "../tumble-oracle";

@@ -14,7 +14,7 @@ import {
 } from "../physics";
 import { Hulls } from "../physics/core";
 import { Slab } from "../slab";
-import { shutdown } from "./engine";
+import { shutdown } from "../physics/engine";
 import { Tumble, TumblePlugin } from "./index";
 
 // World lifecycle conformance: the wasm kernel is a singleton with ONE resident region, so a leaked world on a rebuild is a

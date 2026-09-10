@@ -3,7 +3,7 @@
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer. The sine-driven
 // vertical sweep lives in `update()`.
 
-import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/events-sensor-sweep.json";
+import goldJson from "../../../../src/standard/physics/samples/events-sensor-sweep.json";
 import { register } from "../gym";
 import type { SampleGold } from "../tumble-oracle";
 import { sampleScenario } from "../tumble-sample";

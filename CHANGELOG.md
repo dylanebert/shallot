@@ -4,6 +4,7 @@ Newest first. **Breaking:** marks a change that needs consumer action; [`MIGRATI
 
 ## Unreleased
 
+- **physics** — the Rust/WASM solver, its kernel crate, scripts and fixtures move out of the private solver package into `src/standard/physics`, `rust/physics` and `scripts/physics`; the tarball ships the solver and its inlined kernel from the root allowlist.
 - **cli (breaking)** — the `shallot tui` command is removed.
 - **packaging** — shallot-runtime and shallot-cli collapse into the one published package, which now lives at the repository root and ships its real source through the `files` allowlist instead of a pack-time projection. Import paths and the `shallot` bin are unchanged.
 - **packaging** — the tarball no longer ships the glTF test fixtures, and its `AGENTS.md` is the consumer contract alone; repo-maintainer content moved to an unshipped `MAINTAINERS.md`.

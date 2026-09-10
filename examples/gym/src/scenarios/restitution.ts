@@ -3,7 +3,7 @@
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer. `shape`/`count` are
 // rebuild knobs (boundedness probe only — the gold exists at defaults).
 
-import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/shapes-restitution.json";
+import goldJson from "../../../../src/standard/physics/samples/shapes-restitution.json";
 import { register } from "../gym";
 import type { SampleGold } from "../tumble-oracle";
 import { buildRestitution } from "../tumble-restitution";
