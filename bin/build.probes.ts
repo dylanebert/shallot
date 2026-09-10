@@ -275,7 +275,7 @@ test("manifest build retains imported CSS/child assets and prunes a tree-shaken 
             type: "module",
             dependencies: {
                 "@dylanebert/shallot": "PACK_TARBALL",
-                typegpu: "~0.12.4",
+                typegpu: "~0.12.5",
             },
         });
 

@@ -5,7 +5,7 @@ import { CLAUDE_IMPORT, RECIPE_TSCONFIG, recipeDoc } from "./scaffold";
 // `shallot recipe [name] [dir]` — copy a recipe out of the installed package into a runnable project.
 // The recipes ship in the tarball under this package's `examples/recipes/`; running
 // one in place breaks its own dep resolution and users shouldn't edit inside node_modules, so copy-out is
-// the path. The copy's `workspace:*` dep on the engine is rewritten to the installed version so a plain
+// the path. The copy's local dep on the engine is rewritten to the installed version so a plain
 // `bun install && bunx shallot dev` runs green. Paths resolve relative to this package, never cwd — the
 // corpus lives beside the CLI (`bin/` and `examples/` are siblings at the package root).
 
@@ -45,17 +45,22 @@ const DEP_FIELDS = [
 ] as const;
 
 /**
- * rewrite a `workspace:` engine dep to a concrete range so the copy installs from the registry, matching
+ * rewrite a local engine dep to a concrete range so the copy installs from the registry. `file:` and
+ * `link:` (the corpus links the repo root by relative path) → the exact version. `workspace:` follows
  * bun's publish semantics: `workspace:*` (and bare `workspace:`) → the exact version, `workspace:^` /
- * `workspace:~` → `^<version>` / `~<version>`, and an explicit range (`workspace:^1.2.3`, `workspace:1.2.3`)
- * → the range verbatim with only the `workspace:` prefix stripped. The corpus is all `workspace:*`, so
- * today every path pins exact; the rest holds the rewrite honest for a future explicit dep.
+ * `workspace:~` → `^<version>` / `~<version>`, and an explicit range (`workspace:^1.2.3`,
+ * `workspace:1.2.3`) → the range verbatim with only the `workspace:` prefix stripped.
  */
 export function pinEngine(pkgText: string, version: string): string {
     const pkg = JSON.parse(pkgText);
     for (const field of DEP_FIELDS) {
         const dep = pkg[field]?.[ENGINE];
-        if (typeof dep !== "string" || !dep.startsWith("workspace:")) continue;
+        if (typeof dep !== "string") continue;
+        if (dep.startsWith("file:") || dep.startsWith("link:")) {
+            pkg[field][ENGINE] = version;
+            continue;
+        }
+        if (!dep.startsWith("workspace:")) continue;
         const marker = dep.slice("workspace:".length);
         pkg[field][ENGINE] =
             marker === "*" || marker === ""
