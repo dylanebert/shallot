@@ -1,0 +1,4 @@
+import { check } from "@dylanebert/shallot/harness/check";
+
+const declaration = { claim: "identifier declaration", class: "pure", tier: "step", premises: [], budget: 10 };
+check("identifier declaration", declaration, () => {});

@@ -1,25 +1,25 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { STEP_BUDGET_MS } from "../src/harness/declaration";
-import { collectPopulation } from "./surface";
+import { collectPopulation, readQuarantine, renderWorkflow } from "./surface";
 
 // `check` arm for the check surface itself: every test-suffix file declares, claims are unique,
-// no declaration overruns its tier ceiling, and no quarantine row names a claim nobody has.
+// no declaration overruns its tier ceiling, quarantine rows are live and current, and the hosted
+// workflow is exactly the one the population emits.
 
 const TIER_CEILING_MS: Record<string, number> = { step: STEP_BUDGET_MS };
 
-interface QuarantineRow {
-    claim?: unknown;
-}
-
-function quarantineClaims(root: string): string[] {
-    const path = resolve(root, "quarantine.json");
-    if (!existsSync(path)) return [];
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as
-        | QuarantineRow[]
-        | { rows?: QuarantineRow[] };
-    const rows = Array.isArray(parsed) ? parsed : (parsed.rows ?? []);
-    return rows.map((row) => String(row?.claim ?? ""));
+function isShallotRoot(root: string): boolean {
+    const packagePath = resolve(root, "package.json");
+    if (!existsSync(packagePath)) return false;
+    try {
+        return (
+            (JSON.parse(readFileSync(packagePath, "utf8")) as { name?: unknown }).name ===
+            "@dylanebert/shallot"
+        );
+    } catch {
+        return false;
+    }
 }
 
 /** Read one tree's surface and return every violation, most specific message first. */
@@ -44,9 +44,46 @@ export function readSurface(root: string): string[] {
             );
         }
     }
-    for (const claim of quarantineClaims(root)) {
-        if (!seen.has(claim)) {
-            violations.push(`orphan quarantine row: "${claim}" names no check in the population`);
+
+    const quarantine = readQuarantine(root);
+    violations.push(...quarantine.errors);
+    const files = new Set(population.rows.map((row) => row.file));
+    const claims = new Set(population.rows.map((row) => row.claim));
+    const exactRows = new Set(population.rows.map((row) => `${row.file}\u0000${row.claim}`));
+    const today = new Date().toISOString().slice(0, 10);
+    for (const row of quarantine.rows) {
+        if (row.expires < today) {
+            violations.push(`expired quarantine row: "${row.claim}" expired ${row.expires}`);
+        }
+        if (!files.has(row.file)) {
+            violations.push(
+                `orphan quarantine row: file "${row.file}" names no check in the population`,
+            );
+        }
+        if (!claims.has(row.claim)) {
+            violations.push(
+                `orphan quarantine row: claim "${row.claim}" names no check in the population`,
+            );
+        }
+        if (
+            files.has(row.file) &&
+            claims.has(row.claim) &&
+            !exactRows.has(`${row.file}\u0000${row.claim}`)
+        ) {
+            violations.push(
+                `orphan quarantine row: file "${row.file}" and claim "${row.claim}" do not identify the same check`,
+            );
+        }
+    }
+
+    if (isShallotRoot(root)) {
+        const workflowPath = resolve(root, ".github/workflows/test-surface.yml");
+        if (!existsSync(workflowPath)) {
+            violations.push("missing generated workflow: .github/workflows/test-surface.yml");
+        } else if (readFileSync(workflowPath, "utf8") !== renderWorkflow(population)) {
+            violations.push(
+                "generated workflow drift: .github/workflows/test-surface.yml differs from surface.ts --workflow",
+            );
         }
     }
     return violations;
@@ -60,5 +97,8 @@ if (import.meta.main) {
     const violations = readSurface(root);
     for (const violation of violations) console.error(violation);
     if (violations.length > 0) process.exit(1);
-    console.log(`${collectPopulation(root).rows.length} declared checks`);
+    const quarantine = readQuarantine(root);
+    console.log(
+        `${collectPopulation(root).rows.length} declared checks (${quarantine.rows.length} quarantined)`,
+    );
 }
