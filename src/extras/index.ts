@@ -51,7 +51,6 @@ export {
     OrbitOverlayPlugin,
     OrbitPick,
     OrbitPlugin,
-    OrbitTuningPlugin,
 } from "./orbit";
 export {
     Outline,

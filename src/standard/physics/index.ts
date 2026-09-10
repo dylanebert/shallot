@@ -112,8 +112,8 @@ export const Joint = {
 };
 
 // Authoring metadata for the three components above, shared with any extension solver that registers
-// them. `Body`/`Spring`/`Joint` are the same objects across plugins (idempotent registration, the archived ECS rules
-// "Stable component ids"), so their traits live here once.
+// them. `Body`/`Spring`/`Joint` are the same objects across plugins (idempotent registration
+// keeps component ids stable), so their traits live here once.
 
 /** {@link Body}'s traits: defaults, its exclusion of {@link Transform}, and the euler-degree `quat` alias. Shared by every plugin that registers `Body`. */
 export const bodyTraits = {
@@ -571,7 +571,7 @@ const SyncSystem: System = {
 // one reused Xform-shaped record (48 B / 12 f32: pos.xyz+pad, quat.xyzw, scale.xyz+pad — the `Xform` schema).
 const _record = new Float32Array(12);
 
-/** write the movers' interpolated pose into the `transforms` firehose at `alpha` (the archived render rules' fixedAlpha blend). */
+/** write the movers' interpolated pose into the `transforms` firehose at `alpha` (the fixed-step interpolation blend). */
 export function composePose(transforms: GPUBuffer, alpha: number): void {
     if (!Compute.device) return;
     for (const eid of movedThisTick) {

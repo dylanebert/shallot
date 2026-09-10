@@ -789,8 +789,8 @@ if (import.meta.main) {
             /## Recipes/.test(idx) && !/## Gym/.test(idx) && !/## Showcase/.test(idx),
         );
         check(
-            "the shipped contract names `shallot add` as the copy-out command",
-            /shallot add/.test(readFileSync(join(shipped, "AGENTS.md"), "utf8")),
+            "the shipped README names `shallot add` as the copy-out command",
+            /shallot add/.test(readFileSync(join(shipped, "README.md"), "utf8")),
         );
 
         if (install.ok) {
