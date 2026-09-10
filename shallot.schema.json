@@ -22,6 +22,39 @@
             "type": "string",
             "description": "Examples only: the user's problem in their own words; the examples index prints it in place of description. Ignored by dev, build and run."
         },
+        "check": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["file", "claim", "class", "tier", "premises", "budget"],
+            "properties": {
+                "file": {
+                    "type": "string",
+                    "description": "Path to the recipe check, relative to the manifest."
+                },
+                "claim": {
+                    "type": "string",
+                    "description": "The defect this recipe check catches."
+                },
+                "class": {
+                    "enum": ["pure", "process", "seat", "oracle"],
+                    "description": "What running the recipe check costs."
+                },
+                "tier": {
+                    "enum": ["step", "gpu", "browser", "headed", "built", "live"],
+                    "description": "Which runner and cadence owns the recipe check."
+                },
+                "premises": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "External things that must exist for the recipe check to run."
+                },
+                "budget": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "description": "The recipe check's wall-clock budget in milliseconds."
+                }
+            }
+        },
         "scene": {
             "type": "string",
             "description": "Path to the project's scene file, relative to the manifest (e.g. \"scenes/main.scene\")."
