@@ -23,7 +23,7 @@ import {
     resolvePrebuiltDecision,
     sha256Hex,
     tryPrebuilt,
-} from ".";
+} from "./prebuilt";
 
 // --- Pure decision table ---
 

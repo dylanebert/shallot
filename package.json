@@ -69,7 +69,7 @@
         "src",
         "bin",
         "rust/audio/pkg",
-        "rust/window",
+        "rust/native",
         "assets/icon-1024.png",
         "dist",
         "examples/recipes",

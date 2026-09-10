@@ -42,9 +42,9 @@ for (const [name, range] of Object.entries(shallot.dependencies ?? {})) {
 // → native host binary), so each tracks the shallot version it builds alongside.
 // Their `Cargo.lock`s are build output, not version sites — cargo rewrites the
 // own-package entry from the manifest on the next build (`rust/audio`'s is gitignored;
-// `rust/window`'s is tracked for reproducible native builds). `rust/physics` is `publish = false`
+// `rust/native`'s is tracked for reproducible native builds). `rust/physics` is `publish = false`
 // and versions independently of the release.
-for (const crate of ["rust/audio/Cargo.toml", "rust/window/Cargo.toml"]) {
+for (const crate of ["rust/audio/Cargo.toml", "rust/native/Cargo.toml"]) {
     const text = await Bun.file(resolve(root, crate)).text();
     const version = text.match(/^version = "(.+)"/m)?.[1];
     if (version !== shallot.version) {

@@ -1,7 +1,7 @@
 # Prebuilt shallot-window shell release pipeline.
 #
 # This is the repo's first CI. It produces the prebuilt binary archives that `shallot build --target`
-# downloads when available (stage B's `tryPrebuilt` in bin/native.ts), falling back to lazy compile on
+# downloads when available (stage B's `tryPrebuilt` in src/native/prebuilt.ts), falling back to lazy compile on
 # any miss. One `shallot-window-<triple>-<mode>.tar.gz` per matrix cell, plus a top-level `SHA256SUMS`
 # covering all six.
 #
@@ -111,7 +111,7 @@ jobs:
             pkg-config
 
       - name: Build shallot-window shell (release)
-        working-directory: rust/window
+        working-directory: rust/native
         run: |
           if [ "${{ matrix.mode }}" = "portable" ]; then
             cargo build --release --target ${{ matrix.target }} --no-default-features --features portable
@@ -133,7 +133,7 @@ jobs:
           ARCHIVE: ${{ matrix.archive }}
         run: |
           set -e
-          CRATE="rust/window"
+          CRATE="rust/native"
           STAGE="stage"
           mkdir -p "$STAGE"
 

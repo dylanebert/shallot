@@ -43,7 +43,7 @@ bun bin/shallot.ts <dev|build|run|add> [dir]
 # build/run: [--target <os>] [--portable]; build: [--release]
 ```
 
-OS: windows/mac/linux; web emits dist; native uses platform tools and builds `rust/window` per project. Published `/harness`; recipes wrap it. Screenshots never gate. Laws: `examples.md`.
+OS: windows/mac/linux; web emits dist; native uses platform tools and builds `rust/native` per project. Published `/harness`; recipes wrap it. Screenshots never gate. Laws: `examples.md`.
 
 ### Verification
 

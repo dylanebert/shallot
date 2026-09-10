@@ -96,7 +96,7 @@ describe("packed missing-crate diagnostic admission", () => {
         const shipped = join(app, "node_modules/@dylanebert/shallot");
         expect(existsSync(shipped)).toBe(true);
         expect(realpathSync(shipped)).toBe(shipped);
-        const crate = join(shipped, "rust/window");
+        const crate = join(shipped, "rust/native");
         const hidden = `${crate}.hidden`;
         expect(existsSync(join(crate, "Cargo.toml"))).toBe(true);
         expect(existsSync(hidden)).toBe(false);

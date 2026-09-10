@@ -821,15 +821,15 @@ if (import.meta.main) {
                 assets.join(", ") || "(no assets dir)",
             );
 
-            // rust/window ships in the tarball (package.json `files` includes `rust/window` minus
+            // rust/native ships in the tarball (package.json `files` includes `rust/native` minus
             // `target/`), so `shallot build --target <os>` from an installed package compiles the crate
             // lazily via cargo. A real native build is a multi-minute cargo/CEF arm — gated out of the
             // default suite (suite-speed budgets). Here we assert the crate is present and
             // resolvable in the installed layout; the premise builds run it for real.
             check(
-                "the rust/window crate ships in the installed package (lazy native-build source)",
-                existsSync(join(shipped, "rust/window/Cargo.toml")) &&
-                    existsSync(join(shipped, "rust/window/Cargo.lock")),
+                "the rust/native crate ships in the installed package (lazy native-build source)",
+                existsSync(join(shipped, "rust/native/Cargo.toml")) &&
+                    existsSync(join(shipped, "rust/native/Cargo.lock")),
             );
 
             // the crate-present check above says the file crossed the pack/install boundary; it says nothing
@@ -840,7 +840,7 @@ if (import.meta.main) {
             console.log(
                 "shallot build --target linux --portable with the crate hidden (ENOENT guard fires)…",
             );
-            const crate = join(shipped, "rust/window");
+            const crate = join(shipped, "rust/native");
             const hidden = `${crate}.hidden`;
             const crateDigest = directoryDigest(crate);
             assert(!existsSync(hidden), "hidden crate destination must be absent");
