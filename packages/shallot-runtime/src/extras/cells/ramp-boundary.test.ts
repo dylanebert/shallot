@@ -7,7 +7,7 @@ import {
     cellGlyphString,
 } from "./ramp";
 
-// N4 (shallot-tui S1's second repair round): `cellGlyphChar`, `cellGlyphString`, `CELL_FILL_GLYPHS`, and
+// `cellGlyphChar`, `cellGlyphString`, `CELL_FILL_GLYPHS`, and
 // the `CELL_GLYPH_COUNT` boundary had zero test references repo-wide before this file — the one property
 // S3 is told to build against (fill indices below the boundary, directional above, in bucket order) had
 // no arm, and neither did the range throws `cellGlyphChar` names in its own docblock. This is a

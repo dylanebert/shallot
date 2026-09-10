@@ -19,7 +19,7 @@ function engineSource(name: string): string {
     return SUBPATH_PLUGIN_MODULES[name] ?? ENGINE;
 }
 
-// Planning itself lives in `host.ts` — the browser generator and the terminal command consume the same
+// Planning itself lives in `host.ts` — the browser generator and the command entry consume the same
 // resolved plan, so a manifest classifies once. Re-exported here because the CLI's feature reader
 // already imports `plan` through this module.
 export { plan };
@@ -34,7 +34,7 @@ export function generateModule(manifest: Manifest, dir: string | null, scenes: s
 }
 
 /** the same module source, built from an already-resolved {@link ProjectPlan} — the shape both consumers
- *  share, so the terminal command and this generator provably run the same plugin set. */
+ *  share, so the command entry and this generator provably run the same plugin set. */
 export function generateModuleFromPlan(project: ProjectPlan): string {
     const { dir, manifest, scenes, engine, locals } = project;
     const idents = engine.map((n) => `${n}Plugin`);

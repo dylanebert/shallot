@@ -1,4 +1,4 @@
-// Cells — the ASCII-native render target's author-facing surface (`shallot-tui` spec). Add `CellsPlugin`
+// Cells — the ASCII-native render target's author-facing surface. Add `CellsPlugin`
 // to a project alongside a renderer (`RenderPlugin`, e.g. via `SearPlugin`) and every camera's scene
 // composites through a character-cell grid instead of raw pixels: after the scene renders, a compute
 // pass samples the camera's offscreen scene color into a structure-first-selected cell grid (`select.ts`

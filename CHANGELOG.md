@@ -2,6 +2,10 @@
 
 Newest first. **Breaking:** marks a change that needs consumer action; [`packages/shallot/MIGRATION.md`](packages/shallot/MIGRATION.md) is the 0.8→0.9 port. Versions follow [semver](https://semver.org).
 
+## Unreleased
+
+- Removed the `shallot tui` command.
+
 ## 0.10.0 — 2026-09-03
 
 - **brand** — every shipped surface carries the pixel mark instead of the old bézier clove. The runtime loading overlay boots the splash animation from the bitmap over a progress bar, both its themes retoken to the dark/light palette, and its font stacks name IBM Plex Sans and JetBrains Mono without fetching a webfont, so a native window and an offline boot look the same as the site. The example, scaffold and native-window icons regenerate from the mark through `scripts/brand-assets.ts`, whose test asserts byte equality so drift reds; the HUD and example colour tokens follow the same palette; and the old icon generator under `assets/` is deleted, its downloads served by the brand page.

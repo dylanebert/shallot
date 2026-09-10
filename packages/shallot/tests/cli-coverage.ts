@@ -422,55 +422,6 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "spy that would reach it. It runs for real on `bun run test:install`'s dev/build rungs.",
     },
     {
-        file: "packages/shallot-cli/bin/tui.ts",
-        arm: "gap",
-        reason:
-            "parseTuiArgs, decodeStdinChunk, cellsBytesToGrid, createQuitGuard, buildDisposeAll, " +
-            "runLoopWithTeardown, noBunWebgpuMessage, importBunWebgpu, noShallotTuiMessage, and " +
-            "importBunWebgpu (its DI.d loader, success and rejection) are all directly asserted by " +
-            "tui.test.ts, along with runTui's bad-flag path (EXIT_SETUP), its missing-bun-webgpu path " +
-            "(EXIT_NO_BUN_WEBGPU + the remedy message, not a thrown stack trace) via a rejecting loader " +
-            "override. Two " +
-            "regressions are covered against the exact production composition, not a hand-copied stand-" +
-            "in (S3/S4 batch review round 2, 2026-09-01). First, the q/Ctrl-C quit fix: requestStop and " +
-            "disposeOnce used to be one shared `stopped` boolean, so a quit request satisfied " +
-            "disposeAll's idempotency guard before disposeAll ever ran, silently skipping " +
-            "stdinBridge.stop()/app.dispose(). tui.test.ts proves this two ways — createQuitGuard's own " +
-            "contract in isolation, and buildDisposeAll, the exact function runTui calls to build its " +
-            "own disposeAll, which is what closes the round-2 finding that the isolated QuitGuard arm " +
-            "alone never reached the composition (one flag serving both the loop's stop condition and " +
-            "disposeAll's guard) the original bug actually lived in. Second, a throw mid-loop: before " +
-            "runLoopWithTeardown existed, teardown()/disposeAll() sat inline after the frame loop as a " +
-            "normal-completion-only step, so a throw from app.state.step/cellsGridFor/mapAsync/" +
-            "encoder.encode propagated straight out of runTui, skipping disposeAll entirely — the same " +
-            "raw-mode-left-on, timer-leaking symptom the q/Ctrl-C fix removed, through a different door. " +
-            "tui.test.ts proves runLoopWithTeardown (the exact function runTui calls to run its own " +
-            "frame loop) still runs teardown/disposeAll when the loop throws, and that the throw still " +
-            "propagates. runTui's real headless path — project plugin resolution off shallot.json " +
-            "(plan()), the engine build, the per-frame GPU cell-grid readback, and the encoder wiring — " +
-            "is exercised end to end by bin/tui.probes.ts (a real subprocess boot, hashed determinism " +
-            "across two independent runs plus a --tier byte-stream differential — criterion 6, " +
-            "specs/shallot-tui.md) and by scripts/install-test.ts's real bun-webgpu-absence " +
-            "check on a freshly scaffolded project (criterion 7). Reached by nothing under any tier: " +
-            "every interactive/real-tty-only path — " +
-            "installStdinBridge's raw-mode listener actually receiving live input (including " +
-            "requestStop's own real q/Ctrl-C call site inside that listener), installTeardown's SIGINT/" +
-            "SIGTERM exit callback, onResize's live callback, and the real ALT_SCREEN_ENTER/EXIT " +
-            "sequence, since every gate above drives a piped, non-tty stdin/stdout — plus four non-tty " +
-            "refusal/throw branches named explicitly rather than folded into that same claim: " +
-            'the "Cells"-not-enabled refusal (:616-621), the no-camera refusal (:655-659), ' +
-            "resolveEnginePlugin's unknown-plugin throw (:506-508), and resolveLocalPlugin's " +
-            "default-export guard (:519-523). tui.test.ts's loader-rejection arms all return before " +
-            "reaching any of these four; install-test.ts's scaffolded project " +
-            "never installs bun-webgpu, so its own `shallot tui` checks exit 3 at the bun-webgpu-absence " +
-            "guard, which runs before the Cells check, every time; and tui.probes.ts drives a recipe " +
-            "that already enables Cells and has a camera, so it never reaches any refusal branch either. " +
-            "No stage in this unit's Approach owns a pty-driven interactive test, or a project fixture " +
-            "built to reach these four specifically; occupants: installStdinBridge, the installTeardown " +
-            "signal-exit callback, the alt-screen enter/exit paths gated on process.stdin.isTTY, and the " +
-            "four refusal/throw branches named above.",
-    },
-    {
         file: "packages/shallot-cli/bin/verify.ts",
         arm: "gap",
         reason:
@@ -551,7 +502,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "the A1 project host: plan/discovery/resolution as pure data. Every export is directly " +
             "asserted by host.test.ts from a real external project root (a temp dir with its own " +
             "node_modules) — plan's default/extra/local/disabled classification and its authored-spec " +
-            "plus resolved-path pair, headlessEngineNames' unconditional Glaze drop, discoverScenes and " +
+            "plus resolved-path pair, discoverScenes and " +
             "isProject over manifest-only/scene-only/neither roots, missingProjectMessage's dir + " +
             "scaffold command, readProject's manifest/scene/local resolution and its pinned read set " +
             "(no path outside the project root), localModuleErrors' installed-bare and relative grants " +
@@ -562,15 +513,13 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
         file: "packages/shallot-cli/src/project/command.ts",
         arm: "unit",
         reason:
-            "the command entry `bin/tui.ts` reaches a project through. planProject's exit codes " +
+            "the command entry `bin/toolchain.ts` reaches a project through. planProject's exit codes " +
             "(missing project, clean manifest-only, clean scene-only, installed bare plugin, missing " +
             "dependency before any evaluation), loadLocalPlugins' enabled-evaluated/disabled-never-" +
             "evaluated sentinel pair and its missing-default refusal, the shared-plan identity against " +
             "generateModuleFromPlan, and the bare-bun purity arms (no Vite in the loaded module graph, " +
             "no browser/GPU global, with the Vite-importing toolchain as the reader's control) are all " +
-            "asserted by command.test.ts. SUBPATH_PLUGIN_LOADERS is gated against SUBPATH_PLUGIN_MODULES " +
-            "by catalog.test.ts; loadEnginePlugins/loadHeadlessPlugins reach a real device and are " +
-            "executed by the `shallot tui` runs in bin/tui.probes.ts and scripts/install-test.ts.",
+            "asserted by command.test.ts.",
     },
     {
         file: "packages/shallot-cli/src/project/generate.ts",

@@ -2,7 +2,7 @@
     <a ambient-light="color: 0x404040" />
     <a directional-light="direction: -0.4 -0.8 -0.45; intensity: 1" />
 
-    <!-- distance 2.2 (down from the recipe's original 6, s3r 2026-09-01, `specs/shallot-tui.md` criterion 8): at
+    <!-- distance 2.2: at
          the default distance the unit cube's 80x24 grid silhouette is ~5 rows tall, too small for the
          three faces to read as three faces. 2.2 puts the cube at ~14-18 rows across every orbit yaw this
          recipe reaches, still inside the 80x24 grid at every angle (near plane 0.1, cube half-extent
@@ -15,8 +15,8 @@
          (`packages/shallot/scripts/dump-cells-ascii.ts`'s own dump confirms both at this orbit). -->
     <a id="camera" camera sear transform orbit="distance: 2.2; yaw: 0.6; pitch: 0.55" />
 
-    <!-- lit, view-independent by construction (corrected 2026-09-01, `specs/shallot-tui.md`'s locked
-         glyph-selection addendum): the box never rotates (only the camera orbits it) and the light is
+    <!-- lit, view-independent by construction (per-face glyph-selection contract):
+         the box never rotates (only the camera orbits it) and the light is
          fixed in world space, so each face's normal·light angle — and so its luminance and its slice
          of the glyph ramp — stays constant across every camera angle. A single constant albedo with no
          lighting term at all (the prior `surface: unlit`) gives every visible face the *same* constant

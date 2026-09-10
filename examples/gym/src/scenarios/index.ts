@@ -25,7 +25,7 @@
 // vs byte-exact readback), `accel` (the acceleration-structure pipeline: sort → build → traverse, gated on
 // both the subgroup and LDS-fallback builder arms each run), `text` (the typed SDF text producer's
 // real-GPU draw — a local-fixture-font label, gated by the same chroma-against-clear framebuffer probe
-// pattern `accel`'s line draw uses), `cells` (the `shallot-tui` cell-grid producer's real-GPU dispatch,
+// pattern `accel`'s line draw uses), `cells` (the cell-grid producer's real-GPU dispatch,
 // `noRender: true` like `gpu-diagnostic`: complete Mirror fill readback against an independent
 // WGSL certificate plus exact production-packing controls), and the
 // three §6 physics scenarios by simulation type — `pile` (contact-settling

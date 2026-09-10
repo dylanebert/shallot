@@ -52,7 +52,7 @@ CRUD/reload: bugs/novel lifecycles/dynamic adds; conformance: novel state/regist
 
 One browser session/file, phased assertions. Probe/log adapter names before waits; software can pass feature floors. Only device-dependent gates skip; skips aren't proof.
 
-Suffix owner: `tests/test-tiers.ts`. Fast `.test.ts`; heavy CPU `.oracle.ts`/corpus `.tier.ts` by explicit `./` path on header triggers, retaining split sentinels. Browser/subprocess `.probes.ts` by-path, pure siblings fast: `bun run test:tui-probes`. `.lab.ts` temporary; `.playwright.ts` uses project configs. Outside-cone tests need invoking gates. Walk all tiers/unloaded files; no duplicate roster.
+Suffix owner: `tests/test-tiers.ts`. Fast `.test.ts`; heavy CPU `.oracle.ts`/corpus `.tier.ts` by explicit `./` path on header triggers, retaining split sentinels. Browser/subprocess `.probes.ts` by-path, pure siblings fast. `.lab.ts` temporary; `.playwright.ts` uses project configs. Outside-cone tests need invoking gates. Walk all tiers/unloaded files; no duplicate roster.
 
 Five-second cap stands until consumed distributions exist. Isolation diagnoses, never exempts: derive smaller scans or promote to oracle/tier with reasons; no cap raises. Only standard header classes earn scripts. Read oracle results, not reach sentinels.
 

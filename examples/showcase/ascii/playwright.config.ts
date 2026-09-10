@@ -1,8 +1,8 @@
 import { defineConfig } from "@playwright/test";
 
 // The ascii showcase's own browser driver — bring-your-own, as a real user would (shallot exports no
-// Playwright harness). `test/pixel-probe.playwright.ts` is this project's whole driver: criterion 5's
-// masked pixel probe over the compositor (`shallot-tui` spec). The web server is `shallot dev` (the
+// Playwright harness). `test/pixel-probe.playwright.ts` is this project's whole driver: a masked
+// pixel probe over the compositor. The web server is `shallot dev` (the
 // standalone runtime, no editor), so the gate runs against the same path a user opens. This is full
 // device testing: it needs a capable WebGPU GPU, so the launch is local and headed on the
 // session's display — `playwright.global-setup.ts` refuses to start without one, and the adapter-name

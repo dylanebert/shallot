@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
     discoverScenes,
-    headlessEngineNames,
     isProject,
     localModuleErrors,
     missingProjectMessage,
@@ -67,20 +66,6 @@ describe("plan", () => {
     });
 });
 
-describe("headlessEngineNames", () => {
-    test("drops Glaze (no swapchain headless) and keeps every other enabled engine plugin", () => {
-        const names = headlessEngineNames(plan({ plugins: { Cells: true } }, DIR));
-        expect(names).not.toContain("Glaze");
-        expect(names).toContain("Cells");
-        expect(names).toContain("Render");
-    });
-
-    test("a manifest that already disabled Glaze gets the same set (the drop is unconditional)", () => {
-        const names = headlessEngineNames(plan({ plugins: { Glaze: false, Cells: true } }, DIR));
-        expect(names).toEqual(["Slab", "Transforms", "Input", "Render", "Part", "Sear", "Cells"]);
-    });
-});
-
 describe("isProject / missingProjectMessage", () => {
     test("a manifest project, a scene-only project and neither", () => {
         const manifestOnly = externalRoot("manifest-only");
@@ -134,7 +119,7 @@ describe("readProject", () => {
 
     test("reads the project's own manifest only — never a planted private engine file", () => {
         // the seam takes a project root and nothing else: a private export target planted beside a
-        // pretend installed engine must never enter its read set (the export-map read the TUI used to
+        // pretend installed engine must never enter its read set (the export-map read a command used to
         // do). The read set is pinned exactly, so a new read of any private path reds here.
         const root = externalRoot("read-set");
         writeFileSync(join(root, "shallot.json"), JSON.stringify({ plugins: { Cells: true } }));

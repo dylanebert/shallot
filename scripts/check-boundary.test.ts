@@ -465,7 +465,7 @@ describe("reader gap controls", () => {
     });
     test("blank tooling dispositions refuse", () => {
         const root = make();
-        const file = "packages/shallot/bin/tui.ts";
+        const file = "packages/shallot/bin/run.ts";
         write(root, file, 'void import(path); import "../src/project/generate";');
         const result = checkBoundary(root, {
             ...EMPTY,
@@ -506,7 +506,7 @@ describe("reader gap controls", () => {
                 },
             }),
         );
-        write(root, "packages/shallot/bin/tui.ts", 'import "@private";');
+        write(root, "packages/shallot/bin/run.ts", 'import "@private";');
         expect(checkBoundary(root, EMPTY).violations[0]?.reason).toContain("no declared seam");
     });
     test("consumer package imports refuses even without use", () => {
@@ -594,9 +594,9 @@ describe("reader gap controls", () => {
         'export { plan } from "@dylanebert/shallot/src/project/generate";',
         'void import("@dylanebert/shallot/src/project/generate");',
     ]) {
-        test(`TUI alternate private spelling refuses: ${source}`, () => {
+        test(`tooling alternate private spelling refuses: ${source}`, () => {
             const root = make();
-            write(root, "packages/shallot/bin/tui.ts", source);
+            write(root, "packages/shallot/bin/run.ts", source);
             expect(checkBoundary(root, EMPTY).violations[0]?.reason).toContain("no declared seam");
         });
     }

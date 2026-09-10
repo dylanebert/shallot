@@ -17,7 +17,7 @@ describe("RAMP_TABLE reproduces from generate-ramp.ts's own computeRampTable", (
         expect(RAMP_TABLE).toEqual(fresh);
     });
 
-    // N5 (shallot-tui S1's second repair round): this used to check `RAMP_TABLE[i].coverage` — the
+    // this used to check `RAMP_TABLE[i].coverage` — the
     // *committed* field — against itself, which can only ever red together with the reproduction test
     // above (any RAMP_TABLE row order that broke monotonicity would already fail `toEqual(fresh)`, since
     // `computeRampTable` is sorted by construction and `fresh` would then differ from RAMP_TABLE in

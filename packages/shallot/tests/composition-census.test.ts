@@ -16,7 +16,6 @@ type Gate = readonly [RegExp, string];
 const COMPOSITION_SURFACES: readonly RegExp[] = [
     /^examples\/(?:flows|recipes|showcase|gym)\//,
     /^evals\/tasks\//,
-    /^packages\/shallot-cli\/bin\/tui\.ts$/,
     /^packages\/shallot-cli\/src\/project\/command\.ts$/,
     /^packages\/shallot\/scripts\/dump-cells-ascii\.ts$/,
 ];
@@ -28,7 +27,6 @@ const PROJECT_GATES: readonly Gate[] = [
     [/^examples\/showcase\//, "bun run test:changed --all"],
     [/^examples\/gym\//, "bun bench"],
     [/^evals\/tasks\/[^/]+\/gate\.ts$/, "bun run test"],
-    [/^packages\/shallot-cli\/bin\/tui\.ts$/, "bun test ./packages/shallot-cli/bin"],
     [
         /^packages\/shallot-cli\/src\/project\/command\.ts$/,
         "bun test ./packages/shallot-cli/src/project",
@@ -50,7 +48,7 @@ function isComposition({ path, source }: SourceFile): boolean {
         /^evals\/tasks\/[^/]+\/gate\.ts$/.test(path) ||
         // both surface forms of a composed plugin list: the explicit property (`plugins: […]`,
         // `plugins: project.plugins`) and the shorthand a host uses once it holds the list in a
-        // variable of that name (`build({ plugins, … })`, which `bin/tui.ts` now does).
+        // variable of that name (`build({ plugins, … })`).
         /\bplugins\s*:\s*(?:\[|[A-Za-z_$])|\bplugins\s*,\s*$/m.test(source)
     );
 }

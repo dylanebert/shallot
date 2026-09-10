@@ -14,7 +14,7 @@ import { isProject as hostIsProject, missingProjectMessage } from "../src/projec
 // the synthesized zero-config path (a manifest recipe is unaffected).
 
 /** dir holds a shallot project — a shallot.json manifest or a .scene file. Discovery itself belongs to
- *  the project host (`src/project/command.ts`), so `shallot dev`/`build`/`tui` cannot disagree on what
+ *  the project host (`src/project/command.ts`), so `shallot dev`/`build`/`verify` cannot disagree on what
  *  a project is. */
 export function isProject(projectDir: string): boolean {
     return hostIsProject(resolve(projectDir));

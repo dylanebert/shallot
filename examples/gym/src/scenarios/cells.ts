@@ -1122,8 +1122,7 @@ async function assertFacadeInk(): Promise<Check> {
     return { name, pass, detail };
 }
 
-// Criterion 9 (`shallot-tui` spec, added 2026-09-01 after a human look found the shaded 3D scene visible
-// underneath the glyphs): "the web frame contains the cell grid and nothing else." `assertDrawDispatch`
+// The web frame contains the cell grid and nothing else: no shaded 3D scene shows underneath the glyphs. `assertDrawDispatch`
 // above proves the *ink* pixels read correctly at a sampled center point; it says nothing about the
 // pixels a cell's own footprint margin leaves — exactly where the s3r item 9 defect lived (`draw.ts`'s
 // `loadOp: "load"` composited the grid *over* whatever `view.framebuffer` already held, and the shrunk

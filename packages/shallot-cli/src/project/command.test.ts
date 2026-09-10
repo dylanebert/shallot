@@ -7,7 +7,7 @@ import { EXIT_OK, EXIT_SETUP, loadLocalPlugins, planProject } from "./command";
 import { generateModuleFromPlan } from "./generate";
 import { readProject } from "./host";
 
-// The command entry is the one seam `bin/tui.ts` reaches a project through, so its arms run from a real
+// The command entry is the one seam the CLI's tooling reaches a project through, so its arms run from a real
 // external project root (a temp dir outside this repo): a project root, its own `node_modules`, and
 // nothing of this package's private layout.
 

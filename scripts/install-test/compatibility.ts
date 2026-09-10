@@ -250,60 +250,6 @@ export async function compatibilityFlow(work: string, candidate: string): Promis
                 app,
             );
             assert(/"pass"\s*:\s*true/.test(verdict));
-            exec(`${label}-help`, ["bun", "node_modules/.bin/shallot", "tui", "--help"], app);
-            const tui = exec(
-                `${label}-external-root-tui`,
-                [
-                    "bun",
-                    join(app, "node_modules/.bin/shallot"),
-                    "tui",
-                    app,
-                    "--frames",
-                    "1",
-                    "--tier",
-                    "plain",
-                ],
-                evidence,
-                false,
-            );
-            if (label === "previous")
-                assert.match(
-                    tui,
-                    /unknown option: --frames/,
-                    "0.9.5 predates the bounded TUI command",
-                );
-            else {
-                assert.match(
-                    tui,
-                    /does not enable "Cells"/,
-                    "ordinary scaffold retains the explicit terminal configuration refusal",
-                );
-                const terminal = join(app, "terminal");
-                mkdirSync(join(terminal, "public"), { recursive: true });
-                cpSync(join(app, "src"), join(terminal, "src"), { recursive: true });
-                writeFileSync(
-                    join(terminal, "shallot.json"),
-                    JSON.stringify({ scene: "main.scene", plugins: { Cells: true } }),
-                );
-                writeFileSync(
-                    join(terminal, "public/main.scene"),
-                    '<scene><a camera sear cells transform="pos: 0 0 5" /><a part transform /></scene>',
-                );
-                exec(
-                    `${label}-configured-external-tui`,
-                    [
-                        "bun",
-                        join(app, "node_modules/.bin/shallot"),
-                        "tui",
-                        terminal,
-                        "--frames",
-                        "1",
-                        "--tier",
-                        "plain",
-                    ],
-                    evidence,
-                );
-            }
             writeFileSync(join(app, "vite.config.ts"), `${config}\n`);
             writeFileSync(
                 join(app, "index.html"),

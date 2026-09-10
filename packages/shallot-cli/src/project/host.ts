@@ -1,16 +1,12 @@
 // The project host: plan, discovery and resolution for a project directory, as pure data. One module
 // answers "what is this project, and which plugins does it enable" for both consumers — the browser
-// generator (`generate.ts` → `virtual:project`, through `vite.ts`) and the terminal command
-// (`command.ts` → `bin/tui.ts`) — so the two cannot drift in how a manifest becomes a plugin set.
+// generator (`generate.ts` → `virtual:project`, through `vite.ts`) and the command entry (`command.ts`
+// → `bin/toolchain.ts`) — so the two cannot drift in how a manifest becomes a plugin set.
 //
 // Nothing here imports Vite, a browser API or a GPU global, and nothing here loads a plugin module: a
 // plan is data the caller may inspect, log or refuse before any module evaluation happens
 // (Bun loaders resolve the complete entry set again at load time). That split
 // is what lets a dependency mistake fail with an exit code instead of a half-imported project.
-//
-// Presentation is deliberately absent: the host names the enabled plugins and, for a headless run, says
-// which of them a terminal presentation must drop (`headlessEngineNames` — Glaze composites a swapchain
-// that does not exist headless). Terminal canvas/input/readback/encoding stay in `bin/tui.ts`.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -87,13 +83,6 @@ export function plan(
     return { engine, locals, disabled };
 }
 
-/** the engine plugins a headless presentation runs: the plan's set minus Glaze, which composites the
- *  rendered scene onto a swapchain no headless run owns. Unconditional, not a manifest toggle — a
- *  terminal run has no swapchain to disable it against. */
-export function headlessEngineNames(plan: Pick<ProjectPlan, "engine">): string[] {
-    return plan.engine.filter((name) => name !== "Glaze");
-}
-
 /** every `.scene` under `dir`, project-relative and sorted. */
 export function discoverScenes(dir: string): string[] {
     const scenes: string[] = [];
@@ -133,7 +122,7 @@ export function isProject(dir: string): boolean {
 }
 
 /** the diagnostic for a directory that is no project — one message, printed by every command that
- *  needs one (`bin/toolchain.ts`'s `requireProject`, the terminal command's setup exit). */
+ *  needs one (`bin/toolchain.ts`'s `requireProject`, `planProject`'s setup exit). */
 export function missingProjectMessage(dir: string): string[] {
     return [
         `\n  ✗ No shallot project found at ${dir}`,
