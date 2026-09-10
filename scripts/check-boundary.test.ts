@@ -44,7 +44,7 @@ const make = (): string => {
             name: "@dylanebert/shallot",
             workspaces: ["packages/*", "examples/recipes/*"],
             dependencies: { typegpu: "~0.12.4" },
-            devDependencies: { vite: "^7.0.0" },
+            devDependencies: { "@dylanebert/shallot": "link:.", vite: "^7.0.0" },
             exports: {
                 ".": "./src/index.ts",
                 "./render/core": "./src/standard/render/core.ts",
@@ -60,7 +60,7 @@ const make = (): string => {
     write(
         root,
         "examples/recipes/demo/package.json",
-        JSON.stringify({ name: "demo", dependencies: { "@dylanebert/shallot": "workspace:*" } }),
+        JSON.stringify({ name: "demo", dependencies: { typegpu: "~0.12.4" } }),
     );
     write(root, "examples/recipes/demo/src/main.ts", 'import "@dylanebert/shallot";\n');
     return root;
@@ -385,6 +385,50 @@ describe("two-way completeness", () => {
         expect(checkBoundary(root, EMPTY).errors.join("\n")).toContain(
             "local production dependency",
         );
+    });
+});
+
+describe("engine self-link", () => {
+    const rootWith = (devDependencies: Record<string, string>) =>
+        JSON.stringify({
+            name: "@dylanebert/shallot",
+            workspaces: ["packages/*", "examples/recipes/*"],
+            devDependencies,
+            exports: { ".": "./src/index.ts", "./render/core": "./src/standard/render/core.ts" },
+        });
+
+    test("a root without the link:. self-link refuses", () => {
+        const devs: Record<string, string>[] = [{}, { "@dylanebert/shallot": "file:." }];
+        for (const dev of devs) {
+            const root = make();
+            write(root, "package.json", rootWith(dev));
+            expect(checkBoundary(root, EMPTY).errors.join("\n")).toContain("lacks the self-link");
+        }
+    });
+
+    test("a member linking the engine locally refuses, in every install field", () => {
+        for (const field of ["dependencies", "devDependencies", "optionalDependencies"])
+            for (const spec of ["file:../../..", "link:../../..", "workspace:*"]) {
+                const root = make();
+                write(
+                    root,
+                    "examples/recipes/demo/package.json",
+                    JSON.stringify({ name: "demo", [field]: { "@dylanebert/shallot": spec } }),
+                );
+                expect(checkBoundary(root, EMPTY).errors.join("\n")).toContain(
+                    `examples/recipes/demo/package.json: ${field} links the engine locally (${spec})`,
+                );
+            }
+    });
+
+    test("a member's registry range and peer range stay green", () => {
+        const root = make();
+        write(
+            root,
+            "examples/recipes/demo/package.json",
+            JSON.stringify({ name: "demo", peerDependencies: { "@dylanebert/shallot": "0.10.0" } }),
+        );
+        expect(checkBoundary(root, EMPTY).errors).toEqual([]);
     });
 });
 

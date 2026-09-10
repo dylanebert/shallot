@@ -4,7 +4,6 @@
     "private": true,
     "type": "module",
     "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
         "typegpu": "~0.12.5"
     }
 }

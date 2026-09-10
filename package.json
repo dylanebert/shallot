@@ -132,6 +132,7 @@
         "@babel/parser": "^8.0.4",
         "@babel/plugin-syntax-typescript": "^8.0.3",
         "@biomejs/biome": "^2.5.13",
+        "@dylanebert/shallot": "link:.",
         "@playwright/test": "^1.63.0",
         "@types/bun": "latest",
         "@types/jpeg-js": "^0.3.7",

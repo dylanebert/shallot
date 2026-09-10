@@ -6,9 +6,6 @@
     "scripts": {
         "gate": "playwright test"
     },
-    "dependencies": {
-        "@dylanebert/shallot": "file:../../.."
-    },
     "devDependencies": {
         "@playwright/test": "^1.63.0",
         "@types/pngjs": "^6.0.5",

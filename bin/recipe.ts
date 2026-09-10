@@ -5,7 +5,7 @@ import { CLAUDE_IMPORT, RECIPE_TSCONFIG, recipeDoc } from "./scaffold";
 // `shallot recipe [name] [dir]` — copy a recipe out of the installed package into a runnable project.
 // The recipes ship in the tarball under this package's `examples/recipes/`; running
 // one in place breaks its own dep resolution and users shouldn't edit inside node_modules, so copy-out is
-// the path. The copy's local dep on the engine is rewritten to the installed version so a plain
+// the path. The copy gains (or has its local dep rewritten to) the installed engine version so a plain
 // `bun install && bunx shallot dev` runs green. Paths resolve relative to this package, never cwd — the
 // corpus lives beside the CLI (`bin/` and `examples/` are siblings at the package root).
 
@@ -69,6 +69,9 @@ export function pinEngine(pkgText: string, version: string): string {
                   ? `${marker}${version}`
                   : marker;
     }
+    // in-repo members declare no engine dep (the root self-links); a standalone copy needs one
+    if (!DEP_FIELDS.some((field) => typeof pkg[field]?.[ENGINE] === "string"))
+        pkg.dependencies = { [ENGINE]: version, ...pkg.dependencies };
     return `${JSON.stringify(pkg, null, 4)}\n`;
 }
 

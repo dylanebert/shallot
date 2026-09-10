@@ -16,6 +16,7 @@
         "@babel/parser": "^8.0.4",
         "@babel/plugin-syntax-typescript": "^8.0.3",
         "@biomejs/biome": "^2.5.13",
+        "@dylanebert/shallot": "link:.",
         "@playwright/test": "^1.63.0",
         "@types/bun": "latest",
         "@types/jpeg-js": "^0.3.7",
@@ -50,7 +51,6 @@
       "name": "gym",
       "version": "0.0.0",
       "dependencies": {
-        "@dylanebert/shallot": "file:../..",
         "typegpu": "~0.12.5",
       },
       "devDependencies": {
@@ -62,199 +62,117 @@
     "examples/recipes/animate-with-clips": {
       "name": "animate-with-clips",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/annotate-the-world": {
       "name": "annotate-the-world",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/billboards-and-sprites": {
       "name": "billboards-and-sprites",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/breakable-joints": {
       "name": "breakable-joints",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/build-a-scene": {
       "name": "build-a-scene",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/compute-and-readback": {
       "name": "compute-and-readback",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/custom-material": {
       "name": "custom-material",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/day-night-sky": {
       "name": "day-night-sky",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/drive-a-vehicle": {
       "name": "drive-a-vehicle",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/first-person": {
       "name": "first-person",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/fog-and-light-shafts": {
       "name": "fog-and-light-shafts",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/game-loop": {
       "name": "game-loop",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/gpu-particles": {
       "name": "gpu-particles",
       "version": "0.0.0",
       "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
         "typegpu": "~0.12.5",
       },
     },
     "examples/recipes/import-a-model": {
       "name": "import-a-model",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/joints": {
       "name": "joints",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/measure-performance": {
       "name": "measure-performance",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/moving-platform": {
       "name": "moving-platform",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/orbit-camera": {
       "name": "orbit-camera",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/overlay-ui": {
       "name": "overlay-ui",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/physics-playground": {
       "name": "physics-playground",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/play-sound": {
       "name": "play-sound",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/ragdoll": {
       "name": "ragdoll",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/render-to-a-terminal": {
       "name": "render-to-a-terminal",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/respond-to-input": {
       "name": "respond-to-input",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/save-and-restore": {
       "name": "save-and-restore",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/stylize-the-look": {
       "name": "stylize-the-look",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/recipes/surface-friction": {
       "name": "surface-friction",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
     },
     "examples/showcase/ascii": {
       "name": "ascii",
       "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
       "devDependencies": {
         "@playwright/test": "^1.63.0",
         "@types/pngjs": "^6.0.5",
@@ -265,7 +183,6 @@
       "name": "collapse",
       "version": "0.0.0",
       "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
         "@dylanebert/shallot-avbd-physics": "file:../../../packages/shallot-avbd-physics",
       },
       "devDependencies": {
@@ -276,7 +193,6 @@
       "name": "ocean",
       "version": "0.0.0",
       "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
         "typegpu": "~0.12.5",
       },
     },
@@ -284,7 +200,6 @@
       "name": "roads",
       "version": "0.0.0",
       "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
         "typegpu": "~0.12.5",
       },
       "devDependencies": {
@@ -297,7 +212,6 @@
       "name": "sandbox",
       "version": "0.0.0",
       "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
         "@dylanebert/shallot-avbd-physics": "file:../../../packages/shallot-avbd-physics",
       },
       "devDependencies": {
@@ -308,7 +222,6 @@
       "name": "visualization",
       "version": "0.0.0",
       "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
         "typegpu": "~0.12.5",
       },
       "devDependencies": {
@@ -321,7 +234,6 @@
       "name": "voxel",
       "version": "0.0.0",
       "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
         "typegpu": "~0.12.5",
       },
       "devDependencies": {
@@ -336,9 +248,6 @@
     "packages/shallot-avbd-physics": {
       "name": "@dylanebert/shallot-avbd-physics",
       "version": "0.10.0",
-      "devDependencies": {
-        "@dylanebert/shallot": "file:../..",
-      },
       "peerDependencies": {
         "@dylanebert/shallot": "0.10.0",
       },
