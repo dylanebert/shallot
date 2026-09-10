@@ -1,30 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import {
-    existsSync,
-    mkdirSync,
-    mkdtempSync,
-    readFileSync,
-    renameSync,
-    rmSync,
-    writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 // Arm for `scripts/format.ts`'s report-only mode — the mechanism that lets `check`
 // stop writing the tree it judges (spec: shallot-gate-never-writes, Validation 1 & 2).
-// `scripts/format.ts` scans from `import.meta.dir/..` (the repo root) for `**/*.scene`,
-// so each test creates a temp fixture tree under the repo root (never a tracked file).
-// The script's own imports resolve relative to the script file, not cwd, so the engine loads regardless.
+// `scripts/format.ts --root <dir>` scans that tree for `**/*.scene`, so each test creates a temp
+// fixture tree outside the repo. The script's own imports resolve relative to the script file, not cwd.
 
 const SCRIPT = join(import.meta.dir, "../scripts/format.ts");
 const REPO_ROOT = resolve(import.meta.dir, "..");
-// Fixtures live under the gitignored `_format-gate-fixtures/` dir (see .gitignore) so a
-// process-level kill (SIGTERM from the per-file test cap) that bypasses `finally` cleanup
-// cannot leave untracked dirs in the tracked tree. The dir is non-dot and directly under
-// the repo root, so the glob scanner finds the fixtures and the import.meta.dir anchor
-// proof stays real.
-const FIXTURE_ROOT = join(REPO_ROOT, "_format-gate-fixtures");
-mkdirSync(FIXTURE_ROOT, { recursive: true });
+// Fixtures live in an OS temp tree passed as `--root`, so a killed run cannot leave dirs in the repo.
+const FIXTURE_ROOT = mkdtempSync(join(tmpdir(), "shallot-format-gate-"));
 
 // A .scene that normalization would change: no trailing newline. The script does
 // `stringify(nodes) + "\n"`, so any scene missing the final newline is in the would-change set.
@@ -38,9 +25,8 @@ function fixtureScene(): { dir: string; scenePath: string } {
 }
 
 function runFormat(args: string[]) {
-    // run from a subdirectory so the test proves the import.meta.dir anchor —
-    // with the old process.cwd() scan, the fixture under REPO_ROOT would not be found
-    return Bun.spawnSync(["bun", SCRIPT, ...args], {
+    // run from a subdirectory so the scan root comes from --root, not cwd
+    return Bun.spawnSync(["bun", SCRIPT, "--root", FIXTURE_ROOT, ...args], {
         cwd: join(REPO_ROOT, "scripts"),
         stdout: "pipe",
         stderr: "pipe",
@@ -112,9 +98,6 @@ describe("format.ts report-only mode — Validation 1: check does not write", ()
 });
 
 describe("format.ts report-only mode — Validation 2: gates and still writes", () => {
-    // Mutation witness: reverting the import.meta.dir anchor to process.cwd() makes both tests
-    // below fail — the subprocess runs from REPO_ROOT/scripts, so process.cwd() no longer reaches
-    // the fixture under REPO_ROOT, and --check exits 0 (vacuously green) despite unformatted content.
     test("--check reds (exits nonzero) on a fixture normalization would change", () => {
         const { dir } = fixtureScene();
         try {
@@ -141,7 +124,7 @@ describe("format.ts report-only mode — Validation 2: gates and still writes", 
 
 describe("format.ts ignore matching — segment, not substring", () => {
     // Mutation witness: reverting segment matching to path.includes(dir) makes this test fail —
-    // "_format-gate-fixtures/distortion-xxx/test.scene".includes("dist") is true, so the file is silently skipped and
+    // "distortion-xxx/test.scene".includes("dist") is true, so the file is silently skipped and
     // --check exits 0 (green) despite unformatted content. The segment match (split on "/")
     // correctly distinguishes "distortion-xxx" from "dist".
     test("a dist-substring directory (distortion/) is not skipped by the dist ignore entry", () => {

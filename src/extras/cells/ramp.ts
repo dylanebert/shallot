@@ -13,7 +13,7 @@ import { RAMP_TABLE } from "./ramp-table";
 //     minus the directional set and {@link CELL_FILL_EXCLUDED_GLYPHS}, ordered by *measured ink coverage*
 //     ascending (least ink first), not by code point. A character set in code-point order is not a ramp —
 //     it carries no shape signal a tone-based selector can walk. The ordering is generated data, not
-//     hand-authored: rendered and measured by `scripts/generate-ramp.ts`, committed in `ramp-table.ts`,
+//     hand-authored: rendered and measured by `src/extras/cells/generate-ramp.ts`, committed in `ramp-table.ts`,
 //     and reproduced by `ramp-table.test.ts` against the cells face (`assets/jetbrains-mono.ttf`) the generator
 //     reads.
 //   - `CELL_DIRECTIONAL_GLYPHS` (appended after the fill glyphs) — a small curated set, one glyph per
@@ -39,7 +39,7 @@ import { RAMP_TABLE } from "./ramp-table";
  *  non-max suppression buckets (a gradient is perpendicular to its edge's tangent — module doc above has
  *  the derivation) — a caller indexing by a raw gradient bucket must rotate it 90° to the perpendicular
  *  tangent bucket first, or every glyph renders turned 90° from the edge it represents. Kept separate
- *  from {@link CELL_FILL_GLYPHS} (excluded from its coverage measurement, `scripts/generate-ramp.ts`)
+ *  from {@link CELL_FILL_GLYPHS} (excluded from its coverage measurement, `src/extras/cells/generate-ramp.ts`)
  *  because a directional glyph is selected by edge angle, never by ink coverage. */
 export const CELL_DIRECTIONAL_GLYPHS: readonly string[] = ["-", "/", "|", "\\"] as const;
 
@@ -62,7 +62,7 @@ export const CELL_FILL_EXCLUDED_GLYPHS: readonly string[] = ["(", ")", "{", "}"]
 
 /** the coverage-ordered fill ramp — every printable-ASCII candidate minus {@link CELL_DIRECTIONAL_GLYPHS}
  *  and {@link CELL_FILL_EXCLUDED_GLYPHS}, ascending by measured ink coverage (least ink first). Generated
- *  data (`scripts/generate-ramp.ts` / `ramp-table.ts`), not hand-authored. */
+ *  data (`src/extras/cells/generate-ramp.ts` / `ramp-table.ts`), not hand-authored. */
 export const CELL_FILL_GLYPHS: readonly string[] = RAMP_TABLE.map((entry) => entry.char);
 
 /** the glyph ramp's total length — fill glyphs plus the directional set — every {@link Cell.glyph} index

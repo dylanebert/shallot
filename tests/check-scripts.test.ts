@@ -3,23 +3,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const REPO_ROOT = join(import.meta.dir, "..");
-const CHECK_SCRIPTS = join(REPO_ROOT, "scripts", "check-scripts.ts");
-
 // A meta-test over repo-root tooling, not the engine — same shape as cli-coverage.test.ts's
 // registry walk, placed here so it rides the default `bun test` sweep instead of running under
 // nobody's hand. `scripts/check-scripts.ts` stays at `scripts/`, beside its five siblings; only
 // the test moves.
-import {
-    checkDocs,
-    checkExists,
-    checkReachable,
-    run,
-    workspacePkgPaths,
-} from "../scripts/check-scripts";
+import { checkExists, checkReachable, run, workspacePkgPaths } from "../scripts/check-scripts";
 
 // Fixture trees live under the OS tmpdir, never the repo — `--root`-style isolation so a
-// mutation this suite needs (a phantom target, an undocumented script, an orphan file) never
+// mutation this suite needs (a phantom target, an orphan file) never
 // touches a tracked file. Each test gets its own dir; cleaned up after.
 
 const roots: string[] = [];
@@ -95,43 +86,14 @@ describe("checkExists — direction 1", () => {
     });
 });
 
-describe("checkDocs — direction 2", () => {
-    test("flags a root script not cited anywhere", async () => {
-        const root = fixture({ "AGENTS.md": "bun run good\n" });
-        const violations = await checkDocs(root, { good: "x", undocumented: "y" });
-        expect(violations).toHaveLength(1);
-        expect(violations[0].script).toBe("undocumented");
-    });
-
-    test("passes a script cited as `bun run <name>`", async () => {
-        const root = fixture({ "AGENTS.md": "bun run good\n" });
-        const violations = await checkDocs(root, { good: "x" });
-        expect(violations).toHaveLength(0);
-    });
-
-    test("regression (finding 2): a colon-namespaced citation doesn't also document its prefix", async () => {
-        // Reviewer repro: citing only "foo:bar" must not satisfy a separate "foo" script — `\b`
-        // treats `:` as a word boundary, so the old regex read "bun foo:bar" as citing "foo".
-        const root = fixture({ "AGENTS.md": "bun run foo:bar\n" });
-        const violations = await checkDocs(root, { foo: "x", "foo:bar": "y" });
-        expect(violations.map((v) => v.script)).toEqual(["foo"]);
-    });
-
-    test("a namespaced script is satisfied by its own full-name citation", async () => {
-        const root = fixture({ "AGENTS.md": "bun run test:install\n" });
-        const violations = await checkDocs(root, { "test:install": "x" });
-        expect(violations).toHaveLength(0);
-    });
-});
-
-describe("checkReachable — direction 3", () => {
+describe("checkReachable — direction 2", () => {
     test("flags a scripts/* file nothing reaches", async () => {
         const root = fixture({
             "package.json": JSON.stringify({ scripts: { good: "bun run scripts/good.ts" } }),
             "scripts/good.ts": "1;",
             "scripts/orphan.ts": "1;",
         });
-        const violations = await checkReachable(root, { good: "bun run scripts/good.ts" });
+        const violations = await checkReachable(root, ["bun run scripts/good.ts"]);
         expect(violations.map((v) => v.script)).toEqual(["orphan.ts"]);
     });
 
@@ -140,18 +102,38 @@ describe("checkReachable — direction 3", () => {
             "package.json": JSON.stringify({ scripts: { good: "bun run scripts/good.ts" } }),
             "scripts/good.ts": "1;",
         });
-        const violations = await checkReachable(root, { good: "bun run scripts/good.ts" });
+        const violations = await checkReachable(root, ["bun run scripts/good.ts"]);
         expect(violations).toHaveLength(0);
     });
 
-    test("a by-path doc citation makes an unscripted file reachable", async () => {
+    test("a prose citation does not reach a file", async () => {
         const root = fixture({
             "package.json": JSON.stringify({ scripts: {} }),
             "scripts/instrument.ts": "1;",
             "AGENTS.md": "Run `scripts/instrument.ts` by hand after a perf change.\n",
         });
-        const violations = await checkReachable(root, {});
+        const violations = await checkReachable(root, []);
+        expect(violations.map((v) => v.script)).toEqual(["instrument.ts"]);
+    });
+
+    test("a workflow step reaches a file", async () => {
+        const root = fixture({
+            "scripts/deploy.ts": "1;",
+            ".github/workflows/site.yml": "steps:\n  - run: bun run scripts/deploy.ts\n",
+        });
+        const violations = await checkReachable(root, []);
         expect(violations).toHaveLength(0);
+    });
+
+    test("a `.probes.ts` sibling rides its reached base; an orphan base's sibling does not", async () => {
+        const root = fixture({
+            "scripts/good.ts": "1;",
+            "scripts/good.probes.ts": "1;",
+            "scripts/orphan.ts": "1;",
+            "scripts/orphan.probes.ts": "1;",
+        });
+        const violations = await checkReachable(root, ["bun run scripts/good.ts"]);
+        expect(violations.map((v) => v.script).sort()).toEqual(["orphan.probes.ts", "orphan.ts"]);
     });
 
     test("regression (finding 1): a bare-stem mention is not a path citation", async () => {
@@ -164,7 +146,7 @@ describe("checkReachable — direction 3", () => {
             "AGENTS.md":
                 'bun run good\nSee "orphan-test-file" for context (not a real citation, just a mention)\n',
         });
-        const violations = await checkReachable(root, { good: "bun run scripts/good.ts" });
+        const violations = await checkReachable(root, ["bun run scripts/good.ts"]);
         expect(violations.map((v) => v.script)).toEqual(["orphan-test-file.ts"]);
     });
 
@@ -174,18 +156,23 @@ describe("checkReachable — direction 3", () => {
             "scripts/good.ts": 'import { helper } from "./helper";\nhelper();',
             "scripts/helper.ts": "export function helper() {}",
         });
-        const violations = await checkReachable(root, { good: "bun run scripts/good.ts" });
+        const violations = await checkReachable(root, ["bun run scripts/good.ts"]);
         expect(violations).toHaveLength(0);
     });
 
-    test("a `.test.ts` file is exempt — bun test's own glob is its reachability mechanism", async () => {
+    test("a `.test.ts` file is reached by its base or by a `bun test` directory", async () => {
         const root = fixture({
-            "package.json": JSON.stringify({ scripts: { good: "bun run scripts/good.ts" } }),
             "scripts/good.ts": "1;",
             "scripts/good.test.ts": "1;",
+            "scripts/lone.test.ts": "1;",
         });
-        const violations = await checkReachable(root, { good: "bun run scripts/good.ts" });
-        expect(violations).toHaveLength(0);
+        const bare = await checkReachable(root, ["bun run scripts/good.ts"]);
+        expect(bare.map((v) => v.script)).toEqual(["lone.test.ts"]);
+        const swept = await checkReachable(root, [
+            "bun run scripts/good.ts",
+            "bun test src scripts",
+        ]);
+        expect(swept).toHaveLength(0);
     });
 });
 
@@ -208,58 +195,16 @@ describe("workspacePkgPaths", () => {
 });
 
 describe("run — end to end", () => {
-    test("a clean fixture reports zero violations across all three directions", async () => {
+    test("a clean fixture reports zero violations in both directions", async () => {
         const root = fixture({
             "package.json": JSON.stringify({
                 workspaces: [],
                 scripts: { good: "bun run scripts/good.ts" },
             }),
             "scripts/good.ts": "1;",
-            "AGENTS.md": "bun run good\n",
         });
-        const { existsViolations, docViolations, reachViolations } = await run(root);
+        const { existsViolations, reachViolations } = await run(root);
         expect(existsViolations).toHaveLength(0);
-        expect(docViolations).toHaveLength(0);
-        expect(reachViolations).toHaveLength(0);
-    });
-});
-
-describe("derivePathEntryPoints — empty-population guard", () => {
-    // The guard fires inside `derivePathEntryPoints` via `process.exit(1)`, which would kill the
-    // test runner if called in-process. The refusal arm drives the gate CLI as a subprocess so
-    // the exit code is observable; the grant arm calls `run()` directly because the absent-dir
-    // early return never reaches `process.exit`.
-
-    test("refuses when `evals/` exists but `git ls-files` yields no direct entry point", () => {
-        // `evals/` exists with a file in a subdir — `git ls-files evals/*.ts` matches it (git's
-        // default pathspec is recursive), but the `!rel.includes("/")` filter strips it, leaving
-        // zero direct entry points. The guard must refuse (exit 1), not pass vacuously.
-        const root = fixture({
-            "package.json": JSON.stringify({ workspaces: [], scripts: {} }),
-            "evals/harness/lib.ts": "export function lib() {}",
-        });
-        Bun.spawnSync(["git", "init", "-q"], { cwd: root });
-        Bun.spawnSync(["git", "add", "evals/harness/lib.ts"], { cwd: root });
-
-        const proc = Bun.spawnSync(["bun", CHECK_SCRIPTS, "--root", root], {
-            cwd: REPO_ROOT,
-            stdout: "pipe",
-            stderr: "pipe",
-        });
-        expect(proc.exitCode).toBe(1);
-        expect(proc.stderr.toString()).toContain("vacuously green");
-    });
-
-    test("grants a fixture root with no `evals/` dir — the absent-dir early return is valid, not a vacuous green", async () => {
-        // A fixture root with no `evals/` dir hits the early return (`!existsSync` → `return []`),
-        // which is valid: the gate's other arms still run, and there are no entry points to cite.
-        // The post-filter guard must NOT fire here — the absent-dir case is a grant, not a refusal.
-        const root = fixture({
-            "package.json": JSON.stringify({ workspaces: [], scripts: {} }),
-        });
-        const { existsViolations, docViolations, reachViolations } = await run(root);
-        expect(existsViolations).toHaveLength(0);
-        expect(docViolations).toHaveLength(0);
         expect(reachViolations).toHaveLength(0);
     });
 });

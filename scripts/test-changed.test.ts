@@ -5,11 +5,9 @@ import { resolve } from "node:path";
 import { Glob } from "bun";
 import { TEST_TIER_SUFFIX_NAMES } from "../tests/test-tiers";
 import { EXAMPLE_GATES } from "./example-gates";
-import { OCEAN_CPU_GATES } from "./ocean-oracle-gates";
-import { changedPaths, main, runCommand, selectCpuGates, selectExampleGates } from "./test-changed";
+import { changedPaths, main, runCommand, selectExampleGates } from "./test-changed";
 
 const dirs = (paths: string[]) => selectExampleGates(paths).map((row) => row.dir);
-const cpus = (paths: string[]) => selectCpuGates(paths).map((row) => row.script);
 
 describe("changed-path selector", () => {
     test("example selection preserves assertion cones and whole-roster escalation", () => {
@@ -19,7 +17,6 @@ describe("changed-path selector", () => {
         expect(dirs(["src/standard/render/plugin.ts"])).toEqual([
             "examples/recipes/day-night-sky",
             "examples/recipes/gpu-particles",
-            "examples/flows/no-walls",
             "examples/showcase/collapse",
             "examples/showcase/ocean",
             "examples/showcase/roads",
@@ -34,37 +31,6 @@ describe("changed-path selector", () => {
             EXAMPLE_GATES.map((row) => row.dir),
         );
         expect(dirs(["docs/selector.md"])).toEqual([]);
-    });
-
-    test("every CPU oracle is selected by a real header-named path", () => {
-        const witnesses: Record<string, string> = {
-            "test:ocean-realization": "examples/showcase/ocean/src/ocean/fft.ts",
-            "test:ocean-slope": "examples/showcase/ocean/src/ocean/slope.ts",
-            "test:ocean-mesh-inversion": "examples/showcase/ocean/src/ocean/clipmap.ts",
-            "test:ocean-fold": "examples/showcase/ocean/src/ocean/composed-fold.ts",
-        };
-        expect(Object.keys(witnesses).sort()).toEqual(
-            OCEAN_CPU_GATES.map((row) => row.script).sort(),
-        );
-        for (const [script, path] of Object.entries(witnesses))
-            expect(cpus([path])).toContain(script);
-    });
-
-    test("every CPU cover matches a tracked path and every command declares its recorded per-test ceiling", async () => {
-        const tracked = Bun.spawnSync(["git", "ls-files"], { cwd: resolve(import.meta.dir, "..") });
-        expect(tracked.success).toBe(true);
-        const files = tracked.stdout.toString().split("\n").filter(Boolean);
-        const pkg = await Bun.file(resolve(import.meta.dir, "../package.json")).json();
-        for (const row of OCEAN_CPU_GATES) {
-            const command = pkg.scripts[row.script];
-            expect(command).toBeString();
-            expect(command).toContain(row.covers[0]);
-            expect(command).toContain(`--timeout ${row.timeoutMs}`);
-            expect(row.recordedFraction).toBeGreaterThan(0);
-            expect(row.recordedFraction).toBeLessThanOrEqual(0.5);
-            for (const cover of row.covers)
-                expect(files.some((file) => new Glob(cover).match(file))).toBe(true);
-        }
     });
 
     test("a deleted example cover remains a changed path and selects its display row", async () => {
@@ -99,38 +65,6 @@ describe("changed-path selector", () => {
         }
     });
 
-    test("a deleted oracle cover remains a changed path and selects its CPU row", async () => {
-        const root = mkdtempSync(resolve(tmpdir(), "shallot-changed-delete-"));
-        const run = (...args: string[]) => {
-            const result = Bun.spawnSync(["git", ...args], { cwd: root });
-            expect(result.success, result.stderr.toString()).toBe(true);
-        };
-        try {
-            run("init", "-q");
-            run("config", "user.email", "gate@example.invalid");
-            run("config", "user.name", "Gate Fixture");
-            const oracle = "examples/showcase/ocean/test/fold-anchor.oracle.ts";
-            const path = resolve(root, oracle);
-            mkdirSync(resolve(path, ".."), { recursive: true });
-            writeFileSync(path, "fixture", { flush: true });
-            run("add", ".");
-            run("commit", "-qm", "base");
-            run("rm", "-q", oracle);
-            run("commit", "-qm", "delete");
-            const oldCwd = process.cwd();
-            process.chdir(root);
-            try {
-                const paths = await changedPaths("HEAD^", "HEAD");
-                expect(paths).toContain(oracle);
-                expect(cpus(paths)).toContain("test:ocean-fold");
-            } finally {
-                process.chdir(oldCwd);
-            }
-        } finally {
-            rmSync(root, { recursive: true, force: true });
-        }
-    });
-
     test("every explicit root test path resolves at least one default-tier test file", async () => {
         const root = resolve(import.meta.dir, "..");
         const pkg = await Bun.file(resolve(root, "package.json")).json();
@@ -152,7 +86,7 @@ describe("changed-path selector", () => {
         const dirs = command![1].trim().split(/\s+/);
         const byPathSuffixes = TEST_TIER_SUFFIX_NAMES.filter((name) => name !== "test");
         const tierCommand = new RegExp(
-            `(?:\\.(?:${byPathSuffixes.join("|")})\\.ts|shallot\\s+verify|bun\\s+(?:bench|run\\s+(?:flows|recipes|test:install)))`,
+            `(?:\\.(?:${byPathSuffixes.join("|")})\\.ts|shallot\\s+verify|bun\\s+(?:bench|run\\s+(?:recipes|test:install)))`,
         );
         const launch = new RegExp(
             `(?:const\\s+\\w*(?:COMMAND|CMD)\\s*=\\s*[\\s\\S]{0,300}${tierCommand.source}|Bun\\.spawn(?:Sync)?\\s*\\([\\s\\S]{0,300}${tierCommand.source})`,
@@ -277,33 +211,7 @@ describe("manifest-owned verify transport", () => {
 
 describe("changed-path execution tiers", () => {
     const args = ["--base", "base", "--diff", "head"];
-    test("CPU runs before an unavailable display and reports that distinct verdict", async () => {
-        const commands: string[] = [];
-        const logs: string[] = [];
-        const old = console.log;
-        console.log = (...parts) => logs.push(parts.join(" "));
-        try {
-            const code = await main(args, {
-                paths: async () => ["examples/showcase/ocean/src/ocean/fft.ts"],
-                run: async (command) => {
-                    commands.push(command);
-                    return { ok: true, warnings: 0 };
-                },
-                displaySkip: () => "fixture seat",
-            });
-            expect(code).toBe(0);
-            expect(commands).toContain("bun run test:ocean-realization");
-            expect(
-                logs.some((line) =>
-                    line.includes("CPU rows passed; display rows were unavailable"),
-                ),
-            ).toBe(true);
-        } finally {
-            console.log = old;
-        }
-    });
-
-    test("required display refusal and CPU failure are red", async () => {
+    test("required display refusal is red", async () => {
         const logs: string[] = [];
         const old = console.log;
         console.log = (...parts) => logs.push(parts.join(" "));
@@ -322,16 +230,6 @@ describe("changed-path execution tiers", () => {
                 ),
             ).toBe(true);
             expect(logs.some((line) => line.includes("display rows were unavailable"))).toBe(false);
-
-            logs.length = 0;
-            expect(
-                await main(args, {
-                    paths: async () => ["examples/showcase/ocean/src/ocean/fft.ts"],
-                    run: async () => ({ ok: false, warnings: 0 }),
-                    displaySkip: () => "fixture seat",
-                }),
-            ).toBe(1);
-            expect(logs.some((line) => line.startsWith("FAIL: CPU ocean realization"))).toBe(true);
         } finally {
             console.log = old;
         }
@@ -369,7 +267,6 @@ describe("changed-path execution tiers", () => {
         expect(unavailable.stdout).toContain(
             "UNAVAILABLE: selected display gates need native hardware",
         );
-        expect(unavailable.stdout).toContain("display rows were unavailable");
 
         const required = await runHost(true);
         expect(required.code).toBe(1);
@@ -377,7 +274,7 @@ describe("changed-path execution tiers", () => {
         expect(required.stdout).not.toContain("display rows were unavailable");
     });
 
-    test("main routes the selected CPU row before its display row with exact commands", async () => {
+    test("main routes the selected display row with its exact command", async () => {
         const commands: string[] = [];
         expect(
             await main(args, {
@@ -389,17 +286,14 @@ describe("changed-path execution tiers", () => {
                 displaySkip: () => null,
             }),
         ).toBe(0);
-        expect(commands).toEqual([
-            "bun run test:ocean-realization",
-            "bun run --cwd examples/showcase/ocean gate",
-        ]);
+        expect(commands).toEqual(["bun run --cwd examples/showcase/ocean gate"]);
     });
 
     test("display rows still accumulate a later failure after an earlier pass", async () => {
         const commands: string[] = [];
         expect(
             await main(args, {
-                paths: async () => ["examples/showcase/ocean/src/ocean/fft.ts"],
+                paths: async () => ["src/standard/render/plugin.ts"],
                 run: async (command) => {
                     commands.push(command);
                     return { ok: commands.length === 1, warnings: 0 };
@@ -407,10 +301,7 @@ describe("changed-path execution tiers", () => {
                 displaySkip: () => null,
             }),
         ).toBe(1);
-        expect(commands).toEqual([
-            "bun run test:ocean-realization",
-            "bun run --cwd examples/showcase/ocean gate",
-        ]);
+        expect(commands.length).toBeGreaterThan(1);
     });
 
     test("a compound gate propagates either child failure instead of swallowing it", async () => {

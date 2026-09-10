@@ -38,15 +38,6 @@ Grep first: `.claude/rules/examples.md`. Manifests: `bunx shallot dev examples/r
 
 `gym/`: `bun bench --scenario <name>`; gates/bench/demo. Roster: `gym/src/scenarios/index.ts`; teaching: recipes. Touch: `gym/test/touch.playwright.ts`.
 
-## Flows
-
-`bun run flows` wraps shipped verify.
-
-- `flows/no-walls/` — adopted device/raw WGSL draw, boundary/pixel gate.
-- `flows/survive-reload/` — value/warm entity reload/storage/restore.
-- `flows/ui-containment/` — invalid fixed UI clipped from host chrome.
-- `flows/blank/` — expected pixel failure despite harness ok.
-
 ## Showcase
 
 https://dylanebert.com/shallot/; version-pinned code links, project-owned gates.

@@ -17,7 +17,7 @@ JetBrains Mono for headings, code, terminals; IBM Plex Sans for running text (40
 
 ## Mark
 
-The 12×14 pixel mark is the only logo. `scripts/brand-assets.ts --write` regenerates every icon from it; `scripts/brand-assets.test.ts` reds on drift, skipping by content a project's own icon.
+The 12×14 pixel mark is the only logo.
 
 ## Motion
 

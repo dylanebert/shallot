@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path";
 import { Glob } from "bun";
 import { TEST_TIER_SUFFIXES } from "../tests/test-tiers";
-import { isRegexLiteralStart, scanRegexLiteral } from "./source-mask";
+import { isRegexLiteralStart, scanRegexLiteral } from "./check-exports";
 
 // The tumble engine's rule 1a (`.claude/rules/tumble.md` § "The contract: bit-exact f32
 // parity") says to `fround` a non-exact float literal before it enters `f32(...)` arithmetic:

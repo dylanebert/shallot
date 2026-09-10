@@ -6,7 +6,7 @@ paths:
   - "tests/**/*.ts"
   - "{src,bin,tests,scripts}/**/*.{test,probes}.ts"
   - "scripts/build.ts"
-  - "scripts/{install-test.ts,install-test/**/*.ts,stall-attribution.ts,compile-concurrency.ts,loaf-attribution.ts}"
+  - "scripts/{install-test.ts,install-test/**/*.ts}"
   - "examples/showcase/ocean/test/**/*.{test,oracle}.ts"
   - "site/rum-*.ts"
 ---
@@ -19,7 +19,7 @@ Gates never write. Root commands: AGENTS.md; budgets: style.md; test paths: mani
 
 Keep AGENTS.md's Verification triggers; price selected page boots. Narrow bench/flow/recipe selectors, not coverage; install has none. Close: `bun run test:changed -- --base <ref> --diff <ref>`. CPU precedes display; deleted covers select. Zero/unavailable/success differ; `SHALLOT_DISPLAY_REQUIRED=1` refuses unavailable.
 
-Ocean gates: `bun run test:ocean-realization`, `bun run test:ocean-slope`, `bun run test:ocean-mesh-inversion`, `bun run test:ocean-fold`. Headers own bounds/controls, `scripts/ocean-oracle-gates.ts` the cones. Reduced fold isn't production proof; mesh flips aren't fidelity; device parity excludes composition.
+Ocean oracle headers own bounds/controls. Reduced fold isn't production proof; mesh flips aren't fidelity; device parity excludes composition.
 
 ## GPU testing
 
@@ -41,7 +41,7 @@ Exact goldens: labels, raw calls (needn't equal), non-lazy GPU bytes. Pin produc
 
 Harvest through production: three independent agreeing samples unless mechanism-exact with corroboration. Samples cannot make nondeterminism exact. Tighten quantities; exemptions key subject/quantity. Attribute bytes per label. Control reds against recorded-green trees; retire proxies when mechanisms are gated. Larger windows cannot suppress unbounded tails.
 
-Counts miss compile/transport time; sync spans are stubs unless forced. Compare built/dev before claiming player cost. `scripts/boot-cost.ts`: release-scale, not cold-start gate. Asset counts blind, bundle bytes ungated, cold-pipeline cost unmeasured.
+Counts miss compile/transport time; sync spans are stubs unless forced. Compare built/dev before claiming player cost. Asset counts blind, bundle bytes ungated, cold-pipeline cost unmeasured.
 
 Attribution kind isn't magnitude; non-script remainder isn't a JS owner. Assert launched conditions; no cross-seat causal deltas. GPU timestamps, not RAF; CPU-mixed averages, pure-GPU minimum.
 
@@ -53,7 +53,7 @@ Observe, don't guess causes; empty diagnostics mean incomplete. Flush before exi
 
 ## Tiers
 
-CRUD/reload: bugs/novel lifecycles/dynamic adds; conformance: novel state/registries. ECS/app tests own atoms, flows end-to-end. Pairwise GPU matrices plus compile. `tests/standards.ts`: corpus/limits.
+CRUD/reload: bugs/novel lifecycles/dynamic adds; conformance: novel state/registries. ECS/app tests own atoms. Pairwise GPU matrices plus compile. `tests/standards.ts`: corpus/limits.
 
 One browser session/file, phased assertions. Probe/log adapter names before waits; software can pass feature floors. Only device-dependent gates skip; skips aren't proof.
 
@@ -79,8 +79,8 @@ Evals tools: `bun run evals/setup.ts`, `bun run evals/grade.ts`.
 
 ## Release gate
 
-Cycle order: bump all `check-versions.ts` sites/deferred changelog entries; `bun run scripts/check-versions.ts --release` before pack; RC dogfood; publish engine and scaffold; then `SHALLOT_DISPLAY_REQUIRED=1 bun run test:changed --all` (every row, no green skips), then separately `bun run demos` (site builds published-package ejected consumers, verifies built distribution; failures/skips nonzero), then merge and tag. Publish/tag together.
+Cycle order: bump all `check-versions.ts` sites/deferred changelog entries; `bun run scripts/check-versions.ts --release` before pack; RC dogfood; publish engine and scaffold; then `SHALLOT_DISPLAY_REQUIRED=1 bun run test:changed --all` (every row, no green skips), then merge and tag. Publish/tag together.
 
 Dogfood against registry-installed tracked-pin floors, never links. Peers/dev deps first, tarball last; reread installed versions. Preserve ignored artifacts; restore manifests/locks, inspect gitlinks/shared-root installs, leave RC runnable. Human live render required: hand over command; decoded stills only support it; name absent image proof.
 
-Read prose against artifacts. Migration changes only for major/minors; historical facts aren't version sites. Deploy via `site.yml`, not disabled `pages.yml`. Confirm deployed version, six archives/checksums and covered bytes. `bun run scripts/e2e-prebuilt.ts`: no-cargo proof; untraversed branches untested.
+Read prose against artifacts. Migration changes only for major/minors; historical facts aren't version sites. Deploy via `site.yml`, not disabled `pages.yml`. Confirm deployed version, six archives/checksums and covered bytes.

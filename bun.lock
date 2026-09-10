@@ -45,46 +45,6 @@
         "playwright",
       ],
     },
-    "examples/flows/blank": {
-      "name": "flow-blank",
-      "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
-      "devDependencies": {
-        "unplugin-typegpu": "~0.12.3",
-      },
-    },
-    "examples/flows/no-walls": {
-      "name": "flow-no-walls",
-      "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
-      "devDependencies": {
-        "unplugin-typegpu": "~0.12.3",
-      },
-    },
-    "examples/flows/survive-reload": {
-      "name": "flow-survive-reload",
-      "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
-      "devDependencies": {
-        "unplugin-typegpu": "~0.12.3",
-      },
-    },
-    "examples/flows/ui-containment": {
-      "name": "flow-ui-containment",
-      "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "file:../../..",
-      },
-      "devDependencies": {
-        "unplugin-typegpu": "~0.12.3",
-      },
-    },
     "examples/gym": {
       "name": "gym",
       "version": "0.0.0",
@@ -704,14 +664,6 @@
     "flat-cache": ["flat-cache@4.0.1", "", { "dependencies": { "flatted": "^3.2.9", "keyv": "^4.5.4" } }, "sha512-f7ccFPK3SXFHpx15UIGyRJ/FJQctuKZ0zVuN3frBo4HnK3cay9VEW0R6yPYFHC0AgqhukPzKjq22t5DmAyqGyw=="],
 
     "flatted": ["flatted@3.4.4", "", {}, "sha512-5+ybhBZANEJxaH3X5evAFatUxLfEHSr7n6kYJ+1Qd0mUqr4eu9gIf6GDbWHf8RJijHrjjO8G+la14SlL2SeS1Q=="],
-
-    "flow-blank": ["flow-blank@workspace:examples/flows/blank"],
-
-    "flow-no-walls": ["flow-no-walls@workspace:examples/flows/no-walls"],
-
-    "flow-survive-reload": ["flow-survive-reload@workspace:examples/flows/survive-reload"],
-
-    "flow-ui-containment": ["flow-ui-containment@workspace:examples/flows/ui-containment"],
 
     "fog-and-light-shafts": ["fog-and-light-shafts@workspace:examples/recipes/fog-and-light-shafts"],
 

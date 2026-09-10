@@ -1,6 +1,6 @@
 import { SCENARIO_GATES } from "../examples/gym/src/scenarios/timeouts";
 
-export type ExampleTier = "recipes" | "flows" | "showcase" | "gym";
+export type ExampleTier = "recipes" | "showcase" | "gym";
 
 export interface ExampleGate {
     dir: string;
@@ -227,54 +227,6 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         tier: "recipes",
         covers: ["examples/recipes/surface-friction/**", ...PHYSICS],
         gate: "bun run recipes --recipe surface-friction",
-    },
-    {
-        dir: "examples/flows/blank",
-        tier: "flows",
-        covers: ["examples/flows/blank/**", ...HARNESS, ...BOOT, ...src("engine/app"), ...BARRELS],
-        gate: "bun run flows --flow blank",
-    },
-    {
-        dir: "examples/flows/no-walls",
-        tier: "flows",
-        covers: [
-            "examples/flows/no-walls/**",
-            ...HARNESS,
-            ...BOOT,
-            ...BARRELS,
-            ...src(
-                "engine/app",
-                "engine/runtime",
-                "standard/mirror",
-                "standard/render",
-                "standard/sear",
-            ),
-        ],
-        gate: "bun run flows --flow no-walls",
-    },
-    {
-        dir: "examples/flows/survive-reload",
-        tier: "flows",
-        covers: [
-            "examples/flows/survive-reload/**",
-            ...HARNESS,
-            ...BOOT,
-            ...BARRELS,
-            ...src("engine/app", "engine/scene"),
-        ],
-        gate: "bun run flows --flow survive-reload",
-    },
-    {
-        dir: "examples/flows/ui-containment",
-        tier: "flows",
-        covers: [
-            "examples/flows/ui-containment/**",
-            ...HARNESS,
-            ...BOOT,
-            ...BARRELS,
-            ...src("engine/app"),
-        ],
-        gate: "bun run flows --flow ui-containment",
     },
     {
         dir: "examples/showcase/ascii",

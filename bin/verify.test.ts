@@ -16,7 +16,6 @@ import {
     partitionSweep,
     resolveFor,
 } from "../scripts/bench";
-import { parsePhases, parseResources, parseTransformLine } from "../scripts/boot-cost";
 import { verifyDiagnostic } from "../scripts/install-test";
 import type { ShaderArtifactSummary, VerifyResult } from "../scripts/verify";
 import { initialFrameSamplerState, sampleFrame } from "../site/rum-sampler";
@@ -1083,71 +1082,6 @@ describe("formatExtraTimings — the pure --timings extra-lines rendering", () =
     test("reports the measured ms when the probe fired, and omits resources when there's no readout", () => {
         const out = formatExtraTimings(340, null);
         expect(out).toBe("  harness install (probe)  340ms");
-    });
-});
-
-describe("parsePhases/parseResources — the boot-cost round trip over verify.ts's own formatters", () => {
-    // scripts/boot-cost.ts scrapes formatTimings/formatExtraTimings's printed text back into structured
-    // values by string format — a data boundary a format drift between the printer and the scraper can
-    // silently break. This drives the real formatters' output into the real parser and asserts the
-    // values survive the round trip.
-    test("phases round-trip through formatTimings", () => {
-        const spans = [
-            { name: "server boot", ms: 517 },
-            { name: "first page load", ms: 3583 },
-            { name: "harness ready", ms: 1279 },
-        ];
-        const parsed = parsePhases(formatTimings(spans));
-        expect(parsed).toEqual(spans);
-    });
-
-    test("a non-saturated resources line round-trips through formatExtraTimings", () => {
-        const out = formatExtraTimings(2603, {
-            count: 402,
-            totalMs: 205600,
-            top: [],
-            saturated: false,
-        });
-        expect(parseResources(out)).toEqual({ count: 402, totalMs: 205600, saturated: false });
-    });
-
-    test("a saturated resources line — '(buffer full — both are floors)' — parses saturated: true", () => {
-        const out = formatExtraTimings(null, {
-            count: 20_000,
-            totalMs: 12345,
-            top: [],
-            saturated: true,
-        });
-        expect(out).toContain("(buffer full — both are floors)");
-        expect(parseResources(out)).toEqual({ count: 20_000, totalMs: 12345, saturated: true });
-    });
-
-    test("parsePhases also picks up formatExtraTimings' harness-install line, by design", () => {
-        // "harness install (probe)  340ms" matches the same "name  Nms" shape as a checkpoint span, and
-        // boot-cost.ts's runTimings relies on that: it folds both blocks' output through one parsePhases
-        // call into one "phase medians" table, matching real --timings stdout, which prints both blocks
-        // back to back.
-        const combined = `${formatTimings([{ name: "run", ms: 1553 }])}\n${formatExtraTimings(340, null)}`;
-        expect(parsePhases(combined)).toEqual([
-            { name: "run", ms: 1553 },
-            { name: "harness install (probe)", ms: 340 },
-        ]);
-    });
-});
-
-describe("parseTransformLine — reading Vite's own DEBUG=vite:plugin-transform format", () => {
-    test("a real debugPluginTransform line yields the plugin and its duration", () => {
-        // Vite's own shape (`timeFrom` + `createDebugger`, node_modules/vite/dist/node/chunks/node.js):
-        // "<namespace> <duration>ms <plugin.name> <prettified module path> [+Nms]". NO_COLOR=1 (set by
-        // boot-cost.ts's spawn) keeps the duration plain digits instead of a picocolors escape.
-        const line = "vite:plugin-transform 12.34ms unplugin-typegpu src/index.ts +0ms";
-        expect(parseTransformLine(line)).toEqual({ plugin: "unplugin-typegpu", ms: 12.34 });
-    });
-
-    test("a line outside the namespace, or one missing a field, parses to null", () => {
-        expect(parseTransformLine("vite:resolve 1.00ms some-plugin src/index.ts")).toBeNull();
-        expect(parseTransformLine("vite:plugin-transform 12.34ms")).toBeNull();
-        expect(parseTransformLine("")).toBeNull();
     });
 });
 

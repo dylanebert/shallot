@@ -69,20 +69,10 @@ test("only the previous label attaches to a browser server, at any verified dire
     }
 });
 
-test("the 16 legacy caller constructions are explicitly headed and Ocean stays ordinary headless", () => {
+test("the 4 legacy caller constructions are explicitly headed and Ocean stays ordinary headless", () => {
     const callers: Array<{ file: string; headed: number }> = [
         { file: "bench.ts", headed: 3 },
-        { file: "stall-attribution.ts", headed: 1 },
-        { file: "loaf-attribution.ts", headed: 1 },
-        { file: "flows.ts", headed: 4 },
         { file: "recipes.ts", headed: 1 },
-        { file: "demos.ts", headed: 1 },
-        { file: "compile-concurrency.ts", headed: 1 },
-        { file: "physics-bench.ts", headed: 1 },
-        { file: "bench-tumble.ts", headed: 1 },
-        { file: "tumble-interaction.ts", headed: 1 },
-        // boot-cost owns one production command construction shared by its timing and transform runs.
-        { file: "boot-cost.ts", headed: 1 },
     ];
     let total = 0;
     for (const caller of callers) {
@@ -92,7 +82,7 @@ test("the 16 legacy caller constructions are explicitly headed and Ocean stays o
         expect(source, caller.file).toContain("skipReason");
         total += flags;
     }
-    expect(total).toBe(16);
+    expect(total).toBe(4);
 
     const wrapper = readFileSync(resolve(import.meta.dir, "verify.ts"), "utf8");
     expect(wrapper).toContain('"bin/cli.ts"');
