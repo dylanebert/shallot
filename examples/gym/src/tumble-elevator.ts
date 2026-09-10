@@ -11,7 +11,7 @@ import {
     makeBoxHull,
     type PrismaticJoint,
     type World,
-} from "@dylanebert/shallot/tumble/core";
+} from "@dylanebert/shallot/physics/core";
 import type { SampleUpdate } from "./tumble-oracle";
 
 const SPEED = 2.5;

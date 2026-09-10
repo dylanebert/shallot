@@ -9,7 +9,7 @@
 // The sample's `render()` overlay ({@link renderParallel}) labels each panel — projected HTML, outside the
 // gold + the debug-draw walk.
 
-import { type Body, BodyType, makeBoxHull, type World } from "@dylanebert/shallot/tumble/core";
+import { type Body, BodyType, makeBoxHull, type World } from "@dylanebert/shallot/physics/core";
 import type { SampleUpdate } from "./tumble-oracle";
 import type { Overlay, SampleRender } from "./tumble-overlay";
 

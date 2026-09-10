@@ -24,16 +24,16 @@
 
 import { Camera, Compute, Part, type State, Transform } from "@dylanebert/shallot";
 import { Parts } from "@dylanebert/shallot/part/core";
-import { screenToRay } from "@dylanebert/shallot/physics/core";
 import {
     type Body,
     BodyType,
     type DebugDraw,
     defaultDebugDraw,
     type Mesh,
+    screenToRay,
     type World,
     type WorldTransform,
-} from "@dylanebert/shallot/tumble/core";
+} from "@dylanebert/shallot/physics/core";
 import { type Check, frames } from "./gym";
 import type { SampleGold } from "./tumble-oracle";
 import type { OverlayLayer } from "./tumble-overlay";

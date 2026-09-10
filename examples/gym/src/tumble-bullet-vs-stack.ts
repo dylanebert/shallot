@@ -9,7 +9,7 @@
 // Creation order is load-bearing for the hash: ground, back wall, the 8 stack boxes, then the bullet — the
 // sample's exact order.
 
-import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/tumble/core";
+import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 
 /**

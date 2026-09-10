@@ -10,7 +10,6 @@
 // oracle: the bit-exact gold contract holds regardless of what renders.
 
 import { Compute } from "@dylanebert/shallot";
-import { Meshes, meshBounds, packMeshes, quantizeMeshes } from "@dylanebert/shallot/render/core";
 import type {
     Capsule,
     DebugDraw,
@@ -19,8 +18,9 @@ import type {
     Sphere,
     Vec3,
     World,
-} from "@dylanebert/shallot/tumble/core";
-import { defaultDebugDraw } from "@dylanebert/shallot/tumble/core";
+} from "@dylanebert/shallot/physics/core";
+import { defaultDebugDraw } from "@dylanebert/shallot/physics/core";
+import { Meshes, meshBounds, packMeshes, quantizeMeshes } from "@dylanebert/shallot/render/core";
 import { MeshQuant } from "@dylanebert/shallot/utils/core";
 import * as d from "typegpu/data";
 

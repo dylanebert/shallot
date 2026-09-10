@@ -13,13 +13,13 @@ import {
     springTraits,
 } from "../physics";
 import { Hulls } from "../physics/core";
-import { Slab } from "../slab";
 import { shutdown } from "../physics/engine";
-import { Tumble, TumblePlugin } from "./index";
+import { Slab } from "../slab";
+import { PhysicsPlugin } from "./index";
 
 // World lifecycle conformance: the wasm kernel is a singleton with ONE resident region, so a leaked world on a rebuild is a
 // hard failure, not a slow leak — the build→step→dispose ×2 roster entry this file is. No device needed:
-// TumblePlugin's own warm() never touches Compute (CPU-native), so this runs at the fast `bun test` tier —
+// PhysicsPlugin's own warm() never touches Compute (CPU-native), so this runs at the fast `bun test` tier —
 // bypasses `build()`/`app()` (register + Slab.collect + the lifecycle hooks directly), the orbit.test.ts shape.
 
 // The wasm kernel is a process singleton (engine/kernel.ts). warm() runs init(), which boots the
@@ -34,30 +34,30 @@ async function buildTumble(): Promise<State> {
     register("spring", Spring, springTraits);
     register("joint", Joint, jointTraits);
     Slab.collect();
-    TumblePlugin.initialize?.(state);
-    await TumblePlugin.warm?.(state);
-    attach(state, TumblePlugin);
+    PhysicsPlugin.initialize?.(state);
+    await PhysicsPlugin.warm?.(state);
+    attach(state, PhysicsPlugin);
     return state;
 }
 
-describe("TumblePlugin lifecycle", () => {
+describe("PhysicsPlugin lifecycle", () => {
     let state: State;
 
     afterEach(() => {
-        TumblePlugin.dispose?.(state);
+        PhysicsPlugin.dispose?.(state);
     });
 
     test("warm installs the backend and creates a world", async () => {
         state = await buildTumble();
-        expect(Physics.backend).not.toBeNull();
-        expect(Tumble.world).not.toBeNull();
+        expect(Physics.world).not.toBeNull();
+        expect(Physics.world).not.toBeNull();
     });
 
     test("dispose uninstalls the backend and destroys the world", async () => {
         state = await buildTumble();
-        TumblePlugin.dispose?.(state);
-        expect(Physics.backend).toBeNull();
-        expect(Tumble.world).toBeNull();
+        PhysicsPlugin.dispose?.(state);
+        expect(Physics.world).toBeNull();
+        expect(Physics.world).toBeNull();
     });
 
     test("build → step → dispose survives two full cycles (reload conformance)", async () => {
@@ -70,18 +70,18 @@ describe("TumblePlugin lifecycle", () => {
             Body.pos.set(eid, 0, 5, 0, 0);
             Body.mass.set(eid, 1);
             for (let i = 0; i < 5; i++) state.step(Time.FIXED_DT);
-            const live = Physics.backend?.readBody(eid);
+            const live = Physics.readBody(eid);
             expect(live).not.toBeNull();
             expect(Number.isFinite(live?.pos[1])).toBe(true);
-            TumblePlugin.dispose?.(state);
+            PhysicsPlugin.dispose?.(state);
         }
     });
 
     test("a fresh world builds cleanly after a prior world was destroyed", async () => {
         state = await buildTumble();
-        TumblePlugin.dispose?.(state);
+        PhysicsPlugin.dispose?.(state);
         state = await buildTumble();
-        expect(Tumble.world).not.toBeNull();
+        expect(Physics.world).not.toBeNull();
         expect(() => state.step(Time.FIXED_DT)).not.toThrow();
     });
 });
@@ -151,11 +151,11 @@ function pinnedDeferredScene(state: State, kind: "joint" | "spring"): number {
     return bob;
 }
 
-describe("TumblePlugin late-marshal constraints", () => {
+describe("PhysicsPlugin late-marshal constraints", () => {
     let state: State;
 
     afterEach(() => {
-        TumblePlugin.dispose?.(state);
+        PhysicsPlugin.dispose?.(state);
         Hulls.delete(LATE_HULL);
     });
 
@@ -169,7 +169,7 @@ describe("TumblePlugin late-marshal constraints", () => {
         registerLateHull();
         for (let i = 0; i < 60; i++) state.step(Time.FIXED_DT);
 
-        const live = Physics.backend?.readBody(bob);
+        const live = Physics.readBody(bob);
         expect(live).not.toBeNull();
         // POSITION, not readBody's non-nullness: the body's own marshal retry already worked before this
         // fix, so an arm keyed on readBody was green while the constraint was permanently lost. A live pin
@@ -187,7 +187,7 @@ describe("TumblePlugin late-marshal constraints", () => {
         registerLateHull();
         for (let i = 0; i < 60; i++) state.step(Time.FIXED_DT);
 
-        const live = Physics.backend?.readBody(bob);
+        const live = Physics.readBody(bob);
         expect(live).not.toBeNull();
         // a live spring holds the bob one rest-length below the anchor (y≈4, minus the mg/k droop); a dropped
         // one free-falls it well past y=0.
@@ -490,12 +490,12 @@ describe("TumblePlugin late-marshal constraints", () => {
         Joint.rB.set(j, 0, 0, 0, 0);
         Joint.stiffnessAng.set(j, 0);
 
-        const createSpy = spyOn(Tumble.world!, "createSphericalJoint");
+        const createSpy = spyOn(Physics.world!, "createSphericalJoint");
         try {
             // settle the pin
             for (let i = 0; i < 60; i++) state.step(Time.FIXED_DT);
             expect(createSpy).toHaveBeenCalledTimes(1);
-            const settledY = Physics.backend!.readBody(bob)!.pos[1];
+            const settledY = Physics.readBody(bob)!.pos[1];
 
             // churn: one body per tick for 30 ticks — the pump fires every tick
             const spawn = (i: number): void => {
@@ -511,7 +511,7 @@ describe("TumblePlugin late-marshal constraints", () => {
                 state.step(Time.FIXED_DT);
             }
             expect(createSpy).toHaveBeenCalledTimes(1);
-            const liveY = Physics.backend!.readBody(bob)!.pos[1];
+            const liveY = Physics.readBody(bob)!.pos[1];
             expect(Math.abs(liveY - settledY)).toBeLessThan(0.01);
         } finally {
             createSpy.mockRestore();

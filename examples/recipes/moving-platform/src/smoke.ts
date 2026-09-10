@@ -33,7 +33,7 @@ export const Smoke: Plugin = {
             const t0 = performance.now();
             while (performance.now() - t0 < SAMPLE_MS) {
                 for (const e of eids) {
-                    const b = Physics.backend?.readBody(e);
+                    const b = Physics.readBody(e);
                     if (!b) continue;
                     lo.set(e, Math.min(lo.get(e) ?? b.pos[1], b.pos[1]));
                     hi.set(e, Math.max(hi.get(e) ?? b.pos[1], b.pos[1]));

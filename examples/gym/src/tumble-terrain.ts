@@ -11,7 +11,7 @@ import {
     createWaveMesh,
     makeBoxHull,
     type World,
-} from "@dylanebert/shallot/tumble/core";
+} from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 
 /** Author the Terrain scene into `world`, reading the `shape` knob (cylinder/sphere/box). */

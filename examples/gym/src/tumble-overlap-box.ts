@@ -7,7 +7,7 @@
 // Creation order is load-bearing for the hash: ground, then the grid in its nested-loop order (ix outer,
 // iz inner) — the sample's exact order.
 
-import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/tumble/core";
+import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 import type { Overlay, SampleRender } from "./tumble-overlay";
 

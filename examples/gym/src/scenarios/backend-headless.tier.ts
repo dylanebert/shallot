@@ -32,14 +32,14 @@ describe("headless backend settle verdict", () => {
         try {
             const box = [...app.state.query([Body])].find((eid) => Body.mass.get(eid) > 0);
             expect(box).toBeDefined();
-            if (box !== undefined) Physics.backend?.readBody(box);
+            if (box !== undefined) Physics.readBody(box);
             for (let tick = 0; tick < TICKS; tick++) {
                 app.state.step();
                 await Compute.device.queue.onSubmittedWorkDone();
                 await Bun.sleep(0);
             }
 
-            const pose = box === undefined ? null : Physics.backend?.readBody(box);
+            const pose = box === undefined ? null : Physics.readBody(box);
             expect(pose).not.toBeNull();
             const y = pose?.pos[1] ?? Number.NaN;
             expect(Number.isFinite(y), "settled body y is finite").toBe(true);

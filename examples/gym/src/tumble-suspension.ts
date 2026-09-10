@@ -6,7 +6,7 @@
 // Creation order is load-bearing for the hash: ground, static frame, platform, the four corner distance
 // joints, then the three dropped crates — the sample's exact order.
 
-import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/tumble/core";
+import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 
 /**

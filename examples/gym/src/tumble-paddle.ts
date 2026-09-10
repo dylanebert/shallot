@@ -7,7 +7,7 @@
 // Creation order is load-bearing for the hash (the colored solver keys contact ordering on it): ground,
 // anchor, paddle, motor joint, then the eight boxes — the sample's exact order.
 
-import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/tumble/core";
+import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 
 const IDENT = { v: { x: 0, y: 0, z: 0 }, s: 1 };

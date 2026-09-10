@@ -16,7 +16,7 @@
 //   bun test ./examples/gym/src/tumble-overlay.test.ts
 
 import { expect, test } from "bun:test";
-import { init, World } from "@dylanebert/shallot/tumble/core";
+import { init, World } from "@dylanebert/shallot/physics/core";
 import { buildJointBreak, renderJointBreak } from "./tumble-joint-break";
 import type { Overlay } from "./tumble-overlay";
 

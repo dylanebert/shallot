@@ -12,7 +12,7 @@ import {
     type Joint,
     makeBoxHull,
     type World,
-} from "@dylanebert/shallot/tumble/core";
+} from "@dylanebert/shallot/physics/core";
 import type { SampleUpdate } from "./tumble-oracle";
 import type { Overlay, SampleRender } from "./tumble-overlay";
 

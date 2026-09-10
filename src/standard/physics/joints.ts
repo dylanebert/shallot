@@ -1,4 +1,3 @@
-import type { JointDef, SpringDef } from "../physics";
 import {
     BodyType,
     type Quat,
@@ -6,7 +5,8 @@ import {
     type Body as TumbleBody,
     type Joint as TumbleJoint,
     type World as TumbleWorld,
-} from "../physics/engine";
+} from "./engine";
+import type { JointDef, SpringDef } from "./index";
 
 // Spring/Joint def → tumble joint marshaling — the constraint half of the ECS→tumble path
 // (marshal.ts is the body half). The substrate's ConstraintSystem uploads the full authored set on
@@ -36,7 +36,7 @@ export function stiffnessHertz(stiffness: number, massA: number, massB: number):
         massA > 0 && massB > 0 ? (massA * massB) / (massA + massB) : Math.max(massA, massB);
     // NaN is transparent to the comparison-only guard (NaN <= 0 is false), so state finiteness explicitly —
     // defense in depth even after the authoring-layer guard, because the tumble singleton escape hatch
-    // (Tumble.world / imperative spawn scripts) bypasses ConstraintSystem. ∞ is a valid stiffness (rigid),
+    // (Physics.world / imperative spawn scripts) bypasses ConstraintSystem. ∞ is a valid stiffness (rigid),
     // so the finite check exempts it; -∞ is already caught by `stiffness <= 0`.
     if (
         meff <= 0 ||
@@ -251,7 +251,7 @@ function createJoint(
     // NaN is transparent to the comparison-only `< 0` guard (NaN < 0 is false), so state it explicitly —
     // without this, NaN reaches stiffnessHertz, whose Number.isFinite guard returns 0 → angularHertz 0 →
     // box3d's RIGID angular constraint → a rigid weld with no diagnostic (the exact defect the spec's Goal
-    // names). This is the escape-hatch defense: Tumble.world / imperative spawn bypasses ConstraintSystem and
+    // names). This is the escape-hatch defense: Physics.world / imperative spawn bypasses ConstraintSystem and
     // therefore the authoring-layer guard, so createJoint must be NaN-symmetric with its own negative case.
     if (def.stiffnessAng < 0 || Number.isNaN(def.stiffnessAng)) {
         warnOnce(

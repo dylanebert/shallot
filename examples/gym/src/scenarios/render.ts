@@ -25,6 +25,7 @@ import {
     Part,
     PartPlugin,
     Physics,
+    PhysicsPlugin,
     type Plugin,
     PointLight,
     quat,
@@ -41,8 +42,6 @@ import {
     Tag,
     Transform,
     TransformsPlugin,
-    Tumble,
-    TumblePlugin,
     unpackColor,
     Volumetric,
 } from "@dylanebert/shallot";
@@ -85,7 +84,9 @@ import {
 } from "@dylanebert/shallot/gltf/core";
 // Parts.drawArgs is the pack's GPU output — the cull readback reads it through the part/core extension surface
 import { Parts } from "@dylanebert/shallot/part/core";
-import { qRotate } from "@dylanebert/shallot/physics/core";
+// the ragdoll pose producer render-interpolates readBody poses at fixedAlpha with the same shortest-arc
+// nlerp the tumble compose uses (the tumble/core CPU pose-compose surface)
+import { nlerpShortest, qRotate } from "@dylanebert/shallot/physics/core";
 import {
     BeginFrameSystem,
     CLUSTER_COUNT,
@@ -139,9 +140,6 @@ import {
     VsIn,
     vsPatchSchema,
 } from "@dylanebert/shallot/sear/core";
-// the ragdoll pose producer render-interpolates readBody poses at fixedAlpha with the same shortest-arc
-// nlerp the tumble compose uses (the tumble/core CPU pose-compose surface)
-import { nlerpShortest } from "@dylanebert/shallot/tumble/core";
 import {
     MeshQuant,
     octEncode,
@@ -3594,7 +3592,7 @@ async function assertSkinLive(): Promise<Check[]> {
 //
 // RiggedFigure imported `{live}` + an 11-capsule tumble ragdoll driving its 19-joint palette. Bones are
 // substrate `Body` capsule entities (so writeback, pick, and the character sweep see them); joints ride
-// the `Tumble.world` escape hatch via `Tumble.body(eid)` handles (spherical cone/twist, revolute,
+// the `Physics.world` escape hatch via `Physics.body(eid)` handles (spherical cone/twist, revolute,
 // filter — deliberately richer than the substrate `Spring`/`Joint` mapping). The pose producer reads
 // `readBody` per bone each fixed tick, nlerps prev→curr at `fixedAlpha`, and writes each glTF joint's
 // palette entry as its bone's rigid delta: `palette_j = T_inst⁻¹ · boneNow · boneObjBind⁻¹` — the glTF
@@ -3758,13 +3756,13 @@ let ragSampled = false;
 let ragShowBind = false; // assert A/B: true → the driver writes the identity (bind) palette instead
 let ragDrawArgs: Mirror | null = null;
 
-// wire the escape-hatch joints once every bone has marshaled (Tumble.body non-null after the first
+// wire the escape-hatch joints once every bone has marshaled (Physics.body non-null after the first
 // fixed tick). Local frames derive from the SPAWN pose analytically — the bodies have already stepped
 // by wire time, so a live getLocalPoint would fold the first ticks' free-fall into the anchors.
 function wireRagdoll(): void {
-    const world = Tumble.world;
+    const world = Physics.world;
     if (!world) return;
-    const handles = ragBones.map((b) => Tumble.body(b.eid));
+    const handles = ragBones.map((b) => Physics.body(b.eid));
     if (handles.some((h) => !h)) return;
     const index = new Map(RAG_BONES.map((b, i) => [b.name, i]));
     const origin: V3 = [0, RAG_DROP, 0];
@@ -3837,8 +3835,7 @@ const RagdollSystem: System = {
     update(state: State) {
         if (ragEid < 0 || ragBones.length === 0) return;
         if (ragJointsWired === 0) wireRagdoll();
-        const backend = Physics.backend;
-        if (!backend) return;
+        const backend = Physics;
         if (state.time.fixedTick !== ragTick) {
             ragTick = state.time.fixedTick;
             for (let i = 0; i < ragBones.length; i++) {
@@ -4138,7 +4135,7 @@ async function assertRagdoll(): Promise<Check[]> {
     // structural: the live substrate published + all 11 bones marshaled + all 11 joints wired
     const skinData = Compute.buffers.has("skinData");
     const jw = LiveSkin.meshes.has(ragMeshId);
-    const marshaled = ragBones.filter((b) => Tumble.body(b.eid)).length;
+    const marshaled = ragBones.filter((b) => Physics.body(b.eid)).length;
     checks.push({
         name: "live substrate + ragdoll wired",
         pass:
@@ -4154,7 +4151,7 @@ async function assertRagdoll(): Promise<Check[]> {
 
     // the palette received a genuinely crumpled pose: bones rotated relative to the pelvis vs bind
     let moved = 0;
-    const backend = Physics.backend;
+    const backend = Physics;
     const pelvisNow = backend?.readBody(ragBones[0].eid);
     if (pelvisNow) {
         for (let i = 1; i < ragBones.length; i++) {
@@ -4854,7 +4851,7 @@ const scenario: Scenario = {
         else if (mode === "fog") plugins.push(FogPlugin);
         else if (gltf || skinLive)
             plugins.push(GltfPlugin); // GltfPlugin owns the live-skin substrate
-        else if (ragdoll) plugins.push(GltfPlugin, TumblePlugin);
+        else if (ragdoll) plugins.push(GltfPlugin, PhysicsPlugin);
         else if (mode === "transparency") plugins.push(TransparencyPlugin);
         else if (mode === "background") plugins.push(BackgroundPlugin);
         else if (mode === "sky") plugins.push(SkyPlugin);
@@ -4940,7 +4937,7 @@ const scenario: Scenario = {
             return `render — skin-live\nsurvivors ${s ?? "…"}  reach ${rigReach.toFixed(2)}\n${regions}`;
         }
         if (mode === "ragdoll") {
-            const marshaled = ragBones.filter((b) => Tumble.body(b.eid)).length;
+            const marshaled = ragBones.filter((b) => Physics.body(b.eid)).length;
             const p = probeMirror?.snapshot ? new Float32Array(probeMirror.snapshot.bytes) : null;
             const fig = p ? `figure ${p[0].toFixed(0)}px extent ${p[3].toFixed(2)}` : "probe …";
             return `render — ragdoll\nbodies ${marshaled}/${ragBones.length || 11}  joints ${ragJointsWired}/${RAG_JOINTS.length}\n${fig}`;

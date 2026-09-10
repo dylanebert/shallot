@@ -6,7 +6,7 @@
 // sample's exact order (no ground box — this sample never creates one). The per-cube name labels are the
 // sample's `render()` overlay ({@link renderMotionLocks}) — projected HTML, outside the gold + the walk.
 
-import { type Body, BodyType, makeBoxHull, type World } from "@dylanebert/shallot/tumble/core";
+import { type Body, BodyType, makeBoxHull, type World } from "@dylanebert/shallot/physics/core";
 import type { SampleParams, SampleUpdate } from "./tumble-oracle";
 import type { Overlay, SampleRender } from "./tumble-overlay";
 

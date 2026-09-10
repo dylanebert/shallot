@@ -13,7 +13,7 @@
 // The sample SOURCE comes from tumble.js, but the hashes are produced by SHALLOT's inlined engine
 // (`src/standard/physics/engine`, not tumble.js's own copy): a Bun resolver aliases the samples'
 // `import ... from "tumble.js"` to the shipping engine barrel. A gym scenario (spec stage 3+) that
-// reproduces build() through `Tumble.world` runs the same engine, so it reproduces these hashes
+// reproduces build() through `Physics.world` runs the same engine, so it reproduces these hashes
 // bit-exact — any authoring divergence (wrong axis, wrong joint, wrong shape) mismatches at the first
 // divergent step.
 //
@@ -273,7 +273,7 @@ the initial body snapshot, the per-step world-state hash, and the sample's camer
 The corpus registers ${registered} samples; ${count} mint a gold, ${exceptions.length} are excepted (below).
 
 A gym scenario reproduces a sample's \`build()\` through the escape hatch
-(\`Tumble.world\`) and replays it against the same engine these golds were minted with. Both sides are the
+(\`Physics.world\`) and replays it against the same engine these golds were minted with. Both sides are the
 same engine, so only authoring can differ — a wrong axis, wrong joint, or wrong shape mismatches the hash
 at the first divergent step. That is the oracle the earlier examples port lacked.
 
@@ -282,7 +282,7 @@ at the first divergent step. That is the oracle the earlier examples port lacked
 - **Sample corpus:** \`tumble.js/samples\` at commit \`${tumbleSha}\` — the reference implementation.
 - **Minting engine:** shallot's inlined \`src/standard/physics/engine\` (box3d pin \`29bf523\`), **not**
   tumble.js's own engine copy. The samples' \`import "tumble.js"\` is aliased to the shipping engine barrel
-  during the mint, so the hashes are exactly what a gym replay against \`Tumble.world\` produces.
+  during the mint, so the hashes are exactly what a gym replay against \`Physics.world\` produces.
 - **Hash:** the engine's own \`hashWorldState\` (FNV-1a over every live body's transform + velocity), the
   same function the C fixtures compare against — so a ported scenario compares identically on both sides.
 

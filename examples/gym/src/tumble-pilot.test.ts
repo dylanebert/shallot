@@ -14,7 +14,7 @@
 // stays small.
 
 import { expect, test } from "bun:test";
-import { type Body, BodyType, makeBoxHull, World } from "@dylanebert/shallot/tumble/core";
+import { type Body, BodyType, makeBoxHull, World } from "@dylanebert/shallot/physics/core";
 import bodyTypeJson from "../../../src/standard/physics/samples/bodies-body-type.json";
 import goldJson from "../../../src/standard/physics/samples/joints-paddle.json";
 import { buildBodyType, updateBodyType } from "./tumble-body-type";

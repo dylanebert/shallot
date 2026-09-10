@@ -7,7 +7,7 @@
 // then the colliding box — the sample's exact order. The name labels are the sample's `render()` overlay
 // ({@link renderFilter}) — projected HTML, outside the gold contract.
 
-import { type Body, BodyType, makeBoxHull, type World } from "@dylanebert/shallot/tumble/core";
+import { type Body, BodyType, makeBoxHull, type World } from "@dylanebert/shallot/physics/core";
 import type { Overlay, SampleRender } from "./tumble-overlay";
 
 let labeled: { body: Body; name: string }[] = [];

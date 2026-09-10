@@ -14,20 +14,20 @@ for (const threads of [0, 2]) {
                 "-e",
                 `
 import assert from "node:assert/strict";
-import { State, Tumble, TumblePlugin } from "@dylanebert/shallot";
-import { World, init, threads } from "@dylanebert/shallot/tumble/core";
+import { State, Physics, PhysicsPlugin } from "@dylanebert/shallot";
+import { World, init, threads } from "@dylanebert/shallot/physics/core";
 import { World as CanonicalWorld } from "./src/standard/physics/engine/index.ts";
 import { kernel, workers } from "./src/standard/physics/engine/kernel.ts";
 assert.strictEqual(World, CanonicalWorld, "canonical solver identity");
 await init({ threads: ${threads} });
 const before = { kernel: kernel(), pool: workers() };
 const state = new State();
-await TumblePlugin.warm(state);
-assert(Tumble.world instanceof CanonicalWorld, "adapter solver identity");
+await PhysicsPlugin.warm(state);
+assert(Physics.world instanceof CanonicalWorld, "adapter solver identity");
 assert.strictEqual(kernel(), before.kernel, "canonical kernel identity");
 assert.strictEqual(workers(), before.pool, "canonical pool identity");
 assert.equal(threads(), ${threads || 1});
-TumblePlugin.dispose(state);
+PhysicsPlugin.dispose(state);
 state.dispose();
 console.log("SOLVER_OWNER_IDENTITY_OK");
 `,

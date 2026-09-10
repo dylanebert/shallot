@@ -5,7 +5,7 @@
 // Creation order is load-bearing for the hash: ground, then each row's five bodies left to right, base row
 // first — the sample's exact nested-loop order.
 
-import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/tumble/core";
+import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 
 /**

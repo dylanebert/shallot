@@ -13,7 +13,7 @@ import {
     makeBoxHull,
     type Transform,
     type World,
-} from "@dylanebert/shallot/tumble/core";
+} from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 
 // A rotation of `angle` radians about the z axis (an exactly-halved quat via plain trig — the sample's own

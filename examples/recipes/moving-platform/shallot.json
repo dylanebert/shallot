@@ -2,7 +2,7 @@
     "scene": "scenes/moving-platform.scene",
     "plugins": {
         "Orbit": true,
-        "Tumble": true,
+        "Physics": true,
         "Elevator": "./src/elevator",
         "PlatformSmoke": "./src/smoke"
     }

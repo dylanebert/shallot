@@ -15,8 +15,14 @@
 
 import { unpackColor } from "@dylanebert/shallot";
 import { segment } from "@dylanebert/shallot/extras";
+import type {
+    Capsule,
+    Sphere,
+    Vec3,
+    World,
+    WorldTransform,
+} from "@dylanebert/shallot/physics/core";
 import { qRotate } from "@dylanebert/shallot/physics/core";
-import type { Capsule, Sphere, Vec3, World, WorldTransform } from "@dylanebert/shallot/tumble/core";
 import type { SampleParams } from "./tumble-oracle";
 import { cameraPose, worldToScreen } from "./tumble-project";
 

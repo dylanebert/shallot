@@ -1,20 +1,21 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { load, parse, State } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
 import { Slab } from "../slab";
 import {
     Body,
     bodyTraits,
-    ConstraintSystem,
-    installBackend,
     Joint,
     type JointDef,
+    jointDefs,
+    jointSignature,
+    resetSignatures,
     jointTraits,
-    type PhysicsBackend,
     Spring,
     type SpringDef,
+    springDefs,
+    springSignature,
     springTraits,
-    uninstallBackend,
 } from "./index";
 
 // Spring / Joint scene authoring (Phase 6.6): a constraint is a standalone `<a spring|joint="…">` entity
@@ -77,32 +78,30 @@ describe("constraint authoring (scene)", () => {
     });
 });
 
+// the upload gate an uploader (PhysicsPlugin's ConstraintSystem, an extension solver) runs over the
+// published seam: re-derive the defs only when the authored signature changes.
+let jointSig = 0;
+let springSig = 0;
+let joints: JointDef[][] = [];
+let springs: SpringDef[][] = [];
+function upload(state: State): void {
+    const js = jointSignature(state);
+    if (js !== jointSig) {
+        jointSig = js;
+        joints.push(jointDefs(state));
+    }
+    const ss = springSignature(state);
+    if (ss !== springSig) {
+        springSig = ss;
+        springs.push(springDefs(state));
+    }
+}
+
 // A same-update realias of a body an authored Joint references (destroy + create recycling its eid) leaves
 // the Joint's numeric a/b refs unchanged, so the re-upload signature must fold each endpoint's create-stamp
 // or the backend joint silently pins the NEW occupant at the old anchors (ecs.md "An eid is a borrow").
 describe("constraint re-upload on an endpoint realias", () => {
     let state: State;
-    let joints: JointDef[][];
-
-    function recordingBackend(): PhysicsBackend {
-        return {
-            step() {},
-            readBody: () => null,
-            setKinematic() {},
-            setVelocity() {},
-            setSprings() {},
-            setJoints(j) {
-                joints.push([...j]);
-            },
-            get gravity() {
-                return -10;
-            },
-            get dt() {
-                return 1 / 60;
-            },
-            compose() {},
-        };
-    }
 
     beforeEach(() => {
         clear();
@@ -112,12 +111,7 @@ describe("constraint re-upload on an endpoint realias", () => {
         register("joint", Joint, jointTraits);
         Slab.collect();
         joints = [];
-        uninstallBackend();
-        installBackend(recordingBackend()); // arms the constraint re-upload for the fresh backend
-    });
-
-    afterEach(() => {
-        uninstallBackend();
+        jointSig = jointSignature(new State());
     });
 
     test("a recycled endpoint eid re-uploads the joint set", () => {
@@ -134,12 +128,12 @@ describe("constraint re-upload on an endpoint realias", () => {
         Joint.b.set(joint, bob);
 
         // first sync uploads the authored joint once
-        ConstraintSystem.update?.(state);
+        upload(state);
         expect(joints.length).toBe(1);
         expect(joints[0][0]?.b).toBe(bob);
 
         // a no-op re-run does NOT re-upload (signature unchanged)
-        ConstraintSystem.update?.(state);
+        upload(state);
         expect(joints.length).toBe(1);
 
         // same update: destroy the bob endpoint and recycle its eid with a fresh Body — the Joint's numeric
@@ -150,7 +144,7 @@ describe("constraint re-upload on an endpoint realias", () => {
         state.add(bob2, Body);
         Body.pos.set(bob2, 5, -2, 0, 0);
 
-        ConstraintSystem.update?.(state);
+        upload(state);
         expect(joints.length).toBe(2); // re-uploaded so the backend joint rebinds to the new occupant
     });
 });
@@ -162,30 +156,6 @@ describe("constraint re-upload on an endpoint realias", () => {
 // pass through unchanged — the grant arm pins that the guard does not over-refuse.
 describe("stiffness guard (authoring layer)", () => {
     let state: State;
-    let joints: JointDef[][];
-    let springs: SpringDef[][];
-
-    function recordingBackend(): PhysicsBackend {
-        return {
-            step() {},
-            readBody: () => null,
-            setKinematic() {},
-            setVelocity() {},
-            setSprings(s) {
-                springs.push([...s]);
-            },
-            setJoints(j) {
-                joints.push([...j]);
-            },
-            get gravity() {
-                return -10;
-            },
-            get dt() {
-                return 1 / 60;
-            },
-            compose() {},
-        };
-    }
 
     beforeEach(() => {
         clear();
@@ -196,12 +166,9 @@ describe("stiffness guard (authoring layer)", () => {
         Slab.collect();
         joints = [];
         springs = [];
-        uninstallBackend();
-        installBackend(recordingBackend());
-    });
-
-    afterEach(() => {
-        uninstallBackend();
+        resetSignatures();
+        jointSig = jointSignature(new State());
+        springSig = springSignature(new State());
     });
 
     // witnessed red: exit code 1 — without the guard branch in jointDefs, the -1 def passes through and
@@ -222,7 +189,7 @@ describe("stiffness guard (authoring layer)", () => {
 
         const warn = spyOn(console, "warn").mockImplementation(() => {});
         try {
-            ConstraintSystem.update?.(state);
+            upload(state);
             expect(joints.length).toBe(1);
             expect(joints[0]).toHaveLength(0); // the invalid def was dropped — no joint for the backend
             expect(warn).toHaveBeenCalled();
@@ -252,7 +219,7 @@ describe("stiffness guard (authoring layer)", () => {
 
         const warn = spyOn(console, "warn").mockImplementation(() => {});
         try {
-            ConstraintSystem.update?.(state);
+            upload(state);
             expect(joints.length).toBe(1);
             expect(joints[0]).toHaveLength(0); // NaN was dropped — comparison-only guards can't catch it
             expect(warn).toHaveBeenCalled();
@@ -282,7 +249,7 @@ describe("stiffness guard (authoring layer)", () => {
 
         const warn = spyOn(console, "warn").mockImplementation(() => {});
         try {
-            ConstraintSystem.update?.(state);
+            upload(state);
             expect(springs.length).toBe(1);
             expect(springs[0]).toHaveLength(0);
             expect(warn).toHaveBeenCalled();
@@ -312,7 +279,7 @@ describe("stiffness guard (authoring layer)", () => {
 
         const warn = spyOn(console, "warn").mockImplementation(() => {});
         try {
-            ConstraintSystem.update?.(state);
+            upload(state);
             expect(springs.length).toBe(1);
             expect(springs[0]).toHaveLength(0);
             expect(warn).toHaveBeenCalled();
@@ -341,7 +308,7 @@ describe("stiffness guard (authoring layer)", () => {
         Joint.b.set(joint, bob);
         Joint.stiffnessAng.set(joint, 1000);
 
-        ConstraintSystem.update?.(state);
+        upload(state);
         expect(joints.length).toBe(1);
         expect(joints[0]).toHaveLength(1);
         expect(joints[0][0]?.stiffnessAng).toBe(1000);

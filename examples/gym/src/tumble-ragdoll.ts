@@ -6,7 +6,7 @@
 // Creation order is load-bearing for the hash: the static ground, then the ragdoll's own bone + joint
 // order (`buildHuman`) — the sample's exact order.
 
-import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/tumble/core";
+import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 import { buildHuman } from "./tumble-ragdoll-factory";
 

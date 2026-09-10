@@ -14,7 +14,7 @@ import {
     makeBoxHull,
     type Vec3,
     type World,
-} from "@dylanebert/shallot/tumble/core";
+} from "@dylanebert/shallot/physics/core";
 import type { Overlay, SampleRender } from "./tumble-overlay";
 
 type HitMark = { point: Vec3; normal: Vec3; speed: number; age: number };

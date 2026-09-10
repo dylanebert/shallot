@@ -11,7 +11,6 @@ import {
     type State,
     type System,
     Transform,
-    Tumble,
 } from "@dylanebert/shallot";
 import { LiveSkin, skinMatrix } from "@dylanebert/shallot/extras";
 import { qRotate } from "@dylanebert/shallot/physics/core";
@@ -268,14 +267,14 @@ async function build(state: State): Promise<void> {
 }
 
 // the bodies only marshal into the tumble world on the first fixed tick, so wiring waits until every
-// `Tumble.body(eid)` resolves. Local anchor frames come from the spawn pose analytically, because the
+// `Physics.body(eid)` resolves. Local anchor frames come from the spawn pose analytically, because the
 // bodies have already stepped by wire time, so asking the live world for a local point would fold the
 // first free-fall ticks into the joint. Cone, twist, and hinge limits keep the tangle human; the motors
 // let it settle rather than flail
 function wire(): void {
-    const world = Tumble.world;
+    const world = Physics.world;
     if (!world) return;
-    const handles = bones.map((b) => Tumble.body(b.eid));
+    const handles = bones.map((b) => Physics.body(b.eid));
     if (handles.some((h) => !h)) return;
 
     const index = new Map(BONES.map((b, i) => [b.name, i]));
@@ -349,8 +348,7 @@ const driver: System = {
     update(state: State) {
         if (figure < 0 || bones.length === 0) return;
         if (wired === 0) wire();
-        const backend = Physics.backend;
-        if (!backend) return;
+        const backend = Physics;
 
         if (state.time.fixedTick !== tick) {
             tick = state.time.fixedTick;

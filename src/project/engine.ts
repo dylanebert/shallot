@@ -44,7 +44,7 @@ export const EXTRA_PLUGIN_NAMES = [
     "Sky",
     "Sprite",
     "Text",
-    "Tumble",
+    "Physics",
     "Animation",
 ] as const;
 

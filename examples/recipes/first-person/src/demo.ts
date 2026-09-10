@@ -32,8 +32,7 @@ const slide: System = {
     name: "slide",
     group: "fixed",
     update(state: State) {
-        const backend = Physics.backend;
-        if (!backend) return;
+        const backend = Physics;
         const x = -4 + Math.sin(state.time.elapsed) * 3;
         for (const eid of state.query([Moving])) {
             backend.setKinematic(eid, [x, 0.75, 0], [0, 0, 0, 1]);

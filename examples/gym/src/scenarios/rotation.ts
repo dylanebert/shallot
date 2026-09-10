@@ -11,6 +11,8 @@ import {
     OrbitPlugin,
     Part,
     PartPlugin,
+    Physics,
+    PhysicsPlugin,
     type Plugin,
     RenderPlugin,
     run,
@@ -22,14 +24,12 @@ import {
     type System,
     Transform,
     TransformsPlugin,
-    Tumble,
-    TumblePlugin,
 } from "@dylanebert/shallot";
 import { ProfilePlugin } from "@dylanebert/shallot/extras";
 import { StepSystem } from "@dylanebert/shallot/physics/core";
 import { type Check, frames, register, type Scenario } from "../gym";
 
-// rotation — free rigid-body angular dynamics in a zero-gravity world (`Tumble.world.setGravity(0)`, the
+// rotation — free rigid-body angular dynamics in a zero-gravity world (`Physics.world.setGravity(0)`, the
 // escape hatch — the substrate world runs at −10). Two effects with crisp invariants in one scene: the
 // Dzhanibekov flip (a flat "book" spun about its intermediate axis of inertia tumbles chaotically while the
 // major- and minor-axis spins stay stable) and a parallel joint (it locks a panel's orientation while leaving
@@ -70,7 +70,7 @@ function body(
     return eid;
 }
 
-// the fixed-tick driver. once every body has marshaled (`Tumble.body` resolves), seed the book spins once and
+// the fixed-tick driver. once every body has marshaled (`Physics.body` resolves), seed the book spins once and
 // wire the parallel joint — seeding must be one-shot, or re-writing the angular velocity each tick would erase
 // the tumble it is meant to develop. thereafter it torques the panels and tracks each book's off-axis angular
 // speed (energy leaked off its spin axis — the tumble signature).
@@ -79,12 +79,12 @@ const driver: System = {
     group: "fixed",
     before: [StepSystem],
     update() {
-        const world = Tumble.world;
-        const bookX = Tumble.body(bookXEid);
-        const bookY = Tumble.body(bookYEid);
-        const bookZ = Tumble.body(bookZEid);
-        const ref = Tumble.body(refEid);
-        const held = Tumble.body(heldEid);
+        const world = Physics.world;
+        const bookX = Physics.body(bookXEid);
+        const bookY = Physics.body(bookYEid);
+        const bookZ = Physics.body(bookZEid);
+        const ref = Physics.body(refEid);
+        const held = Physics.body(heldEid);
         if (!seeded) {
             if (!world || !bookX || !bookY || !bookZ || !ref || !held) return;
             bookX.setAngularVelocity({ x: SPIN, y: 0.01, z: 0.01 });
@@ -94,7 +94,7 @@ const driver: System = {
             seeded = true;
         }
         held?.applyTorque({ x: 1.5, y: 1.5, z: 0 }, true);
-        Tumble.body(freeEid)?.applyTorque({ x: 1.5, y: 1.5, z: 0 }, true);
+        Physics.body(freeEid)?.applyTorque({ x: 1.5, y: 1.5, z: 0 }, true);
         if (bookX)
             bookXMaxOff = Math.max(
                 bookXMaxOff,
@@ -123,13 +123,13 @@ const scenario: Scenario = {
                 InputPlugin,
                 OrbitPlugin,
                 RenderPlugin,
-                TumblePlugin,
+                PhysicsPlugin,
                 PartPlugin,
                 SearPlugin,
                 GlazePlugin,
             ] as Plugin[],
         });
-        Tumble.world?.setGravity({ x: 0, y: 0, z: 0 });
+        Physics.world?.setGravity({ x: 0, y: 0, z: 0 });
 
         state.add(state.create(), AmbientLight);
         state.add(state.create(), DirectionalLight);
@@ -185,7 +185,7 @@ const scenario: Scenario = {
 
     assert(): Promise<Check[]> {
         const tilt = (eid: number): number => {
-            const b = Tumble.body(eid);
+            const b = Physics.body(eid);
             if (!b) return Number.NaN;
             const q = b.getRotation();
             return Math.hypot(q.v.x, q.v.y, q.v.z);

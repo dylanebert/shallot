@@ -19,7 +19,7 @@
 // and (for a gold divergence) the first divergent step + got/expected, then exits nonzero; that line is all
 // a queue agent needs. Not shipped surface: gym is unpublished, so this stays under examples/gym/src/.
 
-import { type Body, init, World } from "@dylanebert/shallot/tumble/core";
+import { type Body, init, World } from "@dylanebert/shallot/physics/core";
 import { goldParams, runOracle } from "./tumble-oracle";
 import { type GoldEntry, goldRegistry } from "./tumble-registry";
 

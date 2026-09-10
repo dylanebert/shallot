@@ -11,7 +11,7 @@ import {
     makeBoxHull,
     type Vec3,
     type World,
-} from "@dylanebert/shallot/tumble/core";
+} from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 
 /** Deterministic PRNG (mulberry32) — matches the sample's own generator bit-for-bit. */

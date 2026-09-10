@@ -1,24 +1,40 @@
-import { Compute, entity, f32, type State, type System, sparse, u32, vec4 } from "../../engine";
+import {
+    Compute,
+    capacity,
+    entity,
+    f32,
+    type Plugin,
+    type State,
+    type System,
+    sparse,
+    Time,
+    u32,
+    vec4,
+} from "../../engine";
 import { eulerAlias } from "../../engine/utils";
 import { BeginFrameSystem, Render } from "../render/core";
 import { PrepassSystem } from "../sear/core";
-import { slab } from "../slab";
+import { SlabPlugin, slab } from "../slab";
 import { Transform } from "../transforms";
+import { nlerpShortest, renderScale } from "./compose";
+import { init, type Body as SolverBody, World } from "./engine";
+import { Hulls } from "./hull";
+import { resetConstraints, resyncConstraints, syncJoints, syncSprings } from "./joints";
+import { marshalBody } from "./marshal";
 
-// The physics substrate — shared authoring components (`Body`/`Spring`/`Joint`), the CPU raycast + pick
-// layer, and a thin typed backend handle (`PhysicsBackend`) a backend plugin (`standard/avbd`'s
-// `AvbdPlugin`, `standard/tumble`'s `TumblePlugin`) installs at `Physics.backend`. The substrate
-// owns the schedule contract (this file's `StepSystem` / `ConstraintSystem` / `ComposeSystem`, each
-// delegating to the installed handle); a backend owns its mechanism (GPU pipelines, a wasm world) plus a
-// richer imperative escape hatch (`Avbd.step`, `Tumble.world`) for anything past the atomic core.
-// physics.md "The substrate decision" is the design record.
+// Physics: the authoring components (`Body`/`Spring`/`Joint`), the CPU raycast + pick layer, and the
+// Rust/WASM rigid-body solver behind them. CPU writeback: move events become an interpolated pose written
+// into the `transforms` firehose, movers only. Storage is an eid↔solver-body map plus a capacity-sized
+// prev/curr pose double buffer; no slab or mirror, since the solver serves this tick's state directly.
+// Body marshaling is `marshal.ts`, Spring/Joint marshaling `joints.ts`. An outside solver plugs in through
+// `physics/core` (traits, defs, signatures, system anchors) and never through this module's state.
 
 /** collision-shape tag for {@link Body}. Box collides as an OBB; sphere/capsule as a core + radius; hull as a convex polytope (geometry registered in `Hulls`, referenced by `halfExtents.w` = the hull id). */
 export const ShapeKind = { Box: 0, Sphere: 1, Capsule: 2, Hull: 3 } as const;
 
 /**
- * a rigid body simulated by the installed physics backend: falls under gravity and collides with other
- * bodies (`mass: 0` = static). Requires a backend plugin (`AvbdPlugin`, `TumblePlugin`) to simulate.
+ * a rigid body simulated by {@link PhysicsPlugin}: falls under gravity and collides with other bodies
+ * (`mass: 0` = static).
  *
  * @example
  * ```
@@ -31,9 +47,9 @@ export const ShapeKind = { Box: 0, Sphere: 1, Capsule: 2, Hull: 3 } as const;
 export const Body = {
     /** the collider, a `ShapeKind`: `Box` (an OBB of `halfExtents`), `Sphere`, `Capsule` (a segment along local Y inflated by the radius), or `Hull` (a convex polytope registered in `Hulls`). */
     shape: slab(u32),
-    /** spawn position; the backend owns it after spawn. */
+    /** spawn position; physics owns it after spawn. */
     pos: slab(vec4),
-    /** spawn orientation, authored as euler degrees like `Transform.rot`; backend-owned after spawn. */
+    /** spawn orientation, authored as euler degrees like `Transform.rot`; physics-owned after spawn. */
     quat: slab(vec4),
     /** box/AABB half-extents in `xyz`; `w` doubles as the rounding radius (sphere/capsule) or the `Hull` id (a hull has radius 0, so the lane is free). */
     halfExtents: slab(vec4),
@@ -95,11 +111,11 @@ export const Joint = {
     stiffnessAng: sparse(f32),
 };
 
-// Authoring metadata for the three components above, shared by every backend plugin that registers
-// them. `Body`/`Spring`/`Joint` are the same objects across backends (idempotent registration, ecs.md
-// "Stable component ids"), so their traits live here once rather than duplicated per backend.
+// Authoring metadata for the three components above, shared with any extension solver that registers
+// them. `Body`/`Spring`/`Joint` are the same objects across plugins (idempotent registration, ecs.md
+// "Stable component ids"), so their traits live here once.
 
-/** {@link Body}'s traits: defaults, its exclusion of {@link Transform}, and the euler-degree `quat` alias. Shared by every backend plugin that registers `Body`. */
+/** {@link Body}'s traits: defaults, its exclusion of {@link Transform}, and the euler-degree `quat` alias. Shared by every plugin that registers `Body`. */
 export const bodyTraits = {
     defaults: () => ({
         shape: ShapeKind.Box,
@@ -110,14 +126,14 @@ export const bodyTraits = {
         friction: 0.5,
     }),
     excludes: [Transform],
-    // the backend owns the entity's world transform (composed into the firehose each frame), so a
+    // physics owns the entity's world transform (composed into the firehose each frame), so a
     // Body stands in for Transform: a `Part` on the same entity renders at the body's pose
     provides: [Transform],
     // a Body's orientation is stored as a quaternion but authored as euler degrees, like Transform.rot
     aliases: { quat: eulerAlias("quat") },
 };
 
-/** {@link Spring}'s traits: field defaults. Shared by every backend plugin that registers `Spring`. */
+/** {@link Spring}'s traits: field defaults. Shared by every plugin that registers `Spring`. */
 export const springTraits = {
     defaults: () => ({
         a: 0,
@@ -129,7 +145,7 @@ export const springTraits = {
     }),
 };
 
-/** {@link Joint}'s traits: field defaults plus the `stiffness-ang: fixed` parse hook. Shared by every backend plugin that registers `Joint`. */
+/** {@link Joint}'s traits: field defaults plus the `stiffness-ang: fixed` parse hook. Shared by every plugin that registers `Joint`. */
 export const jointTraits = {
     defaults: () => ({
         a: 0,
@@ -146,11 +162,7 @@ export const jointTraits = {
     },
 };
 
-/**
- * a backend-neutral authored spring: two body eids + local anchors + stiffness/rest. What
- * {@link ConstraintSystem} derives from a scene's {@link Spring} entities and hands to
- * {@link PhysicsBackend.setSprings}.
- */
+/** an authored spring: two body eids + local anchors + stiffness/rest, derived from a scene's {@link Spring} entities by {@link springDefs}. */
 export interface SpringDef {
     a: number;
     b: number;
@@ -160,12 +172,7 @@ export interface SpringDef {
     rest: number;
 }
 
-/**
- * a backend-neutral authored joint: two body eids + local anchors + the angular lock. What
- * {@link ConstraintSystem} derives from a scene's {@link Joint} entities and hands to
- * {@link PhysicsBackend.setJoints}. Richer per-backend joint authoring (motors, a world anchor, a soft
- * linear stiffness) rides that backend's own escape-hatch API (e.g. `Avbd.step.setJoints`).
- */
+/** an authored joint: two body eids + local anchors + the angular lock, derived from a scene's {@link Joint} entities by {@link jointDefs}. Richer joints (motors, limits, the nine solver joint types) ride {@link Physics.world}. */
 export interface JointDef {
     a: number;
     b: number;
@@ -174,95 +181,13 @@ export interface JointDef {
     stiffnessAng: number;
 }
 
-/**
- * one body's live pose + velocity, read from whichever backend is installed. May be one or more fixed
- * ticks stale (backend-dependent: a CPU backend serves this tick's fresh state; a GPU mirror is typically
- * 1-2 ticks behind, since the pose crosses a readback ring); sleeping bodies read zero velocity.
- */
+/** one body's live pose + velocity at the last fixed step; sleeping bodies read zero velocity. */
 export interface BodyState {
     pos: readonly [number, number, number];
     quat: readonly [number, number, number, number];
     vel: readonly [number, number, number];
 }
 
-/**
- * the physics substrate's backend contract: a plain-object handle a backend plugin installs via
- * {@link installBackend} in its `warm()`. Covers exactly the coupling points the substrate's shared
- * systems ({@link StepSystem}, {@link ConstraintSystem}, {@link ComposeSystem}) and the pose-read
- * consumers (the character sweep, `pick.ts`) need; everything richer rides the backend's own singleton
- * escape hatch (`Avbd.step`, `Tumble.world`) used imperatively in spawn scripts.
- */
-export interface PhysicsBackend {
-    /** advance the simulation one fixed step. */
-    step(): void;
-    /** the live pose + velocity of a body, by eid; `null` before the backend has anything to report. The
-     *  pose may be one or more fixed ticks stale (backend-dependent — a CPU backend is fresh, a GPU mirror
-     *  is typically 1-2 ticks behind); consumers treat the staleness as contractual. */
-    readBody(eid: number): BodyState | null;
-    /** move a `mass <= 0` body (a platform, a grab anchor, the character sweep's kinematic upload).
-     *  `teleport` skips deriving a velocity from the pose delta; `vel` overrides the derived velocity. */
-    setKinematic(
-        eid: number,
-        pos: readonly [number, number, number],
-        quat: readonly [number, number, number, number],
-        teleport?: boolean,
-        vel?: readonly [number, number, number],
-    ): void;
-    /** set a dynamic body's linear velocity (a launch impulse, the character push). */
-    setVelocity(eid: number, vx: number, vy: number, vz: number): void;
-    /** upload the authored spring set, replacing the prior one. */
-    setSprings(springs: readonly SpringDef[]): void;
-    /** upload the authored joint set, replacing the prior one. */
-    setJoints(joints: readonly JointDef[]): void;
-    /** the configured world gravity (negative). */
-    readonly gravity: number;
-    /** the fixed timestep the backend steps at. */
-    readonly dt: number;
-    /** write the interpolated pose into the `transforms` firehose at `alpha` (render.md's fixedAlpha blend). */
-    compose(encoder: GPUCommandEncoder, transforms: GPUBuffer, alpha: number): void;
-}
-
-interface PhysicsSingleton {
-    backend: PhysicsBackend | null;
-}
-
-/** the installed physics backend, or `null` if no backend plugin has warmed. */
-export const Physics: PhysicsSingleton = {
-    backend: null,
-};
-
-/** install a backend handle. Throws if one is already installed (a scene runs exactly one physics backend at a time). Arms the constraint re-upload so the fresh backend receives the authored set on its first frame. Call from a backend plugin's `warm()`. */
-export function installBackend(handle: PhysicsBackend): void {
-    if (Physics.backend) {
-        throw new Error(
-            "[physics] a backend is already installed — only one PhysicsBackend can be active per scene",
-        );
-    }
-    Physics.backend = handle;
-    resetSignatures();
-}
-
-/** uninstall the current backend handle. Call from a backend plugin's `dispose()`. */
-export function uninstallBackend(): void {
-    Physics.backend = null;
-}
-
-/** the fixed-group solver step: the ordering anchor a producer that writes the backend's pose buffer
- *  before the solve (the CPU character sweep's kinematic upload) orders `before:`. Delegates to
- *  {@link Physics.backend}. */
-export const StepSystem: System = {
-    name: "step",
-    group: "fixed",
-    update() {
-        Physics.backend?.step();
-    },
-};
-
-// the authored-constraint upload (backend-neutral): derive the SpringDef / JointDef lists from the
-// Spring / Joint entities a scene authors and push them to the installed backend, re-uploading ONLY when
-// the set changes. The empty-set signature equals the initial `sig` value, so a scene with NO Spring/
-// Joint entities never uploads — a scene authoring constraints imperatively (a backend's own escape
-// hatch) and one authoring them as components don't fight (use one path per constraint type, not both).
 const FNV_BASIS = 2166136261;
 const fold = (h: number, v: number): number => Math.imul(h ^ (v >>> 0), 16777619);
 const _sigF32 = new Float32Array(1);
@@ -272,20 +197,21 @@ const sigBits = (x: number): number => {
     return _sigU32[0];
 };
 
-// last-uploaded signatures — reset by {@link installBackend} so a freshly-installed backend re-uploads the
-// authored set on its first frame (the reset is folded into install so a backend can't forget the two-step).
+// last-uploaded signatures — reset on warm so a fresh world re-uploads the authored set on its first frame.
 // FNV_BASIS is the empty-set signature, so an unconstrained scene's first frame already matches → no upload.
 let springSig = FNV_BASIS;
 let jointSig = FNV_BASIS;
 
-function resetSignatures(): void {
+/** re-arm the constraint upload and its warn dedupe, as a fresh world does on warm. */
+export function resetSignatures(): void {
     springSig = FNV_BASIS;
     jointSig = FNV_BASIS;
     warnedJointEids.clear();
     warnedSpringEids.clear();
 }
 
-function springSignature(state: State): number {
+/** a hash of the authored {@link Spring} set, endpoint create-stamps included: an uploader re-uploads only when it changes. */
+export function springSignature(state: State): number {
     let h = FNV_BASIS;
     for (const eid of state.query([Spring])) {
         h = fold(h, eid);
@@ -295,7 +221,7 @@ function springSignature(state: State): number {
         h = fold(h, b);
         // fold the referenced bodies' create-stamps: a same-update realias of an endpoint (destroy+create
         // recycling its eid) leaves a/b unchanged, so without the stamp the re-upload is suppressed and the
-        // backend joint pins the NEW occupant at the old anchors (ecs.md "An eid is a borrow").
+        // solver joint pins the NEW occupant at the old anchors (ecs.md "An eid is a borrow").
         h = fold(h, state.stamp(a));
         h = fold(h, state.stamp(b));
         h = fold(h, sigBits(Spring.rA.x.get(eid)));
@@ -310,7 +236,8 @@ function springSignature(state: State): number {
     return h;
 }
 
-function jointSignature(state: State): number {
+/** a hash of the authored {@link Joint} set, endpoint create-stamps included: the {@link springSignature} twin. */
+export function jointSignature(state: State): number {
     let h = FNV_BASIS;
     for (const eid of state.query([Joint])) {
         h = fold(h, eid);
@@ -319,7 +246,7 @@ function jointSignature(state: State): number {
         h = fold(h, a);
         h = fold(h, b);
         // fold the referenced bodies' create-stamps — see springSignature: a realias of an endpoint must
-        // force the re-upload so the backend joint rebinds to the new occupant.
+        // force the re-upload so the solver joint rebinds to the new occupant.
         h = fold(h, state.stamp(a));
         h = fold(h, state.stamp(b));
         h = fold(h, sigBits(Joint.rA.x.get(eid)));
@@ -334,19 +261,20 @@ function jointSignature(state: State): number {
 }
 
 // warned-eid dedupe for the stiffness guard — keyed on entity id so a re-upload triggered by an
-// unrelated constraint change does not re-warn the same invalid def. Cleared on backend reinstall
-// (resetSignatures) so a fresh backend re-warns. A def whose stiffness is fixed (invalid → valid) is
+// unrelated constraint change does not re-warn the same invalid def. Cleared on warm
+// (resetSignatures) so a fresh world re-warns. A def whose stiffness is fixed (invalid → valid) is
 // removed from the set so a later regression to invalid re-warns.
 const warnedJointEids = new Set<number>();
 const warnedSpringEids = new Set<number>();
 
-function springDefs(state: State): SpringDef[] {
+/** the authored {@link Spring} set as {@link SpringDef}s, dropping (and warning once for) a negative or NaN stiffness. */
+export function springDefs(state: State): SpringDef[] {
     const out: SpringDef[] = [];
     for (const eid of state.query([Spring])) {
         const stiffness = Spring.stiffness.get(eid);
         // NaN is transparent to comparison-only guards (NaN < 0 is false), so state finiteness explicitly.
         // 0 and ∞ are valid authored values (0 = non-positive → downstream skip; ∞ = rigid) — only negative
-        // and NaN are rejected, at the backend-neutral authoring layer so both backends inherit one behavior.
+        // and NaN are rejected, at the authoring layer so every solver inherits one behavior.
         if (Number.isNaN(stiffness) || stiffness < 0) {
             if (!warnedSpringEids.has(eid)) {
                 console.warn(
@@ -369,15 +297,14 @@ function springDefs(state: State): SpringDef[] {
     return out;
 }
 
-function jointDefs(state: State): JointDef[] {
+/** the authored {@link Joint} set as {@link JointDef}s, dropping (and warning once for) a negative or NaN angular stiffness. */
+export function jointDefs(state: State): JointDef[] {
     const out: JointDef[] = [];
     for (const eid of state.query([Joint])) {
         const stiffnessAng = Joint.stiffnessAng.get(eid);
         // NaN is transparent to comparison-only guards (NaN < 0 is false), so state finiteness explicitly.
         // 0 (spherical) and ∞ (fixed) are valid authored values — only negative and NaN are rejected, at the
-        // backend-neutral authoring layer so both backends inherit one behavior. JointDef carries only
-        // stiffnessAng today (no stiffnessLin-class field to guard); the AVBD-extended JointDef's optional
-        // stiffnessLin/motor ride the escape hatch, not this path.
+        // authoring layer so every solver inherits one behavior.
         if (Number.isNaN(stiffnessAng) || stiffnessAng < 0) {
             if (!warnedJointEids.has(eid)) {
                 console.warn(
@@ -399,38 +326,339 @@ function jointDefs(state: State): JointDef[] {
     return out;
 }
 
-/** uploads a scene's authored {@link Spring} / {@link Joint} entities to {@link Physics.backend}, on change only. Fixed group, `before: [StepSystem]` so a constraint authored or edited this frame lands in this frame's solve. */
+const GRAVITY = -10;
+const SUBSTEPS = 4; // the solver's own recommended sub-step count (World.step's default)
+
+let world: World | null = null;
+const bodies = new Map<number, SolverBody>();
+// the create-stamp each body was marshaled at (ecs.md "An eid is a borrow"). Presence in `bodies` catches a
+// plain spawn/despawn; a same-update destroy+create recycling an eid keeps Body membership AND the map entry,
+// so the stamp is the only signal that the slot now holds a new body, and a mismatch re-marshals it.
+const stamps = new Map<number, number>();
+// last pose passed to setKinematic per eid — setKinematic derives a platform's velocity from its per-step
+// pose delta against this; teleport resets it so the derived delta is 0.
+const kinPrev = new Map<number, [number, number, number]>();
+// bodies whose marshal failed (an unregistered/unbuildable hull) — keyed to the stamp + hull-registry size
+// they failed at, so SyncSystem retries the marshal (and re-warns) only when the eid recycles or a new hull
+// is registered, never every frame.
+const failed = new Map<number, { stamp: number; hulls: number }>();
+// an endpoint missing from `bodies` because its marshal failed is a pending marshal (it will retry, and so
+// will its constraint) rather than a non-`Body` reference (joints.ts).
+const isDeferred = (eid: number): boolean => failed.has(eid);
+
+// render-interpolation double buffer, capacity-sized flat arrays indexed by eid (3 lanes pos, 4 lanes quat).
+// Rewritten only for a body that moved this fixed tick (from `getBodyEvents`), so a sleeping/static body's
+// prev==curr holds from whenever it last moved (or its spawn pose) — compose then blends a no-op.
+let prevPos = new Float32Array(0);
+let prevQuat = new Float32Array(0);
+let currPos = new Float32Array(0);
+let currQuat = new Float32Array(0);
+// the eids `getBodyEvents` reported this fixed tick — compose (draw group, every render frame) rewrites
+// exactly these into the transforms firehose until the next fixed tick's move events replace the set.
+const movedThisTick = new Set<number>();
+
+function seedPose(eid: number): void {
+    const p = eid * 3;
+    const q = eid * 4;
+    prevPos[p] = currPos[p] = Body.pos.x.get(eid);
+    prevPos[p + 1] = currPos[p + 1] = Body.pos.y.get(eid);
+    prevPos[p + 2] = currPos[p + 2] = Body.pos.z.get(eid);
+    prevQuat[q] = currQuat[q] = Body.quat.x.get(eid);
+    prevQuat[q + 1] = currQuat[q + 1] = Body.quat.y.get(eid);
+    prevQuat[q + 2] = currQuat[q + 2] = Body.quat.z.get(eid);
+    prevQuat[q + 3] = currQuat[q + 3] = Body.quat.w.get(eid);
+}
+
+function forget(eid: number): void {
+    bodies.get(eid)?.destroy();
+    bodies.delete(eid);
+    kinPrev.delete(eid);
+    movedThisTick.delete(eid);
+}
+
+function clearBodies(): void {
+    bodies.clear();
+    stamps.clear();
+    kinPrev.clear();
+    movedThisTick.clear();
+    failed.clear();
+    resetConstraints();
+}
+
+/**
+ * the running physics world. `world` is the solver escape hatch: joint types past `Joint`, sensors,
+ * contact/hit events, mesh/heightfield/compound colliders and native queries; `null` until
+ * {@link PhysicsPlugin} warms. `body(eid)` bridges a `Body` entity to its live solver handle (`null` before
+ * its first fixed tick). The pose API reads and drives bodies by eid and no-ops before warm.
+ */
+export const Physics: {
+    world: World | null;
+    body(eid: number): SolverBody | null;
+    readBody(eid: number): BodyState | null;
+    setKinematic(
+        eid: number,
+        pos: readonly [number, number, number],
+        quat: readonly [number, number, number, number],
+        teleport?: boolean,
+        vel?: readonly [number, number, number],
+    ): void;
+    setVelocity(eid: number, vx: number, vy: number, vz: number): void;
+    readonly gravity: number;
+    readonly dt: number;
+} = {
+    world: null,
+    body: (eid) => bodies.get(eid) ?? null,
+    /** the live pose + velocity of a body, by eid; `null` before its first fixed tick or for a non-`Body` eid. */
+    readBody(eid) {
+        const tb = bodies.get(eid);
+        if (!tb) return null;
+        const pos = tb.getPosition();
+        const quat = tb.getRotation();
+        const vel = tb.getLinearVelocity();
+        return {
+            pos: [pos.x, pos.y, pos.z],
+            quat: [quat.v.x, quat.v.y, quat.v.z, quat.s],
+            vel: [vel.x, vel.y, vel.z],
+        };
+    },
+    /** move a `mass <= 0` body (a platform, a grab anchor, the character sweep). `teleport` skips deriving a velocity from the pose delta; `vel` overrides the derived velocity. */
+    setKinematic(eid, pos, quat, teleport = false, vel) {
+        const tb = bodies.get(eid);
+        if (!tb) return;
+        let prev = kinPrev.get(eid);
+        // a slept kinematic body that only setTransform moves emits no move event, so its firehose slot would
+        // keep the stale pose while readBody sees the new one. Waking it on a real move makes the solver report
+        // the move; a same-pose call leaves it free to sleep (a parked platform re-asserting its pose).
+        const moved =
+            !prev || teleport || pos[0] !== prev[0] || pos[1] !== prev[1] || pos[2] !== prev[2];
+        tb.setTransform(
+            { x: pos[0], y: pos[1], z: pos[2] },
+            { v: { x: quat[0], y: quat[1], z: quat[2] }, s: quat[3] },
+        );
+        if (!prev || teleport) {
+            prev = [pos[0], pos[1], pos[2]];
+            kinPrev.set(eid, prev);
+        }
+        const dt = Time.FIXED_DT;
+        const v = vel ?? [
+            (pos[0] - prev[0]) / dt,
+            (pos[1] - prev[1]) / dt,
+            (pos[2] - prev[2]) / dt,
+        ];
+        tb.setLinearVelocity({ x: v[0], y: v[1], z: v[2] });
+        // setTransform never wakes and setLinearVelocity wakes only on a nonzero velocity, so a zero-velocity
+        // teleport (or a move whose derived velocity rounds to zero) needs an explicit wake.
+        if (moved && !tb.isAwake()) tb.setAwake(true);
+        prev[0] = pos[0];
+        prev[1] = pos[1];
+        prev[2] = pos[2];
+    },
+    /** set a dynamic body's linear velocity (a launch impulse, the character push). */
+    setVelocity(eid, vx, vy, vz) {
+        bodies.get(eid)?.setLinearVelocity({ x: vx, y: vy, z: vz });
+    },
+    /** the world gravity (negative), `0` before warm. */
+    get gravity() {
+        return world ? world.getGravity().y : 0;
+    },
+    /** the fixed timestep physics steps at. */
+    get dt() {
+        return Time.FIXED_DT;
+    },
+};
+
+/** the fixed-group solver step: the ordering anchor a producer that moves bodies before the solve (the character sweep's kinematic upload) orders `before:`. */
+export const StepSystem: System = {
+    name: "step",
+    group: "fixed",
+    update() {
+        if (!world) return;
+        world.step(Time.FIXED_DT, SUBSTEPS);
+        movedThisTick.clear();
+        const events = world.getBodyEvents();
+        for (let i = 0; i < events.count; i++) {
+            const ev = events.moveEvents[i];
+            const eid = ev.userData as number;
+            const p = eid * 3;
+            const q = eid * 4;
+            prevPos[p] = currPos[p];
+            prevPos[p + 1] = currPos[p + 1];
+            prevPos[p + 2] = currPos[p + 2];
+            prevQuat[q] = currQuat[q];
+            prevQuat[q + 1] = currQuat[q + 1];
+            prevQuat[q + 2] = currQuat[q + 2];
+            prevQuat[q + 3] = currQuat[q + 3];
+            currPos[p] = ev.transform.p.x;
+            currPos[p + 1] = ev.transform.p.y;
+            currPos[p + 2] = ev.transform.p.z;
+            currQuat[q] = ev.transform.q.v.x;
+            currQuat[q + 1] = ev.transform.q.v.y;
+            currQuat[q + 2] = ev.transform.q.v.z;
+            currQuat[q + 3] = ev.transform.q.s;
+            movedThisTick.add(eid);
+        }
+    },
+};
+
+/** uploads a scene's authored {@link Spring} / {@link Joint} entities to the solver, on change only. Fixed group, `before: [StepSystem]` so a constraint authored or edited this frame lands in this frame's solve. */
 export const ConstraintSystem: System = {
     name: "constraints",
     group: "fixed",
     before: [StepSystem],
     update(state) {
-        const backend = Physics.backend;
-        if (!backend) return;
+        if (!world) return;
         const ss = springSignature(state);
         if (ss !== springSig) {
             springSig = ss;
-            backend.setSprings(springDefs(state));
+            syncSprings(world, bodies, springDefs(state), isDeferred);
         }
         const js = jointSignature(state);
         if (js !== jointSig) {
             jointSig = js;
-            backend.setJoints(jointDefs(state));
+            syncJoints(world, bodies, jointDefs(state), isDeferred);
         }
     },
 };
 
-/** scatters {@link Physics.backend}'s live pose into the `transforms` firehose so a Body+Part renders. A `Body` eid's slot is physics-owned: the Transform compose is membership-gated and never touches it (`Body` excludes `Transform`, so the two writers partition the firehose by slot). `after: [BeginFrameSystem]` for the frame encoder; `before: [PrepassSystem]` so every sear geometry pass reads the fresh pose. No-op with no renderer or no transforms firehose (physics runs headless unchanged). */
+// membership-driven create/destroy, ascending eid order (state.query's natural order — creation order is
+// load-bearing for solver determinism). Runs every fixed tick before the solve so a body spawned this frame
+// joins THIS tick's step.
+const SyncSystem: System = {
+    name: "physics-sync",
+    group: "fixed",
+    before: [ConstraintSystem, StepSystem],
+    update(state: State) {
+        if (!world) return;
+        // a deferred body finally marshaling (or a body going stale) is the transition a dropped constraint
+        // waits on, and `ConstraintSystem` re-uploads on an authored signature change only, so the constraint
+        // re-sync is pumped from here on any body-set change (a no-op walk when nothing was dropped, joints.ts).
+        let bodySetChanged = false;
+        for (const eid of state.query([Body])) {
+            const stamp = state.stamp(eid);
+            if (bodies.has(eid)) {
+                if (stamps.get(eid) === stamp) continue;
+                forget(eid); // recycled to a new Body in one update
+            }
+            const f = failed.get(eid);
+            if (f && f.stamp === stamp && f.hulls === Hulls.size) continue;
+            const tb = marshalBody(world, eid);
+            if (!tb) {
+                failed.set(eid, { stamp, hulls: Hulls.size });
+                continue;
+            }
+            failed.delete(eid);
+            bodies.set(eid, tb);
+            stamps.set(eid, stamp);
+            bodySetChanged = true;
+            seedPose(eid);
+        }
+        for (const eid of failed.keys()) {
+            if (!state.has(eid, Body)) failed.delete(eid);
+        }
+        const stale: number[] = [];
+        for (const eid of bodies.keys()) {
+            if (!state.has(eid, Body)) stale.push(eid);
+        }
+        for (const eid of stale) {
+            forget(eid);
+            stamps.delete(eid);
+            bodySetChanged = true;
+        }
+        if (bodySetChanged) resyncConstraints(world, bodies, isDeferred);
+    },
+};
+
+// one reused Xform-shaped record (48 B / 12 f32: pos.xyz+pad, quat.xyzw, scale.xyz+pad — the `Xform` schema).
+const _record = new Float32Array(12);
+
+/** write the movers' interpolated pose into the `transforms` firehose at `alpha` (render.md's fixedAlpha blend). */
+export function composePose(transforms: GPUBuffer, alpha: number): void {
+    if (!Compute.device) return;
+    for (const eid of movedThisTick) {
+        const p = eid * 3;
+        const q = eid * 4;
+        const quat = nlerpShortest(
+            [prevQuat[q], prevQuat[q + 1], prevQuat[q + 2], prevQuat[q + 3]],
+            [currQuat[q], currQuat[q + 1], currQuat[q + 2], currQuat[q + 3]],
+            alpha,
+        );
+        const scale = renderScale(
+            Body.shape.get(eid),
+            [Body.halfExtents.x.get(eid), Body.halfExtents.y.get(eid), Body.halfExtents.z.get(eid)],
+            Body.halfExtents.w.get(eid),
+        );
+        _record[0] = prevPos[p] * (1 - alpha) + currPos[p] * alpha;
+        _record[1] = prevPos[p + 1] * (1 - alpha) + currPos[p + 1] * alpha;
+        _record[2] = prevPos[p + 2] * (1 - alpha) + currPos[p + 2] * alpha;
+        _record[3] = 0;
+        _record[4] = quat[0];
+        _record[5] = quat[1];
+        _record[6] = quat[2];
+        _record[7] = quat[3];
+        _record[8] = scale[0];
+        _record[9] = scale[1];
+        _record[10] = scale[2];
+        _record[11] = 0;
+        Compute.device.queue.writeBuffer(transforms, eid * 48, _record);
+    }
+}
+
+/** scatters the live pose into the `transforms` firehose so a Body+Part renders. A `Body` eid's slot is physics-owned: the Transform compose is membership-gated and never touches it (`Body` excludes `Transform`, so the two writers partition the firehose by slot). `after: [BeginFrameSystem]`; `before: [PrepassSystem]` so every sear geometry pass reads the fresh pose. No-op with no renderer or no transforms firehose (physics runs headless unchanged). */
 export const ComposeSystem: System = {
     name: "compose",
     group: "draw",
     after: [BeginFrameSystem],
     before: [PrepassSystem],
     update(state) {
-        const backend = Physics.backend;
-        if (!backend || !Render.encoder) return;
+        if (!world || !Render.encoder) return;
         const transforms = Compute.buffers.get("transforms");
         if (!transforms) return;
-        backend.compose(Render.encoder, transforms, state.time.fixedAlpha);
+        composePose(transforms, state.time.fixedAlpha);
+    },
+};
+
+/**
+ * rigid-body physics: installs `Body`/`Spring`/`Joint` and a CPU solver (Rust/WASM kernel, no GPU device
+ * needed to step). Opt-in — add it to a scene to run physics (it's not in the default plugins). Nine joint
+ * types, mesh/heightfield/compound colliders, sensors, CCD and sleeping ride {@link Physics.world}.
+ *
+ * @example
+ * ```
+ * export const config: Config = { plugins: [PhysicsPlugin], scene: "scenes/scene.scene" };
+ * ```
+ */
+export const PhysicsPlugin: Plugin = {
+    name: "Physics",
+    components: { Body, Spring, Joint },
+    systems: [SyncSystem, ConstraintSystem, StepSystem, ComposeSystem],
+    dependencies: [SlabPlugin],
+    traits: {
+        Body: bodyTraits,
+        Spring: springTraits,
+        Joint: jointTraits,
+    },
+
+    initialize() {
+        Physics.world = null;
+    },
+
+    async warm() {
+        await init(); // async wasm compile — the browser main thread can't compile it synchronously
+        world?.destroy();
+        world = new World({ gravity: { x: 0, y: GRAVITY, z: 0 } });
+        Physics.world = world;
+        clearBodies();
+        prevPos = new Float32Array(capacity * 3);
+        prevQuat = new Float32Array(capacity * 4);
+        currPos = new Float32Array(capacity * 3);
+        currQuat = new Float32Array(capacity * 4);
+        resetSignatures(); // the fresh world receives the authored constraint set on its first frame
+    },
+
+    dispose() {
+        clearBodies();
+        world?.destroy();
+        world = null;
+        Physics.world = null;
     },
 };

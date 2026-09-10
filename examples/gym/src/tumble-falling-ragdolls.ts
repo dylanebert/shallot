@@ -8,7 +8,7 @@
 // (`buildHuman`, shared with `ragdoll-ragdoll` via `tumble-ragdoll-factory.ts`) in row-major (ix outer, iz
 // inner) order — the sample's exact order.
 
-import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/tumble/core";
+import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 import { buildHuman } from "./tumble-ragdoll-factory";
 

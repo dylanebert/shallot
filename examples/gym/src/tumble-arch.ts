@@ -6,7 +6,7 @@
 // Creation order is load-bearing for the hash: ground, then the 17 voussoirs (8 inner/outer pairs plus
 // the keystone) in the sample's loop order, then the four boxes — the sample's exact order.
 
-import { BodyType, createHull, makeBoxHull, type World } from "@dylanebert/shallot/tumble/core";
+import { BodyType, createHull, makeBoxHull, type World } from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 
 /**

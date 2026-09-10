@@ -10,7 +10,7 @@
 // Creation order is load-bearing for the hash: ground, platform, then the three crates — the sample's
 // exact order.
 
-import { type Body, BodyType, makeBoxHull, type World } from "@dylanebert/shallot/tumble/core";
+import { type Body, BodyType, makeBoxHull, type World } from "@dylanebert/shallot/physics/core";
 import type { SampleParams, SampleUpdate } from "./tumble-oracle";
 
 const TYPES: Record<string, BodyType> = {

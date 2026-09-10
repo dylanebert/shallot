@@ -15,7 +15,6 @@ import {
     springTraits,
 } from "../physics";
 import { Hulls } from "../physics/core";
-import { Slab } from "../slab";
 import {
     BodyType,
     createHull,
@@ -28,7 +27,8 @@ import {
     type Body as TumbleBody,
     World,
 } from "../physics/engine";
-import { Tumble, TumblePlugin } from "./index";
+import { Slab } from "../slab";
+import { composePose, PhysicsPlugin } from "./index";
 
 // a small tetrahedron, registered under `ShapeKind.Hull`'s id lookup (`Body.halfExtents.w`) — exercises
 // `marshal.ts`'s `hullFromRegistry` path (the Hull branch `attachShape` doesn't otherwise reach). Faces/
@@ -56,7 +56,7 @@ const TETRA_ID = Hulls.register({
 });
 
 // The marshaling gate (tumble.md "The marshaling gate — dual-run hash equality"): the same scene
-// built two ways — once through `TumblePlugin` on a headless `State` (reading a scene's authored `Body`
+// built two ways — once through `PhysicsPlugin` on a headless `State` (reading a scene's authored `Body`
 // entities), once by hand through the raw engine `World`/`Body` API with the identical literal values —
 // stepped in lockstep, asserting per-step `hashWorldState` equality. Proves the ECS → tumble marshaling
 // (shape dispatch, pose, mass/density, deterministic creation order) end to end with no fixture files. The
@@ -64,7 +64,7 @@ const TETRA_ID = Hulls.register({
 // pose/mass bug in the plugin's marshaling diverges the hash.
 
 const GRAVITY = -10;
-const SUBSTEPS = 4; // must match TumblePlugin's own SUBSTEPS
+const SUBSTEPS = 4; // must match PhysicsPlugin's own SUBSTEPS
 const STEPS = 20;
 
 type SceneBody = {
@@ -243,7 +243,7 @@ let liveState: State | null = null;
 afterEach(() => {
     if (liveState) {
         CharacterPlugin.dispose?.(liveState);
-        TumblePlugin.dispose?.(liveState);
+        PhysicsPlugin.dispose?.(liveState);
     }
     liveState = null;
 });
@@ -260,9 +260,9 @@ async function buildScene(): Promise<State> {
     register("spring", Spring, springTraits);
     register("joint", Joint, jointTraits);
     Slab.collect();
-    TumblePlugin.initialize?.(state);
-    await TumblePlugin.warm?.(state);
-    attach(state, TumblePlugin);
+    PhysicsPlugin.initialize?.(state);
+    await PhysicsPlugin.warm?.(state);
+    attach(state, PhysicsPlugin);
     const eids: number[] = [];
     for (const b of SCENE) {
         const eid = state.create();
@@ -298,7 +298,7 @@ async function buildScene(): Promise<State> {
 }
 
 describe("tumble marshaling gate", () => {
-    test("TumblePlugin reproduces the raw engine API bit-exactly, per step", async () => {
+    test("PhysicsPlugin reproduces the raw engine API bit-exactly, per step", async () => {
         // the wasm kernel is a singleton (ONE live resident region, tumble.md "Singleton,
         // single-live-world") — the two runs can't be live at once, so "lockstep" means: run the
         // reference to completion first (recording every step's hash), destroy it, THEN run the plugin
@@ -318,8 +318,8 @@ describe("tumble marshaling gate", () => {
             // the plugin's sync system creates its bodies on this same first fixed tick (before the
             // solve, `SyncSystem`'s `before: [StepSystem]`), so the first recorded hash is already
             // post-creation-and-step, matching the reference's first recorded hash.
-            expect(Tumble.world).not.toBeNull();
-            pluginHashes.push(hashWorldState(Tumble.world!.state));
+            expect(Physics.world).not.toBeNull();
+            pluginHashes.push(hashWorldState(Physics.world!.state));
         }
 
         expect(pluginHashes).toEqual(referenceHashes);
@@ -328,7 +328,7 @@ describe("tumble marshaling gate", () => {
 
 describe("character under the tumble backend", () => {
     test("the shared CPU sweep grounds, drives, and uploads through the tumble handle", async () => {
-        // the backend-neutral collide-and-slide (standard/character) run against TumblePlugin: the
+        // the backend-neutral collide-and-slide (standard/character) run against PhysicsPlugin: the
         // sweep reads candidates through `Physics.backend.readBody` and uploads the swept pose through
         // `setKinematic` — the exact seams the stage-2 substrate established, now under the second
         // backend. Sweep correctness itself is oracle-gated (character-sweep.oracle.ts); this pins the
@@ -339,9 +339,9 @@ describe("character under the tumble backend", () => {
         register("body", Body, bodyTraits);
         register("character", Character, CharacterPlugin.traits?.Character);
         Slab.collect();
-        TumblePlugin.initialize?.(state);
-        await TumblePlugin.warm?.(state);
-        attach(state, TumblePlugin);
+        PhysicsPlugin.initialize?.(state);
+        await PhysicsPlugin.warm?.(state);
+        attach(state, PhysicsPlugin);
         attach(state, CharacterPlugin);
 
         const floor = state.create();
@@ -375,7 +375,7 @@ describe("character under the tumble backend", () => {
         // the kinematic upload reached tumble: the backend's pose tracks the controller's. x may lead
         // by one tick's advance (tumble integrates a kinematic body's velocity after the upload; the
         // next sweep overwrites it) — y is tight since the grounded realized velocity is 0.
-        const live = Physics.backend?.readBody(char);
+        const live = Physics.readBody(char);
         expect(live).not.toBeNull();
         expect(Math.abs((live?.pos[0] ?? 0) - p[0])).toBeLessThan(2.5 * Time.FIXED_DT);
         expect(Math.abs((live?.pos[1] ?? 0) - p[1])).toBeLessThan(1e-3);
@@ -392,9 +392,9 @@ describe("character under the tumble backend", () => {
         register("body", Body, bodyTraits);
         register("character", Character, CharacterPlugin.traits?.Character);
         Slab.collect();
-        TumblePlugin.initialize?.(state);
-        await TumblePlugin.warm?.(state);
-        attach(state, TumblePlugin);
+        PhysicsPlugin.initialize?.(state);
+        await PhysicsPlugin.warm?.(state);
+        attach(state, PhysicsPlugin);
         attach(state, CharacterPlugin);
 
         const floor = state.create();
@@ -448,9 +448,9 @@ describe("character under the tumble backend", () => {
         register("body", Body, bodyTraits);
         register("character", Character, CharacterPlugin.traits?.Character);
         Slab.collect();
-        TumblePlugin.initialize?.(state);
-        await TumblePlugin.warm?.(state);
-        attach(state, TumblePlugin);
+        PhysicsPlugin.initialize?.(state);
+        await PhysicsPlugin.warm?.(state);
+        attach(state, PhysicsPlugin);
         attach(state, CharacterPlugin);
 
         const floor = state.create();
@@ -474,10 +474,10 @@ describe("character under the tumble backend", () => {
     });
 });
 
-describe("Tumble.body handle accessor", () => {
+describe("Physics.body handle accessor", () => {
     test("returns the marshaled handle after a sync tick, null before / for a non-body", async () => {
         // the escape-hatch eid↔handle bridge (a ragdoll wiring cone/twist/filter joints between named
-        // bodies reaches each `TumbleBody` this way, then hands it to `Tumble.world.create*Joint`). The
+        // bodies reaches each `TumbleBody` this way, then hands it to `Physics.world.create*Joint`). The
         // handle only exists once SyncSystem has marshaled the entity — its first `fixed` tick.
         clear();
         const state = new State();
@@ -486,33 +486,33 @@ describe("Tumble.body handle accessor", () => {
         register("spring", Spring, springTraits);
         register("joint", Joint, jointTraits);
         Slab.collect();
-        TumblePlugin.initialize?.(state);
-        await TumblePlugin.warm?.(state);
-        attach(state, TumblePlugin);
+        PhysicsPlugin.initialize?.(state);
+        await PhysicsPlugin.warm?.(state);
+        attach(state, PhysicsPlugin);
 
         const eid = state.create();
         state.add(eid, Body);
         Body.pos.set(eid, 0, 5, 0, 0);
 
         // before the first fixed tick the body isn't marshaled yet
-        expect(Tumble.body(eid)).toBeNull();
+        expect(Physics.body(eid)).toBeNull();
         // a non-Body eid never resolves
         const bare = state.create();
-        expect(Tumble.body(bare)).toBeNull();
+        expect(Physics.body(bare)).toBeNull();
 
         state.step(Time.FIXED_DT);
 
-        const handle = Tumble.body(eid);
+        const handle = Physics.body(eid);
         expect(handle).not.toBeNull();
         // it's the live handle: its position reflects the marshaled spawn pose (before gravity has pulled
         // it far), and it round-trips the same object on a second lookup
         expect(handle?.getPosition().y).toBeGreaterThan(4);
-        expect(Tumble.body(eid)).toBe(handle);
+        expect(Physics.body(eid)).toBe(handle);
 
         // freed with the entity: destroy drops the mapping on the next tick
         state.destroy(eid);
         state.step(Time.FIXED_DT);
-        expect(Tumble.body(eid)).toBeNull();
+        expect(Physics.body(eid)).toBeNull();
     });
 });
 
@@ -530,9 +530,9 @@ describe("same-update destroy+create realias", () => {
         register("spring", Spring, springTraits);
         register("joint", Joint, jointTraits);
         Slab.collect();
-        TumblePlugin.initialize?.(state);
-        await TumblePlugin.warm?.(state);
-        attach(state, TumblePlugin);
+        PhysicsPlugin.initialize?.(state);
+        await PhysicsPlugin.warm?.(state);
+        attach(state, PhysicsPlugin);
 
         const box = state.create();
         state.add(box, Body);
@@ -555,7 +555,7 @@ describe("same-update destroy+create realias", () => {
 
         // the live tumble handle must be the NEW sphere: gravity is -y only, so x stays at the sphere's
         // authored 10 (the old box fell straight down from x=0), and its mass is the sphere's 5, not 1.
-        const handle = Tumble.body(sphere);
+        const handle = Physics.body(sphere);
         expect(handle).not.toBeNull();
         expect(handle?.getPosition().x).toBeCloseTo(10, 1);
         expect(handle?.getMass()).toBeCloseTo(5, 1);
@@ -572,9 +572,9 @@ describe("same-update destroy+create realias", () => {
         register("spring", Spring, springTraits);
         register("joint", Joint, jointTraits);
         Slab.collect();
-        TumblePlugin.initialize?.(state);
-        await TumblePlugin.warm?.(state);
-        attach(state, TumblePlugin);
+        PhysicsPlugin.initialize?.(state);
+        await PhysicsPlugin.warm?.(state);
+        attach(state, PhysicsPlugin);
 
         // a kinematic (mass 0) platform at x=10; the first setKinematic seeds its kinPrev to that pose.
         const platA = state.create();
@@ -584,7 +584,7 @@ describe("same-update destroy+create realias", () => {
         Body.pos.set(platA, 10, 0, 0, 0);
         Body.mass.set(platA, 0);
         state.step(Time.FIXED_DT); // marshals the platform
-        Physics.backend?.setKinematic(platA, [10, 0, 0], [0, 0, 0, 1]); // kinPrev := [10,0,0]
+        Physics.setKinematic(platA, [10, 0, 0], [0, 0, 0, 1]); // kinPrev := [10,0,0]
 
         // recycle the eid with a fresh kinematic body at the origin, one update
         state.destroy(platA);
@@ -599,8 +599,8 @@ describe("same-update destroy+create realias", () => {
 
         // the first setKinematic on the recycled body re-seeds its prev to the current pose (derived
         // velocity 0), not derive (0 − 10)/dt ≈ −600 from the destroyed platform's kinPrev.
-        Physics.backend?.setKinematic(platB, [0, 0, 0], [0, 0, 0, 1]);
-        const live = Physics.backend?.readBody(platB);
+        Physics.setKinematic(platB, [0, 0, 0], [0, 0, 0, 1]);
+        const live = Physics.readBody(platB);
         expect(live).not.toBeNull();
         expect(Math.abs(live?.vel[0] ?? 0)).toBeLessThan(1e-6);
     });
@@ -620,14 +620,14 @@ describe("same-update destroy+create realias", () => {
         register("spring", Spring, springTraits);
         register("joint", Joint, jointTraits);
         Slab.collect();
-        TumblePlugin.initialize?.(state);
-        await TumblePlugin.warm?.(state);
-        attach(state, TumblePlugin);
+        PhysicsPlugin.initialize?.(state);
+        await PhysicsPlugin.warm?.(state);
+        attach(state, PhysicsPlugin);
 
         const Pivot: [number, number, number] = [0, 10, 0];
         const Length = 2; // |rB|: the spherical joint holds the bob center this far from the pivot
         const distToPivot = (eid: number): number => {
-            const p = Tumble.body(eid)!.getPosition();
+            const p = Physics.body(eid)!.getPosition();
             return Math.hypot(p.x - Pivot[0], p.y - Pivot[1], p.z - Pivot[2]);
         };
 
@@ -661,7 +661,7 @@ describe("same-update destroy+create realias", () => {
         stepFor(state, 1.5);
         expect(distToPivot(bob)).toBeGreaterThan(1.7);
         expect(distToPivot(bob)).toBeLessThan(2.3);
-        expect(Tumble.body(bob)!.getPosition().y).toBeGreaterThan(7.5);
+        expect(Physics.body(bob)!.getPosition().y).toBeGreaterThan(7.5);
 
         // realias: destroy the bob and recreate a DISTINCT bob at the recycled eid in ONE update — the eid
         // never leaves Body membership, so only the create-stamp fold in the joint signature can see it
@@ -680,7 +680,7 @@ describe("same-update destroy+create realias", () => {
         // pivot. A dangling (un-rebuilt) joint leaves the new bob in free fall — after 1.5s dist ≈ 11 and
         // y ≈ -1, so both thresholds separate a rebound joint from a suppressed re-upload by a wide margin.
         expect(distToPivot(bob2)).toBeLessThan(2.5);
-        expect(Tumble.body(bob2)!.getPosition().y).toBeGreaterThan(7.5);
+        expect(Physics.body(bob2)!.getPosition().y).toBeGreaterThan(7.5);
     });
 });
 
@@ -697,9 +697,9 @@ describe("kinematic sleep + teleport", () => {
         register("spring", Spring, springTraits);
         register("joint", Joint, jointTraits);
         Slab.collect();
-        TumblePlugin.initialize?.(state);
-        await TumblePlugin.warm?.(state);
-        attach(state, TumblePlugin);
+        PhysicsPlugin.initialize?.(state);
+        await PhysicsPlugin.warm?.(state);
+        attach(state, PhysicsPlugin);
 
         const plat = state.create();
         state.add(plat, Body);
@@ -709,16 +709,16 @@ describe("kinematic sleep + teleport", () => {
         Body.mass.set(plat, 0);
         state.step(Time.FIXED_DT); // marshal
 
-        const handle = Tumble.body(plat);
+        const handle = Physics.body(plat);
         expect(handle).not.toBeNull();
         // park it: unmoved with zero velocity, the kinematic body falls asleep
         stepFor(state, 2.0);
         expect(handle?.isAwake()).toBe(false);
 
         // teleport it to x=10 (teleport ⇒ derived velocity 0, so setLinearVelocity won't wake it)
-        Physics.backend?.setKinematic(plat, [10, 0, 0], [0, 0, 0, 1], true);
+        Physics.setKinematic(plat, [10, 0, 0], [0, 0, 0, 1], true);
         // readBody sees the new pose immediately (setTransform applied)
-        expect(Physics.backend?.readBody(plat)?.pos[0]).toBeCloseTo(10, 3);
+        expect(Physics.readBody(plat)?.pos[0]).toBeCloseTo(10, 3);
 
         const writes = new Map<number, Float32Array>();
         const compute = Compute as unknown as { device: GPUDevice | undefined };
@@ -732,7 +732,7 @@ describe("kinematic sleep + teleport", () => {
         } as unknown as GPUDevice;
         try {
             state.step(Time.FIXED_DT); // the wake makes the solver report the teleport as a move event
-            Physics.backend?.compose(undefined as unknown as GPUCommandEncoder, {} as GPUBuffer, 1);
+            composePose({} as GPUBuffer, 1);
             const rec = writes.get(plat * 48);
             expect(rec).toBeDefined();
             expect(rec?.[0]).toBeCloseTo(10, 1); // the render firehose slot tracks the teleported pose
@@ -755,9 +755,9 @@ describe("unregistered hull marshaling", () => {
         register("spring", Spring, springTraits);
         register("joint", Joint, jointTraits);
         Slab.collect();
-        TumblePlugin.initialize?.(state);
-        await TumblePlugin.warm?.(state);
-        attach(state, TumblePlugin);
+        PhysicsPlugin.initialize?.(state);
+        await PhysicsPlugin.warm?.(state);
+        attach(state, PhysicsPlugin);
 
         const floor = state.create();
         state.add(floor, Body);
@@ -794,9 +794,9 @@ describe("unregistered hull marshaling", () => {
             true,
         );
         // the bad body never marshaled — no handle exists for it
-        expect(Tumble.body(bad)).toBeNull();
+        expect(Physics.body(bad)).toBeNull();
         // the rest of the scene still simulates: the normal box marshaled and fell under gravity
-        const live = Physics.backend?.readBody(box);
+        const live = Physics.readBody(box);
         expect(live).not.toBeNull();
         expect(live?.pos[1]).toBeLessThan(5);
     });
@@ -817,9 +817,9 @@ describe("compose covers static bodies", () => {
         register("spring", Spring, springTraits);
         register("joint", Joint, jointTraits);
         Slab.collect();
-        TumblePlugin.initialize?.(state);
-        await TumblePlugin.warm?.(state);
-        attach(state, TumblePlugin);
+        PhysicsPlugin.initialize?.(state);
+        await PhysicsPlugin.warm?.(state);
+        attach(state, PhysicsPlugin);
 
         const floor = state.create();
         state.add(floor, Body);
@@ -843,7 +843,7 @@ describe("compose covers static bodies", () => {
         try {
             state.step(Time.FIXED_DT);
             const buffer = {} as GPUBuffer;
-            Physics.backend?.compose(undefined as unknown as GPUCommandEncoder, buffer, 1);
+            composePose(buffer, 1);
 
             // the static floor composed its spawn record (pos + Xform render scale = 2·halfExtents)
             const rec = writes.get(floor * 48);
@@ -860,7 +860,7 @@ describe("compose covers static bodies", () => {
             // half on the real GPU)
             stepFor(state, 1.0);
             writes.clear();
-            Physics.backend?.compose(undefined as unknown as GPUCommandEncoder, buffer, 1);
+            composePose(buffer, 1);
             expect(writes.get(box * 48)).toBeDefined();
             const still = writes.get(floor * 48);
             if (still) {
@@ -875,13 +875,24 @@ describe("compose covers static bodies", () => {
     });
 });
 
-describe("tumble/core mirror", () => {
-    test("core re-exports the engine barrel minus shutdown, plus nlerpShortest", async () => {
-        const engine = await import("../physics/engine");
+describe("physics/core mirror", () => {
+    test("core re-exports the engine barrel minus shutdown, plus physics's own seam", async () => {
+        const engine = await import("./engine");
         const core = await import("./core");
         const engineKeys = new Set(Object.keys(engine));
         const coreKeys = new Set(Object.keys(core));
+        const own = new Set(
+            (
+                await Promise.all([
+                    import("./index"),
+                    import("./hull"),
+                    import("./pick"),
+                    import("./raycast"),
+                    import("./compose"),
+                ])
+            ).flatMap((m) => Object.keys(m)),
+        );
         expect([...engineKeys].filter((k) => !coreKeys.has(k))).toEqual(["shutdown"]);
-        expect([...coreKeys].filter((k) => !engineKeys.has(k))).toEqual(["nlerpShortest"]);
+        expect([...coreKeys].filter((k) => !engineKeys.has(k) && !own.has(k))).toEqual([]);
     });
 });

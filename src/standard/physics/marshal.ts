@@ -1,5 +1,3 @@
-import { Body, ShapeKind } from "../physics";
-import { Hulls } from "../physics/core";
 import {
     BodyType,
     createHull,
@@ -9,10 +7,12 @@ import {
     makeBoxHull,
     type Body as TumbleBody,
     type World as TumbleWorld,
-} from "../physics/engine";
+} from "./engine";
+import { Hulls } from "./hull";
+import { Body, ShapeKind } from "./index";
 
 // ECS → tumble marshaling — the ONLY place a Body's authored fields become a tumble rigid body, so the
-// dual-run hash gate (tumble.test.ts) and TumblePlugin's sync system read this one path. The Spring/Joint
+// dual-run hash gate (tumble.test.ts) and PhysicsPlugin's sync system read this one path. The Spring/Joint
 // half of the seam is joints.ts (tumble.md "Constraint mapping"); this module is shape + mass + pose.
 
 /** a `mass <= 0` `Body` marshals as `Kinematic` (velocity set via `PhysicsBackend.setKinematic`), never

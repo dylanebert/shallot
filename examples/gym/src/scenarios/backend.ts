@@ -19,6 +19,7 @@ import {
     Part,
     PartPlugin,
     Physics,
+    PhysicsPlugin,
     type Plugin,
     RenderPlugin,
     run,
@@ -32,15 +33,13 @@ import {
     Time,
     Transform,
     TransformsPlugin,
-    TumblePlugin,
 } from "@dylanebert/shallot";
 import { AvbdPlugin } from "@dylanebert/shallot/avbd";
 import { grounded, move, pose } from "@dylanebert/shallot/character/core";
 import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
-import { bodyCandidates, raycast, StepSystem } from "@dylanebert/shallot/physics/core";
 // the tumble kernel's resolved thread count (read-only diagnostic on the extension subpath) — the
 // isolation gate reads it to confirm the multithreaded boot engaged
-import { threads } from "@dylanebert/shallot/tumble/core";
+import { bodyCandidates, raycast, StepSystem, threads } from "@dylanebert/shallot/physics/core";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
 import {
     BACKEND_BOX_HALF as BOX_HALF,
@@ -53,7 +52,7 @@ import {
 
 // backend — the substrate swap gate: ONE scene, authored purely against
 // the `standard/physics` substrate (Body components, `Physics.backend`'s kinematic drive, the CPU raycast,
-// the `transforms` firehose), that runs unmodified under EITHER `TumblePlugin` (default) or `AvbdPlugin`
+// the `transforms` firehose), that runs unmodified under EITHER `PhysicsPlugin` (default) or `AvbdPlugin`
 // (`--param backend=tumble|avbd`) — the one-line manifest swap the substrate's typed `PhysicsBackend`
 // handle exists to make possible (physics.md substrate rule, `standard/physics/index.ts`). Where the
 // sibling `pile`/`constraints`/`character` scenarios gate the AVBD SOLVER's math against the f64 oracle,
@@ -162,7 +161,7 @@ const DriverPlugin: Plugin = {
             group: "fixed",
             before: [StepSystem],
             update(state: State) {
-                const backend = Physics.backend;
+                const backend = Physics;
                 if (!backend || platformEid < 0) return;
                 const t = state.time.fixedTick * Time.FIXED_DT;
                 backend.setKinematic(platformEid, [platformX(t), PLATFORM_Y, 0], [0, 0, 0, 1]);
@@ -344,7 +343,7 @@ const scenario: Scenario = {
                 InputPlugin,
                 OrbitPlugin,
                 RenderPlugin,
-                backend === "avbd" ? AvbdPlugin : TumblePlugin,
+                backend === "avbd" ? AvbdPlugin : PhysicsPlugin,
                 CharacterPlugin, // backend-neutral: the SAME plugin under either backend
                 DriverPlugin,
                 PartPlugin,
@@ -455,8 +454,7 @@ const scenario: Scenario = {
     },
 
     live(): string {
-        const backend = Physics.backend;
-        if (!backend) return "backend — warming";
+        const backend = Physics;
         const p = backend.readBody(platformEid);
         const b0 = boxEids.length > 0 ? backend.readBody(boxEids[0]) : null;
         const c: [number, number, number] = [0, 0, 0];
@@ -471,8 +469,7 @@ const scenario: Scenario = {
 // ── settle + no-fall-through: every box rests on the floor, under either backend ──
 
 function settleGates(): Check[] {
-    const backend = Physics.backend;
-    if (!backend) return [{ name: "backend", pass: false, detail: "no physics backend" }];
+    const backend = Physics;
     const checks: Check[] = [];
     let maxErr = 0;
     let minY = Number.POSITIVE_INFINITY;
@@ -503,13 +500,12 @@ function settleGates(): Check[] {
 // ── raycast: the backend-neutral CPU cast (physics/core) hits the settled target box ──
 
 function raycastGate(state: State): Check {
-    const backend = Physics.backend;
-    if (!backend) return { name: "raycast", pass: false, detail: "no physics backend" };
-    const candidates = bodyCandidates(state, backend);
+    const _backend = Physics;
+    const candidates = bodyCandidates(state, Physics.readBody);
     const hit = raycast({ origin: [targetX, 10, targetZ], dir: [0, -1, 0] }, candidates);
     const pass = hit !== null && hit.eid === targetEid && hit.distance < 10;
     return {
-        name: "raycast hits the settled target box (bodyCandidates reads live pose through Physics.backend)",
+        name: "raycast hits the settled target box (bodyCandidates reads live pose through Physics.readBody)",
         pass,
         detail: hit
             ? `hit eid ${hit.eid} (target ${targetEid}) at distance ${hit.distance.toFixed(3)}`
@@ -521,8 +517,7 @@ function raycastGate(state: State): Check {
 // firehose (ComposeSystem, shared by both backends) reflects that pose ──
 
 async function driveWritebackGates(state: State): Promise<Check[]> {
-    const backend = Physics.backend;
-    if (!backend) return [{ name: "backend drive", pass: false, detail: "no physics backend" }];
+    const backend = Physics;
     const live = backend.readBody(platformEid);
     const checks: Check[] = [];
     if (!live) {
@@ -537,7 +532,7 @@ async function driveWritebackGates(state: State): Promise<Check[]> {
     const DriveTol = 0.15;
     const expectedX = platformX(state.time.fixedTick * Time.FIXED_DT);
     checks.push({
-        name: "drive (Physics.backend.setKinematic moves the platform along its commanded trajectory)",
+        name: "drive (Physics.setKinematic moves the platform along its commanded trajectory)",
         pass:
             Math.abs(live.pos[0] - expectedX) < DriveTol &&
             Number.isFinite(live.pos[1]) &&
@@ -566,8 +561,7 @@ async function driveWritebackGates(state: State): Promise<Check[]> {
 // ── constraints: the authored Spring/Joint path holds its behavioral bands under either backend ──
 
 function constraintGates(): Check[] {
-    const backend = Physics.backend;
-    if (!backend) return [{ name: "constraints", pass: false, detail: "no physics backend" }];
+    const backend = Physics;
     const checks: Check[] = [];
     const [ax, ay, az] = ANCHOR_POS;
 
@@ -687,7 +681,7 @@ async function characterGates(state: State): Promise<Check[]> {
     const checks: Check[] = [];
     const has = pose(charEid, p);
     checks.push({
-        name: "character walks to its waypoint (shared sweep over Physics.backend)",
+        name: "character walks to its waypoint (shared sweep over Physics)",
         pass: has && Math.abs(p[0] - CHAR_TARGET_X) < 0.3,
         detail: has
             ? `char x ${p[0].toFixed(3)} (waypoint ${CHAR_TARGET_X})`
@@ -707,8 +701,7 @@ async function characterGates(state: State): Promise<Check[]> {
 // body's inherited pose — the one gate covering the substrate realias fix under BOTH backends ──
 
 function recycleGate(): Check {
-    const backend = Physics.backend;
-    if (!backend) return { name: "recycle", pass: false, detail: "no physics backend" };
+    const backend = Physics;
     if (recycleEid < 0) return { name: "recycle", pass: false, detail: "no recycle body" };
     const b = backend.readBody(recycleEid);
     if (!b) return { name: "recycle", pass: false, detail: "no live recycled pose" };
@@ -726,7 +719,7 @@ function recycleGate(): Check {
 // ── MT isolation (tumble only) — the served page IS cross-origin isolated AND the tumble kernel booted
 // multithreaded. Guards the dev/preview COOP/COEP headers (bin devConfig / serveEjected / serveDist /
 // run preview) end to end in a real browser: a header regression silently degrades tumble to single
-// thread and every other gate still passes, so assert the positive. Runs only under TumblePlugin — avbd
+// thread and every other gate still passes, so assert the positive. Runs only under PhysicsPlugin — avbd
 // never boots the tumble kernel, so threads() would stay 1 there ──
 function isolationGate(): Check {
     const isolated = (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;

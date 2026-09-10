@@ -353,7 +353,7 @@ export const PlayerControlSystem: System = {
 
 /** first-person player plugin: pointer-lock mouse look, WASD/sprint/jump, and a fixed-timestep follow
  *  camera over a kinematic {@link Character}. Depends on {@link CharacterPlugin} (the controller it composes),
- *  input, and the renderer; add a physics backend plugin (`TumblePlugin` or `AvbdPlugin`) to the scene, and
+ *  input, and the renderer; add a physics backend plugin (`PhysicsPlugin` or `AvbdPlugin`) to the scene, and
  *  the character sweeps against it. Give an entity {@link Body} + {@link Character} + {@link Player}. */
 export const PlayerPlugin: Plugin = {
     name: "Player",

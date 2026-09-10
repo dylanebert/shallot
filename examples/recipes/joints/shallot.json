@@ -2,7 +2,7 @@
     "scene": "scenes/joints.scene",
     "plugins": {
         "Orbit": true,
-        "Tumble": true,
+        "Physics": true,
         "Joints": "./src/joints",
         "JointsSmoke": "./src/smoke"
     }

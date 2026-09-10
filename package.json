@@ -43,7 +43,6 @@
         "./avbd": "./src/standard/avbd/index.ts",
         "./avbd/core": "./src/standard/avbd/core.ts",
         "./character/core": "./src/standard/character/core.ts",
-        "./tumble/core": "./src/standard/tumble/core.ts",
         "./bvh/core": "./src/standard/bvh/core.ts",
         "./audio/core": "./src/standard/audio/core.ts",
         "./cells/core": "./src/extras/cells/core.ts",

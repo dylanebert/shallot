@@ -29,7 +29,16 @@ import {
     Transform,
 } from "@dylanebert/shallot";
 import { Parts } from "@dylanebert/shallot/part/core";
-import { screenToRay } from "@dylanebert/shallot/physics/core";
+import {
+    type Body,
+    BodyType,
+    type DebugDraw,
+    defaultDebugDraw,
+    type Mesh,
+    screenToRay,
+    type World,
+    type WorldTransform,
+} from "@dylanebert/shallot/physics/core";
 import {
     CLUSTER_COUNT,
     CULL_VOLUME_FLOATS,
@@ -41,15 +50,6 @@ import {
     Surfaces,
     Views,
 } from "@dylanebert/shallot/render/core";
-import {
-    type Body,
-    BodyType,
-    type DebugDraw,
-    defaultDebugDraw,
-    type Mesh,
-    type World,
-    type WorldTransform,
-} from "@dylanebert/shallot/tumble/core";
 import type { ProbeContext } from "./tumble-probe";
 import { cameraPose, worldToScreen } from "./tumble-project";
 

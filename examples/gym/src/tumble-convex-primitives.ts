@@ -12,7 +12,7 @@ import {
     createRock,
     makeBoxHull,
     type World,
-} from "@dylanebert/shallot/tumble/core";
+} from "@dylanebert/shallot/physics/core";
 
 /**
  * Author the Convex Primitives scene into `world`: a 3x5 grid of bodies cycling cylinder/cone/rock hulls.

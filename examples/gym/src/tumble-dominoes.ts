@@ -6,7 +6,7 @@
 // ring by ring — the sample's exact nested-loop order. The impulse on the very first domino (ring 0,
 // alpha 0) fires inline in the same loop, matching the sample.
 
-import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/tumble/core";
+import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 
 /**

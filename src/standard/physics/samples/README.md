@@ -6,7 +6,7 @@ the initial body snapshot, the per-step world-state hash, and the sample's camer
 The corpus registered 41 samples; 40 minted a gold, 1 is excepted (below).
 
 A gym scenario reproduces a sample's `build()` through the escape hatch
-(`Tumble.world`) and replays it against the same engine these golds were minted with. Both sides are the
+(`Physics.world`) and replays it against the same engine these golds were minted with. Both sides are the
 same engine, so only authoring can differ — a wrong axis, wrong joint, or wrong shape mismatches the hash
 at the first divergent step. That is the oracle the earlier examples port lacked.
 
@@ -15,7 +15,7 @@ at the first divergent step. That is the oracle the earlier examples port lacked
 - **Sample corpus:** `tumble.js/samples` at commit `128a4efeb7d28024c338a4b5beaefc49d3dc4345` — the reference implementation.
 - **Minting engine:** shallot's inlined `src/standard/physics/engine` (box3d pin `29bf523`), **not**
   tumble.js's own engine copy. The samples' `import "tumble.js"` is aliased to the shipping engine barrel
-  during the mint, so the hashes are exactly what a gym replay against `Tumble.world` produces.
+  during the mint, so the hashes are exactly what a gym replay against `Physics.world` produces.
 - **Hash:** the engine's own `hashWorldState` (FNV-1a over every live body's transform + velocity), the
   same function the C fixtures compare against — so a ported scenario compares identically on both sides.
 

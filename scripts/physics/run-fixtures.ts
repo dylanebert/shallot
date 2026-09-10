@@ -11,7 +11,9 @@ import { resolve } from "node:path";
 import { Glob } from "bun";
 
 const owner = resolve(import.meta.dir, "../..");
-const files = [...new Glob("src/standard/physics/**/*.fixture.ts").scanSync(owner)].map((f) => `./${f}`);
+const files = [...new Glob("src/standard/physics/**/*.fixture.ts").scanSync(owner)].map(
+    (f) => `./${f}`,
+);
 if (files.length === 0) {
     console.error("[test:fixture] no fixture files found under src/");
     process.exit(1);

@@ -10,7 +10,7 @@
 // wasm, plus the declarative by-name gate: preloader import + route sync with no import code), skin-live
 // (the live joint-palette substrate — a hand-built 2-bone rig posed through LiveSkin, deform + moving
 // shadow + reach-bound probes, no glTF asset), ragdoll (the live palette's physics producer — RiggedFigure
-// imported {live} + an 11-capsule tumble ragdoll on the Tumble.world escape hatch, a readBody → skinMatrix
+// imported {live} + an 11-capsule tumble ragdoll on the Physics.world escape hatch, a readBody → skinMatrix
 // pose driver; upright→crumple deform + reach-survivor probes),
 // transparency, and the backdrop rows background / sky (the bindings-free + uniform-bound
 // `Backgrounds` recipes filling un-rendered pixels)), `gltf` (the asset lifecycle atom — load → dispose/rebuild cache hit →
@@ -34,7 +34,7 @@
 // scene authored purely against `standard/physics` (settle, no-fall-through, raycast, kinematic drive +
 // firehose writeback) that runs unmodified under `--param backend=tumble|avbd` — behavioral parity, not
 // bit-exact (two solvers can't hash-match a trajectory), plus a per-system CPU-span perf snapshot. Three
-// scenarios gate the tumble `Tumble.world` escape-hatch surface past the substrate: `queries` (the spatial
+// scenarios gate the tumble `Physics.world` escape-hatch surface past the substrate: `queries` (the spatial
 // query trio — `castRayClosest` / `castShape` / `overlapAABB` over one deterministic obstacle scene),
 // `rotation` (free angular dynamics in a zero-g world — the Dzhanibekov intermediate-axis flip + a parallel
 // joint locking a panel's orientation), and `raining` (the streaming-spawn stress: bodies rain onto a pile

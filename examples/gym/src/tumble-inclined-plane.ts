@@ -11,7 +11,7 @@ import {
     defaultSurfaceMaterial,
     makeBoxHull,
     type World,
-} from "@dylanebert/shallot/tumble/core";
+} from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 
 /**

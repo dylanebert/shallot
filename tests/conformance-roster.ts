@@ -9,7 +9,6 @@
 
 import {
     build,
-    Physics,
     type Plugin,
     type State,
     type System,
@@ -286,7 +285,7 @@ export const roster: Record<string, Conformance> = {
             <a body="pos: 0 0 0; half-extents: 10 0.5 10; mass: 0" />
             <a body="pos: 0 6 0; half-extents: 0.6 0.6 0.6; mass: 1" />
         </scene>`,
-        probe: () => ({ backend: Physics.backend !== null, eidCap: Avbd.step?.eidCap ?? 0 }),
+        probe: () => ({ backend: Avbd.step !== null, eidCap: Avbd.step?.eidCap ?? 0 }),
     },
     Character: {
         plugins: [SlabPlugin, MirrorPlugin, AvbdPlugin, CharacterPlugin],
@@ -295,7 +294,7 @@ export const roster: Record<string, Conformance> = {
             <a body="pos: 0 0 0; half-extents: 10 0.5 10; mass: 0" />
             <a id="char" body="pos: 0 3 0; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0" character />
         </scene>`,
-        probe: () => ({ backend: Physics.backend !== null, eidCap: Avbd.step?.eidCap ?? 0 }),
+        probe: () => ({ backend: Avbd.step !== null, eidCap: Avbd.step?.eidCap ?? 0 }),
     },
     Player: {
         plugins: [
@@ -314,7 +313,7 @@ export const roster: Record<string, Conformance> = {
             <a id="player" body="pos: 0 1 0; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0" character player="camera: @eye" />
             <a body="pos: 0 0 0; half-extents: 10 0.5 10; mass: 0" />
         </scene>`,
-        probe: () => ({ backend: Physics.backend !== null, eidCap: Avbd.step?.eidCap ?? 0 }),
+        probe: () => ({ backend: Avbd.step !== null, eidCap: Avbd.step?.eidCap ?? 0 }),
     },
     Animation: {
         plugins: [SlabPlugin, TransformsPlugin, AnimationPlugin],

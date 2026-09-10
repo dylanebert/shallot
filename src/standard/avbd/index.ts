@@ -1,29 +1,28 @@
 import { Compute, capacity, type Plugin, type State, type System, Time } from "../../engine";
 import { BVH_FEATURES } from "../bvh/core";
 import { type Mirror, MirrorPlugin, mirror } from "../mirror";
+import { Body, Joint, Spring } from "../physics";
 import {
-    Body,
+    type BodyState,
     bodyTraits,
-    ComposeSystem,
-    ConstraintSystem,
-    installBackend,
-    Joint,
+    Hulls,
+    jointDefs,
+    jointSignature,
     jointTraits,
-    type PhysicsBackend,
-    Spring,
-    StepSystem,
+    springDefs,
+    springSignature,
     springTraits,
-    uninstallBackend,
-} from "../physics";
-import { Hulls } from "../physics/core";
+} from "../physics/core";
+import { BeginFrameSystem, Render } from "../render/core";
+import { PrepassSystem } from "../sear/core";
 import { SlabPlugin } from "../slab";
 import { packHulls } from "./hull";
 import { diffStamps } from "./recycle";
 import { B_POS, B_QUAT, B_VELL, type Inputs, PENALTY_MIN, PhysicsStep } from "./step";
 
 // AVBD physics — the rigid-body solver re-added to the lean engine, validated against the f64 oracle
-// (tests/avbd). This plugin implements the substrate's `PhysicsBackend` handle (`standard/physics`); the
-// solver itself is `step.ts` (`PhysicsStep`), the SAT is `collide.ts`. Runs the full `warmstart`
+// (tests/avbd). It registers the shared physics components through `physics/core` and runs its own
+// constraint/step/compose systems; physics is unaware of it. The solver itself is `step.ts` (`PhysicsStep`), the SAT is `collide.ts`. Runs the full `warmstart`
 // augmented-Lagrangian layer (λ accumulation + the conditional penalty ramp + friction + cross-frame
 // persistence: the collide merges last frame's λ/k by feature key, γ decay).
 //
@@ -32,17 +31,16 @@ import { B_POS, B_QUAT, B_VELL, type Inputs, PENALTY_MIN, PhysicsStep } from "./
 // frame a single GPU `pack` pass (PackSystem, draw group) scans capacity gated on the Body membership
 // bit and (a) compacts the live eids into the dense→eid map (`eids[0]` = count, `eids[1+d]` = eid) the
 // solver passes read, and (b) one-time-seeds any newly-spawned body's slot from its authored slabs
-// (gated on a GPU `seeded` flag — existing bodies untouched). The fixed-group StepSystem (substrate)
+// (gated on a GPU `seeded` flag — existing bodies untouched). The fixed-group AvbdStepSystem
 // solves from last frame's pack output (a 1-frame structural latency — a new body joins the solve next
 // frame).
 //
 // Body / Transform contract (roadmap): `Body.excludes [Transform]` (substrate trait). `Body` carries
 // pos/quat (spawn pose, then physics-owned) + mass/halfExtents/friction on slab; this backend owns the
-// GPU pose after spawn. The substrate's `ComposeSystem` scatters the live pose into the `transforms`
+// GPU pose after spawn. `AvbdComposeSystem` scatters the live pose into the `transforms`
 // firehose (`compose` below), after the Transform compose and before the renderer reads geometry, so a
 // `Body`+`Part` renders at the physics-owned pose. A CPU consumer reads the live pose through
-// `Physics.backend.readBody` (the pose-read seam pick.ts + the character sweep use) or the raw
-// `Avbd.step.bodies` escape hatch.
+// `Avbd.readBody` (pass it to the physics pick layer) or the raw `Avbd.step.bodies` escape hatch.
 
 const GRAVITY = -10;
 const ALPHA = 0.99;
@@ -77,9 +75,36 @@ const MAX_BODIES = capacity;
 const MAX_COLORS = 8;
 
 /** the running AVBD state: custom tooling + the gym read the GPU pose from `step.bodies` (indexed by
- *  `step.eids`), tune the solver via `step.configure`, or author joints imperatively via `step.setJoints`. */
-export const Avbd: { step: PhysicsStep | null } = {
+ *  `step.eids`), tune the solver via `step.configure`, or author joints imperatively via `step.setJoints`.
+ *  `readBody` serves a frame-stale Mirror snapshot of a body's pose (1-2 fixed ticks behind). */
+export const Avbd: {
+    step: PhysicsStep | null;
+    readBody(eid: number): BodyState | null;
+    setKinematic(
+        eid: number,
+        pos: readonly [number, number, number],
+        quat: readonly [number, number, number, number],
+        teleport?: boolean,
+        vel?: readonly [number, number, number],
+    ): void;
+    setVelocity(eid: number, vx: number, vy: number, vz: number): void;
+    readonly gravity: number;
+    readonly dt: number;
+} = {
     step: null,
+    readBody: (eid) => readBody(eid),
+    setKinematic(eid, pos, quat, teleport, vel) {
+        Avbd.step?.setKinematic(eid, pos, quat, teleport, vel);
+    },
+    setVelocity(eid, vx, vy, vz) {
+        Avbd.step?.setVelocity(eid, vx, vy, vz);
+    },
+    get gravity() {
+        return Avbd.step?.gravity ?? 0;
+    },
+    get dt() {
+        return Avbd.step?.dt ?? 0;
+    },
 };
 
 // the frame-stale readback of `step.colorCount` — word 0 the greedy's used-color count (the readback-bounded
@@ -156,11 +181,32 @@ let bodyMirror: Mirror | null = null;
 let cachedBuf: ArrayBuffer | null = null;
 let cachedView: Float32Array | null = null;
 
-// this backend's `PhysicsBackend` implementation — installed at `Physics.backend` in `warm()`, uninstalled
-// in `dispose()`. Every method reads `Avbd.step` fresh (never captured), so it stays correct across a
-// State rebuild that tears down + recreates the step.
-const backendHandle: PhysicsBackend = {
-    step() {
+function readBody(eid: number): BodyState | null {
+    const s = Avbd.step;
+    if (!s) return null;
+    if (!bodyMirror) bodyMirror = mirror(s.bodies);
+    const snap = bodyMirror.snapshot;
+    if (!snap) return null;
+    if (cachedBuf !== snap.bytes) {
+        cachedBuf = snap.bytes;
+        cachedView = new Float32Array(snap.bytes);
+    }
+    const f = cachedView as Float32Array;
+    const cap = s.eidCap;
+    const po = (B_POS * cap + eid) * 4;
+    const qo = (B_QUAT * cap + eid) * 4;
+    const vo = (B_VELL * cap + eid) * 4;
+    return {
+        pos: [f[po], f[po + 1], f[po + 2]],
+        quat: [f[qo], f[qo + 1], f[qo + 2], f[qo + 3]],
+        vel: [f[vo], f[vo + 1], f[vo + 2]],
+    };
+}
+
+const AvbdStepSystem: System = {
+    name: "avbd-step",
+    group: "fixed",
+    update() {
         const s = Avbd.step;
         if (!s || !Compute.device) return;
         // readback-bounded color loop (Phase 4.9 Lever 1) + direct color-loop dispatch (rung 0): bound the
@@ -177,55 +223,49 @@ const backendHandle: PhysicsBackend = {
         s.record(encoder);
         Compute.device.queue.submit([encoder.finish()]);
     },
-    readBody(eid) {
+};
+
+// the authored-constraint upload over the physics/core seam: re-derive the defs only when the authored
+// signature changes. Reset in warm so a fresh step receives the authored set on its first frame.
+let springSig = 0;
+let jointSig = 0;
+
+const AvbdConstraintSystem: System = {
+    name: "avbd-constraints",
+    group: "fixed",
+    before: [AvbdStepSystem],
+    update(state) {
         const s = Avbd.step;
-        if (!s) return null;
-        if (!bodyMirror) bodyMirror = mirror(s.bodies);
-        const snap = bodyMirror.snapshot;
-        if (!snap) return null;
-        if (cachedBuf !== snap.bytes) {
-            cachedBuf = snap.bytes;
-            cachedView = new Float32Array(snap.bytes);
+        if (!s) return;
+        const ss = springSignature(state);
+        if (ss !== springSig) {
+            springSig = ss;
+            s.setSprings(springDefs(state));
         }
-        const f = cachedView as Float32Array;
-        const cap = s.eidCap;
-        const po = (B_POS * cap + eid) * 4;
-        const qo = (B_QUAT * cap + eid) * 4;
-        const vo = (B_VELL * cap + eid) * 4;
-        return {
-            pos: [f[po], f[po + 1], f[po + 2]],
-            quat: [f[qo], f[qo + 1], f[qo + 2], f[qo + 3]],
-            vel: [f[vo], f[vo + 1], f[vo + 2]],
-        };
+        const js = jointSignature(state);
+        if (js !== jointSig) {
+            jointSig = js;
+            s.setJoints(jointDefs(state));
+        }
     },
-    setKinematic(eid, pos, quat, teleport, vel) {
-        Avbd.step?.setKinematic(eid, pos, quat, teleport, vel);
-    },
-    setVelocity(eid, vx, vy, vz) {
-        Avbd.step?.setVelocity(eid, vx, vy, vz);
-    },
-    setSprings(springs) {
-        Avbd.step?.setSprings(springs);
-    },
-    setJoints(joints) {
-        Avbd.step?.setJoints(joints);
-    },
-    get gravity() {
-        return Avbd.step?.gravity ?? 0;
-    },
-    get dt() {
-        return Avbd.step?.dt ?? 0;
-    },
-    compose(encoder, transforms, alpha) {
-        Avbd.step?.compose(encoder, transforms, alpha);
+};
+
+const AvbdComposeSystem: System = {
+    name: "avbd-compose",
+    group: "draw",
+    after: [BeginFrameSystem],
+    before: [PrepassSystem],
+    update(state) {
+        if (!Avbd.step || !Render.encoder) return;
+        const transforms = Compute.buffers.get("transforms");
+        if (!transforms) return;
+        Avbd.step.compose(Render.encoder, transforms, state.time.fixedAlpha);
     },
 };
 
 /**
- * the AVBD rigid-body physics backend: installs `Body`/`Spring`/`Joint` and the GPU solver, and implements
- * the physics substrate's `PhysicsBackend` handle at `Physics.backend`. Opt-in — add it to a scene to run
- * physics (it's not in the default plugins). The specialized swap-in for GPU-resident scale; the default
- * for most game-scale scenes is `standard/tumble`'s `TumblePlugin`.
+ * the AVBD rigid-body solver: installs `Body`/`Spring`/`Joint` and a GPU solver for GPU-resident scale. Use
+ * it instead of `PhysicsPlugin`, never beside it.
  *
  * @example
  * ```
@@ -235,7 +275,7 @@ const backendHandle: PhysicsBackend = {
 export const AvbdPlugin: Plugin = {
     name: "Avbd",
     components: { Body, Spring, Joint },
-    systems: [ConstraintSystem, StepSystem, PackSystem, ComposeSystem],
+    systems: [AvbdConstraintSystem, AvbdStepSystem, PackSystem, AvbdComposeSystem],
     // MirrorPlugin: the readback-bounded color loop reads `step.colorCount` through a Mirror (above), and
     // `readBody` reads `step.bodies` through one.
     dependencies: [SlabPlugin, MirrorPlugin],
@@ -284,7 +324,8 @@ export const AvbdPlugin: Plugin = {
         // mirror the used-color count for the readback-bounded color loop (allocated here, after
         // MirrorPlugin.initialize's Mirror.reset, so it survives the build).
         colorMirror = mirror(Avbd.step.colorCount);
-        installBackend(backendHandle);
+        springSig = 0;
+        jointSig = 0;
     },
 
     dispose() {
@@ -297,6 +338,5 @@ export const AvbdPlugin: Plugin = {
         cachedView = null;
         Avbd.step?.destroy();
         Avbd.step = null;
-        uninstallBackend();
     },
 };

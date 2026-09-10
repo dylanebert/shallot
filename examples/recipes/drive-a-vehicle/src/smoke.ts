@@ -50,7 +50,7 @@ export const Smoke: Plugin = {
             const sx = new Map<number, number>();
             const sz = new Map<number, number>();
             for (const e of eids) {
-                const b = Physics.backend?.readBody(e);
+                const b = Physics.readBody(e);
                 if (b) {
                     sx.set(e, b.pos[0]);
                     sz.set(e, b.pos[2]);
@@ -63,7 +63,7 @@ export const Smoke: Plugin = {
             window.dispatchEvent(new KeyboardEvent("keyup", { code: "KeyW" }));
             let advance = 0;
             for (const e of eids) {
-                const b = Physics.backend?.readBody(e);
+                const b = Physics.readBody(e);
                 if (b) {
                     advance = Math.max(
                         advance,

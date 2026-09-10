@@ -174,8 +174,8 @@ export function projectTumble(work: string, publicTar: string): string {
 
 const consumer = `
 import assert from "node:assert/strict";
-import { Tumble, TumblePlugin, State } from "@dylanebert/shallot";
-import { BodyType, World, init, threads, makeBoxHull } from "@dylanebert/shallot/tumble/core";
+import { Physics, PhysicsPlugin, State } from "@dylanebert/shallot";
+import { BodyType, World, init, threads, makeBoxHull } from "@dylanebert/shallot/physics/core";
 import { kernel, workers } from "./node_modules/@dylanebert/shallot/src/standard/physics/engine/kernel.ts";
 const mode = process.argv[2];
 const instantiate = WebAssembly.instantiate;
@@ -189,34 +189,34 @@ assert.equal(threads(), mode === "st" ? 1 : 2, "TUMBLE_THREADS");
 assert.equal(before.kernel.memory.buffer instanceof SharedArrayBuffer, mode !== "st", "TUMBLE_MEMORY");
 assert.equal(before.pool?.size ?? 0, mode === "st" ? 0 : 1, "TUMBLE_POOL");
 const state = new State();
-await TumblePlugin.warm(state);
-assert(Tumble.world instanceof World, "TUMBLE_SOLVER_IDENTITY");
+await PhysicsPlugin.warm(state);
+assert(Physics.world instanceof World, "TUMBLE_SOLVER_IDENTITY");
 assert.strictEqual(kernel(), before.kernel, "TUMBLE_KERNEL_IDENTITY");
 assert.strictEqual(workers(), before.pool, "TUMBLE_POOL_IDENTITY");
 assert.equal(instances, 1, "TUMBLE_POOL_IDENTITY");
-const world = Tumble.world;
+const world = Physics.world;
 const body = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 5, z: 0 } });
 body.createHull({ density: 1 }, makeBoxHull(.5, .5, .5));
 for (let step = 0; step < 20; step++) world.step(1 / 60, 4);
 assert(body.getPosition().y < 5, "TUMBLE_STEP");
-TumblePlugin.dispose(state);
+PhysicsPlugin.dispose(state);
 state.dispose();
 console.log("TUMBLE_REALIZED threads=" + threads());
 `;
 
 const types = `
-import { Tumble, TumblePlugin } from "@dylanebert/shallot";
-import { World, Body, defaultWorldDef, defaultBodyDef, type WorldDef, type BodyDef, type InitOptions, init, type Vec3 } from "@dylanebert/shallot/tumble/core";
+import { Physics, PhysicsPlugin } from "@dylanebert/shallot";
+import { World, Body, defaultWorldDef, defaultBodyDef, type WorldDef, type BodyDef, type InitOptions, init, type Vec3 } from "@dylanebert/shallot/physics/core";
 const options: InitOptions = { threads: 2 };
 const definition: WorldDef = defaultWorldDef();
 const bodyDefinition: BodyDef = defaultBodyDef();
 const raw: World = new World(definition);
-const adapter: World | null = Tumble.world;
+const adapter: World | null = Physics.world;
 const body: Body = raw.createBody(bodyDefinition);
 const position: Vec3 = body.getPosition();
-const hatch: Body | null = Tumble.body(0);
-const same: typeof Tumble.world = raw;
-void [options, adapter, position, hatch, same, init, TumblePlugin];
+const hatch: Body | null = Physics.body(0);
+const same: typeof Physics.world = raw;
+void [options, adapter, position, hatch, same, init, PhysicsPlugin];
 `;
 
 /** Installed adapter/raw identity, actual lazy payload loss, declarations and natural Node/Bun exit. */
@@ -353,7 +353,7 @@ export function tumbleArms(project: string): void {
     writeFileSync(
         join(project, "tumble-exit.ts"),
         `
-import { init, threads, World, BodyType, makeBoxHull } from "@dylanebert/shallot/tumble/core";
+import { init, threads, World, BodyType, makeBoxHull } from "@dylanebert/shallot/physics/core";
 await init();
 const world = new World({ gravity: { x: 0, y: -10, z: 0 } });
 const body = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 5, z: 0 } });

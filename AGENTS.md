@@ -42,7 +42,7 @@ Debug CPU → labeled WGSL/API → safe fragment/compute log → resource probe 
 
 ## Render, physics, assets
 
-Decode scene sRGB hex to linear; surfaces stay linear, composite alone encodes sRGB. Bright accents saturate: darken/lower intensity, tune dominant tones, not a global gamma multiplier. Physics is opt-in TumblePlugin; Body/Spring/Joint author it, Tumble.world extends it. Hand-wired joint bodies must spawn non-overlapping to avoid persistent fighting contacts.
+Decode scene sRGB hex to linear; surfaces stay linear, composite alone encodes sRGB. Bright accents saturate: darken/lower intensity, tune dominant tones, not a global gamma multiplier. Physics is opt-in PhysicsPlugin; Body/Spring/Joint author it, Physics.world extends it. Hand-wired joint bodies must spawn non-overlapping to avoid persistent fighting contacts.
 
 Procedural-first, no format-shaped substrate. GltfPlugin converts to mesh/material/VAT/rig data; engine-owned SkinPlugin accepts glTF/physics/procedural poses. Producers compose skin/core surfaces.
 

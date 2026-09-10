@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { State } from "../engine";
 import { Physics } from "../standard/physics";
 import { installHarness } from "./runtime";
@@ -7,8 +7,10 @@ import { installHarness } from "./runtime";
 const stubState = (elapsed: number, has: (eid: number) => boolean): State =>
     ({ time: { elapsed }, has: (eid: number) => has(eid) }) as unknown as State;
 
+const readBody = spyOn(Physics, "readBody");
+
 afterEach(() => {
-    Physics.backend = null;
+    readBody.mockReset();
 });
 
 describe("installHarness", () => {
@@ -24,9 +26,7 @@ describe("installHarness", () => {
     });
 
     test("read returns the physics pose for a body, velocity included", () => {
-        Physics.backend = {
-            readBody: () => ({ pos: [1, 2, 3], quat: [0, 0, 0, 1], vel: [4, 5, 6] }),
-        } as unknown as NonNullable<typeof Physics.backend>;
+        readBody.mockReturnValue({ pos: [1, 2, 3], quat: [0, 0, 0, 1], vel: [4, 5, 6] });
         const pose = installHarness(stubState(1, () => false)).read!(0);
         expect(pose).toEqual({ pos: [1, 2, 3], quat: [0, 0, 0, 1], vel: [4, 5, 6] });
     });

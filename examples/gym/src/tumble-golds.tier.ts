@@ -18,7 +18,7 @@
 // 38 `tumble-*.ts` build/update modules and 38 committed gold JSON files under
 // `src/standard/physics/samples/`; `tumble-gold-pool.ts` imports only
 // `tumble-registry.ts` (for the `GoldEntry` type) and resolves `tumble-gold-runner.ts` at
-// runtime; `tumble-gold-runner.ts` imports `@dylanebert/shallot/tumble/core`,
+// runtime; `tumble-gold-runner.ts` imports `@dylanebert/shallot/physics/core`,
 // `tumble-oracle.ts`, and `./tumble-registry`. The cone is wider than the set of modules a gold verdict is a function
 // of (a build module's import of an unrelated engine module arrives transitively but
 // cannot move a gold trajectory): that over-inclusion is what a derived list costs and it is

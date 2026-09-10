@@ -6,7 +6,7 @@
 // Creation order is load-bearing for the hash: ground, then the three books in x = -2, 0, 2 order — the
 // sample's exact order.
 
-import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/tumble/core";
+import { BodyType, makeBoxHull, type World } from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 
 /**

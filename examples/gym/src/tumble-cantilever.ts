@@ -5,7 +5,7 @@
 // Creation order is load-bearing for the hash: ground, wall, then the six welded links left to right —
 // the sample's exact order.
 
-import { type Body, BodyType, makeBoxHull, type World } from "@dylanebert/shallot/tumble/core";
+import { type Body, BodyType, makeBoxHull, type World } from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 
 const IDENT = { v: { x: 0, y: 0, z: 0 }, s: 1 };

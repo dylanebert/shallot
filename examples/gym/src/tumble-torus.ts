@@ -11,7 +11,7 @@ import {
     createTorusMesh,
     makeBoxHull,
     type World,
-} from "@dylanebert/shallot/tumble/core";
+} from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 
 /** Author the Torus scene into `world`. No knobs. */

@@ -30,7 +30,7 @@ import {
     init,
     makeBoxHull,
     World,
-} from "@dylanebert/shallot/tumble/core";
+} from "@dylanebert/shallot/physics/core";
 import { beginGrab, driveGrab, type Grab, updateGrab } from "./tumble-grab";
 import { solidPool } from "./tumble-sample";
 import { collectSolids } from "./tumble-solids";

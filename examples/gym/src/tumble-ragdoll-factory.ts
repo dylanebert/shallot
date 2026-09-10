@@ -4,7 +4,7 @@
 // lightly motor-damped), revolute elbows and knees (one-way bend), and a filter joint between the thighs
 // so the legs don't collide. Built upright at `origin`.
 
-import { type Body, BodyType, type Vec3, type World } from "@dylanebert/shallot/tumble/core";
+import { type Body, BodyType, type Vec3, type World } from "@dylanebert/shallot/physics/core";
 
 const IDENT = { v: { x: 0, y: 0, z: 0 }, s: 1 };
 

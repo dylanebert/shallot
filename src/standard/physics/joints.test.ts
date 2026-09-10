@@ -3,13 +3,16 @@ import { attach, stepFor } from "../../../tests/helpers";
 import { State, Time } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
 import { Body, bodyTraits, Joint, jointTraits, Physics, Spring, springTraits } from "../physics";
-import { Slab } from "../slab";
 import { shutdown, type Joint as TumbleJoint } from "../physics/engine";
-import { Tumble, TumblePlugin } from "./index";
-import { stiffnessHertz, syncSet } from "./joints";
+import { Slab } from "../slab";
+import { PhysicsPlugin } from "./index";
+import { stiffnessHertz, syncJoints, syncSet } from "./joints";
+
+// the live solver handles for `eids`, the map an escape-hatch caller hands `syncJoints`.
+const handles = (eids: number[]) => new Map(eids.map((e) => [e, Physics.body(e)!]));
 
 // The Spring/Joint → tumble mapping (joints.ts): the stiffness→hertz conversion law, the content-keyed
-// diff semantics (kept slots), and the three behavioral mappings run end to end through TumblePlugin on
+// diff semantics (kept slots), and the three behavioral mappings run end to end through PhysicsPlugin on
 // a headless State — spring settles to the mg/k equilibrium (the conversion is load-bearing: a wrong
 // hertz moves the rest pose), a spherical joint holds its pin length while swinging, a fixed joint holds
 // the AUTHORED relative pose (the relRotation capture, not an axes-aligned snap).
@@ -123,7 +126,7 @@ describe("syncSet", () => {
     });
 });
 
-// ── behavioral: the mapping through TumblePlugin on a headless State ─────────────────────────────────
+// ── behavioral: the mapping through PhysicsPlugin on a headless State ─────────────────────────────────
 
 interface SceneBody {
     pos: [number, number, number];
@@ -136,7 +139,7 @@ interface SceneBody {
 // the installed backend (the single-backend guard would then throw in the next test's warm)
 let liveState: State | null = null;
 afterEach(() => {
-    if (liveState) TumblePlugin.dispose?.(liveState);
+    if (liveState) PhysicsPlugin.dispose?.(liveState);
     liveState = null;
 });
 
@@ -152,9 +155,9 @@ async function build(bodies: SceneBody[]): Promise<{ state: State; eids: number[
     register("spring", Spring, springTraits);
     register("joint", Joint, jointTraits);
     Slab.collect();
-    TumblePlugin.initialize?.(state);
-    await TumblePlugin.warm?.(state);
-    attach(state, TumblePlugin);
+    PhysicsPlugin.initialize?.(state);
+    await PhysicsPlugin.warm?.(state);
+    attach(state, PhysicsPlugin);
     const eids: number[] = [];
     for (const b of bodies) {
         const eid = state.create();
@@ -197,12 +200,12 @@ function addJoint(
 }
 
 // Step the tumble world directly (bypassing ConstraintSystem) for `duration` seconds — the escape-hatch
-// path: Tumble.world / imperative spawn calls setJoints directly, not through jointDefs. stepFor would run
+// path: Physics.world / imperative spawn calls setJoints directly, not through jointDefs. stepFor would run
 // ConstraintSystem, which re-uploads jointDefs(state) (empty when no Joint entities exist) and wipe any
 // joint set directly. The SUBSTEPS count matches the production backend step (tumble/index.ts).
 function stepWorldDirect(duration: number): void {
     const ticks = Math.round(duration / Time.FIXED_DT);
-    for (let i = 0; i < ticks; i++) Tumble.world?.step(Time.FIXED_DT, 4);
+    for (let i = 0; i < ticks; i++) Physics.world?.step(Time.FIXED_DT, 4);
 }
 
 describe("tumble constraint mapping", () => {
@@ -217,7 +220,7 @@ describe("tumble constraint mapping", () => {
         ]);
         addSpring(state, eids[0], eids[1], 100, 4);
         stepFor(state, 5);
-        const body = Physics.backend?.readBody(eids[1]);
+        const body = Physics.readBody(eids[1]);
         expect(body).not.toBeNull();
         expect(Math.abs((body?.pos[1] ?? 0) - 5.2)).toBeLessThan(0.02);
     });
@@ -235,7 +238,7 @@ describe("tumble constraint mapping", () => {
         ]);
         addJoint(state, eids[0], eids[1], [0, 0, 0], [-2, 0, 0]);
         stepFor(state, 1);
-        const bob = Physics.backend?.readBody(eids[1]);
+        const bob = Physics.readBody(eids[1]);
         expect(bob).not.toBeNull();
         const dx = (bob?.pos[0] ?? 0) - 0;
         const dy = (bob?.pos[1] ?? 0) - 10;
@@ -256,7 +259,7 @@ describe("tumble constraint mapping", () => {
         ]);
         addJoint(state, eids[0], eids[1], [1.5, 0.5, 0], [0, 0, 0], Number.POSITIVE_INFINITY);
         stepFor(state, 2);
-        const arm = Physics.backend?.readBody(eids[1]);
+        const arm = Physics.readBody(eids[1]);
         expect(arm).not.toBeNull();
         expect(Math.abs((arm?.pos[0] ?? 0) - 1.5)).toBeLessThan(0.02);
         expect(Math.abs((arm?.pos[1] ?? 0) - 2.5)).toBeLessThan(0.02);
@@ -296,7 +299,7 @@ describe("tumble constraint mapping", () => {
         try {
             addJoint(state, eids[0], eids[1], [1.5, 0.5, 0], [0, 0, 0], -1);
             stepFor(state, 2);
-            const arm = Physics.backend?.readBody(eids[1]);
+            const arm = Physics.readBody(eids[1]);
             expect(arm).not.toBeNull();
             // warn half: a console.warn was emitted identifying the joint and the skip — matching
             // the spring path's channel and message shape ("[tumble] spring ... — skipped")
@@ -326,7 +329,7 @@ describe("tumble constraint mapping", () => {
         try {
             addJoint(state, eids[0], eids[1], [1.5, 0.5, 0], [0, 0, 0], Number.NaN);
             stepFor(state, 2);
-            const arm = Physics.backend?.readBody(eids[1]);
+            const arm = Physics.readBody(eids[1]);
             expect(arm).not.toBeNull();
             expect(warn).toHaveBeenCalled();
             const jointWarn = warn.mock.calls.find((c) => String(c[0]).includes("joint"));
@@ -340,8 +343,8 @@ describe("tumble constraint mapping", () => {
         }
     });
 
-    // ── escape-hatch arms: createJoint called directly via Physics.backend.setJoints, bypassing ──
-    // ── ConstraintSystem and the authoring-layer guard (the Tumble.world / imperative spawn path) ──
+    // ── escape-hatch arms: createJoint called directly via syncJoints, bypassing ──
+    // ── ConstraintSystem and the authoring-layer guard (the Physics.world / imperative spawn path) ──
 
     // witnessed red by mutation: exit code 1 — deleting the `|| Number.isNaN(def.stiffnessAng)` branch
     // from createJoint's guard lets NaN pass (NaN < 0 is false) → stiffnessHertz(NaN) returns 0 (the
@@ -357,19 +360,24 @@ describe("tumble constraint mapping", () => {
         stepFor(state, Time.FIXED_DT);
         const warn = spyOn(console, "warn").mockImplementation(() => {});
         try {
-            // bypass ConstraintSystem/jointDefs — call setJoints directly with a raw JointDef
-            Physics.backend?.setJoints([
-                {
-                    a: eids[0],
-                    b: eids[1],
-                    rA: [1.5, 0.5, 0],
-                    rB: [0, 0, 0],
-                    stiffnessAng: Number.NaN,
-                },
-            ]);
+            // bypass ConstraintSystem/jointDefs — call syncJoints directly with a raw JointDef
+            syncJoints(
+                Physics.world!,
+                handles(eids),
+                [
+                    {
+                        a: eids[0],
+                        b: eids[1],
+                        rA: [1.5, 0.5, 0],
+                        rB: [0, 0, 0],
+                        stiffnessAng: Number.NaN,
+                    },
+                ],
+                () => false,
+            );
             // step the world directly (not stepFor) so ConstraintSystem doesn't wipe the joint
             stepWorldDirect(2);
-            const arm = Physics.backend?.readBody(eids[1]);
+            const arm = Physics.readBody(eids[1]);
             expect(arm).not.toBeNull();
             // warn: createJoint's guard emitted a [tumble] joint ... skipped diagnostic
             expect(warn).toHaveBeenCalled();
@@ -398,11 +406,14 @@ describe("tumble constraint mapping", () => {
         stepFor(state, Time.FIXED_DT);
         const warn = spyOn(console, "warn").mockImplementation(() => {});
         try {
-            Physics.backend?.setJoints([
-                { a: eids[0], b: eids[1], rA: [1.5, 0.5, 0], rB: [0, 0, 0], stiffnessAng: -1 },
-            ]);
+            syncJoints(
+                Physics.world!,
+                handles(eids),
+                [{ a: eids[0], b: eids[1], rA: [1.5, 0.5, 0], rB: [0, 0, 0], stiffnessAng: -1 }],
+                () => false,
+            );
             stepWorldDirect(2);
-            const arm = Physics.backend?.readBody(eids[1]);
+            const arm = Physics.readBody(eids[1]);
             expect(arm).not.toBeNull();
             expect(warn).toHaveBeenCalled();
             const jointWarn = warn.mock.calls.find((c) => String(c[0]).includes("joint"));
@@ -429,7 +440,7 @@ describe("tumble constraint mapping", () => {
         try {
             addSpring(state, eids[0], eids[1], -1, 4);
             stepFor(state, 2);
-            const body = Physics.backend?.readBody(eids[1]);
+            const body = Physics.readBody(eids[1]);
             expect(body).not.toBeNull();
             expect(warn).toHaveBeenCalled();
             const springWarn = warn.mock.calls.find((c) => String(c[0]).includes("spring"));
@@ -457,7 +468,7 @@ describe("tumble constraint mapping", () => {
         try {
             addSpring(state, eids[0], eids[1], Number.NaN, 4);
             stepFor(state, 2);
-            const body = Physics.backend?.readBody(eids[1]);
+            const body = Physics.readBody(eids[1]);
             expect(body).not.toBeNull();
             expect(warn).toHaveBeenCalled();
             const springWarn = warn.mock.calls.find((c) => String(c[0]).includes("spring"));
@@ -507,9 +518,9 @@ describe("tumble constraint mapping", () => {
             { pos: [0, 10, 0], mass: 1, half: [0.25, 0.25, 0.25] },
         ]);
         addJoint(state, eids[0], eids[1], [0, 0, 0], [0.5, 0, 0], 1000);
-        const q0 = Physics.backend?.readBody(eids[1])?.quat ?? [0, 0, 0, 1];
+        const q0 = Physics.readBody(eids[1])?.quat ?? [0, 0, 0, 1];
         stepFor(state, 0.5); // 30 ticks — settling window
-        const q1 = Physics.backend?.readBody(eids[1])?.quat ?? [0, 0, 0, 1];
+        const q1 = Physics.readBody(eids[1])?.quat ?? [0, 0, 0, 1];
         // FLOOR: the body was live and perturbed — it rotated away from its initial pose during
         // the settling window. A rigid weld, a skipped joint, or a body gravity never torqued all
         // produce zero rotation (measured: 0.0 rad for both no-joint and rigid-weld at tick 30).
@@ -519,7 +530,7 @@ describe("tumble constraint mapping", () => {
         const settledRotation = 2 * Math.acos(Math.min(1, Math.abs(floorDot)));
         expect(settledRotation).toBeGreaterThan(0.005);
         stepFor(state, 1 / 6); // 10 ticks — measurement window (≈ 5T/6)
-        const q2 = Physics.backend?.readBody(eids[1])?.quat ?? [0, 0, 0, 1];
+        const q2 = Physics.readBody(eids[1])?.quat ?? [0, 0, 0, 1];
         const dot = q1[0] * q2[0] + q1[1] * q2[1] + q1[2] * q2[2] + q1[3] * q2[3];
         const angle = 2 * Math.acos(Math.min(1, Math.abs(dot)));
         // CEILING: N = 40 ticks, tolerance = 0.02 rad (~1.1°): a settled body moves < 0.02, a

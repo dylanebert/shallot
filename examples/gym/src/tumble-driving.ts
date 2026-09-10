@@ -21,7 +21,7 @@ import {
     type Vec3,
     type WheelJointConfig,
     type World,
-} from "@dylanebert/shallot/tumble/core";
+} from "@dylanebert/shallot/physics/core";
 import type { SampleParams } from "./tumble-oracle";
 
 const IDENT: Quat = { v: { x: 0, y: 0, z: 0 }, s: 1 };

@@ -1,4 +1,4 @@
-import { ShapeKind } from "../physics";
+import { ShapeKind } from "./index";
 
 // Pure render-interpolation math for the tumble backend's `compose` — the CPU twin of AVBD's
 // `COMPOSE_PASS_WGSL` (avbd/step.ts). Factored out so the shortest-arc nlerp + per-shape render scale are

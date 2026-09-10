@@ -12,7 +12,6 @@ import {
     type Mirror,
     mirror,
     mountOverlay,
-    Physics,
     Player,
     type Plugin,
     pointerLockStatus,
@@ -393,8 +392,7 @@ function world(state: State): void {
 function build(state: State): void {
     const step = Avbd.step;
     if (!step) throw new Error("[sandbox] AvbdPlugin not warmed — no step");
-    const backend = Physics.backend;
-    if (!backend) throw new Error("[sandbox] no physics backend installed");
+    const backend = Avbd;
 
     world(state);
     pyramid(state, 0, 0, -4.0, 10);

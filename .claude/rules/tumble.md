@@ -9,7 +9,7 @@ paths:
 
 # Tumble Backend
 
-Default CPU Box3D backend; `physics.md` owns the substrate. `Tumble.world`/`Tumble.body` escape the core. Dispose the singleton; read it fresh. Marshal eid-sorted, stamp-check recycling and clear kinematics. Swap parity means settle/equilibrium; marshaling requires per-step hashes against independent raw scenes (`tumble.test.ts`).
+Default CPU Box3D backend; `physics.md` owns the substrate. `Physics.world`/`Tumble.body` escape the core. Dispose the singleton; read it fresh. Marshal eid-sorted, stamp-check recycling and clear kinematics. Swap parity means settle/equilibrium; marshaling requires per-step hashes against independent raw scenes (`tumble.test.ts`).
 
 `joints.ts`: reduced-mass critically damped springs, spherical/weld pins with spawn-relative rotation; unchanged defs retain warmstart. Reject invalid constraints loudly; defer pending marshal, pump on body-set changes locally. Dedupe def content AND endpoint-cause composition; re-arm on authored upload, never silence retries. Ragdolls stay examples; deferred joints need non-overlapping spawns and spawn-derived frames.
 

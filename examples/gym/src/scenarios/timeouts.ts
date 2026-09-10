@@ -235,7 +235,7 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     "character-mover": {},
 
     // hand-authored tumble/diagnostic scenarios, no GPU-src coverage claim:
-    queries: {}, // Tumble.world spatial-query surface (castRayClosest/castShape/overlapAABB)
+    queries: {}, // Physics.world spatial-query surface (castRayClosest/castShape/overlapAABB)
     rotation: {}, // Dzhanibekov flip via StepSystem — physics/core, not GPU-src
     raining: {}, // tumble create/destroy marshal path under constant churn
     chain: {}, // synthetic compute-chain microbench; uses RenderPlugin only as a frame-boundary hook

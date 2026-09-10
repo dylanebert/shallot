@@ -7,7 +7,7 @@ paths:
 
 # Physics Substrate
 
-Shared authoring/queries and atomic `PhysicsBackend`, never simulation. `tumble.md` owns CPU, `avbd.md` GPU. Consumers never branch by backend. Richer capabilities belong on `Tumble.world`/`Avbd.step`, not a union interface or intersection-limited escape hatches.
+Shared authoring/queries and atomic `PhysicsBackend`, never simulation. `tumble.md` owns CPU, `avbd.md` GPU. Consumers never branch by backend. Richer capabilities belong on `Physics.world`/`Avbd.step`, not a union interface or intersection-limited escape hatches.
 
 ## Backend contract
 

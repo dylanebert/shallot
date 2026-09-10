@@ -5,7 +5,7 @@
 // hash at the first divergent step, which this reports. Pure engine surface, no GPU: the host runs it at
 // build time (before the render world) and the headless evidence script runs it standalone.
 
-import { hashWorldState, init, World } from "@dylanebert/shallot/tumble/core";
+import { hashWorldState, init, World } from "@dylanebert/shallot/physics/core";
 
 /** the resolved knob values a sample's build reads — the gym {@link Params} shape, kept local so the oracle
  *  stays GPU-free. */

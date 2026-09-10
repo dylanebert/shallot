@@ -11,7 +11,7 @@
 //   3. camera framing from the gold's recorded pose, and mouse-grab (left-drag) ported from the `Sample`
 //      base — the interaction the first examples port never had.
 //
-// The host OWNS its `World` (not `TumblePlugin`'s singleton): the sample bodies are authored raw through the
+// The host OWNS its `World` (not `PhysicsPlugin`'s singleton): the sample bodies are authored raw through the
 // escape hatch, not marshaled `Body` entities, so nothing but authoring can differ from the gold. One live
 // world at a time — the oracle's throwaway world is destroyed before the render world is built (the kernel
 // singleton traps on interleaved worlds; run ONE sample scenario per page load, the stage-1 mint finding).
@@ -42,14 +42,14 @@ import {
     unpackColor,
 } from "@dylanebert/shallot";
 import { LinesPlugin, ProfilePlugin, segment } from "@dylanebert/shallot/extras";
-import { cursorRay } from "@dylanebert/shallot/physics/core";
 import {
     BodyType,
+    cursorRay,
     type DebugDraw,
     defaultDebugDraw,
     World,
     type WorldTransform,
-} from "@dylanebert/shallot/tumble/core";
+} from "@dylanebert/shallot/physics/core";
 import type { Check, Param, Params, Scenario } from "./gym";
 import { beginGrab, driveGrab, endGrab, type Grab, updateGrab } from "./tumble-grab";
 import {
