@@ -1,5 +1,5 @@
 //! Convex-hull data + support queries, ported from box3d's `hull.c`/`collision.h` (Erin Catto, MIT)
-//! via the tumble.js TS port (`src/hull.ts`). Only the read-side the narrowphase touches lives here:
+//! via the upstream TS port (`src/hull.ts`). Only the read-side the narrowphase touches lives here:
 //! the half-edge topology (points/vertices/edges/faces/planes/center) and the two support queries.
 //! Hull *construction* (quickhull) stays TS-side and runs once at shape creation. `HullData` is a
 //! borrowed view over the geometry pools: native `cargo test` borrows owned `Vec`s, the wasm kernel

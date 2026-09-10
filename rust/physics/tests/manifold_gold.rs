@@ -10,14 +10,14 @@
 //! cache-taking scenes run twice with one shared cache, matching the C harness's double call.
 
 use serde_json::Value;
-use tumble_kernel::distance::SimplexCache;
-use tumble_kernel::hull::{HullData, HullFace, HullHalfEdge, HullVertex};
-use tumble_kernel::manifold::{
+use physics_kernel::distance::SimplexCache;
+use physics_kernel::hull::{HullData, HullFace, HullHalfEdge, HullVertex};
+use physics_kernel::manifold::{
     collide_capsule_and_sphere, collide_capsules, collide_hull_and_capsule,
     collide_hull_and_sphere, collide_hulls, collide_spheres, make_feature_id, Capsule,
     LocalManifold, SatCache, Sphere,
 };
-use tumble_kernel::math::{Plane, Quat, Transform, Vec3};
+use physics_kernel::math::{Plane, Quat, Transform, Vec3};
 
 const GOLD: &str = include_str!("../../src/standard/physics/engine/manifold.gold.json");
 

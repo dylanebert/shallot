@@ -28,7 +28,7 @@ import { harnessArms, harnessContract } from "./install-test/harness";
 import { outputFlow } from "./install-test/output";
 import { projectFlow } from "./install-test/project";
 import { runtimeArms } from "./install-test/runtime";
-import { projectTumble, tumbleArms } from "./install-test/tumble";
+import { projectPhysics, physicsArms } from "./install-test/physics";
 import { type ShaderArtifactSummary, type VerifyResult, verify } from "./verify";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
@@ -1386,7 +1386,7 @@ if (import.meta.main) {
     const sandbox = join(work, "app");
     try {
         console.log("packing engine + widget…");
-        const engineTgz = projectTumble(work, pack(ENGINE_DIR, join(work, "engine-pack")));
+        const engineTgz = projectPhysics(work, pack(ENGINE_DIR, join(work, "engine-pack")));
         const widgetTgz = pack(WIDGET_DIR, join(work, "widget-pack"));
 
         // display-independent, so it runs first: no GPU and no browser refusal anywhere above it
@@ -1460,7 +1460,7 @@ if (import.meta.main) {
         if (install.ok) {
             harnessArms(sandbox);
             runtimeArms(sandbox);
-            tumbleArms(sandbox);
+            physicsArms(sandbox);
             writeFileSync(
                 join(sandbox, "missing-plugin.ts"),
                 `import { build } from "@dylanebert/shallot";\n` +

@@ -28,7 +28,7 @@ import {
 import { ProfilePlugin } from "@dylanebert/shallot/extras";
 import { type Check, frames, type Params, register, type Scenario } from "../gym";
 
-// queries — the tumble spatial-query surface (`castRayClosest`, `castShape`, `overlapAABB` on `Physics.world`,
+// queries — the physics spatial-query surface (`castRayClosest`, `castShape`, `overlapAABB` on `Physics.world`,
 // the escape hatch past the substrate). One deterministic scene of fixed kinematic obstacles gates all three
 // in one run: a ray finds the closest hit on a sphere, a swept sphere resolves to its first contact fraction,
 // and a broad-phase box overlap counts a known grid. The obstacles are substrate `Body` entities so they
@@ -167,7 +167,7 @@ const scenario: Scenario = {
     assert(): Promise<Check[]> {
         const world = Physics.world;
         if (!world)
-            return Promise.resolve([{ name: "queries", pass: false, detail: "no tumble world" }]);
+            return Promise.resolve([{ name: "queries", pass: false, detail: "no physics world" }]);
         const checks: Check[] = [];
 
         // ray: closest hit on the sphere, at its top (y 5), and it's the ray target body.

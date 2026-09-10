@@ -5,7 +5,7 @@
 // the parsed outline, `extras/text/font.ts`'s own `glyphPath`) divided by the font's em-square area,
 // sorted ascending.
 //
-// Lives beside `gen-tumble-fixtures.ts` / `gen-tumble-gold.ts` (`scripts/`), not under
+// Lives beside `physics/gen-fixtures.ts` / `physics/gen-gold.ts` (`scripts/`), not under
 // `src/extras/cells/` — a generator that reaches across module boundaries (`extras/text/font.ts`) and
 // touches Node-only `readFileSync`/`writeFileSync` is exactly the shape those two carve out for
 // themselves, and the same reasoning applies here: `check-imports.ts` only walks `src/`, so a script
@@ -25,7 +25,7 @@
 //
 // Run from the shallot repo root: `bun run scripts/generate-ramp.ts`. Nothing
 // regenerates `ramp-table.ts` automatically — review the diff before committing, the same discipline
-// `gen-tumble-fixtures.ts` documents for its own committed output.
+// `physics/gen-fixtures.ts` documents for its own committed output.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

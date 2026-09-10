@@ -5,8 +5,8 @@
 //! port bit-for-bit before the narrowphase (which consumes it) is verified on top.
 
 use serde_json::Value;
-use tumble_kernel::distance::{shape_distance, DistanceInput, ShapeProxy, SimplexCache};
-use tumble_kernel::math::{Quat, Transform, Vec3};
+use physics_kernel::distance::{shape_distance, DistanceInput, ShapeProxy, SimplexCache};
+use physics_kernel::math::{Quat, Transform, Vec3};
 
 const GOLD: &str = include_str!("../../src/standard/physics/engine/distance.gold.json");
 

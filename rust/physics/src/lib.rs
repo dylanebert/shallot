@@ -1,4 +1,4 @@
-//! tumble.js physics kernel: the contact-solve + body-integration hot path, ported from box3d's
+//! upstream physics kernel: the contact-solve + body-integration hot path, ported from box3d's
 //! `contact_solver.c` and compiled to wasm-simd128. The TS side owns the API, broadphase,
 //! narrowphase, joints, and orchestration; it hands the kernel SoA f32 columns in this module's
 //! linear memory and drives it phase by phase (see `arena`).

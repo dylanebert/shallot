@@ -9,7 +9,7 @@
 //! threads sweep different ranges than two. That cannot change the result: each record's work reads only
 //! its own inputs and writes only its own outputs (a contact's manifold + cache slots),
 //! so the sweep order is free. The same property is what lets box3d run collide on any worker count and
-//! promise the same bits — and what tumble.md already states for the convex/recycle partition.
+//! promise the same bits — and what physics.md already states for the convex/recycle partition.
 //!
 //! **No fault flag, no join.** Unlike `stages::run`, nothing here spins: a worker's loop ends when the
 //! blocks run out, and the orchestrator's does too. So a dead worker cannot hang a live one inside wasm —

@@ -587,7 +587,7 @@ export function claimResident(token: object): void {
     if (owner === token) return;
     if (evicted.has(token)) {
         throw new Error(
-            "tumble: this world's physics state was overwritten by another world; two live worlds " +
+            "physics: this world's physics state was overwritten by another world; two live worlds " +
                 "cannot be stepped interleaved (destroy one before stepping the other)",
         );
     }

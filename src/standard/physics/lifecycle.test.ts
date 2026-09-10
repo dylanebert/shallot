@@ -27,7 +27,7 @@ import { PhysicsPlugin } from "./index";
 // so the pool's solve path doesn't leak into sibling engine test files that assume the single-thread kernel.
 afterAll(shutdown);
 
-async function buildTumble(): Promise<State> {
+async function buildPhysics(): Promise<State> {
     clear();
     const state = new State();
     register("body", Body, bodyTraits);
@@ -48,13 +48,13 @@ describe("PhysicsPlugin lifecycle", () => {
     });
 
     test("warm installs the backend and creates a world", async () => {
-        state = await buildTumble();
+        state = await buildPhysics();
         expect(Physics.world).not.toBeNull();
         expect(Physics.world).not.toBeNull();
     });
 
     test("dispose uninstalls the backend and destroys the world", async () => {
-        state = await buildTumble();
+        state = await buildPhysics();
         PhysicsPlugin.dispose?.(state);
         expect(Physics.world).toBeNull();
         expect(Physics.world).toBeNull();
@@ -62,7 +62,7 @@ describe("PhysicsPlugin lifecycle", () => {
 
     test("build → step → dispose survives two full cycles (reload conformance)", async () => {
         for (let cycle = 0; cycle < 2; cycle++) {
-            state = await buildTumble();
+            state = await buildPhysics();
             const eid = state.create();
             state.add(eid, Body);
             Body.shape.set(eid, ShapeKind.Sphere);
@@ -78,9 +78,9 @@ describe("PhysicsPlugin lifecycle", () => {
     });
 
     test("a fresh world builds cleanly after a prior world was destroyed", async () => {
-        state = await buildTumble();
+        state = await buildPhysics();
         PhysicsPlugin.dispose?.(state);
-        state = await buildTumble();
+        state = await buildPhysics();
         expect(Physics.world).not.toBeNull();
         expect(() => state.step(Time.FIXED_DT)).not.toThrow();
     });
@@ -160,7 +160,7 @@ describe("PhysicsPlugin late-marshal constraints", () => {
     });
 
     test("a joint dropped against a not-yet-marshaled body is retried once it marshals", async () => {
-        state = await buildTumble();
+        state = await buildPhysics();
         const bob = pinnedDeferredScene(state, "joint");
 
         // one tick: bob's marshal fails (its hull id has no hull), so the joint's create finds no endpoint
@@ -180,7 +180,7 @@ describe("PhysicsPlugin late-marshal constraints", () => {
     // the spring half of the same pump: `createSpring` has its own early-out and its own warn, so the joint
     // arm alone would leave `syncSprings`/`resyncConstraints`'s spring branch uncovered.
     test("a spring dropped against a not-yet-marshaled body is retried once it marshals", async () => {
-        state = await buildTumble();
+        state = await buildPhysics();
         const bob = pinnedDeferredScene(state, "spring");
 
         state.step(Time.FIXED_DT);
@@ -195,7 +195,7 @@ describe("PhysicsPlugin late-marshal constraints", () => {
     });
 
     test("the skip warning names the deferred marshal, not a non-Body reference", async () => {
-        state = await buildTumble();
+        state = await buildPhysics();
         pinnedDeferredScene(state, "joint");
 
         const warn = spyOn(console, "warn").mockImplementation(() => {});
@@ -216,7 +216,7 @@ describe("PhysicsPlugin late-marshal constraints", () => {
     // endpoint would name `a`'s cause and silently apply it to `b` — for the deferred half, exactly the
     // misdirection the discriminator exists to delete. Both endpoints get their own cause.
     test("a mixed pair names each endpoint's own cause", async () => {
-        state = await buildTumble();
+        state = await buildPhysics();
 
         const notABody = state.create(); // no Body component: permanently unsatisfiable
         const bob = state.create();
@@ -266,7 +266,7 @@ describe("PhysicsPlugin late-marshal constraints", () => {
     // The existing never-thrash arm ("a permanently unsatisfiable constraint warns once") catches the same
     // direction for the static (non-narrowing) case; this arm catches it for the narrowing case.
     test("a mixed pair re-warns with the narrowed cause once the deferred half marshals", async () => {
-        state = await buildTumble();
+        state = await buildPhysics();
 
         const notABody = state.create(); // no Body component: permanently unsatisfiable
         const bob = state.create();
@@ -339,7 +339,7 @@ describe("PhysicsPlugin late-marshal constraints", () => {
     // invariant the marshal `failed` ledger holds (index.ts). Counted across ticks, because no per-tick arm
     // can see a warning that only grows with tick count.
     test("a permanently unsatisfiable constraint warns once, not once per body-set change", async () => {
-        state = await buildTumble();
+        state = await buildPhysics();
 
         const notABody = state.create(); // no Body: this joint can never be satisfied
         const anchor = state.create();
@@ -399,7 +399,7 @@ describe("PhysicsPlugin late-marshal constraints", () => {
     // past 1 — the pump fires on every body-set change (one spawn per tick), and the both-static warning
     // re-fires each tick with no dedupe.
     test("a deferred-then-both-static joint warns exactly once naming the unsatisfiable cause", async () => {
-        state = await buildTumble();
+        state = await buildPhysics();
 
         const anchor = state.create();
         state.add(anchor, Body);
@@ -466,7 +466,7 @@ describe("PhysicsPlugin late-marshal constraints", () => {
     // is load-bearing: without it, the pose half alone can't detect a destroy+recreate that preserves the
     // rest pose.
     test("the pump reuses live joint handles across churn — create count is 1, pose holds", async () => {
-        state = await buildTumble();
+        state = await buildPhysics();
 
         const anchor = state.create();
         state.add(anchor, Body);

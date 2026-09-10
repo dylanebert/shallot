@@ -9,8 +9,8 @@ import {
     type JointDef,
     jointDefs,
     jointSignature,
-    resetSignatures,
     jointTraits,
+    resetSignatures,
     Spring,
     type SpringDef,
     springDefs,
@@ -151,7 +151,7 @@ describe("constraint re-upload on an endpoint realias", () => {
 
 // The stiffness guard at the backend-neutral authoring layer (jointDefs/springDefs in index.ts): a
 // negative or NaN stiffnessAng/stiffness is dropped with a warnOnce before reaching either backend, so
-// both backends inherit one behavior. The recording backend is a proxy for any backend (tumble or AVBD)
+// both backends inherit one behavior. The recording backend is a proxy for any backend (physics or AVBD)
 // since the guard sits in the shared ConstraintSystem path. Valid authored values (0, finite-positive, ∞)
 // pass through unchanged — the grant arm pins that the guard does not over-refuse.
 describe("stiffness guard (authoring layer)", () => {

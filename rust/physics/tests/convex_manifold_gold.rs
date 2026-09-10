@@ -10,10 +10,10 @@
 //! a `HullData` view exactly as `manifold_gold.rs` does.
 
 use serde_json::Value;
-use tumble_kernel::hull::{HullData, HullFace, HullHalfEdge, HullVertex};
-use tumble_kernel::manifold::{Capsule, Sphere};
-use tumble_kernel::math::{Plane, Quat, Transform, Vec3};
-use tumble_kernel::narrowphase::{
+use physics_kernel::hull::{HullData, HullFace, HullHalfEdge, HullVertex};
+use physics_kernel::manifold::{Capsule, Sphere};
+use physics_kernel::math::{Plane, Quat, Transform, Vec3};
+use physics_kernel::narrowphase::{
     compute_convex_manifold, ConvexContactCache, ConvexShape, Manifold, ManifoldPoint,
 };
 

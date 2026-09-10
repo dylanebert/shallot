@@ -1774,7 +1774,7 @@ export async function serveDist(projectDir: string, port: number): Promise<Boote
     }
     const server = await preview({
         root: projectDir,
-        // cross-origin isolation so tumble physics multithreads (the same COOP/COEP the dev/preview
+        // cross-origin isolation so physics multithreads (the same COOP/COEP the dev/preview
         // servers send — a --dist verify run must isolate the built page too)
         preview: { port, strictPort: true, open: false, headers: CROSS_ORIGIN_ISOLATION },
     });
@@ -1843,7 +1843,7 @@ export async function serveDev(projectDir: string, port: number): Promise<Booter
 async function serveEjected(projectDir: string, port: number): Promise<Booter> {
     const server = await createServer({
         root: projectDir,
-        // cross-origin isolation so tumble physics multithreads (COOP/COEP → shared WebAssembly.Memory);
+        // cross-origin isolation so physics multithreads (COOP/COEP → shared WebAssembly.Memory);
         // the ejected boot the gym physics bench uses, so the MT assert exercises the headers here
         server: { port, strictPort: true, open: false, headers: CROSS_ORIGIN_ISOLATION },
     });

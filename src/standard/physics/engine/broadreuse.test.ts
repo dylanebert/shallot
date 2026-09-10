@@ -8,7 +8,7 @@
 //
 // The kernel is a process-wide singleton whose region high-water leaks across sibling test files, and this
 // scenario's whole point is a stale high-water — so it runs the two-world sequence in an isolated child
-// process (the fixture/gold suites' own recipe for the sequential-world traps, `tumble.md`).
+// process (the fixture/gold suites' own recipe for the sequential-world traps, `physics.md`).
 
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";

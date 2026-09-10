@@ -5,15 +5,15 @@ import {
     defaultSurfaceMaterial,
     type HullData,
     makeBoxHull,
-    type Body as TumbleBody,
-    type World as TumbleWorld,
+    type Body as SolverBody,
+    type World as SolverWorld,
 } from "./engine";
 import { Hulls } from "./hull";
 import { Body, ShapeKind } from "./index";
 
-// ECS → tumble marshaling — the ONLY place a Body's authored fields become a tumble rigid body, so the
-// dual-run hash gate (tumble.test.ts) and PhysicsPlugin's sync system read this one path. The Spring/Joint
-// half of the seam is joints.ts (tumble.md "Constraint mapping"); this module is shape + mass + pose.
+// ECS → physics marshaling — the ONLY place a Body's authored fields become a physics rigid body, so the
+// dual-run hash gate (physics.test.ts) and PhysicsPlugin's sync system read this one path. The Spring/Joint
+// half of the seam is joints.ts (physics.md "Constraint mapping"); this module is shape + mass + pose.
 
 /** a `mass <= 0` `Body` marshals as `Kinematic` (velocity set via `PhysicsBackend.setKinematic`), never
  *  `Static` (which the engine never moves) — the substrate's mass<=0 contract covers both "never moves" and
@@ -30,25 +30,25 @@ function hullFromRegistry(hullId: number): HullData | null {
     const name = Hulls.name(hullId);
     const entry = name ? Hulls.get(name) : undefined;
     if (!entry) {
-        console.warn(`[tumble] no hull registered for id ${hullId} — skipping body`);
+        console.warn(`[physics] no hull registered for id ${hullId} — skipping body`);
         return null;
     }
     const points = entry.verts.map(([x, y, z]) => ({ x, y, z }));
     const built = createHull(points, points.length);
     if (!built) {
         console.warn(
-            `[tumble] createHull failed for registered hull "${entry.name}" (id ${hullId}) — skipping body`,
+            `[physics] createHull failed for registered hull "${entry.name}" (id ${hullId}) — skipping body`,
         );
         return null;
     }
     return built;
 }
 
-/** attach `Body`'s collider to a freshly-created tumble body, deriving the shape density from the authored
- *  `mass` (tumble computes body mass FROM shape density × volume; a static/kinematic body's density is
- *  irrelevant — tumble never derives mass for a non-dynamic body). */
+/** attach `Body`'s collider to a freshly-created physics body, deriving the shape density from the authored
+ *  `mass` (physics computes body mass FROM shape density × volume; a static/kinematic body's density is
+ *  irrelevant — physics never derives mass for a non-dynamic body). */
 function attachShape(
-    tb: TumbleBody,
+    tb: SolverBody,
     kind: number,
     hx: number,
     hy: number,
@@ -84,14 +84,14 @@ function attachShape(
     return true;
 }
 
-/** marshal a scene's `eid` (a live `Body`) into a fresh tumble body in `world`: read the authored shape/
- *  pose/mass/friction off the `Body` slab and create the matching tumble body + collider. `userData` carries
+/** marshal a scene's `eid` (a live `Body`) into a fresh physics body in `world`: read the authored shape/
+ *  pose/mass/friction off the `Body` slab and create the matching physics body + collider. `userData` carries
  *  `eid` so a `BodyMoveEvent` round-trips back to the entity without a reverse map. Deterministic given `eid`
- *  and the current `Body` field values — the dual-run marshaling gate (tumble.test.ts) exercises this
+ *  and the current `Body` field values — the dual-run marshaling gate (physics.test.ts) exercises this
  *  directly, both through a live `State` and by hand-authoring the same field values. Returns `null` when the
  *  body references an unregistered/unbuildable hull (the collider can't attach): it warns, destroys the empty
  *  body, and the caller skips this eid rather than letting the throw take down the frame loop. */
-export function marshalBody(world: TumbleWorld, eid: number): TumbleBody | null {
+export function marshalBody(world: SolverWorld, eid: number): SolverBody | null {
     const kind = Body.shape.get(eid);
     const mass = Body.mass.get(eid);
     const tb = world.createBody({

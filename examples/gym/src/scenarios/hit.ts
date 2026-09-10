@@ -1,12 +1,12 @@
-// events-hit — stage-4 gym twin: the tumble.js `HitEvents` sample
+// events-hit — stage-4 gym twin: the upstream `HitEvents` sample
 // (`samples/src/samples/events.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer.
 
 import goldJson from "../../../../src/standard/physics/samples/events-hit.json";
 import { register } from "../gym";
-import { buildHitEvents, renderHitEvents } from "../tumble-hit";
-import type { SampleGold } from "../tumble-oracle";
-import { sampleScenario } from "../tumble-sample";
+import { buildHitEvents, renderHitEvents } from "../physics-hit";
+import type { SampleGold } from "../physics-oracle";
+import { sampleScenario } from "../physics-sample";
 
 register(
     sampleScenario({

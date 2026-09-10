@@ -1588,19 +1588,19 @@ const stepFactories: Record<string, () => (world: World, step: number) => void> 
 // scene name → [enableSleep, enableContinuous], matching gen.c's per-scene world flags.
 // SCENES lives in step.scenes.ts so the default-suite parity arm in step.test.ts can import it without
 // registering the heavy bit-exact fixture tests in `bun test`. The count of entries is derived by that
-// arm against the committed fixture files in tests/tumble/fixtures/.
+// arm against the committed fixture files in tests/physics/fixtures/.
 import { SCENES } from "./step.scenes";
 
 // The hashes are the C reference's, generated serially — and cross-thread-count determinism is what the
 // ported task machinery guarantees (within a color no two constraints share a body, the overflow color
 // and contact creation stay serial in creation order, no reduction depends on worker identity). So the
-// same fixtures gate the multithreaded kernel unchanged: `TUMBLE_THREADS=n bun run test:fixture:mt`,
-// or `TUMBLE_THREADS=auto` to drive the default-on path — bare `init()`, which multithreads standalone.
-const RAW = process.env.TUMBLE_THREADS;
+// same fixtures gate the multithreaded kernel unchanged: `SHALLOT_PHYSICS_THREADS=n bun run test:fixture:mt`,
+// or `SHALLOT_PHYSICS_THREADS=auto` to drive the default-on path — bare `init()`, which multithreads standalone.
+const RAW = process.env.SHALLOT_PHYSICS_THREADS;
 const AUTO = RAW === "auto";
 const THREADS = AUTO ? undefined : Number(RAW ?? 0);
 // AUTO and any explicit count ≥ 1 must land on the shared kernel here (bun/node have SAB unconditionally);
-// only `TUMBLE_THREADS` absent/0 stays single-thread.
+// only `SHALLOT_PHYSICS_THREADS` absent/0 stays single-thread.
 const WANT_MT = AUTO || (THREADS ?? 0) >= 1;
 
 beforeAll(async () => {

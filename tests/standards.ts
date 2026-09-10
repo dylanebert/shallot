@@ -27,14 +27,14 @@ export interface KernelExport {
 
 export async function sourceModules(): Promise<string[]> {
     const out: string[] = [];
-    for (const root of [SRC_DIR, join(import.meta.dir, "../packages/shallot-tumble/src")]) {
+    for (const root of [SRC_DIR, join(import.meta.dir, "../packages/shallot-physics/src")]) {
         const before = out.length;
         for await (const path of new Bun.Glob("**/*.ts").scan({ cwd: root })) {
             if (
                 /\.d\.ts$/.test(path) ||
                 TEST_TIER_SUFFIXES.test(path) ||
                 /\.fixture\.ts$/.test(path) ||
-                (root === SRC_DIR && path.startsWith("standard/tumble/engine/"))
+                (root === SRC_DIR && path.startsWith("standard/physics/engine/"))
             )
                 continue;
             out.push(relative(SRC_DIR, join(root, path)));

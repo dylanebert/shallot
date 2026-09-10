@@ -19,11 +19,11 @@
 //! is `Copy` and travels into workers by value.
 //!
 //! Bounds live in `len` and are checked in debug only: the release path is an unchecked load/store,
-//! which is the same bounds-check elimination the wide gather already banks on (`tumble.md`).
+//! which is the same bounds-check elimination the wide gather already banks on (`physics.md`).
 //!
 //! The lifetime is real — a `Col<'a, T>` borrows its storage for `'a`, so the native harnesses get
 //! use-after-free protection for free. The wasm arena's `'static` columns are the exception, and they
-//! rest on the no-`memory.grow`-while-workers-are-active invariant (the Multithreading contract in `.claude/rules/tumble.md`): a region
+//! rest on the no-`memory.grow`-while-workers-are-active invariant (the Multithreading contract in `.claude/rules/physics.md`): a region
 //! grow relocates the columns above it, so a `Col` held across one dangles. Every arena shim
 //! re-derives its columns from `LAYOUT` per call, and reserves run pre-solve on the main thread.
 

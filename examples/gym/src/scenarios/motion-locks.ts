@@ -1,12 +1,12 @@
-// bodies-motion-locks — stage-4 gym twin: the tumble.js `MotionLocks` sample
+// bodies-motion-locks — stage-4 gym twin: the upstream `MotionLocks` sample
 // (`samples/src/samples/bodies.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer.
 
 import goldJson from "../../../../src/standard/physics/samples/bodies-motion-locks.json";
 import { register } from "../gym";
-import { buildMotionLocks, renderMotionLocks, updateMotionLocks } from "../tumble-motion-locks";
-import type { SampleGold } from "../tumble-oracle";
-import { sampleScenario } from "../tumble-sample";
+import { buildMotionLocks, renderMotionLocks, updateMotionLocks } from "../physics-motion-locks";
+import type { SampleGold } from "../physics-oracle";
+import { sampleScenario } from "../physics-sample";
 
 register(
     sampleScenario({

@@ -22,7 +22,7 @@
 //! Deviations from the C, all mechanical:
 //!   - a stage names its blocks by `[start, start+count)` into one shared block array instead of
 //!     holding a pointer (a raw pointer isn't `Sync`; an index is);
-//!   - box3d's per-color constraint arrays are tumble's flat columns plus a per-color base, so a
+//!   - box3d's per-color constraint arrays are physics's flat columns plus a per-color base, so a
 //!     graph block's `start` is already a flat column index (box3d adds the color base inside the
 //!     task);
 //!   - box3d's `mainClaimed` race is gone. It exists so *some* thread orchestrates when the user's
@@ -360,7 +360,7 @@ pub struct Sizes {
 }
 
 /// The storage any plan can ever need at `max_workers` threads, for a caller sizing a fixed buffer (the
-/// wasm path has no allocator — `tumble.md`). Every dim's block count is capped at
+/// wasm path has no allocator — `physics.md`). Every dim's block count is capped at
 /// `BLOCKS_PER_WORKER * worker_count` by [`compute_block_count`], and a plan has 4 flat dims (body,
 /// wide, mesh, joint) plus 3 per color.
 pub const fn max_sizes(max_workers: usize) -> Sizes {

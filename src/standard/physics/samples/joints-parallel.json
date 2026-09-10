@@ -2,7 +2,7 @@
   "slug": "joints-parallel",
   "category": "Joints",
   "name": "Parallel",
-  "description": "Two panels under torque — a parallel joint locks one level while the free one tumbles.",
+  "description": "Two panels under torque — a parallel joint locks one level while the free one physicss.",
   "timeStep": 0.016666666666666666,
   "subStepCount": 4,
   "gravity": [

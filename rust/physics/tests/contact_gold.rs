@@ -5,12 +5,12 @@
 //! same shared columns and asserts every output float bit-for-bit.
 
 use serde_json::Value;
-use tumble_kernel::col::Col;
-use tumble_kernel::contact::{
+use physics_kernel::col::Col;
+use physics_kernel::contact::{
     prepare, restitution, solve, store, warm_start, Columns, Softness, CC_META_STRIDE, CC_STRIDE,
     MCP_STRIDE, MC_META_STRIDE, MC_STRIDE, NULL_INDEX,
 };
-use tumble_kernel::manifold_abi::{DIR_STRIDE, MANIFOLD_STRIDE};
+use physics_kernel::manifold_abi::{DIR_STRIDE, MANIFOLD_STRIDE};
 
 /// SAFETY: a gold harness is single-threaded and each column has exactly one user, so `Col`'s
 /// disjoint-write promise holds trivially.
@@ -76,7 +76,7 @@ fn contact_phases_match_c() {
         let mut sim = floats(&case["sim"]);
         // Both bodies flagged dynamic so warm_start writes velocities back; a static body B is
         // reached via NULL_INDEX (its flag slot is never consulted).
-        let mut flags = vec![tumble_kernel::body::flags::DYNAMIC; 2];
+        let mut flags = vec![physics_kernel::body::flags::DYNAMIC; 2];
 
         // The gold input is in the old IN_* handoff layout; repack it into the column-resident store
         // shapes the solver now gathers through: one scalar slot record → contactId 0, and contactId

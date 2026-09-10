@@ -155,7 +155,7 @@ export function inspectRuntime(shipped: string): void {
     }
     assert(imports > 300, "installed runtime: nonempty resolved import population");
     const owner = resolve(root);
-    const solver = resolve(root, "packages/shallot-tumble");
+    const solver = resolve(root, "packages/shallot-physics");
     const engine = "src/standard/physics/engine/";
     const canonical = (file: string) => resolve(file.startsWith(engine) ? solver : owner, file);
     const sources = [owner, solver].flatMap((dir) => {

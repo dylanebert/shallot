@@ -1,4 +1,4 @@
-// Regenerates a committed bit-exact gold vector for the tumble engine by building and running the Box3D
+// Regenerates a committed bit-exact gold vector for the physics engine by building and running the Box3D
 // C reference (branch `harness`, scalar + force-overflow) `<name>_gold` target. Output lands in
 // src/standard/physics/engine/<name>.gold.json — COMMITTED (small), unlike the scene fixtures. These
 // vectors pin the kernel's per-phase math (`cargo test`) and the engine's `*.test.ts` gold comparisons.
@@ -10,8 +10,8 @@
 // honestly. The committed gold is the frozen contract
 // (pin 29bf523); only run this at a deliberate upstream sync.
 //
-// Usage: bun run scripts/gen-tumble-gold.ts <name>   (from packages/shallot-tumble)
-//        e.g. bun run scripts/gen-tumble-gold.ts contact
+// Usage: bun run scripts/physics/gen-gold.ts <name>   (from the repo root)
+//        e.g. bun run scripts/physics/gen-gold.ts contact
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -37,7 +37,7 @@ const GOLD_NAMES = [
 const name = process.argv[2];
 if (!name || !GOLD_NAMES.includes(name)) {
     console.error(
-        `usage: bun run scripts/gen-tumble-gold.ts <name>\n  name one of: ${GOLD_NAMES.join(", ")}`,
+        `usage: bun run scripts/physics/gen-gold.ts <name>\n  name one of: ${GOLD_NAMES.join(", ")}`,
     );
     process.exit(1);
 }
@@ -61,7 +61,7 @@ function run(cmd: string, args: string[]) {
     if (r.status !== 0) process.exit(r.status ?? 1);
 }
 
-console.log(`[gen-tumble-gold] configuring reference (scalar + force-overflow) for ${name}_gold`);
+console.log(`[physics/gen-gold] configuring reference (scalar + force-overflow) for ${name}_gold`);
 run("cmake", [
     "-S",
     refDir,
@@ -77,9 +77,9 @@ run("cmake", [
     "-DBOX3D_DOCS=OFF",
 ]);
 
-console.log(`[gen-tumble-gold] building ${name}_gold`);
+console.log(`[physics/gen-gold] building ${name}_gold`);
 run("cmake", ["--build", buildDir, "--target", `${name}_gold`, "-j"]);
 
-console.log(`[gen-tumble-gold] generating gold vectors -> ${outPath}`);
+console.log(`[physics/gen-gold] generating gold vectors -> ${outPath}`);
 run(resolve(buildDir, "bin", `${name}_gold`), [outPath]);
-console.log("[gen-tumble-gold] done");
+console.log("[physics/gen-gold] done");

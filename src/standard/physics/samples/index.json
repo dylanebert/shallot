@@ -1,5 +1,5 @@
 {
-  "source": "tumble.js/samples",
+  "source": "upstream/samples",
   "sourceCommit": "128a4efeb7d28024c338a4b5beaefc49d3dc4345",
   "engine": "shallot src/standard/physics/engine",
   "stepCount": 600,
@@ -112,7 +112,7 @@
       "slug": "joints-parallel",
       "category": "Joints",
       "name": "Parallel",
-      "description": "Two panels under torque — a parallel joint locks one level while the free one tumbles."
+      "description": "Two panels under torque — a parallel joint locks one level while the free one physicss."
     },
     {
       "slug": "joints-paddle",

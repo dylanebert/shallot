@@ -1,11 +1,11 @@
-// Standalone-lifecycle gate for the tumble MT pool: a script that inits the multithreaded kernel, steps
+// Standalone-lifecycle gate for the physics MT pool: a script that inits the multithreaded kernel, steps
 // a scene, and ends must exit on its own — no `shutdown()`. Parked pool workers pin the host event loop,
 // so without the boot-time `unref` (engine/pool.ts) the process hangs here; with it, it exits cleanly.
 // The consumer also prints the resolved thread count so a silent single-thread fallback (which would exit
 // trivially and prove nothing) fails the gate. Run under both bun and node, since the worker-ref
 // behaviour is runtime-specific.
 //
-//   bun run scripts/tumble-exit-test.ts   (from packages/shallot-tumble)
+//   bun run scripts/physics/exit-test.ts   (from the repo root)
 
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -19,7 +19,7 @@ const ENGINE = resolve(PKG_ROOT, "src/standard/physics/engine/index.ts");
 // steps a small pyramid, prints the resolved thread count, then falls off the end with no shutdown. The
 // bundle inlines the base64 wasm + the lazy shared-kernel chunk a real install ships; both runtimes run
 // the same file.
-const dir = mkdtempSync(resolve(tmpdir(), "tumble-exit-"));
+const dir = mkdtempSync(resolve(tmpdir(), "physics-exit-"));
 const consumer = resolve(dir, "consumer.ts");
 const bundle = resolve(dir, "consumer.mjs");
 await Bun.write(

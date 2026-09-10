@@ -14,7 +14,7 @@ The gate before pushing is `bun check` and `bun run test`. The slow suites are s
 
 - `bun test ./tests/avbd/*.oracle.ts` — AVBD/physics
 - `bun test ./examples/gym/src` — the engine or host layer
-- `bun run --cwd packages/shallot-tumble test:fixture` — tumble kernel changes
+- `bun run scripts/physics/run-fixtures.ts` — physics kernel changes
 - `cargo test` in `rust/audio` — rust audio changes
 - `bun run test:install` — packaging, CLI, manifest, or scaffold changes
 - `bun run recipes` — serialize-restore, overlay UI, physics recipes

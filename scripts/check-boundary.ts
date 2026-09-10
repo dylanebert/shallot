@@ -10,7 +10,7 @@ import { parse, parseExpression } from "@babel/parser";
  *  bound that keeps it readable. Every other computed `import()`/`require()` refuses: a specifier this
  *  reader cannot resolve is a hole in the source cone, not a detail. */
 const COMPUTED_LOADERS: Record<string, string> = {
-    "packages/shallot-tumble/scripts/gen-tumble-sample-golds.ts":
+    "packages/shallot-physics/scripts/physics/gen-sample-golds.ts":
         "Frozen mint recipe: four loads name the absent retired sample base/registry and this owner's body/index files; refuses before loading without that checkout. Never part of shipped solver source.",
     "src/standard/physics/engine/pool.ts":
         "the Node-only branch loads the fixed node:worker_threads specifier with vite-ignore; the browser branch creates an embedded Blob worker",
@@ -75,7 +75,7 @@ const NON_WORKSPACE_PACKAGES: Record<string, string> = {
 
 const PKG = "@dylanebert/shallot";
 const ENGINE_PACKAGE = ".";
-const SOLVER_PACKAGE = "packages/shallot-tumble";
+const SOLVER_PACKAGE = "packages/shallot-physics";
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".svelte"];
 
 export interface Violation {
@@ -429,7 +429,7 @@ function scanConsumers(
                 const spec = r.spec;
                 if (
                     root !== resolve(repoRoot, SOLVER_PACKAGE) &&
-                    (spec === "shallot-tumble" || spec.startsWith("shallot-tumble/"))
+                    (spec === "shallot-physics" || spec.startsWith("shallot-physics/"))
                 )
                     violations.push({
                         ...at(r, spec),

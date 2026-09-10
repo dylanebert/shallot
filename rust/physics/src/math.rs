@@ -1,5 +1,5 @@
 //! Scalar vector math for the serial contact solver, ported op-for-op from box3d's
-//! `math_functions.h/.c` (Erin Catto, MIT) via the tumble.js TS port (`src/math.ts`).
+//! `math_functions.h/.c` (Erin Catto, MIT) via the upstream TS port (`src/math.ts`).
 //!
 //! Rust `f32` is native IEEE-754 with no FMA contraction (box3d builds `-ffp-contract=off`, and
 //! Rust never fuses `a + b * c`), so each C/TS `f32(...)`-wrapped op maps to one Rust `f32` op with

@@ -41,7 +41,7 @@ fn start_asset_server() -> String {
             match asset(&path[1..]) {
                 Some(data) => {
                     let mime = content_type(path);
-                    // COOP/COEP: cross-origin isolation so tumble physics can multithread
+                    // COOP/COEP: cross-origin isolation so physics can multithread
                     // (mirrors the JS serve surfaces' CROSS_ORIGIN_ISOLATION in project/vite.ts)
                     let header = format!(
                         "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nConnection: close\r\n\r\n",

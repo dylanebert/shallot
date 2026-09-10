@@ -5,11 +5,11 @@
 //! two-body resident state column and asserts every prepared field, velocity, and impulse bit-for-bit.
 
 use serde_json::Value;
-use tumble_kernel::body::flags::DYNAMIC;
-use tumble_kernel::body::{write_state, State, STATE_STRIDE};
-use tumble_kernel::col::Col;
-use tumble_kernel::joint::{prepare, solve, warm_start};
-use tumble_kernel::joint_abi::{
+use physics_kernel::body::flags::DYNAMIC;
+use physics_kernel::body::{write_state, State, STATE_STRIDE};
+use physics_kernel::col::Col;
+use physics_kernel::joint::{prepare, solve, warm_start};
+use physics_kernel::joint_abi::{
     get, get_vec3, DJ_ANCHOR_A, DJ_ANCHOR_B, DJ_AXIAL_MASS, DJ_DAMPING_RATIO, DJ_DELTA_CENTER,
     DJ_DIST_SOFTNESS, DJ_ENABLE, DJ_ENABLE_LIMIT, DJ_ENABLE_MOTOR, DJ_ENABLE_SPRING, DJ_HERTZ,
     DJ_IMPULSE, DJ_LENGTH, DJ_LOWER_IMPULSE, DJ_LOWER_SPRING_FORCE, DJ_MAX_LENGTH, DJ_MAX_MOTOR_FORCE,
@@ -172,7 +172,7 @@ fn setup(input: &Value) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
 }
 
 fn state_of(v: &[f32], w: &[f32], dp: &[f32], dq: &[f32]) -> State {
-    use tumble_kernel::math::{Quat, Vec3};
+    use physics_kernel::math::{Quat, Vec3};
     State {
         linear_velocity: Vec3::new(v[0], v[1], v[2]),
         angular_velocity: Vec3::new(w[0], w[1], w[2]),

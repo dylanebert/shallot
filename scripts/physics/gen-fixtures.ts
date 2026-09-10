@@ -1,6 +1,6 @@
-// Regenerates the tumble engine's bit-exact scene fixtures by building and running the Box3D C reference
+// Regenerates the physics engine's bit-exact scene fixtures by building and running the Box3D C reference
 // at ../reference/box3d (branch `harness`) — the required checkout location relative to this repo.
-// Output lands in tests/tumble/fixtures/; the engine's step.fixture.ts replays each scene and asserts
+// Output lands in tests/physics/fixtures/; the engine's step.fixture.ts replays each scene and asserts
 // per-step hash equality against them.
 //
 // The reference is built with BOX3D_DISABLE_SIMD=ON (default overflow OFF) — the colored solver with
@@ -9,11 +9,11 @@
 // every scene), so
 // these fixtures pin the wide-simd wasm path too. Requires cmake and a C toolchain.
 //
-// The committed fixtures are the frozen contract (pin 29bf523 — tests/tumble/fixtures/README.md); only
+// The committed fixtures are the frozen contract (pin 29bf523 — tests/physics/fixtures/README.md); only
 // run this at a deliberate upstream sync. Absent the reference (a plain shallot checkout), it errors
 // honestly.
 //
-// Usage: bun run scripts/gen-tumble-fixtures.ts   (from packages/shallot-tumble)
+// Usage: bun run scripts/physics/gen-fixtures.ts   (from the repo root)
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
@@ -38,7 +38,7 @@ function run(cmd: string, args: string[]) {
     if (r.status !== 0) process.exit(r.status ?? 1);
 }
 
-console.log("[gen-tumble-fixtures] configuring reference (scalar-lane, colored)");
+console.log("[physics/gen-fixtures] configuring reference (scalar-lane, colored)");
 run("cmake", [
     "-S",
     refDir,
@@ -54,10 +54,10 @@ run("cmake", [
     "-DBOX3D_DOCS=OFF",
 ]);
 
-console.log("[gen-tumble-fixtures] building fixture_gen");
+console.log("[physics/gen-fixtures] building fixture_gen");
 run("cmake", ["--build", buildDir, "--target", "fixture_gen", "-j"]);
 
 mkdirSync(outDir, { recursive: true });
-console.log(`[gen-tumble-fixtures] generating fixtures -> ${outDir}`);
+console.log(`[physics/gen-fixtures] generating fixtures -> ${outDir}`);
 run(resolve(buildDir, "bin", "fixture_gen"), [outDir]);
-console.log("[gen-tumble-fixtures] done");
+console.log("[physics/gen-fixtures] done");

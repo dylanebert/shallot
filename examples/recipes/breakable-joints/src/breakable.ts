@@ -10,10 +10,10 @@ import {
 
 // breakable connections — a row of boxes hung from the ceiling by distance joints, each joint given a higher
 // force threshold than the last. a rising downward load drives the joint reactions up; when a joint's
-// reaction crosses its threshold, tumble reports a joint event and this recipe cuts the joint, dropping the
+// reaction crosses its threshold, physics reports a joint event and this recipe cuts the joint, dropping the
 // box. the joints break left to right as the load climbs. the boxes are substrate `Body` entities; the
 // joints, their break thresholds, and the joint-event stream all ride `Physics.world` — the escape hatch for
-// tumble physics past the substrate's `Spring`/`Joint`.
+// physics past the substrate's `Spring`/`Joint`.
 //
 // break-on-threshold + the joint-event stream have no published substrate-surface equivalent yet, so this
 // recipe rides the escape hatch; the gym twin `events-joint-break` is the oracle-gated gold.

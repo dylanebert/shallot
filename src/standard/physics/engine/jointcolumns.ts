@@ -388,7 +388,7 @@ function writeRecord(
         // header is enough — the kernel dispatch no-ops it. This is what lets a jointed scene route
         // wholly through the kernel: no awake joint type reaches the throw below.
     } else {
-        throw new Error(`tumble: joints-in-kernel does not support joint type ${sim.type}`);
+        throw new Error(`physics: joints-in-kernel does not support joint type ${sim.type}`);
     }
 }
 

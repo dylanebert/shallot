@@ -6,7 +6,7 @@ paths:
 
 # AVBD Backend
 
-GPU backend: `AvbdPlugin`; escape: `Avbd.step`. `physics.md` owns the substrate, `tumble.md` the default. The committed f64 `tests/avbd/` oracle ports C++ operation-for-operation; golds need no external checkout. Build the augmented-Lagrangian ladder without skipping layers.
+GPU backend: `AvbdPlugin`; escape: `Avbd.step`. `physics.md` owns the substrate, `physics.md` the default. The committed f64 `tests/avbd/` oracle ports C++ operation-for-operation; golds need no external checkout. Build the augmented-Lagrangian ladder without skipping layers.
 
 ## The oracle is the spec
 

@@ -5,7 +5,7 @@
 //! the whole kernel port rests on. Mirrors the `dispatch` table in `src/math.test.ts`.
 
 use serde_json::Value;
-use tumble_kernel::math::*;
+use physics_kernel::math::*;
 
 const GOLD: &str = include_str!("../../src/standard/physics/engine/math.gold.json");
 

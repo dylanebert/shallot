@@ -170,7 +170,7 @@ function rng(seed: number): () => number {
 // a random orientation within `maxTilt` of upright (random axis, angle ∈ [0, maxTilt]) — the heap's noisy
 // drop. Bounded (NOT uniform SO(3)): a box tilted ≤ ~50° lands on a face and reaches rest, where a
 // uniform-random box lands on an edge/corner and rocks forever (marginal stability). The drop + collisions
-// still tumble them into a chaotic resting pile; the bound only keeps it settleable.
+// still physics them into a chaotic resting pile; the bound only keeps it settleable.
 // Returns [x, y, z, w].
 function tiltQuat(rand: () => number, maxTilt: number): Quat {
     const u = rand() * 2 - 1; // cos(polar) — uniform axis on the unit sphere
@@ -186,7 +186,7 @@ function tiltQuat(rand: () => number, maxTilt: number): Quat {
 
 // the authored pile centers + per-body orientations (as quaternions), by layout. grid = a dense axis-aligned
 // lattice (face contacts from frame 0, identity orientation); heap = a chaotic drop (full random orientation
-// + off-cell scatter + interleaved layer heights, so boxes tumble onto each other and wedge — not rotated
+// + off-cell scatter + interleaved layer heights, so boxes physics onto each other and wedge — not rotated
 // columns); pyramid = a Box2D-Pyramid box stack (rows narrowing from a base, each upper box bricked over the
 // seam of the two below so it rests on both — a stack that must hold at rest). Pure over `rand`, so the
 // drum + ground fit the result.
@@ -274,7 +274,7 @@ const scenario: Scenario = {
         // 0 = auto (fit the pile), > 0 = an explicit static-ground half-extent (a large ground over a
         // tight pile is the broadphase-robustness case — the ground AABB must not degrade the LBVH).
         // layers/gap are the pile-density knobs. layout shapes the stack: grid (dense axis-aligned, face
-        // contacts from frame 0), heap (chaotic full-random-orientation drop — boxes tumble + wedge), pyramid
+        // contacts from frame 0), heap (chaotic full-random-orientation drop — boxes physics + wedge), pyramid
         // (a Box2D-Pyramid box stack that must hold at rest). boundary contains it: flat (the single ground) or drum (a static wall pen
         // that holds a rounded pile so it settles — the rounded rest gate).
         { key: "ground", type: "number", default: 0, min: 0, max: 2000, rebuild: true },
@@ -465,7 +465,7 @@ const scenario: Scenario = {
         }
 
         // place the dynamic bodies at the precomputed centers + orientations. A heap carries a full random
-        // orientation so it tumbles + wedges into a chaotic pile; grid/pyramid stay axis-aligned. A wide-slab
+        // orientation so it physicss + wedges into a chaotic pile; grid/pyramid stay axis-aligned. A wide-slab
         // pile settles in a bounded number of frames; a tall stack takes far longer to resolve.
         dynamicCount = count;
         for (let i = 0; i < count; i++) {
@@ -535,7 +535,7 @@ const scenario: Scenario = {
         // bodies must stay put. Settle frames scale with count but stay bounded so a stress run still builds
         // within the harness ready-window; at the bound a huge pile isn't fully settled (the settled-pile
         // asserts are calibrated for the default count — the per-step spans stay valid regardless). A chaotic
-        // `heap` gets extra frames to resolve its tumble + settle below the no-overlap bound (sub-stepping
+        // `heap` gets extra frames to resolve its physics + settle below the no-overlap bound (sub-stepping
         // converges the penetration fast, so this is enough for no-overlap + no-tunnel).
         // 2× the per-step cost at substeps ≥ 2 keeps this within the harness ready window only if bounded.
         const chaosSettle = pileLayout === "heap" ? 600 : 0;

@@ -1,5 +1,5 @@
 //! Joint constraint solve, ported op-for-op from box3d's `joint.c` dispatch + the per-type files
-//! (Erin Catto, MIT) via the tumble.js TS port (`src/joint.ts`, `src/distanceJoint.ts`). Rust `f32`
+//! (Erin Catto, MIT) via the upstream TS port (`src/joint.ts`, `src/distanceJoint.ts`). Rust `f32`
 //! is native IEEE-754 with no FMA contraction, so each TS `f32(...)`-wrapped op maps to one Rust op in
 //! the same operand order (see `math.rs`); `b3MinFloat`/`b3MaxFloat`/`b3ClampFloat` are the explicit
 //! ternaries, never `f32::min`/`max`.

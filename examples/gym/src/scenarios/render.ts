@@ -85,7 +85,7 @@ import {
 // Parts.drawArgs is the pack's GPU output — the cull readback reads it through the part/core extension surface
 import { Parts } from "@dylanebert/shallot/part/core";
 // the ragdoll pose producer render-interpolates readBody poses at fixedAlpha with the same shortest-arc
-// nlerp the tumble compose uses (the tumble/core CPU pose-compose surface)
+// nlerp the physics compose uses (the physics/core CPU pose-compose surface)
 import { nlerpShortest, qRotate } from "@dylanebert/shallot/physics/core";
 import {
     BeginFrameSystem,
@@ -3590,7 +3590,7 @@ async function assertSkinLive(): Promise<Check[]> {
 // ragdoll — the live palette's first physics producer
 // ============================================================================
 //
-// RiggedFigure imported `{live}` + an 11-capsule tumble ragdoll driving its 19-joint palette. Bones are
+// RiggedFigure imported `{live}` + an 11-capsule physics ragdoll driving its 19-joint palette. Bones are
 // substrate `Body` capsule entities (so writeback, pick, and the character sweep see them); joints ride
 // the `Physics.world` escape hatch via `Physics.body(eid)` handles (spherical cone/twist, revolute,
 // filter — deliberately richer than the substrate `Spring`/`Joint` mapping). The pose producer reads
@@ -3642,7 +3642,7 @@ function qFromTo(a: V3, b: V3): Q4 {
 }
 
 // the 11 capsule bones in the rig's object space (glTF Z-up, feet at z = 0), placed to RiggedFigure's
-// skeleton (segment ends at its joint bind positions); fixed creation order — the tumble determinism
+// skeleton (segment ends at its joint bind positions); fixed creation order — the physics determinism
 // contract. Radii keep non-jointed bones clear of each other (jointed pairs don't collide).
 const RAG_BONES: { name: string; a: V3; b: V3; r: number; mass: number }[] = [
     { name: "pelvis", a: [-0.09, 0, 0.66], b: [0.09, 0, 0.66], r: 0.09, mass: 2.5 },
@@ -3679,8 +3679,8 @@ const RAG_MAP: Record<string, string[]> = {
     calfR: ["leg_joint_R_2", "leg_joint_R_3", "leg_joint_R_5"],
 };
 
-// the 11 joints in fixed order (the tumble samples' human.ts recipe): object-space pivots at the rig's
-// anatomical joints; `axis` is the joint frame's Z in object space — tumble's cone axis (spherical) and
+// the 11 joints in fixed order (the physics samples' human.ts recipe): object-space pivots at the rig's
+// anatomical joints; `axis` is the joint frame's Z in object space — physics's cone axis (spherical) and
 // hinge axis (revolute) both read frame Z. Shoulder cones point along the arm; hips down; spine/neck up.
 const RAG_JOINTS: {
     kind: "ball" | "hinge" | "filter";
@@ -4183,7 +4183,7 @@ async function assertRagdoll(): Promise<Check[]> {
     });
 
     // the static Body+Part floor renders — pins the membership-gated transforms compose on the real
-    // GPU (an ungated scatter stomps the tumble backend's CPU-written record: an invisible floor)
+    // GPU (an ungated scatter stomps the physics backend's CPU-written record: an invisible floor)
     checks.push({
         name: "static physics floor renders",
         pass: !!settled && settled[4] > 2000,
@@ -4703,7 +4703,7 @@ const MODES = {
     gltf: ["gltf-model", "gltf-animated", "gltf-spill", "gltf-multi", "gltf-worker"],
     // the live joint-palette substrate — rides the gltf plugin set, but authors its rig by hand (no asset)
     skinLive: ["skin-live"],
-    // the live palette's physics producer: RiggedFigure {live} driven by an 11-capsule tumble ragdoll
+    // the live palette's physics producer: RiggedFigure {live} driven by an 11-capsule physics ragdoll
     ragdoll: ["ragdoll"],
     transparency: ["transparency"],
     background: ["background"],

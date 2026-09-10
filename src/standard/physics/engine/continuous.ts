@@ -323,7 +323,7 @@ function compoundTimeOfImpactFcn(
             break;
         }
         default:
-            throw new Error(`tumble: compound child TOI unknown type ${child.type}`);
+            throw new Error(`physics: compound child TOI unknown type ${child.type}`);
     }
 
     if (output.fraction > 0 && output.fraction < ctx.input.maxFraction) {

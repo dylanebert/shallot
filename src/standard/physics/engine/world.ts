@@ -3,7 +3,7 @@
 // array of records; the hot payload lives in solver sets. Worlds live in a fixed registry so a
 // stale world id (to a destroyed, possibly recycled, world) is detected by a generation mismatch.
 //
-// fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
+// fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
 import type { Body } from "./body";
 import { type BodyStore, createBodyStore, releaseResident } from "./bodycolumns";
@@ -337,7 +337,7 @@ export function createWorld(def: WorldDef): WorldId {
         }
     }
     if (worldId === -1) {
-        throw new Error(`tumble: B3_MAX_WORLDS of ${MAX_WORLDS} exceeded`);
+        throw new Error(`physics: B3_MAX_WORLDS of ${MAX_WORLDS} exceeded`);
     }
 
     initializeContactRegisters();
@@ -383,7 +383,7 @@ export function destroyWorld(world: WorldState): void {
 
     // Every shape released its hull reference, so the database must be empty.
     if (world.hullDatabase.size !== 0) {
-        throw new Error("tumble: hull database not empty at world destroy");
+        throw new Error("physics: hull database not empty at world destroy");
     }
 
     // Destroy live solver sets (GC reclaims the rest).

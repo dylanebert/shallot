@@ -16,21 +16,21 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::ThreadId;
 
-use tumble_kernel::body::flags::DYNAMIC;
-use tumble_kernel::body::{SIM_STRIDE, STATE_STRIDE};
-use tumble_kernel::col::Col;
-use tumble_kernel::contact::{
+use physics_kernel::body::flags::DYNAMIC;
+use physics_kernel::body::{SIM_STRIDE, STATE_STRIDE};
+use physics_kernel::col::Col;
+use physics_kernel::contact::{
     self, Columns, Softness, CC_META_STRIDE, CC_STRIDE, MCP_STRIDE, MC_META_STRIDE, MC_STRIDE,
     NULL_INDEX,
 };
-use tumble_kernel::contact_wide::{self, LANES, WIDE_IDX_STRIDE, WIDE_META_STRIDE, WIDE_STRIDE};
-use tumble_kernel::integrate;
-use tumble_kernel::manifold_abi::{
+use physics_kernel::contact_wide::{self, LANES, WIDE_IDX_STRIDE, WIDE_META_STRIDE, WIDE_STRIDE};
+use physics_kernel::integrate;
+use physics_kernel::manifold_abi::{
     DIR_STRIDE, MANIFOLD_STRIDE, M_NORMAL, M_POINTS, M_POINT_COUNT, POOL_POINT_STRIDE, P_ANCHOR_A,
     P_ANCHOR_B, P_BASE_SEPARATION, P_FEATURE_ID, P_NORMAL_IMPULSE, P_SEPARATION, SLOT_STRIDE,
 };
-use tumble_kernel::math::Vec3;
-use tumble_kernel::stages::{self, Block, BlockType, ColorSpan, Plan, Stage, StageWork, SyncBlock};
+use physics_kernel::math::Vec3;
+use physics_kernel::stages::{self, Block, BlockType, ColorSpan, Plan, Stage, StageWork, SyncBlock};
 
 /// SAFETY: the staged solve's blocks are write-disjoint (`stages.rs`'s header states why), which is
 /// exactly `Col`'s promise; the serial run is single-threaded. Both are what this test asserts.

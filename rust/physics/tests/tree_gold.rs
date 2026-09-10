@@ -10,7 +10,7 @@
 //! and each query over S2 matches the C hits + node/leaf visit counts.
 
 use serde_json::Value;
-use tumble_kernel::tree::{self, Rebuild, STACK_SIZE, STRIDE};
+use physics_kernel::tree::{self, Rebuild, STACK_SIZE, STRIDE};
 
 fn load() -> Value {
     let raw = include_str!("../../src/standard/physics/engine/tree.gold.json");

@@ -6,15 +6,15 @@
 //! lane (graph coloring guarantees the lanes share no body, so each lane is independent).
 
 use serde_json::Value;
-use tumble_kernel::body::flags::DYNAMIC;
-use tumble_kernel::body::{SIM_STRIDE, STATE_STRIDE};
-use tumble_kernel::col::Col;
-use tumble_kernel::contact::{Softness, NULL_INDEX};
-use tumble_kernel::contact_wide::{
+use physics_kernel::body::flags::DYNAMIC;
+use physics_kernel::body::{SIM_STRIDE, STATE_STRIDE};
+use physics_kernel::col::Col;
+use physics_kernel::contact::{Softness, NULL_INDEX};
+use physics_kernel::contact_wide::{
     prepare, restitution, solve, store, warm_start, LANES, WIDE_IDX_STRIDE, WIDE_META_STRIDE,
     WIDE_STRIDE,
 };
-use tumble_kernel::manifold_abi::{DIR_STRIDE, MANIFOLD_STRIDE};
+use physics_kernel::manifold_abi::{DIR_STRIDE, MANIFOLD_STRIDE};
 
 /// SAFETY: a gold harness is single-threaded and each column has exactly one user, so `Col`'s
 /// disjoint-write promise holds trivially.

@@ -4,6 +4,7 @@ Newest first. **Breaking:** marks a change that needs consumer action; [`MIGRATI
 
 ## Unreleased
 
+- **physics (breaking)** — the solver's old name is retired: the kernel crate is `physics-kernel`, the thread-count variable is `SHALLOT_PHYSICS_THREADS`, and the manifest plugin key is `Physics`. The float-literal scan and its rule file are deleted.
 - **physics (breaking)** — one physics module with no backend substrate. `TumblePlugin` becomes `PhysicsPlugin`, `Tumble.world`/`Tumble.body` become `Physics.world`/`Physics.body`, and the `tumble/core` subpath merges into `physics/core`. `PhysicsBackend`, `installBackend`, `uninstallBackend` and `Physics.backend` are removed; read and drive bodies with `Physics.readBody`, `Physics.setKinematic`, `Physics.setVelocity`, `Physics.gravity` and `Physics.dt`. The pick layer takes a pose reader (`Physics.readBody`) instead of a backend. `physics/core` publishes `springDefs`, `jointDefs`, `springSignature` and `jointSignature` for an outside solver.
 - **physics** — the Rust/WASM solver, its kernel crate, scripts and fixtures move out of the private solver package into `src/standard/physics`, `rust/physics` and `scripts/physics`; the tarball ships the solver and its inlined kernel from the root allowlist.
 - **cli (breaking)** — the `shallot tui` command is removed.

@@ -21,7 +21,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { Glob } from "bun";
 import { TEST_TIER_SUFFIXES } from "../tests/test-tiers";
 
-// Regex-literal scanning, shared by the source maskers here and in `check-tumble-fp.ts`.
+// Regex-literal scanning for the source maskers here.
 //
 // Both scanners mask comments and string literals so a `//`, a quote or a `)` inside one cannot
 // be read as code. Neither handled a **regex literal**, whose body may carry `/`, `"`, `'` or a
@@ -657,7 +657,7 @@ export async function findDeadExports(
 
     const srcGlob = new Glob("**/*.ts");
     const sources = new Set<string>();
-    for (const dir of [srcDir, resolve(rootDir, "packages/shallot-tumble/src")]) {
+    for (const dir of [srcDir, resolve(rootDir, "packages/shallot-physics/src")]) {
         if (!existsSync(dir)) continue;
         for await (const path of srcGlob.scan({ cwd: dir })) {
             sources.add(relative(rootDir, resolve(dir, path)));
@@ -702,9 +702,9 @@ export async function findDeadExports(
     const consumerDirs = [
         "src",
         "src",
-        "packages/shallot-tumble/src",
-        "packages/shallot-tumble/scripts",
-        "packages/shallot-tumble/tests",
+        "packages/shallot-physics/src",
+        "packages/shallot-physics/scripts",
+        "packages/shallot-physics/tests",
         "tests",
         "bin",
         "src",

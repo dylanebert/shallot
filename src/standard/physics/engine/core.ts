@@ -1,5 +1,5 @@
 // World-scoped physical constants and the length-unit base. Ported from Box3D's constants.h /
-// core.h (Erin Catto, MIT). fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
+// core.h (Erin Catto, MIT). fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 //
 // Box3D scales its length-based constants by a settable length-unit (b3SetLengthUnitsPerMeter).
 // The port fixes the unit at the default 1.0 — every fixture is generated at 1.0, and existing

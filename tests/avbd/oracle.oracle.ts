@@ -733,10 +733,10 @@ describe("AVBD oracle — joints (the hard Force)", () => {
         expect(Math.abs(locked.posAng[2])).toBeLessThan(1e-2); // no z-rotation (measured 5e-4)
     });
 
-    test("a finite-intermediate stiffnessAng settles to a pinned rest, not free-fall (mirroring tumble's 1000-case)", () => {
+    test("a finite-intermediate stiffnessAng settles to a pinned rest, not free-fall (mirroring physics's 1000-case)", () => {
         // S2 grant arm: a legitimate finite-positive stiffnessAng (1000) still builds a joint under AVBD —
-        // the over-refusal check no refusal arm can show. Mirrors tumble's existing stiffnessAng = 1000 settle
-        // arm (tumble/joints.test.ts "an intermediate stiffnessAng settles rather than oscillates"), scored
+        // the over-refusal check no refusal arm can show. Mirrors physics's existing stiffnessAng = 1000 settle
+        // arm (physics/joints.test.ts "an intermediate stiffnessAng settles rather than oscillates"), scored
         // against the CPU oracle here. The setup matches the spherical/fixed test above — a dynamic box
         // pinned to a static anchor at a 2 m arm under gravity — with the angular stiffness set to the
         // finite-intermediate 1000 (not 0 = spherical, not ∞ = fixed). Gravity torques the box about the

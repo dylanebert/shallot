@@ -1,8 +1,8 @@
-// The scene roster for the tumble fixture gate — scene name → [enableSleep, enableContinuous],
+// The scene roster for the physics fixture gate — scene name → [enableSleep, enableContinuous],
 // matching gen.c's per-scene world flags. Extracted from step.fixture.ts so the default-suite parity
 // arm in step.test.ts can import SCENES without importing the fixture file itself (which would register
 // the heavy bit-exact tests in the default `bun test` suite). The count of entries here is derived by
-// that arm against the committed fixture files in tests/tumble/fixtures/, so a prose restatement of the
+// that arm against the committed fixture files in tests/physics/fixtures/, so a prose restatement of the
 // number anywhere in the corpus is stale the moment a scene is added or removed.
 
 export const SCENES: [string, boolean, boolean][] = [

@@ -36,8 +36,8 @@ const BOOT = src("engine/ecs", "standard/glaze", "standard/loading");
 
 /** The rigid-body surface and both backends read by the physics assertions. */
 const PHYSICS = [
-    ...src("standard/physics", "standard/avbd", "standard/tumble"),
-    "packages/shallot-tumble/src/**",
+    ...src("standard/physics", "standard/avbd", "standard/physics"),
+    "packages/shallot-physics/src/**",
 ];
 
 /** Shallot-owned selection roster. Each row's cone is its own directory plus the runtime and producer
@@ -358,9 +358,9 @@ export const EXAMPLE_GATES: ExampleGate[] = [
                 "standard/physics",
                 "standard/player",
                 "standard/transforms",
-                "standard/tumble",
+                "standard/physics",
             ),
-            "packages/shallot-tumble/src/**",
+            "packages/shallot-physics/src/**",
         ],
         gate: "bun bench --sweep && bun run --cwd examples/gym gate",
     },

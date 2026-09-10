@@ -1,5 +1,5 @@
 //! GJK closest-point distance, ported op-for-op from box3d's `distance.c` (Erin Catto, MIT) via the
-//! tumble.js TS port (`src/distance.ts`). Only the `shape_distance` path lives here — the narrowphase
+//! upstream TS port (`src/distance.ts`). Only the `shape_distance` path lives here — the narrowphase
 //! (hull/sphere, hull/capsule) consumes it; shape-cast and time-of-impact are CCD and stay TS-side.
 //!
 //! Rust `f32` is native IEEE-754 with no FMA contraction, so each TS `f32(...)`-wrapped op maps to one

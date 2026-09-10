@@ -24,7 +24,7 @@ import {
     hashWorldState,
     makeBoxHull,
     shutdown,
-    type Body as TumbleBody,
+    type Body as SolverBody,
     World,
 } from "../physics/engine";
 import { Slab } from "../slab";
@@ -35,7 +35,7 @@ import { composePose, PhysicsPlugin } from "./index";
 // edges are placeholder-shaped (never read: `hullFromRegistry` feeds only `.verts` into the engine's own
 // `createHull`, which rebuilds the hull structure itself); only the vertex positions need to be real.
 const TETRA_ID = Hulls.register({
-    name: "tumble-test-tetra",
+    name: "physics-test-tetra",
     verts: [
         [0, 0, 0],
         [1, 0, 0],
@@ -55,10 +55,10 @@ const TETRA_ID = Hulls.register({
     ],
 });
 
-// The marshaling gate (tumble.md "The marshaling gate — dual-run hash equality"): the same scene
+// The marshaling gate (physics.md "The marshaling gate — dual-run hash equality"): the same scene
 // built two ways — once through `PhysicsPlugin` on a headless `State` (reading a scene's authored `Body`
 // entities), once by hand through the raw engine `World`/`Body` API with the identical literal values —
-// stepped in lockstep, asserting per-step `hashWorldState` equality. Proves the ECS → tumble marshaling
+// stepped in lockstep, asserting per-step `hashWorldState` equality. Proves the ECS → physics marshaling
 // (shape dispatch, pose, mass/density, deterministic creation order) end to end with no fixture files. The
 // two paths share NO code (the reference build below never imports `marshal.ts`), so a real ordering/shape/
 // pose/mass bug in the plugin's marshaling diverges the hash.
@@ -155,7 +155,7 @@ const SCENE: SceneBody[] = [
 ];
 
 // SCENE indices of the constraint rig above — the plugin authors these as Spring/Joint entities, the
-// reference creates the mapped tumble joints directly, in the same order (springs, then joints).
+// reference creates the mapped physics joints directly, in the same order (springs, then joints).
 const ANCHOR = 5;
 const BLOCK = 6;
 const BOB = 7;
@@ -166,7 +166,7 @@ const SPRING_REST = 4;
 // the reference build: raw engine API, literal values, no shared code with `marshal.ts` or `joints.ts`.
 function buildReference(): World {
     const world = new World({ gravity: { x: 0, y: GRAVITY, z: 0 } });
-    const handles: TumbleBody[] = [];
+    const handles: SolverBody[] = [];
     for (const b of SCENE) {
         const tb = world.createBody({
             type: b.mass > 0 ? BodyType.Dynamic : BodyType.Kinematic,
@@ -297,9 +297,9 @@ async function buildScene(): Promise<State> {
     return state;
 }
 
-describe("tumble marshaling gate", () => {
+describe("physics marshaling gate", () => {
     test("PhysicsPlugin reproduces the raw engine API bit-exactly, per step", async () => {
-        // the wasm kernel is a singleton (ONE live resident region, tumble.md "Singleton,
+        // the wasm kernel is a singleton (ONE live resident region, physics.md "Singleton,
         // single-live-world") — the two runs can't be live at once, so "lockstep" means: run the
         // reference to completion first (recording every step's hash), destroy it, THEN run the plugin
         // to completion (recording the same), and compare the two per-step hash sequences afterward.
@@ -326,13 +326,13 @@ describe("tumble marshaling gate", () => {
     });
 });
 
-describe("character under the tumble backend", () => {
-    test("the shared CPU sweep grounds, drives, and uploads through the tumble handle", async () => {
+describe("character under the physics backend", () => {
+    test("the shared CPU sweep grounds, drives, and uploads through the physics handle", async () => {
         // the backend-neutral collide-and-slide (standard/character) run against PhysicsPlugin: the
         // sweep reads candidates through `Physics.backend.readBody` and uploads the swept pose through
         // `setKinematic` — the exact seams the stage-2 substrate established, now under the second
         // backend. Sweep correctness itself is oracle-gated (character-sweep.oracle.ts); this pins the
-        // tumble INTEGRATION: ground on a tumble-marshaled floor, drive, and the kinematic round-trip.
+        // physics INTEGRATION: ground on a physics-marshaled floor, drive, and the kinematic round-trip.
         clear();
         const state = new State();
         liveState = state;
@@ -372,8 +372,8 @@ describe("character under the tumble backend", () => {
         pose(char, p);
         expect(p[0]).toBeGreaterThan(1.5);
 
-        // the kinematic upload reached tumble: the backend's pose tracks the controller's. x may lead
-        // by one tick's advance (tumble integrates a kinematic body's velocity after the upload; the
+        // the kinematic upload reached physics: the backend's pose tracks the controller's. x may lead
+        // by one tick's advance (physics integrates a kinematic body's velocity after the upload; the
         // next sweep overwrites it) — y is tight since the grounded realized velocity is 0.
         const live = Physics.readBody(char);
         expect(live).not.toBeNull();
@@ -477,7 +477,7 @@ describe("character under the tumble backend", () => {
 describe("Physics.body handle accessor", () => {
     test("returns the marshaled handle after a sync tick, null before / for a non-body", async () => {
         // the escape-hatch eid↔handle bridge (a ragdoll wiring cone/twist/filter joints between named
-        // bodies reaches each `TumbleBody` this way, then hands it to `Physics.world.create*Joint`). The
+        // bodies reaches each `SolverBody` this way, then hands it to `Physics.world.create*Joint`). The
         // handle only exists once SyncSystem has marshaled the entity — its first `fixed` tick.
         clear();
         const state = new State();
@@ -518,7 +518,7 @@ describe("Physics.body handle accessor", () => {
 
 describe("same-update destroy+create realias", () => {
     test("a box destroyed and a sphere created at the recycled eid marshals the new body", async () => {
-        // the same-update destroy+create identity bug (tumble.md "The wasm world is a singleton — dispose is load-bearing"): a box
+        // the same-update destroy+create identity bug (physics.md "The wasm world is a singleton — dispose is load-bearing"): a box
         // is marshaled, then destroyed and its eid recycled by a NEW sphere Body in one update. SyncSystem
         // keys create/destroy on presence alone, so it neither sweeps the eid (it still has Body) nor
         // re-marshals it (it's still in `bodies`) — the old box handle survives entirely. The fix
@@ -553,7 +553,7 @@ describe("same-update destroy+create realias", () => {
         Body.mass.set(sphere, 5);
         state.step(Time.FIXED_DT);
 
-        // the live tumble handle must be the NEW sphere: gravity is -y only, so x stays at the sphere's
+        // the live physics handle must be the NEW sphere: gravity is -y only, so x stays at the sphere's
         // authored 10 (the old box fell straight down from x=0), and its mass is the sphere's 5, not 1.
         const handle = Physics.body(sphere);
         expect(handle).not.toBeNull();
@@ -607,12 +607,12 @@ describe("same-update destroy+create realias", () => {
 
     test("an authored Joint rebinds to a body recycled at its endpoint eid in one update", async () => {
         // The full jointed-realias chain on the real backend, end to end: SyncSystem (before
-        // ConstraintSystem) destroys the stale handle on a stamp mismatch, tumble cascades the joint off
+        // ConstraintSystem) destroys the stale handle on a stamp mismatch, physics cascades the joint off
         // the destroyed body, and ConstraintSystem's signature — folding each endpoint's `state.stamp` —
         // re-uploads so `syncJoints`' isValid() check drops the cascaded joint and rebuilds it against the
         // NEW handle. Neutralize the stamp fold in springSignature/jointSignature (physics/index.ts) and the
         // signature never changes: the joint never re-uploads, the new bob's cascaded joint is never rebuilt,
-        // and it free-falls. The link-by-link mechanism is proven with stubs; this composes it on tumble.
+        // and it free-falls. The link-by-link mechanism is proven with stubs; this composes it on physics.
         clear();
         const state = new State();
         liveState = state;
@@ -804,7 +804,7 @@ describe("unregistered hull marshaling", () => {
 
 describe("compose covers static bodies", () => {
     test("a static body's firehose record is written on its marshal tick, a dynamic one every move", async () => {
-        // tumble reports every NEW body in its first tick's move events and never again for a static —
+        // physics reports every NEW body in its first tick's move events and never again for a static —
         // so the static's spawn record lands in the transforms firehose exactly once, and it only STAYS
         // there because the Transform compose is membership-gated (an ungated scatter would stomp the
         // Body slot with the unset Transform slab next frame — the invisible-floor bug). This pins the
@@ -855,7 +855,7 @@ describe("compose covers static bodies", () => {
             expect(writes.get(box * 48)).toBeDefined();
 
             // later ticks keep the falling box's record refreshing, and the never-moving floor's
-            // record — whenever tumble stops reporting it — persists only because the membership-gated
+            // record — whenever physics stops reporting it — persists only because the membership-gated
             // Transform compose leaves non-Transform slots alone (the gym ragdoll floor check pins that
             // half on the real GPU)
             stepFor(state, 1.0);

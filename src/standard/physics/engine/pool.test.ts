@@ -94,7 +94,7 @@ test("every worker boots on its own stack slice and TLS block", async () => {
     }
 });
 
-// A worker fault poisons the pool, not just that one thread (tumble.md "A worker fault poisons the
+// A worker fault poisons the pool, not just that one thread (physics.md "A worker fault poisons the
 // kernel, it doesn't just terminate survivors"): the round it died in is unrecoverable (every phase
 // writes state that outlives the step), so the pool retires itself rather than pretend the survivors
 // alone can carry on. No real trap is available in this own-module harness (no solve job is ever built
@@ -119,7 +119,7 @@ test("a worker fault poisons the pool: run throws, alive flips false, every late
     }
 });
 
-// The no-grow-while-workers-active invariant (tumble.md concurrency invariants), asserted at runtime:
+// The no-grow-while-workers-active invariant (physics.md concurrency invariants), asserted at runtime:
 // `pool.run` snapshots the shared memory's byte length at wake and compares after the join. Every
 // `reserve*` is supposed to run pre-fork; a reserve that slipped inside a round would relocate the
 // column arena under the workers, a silent bit-exactness/safety break. The orchestrate callback runs on

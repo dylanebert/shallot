@@ -31,7 +31,7 @@ import { type Check, frames, type Params, register, type Scenario } from "../gym
 // raining — the streaming-spawn stress: bodies rain onto a pile continuously and the oldest are recycled once
 // the live count hits the cap, so the world churns at a steady body budget (the debris / particle / projectile
 // pattern — bounded, not unbounded growth). It gates the substrate's live create + destroy path (`state.create`
-// / `state.destroy` → the tumble backend's marshal / unmarshal) under constant load, and benchmarks stepping a
+// / `state.destroy` → the physics backend's marshal / unmarshal) under constant load, and benchmarks stepping a
 // full pile while it turns over. Deterministic: a seeded PRNG places every drop, so headless runs the same pile.
 
 const SPAWN_EVERY = 2; // fixed ticks between drops

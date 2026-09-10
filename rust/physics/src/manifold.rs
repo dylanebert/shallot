@@ -1,6 +1,6 @@
 //! Convex narrowphase manifold generation, ported op-for-op from box3d's `manifold.c` (shared clip/
 //! query helpers) and `convex_manifold.c` (the six sphere/capsule/hull pair functions) (Erin Catto,
-//! MIT) via the tumble.js TS port (`src/manifold.ts`). Results are in shape A's local frame;
+//! MIT) via the upstream TS port (`src/manifold.ts`). Results are in shape A's local frame;
 //! `transform_b_to_a` places shape B in shape A's frame.
 //!
 //! The TS port carries a zero-alloc ping-pong buffer strategy for the clip loop; here the arithmetic
@@ -1955,7 +1955,7 @@ pub fn collide_hulls(
 
 // S3 — cross-language constant parity table (reference mechanism).
 //
-// Every non-exact float literal in `rust/tumble/src/**` that reaches f32 arithmetic, checked against its
+// Every non-exact float literal in `rust/physics/src/**` that reaches f32 arithmetic, checked against its
 // C reference twin in `reference/box3d/`. A row carries an assertion exactly when its subject is
 // a readable source item (a module-level `const`/`static`); function-local `let`s and inline
 // literals cannot be read from a test module and are marked "not assertable" in the table with
@@ -1968,13 +1968,13 @@ pub fn collide_hulls(
 // live f64 path (reproducing libm), and a non-exact literal there reproduces rule 1a — it does
 // not today only because every literal in that path is 0.5/1.0/2.0/0.0. That literal choice
 // inside `math.rs`'s f64 path is a static fact no trigger and no sweep watches —
-// `scripts/check-tumble-fp.ts` is TypeScript-only and does not reach Rust. The triggers below
+// No TypeScript scan reaches Rust. The triggers below
 // watch the *design boundary moving*, not that static fact: trigger (a) fires if a new f64 path
 // appears outside `math.rs`; trigger (b) fires if overlap/separation symbols enter Rust code.
 // Reopen if either trigger moves (run from ; `grep -v ':[0-9]*:\s*//'` strips comment-only
 // lines so the trigger cannot match its own documentation or this table's prose):
-//   (a) grep -rn 'f64' rust/tumble/src/*.rs | grep -v ':[0-9]*:\s*//' | grep -v 'math.rs'
-//   (b) grep -rnE 'SeparationFunction|separation_function|make_separation|overlap_capsule|overlap_hull|overlap_sphere|shape_overlap|test_overlap|OVERLAP_SLOP|kToleranceSquared|k_tolerance_squared' rust/tumble/src/*.rs | grep -v ':[0-9]*:\s*//'
+//   (a) grep -rn 'f64' rust/physics/src/*.rs | grep -v ':[0-9]*:\s*//' | grep -v 'math.rs'
+//   (b) grep -rnE 'SeparationFunction|separation_function|make_separation|overlap_capsule|overlap_hull|overlap_sphere|shape_overlap|test_overlap|OVERLAP_SLOP|kToleranceSquared|k_tolerance_squared' rust/physics/src/*.rs | grep -v ':[0-9]*:\s*//'
 // Both read 0 today. Probe before trusting a zero: drop `grep -v 'math.rs'` from (a) — the
 // f64 hits in math.rs's rint_even/remainderf confirm the pipeline finds code symbols; add
 // `fat_overlap` to (b)'s alternation — the AABB hits in arena.rs confirm the same.
@@ -1983,7 +1983,7 @@ pub fn collide_hulls(
 // (appended at end-of-file), reading `super::THE_CONST` directly. This module holds only the
 // constants defined in `manifold.rs` itself plus the `pub const`s in `math.rs`.
 //
-// Enumeration command (run from `rust/tumble/src/`):
+// Enumeration command (run from `rust/physics/src/`):
 //   for f in *.rs; do sed '/#\[cfg(test)\]/,$d' "$f" | grep -v '^\s*//' | grep -oE '[0-9]+\.?[0-9]*' | sort -u; done | sort -u
 // Excluded as noise: comment-only lines, test-module code, integer literals in array sizes /
 // struct field indices. Exact k/2^n literals are annotated in the table, not excluded from it.
@@ -2101,8 +2101,8 @@ pub fn collide_hulls(
 //   Used in C overlap-query predicates: b3OverlapCapsule (capsule.c:84), b3OverlapHull
 //   (hull.c:2439), b3OverlapSphere (sphere.c:47). Each calls b3ShapeDistance and compares the
 //   result to B3_OVERLAP_SLOP. The Rust kernel does not port these overlap-query predicates —
-//   grep for 'shape_overlap|test_overlap|fn overlap' in rust/tumble/src/** returns nothing. The
-//   kernel boundary rule (tumble.md) puts graph/world mutation, contact events, and the public
+//   grep for 'shape_overlap|test_overlap|fn overlap' in rust/physics/src/** returns nothing. The
+//   kernel boundary rule (physics.md) puts graph/world mutation, contact events, and the public
 //   API on the TS side; overlap queries are public-API predicates. No Rust code path needs this
 //   constant.
 //
@@ -2110,7 +2110,7 @@ pub fn collide_hulls(
 //   distance.c:1436, bits 0x37D1B717): Used in b3MakeSeparationFunction (distance.c:1249), the
 //   CCD/TOI conservative-advancement separation function. The Rust kernel does not port
 //   b3MakeSeparationFunction — grep for 'SeparationFunction|make_separation|separation_function'
-//   in rust/tumble/src/** returns nothing. distance.rs:3 states 'shape-cast and time-of-impact are
+//   in rust/physics/src/** returns nothing. distance.rs:3 states 'shape-cast and time-of-impact are
 //   CCD and stay TS-side'; finalize.rs:8 states 'the continuous (CCD) sweep' stays TS-side.
 //   No Rust code path needs this constant.
 

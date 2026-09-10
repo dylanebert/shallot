@@ -1,8 +1,8 @@
 import { ShapeKind } from "./index";
 
-// Pure render-interpolation math for the tumble backend's `compose` — the CPU twin of AVBD's
+// Pure render-interpolation math for the physics backend's `compose` — the CPU twin of AVBD's
 // `COMPOSE_PASS_WGSL` (avbd/step.ts). Factored out so the shortest-arc nlerp + per-shape render scale are
-// unit-testable without a GPU device or a live tumble World.
+// unit-testable without a GPU device or a live physics World.
 
 /** shortest-arc nlerp from `prev` to `curr` at `t`: flip `prev` into `curr`'s hemisphere, lerp,
  *  renormalize. Returns the identity quat if the blend degenerates. */

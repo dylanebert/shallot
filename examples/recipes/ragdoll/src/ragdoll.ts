@@ -18,7 +18,7 @@ import { qRotate } from "@dylanebert/shallot/physics/core";
 // a ragdoll is a physics skeleton wearing a skinned mesh: capsule bodies fall and tangle under the
 // solver, and a live joint palette copies their poses onto the character's vertices every frame, so the
 // mesh crumples with them. The bones are ordinary `Body` entities (physics, picking, and the character
-// sweep all see them); the joints between them ride the tumble backend's world directly, past the
+// sweep all see them); the joints between them ride the physics backend's world directly, past the
 // substrate's `Spring`/`Joint` mapping, for the cone/twist/hinge limits a ragdoll needs. The rig itself is
 // imported in code below, because a live-skinned import is a programmatic call, not a scene mesh reference.
 // The cone/twist joints have no published substrate-surface equivalent yet, so the joints ride the escape
@@ -111,7 +111,7 @@ const MAP: Record<string, string[]> = {
     calfR: ["leg_joint_R_2", "leg_joint_R_3", "leg_joint_R_5"],
 };
 
-// `axis` is the joint frame's Z in object space — tumble reads it as the cone axis (ball) and hinge axis
+// `axis` is the joint frame's Z in object space — physics reads it as the cone axis (ball) and hinge axis
 // (hinge). Shoulder cones point down the arm, hips point down, spine and neck point up.
 const JOINTS: { kind: "ball" | "hinge" | "filter"; a: string; b: string; pivot?: V3; axis?: V3 }[] =
     [
@@ -266,7 +266,7 @@ async function build(state: State): Promise<void> {
     state.addSystem(driver);
 }
 
-// the bodies only marshal into the tumble world on the first fixed tick, so wiring waits until every
+// the bodies only marshal into the physics world on the first fixed tick, so wiring waits until every
 // `Physics.body(eid)` resolves. Local anchor frames come from the spawn pose analytically, because the
 // bodies have already stepped by wire time, so asking the live world for a local point would fold the
 // first free-fall ticks into the joint. Cone, twist, and hinge limits keep the tangle human; the motors

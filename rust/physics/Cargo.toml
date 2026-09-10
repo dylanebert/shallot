@@ -1,9 +1,9 @@
 [package]
-name = "tumble-kernel"
+name = "physics-kernel"
 version = "0.8.0"
 edition = "2021"
 publish = false
-description = "wasm-simd128 contact-solve + integration kernel for tumble.js"
+description = "wasm-simd128 contact-solve + integration kernel for upstream"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

@@ -77,7 +77,7 @@ describe("private solver ownership", () => {
     const bridge = "src/standard/physics/engine/index.ts";
     const entry = "src/standard/physics/engine/index.ts";
     const forward =
-        'export * from "../../../../../shallot-tumble/src/standard/physics/engine/index";';
+        'export * from "../../../../../shallot-physics/src/standard/physics/engine/index";';
     for (const [file, source, refusal] of [
         [bridge, forward, ""],
         [entry, 'import "@dylanebert/shallot";', "solver source leaves its isolated owner"],
@@ -88,12 +88,12 @@ describe("private solver ownership", () => {
         ],
         [
             "examples/recipes/demo/src/main.ts",
-            'import "shallot-tumble";',
+            'import "shallot-physics";',
             "private solver is not a consumer installation surface",
         ],
         [
             "examples/recipes/demo/src/main.ts",
-            'export * from "shallot-tumble/internal";',
+            'export * from "shallot-physics/internal";',
             "private solver is not a consumer installation surface",
         ],
         [
@@ -103,7 +103,7 @@ describe("private solver ownership", () => {
         ],
         [
             "examples/recipes/demo/src/main.ts",
-            'import "../../../../packages/shallot-tumble/tests/oracle";',
+            'import "../../../../packages/shallot-physics/tests/oracle";',
             "",
         ],
         ["examples/recipes/demo/src/main.ts", 'import "@dylanebert/shallot/render/core";', ""],
@@ -112,13 +112,13 @@ describe("private solver ownership", () => {
             const root = make();
             write(
                 root,
-                "packages/shallot-tumble/package.json",
-                JSON.stringify({ name: "shallot-tumble", private: true }),
+                "packages/shallot-physics/package.json",
+                JSON.stringify({ name: "shallot-physics", private: true }),
             );
             write(root, "src/index.ts", "export const engine = 1;");
             write(root, entry, "export class World {}");
             write(root, bridge, forward);
-            write(root, "packages/shallot-tumble/tests/oracle.ts", "export const truth = 1;");
+            write(root, "packages/shallot-physics/tests/oracle.ts", "export const truth = 1;");
             const baseline = checkBoundary(root, EMPTY);
             expect(baseline.errors).toEqual([]);
             expect(baseline.violations).toEqual([]);

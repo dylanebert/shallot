@@ -3,7 +3,7 @@ import { attach, stepFor } from "../../../tests/helpers";
 import { State, Time } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
 import { Body, bodyTraits, Joint, jointTraits, Physics, Spring, springTraits } from "../physics";
-import { shutdown, type Joint as TumbleJoint } from "../physics/engine";
+import { shutdown, type Joint as SolverJoint } from "../physics/engine";
 import { Slab } from "../slab";
 import { PhysicsPlugin } from "./index";
 import { stiffnessHertz, syncJoints, syncSet } from "./joints";
@@ -11,7 +11,7 @@ import { stiffnessHertz, syncJoints, syncSet } from "./joints";
 // the live solver handles for `eids`, the map an escape-hatch caller hands `syncJoints`.
 const handles = (eids: number[]) => new Map(eids.map((e) => [e, Physics.body(e)!]));
 
-// The Spring/Joint → tumble mapping (joints.ts): the stiffness→hertz conversion law, the content-keyed
+// The Spring/Joint → physics mapping (joints.ts): the stiffness→hertz conversion law, the content-keyed
 // diff semantics (kept slots), and the three behavioral mappings run end to end through PhysicsPlugin on
 // a headless State — spring settles to the mg/k equilibrium (the conversion is load-bearing: a wrong
 // hertz moves the rest pose), a spherical joint holds its pin length while swinging, a fixed joint holds
@@ -48,21 +48,21 @@ describe("stiffnessHertz", () => {
 describe("syncSet", () => {
     type Stub = { valid: boolean; destroyed: number };
     const stub = (): Stub => ({ valid: true, destroyed: 0 });
-    const asJoint = (s: Stub): TumbleJoint =>
+    const asJoint = (s: Stub): SolverJoint =>
         ({
             isValid: () => s.valid,
             destroy: () => {
                 s.destroyed++;
                 s.valid = false;
             },
-        }) as unknown as TumbleJoint;
+        }) as unknown as SolverJoint;
 
     test("an unchanged def keeps its live joint; a removed def's joint is destroyed", () => {
-        const live = new Map<string, TumbleJoint[]>();
+        const live = new Map<string, SolverJoint[]>();
         const a = stub();
         const b = stub();
         const made: Stub[] = [];
-        const create = (): TumbleJoint => {
+        const create = (): SolverJoint => {
             const s = stub();
             made.push(s);
             return asJoint(s);
@@ -79,9 +79,9 @@ describe("syncSet", () => {
     });
 
     test("an invalidated handle (its body died) is recreated, not reused", () => {
-        const live = new Map<string, TumbleJoint[]>();
+        const live = new Map<string, SolverJoint[]>();
         const dead = stub();
-        dead.valid = false; // tumble cascaded the destroy — the handle is stale
+        dead.valid = false; // physics cascaded the destroy — the handle is stale
         let created = 0;
         live.set("a", [asJoint(dead)]);
 
@@ -99,7 +99,7 @@ describe("syncSet", () => {
     });
 
     test("duplicate defs each hold their own joint", () => {
-        const live = new Map<string, TumbleJoint[]>();
+        const live = new Map<string, SolverJoint[]>();
         let created = 0;
         syncSet(
             live,
@@ -115,7 +115,7 @@ describe("syncSet", () => {
     });
 
     test("a skipped def (create returns null) leaves no entry", () => {
-        const live = new Map<string, TumbleJoint[]>();
+        const live = new Map<string, SolverJoint[]>();
         syncSet(
             live,
             ["a"],
@@ -199,16 +199,16 @@ function addJoint(
     Joint.stiffnessAng.set(e, stiffnessAng);
 }
 
-// Step the tumble world directly (bypassing ConstraintSystem) for `duration` seconds — the escape-hatch
+// Step the physics world directly (bypassing ConstraintSystem) for `duration` seconds — the escape-hatch
 // path: Physics.world / imperative spawn calls setJoints directly, not through jointDefs. stepFor would run
 // ConstraintSystem, which re-uploads jointDefs(state) (empty when no Joint entities exist) and wipe any
-// joint set directly. The SUBSTEPS count matches the production backend step (tumble/index.ts).
+// joint set directly. The SUBSTEPS count matches the production backend step (physics/index.ts).
 function stepWorldDirect(duration: number): void {
     const ticks = Math.round(duration / Time.FIXED_DT);
     for (let i = 0; i < ticks; i++) Physics.world?.step(Time.FIXED_DT, 4);
 }
 
-describe("tumble constraint mapping", () => {
+describe("physics constraint mapping", () => {
     test("a spring settles at the mg/k equilibrium — the stiffness→hertz law holds", async () => {
         // anchor at y=10, block (mass 8) hung on a rest-4 stiffness-100 spring: equilibrium extension
         // mg/k = 8·10/100 = 0.8 past rest ⇒ y = 10 − 4 − 0.8 = 5.2. Spawned AT rest length (y=6), the
@@ -280,7 +280,7 @@ describe("tumble constraint mapping", () => {
         //
         // This arm asserts BOTH halves of the warn+skip direction: (1) a console.warn is emitted —
         // matching the spring path's channel (joints.ts:135-139 uses console.warn with a
-        // "[tumble] <kind> ... — skipped" shape) — so the skip is not silent (the Goal's complaint
+        // "[physics] <kind> ... — skipped" shape) — so the skip is not silent (the Goal's complaint
         // is the word "silently"), and (2) no joint is created, so the body falls freely under
         // gravity instead of being held at the authored pose. The free-fall position is derived
         // from the tick count and gravity: y = y0 + ½·g·t² = 2.5 + ½·(−10)·2² = −17.5, so the body
@@ -302,7 +302,7 @@ describe("tumble constraint mapping", () => {
             const arm = Physics.readBody(eids[1]);
             expect(arm).not.toBeNull();
             // warn half: a console.warn was emitted identifying the joint and the skip — matching
-            // the spring path's channel and message shape ("[tumble] spring ... — skipped")
+            // the spring path's channel and message shape ("[physics] spring ... — skipped")
             expect(warn).toHaveBeenCalled();
             const jointWarn = warn.mock.calls.find((c) => String(c[0]).includes("joint"));
             expect(jointWarn).toBeDefined();
@@ -316,11 +316,11 @@ describe("tumble constraint mapping", () => {
         }
     });
 
-    // witnessed red: exit code 1 — without the authoring-layer guard, NaN passes tumble's comparison-only
+    // witnessed red: exit code 1 — without the authoring-layer guard, NaN passes physics's comparison-only
     // `< 0` guard (NaN < 0 is false) and the stiffnessHertz Number.isFinite guard returns 0 → angularHertz
     // 0 → rigid weld → body pinned at y ≈ 2.5, far outside the free-fall band. With the authoring-layer
     // guard, NaN is dropped at jointDefs → no joint → free fall.
-    test("a NaN stiffnessAng joint is dropped at the authoring layer (warn+skip, free-fall under tumble)", async () => {
+    test("a NaN stiffnessAng joint is dropped at the authoring layer (warn+skip, free-fall under physics)", async () => {
         const { state, eids } = await build([
             { pos: [0, 2, 0], mass: 0 },
             { pos: [1.5, 2.5, 0], mass: 1, half: [0.25, 0.25, 0.25] },
@@ -356,7 +356,7 @@ describe("tumble constraint mapping", () => {
             { pos: [0, 2, 0], mass: 0 },
             { pos: [1.5, 2.5, 0], mass: 1, half: [0.25, 0.25, 0.25] },
         ]);
-        // one tick to marshal the bodies into the tumble bodies map (SyncSystem runs on fixed tick)
+        // one tick to marshal the bodies into the physics bodies map (SyncSystem runs on fixed tick)
         stepFor(state, Time.FIXED_DT);
         const warn = spyOn(console, "warn").mockImplementation(() => {});
         try {
@@ -379,7 +379,7 @@ describe("tumble constraint mapping", () => {
             stepWorldDirect(2);
             const arm = Physics.readBody(eids[1]);
             expect(arm).not.toBeNull();
-            // warn: createJoint's guard emitted a [tumble] joint ... skipped diagnostic
+            // warn: createJoint's guard emitted a [physics] joint ... skipped diagnostic
             expect(warn).toHaveBeenCalled();
             const jointWarn = warn.mock.calls.find((c) => String(c[0]).includes("joint"));
             expect(jointWarn).toBeDefined();
@@ -427,11 +427,11 @@ describe("tumble constraint mapping", () => {
         }
     });
 
-    // reference floor (green either way): the tumble layer already catches negative stiffness via
+    // reference floor (green either way): the physics layer already catches negative stiffness via
     // stiffnessHertz(-1, ...) → 0 (stiffness <= 0) → hertz 0 → warn+skip at createSpring. The
     // authoring-layer guard is redundant for this case but the arm pins the end-to-end effect (free-fall)
-    // under the tumble backend so the behavior is witnessed, not just at the recording backend.
-    test("a negative stiffness spring is skipped — free-fall under tumble", async () => {
+    // under the physics backend so the behavior is witnessed, not just at the recording backend.
+    test("a negative stiffness spring is skipped — free-fall under physics", async () => {
         const { state, eids } = await build([
             { pos: [0, 10, 0], mass: 0, half: [0.1, 0.1, 0.1] },
             { pos: [0, 6, 0], mass: 8 },
@@ -454,12 +454,12 @@ describe("tumble constraint mapping", () => {
     });
 
     // witnessed red: exit code 1 — removing both the authoring-layer spring guard AND the
-    // stiffnessHertz Number.isFinite guard: NaN passes tumble's comparison-only `stiffness <= 0`
+    // stiffnessHertz Number.isFinite guard: NaN passes physics's comparison-only `stiffness <= 0`
     // (NaN <= 0 is false) and stiffnessHertz returns NaN → hertz NaN → createDistanceJoint with NaN
     // hertz → no warn, body not at free-fall. With either guard in place, NaN is caught: the
     // authoring-layer guard drops it at springDefs (no spring, [physics] warn); the stiffnessHertz
-    // guard returns 0 → hertz 0 → warn+skip at createSpring ([tumble] warn). Both paths → free fall.
-    test("a NaN stiffness spring is skipped — free-fall under tumble", async () => {
+    // guard returns 0 → hertz 0 → warn+skip at createSpring ([physics] warn). Both paths → free fall.
+    test("a NaN stiffness spring is skipped — free-fall under physics", async () => {
         const { state, eids } = await build([
             { pos: [0, 10, 0], mass: 0, half: [0.1, 0.1, 0.1] },
             { pos: [0, 6, 0], mass: 8 },

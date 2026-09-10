@@ -1,18 +1,18 @@
-// PROVENANCE RECORD — the mint ran once and can't run again: tumble.js is retired and its checkout is
-// gone, so the committed golds at tests/tumble/samples/ are frozen truth (see that directory's README).
+// PROVENANCE RECORD — the mint ran once and can't run again: upstream is retired and its checkout is
+// gone, so the committed golds at tests/physics/samples/ are frozen truth (see that directory's README).
 // Kept as the recipe record; without the source checkout it errors honestly below.
 //
 // Mints the per-sample gold trajectories that verify a ported physics scenario reproduces its source
-// sample bit-exact. The tumble.js sample corpus (../tumble.js/samples) is the reference implementation:
+// sample bit-exact. The upstream sample corpus (../upstream/samples) is the reference implementation:
 // each sample subclasses `Sample`, builds a world in build(), and steps headless on bun with no GPU.
 // This runs every registered sample at knob defaults, single-threaded, and records for each:
 //   - the initial body-state snapshot (transform + velocity, in the hash's id order),
 //   - the per-step world-state hash for STEPS steps (the engine's own `hashWorldState`), and
 //   - metadata: camera pose (framed AABB → orbit pose) and the declarative knob schema.
 //
-// The sample SOURCE comes from tumble.js, but the hashes are produced by SHALLOT's inlined engine
-// (`src/standard/physics/engine`, not tumble.js's own copy): a Bun resolver aliases the samples'
-// `import ... from "tumble.js"` to the shipping engine barrel. A gym scenario (spec stage 3+) that
+// The sample SOURCE comes from upstream, but the hashes are produced by SHALLOT's inlined engine
+// (`src/standard/physics/engine`, not upstream's own copy): a Bun resolver aliases the samples'
+// `import ... from "upstream"` to the shipping engine barrel. A gym scenario (spec stage 3+) that
 // reproduces build() through `Physics.world` runs the same engine, so it reproduces these hashes
 // bit-exact — any authoring divergence (wrong axis, wrong joint, wrong shape) mismatches at the first
 // divergent step.
@@ -24,11 +24,11 @@
 // reuse-invariant regardless (verified identical in-process vs isolated) — isolation removes the trap,
 // not a nondeterminism.
 //
-// Output lands in tests/tumble/samples/ (one <slug>.json per sample + index.json + README). The output
+// Output lands in tests/physics/samples/ (one <slug>.json per sample + index.json + README). The output
 // is deterministic — no timestamps — so a double mint is byte-identical. Absent the corpus (a plain
-// shallot checkout), it errors honestly, mirroring gen-tumble-fixtures.
+// shallot checkout), it errors honestly, mirroring physics/gen-fixtures.
 //
-// Usage: bun run scripts/gen-tumble-sample-golds.ts   (from packages/shallot-tumble)
+// Usage: bun run scripts/physics/gen-sample-golds.ts   (from the repo root)
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -44,8 +44,8 @@ const STEPS = 600; // 10 s at 60 Hz — long enough to pin behavior phases that 
 
 const pkgRoot = resolve(import.meta.dir, "../..");
 const shallotRoot = pkgRoot;
-const tumbleRoot = resolve(shallotRoot, "..", "tumble.js");
-const samplesDir = resolve(tumbleRoot, "samples");
+const physicsRoot = resolve(shallotRoot, "..", "upstream");
+const samplesDir = resolve(physicsRoot, "samples");
 const sampleBase = resolve(samplesDir, "src", "sample.ts");
 const sampleIndex = resolve(samplesDir, "src", "samples", "index.ts");
 const enginePath = resolve(pkgRoot, "src", "standard", "physics", "engine", "index.ts");
@@ -53,24 +53,24 @@ const bodyPath = resolve(pkgRoot, "src", "standard", "physics", "engine", "body.
 const outDir = resolve(pkgRoot, "src/standard/physics/samples");
 
 if (!existsSync(sampleIndex)) {
-    console.error(`tumble.js sample corpus missing: ${sampleIndex}`);
+    console.error(`upstream sample corpus missing: ${sampleIndex}`);
     console.error(
-        "expected the tumble.js checkout at ../tumble.js beside the shallot repo. It is the sample corpus this mint reads.",
+        "expected the upstream checkout at ../upstream beside the shallot repo. It is the sample corpus this mint reads.",
     );
     process.exit(1);
 }
 
-// Route the samples' `import "tumble.js"` to the shipping engine barrel, so the golds are minted with
+// Route the samples' `import "upstream"` to the shipping engine barrel, so the golds are minted with
 // the exact engine a gym scenario reproduces them against (a virtual re-export module — Bun's runtime
 // onResolve mangles a bare file path into a bad file: URL, so redirect through a namespace instead).
 plugin({
-    name: "tumble-engine-alias",
+    name: "physics-engine-alias",
     setup(build) {
-        build.onResolve({ filter: /^tumble\.js$/ }, () => ({
-            path: "virtual:tumble-engine",
-            namespace: "tumble-alias",
+        build.onResolve({ filter: /^physics\.js$/ }, () => ({
+            path: "virtual:physics-engine",
+            namespace: "physics-alias",
         }));
-        build.onLoad({ filter: /.*/, namespace: "tumble-alias" }, () => ({
+        build.onLoad({ filter: /.*/, namespace: "physics-alias" }, () => ({
             contents: `export * from ${JSON.stringify(enginePath)};`,
             loader: "ts",
         }));
@@ -179,29 +179,29 @@ async function drive(): Promise<void> {
             stdio: ["ignore", "ignore", "inherit"],
         });
         if (r.status !== 0 || !existsSync(resolve(outDir, `${slug}.json`))) {
-            console.error(`[gen-tumble-sample-golds] sample ${i} (${e.category}/${e.name}) failed`);
+            console.error(`[physics/gen-sample-golds] sample ${i} (${e.category}/${e.name}) failed`);
             process.exit(r.status ?? 1);
         }
         index.push({ slug, category: e.category, name: e.name, description: e.description });
     }
     if (index.length + exceptions.length !== entries.length) {
         console.error(
-            `[gen-tumble-sample-golds] accounted ${index.length} golds + ${exceptions.length} exceptions != ${entries.length} registered`,
+            `[physics/gen-sample-golds] accounted ${index.length} golds + ${exceptions.length} exceptions != ${entries.length} registered`,
         );
         process.exit(1);
     }
 
-    const tumbleSha =
+    const physicsSha =
         spawnSync("git", ["rev-parse", "HEAD"], {
-            cwd: tumbleRoot,
+            cwd: physicsRoot,
             encoding: "utf8",
         }).stdout?.trim() ?? "unknown";
     writeFileSync(
         resolve(outDir, "index.json"),
         `${JSON.stringify(
             {
-                source: "tumble.js/samples",
-                sourceCommit: tumbleSha,
+                source: "upstream/samples",
+                sourceCommit: physicsSha,
                 engine: "shallot src/standard/physics/engine",
                 stepCount: STEPS,
                 registeredCount: entries.length,
@@ -215,10 +215,10 @@ async function drive(): Promise<void> {
     );
     writeFileSync(
         resolve(outDir, "README.md"),
-        readme(tumbleSha, index.length, entries.length, exceptions),
+        readme(physicsSha, index.length, entries.length, exceptions),
     );
     console.log(
-        `[gen-tumble-sample-golds] minted ${index.length} golds (+${exceptions.length} exceptions) of ${entries.length} registered -> ${outDir}`,
+        `[physics/gen-sample-golds] minted ${index.length} golds (+${exceptions.length} exceptions) of ${entries.length} registered -> ${outDir}`,
     );
 }
 
@@ -256,7 +256,7 @@ function dumpBodies(state: any): BodyDump[] {
 }
 
 function readme(
-    tumbleSha: string,
+    physicsSha: string,
     count: number,
     registered: number,
     exceptions: { category: string; name: string; reason: string }[],
@@ -265,10 +265,10 @@ function readme(
         exceptions.length === 0
             ? "None.\n"
             : `${exceptions.map((e) => `- **${e.category} / ${e.name}** — ${e.reason}`).join("\n")}\n`;
-    return `# tumble sample golds — source-faithful physics oracle
+    return `# physics sample golds — source-faithful physics oracle
 
 The ${count} \`*.json\` files here are per-sample **gold trajectories**: the ground truth a ported gym
-scenario must reproduce bit-exact. Each is one tumble.js sample run headless at knob defaults, recording
+scenario must reproduce bit-exact. Each is one upstream sample run headless at knob defaults, recording
 the initial body snapshot, the per-step world-state hash, and the sample's camera pose + knob schema.
 The corpus registers ${registered} samples; ${count} mint a gold, ${exceptions.length} are excepted (below).
 
@@ -279,9 +279,9 @@ at the first divergent step. That is the oracle the earlier examples port lacked
 
 ## Provenance
 
-- **Sample corpus:** \`tumble.js/samples\` at commit \`${tumbleSha}\` — the reference implementation.
+- **Sample corpus:** \`upstream/samples\` at commit \`${physicsSha}\` — the reference implementation.
 - **Minting engine:** shallot's inlined \`src/standard/physics/engine\` (box3d pin \`29bf523\`), **not**
-  tumble.js's own engine copy. The samples' \`import "tumble.js"\` is aliased to the shipping engine barrel
+  upstream's own engine copy. The samples' \`import "upstream"\` is aliased to the shipping engine barrel
   during the mint, so the hashes are exactly what a gym replay against \`Physics.world\` produces.
 - **Hash:** the engine's own \`hashWorldState\` (FNV-1a over every live body's transform + velocity), the
   same function the C fixtures compare against — so a ported scenario compares identically on both sides.
@@ -289,7 +289,7 @@ at the first divergent step. That is the oracle the earlier examples port lacked
 ## Mint recipe
 
 \`\`\`
-bun run scripts/gen-tumble-sample-golds.ts     # from the repo root
+bun run scripts/physics/gen-sample-golds.ts     # from the repo root
 \`\`\`
 
 - **Defaults** (\`defaultContext()\`): 60 Hz (timeStep 1/60), 4 substeps, gravity (0, -10, 0), sleep on,
@@ -305,7 +305,7 @@ bun run scripts/gen-tumble-sample-golds.ts     # from the repo root
   after several; a pristine kernel is also what a single-scenario gym replay gets. Output is
   timestamp-free, so a double mint is byte-identical.
 
-Regenerating requires the tumble.js checkout at \`../tumble.js\` (relative to this repo). Absent it, the
+Regenerating requires the upstream checkout at \`../upstream\` (relative to this repo). Absent it, the
 script errors honestly. These golds are committed, so an outside shallot checkout needs neither the corpus
 nor a mint to run the ported scenarios' oracle.
 

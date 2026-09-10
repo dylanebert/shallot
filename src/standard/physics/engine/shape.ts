@@ -3,7 +3,7 @@
 // body through a doubly-linked shape list and to the broad-phase through a proxy key.
 //
 // Sphere/capsule/hull/mesh/height-field/compound shapes are ported: create/destroy, mass/AABB/extent/
-// centroid, the proxy, and materials. fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
+// centroid, the proxy, and materials. fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
 import { NULL_INDEX } from "./array";
 import { type Body, getBodyTransformQuick, updateBodyMassData } from "./body";
@@ -273,7 +273,7 @@ export function computeShapeMass(shape: Shape): MassData {
             // Mesh/height/compound are static-only; they contribute no mass (b3ComputeShapeMass default).
             return { mass: 0, center: vec3.zero(), inertia: mat3.zero() };
         default:
-            throw new Error(`tumble: unknown shape type ${shape.type}`);
+            throw new Error(`physics: unknown shape type ${shape.type}`);
     }
 }
 
@@ -320,7 +320,7 @@ export function computeShapeExtent(shape: Shape, localCenter: Vec3): ShapeExtent
             // Height fields are static-only; extent is unused (b3ComputeShapeExtent default → zeros).
             return { minExtent: 0, maxExtent: vec3.zero() };
         default:
-            throw new Error(`tumble: unknown shape type ${shape.type}`);
+            throw new Error(`physics: unknown shape type ${shape.type}`);
     }
 }
 
@@ -342,7 +342,7 @@ export function computeShapeAABB(shape: Shape, transform: Transform): AABB {
         case ShapeType.Compound:
             return computeCompoundAABB(shape.compound as CompoundData, transform);
         default:
-            throw new Error(`tumble: unknown shape type ${shape.type}`);
+            throw new Error(`physics: unknown shape type ${shape.type}`);
     }
 }
 
@@ -413,7 +413,7 @@ export function computeSweptShapeAABB(shape: Shape, sweep: Sweep, time: number):
         case ShapeType.Sphere:
             return computeSweptSphereAABB(shape.sphere as Sphere, xf1, xf2);
         default:
-            throw new Error("tumble: swept AABB of a non-convex fast shape");
+            throw new Error("physics: swept AABB of a non-convex fast shape");
     }
 }
 
@@ -439,7 +439,7 @@ export function makeShapeProxy(shape: Shape): ShapeProxy {
         default:
             // b3MakeShapeProxy asserts false for mesh/height/compound: they are never the moving
             // shape in a proxy/TOI query, so no convex point cloud is ever requested.
-            throw new Error("tumble: mesh/height/compound have no shape proxy");
+            throw new Error("physics: mesh/height/compound have no shape proxy");
     }
 }
 
@@ -550,7 +550,7 @@ export function overlapShape(shape: Shape, transform: Transform, proxy: ShapePro
         case ShapeType.Mesh:
             return overlapMesh(shape.mesh as Mesh, transform, proxy);
         default:
-            throw new Error(`tumble: unknown shape type ${shape.type}`);
+            throw new Error(`physics: unknown shape type ${shape.type}`);
     }
 }
 
@@ -606,7 +606,7 @@ export function collideMover(
             );
             break;
         default:
-            throw new Error(`tumble: unknown shape type ${shape.type}`);
+            throw new Error(`physics: unknown shape type ${shape.type}`);
     }
 
     for (const pr of planes) {
@@ -639,7 +639,7 @@ export function getShapeCentroid(shape: Shape): Vec3 {
         case ShapeType.Compound:
             return aabb.center(computeCompoundAABB(shape.compound as CompoundData, xf.identity()));
         default:
-            throw new Error(`tumble: unknown shape type ${shape.type}`);
+            throw new Error(`physics: unknown shape type ${shape.type}`);
     }
 }
 
@@ -784,7 +784,7 @@ function createShapeInternal(
             shape.compound = geometry as CompoundData;
             break;
         default:
-            throw new Error(`tumble: unknown shape type ${shapeType}`);
+            throw new Error(`physics: unknown shape type ${shapeType}`);
     }
 
     shape.id = shapeId;

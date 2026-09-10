@@ -16,7 +16,7 @@ export { discoverScenes } from "./host";
 
 /**
  * cross-origin isolation headers, applied by every serve surface (`shallot dev`, `shallot run`'s preview,
- * `shallot verify`'s dev/ejected/dist boots). Tumble physics multithreads only when the page can hold a
+ * `shallot verify`'s dev/ejected/dist boots). physics multithreads only when the page can hold a
  * shared `WebAssembly.Memory`, which a browser grants only to a cross-origin-isolated document — so the
  * dev/preview server sends COOP/COEP to enable the multithreaded kernel. A static host that can't set
  * headers (GitHub Pages) gets the single-thread kernel and one log, a documented fallback. The cost of

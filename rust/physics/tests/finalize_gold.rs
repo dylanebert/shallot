@@ -5,12 +5,12 @@
 //! port over the same shared columns and asserts every written column field bit-for-bit.
 
 use serde_json::Value;
-use tumble_kernel::body::{
+use physics_kernel::body::{
     flags::DYNAMIC, FIN_OUT_STRIDE, FIN_STRIDE, SIM_STRIDE, SIM2_STRIDE, STATE_LIVE, STATE_STRIDE,
     S2_CENTER0, S2_MIN_EXTENT, S2_ROTATION0,
 };
-use tumble_kernel::col::Col;
-use tumble_kernel::finalize::finalize;
+use physics_kernel::col::Col;
+use physics_kernel::finalize::finalize;
 
 /// SAFETY: a gold harness is single-threaded and each column has exactly one user, so `Col`'s
 /// disjoint-write promise holds trivially.

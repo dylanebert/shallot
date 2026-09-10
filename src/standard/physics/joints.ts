@@ -2,17 +2,17 @@ import {
     BodyType,
     type Quat,
     type Transform,
-    type Body as TumbleBody,
-    type Joint as TumbleJoint,
-    type World as TumbleWorld,
+    type Body as SolverBody,
+    type Joint as SolverJoint,
+    type World as SolverWorld,
 } from "./engine";
 import type { JointDef, SpringDef } from "./index";
 
-// Spring/Joint def → tumble joint marshaling — the constraint half of the ECS→tumble path
+// Spring/Joint def → physics joint marshaling — the constraint half of the ECS→physics path
 // (marshal.ts is the body half). The substrate's ConstraintSystem uploads the full authored set on
 // change; this module diffs it against the live set by def CONTENT, so an unchanged constraint keeps
-// its live tumble joint and its warm-started impulses survive a re-author (the AVBD setJoints
-// kept-slot contract, physics.md "Re-upload only on change"). The mapping (tumble.md
+// its live physics joint and its warm-started impulses survive a re-author (the AVBD setJoints
+// kept-slot contract, physics.md "Re-upload only on change"). The mapping (physics.md
 // "Constraint mapping"): Spring → DistanceJoint-with-spring (stiffness N/m → hertz via the pair's
 // reduced mass), Joint → Spherical (stiffnessAng 0) / Weld (rigid past the ∞ sentinel; intermediate
 // is the documented hertz-based approximation). Both backends reject a constraint no dynamic body
@@ -35,7 +35,7 @@ export function stiffnessHertz(stiffness: number, massA: number, massB: number):
     const meff =
         massA > 0 && massB > 0 ? (massA * massB) / (massA + massB) : Math.max(massA, massB);
     // NaN is transparent to the comparison-only guard (NaN <= 0 is false), so state finiteness explicitly —
-    // defense in depth even after the authoring-layer guard, because the tumble singleton escape hatch
+    // defense in depth even after the authoring-layer guard, because the physics singleton escape hatch
     // (Physics.world / imperative spawn scripts) bypasses ConstraintSystem. ∞ is a valid stiffness (rigid),
     // so the finite check exempts it; -∞ is already caught by `stiffness <= 0`.
     if (
@@ -56,7 +56,7 @@ function frame(p: readonly [number, number, number], q: Quat = IDENTITY): Transf
 // qB⁻¹ ⊗ qA: the frame-B rotation that makes both weld frames coincide in world at the spawn pose,
 // so the weld holds the AUTHORED relative orientation (frame q identity would snap the pair to
 // aligned axes instead). qA·qfA = qB·qfB with qfA = identity ⇒ qfB = qB⁻¹·qA.
-function relRotation(a: TumbleBody, b: TumbleBody): Quat {
+function relRotation(a: SolverBody, b: SolverBody): Quat {
     const qa = a.getRotation();
     const qb = b.getRotation();
     const bx = -qb.v.x;
@@ -73,18 +73,18 @@ function relRotation(a: TumbleBody, b: TumbleBody): Quat {
     };
 }
 
-const dynMass = (tb: TumbleBody): number =>
+const dynMass = (tb: SolverBody): number =>
     tb.getType() === BodyType.Dynamic ? tb.getMassData().mass : 0;
 
 const springKey = (d: SpringDef): string =>
     `${d.a}|${d.b}|${d.rA}|${d.rB}|${d.stiffness}|${d.rest}`;
 const jointKey = (d: JointDef): string => `${d.a}|${d.b}|${d.rA}|${d.rB}|${d.stiffnessAng}`;
 
-// the live tumble joints per def key — arrays because identical defs are legal (two equal springs
-// both pull). A destroyed Body took its joints with it (tumble cascades), so a kept handle is
+// the live physics joints per def key — arrays because identical defs are legal (two equal springs
+// both pull). A destroyed Body took its joints with it (physics cascades), so a kept handle is
 // re-checked via isValid() before reuse.
-const liveSprings = new Map<string, TumbleJoint[]>();
-const liveJoints = new Map<string, TumbleJoint[]>();
+const liveSprings = new Map<string, SolverJoint[]>();
+const liveJoints = new Map<string, SolverJoint[]>();
 // the last authored def sets — retained so `SyncSystem` can re-invoke `syncJoints`/`syncSprings` over them
 // when a deferred body marshals (the pump half of the late-marshal fix). AVBD's `setJoints` already retains
 // the authored set (avbd/step.ts); this mirrors that contract. A ledger without a pump is inert: nothing
@@ -113,16 +113,16 @@ const warnOnce = (warned: Set<string>, key: string, message: string): void => {
 
 // exported as a test seam only (joints.test.ts pins the diff semantics with stub joints); not on any barrel
 export function syncSet<D>(
-    live: Map<string, TumbleJoint[]>,
+    live: Map<string, SolverJoint[]>,
     defs: readonly D[],
     keyOf: (d: D) => string,
-    create: (d: D) => TumbleJoint | null,
+    create: (d: D) => SolverJoint | null,
 ): void {
-    const next = new Map<string, TumbleJoint[]>();
+    const next = new Map<string, SolverJoint[]>();
     for (const def of defs) {
         const key = keyOf(def);
         const pool = live.get(key);
-        let joint: TumbleJoint | null = null;
+        let joint: SolverJoint | null = null;
         for (let j = pool?.pop(); j; j = pool?.pop()) {
             if (j.isValid()) {
                 joint = j;
@@ -160,14 +160,14 @@ export function syncSet<D>(
 // (a deferred half marshals, leaving fewer missing endpoints) is a distinct key that re-warns once — the
 // authored upload's broader warning does not swallow the retry's corrected, narrower diagnostic.
 function endpoints(
-    bodies: ReadonlyMap<number, TumbleBody>,
+    bodies: ReadonlyMap<number, SolverBody>,
     a: number,
     b: number,
     kind: string,
     isDeferred: (eid: number) => boolean,
     warned: Set<string>,
     key: string,
-): [TumbleBody, TumbleBody] | null {
+): [SolverBody, SolverBody] | null {
     const ta = bodies.get(a);
     const tb = bodies.get(b);
     if (!ta || !tb) {
@@ -181,7 +181,7 @@ function endpoints(
         warnOnce(
             warned,
             `${key}|endpoint|${parts.join(";")}`,
-            `[tumble] ${kind} endpoint unavailable — ${parts.join("; ")}`,
+            `[physics] ${kind} endpoint unavailable — ${parts.join("; ")}`,
         );
         return null;
     }
@@ -189,12 +189,12 @@ function endpoints(
 }
 
 function createSpring(
-    world: TumbleWorld,
-    bodies: ReadonlyMap<number, TumbleBody>,
+    world: SolverWorld,
+    bodies: ReadonlyMap<number, SolverBody>,
     def: SpringDef,
     isDeferred: (eid: number) => boolean,
     warned: Set<string>,
-): TumbleJoint | null {
+): SolverJoint | null {
     const key = springKey(def);
     const pair = endpoints(bodies, def.a, def.b, "spring", isDeferred, warned, key);
     if (!pair) return null;
@@ -203,7 +203,7 @@ function createSpring(
         warnOnce(
             warned,
             `${key}|hertz`,
-            `[tumble] spring (a: ${def.a}, b: ${def.b}) has no dynamic endpoint or non-positive stiffness — skipped`,
+            `[physics] spring (a: ${def.a}, b: ${def.b}) has no dynamic endpoint or non-positive stiffness — skipped`,
         );
         return null;
     }
@@ -215,19 +215,19 @@ function createSpring(
         hertz,
         // critically damped, NOT the literal undamped elastic law: AVBD's BDF1 integration heavily
         // damps its f = k·C spring, so both backends settling to the same mg/k equilibrium (which is
-        // damping-independent) is the parity behavior the swap contract asserts; an undamped tumble
+        // damping-independent) is the parity behavior the swap contract asserts; an undamped physics
         // spring would ring forever where the AVBD one settles.
         dampingRatio: 1,
     });
 }
 
 function createJoint(
-    world: TumbleWorld,
-    bodies: ReadonlyMap<number, TumbleBody>,
+    world: SolverWorld,
+    bodies: ReadonlyMap<number, SolverBody>,
     def: JointDef,
     isDeferred: (eid: number) => boolean,
     warned: Set<string>,
-): TumbleJoint | null {
+): SolverJoint | null {
     const key = jointKey(def);
     const pair = endpoints(bodies, def.a, def.b, "joint", isDeferred, warned, key);
     if (!pair) return null;
@@ -238,7 +238,7 @@ function createJoint(
         warnOnce(
             warned,
             `${key}|both-static`,
-            `[tumble] joint (a: ${def.a}, b: ${def.b}) has no dynamic endpoint — unsatisfiable, skipped (the both-static guard)`,
+            `[physics] joint (a: ${def.a}, b: ${def.b}) has no dynamic endpoint — unsatisfiable, skipped (the both-static guard)`,
         );
         return null;
     }
@@ -257,13 +257,13 @@ function createJoint(
         warnOnce(
             warned,
             `${key}|stiffness`,
-            `[tumble] joint (a: ${def.a}, b: ${def.b}) has negative or NaN angular stiffness — skipped`,
+            `[physics] joint (a: ${def.a}, b: ${def.b}) has negative or NaN angular stiffness — skipped`,
         );
         return null;
     }
     // angularHertz 0 is box3d's RIGID angular constraint; an intermediate stiffnessAng maps to a soft
     // angular spring via the same reduced-mass conversion (a unit-arm approximation, I_eff ≈ m_eff —
-    // the documented backend-approximate seam, tumble.md "Constraint mapping")
+    // the documented backend-approximate seam, physics.md "Constraint mapping")
     const angularHertz =
         def.stiffnessAng > RIGID_THRESHOLD ? 0 : stiffnessHertz(def.stiffnessAng, mA, mB);
     return world.createWeldJoint(ta, tb, {
@@ -278,10 +278,10 @@ function createJoint(
     });
 }
 
-/** reconcile the authored spring set against the live tumble joints: unchanged defs keep their joint (warm-started impulses survive), changed/new defs create, leftovers destroy. Retains the def set for `resyncConstraints` and clears the warned-key set so the authored upload's diagnostics fire fresh. */
+/** reconcile the authored spring set against the live physics joints: unchanged defs keep their joint (warm-started impulses survive), changed/new defs create, leftovers destroy. Retains the def set for `resyncConstraints` and clears the warned-key set so the authored upload's diagnostics fire fresh. */
 export function syncSprings(
-    world: TumbleWorld,
-    bodies: ReadonlyMap<number, TumbleBody>,
+    world: SolverWorld,
+    bodies: ReadonlyMap<number, SolverBody>,
     defs: readonly SpringDef[],
     isDeferred: (eid: number) => boolean,
 ): void {
@@ -292,10 +292,10 @@ export function syncSprings(
     );
 }
 
-/** reconcile the authored joint set against the live tumble joints — the `syncSprings` twin over the Spherical/Weld mapping. Retains the def set for `resyncConstraints` and clears the warned-key set so the authored upload's diagnostics fire fresh. */
+/** reconcile the authored joint set against the live physics joints — the `syncSprings` twin over the Spherical/Weld mapping. Retains the def set for `resyncConstraints` and clears the warned-key set so the authored upload's diagnostics fire fresh. */
 export function syncJoints(
-    world: TumbleWorld,
-    bodies: ReadonlyMap<number, TumbleBody>,
+    world: SolverWorld,
+    bodies: ReadonlyMap<number, SolverBody>,
     defs: readonly JointDef[],
     isDeferred: (eid: number) => boolean,
 ): void {
@@ -317,8 +317,8 @@ export function syncJoints(
  *  cause that only becomes visible after the marshal resolves (the both-static guard) fires once, because its
  *  composite key was never banked (index.ts's never-thrash-the-frame-loop invariant). */
 export function resyncConstraints(
-    world: TumbleWorld,
-    bodies: ReadonlyMap<number, TumbleBody>,
+    world: SolverWorld,
+    bodies: ReadonlyMap<number, SolverBody>,
     isDeferred: (eid: number) => boolean,
 ): void {
     if (retainedSprings.length > 0)

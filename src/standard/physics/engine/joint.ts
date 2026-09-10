@@ -336,7 +336,7 @@ export function createJoint(
         ) {
             // Merging two sleeping sets needs b3MergeSolverSets — no ported path / fixture reaches it.
             throw new Error(
-                "tumble: joint between two separate sleeping sets (needs mergeSolverSets)",
+                "physics: joint between two separate sleeping sets (needs mergeSolverSets)",
             );
         }
         const setIndex = maxSetIndex;
@@ -978,6 +978,6 @@ export function getJointAngularSeparation(world: WorldState, joint: Joint): numb
         }
         case JointType.Wheel:
             // Unimplemented in the C reference (b3Joint_GetAngularSeparation asserts for wheel).
-            throw new Error("tumble: wheel joint angular separation is unimplemented");
+            throw new Error("physics: wheel joint angular separation is unimplemented");
     }
 }

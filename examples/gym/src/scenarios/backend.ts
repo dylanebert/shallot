@@ -37,7 +37,7 @@ import {
 import { AvbdPlugin } from "@dylanebert/shallot/avbd";
 import { grounded, move, pose } from "@dylanebert/shallot/character/core";
 import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
-// the tumble kernel's resolved thread count (read-only diagnostic on the extension subpath) — the
+// the physics kernel's resolved thread count (read-only diagnostic on the extension subpath) — the
 // isolation gate reads it to confirm the multithreaded boot engaged
 import { bodyCandidates, raycast, StepSystem, threads } from "@dylanebert/shallot/physics/core";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
@@ -53,7 +53,7 @@ import {
 // backend — the substrate swap gate: ONE scene, authored purely against
 // the `standard/physics` substrate (Body components, `Physics.backend`'s kinematic drive, the CPU raycast,
 // the `transforms` firehose), that runs unmodified under EITHER `PhysicsPlugin` (default) or `AvbdPlugin`
-// (`--param backend=tumble|avbd`) — the one-line manifest swap the substrate's typed `PhysicsBackend`
+// (`--param backend=physics|avbd`) — the one-line manifest swap the substrate's typed `PhysicsBackend`
 // handle exists to make possible (physics.md substrate rule, `standard/physics/index.ts`). Where the
 // sibling `pile`/`constraints`/`character` scenarios gate the AVBD SOLVER's math against the f64 oracle,
 // this scenario gates the SUBSTRATE's contract: the same behavioral assertions must hold under both
@@ -69,7 +69,7 @@ import {
 //     writeback `ComposeSystem` delegates to every backend) — the two atomic-core primitives past pose/step.
 //   • constraints — the authored `Spring`/`Joint` component path (`ConstraintSystem` → the backend's
 //     `setSprings`/`setJoints`): a hanging spring block settles at the mg/k equilibrium (the stiffness law is
-//     backend-neutral — tumble derives its hertz from it), a spherical pendulum holds its pin length, a fixed
+//     backend-neutral — physics derives its hertz from it), a spherical pendulum holds its pin length, a fixed
 //     joint holds its authored pose, and the stiffness-guard station exercises the authoring-layer guard
 //     (S1): a finite-positive stiffnessAng (1000) pins its body (grant arm), while negative and NaN defs are
 //     dropped so those bodies free-fall (skip arms) — under either backend. Cross-backend behavioral bands.
@@ -78,7 +78,7 @@ import {
 //     `readBody`/`setKinematic` seams the drive gate exercises directly.
 //   • measured — the per-tick CPU spans (`Profile.cpu`, the scheduler's automatic per-system timing) for the
 //     shared substrate systems (`step` / `constraints` / `compose` / `character`) plus each backend's own
-//     sync system (`tumble-sync` / `pack`), so a `count` sweep gives a comparable backend-vs-backend perf
+//     sync system (`physics-sync` / `pack`), so a `count` sweep gives a comparable backend-vs-backend perf
 //     snapshot.
 
 const FLOOR_MARGIN = 2; // clearance past the grid's outer edge / the platform's swept lane
@@ -107,7 +107,7 @@ const WELD_OFFSET: [number, number, number] = [0, -1, 0];
 // negative (-1, the skip arm), and a NaN (the skip arm). The authoring-layer guard (S1, physics/index.ts
 // jointDefs) drops the negative and NaN defs with a warn+skip, so those bodies free-fall; the
 // finite-positive 1000 passes through and pins its body. Cross-backend: the same def set reaches both
-// tumble (via stiffnessHertz) and avbd (via setJoints), so the guard's one behavior is asserted under
+// physics (via stiffnessHertz) and avbd (via setJoints), so the guard's one behavior is asserted under
 // either backend — the substrate contract this scenario exists to gate.
 const GUARD_ARM = 2;
 const GUARD_Z_INTERMEDIATE = -2;
@@ -124,7 +124,7 @@ const CHAR_SPEED = 2;
 // destroyed and a NEW body created at the recycled eid at a DISTINCT z. Both spawn high + isolated so they
 // only free-fall (horizontal pose preserved) — the recycled body must read at its OWN spawn z, never the
 // destroyed probe's. Without the substrate's realias fix the new body inherits the probe's seeded pose
-// (AVBD's `seeded` flag / tumble's stale handle), reading at the OLD z. The one gate covering both backends.
+// (AVBD's `seeded` flag / physics's stale handle), reading at the OLD z. The one gate covering both backends.
 const RECYCLE_X = 0;
 const RECYCLE_Y = 20; // far above everything — no contact in the short sim window, pure free-fall
 const RECYCLE_Z_OLD = -1.5;
@@ -143,9 +143,9 @@ let guardNegativeEid = -1;
 let guardNanEid = -1;
 let charEid = -1;
 let recycleEid = -1;
-// which backend the current build installed — the isolation gate runs only under tumble (avbd never boots
-// the tumble kernel, so threads() would stay 1)
-let backendName: "tumble" | "avbd" = "tumble";
+// which backend the current build installed — the isolation gate runs only under physics (avbd never boots
+// the physics kernel, so threads() would stay 1)
+let backendName: "physics" | "avbd" = "physics";
 let xformMirror: Mirror | null = null;
 
 // drives the platform each fixed tick via the substrate's OWN kinematic primitive (`Physics.backend`,
@@ -320,8 +320,8 @@ const scenario: Scenario = {
         {
             key: "backend",
             type: "select",
-            options: ["tumble", "avbd"],
-            default: "tumble",
+            options: ["physics", "avbd"],
+            default: "physics",
             rebuild: true,
         },
         // the body-count sweep the perf snapshot reads (`scripts/physics-bench.ts`-style, per-backend):
@@ -330,7 +330,7 @@ const scenario: Scenario = {
     ],
 
     async build(_canvas, p: Params) {
-        const backend = (p.backend as string) === "avbd" ? "avbd" : "tumble";
+        const backend = (p.backend as string) === "avbd" ? "avbd" : "physics";
         backendName = backend;
         const { state, dispose } = await run({
             defaults: false,
@@ -448,7 +448,7 @@ const scenario: Scenario = {
         checks.push(...constraintGates());
         checks.push(...(await characterGates(state)));
         checks.push(recycleGate());
-        if (backendName === "tumble") checks.push(isolationGate());
+        if (backendName === "physics") checks.push(isolationGate());
         checks.push(await measured());
         return checks;
     },
@@ -566,7 +566,7 @@ function constraintGates(): Check[] {
     const [ax, ay, az] = ANCHOR_POS;
 
     // the spring block hangs at extension mg/k past rest — the stiffness law both backends share
-    // (AVBD's elastic f = k·C; tumble's derived hertz reproduces the same k). ±0.1 is a behavioral
+    // (AVBD's elastic f = k·C; physics's derived hertz reproduces the same k). ±0.1 is a behavioral
     // band over two different solvers, not a solver tolerance.
     const restY = ay - SPRING_REST - (SPRING_MASS * Math.abs(backend.gravity)) / SPRING_STIFFNESS;
     const block = backend.readBody(springBlockEid);
@@ -594,7 +594,7 @@ function constraintGates(): Check[] {
         detail: bob ? `pin length ${pinLen.toFixed(3)} (rod ${PENDULUM_ARM})` : "no live pose",
     });
 
-    // the welded arm holds its authored pose (the fixed-joint mapping: AVBD ∞ stiffnessAng, tumble weld)
+    // the welded arm holds its authored pose (the fixed-joint mapping: AVBD ∞ stiffnessAng, physics weld)
     const arm = backend.readBody(armEid);
     const armHeld =
         arm !== null &&
@@ -625,7 +625,7 @@ function constraintGates(): Check[] {
     //
     // witnessed red by mutation (gym harness, both backends): deleting the guard branch from jointDefs
     // (the `if (Number.isNaN(stiffnessAng) || stiffnessAng < 0)` check) lets -1 and NaN pass through —
-    // tumble maps both to hertz 0 → rigid weld (body pinned at y ≈ 10), avbd maps NaN to RIGID_STIFFNESS
+    // physics maps both to hertz 0 → rigid weld (body pinned at y ≈ 10), avbd maps NaN to RIGID_STIFFNESS
     // (body pinned) and -1 to an inverted restoring force (body not in free-fall). Either way the skip
     // arms' free-fall assertion fails (expected y < 5, got y ≈ 10). The grant arm's red witness: inverting
     // the guard to reject finite-positive values (stiffnessAng < 0 → stiffnessAng >= 0, dropping NaN)
@@ -716,16 +716,16 @@ function recycleGate(): Check {
     };
 }
 
-// ── MT isolation (tumble only) — the served page IS cross-origin isolated AND the tumble kernel booted
+// ── MT isolation (physics only) — the served page IS cross-origin isolated AND the physics kernel booted
 // multithreaded. Guards the dev/preview COOP/COEP headers (bin devConfig / serveEjected / serveDist /
-// run preview) end to end in a real browser: a header regression silently degrades tumble to single
+// run preview) end to end in a real browser: a header regression silently degrades physics to single
 // thread and every other gate still passes, so assert the positive. Runs only under PhysicsPlugin — avbd
-// never boots the tumble kernel, so threads() would stay 1 there ──
+// never boots the physics kernel, so threads() would stay 1 there ──
 function isolationGate(): Check {
     const isolated = (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
     const t = threads();
     return {
-        name: "MT isolation (page cross-origin isolated, tumble multithreaded)",
+        name: "MT isolation (page cross-origin isolated, physics multithreaded)",
         pass: isolated && t > 1,
         detail: `crossOriginIsolated ${isolated}, threads ${t}`,
     };
@@ -736,8 +736,8 @@ function isolationGate(): Check {
 // sweep gives a direct backend-vs-backend comparison at the `bun bench` tier ──
 
 async function measured(): Promise<Check> {
-    const names = ["step", "constraints", "compose", "character", "tumble-sync", "pack"];
-    // scheduler spans are plugin-namespaced (`Tumble/step`, `Avbd/pack` — scheduler.ts `_names`), so
+    const names = ["step", "constraints", "compose", "character", "physics-sync", "pack"];
+    // scheduler spans are plugin-namespaced (`Physics/step`, `Avbd/pack` — scheduler.ts `_names`), so
     // match by the name AFTER the slash; and `Profile.cpu` holds one frame's spans (cleared at frame
     // begin) while the fixed group runs ~0.5 ticks/frame, so a single-frame sample coin-flips to zero —
     // accumulate over a window and report ms/frame.

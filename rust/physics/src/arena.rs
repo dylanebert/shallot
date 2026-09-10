@@ -220,7 +220,7 @@ unsafe fn columns() -> Columns<'static> {
 // --- the staged solver's view of the arena (solve.rs) ----------------------------------------
 // The staged solve derives its columns once, up front, and hands the same handles to every worker —
 // which is sound exactly because no `reserve*` (and so no `memory.grow`, no region relocation) may run
-// between the fork and the join (the MT concurrency invariant, `.claude/rules/tumble.md`).
+// between the fork and the join (the MT concurrency invariant, `.claude/rules/physics.md`).
 
 /// The scalar solver's columns, as `solve.rs`'s `StageWork` holds them.
 pub(crate) unsafe fn scalar_columns() -> Columns<'static> {
@@ -1096,7 +1096,7 @@ pub(crate) unsafe fn finalize_block(
 ///
 /// # Safety
 /// The body + shape + fat-AABB regions must be reserved for every reachable shape, and no thread may grow
-/// memory while this runs (the MT concurrency invariant, `.claude/rules/tumble.md`).
+/// memory while this runs (the MT concurrency invariant, `.claude/rules/physics.md`).
 unsafe fn refit_block(sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
     unsafe {
         let records = crate::bodies::body_cap() + crate::bodies::IDENT_RECORDS;
