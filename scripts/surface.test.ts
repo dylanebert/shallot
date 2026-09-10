@@ -67,12 +67,12 @@ check(
             const { code, out } = run("surface.ts", tree);
             expect(code).toBe(0);
             expect(out.split("\n")).toEqual([
-                "claim             class    tier     premises    budget   file",
-                "alpha holds       pure     step     -           50ms     src/alpha.test.ts",
-                "alpha refuses     pure     step     cmake       200ms    src/alpha.test.ts",
-                "beta builds       process  built    -           30000ms  scripts/beta.tier.ts",
-                "demo recipe runs  process  browser  playwright  20000ms  examples/demo/check.test.ts",
-                "4 checks",
+                "claim             class    tier     premises    budget   file                         status",
+                "alpha holds       pure     step     -           50ms     src/alpha.test.ts            -",
+                "alpha refuses     pure     step     cmake       200ms    src/alpha.test.ts            -",
+                "beta builds       process  built    -           30000ms  scripts/beta.tier.ts         -",
+                "demo recipe runs  process  browser  playwright  20000ms  examples/demo/check.test.ts  -",
+                "4 checks (parsed 4; 0 quarantined)",
             ]);
         } finally {
             rmSync(tree, { recursive: true, force: true });
@@ -147,11 +147,47 @@ check(
         const orphan = reader("orphan");
         expect(orphan.code).toBe(1);
         expect(orphan.err).toContain(
-            'orphan quarantine row: "claim nobody declares" names no check in the population',
+            'orphan quarantine row: claim "claim nobody declares" names no check in the population',
         );
         const absent = reader("clean");
         expect(absent.code).toBe(0);
         expect(absent.err).toBe("");
+    },
+);
+
+check(
+    "a non-literal declaration reds the reader",
+    {
+        claim: "check-surface.ts reds a check whose options use a spread, identifier or computed value, naming its file",
+        class: "process",
+        tier: "step",
+        premises: [],
+        budget: 1000,
+    },
+    () => {
+        const nonLiteral = reader("non-literal");
+        expect(nonLiteral.code).toBe(1);
+        expect(nonLiteral.err).toContain(
+            'non-literal declaration: src/spread.test.ts check("spread declaration")',
+        );
+        expect(nonLiteral.err).toContain("src/identifier.test.ts");
+        expect(nonLiteral.err).toContain("src/computed.test.ts");
+    },
+);
+
+check(
+    "an expired quarantine row reds the reader",
+    {
+        claim: "check-surface.ts reds a quarantine row whose ISO expiry is in the past",
+        class: "process",
+        tier: "step",
+        premises: [],
+        budget: 1000,
+    },
+    () => {
+        const expired = reader("expired");
+        expect(expired.code).toBe(1);
+        expect(expired.err).toContain('expired quarantine row: "expired claim" expired 2020-01-01');
     },
 );
 

@@ -17,7 +17,6 @@ const usage = `
     build     Build for distribution
     run       Build and run
     add       Copy an example recipe out of the package (bare: list them)
-    check     Not yet available in this version
 
   Options
     --target <platform>   web (default), windows, mac, linux. Native release builds download a prebuilt
@@ -47,7 +46,6 @@ const usage = `
 export type CliArgs =
     | { kind: "add"; rest: string[] }
     | { kind: "create" }
-    | { kind: "check" }
     | { kind: "external"; verb: string; rest: string[] }
     | { kind: "usage"; exitCode: 0 | 1 }
     | {
@@ -73,7 +71,6 @@ export function parseCliArgs(raw: string[]): CliArgs {
     const verb = raw[0];
     if (verb === "add") return { kind: "add", rest: raw.slice(1) };
     if (verb === "create") return { kind: "create" };
-    if (verb === "check") return { kind: "check" };
     if (verb && !verb.startsWith("-") && !PROJECT_VERBS.includes(verb))
         return { kind: "external", verb, rest: raw.slice(1) };
 
@@ -197,10 +194,6 @@ export async function main(raw: string[]): Promise<void> {
     }
     if (parsed.kind === "create") {
         console.error("Create a project with: bun create shallot <name>");
-        process.exit(2);
-    }
-    if (parsed.kind === "check") {
-        console.error("shallot check is not yet available in this version");
         process.exit(2);
     }
     if (parsed.kind === "add") {

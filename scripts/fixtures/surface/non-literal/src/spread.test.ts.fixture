@@ -1,0 +1,3 @@
+import { check } from "@dylanebert/shallot/harness/check";
+
+check("spread declaration", { ...{ claim: "spread declaration", class: "pure", tier: "step", premises: [], budget: 10 } }, () => {});

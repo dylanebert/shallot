@@ -1,0 +1,62 @@
+name: test-surface
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  schedule:
+    - cron: "0 0 * * 0"
+
+jobs:
+  ubuntu:
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun run check
+      - run: bun run test
+      - name: Record refused seat checks
+        if: always()
+        shell: bash
+        run: |
+          echo '## Surface verdicts' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Seat-class checks are refused on hosted runners:' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No seat-class checks declared.' >> "$GITHUB_STEP_SUMMARY"
+  macos:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'schedule'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun run check
+      - run: bun run test
+      - name: Record refused seat checks
+        if: always()
+        shell: bash
+        run: |
+          echo '## Surface verdicts' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Seat-class checks are refused on hosted runners:' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No seat-class checks declared.' >> "$GITHUB_STEP_SUMMARY"
+  windows:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'schedule'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun run check
+      - run: bun run test
+      - name: Record refused seat checks
+        if: always()
+        shell: bash
+        run: |
+          echo '## Surface verdicts' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Seat-class checks are refused on hosted runners:' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No seat-class checks declared.' >> "$GITHUB_STEP_SUMMARY"

@@ -36,14 +36,13 @@ export default defineConfig({
 
 ## The CLI
 
-Six verbs, run as `bunx shallot <verb> [dir]`:
+Five verbs, run as `bunx shallot <verb> [dir]`:
 
 - `create` starts a project. It's `bun create shallot <name>`, served by the scaffold.
 - `dev` runs the project with hot reload.
 - `build` ships a web bundle, or a desktop app with `--target windows|mac|linux`.
 - `run` builds and runs.
 - `add` copies a recipe out as a runnable, version-matched project. Bare `add` lists them.
-- `check` is arriving in a later version. Today it says so and exits 2.
 
 Any other verb runs `shallot-<verb>` from your PATH or your project's installed bins, the way Cargo and Git do it. `bunx shallot --help` lists every option.
 

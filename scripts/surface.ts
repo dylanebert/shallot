@@ -1,4 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { relative, resolve } from "node:path";
 import { parse } from "@babel/parser";
 import { Glob } from "bun";
@@ -10,6 +12,8 @@ import { CHECK_CLASSES, CHECK_TIERS, validateDeclaration } from "../src/harness/
 
 /** one row of the population. */
 export interface SurfaceRow {
+    /** the name passed to Bun's test runner. */
+    name: string;
     claim: string;
     class: string;
     tier: string;
@@ -17,6 +21,19 @@ export interface SurfaceRow {
     budget: number;
     /** path relative to the tree root. */
     file: string;
+}
+
+export interface QuarantineRow {
+    file: string;
+    claim: string;
+    reason: string;
+    expires: string;
+    spec: string;
+}
+
+export interface QuarantineFile {
+    rows: QuarantineRow[];
+    errors: string[];
 }
 
 /** a test-suffix file that declared nothing, or reached for the runner directly. */
@@ -38,35 +55,103 @@ const SKIP = new Set(["node_modules", "fixtures", "target", "dist", "generate"])
 const BUN_TEST_IMPORT = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*["']bun:test["']/g;
 const REGISTRARS = new Set(["test", "it", "describe"]);
 
-function literal(node: unknown): unknown {
-    const n = node as { type?: string; value?: unknown; elements?: unknown[] };
+interface StaticValue {
+    ok: boolean;
+    value?: unknown;
+}
+
+function literal(node: unknown): StaticValue {
+    const n = node as {
+        type?: string;
+        value?: unknown;
+        elements?: unknown[];
+    };
     if (
         n?.type === "StringLiteral" ||
         n?.type === "NumericLiteral" ||
         n?.type === "BooleanLiteral"
     ) {
-        return n.value;
+        return { ok: true, value: n.value };
     }
-    if (n?.type === "ArrayExpression") return (n.elements ?? []).map(literal);
-    return undefined;
+    if (n?.type === "ArrayExpression") {
+        const values: unknown[] = [];
+        for (const element of n.elements ?? []) {
+            const parsed = literal(element);
+            if (!parsed.ok) return { ok: false };
+            values.push(parsed.value);
+        }
+        return { ok: true, value: values };
+    }
+    return { ok: false };
 }
 
-function objectOf(node: unknown): Record<string, unknown> | undefined {
+function objectOf(node: unknown): { value?: Record<string, unknown>; error?: string } {
     const n = node as { type?: string; properties?: unknown[] };
-    if (n?.type !== "ObjectExpression") return undefined;
+    if (n?.type !== "ObjectExpression") return { error: "options is not an object literal" };
     const out: Record<string, unknown> = {};
     for (const raw of n.properties ?? []) {
         const prop = raw as {
             type?: string;
+            computed?: boolean;
             key?: { name?: string; value?: string };
             value?: unknown;
         };
-        if (prop.type !== "ObjectProperty") continue;
+        if (prop.type === "SpreadElement") return { error: "options contains a spread" };
+        if (prop.type !== "ObjectProperty")
+            return { error: "options contains a non-literal property" };
+        if (prop.computed) return { error: "options contains a computed property" };
         const key = prop.key?.name ?? prop.key?.value;
-        if (typeof key !== "string") continue;
-        out[key] = literal(prop.value);
+        if (typeof key !== "string") return { error: "options contains a computed property" };
+        const value = literal(prop.value);
+        if (!value.ok) return { error: `options field \`${key}\` is not a literal` };
+        out[key] = value.value;
     }
-    return out;
+    return { value: out };
+}
+
+function quarantinePath(root: string): string {
+    return resolve(root, "quarantine.json");
+}
+
+function isIsoDate(value: unknown): value is string {
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const parsed = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+/** Read and shape the root quarantine file without making an orphan claim disappear. */
+export function readQuarantine(root: string): QuarantineFile {
+    const path = quarantinePath(root);
+    if (!existsSync(path)) return { rows: [], errors: [] };
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(readFileSync(path, "utf8"));
+    } catch (error) {
+        return { rows: [], errors: [`invalid quarantine.json: ${(error as Error).message}`] };
+    }
+    if (!Array.isArray(parsed))
+        return { rows: [], errors: ["invalid quarantine.json: expected an array"] };
+    const rows: QuarantineRow[] = [];
+    const errors: string[] = [];
+    for (const [index, raw] of parsed.entries()) {
+        const row = raw as Record<string, unknown> | null;
+        const fields = ["file", "claim", "reason", "expires", "spec"];
+        const missing = fields.filter(
+            (field) => typeof row?.[field] !== "string" || (row[field] as string).trim() === "",
+        );
+        if (missing.length > 0) {
+            errors.push(
+                `invalid quarantine row ${index + 1}: fields must be strings: ${missing.join(", ")}`,
+            );
+            continue;
+        }
+        if (!isIsoDate(row?.expires)) {
+            errors.push(`invalid quarantine row ${index + 1}: expires must be an ISO date`);
+            continue;
+        }
+        rows.push(row as unknown as QuarantineRow);
+    }
+    return { rows, errors };
 }
 
 function walk(node: unknown, visit: (call: Record<string, unknown>) => void): void {
@@ -112,12 +197,20 @@ function readFileDeclarations(root: string, path: string, population: Population
     walk(ast.program, (call) => {
         found += 1;
         const args = call.arguments as unknown[];
-        const name = literal(args?.[0]);
-        const where = `${file} check(${typeof name === "string" ? JSON.stringify(name) : "?"})`;
-        const decl = objectOf(args?.[1]);
+        const parsedName = literal(args?.[0]);
+        const name = typeof parsedName.value === "string" ? parsedName.value : "?";
+        const where = `${file} check(${JSON.stringify(name)})`;
+        const parsedDeclaration = objectOf(args?.[1]);
+        if (parsedDeclaration.error !== undefined) {
+            population.invalid.push(
+                `non-literal declaration: ${where} ${parsedDeclaration.error}; expected an object literal of literal fields`,
+            );
+            return;
+        }
         try {
-            const valid = validateDeclaration(where, decl);
+            const valid = validateDeclaration(where, parsedDeclaration.value);
             population.rows.push({
+                name,
                 claim: valid.claim,
                 class: valid.class,
                 tier: valid.tier,
@@ -144,6 +237,7 @@ function readManifest(root: string, path: string, population: Population): void 
         try {
             const valid = validateDeclaration(`${dir}/shallot.json check`, decl);
             population.rows.push({
+                name: valid.claim,
                 claim: valid.claim,
                 class: valid.class,
                 tier: valid.tier,
@@ -183,10 +277,20 @@ function finish(population: Population): Population {
     return population;
 }
 
-const COLUMNS = ["claim", "class", "tier", "premises", "budget", "file"] as const;
+const COLUMNS = ["claim", "class", "tier", "premises", "budget", "file", "status"] as const;
+
+function quarantineKey(file: string, claim: string): string {
+    return `${file}\u0000${claim}`;
+}
 
 /** Render the population as the table `--list` prints. */
-export function formatPopulation(population: Population): string {
+export function formatPopulation(
+    population: Population,
+    quarantines: readonly QuarantineRow[] = readQuarantine(population.root).rows,
+): string {
+    const marked = new Map(
+        quarantines.map((row) => [quarantineKey(row.file, row.claim), row.reason]),
+    );
     const cells = population.rows.map((row) => [
         row.claim,
         row.class,
@@ -194,6 +298,9 @@ export function formatPopulation(population: Population): string {
         row.premises.join(" ") || "-",
         `${row.budget}ms`,
         row.file,
+        marked.has(quarantineKey(row.file, row.claim))
+            ? `quarantined: ${marked.get(quarantineKey(row.file, row.claim))}`
+            : "-",
     ]);
     const widths = COLUMNS.map((name, index) =>
         Math.max(name.length, ...cells.map((cell) => cell[index].length), 0),
@@ -203,7 +310,150 @@ export function formatPopulation(population: Population): string {
             .map((value, index) => value.padEnd(widths[index]))
             .join("  ")
             .trimEnd();
-    return [line(COLUMNS), ...cells.map(line), `${population.rows.length} checks`].join("\n");
+    return [
+        line(COLUMNS),
+        ...cells.map(line),
+        `${population.rows.length} checks (parsed ${population.rows.length}; ${quarantines.length} quarantined)`,
+    ].join("\n");
+}
+
+function runtimeRegistrationCount(root: string): { count: number | null; error?: string } {
+    const dir = mkdtempSync(resolve(tmpdir(), "shallot-surface-runtime-"));
+    const report = resolve(dir, "report.xml");
+    try {
+        const proc = spawnSync(
+            "bun",
+            [
+                "test",
+                "--reporter=junit",
+                "--reporter-outfile",
+                report,
+                "--pass-with-no-tests",
+                "src",
+                "scripts",
+            ],
+            { cwd: root, encoding: "utf8", stdio: ["ignore", "ignore", "pipe"] },
+        );
+        if (proc.status !== 0) {
+            return {
+                count: null,
+                error: `runtime registration probe failed with exit ${proc.status}: ${proc.stderr.trim()}`,
+            };
+        }
+        if (!existsSync(report))
+            return { count: null, error: "runtime registration probe wrote no report" };
+        const xml = readFileSync(report, "utf8");
+        return { count: (xml.match(/<testcase(?:\s|>)/g) ?? []).length };
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}
+
+function shellQuote(value: string): string {
+    return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
+function seatSummary(rows: readonly SurfaceRow[]): string[] {
+    const seats = rows.filter((row) => row.class === "seat");
+    if (seats.length === 0)
+        return ["          echo 'No seat-class checks declared.' >> \"$GITHUB_STEP_SUMMARY\""];
+    return seats.flatMap((row) => [
+        `          echo ${shellQuote(`- refused: ${row.claim} (${row.file})`)} >> "$GITHUB_STEP_SUMMARY"`,
+    ]);
+}
+
+/** Emit the hosted cadence from the discovered population, never from a hand-maintained list. */
+export function renderWorkflow(population: Population): string {
+    const nonStepTiers = [
+        ...new Set(
+            population.rows
+                .filter((row) => row.class !== "seat" && row.tier !== "step")
+                .map((row) => row.tier),
+        ),
+    ].sort();
+    const tierSteps = nonStepTiers.flatMap((tier) => [
+        `      - name: Run ${tier} tier`,
+        "        run: bun run test",
+    ]);
+    const common = [
+        "      - uses: actions/checkout@v4",
+        "      - uses: oven-sh/setup-bun@v2",
+        "      - run: bun install --frozen-lockfile",
+        "      - run: bun run build",
+        "      - run: bun run check",
+        "      - run: bun run test",
+        ...tierSteps,
+        "      - name: Record refused seat checks",
+        "        if: always()",
+        "        shell: bash",
+        "        run: |",
+        "          echo '## Surface verdicts' >> \"$GITHUB_STEP_SUMMARY\"",
+        "          echo 'Seat-class checks are refused on hosted runners:' >> \"$GITHUB_STEP_SUMMARY\"",
+        ...seatSummary(population.rows),
+    ];
+    const job = (id: string, runner: string, condition: string): string[] => [
+        `  ${id}:`,
+        `    if: ${condition}`,
+        `    runs-on: ${runner}`,
+        "    steps:",
+        ...common,
+    ];
+    return [
+        "name: test-surface",
+        "",
+        "on:",
+        "  push:",
+        "    branches: [main]",
+        '    tags: ["v*"]',
+        "  pull_request:",
+        "  schedule:",
+        '    - cron: "0 0 * * 0"',
+        "",
+        "jobs:",
+        ...job(
+            "ubuntu",
+            "ubuntu-latest",
+            "github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')",
+        ),
+        ...job(
+            "macos",
+            "macos-latest",
+            "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'schedule'",
+        ),
+        ...job(
+            "windows",
+            "windows-latest",
+            "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'schedule'",
+        ),
+        "",
+    ].join("\n");
+}
+
+function escapeRegex(value: string): string {
+    return value.replace(/[.*+?^${}()|[[\]\\]/g, "\\$&");
+}
+
+function runTests(root: string, population: Population): number {
+    const quarantine = readQuarantine(root).rows;
+    const marked = population.rows.filter((row) =>
+        quarantine.some((entry) => entry.file === row.file && entry.claim === row.claim),
+    );
+    for (const row of marked) {
+        const entry = quarantine.find(
+            (candidate) => candidate.file === row.file && candidate.claim === row.claim,
+        );
+        console.log(
+            `verdict claim=${JSON.stringify(row.claim)} file=${row.file} result=refused reason=${JSON.stringify(entry?.reason ?? "quarantined")}`,
+        );
+    }
+    const args = ["test", "--pass-with-no-tests", "src", "scripts"];
+    if (marked.length > 0) {
+        const excluded = marked.map((row) => escapeRegex(row.name)).join("|");
+        args.push("--test-name-pattern", `^(?!(${excluded})$).*$`);
+    }
+    const proc = spawnSync("bun", args, { cwd: root, stdio: "inherit" });
+    if (marked.length > 0) return 1;
+    return proc.status ?? 1;
 }
 
 if (import.meta.main) {
@@ -211,11 +461,31 @@ if (import.meta.main) {
     const rootIndex = args.indexOf("--root");
     const root =
         rootIndex === -1 ? resolve(import.meta.dir, "..") : resolve(args[rootIndex + 1] ?? ".");
+    const population = collectPopulation(root);
+    if (args.includes("--workflow")) {
+        const workflow = resolve(root, ".github/workflows/test-surface.yml");
+        mkdirSync(resolve(root, ".github/workflows"), { recursive: true });
+        writeFileSync(workflow, renderWorkflow(population));
+        console.log(`wrote ${relative(root, workflow)}`);
+        process.exit(0);
+    }
+    if (args.includes("--test")) process.exit(runTests(root, population));
     if (!args.includes("--list")) {
-        console.error("usage: bun scripts/surface.ts --list [--root <dir>]");
+        console.error("usage: bun scripts/surface.ts --list|--workflow|--test [--root <dir>]");
         process.exit(1);
     }
-    console.log(formatPopulation(collectPopulation(root)));
+    const quarantine = readQuarantine(root);
+    console.log(formatPopulation(population, quarantine.rows));
+    if (resolve(root) === resolve(import.meta.dir, "..")) {
+        const runtime = runtimeRegistrationCount(root);
+        if (runtime.error !== undefined) {
+            console.error(runtime.error);
+            process.exit(1);
+        }
+        console.log(`runtime registrations: ${runtime.count} (parsed ${population.rows.length})`);
+        if (runtime.count !== population.rows.length) process.exit(1);
+    }
+    if (quarantine.errors.length > 0) process.exit(1);
 }
 
 export { CHECK_CLASSES, CHECK_TIERS };
