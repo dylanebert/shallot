@@ -1,4 +1,4 @@
-/** the four check classes: what a check costs to run, from `checks.md` § Surface Law. */
+/** the four check classes: what a check costs to run, under the Kex surface law. */
 export const CHECK_CLASSES = ["pure", "process", "seat", "oracle"] as const;
 /** the six tiers: which runner and cadence a check belongs to. */
 export const CHECK_TIERS = ["step", "gpu", "browser", "headed", "built", "live"] as const;
