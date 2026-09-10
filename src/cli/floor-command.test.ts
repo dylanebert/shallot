@@ -396,7 +396,7 @@ for (const command of ["build", "run"]) {
                 reached(project);
             } else {
                 expect(output).toContain("Cannot build");
-                expect(output).toContain(gap ? "timestamp-query" : "WebGPU base floor");
+                expect(output).toContain(gap ? "timestamp-query" : "no usable WebGPU");
                 expect(output).toContain("--portable");
                 expect(result.exitCode).toBe(1);
                 expect(output).not.toContain("PROJECT_CONFIG_REACHED");
