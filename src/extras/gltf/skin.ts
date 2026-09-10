@@ -10,7 +10,7 @@ import {
     surfaceLayout,
     VsIn,
     vsPatchSchema,
-} from "../../standard/sear/core";
+} from "../../standard/render";
 import { Skin } from "../skin";
 import { MaterialData } from "./palette";
 import { materialFns } from "./shade";

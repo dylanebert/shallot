@@ -10,15 +10,8 @@ import * as d from "typegpu/data";
 import type { Registry, State, System } from "../../engine";
 import { Compute, capacity, srgb8x4, u32 } from "../../engine";
 import { precompile } from "../../engine/runtime";
-import type { Draw, Mesh, Surface } from "../render/core";
-import {
-    BeginFrameSystem,
-    DrawIndexedIndirect,
-    Draws,
-    Meshes,
-    Render,
-    Surfaces,
-} from "../render/core";
+import type { Draw, Mesh, Surface } from "../render";
+import { BeginFrameSystem, DrawIndexedIndirect, Draws, Meshes, Render, Surfaces } from "../render";
 import { slab } from "../slab";
 import { Transform } from "../transforms";
 import {

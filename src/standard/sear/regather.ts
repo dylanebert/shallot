@@ -11,7 +11,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { Compute, capacity } from "../../engine";
-import { DrawIndexedIndirect } from "../render/core";
+import { DrawIndexedIndirect } from "../render";
 
 // the re-gather packs each instance's (eid, dense combo index) into one u32 in the re-gathered list — eid in
 // the low COMBO_SHIFT bits, the combo above. The list rides the surface's `eids` binding lane (the heaviest

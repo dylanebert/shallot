@@ -3,7 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { capacity } from "../../engine";
 import { Xform, xformPoint } from "../../engine/utils";
-import { CULL_FRUSTUM, CULL_VOLUME_FLOATS, DrawIndexedIndirect } from "../render/core";
+import { CULL_FRUSTUM, CULL_VOLUME_FLOATS, DrawIndexedIndirect } from "../render";
 
 // The pack kernels: cull → count → scan → scatter, the compute half of the Part producer. Count and
 // scatter share the same cull inputs, so those are ONE bind group layout both kernels reference (and the

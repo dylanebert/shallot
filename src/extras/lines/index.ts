@@ -12,9 +12,15 @@
 import type { Plugin, State, System } from "../../engine";
 import { Compute, f32, formatHex, sparse, vec4 } from "../../engine";
 import { packColor } from "../../engine/utils";
-import { mesh, RenderPlugin } from "../../standard/render";
-import { BeginFrameSystem, Draws, Meshes } from "../../standard/render/core";
-import { PrepassSystem, registerSurface } from "../../standard/sear/core";
+import {
+    BeginFrameSystem,
+    Draws,
+    Meshes,
+    mesh,
+    RenderPlugin,
+    registerSurface,
+} from "../../standard/render";
+import { PrepassSystem } from "../../standard/sear";
 import { composeTransform, Transform, TransformsPlugin } from "../../standard/transforms";
 import {
     disposeSegments,

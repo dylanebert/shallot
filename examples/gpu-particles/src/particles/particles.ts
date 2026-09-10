@@ -13,17 +13,15 @@ import {
     type DrawIndirectBuffer,
     Draws,
     Frame,
+    fsCtxSchema,
     Meshes,
     Render,
-} from "@dylanebert/shallot/render/core";
-import {
-    fsCtxSchema,
-    PrepassSystem,
     registerSurface,
     surfaceLayout,
     VsIn,
     vsPatchSchema,
-} from "@dylanebert/shallot/sear/core";
+} from "@dylanebert/shallot/render/core";
+import { PrepassSystem } from "@dylanebert/shallot/sear/core";
 import tgpu, { type TgpuBindGroup, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";

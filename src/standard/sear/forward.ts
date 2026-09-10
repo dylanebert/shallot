@@ -25,9 +25,19 @@ import { Compute, capacity, f16x4, laneAlias, sparse, u32, unpackColor } from ".
 import { precompile } from "../../engine/runtime";
 import { unpackLdrColor, Xform } from "../../engine/utils";
 import { GlazeSystem } from "../glaze";
-import { Camera, RenderPlugin } from "../render";
-import type { Draw, MeshBinding, MeshIndex, View } from "../render/core";
-import { BeginFrameSystem, Draws, Meshes, Render, Views } from "../render/core";
+import type { Draw, MeshBinding, MeshIndex, View } from "../render";
+import { BeginFrameSystem, Camera, Draws, Meshes, Render, RenderPlugin, Views } from "../render";
+import {
+    type Background,
+    Backgrounds,
+    fsCtxSchema,
+    type Surface,
+    Surfaces,
+    surfaceLayout as typedLayout,
+    registerSurface as typedRegister,
+    VsIn,
+    vsPatchSchema,
+} from "../render/contract";
 import { SlabPlugin, slab } from "../slab";
 import {
     cascadeRegather,
@@ -42,17 +52,6 @@ import {
     shadowReady,
 } from "./atlas";
 import { COLOR_LANES, type ColorLane, DEPTH_FORMAT, laneKey, SAMPLE_COUNT, Tag } from "./codegen";
-import {
-    type Background,
-    Backgrounds,
-    fsCtxSchema,
-    type Surface,
-    Surfaces,
-    surfaceLayout as typedLayout,
-    registerSurface as typedRegister,
-    VsIn,
-    vsPatchSchema,
-} from "./contract";
 import { engineLayout, litPbr } from "./engine";
 import {
     type BindResource,
@@ -160,8 +159,6 @@ function initMaterial(): void {
  * frame resources. Modeled on {@link Surface}, but backdrop-only: no mesh, instancing, interpolators, or
  * blend modes; the engine names no sky concept, a plugin owns its own sky math.
  */
-export type { Background } from "./contract";
-export { Backgrounds, registerBackground } from "./contract";
 
 /**
  * select a Sear camera's backdrop: the {@link Backgrounds} recipe drawn behind the scene as a fullscreen

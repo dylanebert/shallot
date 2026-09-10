@@ -1,4 +1,4 @@
-import { allocArray, commonSize, mipLevels, uploadLayer } from "../../standard/render/core";
+import { allocArray, commonSize, mipLevels, uploadLayer } from "../../standard/render";
 import type { Ktx2Image } from "./basis";
 import type { GltfMaterial } from "./gltf";
 import {

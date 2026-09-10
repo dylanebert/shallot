@@ -15,7 +15,7 @@ import {
     PointLights,
     spotFactor,
     View,
-} from "../render/core";
+} from "../render";
 import { brdf, brdfSphere, halfLambert, Pbr, pointShadowRef } from "./shade";
 
 /**

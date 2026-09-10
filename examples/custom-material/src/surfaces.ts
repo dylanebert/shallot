@@ -2,14 +2,12 @@ import { PartPlugin, type Plugin, SearPlugin } from "@dylanebert/shallot";
 import {
     BgCtx,
     backgroundLayout,
-    engineLayout,
     fsCtxSchema,
-    lit,
     registerBackground,
     registerSurface,
-    sunVisibility,
     surfaceLayout,
-} from "@dylanebert/shallot/sear/core";
+} from "@dylanebert/shallot/render/core";
+import { engineLayout, lit, sunVisibility } from "@dylanebert/shallot/sear/core";
 import { unpackLdrColor, Xform } from "@dylanebert/shallot/utils/core";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";

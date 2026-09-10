@@ -26,7 +26,7 @@ import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuRenderPipeline } from
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute } from "../../engine";
-import { Render } from "../../standard/render/core";
+import { Render } from "../../standard/render";
 import { sdfToSignedDistance, textSrgbToLinear } from "../text/core";
 import { Cell } from "./cell";
 import type { GlyphSizeBuffer, GlyphUvBuffer } from "./glyphs";

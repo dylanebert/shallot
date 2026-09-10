@@ -24,16 +24,20 @@ import {
     vec2,
 } from "../../engine";
 import { packColor, Xform, xformPoint } from "../../engine/utils";
-import { mesh, RenderPlugin } from "../../standard/render";
-import { BeginFrameSystem, DrawIndexedIndirect, Draws, Meshes } from "../../standard/render/core";
 import {
+    BeginFrameSystem,
+    DrawIndexedIndirect,
+    Draws,
     fsCtxSchema,
-    PrepassSystem,
+    Meshes,
+    mesh,
+    RenderPlugin,
     registerSurface,
     surfaceLayout,
     VsIn,
     vsPatchSchema,
-} from "../../standard/sear/core";
+} from "../../standard/render";
+import { PrepassSystem } from "../../standard/sear";
 import { Transform, TransformsPlugin } from "../../standard/transforms";
 import {
     createGlyphAtlas,

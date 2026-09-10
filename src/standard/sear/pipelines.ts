@@ -19,12 +19,19 @@ import {
     xformNormal,
     xformPoint,
 } from "../../engine/utils";
-import type { Draw, Mesh } from "../render/core";
-import { Draws, Frame, LightCull, Lighting, Meshes, Render } from "../render/core";
+import type { Draw, Mesh } from "../render";
+import { Draws, Frame, LightCull, Lighting, Meshes, Render } from "../render";
+import type { Background, BgLayout, Binding, Surface, SurfaceLayout } from "../render/contract";
+import {
+    assertOwnFn,
+    Backgrounds,
+    BgCtx,
+    type fsCtxSchema,
+    Surfaces,
+    VsIn,
+} from "../render/contract";
 import { cascadeLayout, pointLayout, shadowLayout } from "./atlas";
 import { DEPTH_FORMAT, SAMPLE_COUNT, TAG_FORMAT, TAG_NONE } from "./codegen";
-import type { Background, BgLayout, Binding, Surface, SurfaceLayout } from "./contract";
-import { assertOwnFn, Backgrounds, BgCtx, type fsCtxSchema, Surfaces, VsIn } from "./contract";
 import {
     engineLayout,
     fragCoord,

@@ -13,9 +13,8 @@
 import type { Plugin, State, System } from "../../engine";
 import { Compute, unpackColor } from "../../engine";
 import { GlazeSystem } from "../../standard/glaze";
-import { Camera, RenderPlugin } from "../../standard/render";
-import { OverlaySystem, Render, Views } from "../../standard/render/core";
-import { ColorSystem } from "../../standard/sear/core";
+import { Camera, OverlaySystem, Render, RenderPlugin, Views } from "../../standard/render";
+import { ColorSystem } from "../../standard/sear";
 import {
     createGlyphAtlas,
     disposeAtlases,

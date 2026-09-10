@@ -1,5 +1,5 @@
 import { compose, invert, multiply } from "../../engine";
-import { VERTEX_FLOATS } from "../../standard/render/core";
+import { VERTEX_FLOATS } from "../../standard/render";
 import type { DracoMesh } from "./draco";
 import type { SkinChannel, SkinInput } from "./vat";
 

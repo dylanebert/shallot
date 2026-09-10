@@ -18,8 +18,7 @@
 import type { Plugin, State, System } from "../../engine";
 import { Compute, f32, sparse, u32, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
-import { Camera, RenderPlugin } from "../render";
-import { BeginFrameSystem, MAX_VIEWS, Render, Views } from "../render/core";
+import { BeginFrameSystem, Camera, MAX_VIEWS, Render, RenderPlugin, Views } from "../render";
 import { composite, GlazeConfig, WORKGROUP } from "./composite";
 
 export { Tonemap, tonemapWgsl } from "./tonemap";

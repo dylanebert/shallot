@@ -9,9 +9,9 @@ import type { Node } from "../../engine/scene";
 import { Preloads } from "../../engine/scene";
 import { MeshQuant, unpackLdrColor, Xform } from "../../engine/utils";
 import { Color, Part } from "../../standard/part";
-import { RenderPlugin } from "../../standard/render";
 import {
     BeginFrameSystem,
+    fsCtxSchema,
     type Mesh,
     Meshes,
     type MeshIndex,
@@ -20,10 +20,12 @@ import {
     packMeshes,
     type QuantStreams,
     quantizeMeshes,
+    RenderPlugin,
+    registerSurface,
     Surfaces,
+    surfaceLayout,
     VERTEX_FLOATS,
-} from "../../standard/render/core";
-import { fsCtxSchema, registerSurface, surfaceLayout } from "../../standard/sear/core";
+} from "../../standard/render";
 import { SlabPlugin } from "../../standard/slab";
 import { Transform } from "../../standard/transforms";
 import { LiveSkin, LiveSkinSystem, Skin, skinTraits } from "../skin";

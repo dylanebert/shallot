@@ -26,8 +26,18 @@ import {
     type State,
     sparse,
 } from "../../engine";
-import { Camera, CameraMode, DirectionalLight, PointLight, Spot } from "../render";
-import { attachView, detachCanvas, MAX_SLOTS, MAX_VIEWS, Views } from "../render/core";
+import {
+    attachView,
+    Camera,
+    CameraMode,
+    DirectionalLight,
+    detachCanvas,
+    MAX_SLOTS,
+    MAX_VIEWS,
+    PointLight,
+    Spot,
+    Views,
+} from "../render";
 import { composeTransform, Transform } from "../transforms";
 
 /**

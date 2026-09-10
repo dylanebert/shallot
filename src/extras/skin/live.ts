@@ -4,9 +4,8 @@ import type { Plugin, System } from "../../engine";
 import { Compute, compose, decompose, multiply, vec4 } from "../../engine";
 import { chunk, packColor4, spliceNs } from "../../engine/utils";
 import { Color } from "../../standard/part";
-import { RenderPlugin } from "../../standard/render";
-import { BeginFrameSystem, Render } from "../../standard/render/core";
-import { PrepassSystem } from "../../standard/sear/core";
+import { BeginFrameSystem, Render, RenderPlugin } from "../../standard/render";
+import { PrepassSystem } from "../../standard/sear";
 import { SlabPlugin, slab } from "../../standard/slab";
 
 // The live joint-palette skinning substrate: a runtime paradigm the engine owns, not an importer's. A live

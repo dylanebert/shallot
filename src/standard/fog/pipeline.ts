@@ -15,7 +15,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { clusterCell, LightingGpu, PointLightGpu, PointLights, View } from "../render/core";
+import { clusterCell, LightingGpu, PointLightGpu, PointLights, View } from "../render";
 import {
     pointCasters,
     pointCastersSchema,
@@ -23,7 +23,7 @@ import {
     SunShadow,
     sampleSunShadow,
     tileRectsSchema,
-} from "../sear/core";
+} from "../sear";
 import {
     FOG_MAX_STEPS,
     FogGpu,

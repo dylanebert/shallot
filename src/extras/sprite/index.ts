@@ -15,15 +15,17 @@
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { Compute, formatHex, type Plugin, Registry, type State, type System } from "../../engine";
-import { mesh, RenderPlugin } from "../../standard/render";
 import {
     BeginFrameSystem,
     DrawIndexedIndirect,
     Draws,
     imageArray,
     Meshes,
-} from "../../standard/render/core";
-import { PrepassSystem, registerSurface } from "../../standard/sear/core";
+    mesh,
+    RenderPlugin,
+    registerSurface,
+} from "../../standard/render";
+import { PrepassSystem } from "../../standard/sear";
 import { Transform, TransformsPlugin } from "../../standard/transforms";
 import {
     BUCKETS,

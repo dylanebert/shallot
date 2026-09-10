@@ -1,7 +1,7 @@
 import { type State, type System, u32 } from "../../engine";
 import type { Node } from "../../engine/scene";
 import { Part } from "../../standard/part";
-import { Surfaces } from "../../standard/render/core";
+import { Surfaces } from "../../standard/render";
 import { slab } from "../../standard/slab";
 import { LiveSkin, Skin } from "../skin";
 import type { GltfHandle } from "./assets";

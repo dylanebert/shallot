@@ -15,13 +15,8 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Xform, xformMat } from "../../engine/utils";
-import {
-    engineLayout,
-    fsCtxSchema,
-    surfaceLayout,
-    VsIn,
-    vsPatchSchema,
-} from "../../standard/sear/core";
+import { fsCtxSchema, surfaceLayout, VsIn, vsPatchSchema } from "../../standard/render";
+import { engineLayout } from "../../standard/sear";
 import { screenCorner, worldCorner, yLockedCorner } from "./billboard";
 
 const VARIANTS = ["screen", "y", "world"] as const;

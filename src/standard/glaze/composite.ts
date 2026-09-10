@@ -18,7 +18,7 @@ import tgpu, { type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute } from "../../engine";
-import { linearToSrgb } from "../render/core";
+import { linearToSrgb } from "../render";
 import { tmLuma, tonemap } from "./tonemap";
 
 /** the compute workgroup edge — one thread per swapchain pixel. @internal */

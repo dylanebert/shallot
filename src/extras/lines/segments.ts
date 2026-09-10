@@ -8,7 +8,7 @@ import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { Compute } from "../../engine";
 import { packColor } from "../../engine/utils";
-import { DrawIndexedIndirect } from "../../standard/render/core";
+import { DrawIndexedIndirect } from "../../standard/render";
 import { Segment } from "./surface";
 
 // one segment = two world endpoints + a pixel width + a packed sRGBA color, 32 bytes / two vec4 reads

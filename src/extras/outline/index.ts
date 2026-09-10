@@ -37,16 +37,18 @@ import { Compute, f32, sparse, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import { GlazeSystem } from "../../standard/glaze";
 import { Part, PartPlugin } from "../../standard/part";
-import { Camera, type Mesh, RenderPlugin } from "../../standard/render";
 import {
+    Camera,
+    type Mesh,
     Meshes,
     OverlaySystem,
     Render,
+    RenderPlugin,
     sceneTransform,
     type View,
     Views,
-} from "../../standard/render/core";
-import { ColorSystem, DEPTH_FORMAT } from "../../standard/sear/core";
+} from "../../standard/render";
+import { ColorSystem, DEPTH_FORMAT } from "../../standard/sear";
 import { Transform, TransformsPlugin } from "../../standard/transforms";
 import {
     compositeKernel,

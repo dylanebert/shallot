@@ -12,8 +12,8 @@ import {
     vec4,
 } from "../../engine";
 import { eulerAlias } from "../../engine/utils";
-import { BeginFrameSystem, Render } from "../render/core";
-import { PrepassSystem } from "../sear/core";
+import { BeginFrameSystem, Render } from "../render";
+import { PrepassSystem } from "../sear";
 import { SlabPlugin, slab } from "../slab";
 import { Transform } from "../transforms";
 import { init, type Body as SolverBody, World } from "./api";

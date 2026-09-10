@@ -8,8 +8,8 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { Compute } from "../../engine";
-import type { Draw } from "../render/core";
-import { Render, Views } from "../render/core";
+import type { Draw } from "../render";
+import { Render, Views } from "../render";
 import { DEPTH_FORMAT } from "./codegen";
 import { engineLayout } from "./engine";
 import type { Recorded } from "./forward";
