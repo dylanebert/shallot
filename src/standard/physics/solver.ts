@@ -1,9 +1,4 @@
-// Physics extension surface: what an outside solver or custom tooling needs past the author happy path.
-// An outside solver registers the shared components with these traits, derives the authored constraint
-// set from the defs/signatures, reads hull geometry from `Hulls`, and orders its systems against these
-// anchors. Tooling driving `Physics.world` (or its own `World`) past the atomic core needs the solver's
-// free functions: shape builders, `BodyType`/joint configs, debug draw, `hashWorldState`.
-//
+// the solver port: the free-function World API behind `Physics.world`, re-exported by name.
 // The solver half is an explicit re-export, not `export * from "./api"`: the engine barrel exports
 // `shutdown`, which terminates the process-singleton kernel's worker pool that PhysicsPlugin shares, so a
 // consumer calling it would silently degrade every physics scene to single-thread. `init` and `threads`
@@ -128,33 +123,3 @@ export {
     type WorldState,
     type WorldTransform,
 } from "./api";
-export { nlerpShortest } from "./compose";
-export { type Hull, type HullFace, Hulls, UNIT_CUBE_ID } from "./hull";
-export {
-    type BodyState,
-    bodyTraits,
-    ComposeSystem,
-    ConstraintSystem,
-    type JointDef,
-    jointDefs,
-    jointSignature,
-    jointTraits,
-    type SpringDef,
-    StepSystem,
-    springDefs,
-    springSignature,
-    springTraits,
-} from "./index";
-export { bodyCandidates, cursorRay, forwardRay, grabHit, worldToLocal } from "./pick";
-export {
-    generateRay,
-    qRotate,
-    type Ray,
-    type RayBody,
-    type RayHit,
-    rayCapsule,
-    raycast,
-    rayOBB,
-    raySphere,
-    screenToRay,
-} from "./raycast";

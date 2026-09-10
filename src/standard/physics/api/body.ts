@@ -1,6 +1,6 @@
 import type { ShapeProxy } from "../collision/distance";
 import { NULL_INDEX } from "../common/array";
-import { SetType } from "../common/core";
+import { SetType } from "../common/constants";
 import type { EntityId } from "../common/ids";
 import {
     froundConfig,

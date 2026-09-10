@@ -11,7 +11,7 @@
 
 import * as bp from "../collision/broadphase";
 import { NULL_INDEX } from "../common/array";
-import { OVERFLOW_INDEX, SetType, SPECULATIVE_DISTANCE, TIME_TO_SLEEP } from "../common/core";
+import { OVERFLOW_INDEX, SetType, SPECULATIVE_DISTANCE, TIME_TO_SLEEP } from "../common/constants";
 import {
     type AABB,
     aabb,

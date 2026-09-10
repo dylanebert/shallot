@@ -19,7 +19,7 @@
 //   [10]   parent (allocated) / next (free) — the C's parent/next union
 //   [11]   height (high 16 bits) | flags (low 16 bits), matching C's uint16 height + uint16 flags
 
-import { ALL_BITS_HI, ALL_BITS_LO } from "../common/core";
+import { ALL_BITS_HI, ALL_BITS_LO } from "../common/constants";
 import {
     type AABB,
     aabb,

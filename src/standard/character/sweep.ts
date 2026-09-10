@@ -14,8 +14,7 @@
 // step for free where the SAT face normal would wedge it). Box AND hull statics — the scene's static
 // colliders can be either, so a box-only subset would walk through hull geometry.
 
-import { ShapeKind } from "../physics";
-import { type Hull, type HullFace, qRotate } from "../physics/core";
+import { type Hull, type HullFace, qRotate, ShapeKind } from "../physics";
 
 type Vec3 = [number, number, number];
 type Quat = [number, number, number, number];

@@ -12,7 +12,7 @@ import {
     MAX_AABB_MARGIN,
     MESH_REST_OFFSET,
     SPECULATIVE_DISTANCE,
-} from "../common/core";
+} from "../common/constants";
 import {
     type AABB,
     aabb,

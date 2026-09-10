@@ -8,7 +8,7 @@
 import { type BroadPhase, createBroadPhase } from "../collision/broadphase";
 import { type Contact, initializeContactRegisters } from "../collision/contact";
 import { createManifoldStore, type ManifoldStore } from "../collision/manifoldstore";
-import { CONTACT_RECYCLE_DISTANCE } from "../common/core";
+import { CONTACT_RECYCLE_DISTANCE } from "../common/constants";
 import { allocId, createIdPool, type EntityId, type IdPool, idCount } from "../common/ids";
 import { f32, froundConfig, maxf, type Vec3, type WorldTransform } from "../common/math";
 import type { Capacity, MixCallback, WorldDef } from "../common/types";

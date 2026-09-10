@@ -16,7 +16,7 @@
 // `store` writes the solved impulses straight back into the pool, and `readbackHitEvents` collects the
 // contacts it flagged.
 
-import { OVERFLOW_INDEX } from "../common/core";
+import { OVERFLOW_INDEX } from "../common/constants";
 import { COLOR_SPAN_STRIDE, type Columns, SLOT_STRIDE, WIDE_META_STRIDE } from "../kernel/columns";
 import type { BodySim, BodyState } from "../world/body";
 import type { WorldState } from "../world/world";

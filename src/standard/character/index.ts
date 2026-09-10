@@ -1,6 +1,5 @@
 import { f32, type Plugin, type State, type System, sparse } from "../../engine";
-import { Body, Physics, ShapeKind } from "../physics";
-import { type Hull, Hulls, StepSystem } from "../physics/core";
+import { Body, type Hull, Hulls, Physics, ShapeKind, StepSystem } from "../physics";
 import { jumped, moves, resetDrive, states } from "./drive";
 import { type CharState, type SweepBody, sweepCharacter } from "./sweep";
 

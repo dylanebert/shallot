@@ -7,7 +7,7 @@
 
 import { collide } from "../collision/collide";
 import { updateBroadPhasePairs } from "../collision/pairs";
-import { SetType } from "../common/core";
+import { SetType } from "../common/constants";
 import { f32, maxInt, minf } from "../common/math";
 import { claimResident, reserveBodies } from "../kernel/bodycolumns";
 import { rebuildGeometry } from "../kernel/geocolumns";

@@ -7,7 +7,7 @@
 
 import type { Contact } from "../collision/contact";
 import { NULL_INDEX, swapRemove } from "../common/array";
-import { SetType } from "../common/core";
+import { SetType } from "../common/constants";
 import { allocId, freeId } from "../common/ids";
 import type { Joint } from "../solver/joint";
 import { wakeSolverSet } from "./solverset";

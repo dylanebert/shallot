@@ -7,7 +7,7 @@
 // integrate with the solver stage. fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
 import { NULL_INDEX, swapRemove } from "../common/array";
-import { SetType } from "../common/core";
+import { SetType } from "../common/constants";
 import { allocId, freeId } from "../common/ids";
 import type { AABB } from "../common/math";
 import { maxf, type Quat, quat, type Transform, type Vec3 } from "../common/math";

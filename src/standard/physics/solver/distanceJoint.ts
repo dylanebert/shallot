@@ -4,7 +4,7 @@
 // expression tree exactly. See the README.
 
 import { NULL_INDEX } from "../common/array";
-import { HUGE, LINEAR_SLOP, SetType } from "../common/core";
+import { HUGE, LINEAR_SLOP, SetType } from "../common/constants";
 import { clampf, FLT_MAX, f32, mat3, maxf, quat, type Vec3, vec3 } from "../common/math";
 import { BodyFlags, getBodyTransformQuick, identityBodyState } from "../world/body";
 import type { WorldState } from "../world/world";

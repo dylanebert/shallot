@@ -22,7 +22,12 @@ import {
     setBitCountAndClear,
     setBitGrow,
 } from "../common/bitset";
-import { DYNAMIC_COLOR_COUNT, GRAPH_COLOR_COUNT, OVERFLOW_INDEX, SetType } from "../common/core";
+import {
+    DYNAMIC_COLOR_COUNT,
+    GRAPH_COLOR_COUNT,
+    OVERFLOW_INDEX,
+    SetType,
+} from "../common/constants";
 import { BodyType } from "../common/types";
 import type { SolverSet } from "../world/solverset";
 import type { WorldState } from "../world/world";

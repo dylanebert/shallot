@@ -9,7 +9,7 @@
 // `writeRecord`'s throw is unreachable for an awake joint.
 
 import { NULL_INDEX } from "../common/array";
-import { OVERFLOW_INDEX, SetType } from "../common/core";
+import { OVERFLOW_INDEX, SetType } from "../common/constants";
 import type { Mat3, Quat, Transform, Vec3 } from "../common/math";
 import type { SolveLayout } from "../solver/contactsolver";
 import type { DistanceJoint } from "../solver/distanceJoint";

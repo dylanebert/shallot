@@ -22,7 +22,7 @@ import {
     shapeDistance,
 } from "../collision/distance";
 import type { PlaneResult } from "../collision/mover";
-import { HUGE, LINEAR_SLOP, OVERLAP_SLOP } from "../common/core";
+import { HUGE, LINEAR_SLOP, OVERLAP_SLOP } from "../common/constants";
 import {
     type AABB,
     aabb,

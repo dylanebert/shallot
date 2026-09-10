@@ -15,7 +15,7 @@ import {
     shapeDistance,
 } from "../collision/distance";
 import type { PlaneResult } from "../collision/mover";
-import { LINEAR_SLOP, OVERLAP_SLOP } from "../common/core";
+import { LINEAR_SLOP, OVERLAP_SLOP } from "../common/constants";
 import {
     type AABB,
     clampf,
