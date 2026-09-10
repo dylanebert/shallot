@@ -29,8 +29,7 @@
 // `src/extras/sprite/`, `src/extras/skin/`, `src/extras/gltf/`, `src/extras/animation/`, plus the
 // `src/standard/slab/` and `src/standard/transforms/` trees every promoted arm builds on
 // (`SlabPlugin`/`TransformsPlugin` ride in as `RenderPlugin`'s declared `dependencies`), plus —
-// for the physics-stack arms — `src/standard/avbd/` (the solver), `src/standard/physics/`
-// (the substrate), `src/standard/character/` + `src/standard/player/` (the sweep + controller),
+// for the physics-stack arms — `src/standard/physics/` (the substrate and kernel), `src/standard/character/` + `src/standard/player/` (the sweep + controller),
 // and `src/standard/mirror/` + `src/standard/input/` (their readback + input dependencies).
 // Re-derive this list from the imports above if it drifts — the derivation is the operative rule,
 // not the enumeration. A by-path tier file's own header is its registry (`test-cap.ts:96`).

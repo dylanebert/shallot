@@ -11,8 +11,7 @@ import { GATE_EXEMPTIONS, SCENARIO_GATES, type ScenarioGate } from "./timeouts";
  *  pipeline, and `extras` — `gpu.md`'s own `paths:` frontmatter), plus two additions it doesn't already
  *  list: `standard/bvh` (the acceleration-structure pipeline `gpu.md`'s own body cites repeatedly as
  *  canonical GPU code — `bounds.ts`, `build.ts`, `sort.ts`; that gap in `gpu.md`'s frontmatter has since been
- *  fixed, so the two now agree here) and `standard/avbd` (the GPU physics swap-in, `avbd.md`'s own `paths:`,
- *  deliberately not `gpu.md`'s). Reusing the codebase's own committed boundaries for "GPU-side" rather
+ *  fixed, so the two now agree here). Reusing the codebase's own committed boundaries for "GPU-side" rather
  *  than inventing a second one (one source of truth). Deliberately excludes physics: it
  *  runs on the CPU wasm kernel and is bit-exact-gated by `bun test` + the committed fixtures (`physics.md`),
  *  so its truth already lives in a tier this check isn't responsible for; it excludes ECS/scene
@@ -25,7 +24,6 @@ export const GPU_MODULE_GLOBS: readonly string[] = [
     "src/standard/part/**/*.ts",
     "src/standard/slab/**/*.ts",
     "src/standard/bvh/**/*.ts",
-    "src/standard/avbd/**/*.ts",
     // `gpu.md` writes these nine as one brace glob; `globToRegExp` has no brace support, so they
     // enumerate here. Same set — `checkExtrasClassification` is what holds the two together.
     "src/extras/cells/**/*.ts",

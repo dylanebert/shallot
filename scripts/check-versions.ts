@@ -33,15 +33,6 @@ if (release) {
     }
 }
 
-const solver = await Bun.file(resolve(root, "packages/shallot-physics/package.json")).json();
-if (solver.version !== shallot.version || solver.private !== true)
-    fail("private solver/distribution version mismatch");
-if (
-    Object.keys(solver.dependencies ?? {}).length ||
-    Object.keys(solver.peerDependencies ?? {}).length
-)
-    fail("solver must remain dependency-free");
-
 // Runtime dependencies must resolve to a PUBLISHED version. A `link:` / `file:` / `workspace:`
 // protocol (handy for local co-development) survives verbatim into the published tarball and is
 // unresolvable for an npm consumer — it silently broke the default physics backend once.
@@ -75,7 +66,7 @@ for (const crate of ["rust/audio/Cargo.toml", "rust/window/Cargo.toml"]) {
 // before a closing brace).
 const lockText = await Bun.file(resolve(root, "bun.lock")).text();
 const lock = JSON.parse(lockText.replace(/,(\s*[}\]])/g, "$1"));
-for (const dir of ["packages/shallot-physics", "packages/create-shallot"]) {
+for (const dir of ["packages/shallot-avbd-physics", "packages/create-shallot"]) {
     const version = lock.workspaces?.[dir]?.version;
     if (version !== shallot.version) {
         fail(

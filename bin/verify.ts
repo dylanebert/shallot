@@ -517,8 +517,8 @@ export const TIMINGS_INIT_SCRIPT = `performance.setResourceTimingBufferSize(${RE
  * delayed frame, summing that frame's work including many sub-50ms chunks the longtask observer
  * cannot see individually. LoAF is a *third* signal class beside longtask and the Goal's prod
  * `slow_frame` vital — not a match for either. The Goal's `slow_frame` is shallot's own rAF-delta
- * duration vital (`site/rum-sampler.ts`, `SLOW_FRAME_THRESHOLD_MS`, `delta = timestamp -
- * state.lastTimestamp`, emitted via `DD_RUM.addDurationVital` in `site/rum-runtime.ts`), not a
+ * duration vital (`delta = timestamp - state.lastTimestamp` past a 50ms threshold, emitted as a RUM
+ * duration vital by the site), not a
  * platform metric and not LoAF; a rAF delta counts everything that stops a frame being produced
  * (main-thread block, compositor/GPU backpressure, any interval where rAF isn't dispatched), while
  * LoAF names per-frame main-thread-side rendering work only. S1f installs the rAF-delta sampler on
@@ -928,13 +928,13 @@ export interface Result {
      *  PerformanceObserver entry recorded over the same window — one entry per delayed frame, summing
      *  that frame's script/style/layout/paint-coordination work including sub-50ms chunks the longtask
      *  observer cannot see (S1e: a third signal class beside longtask and the Goal's prod `slow_frame` vital — not a match for either). `rafDeltas` is every rAF inter-callback gap ≥ 50ms recorded over the
-     *  same window (S1f: the Goal's own signal class — mirrors `site/rum-sampler.ts`'s `sampleFrame`,
+     *  same window (S1f: the Goal's own signal class — mirrors the site's RUM frame sampler,
      *  same threshold, same `delta = timestamp - lastTimestamp`, same first-frame rule), each carrying
      *  `delta` (the gap) and `timestamp` (the rAF timestamp, which is `msSinceLoad` on the vital's own
      *  context axis). `compileMeasures` is every raw `performance` `measure` entry recorded from page
      *  init through the boot wait's conclusion — every measure entry, not pre-filtered to
      *  `PIPELINE_COMPILE_MEASURE_PREFIX`, since the filtering is the
-     *  pure reader's own job (`compileConcurrencyRatio`, `site/rum-compile-vitals.ts`): this field is
+     *  pure reader's own job (the site's `compileConcurrencyRatio`): this field is
      *  the raw capture, a caller feeds it through that reader rather than this file re-deriving the
      *  ratio. Absent when `--attribution` wasn't passed. */
     attribution?: {

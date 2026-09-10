@@ -48,6 +48,8 @@ const glob = new Glob("**/*.ts");
 for await (const path of glob.scan({ cwd: src })) {
     // tests sit beside their source and legitimately cross modules
     if (path.endsWith(".test.ts")) continue;
+    // an offline generator run by hand, not runtime: it parses the bundled font directly
+    if (path === "extras/cells/generate-ramp.ts") continue;
     const full = join(src, path);
     const content = await Bun.file(full).text();
     const lines = content.split("\n");

@@ -657,7 +657,7 @@ export async function findDeadExports(
 
     const srcGlob = new Glob("**/*.ts");
     const sources = new Set<string>();
-    for (const dir of [srcDir, resolve(rootDir, "packages/shallot-physics/src")]) {
+    for (const dir of [srcDir]) {
         if (!existsSync(dir)) continue;
         for await (const path of srcGlob.scan({ cwd: dir })) {
             sources.add(relative(rootDir, resolve(dir, path)));
@@ -665,6 +665,8 @@ export async function findDeadExports(
     }
     for (const path of sources) {
         if (isTestFile(path)) continue;
+        // an offline generator: its one `export` line is emitted source inside a template literal
+        if (path === "src/extras/cells/generate-ramp.ts") continue;
         const full = resolve(rootDir, path);
         const relPath = relative(rootDir, full).replace(/\\/g, "/");
         const content = await readMasked(full, relPath);
@@ -701,14 +703,10 @@ export async function findDeadExports(
 
     const consumerDirs = [
         "src",
-        "src",
-        "packages/shallot-physics/src",
-        "packages/shallot-physics/scripts",
-        "packages/shallot-physics/tests",
+        "packages/shallot-avbd-physics/src",
+        "packages/shallot-avbd-physics/tests",
         "tests",
         "bin",
-        "src",
-        "scripts",
         "scripts",
         "examples",
         "evals",

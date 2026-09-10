@@ -179,7 +179,9 @@ async function drive(): Promise<void> {
             stdio: ["ignore", "ignore", "inherit"],
         });
         if (r.status !== 0 || !existsSync(resolve(outDir, `${slug}.json`))) {
-            console.error(`[physics/gen-sample-golds] sample ${i} (${e.category}/${e.name}) failed`);
+            console.error(
+                `[physics/gen-sample-golds] sample ${i} (${e.category}/${e.name}) failed`,
+            );
             process.exit(r.status ?? 1);
         }
         index.push({ slug, category: e.category, name: e.name, description: e.description });

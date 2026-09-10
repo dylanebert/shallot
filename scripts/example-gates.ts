@@ -34,11 +34,8 @@ const ORBIT = src("extras/orbit");
 /** Flow and rendered-page assertions observe the boot path even when their specific claim is elsewhere. */
 const BOOT = src("engine/ecs", "standard/glaze", "standard/loading");
 
-/** The rigid-body surface and both backends read by the physics assertions. */
-const PHYSICS = [
-    ...src("standard/physics", "standard/avbd", "standard/physics"),
-    "packages/shallot-physics/src/**",
-];
+/** The rigid-body surface and the GPU solver package read by the physics assertions. */
+const PHYSICS = [...src("standard/physics"), "packages/shallot-avbd-physics/src/**"];
 
 /** Shallot-owned selection roster. Each row's cone is its own directory plus the runtime and producer
  * modules its surviving assertion claims about. Whole-roster escalation on the lock or any manifest
@@ -248,7 +245,8 @@ export const EXAMPLE_GATES: ExampleGate[] = [
             ...BARRELS,
             ...HARNESS,
             ...BOOT,
-            ...src("extras/orbit", "standard/input", "standard/avbd", "standard/render"),
+            ...src("extras/orbit", "standard/input", "standard/render"),
+            "packages/shallot-avbd-physics/src/**",
         ],
         gate: "bun run --cwd examples/showcase/collapse gate",
         motion: true,
@@ -358,9 +356,8 @@ export const EXAMPLE_GATES: ExampleGate[] = [
                 "standard/physics",
                 "standard/player",
                 "standard/transforms",
-                "standard/physics",
             ),
-            "packages/shallot-physics/src/**",
+            "packages/shallot-avbd-physics/src/**",
         ],
         gate: "bun bench --sweep && bun run --cwd examples/gym gate",
     },

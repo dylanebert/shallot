@@ -1137,7 +1137,7 @@ describe("resolveFor", () => {
     const table = {
         outline: { covers: ["src/extras/outline/**/*.ts"] },
         sprite: { covers: ["src/extras/sprite/**/*.ts"] },
-        backend: { covers: ["src/standard/avbd/**/*.ts"] },
+        backend: { covers: ["src/standard/physics/**/*.ts"] },
         "stacking-arch": {},
     };
 
@@ -1149,9 +1149,9 @@ describe("resolveFor", () => {
     test("a path under two scenarios' globs matches both, sorted", () => {
         const twoWay = {
             ...table,
-            accel: { covers: ["src/standard/avbd/**/*.ts"] },
+            accel: { covers: ["src/standard/physics/**/*.ts"] },
         };
-        const [m] = resolveFor(["src/standard/avbd/collide.ts"], twoWay);
+        const [m] = resolveFor(["src/standard/physics/index.ts"], twoWay);
         expect(m.scenarios).toEqual(["accel", "backend"]);
     });
 

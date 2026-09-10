@@ -110,7 +110,6 @@ const EXPECTED_RUNTIME_MODULES = [
     "extras/sprite",
     "extras/text",
     "standard/audio",
-    "standard/avbd",
     "standard/bvh",
     "standard/character",
     "standard/fog",
@@ -178,16 +177,6 @@ const EXPECTED_RUNTIME_MODULE_ROWS: Record<string, string[]> = {
         "examples/gym",
     ],
     "standard/audio": [],
-    "standard/avbd": [
-        "examples/recipes/breakable-joints",
-        "examples/recipes/drive-a-vehicle",
-        "examples/recipes/joints",
-        "examples/recipes/moving-platform",
-        "examples/recipes/physics-playground",
-        "examples/recipes/surface-friction",
-        "examples/showcase/collapse",
-        "examples/gym",
-    ],
     "standard/bvh": ["examples/gym"],
     "standard/character": ["examples/gym"],
     "standard/fog": ["examples/gym"],
@@ -294,13 +283,14 @@ test("a runtime file selects the rows with the corresponding assertion subject",
         "examples/recipes/compute-and-readback",
         "examples/gym",
     ]);
-    expect(dirs(["packages/shallot-physics/src/index.ts"])).toEqual([
+    expect(dirs(["packages/shallot-avbd-physics/src/index.ts"])).toEqual([
         "examples/recipes/breakable-joints",
         "examples/recipes/drive-a-vehicle",
         "examples/recipes/joints",
         "examples/recipes/moving-platform",
         "examples/recipes/physics-playground",
         "examples/recipes/surface-friction",
+        "examples/showcase/collapse",
         "examples/gym",
     ]);
     expect(dirs([`${RUNTIME_SRC}/standard/character/index.ts`])).toEqual(["examples/gym"]);

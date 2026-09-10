@@ -158,33 +158,17 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
         ],
     },
 
-    // ── AVBD (GPU physics) — each imports AvbdPlugin and gates a slice of the solver end to end ──
-    backend: {
-        // the substrate swap gate: `--param backend=physics|avbd` runs the same scene under either
-        // backend, so it is a real (if secondary) exerciser of the avbd path.
-        covers: ["src/standard/avbd/**/*.ts"],
-    },
     character: {
         // felt-lag GPU-load probe: `probeChecks`'s "position input→camera carries no GPU readback" check
         // asserts a frame-count delta under a calibrated GPU load — a perf-threshold check (the same
         // felt-lag shape as `stress`), untrustworthy under sweep contention.
         isolate: true,
-        covers: ["src/standard/avbd/**/*.ts"],
     },
-    constraints: {
-        covers: ["src/standard/avbd/**/*.ts"],
-    },
-    motor: {
-        covers: ["src/standard/avbd/**/*.ts"],
-    },
-    pile: {
-        covers: ["src/standard/avbd/**/*.ts"],
-    },
-    sat: {
-        // the GPU-SAT codegen gate (hull/rounded narrowphase matrix vs the C gold vectors) — the codegen
-        // it validates lives in `standard/avbd`.
-        covers: ["src/standard/avbd/**/*.ts"],
-    },
+    backend: {},
+    constraints: {},
+    motor: {},
+    pile: {},
+    sat: {},
 
     // ── everything below is a physics (CPU wasm) scenario: no `covers`, deliberately. physics is
     // bit-exact-gated by `bun test` + the committed fixtures/gold corpus (`physics.md`), not by this

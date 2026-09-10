@@ -1,32 +1,28 @@
 {
-    "total": 65668,
+    "total": 63423,
     "files": {
         ".claude/rules/audio.md": {
             "bytes": 3677,
             "paragraph": 528
-        },
-        ".claude/rules/avbd.md": {
-            "bytes": 5444,
-            "paragraph": 636
         },
         ".claude/rules/ecs.md": {
             "bytes": 4428,
             "paragraph": 515
         },
         ".claude/rules/examples.md": {
-            "bytes": 2955,
+            "bytes": 2743,
             "paragraph": 432
         },
         ".claude/rules/exports.md": {
-            "bytes": 4154,
-            "paragraph": 539
+            "bytes": 4091,
+            "paragraph": 551
         },
         ".claude/rules/gpu.md": {
             "bytes": 6797,
             "paragraph": 366
         },
         ".claude/rules/physics.md": {
-            "bytes": 3940,
+            "bytes": 6289,
             "paragraph": 534
         },
         ".claude/rules/render.md": {
@@ -38,19 +34,15 @@
             "paragraph": 473
         },
         ".claude/rules/testing.md": {
-            "bytes": 7180,
+            "bytes": 7073,
             "paragraph": 464
-        },
-        ".claude/rules/physics.md": {
-            "bytes": 4351,
-            "paragraph": 696
         },
         ".claude/rules/visual-identity.md": {
             "bytes": 1043,
             "paragraph": 263
         },
         "AGENTS.md": {
-            "bytes": 4986,
+            "bytes": 4988,
             "paragraph": 511
         },
         "CLAUDE.md": {
@@ -58,12 +50,16 @@
             "paragraph": 94
         },
         "MAINTAINERS.md": {
-            "bytes": 3846,
-            "paragraph": 492
+            "bytes": 3917,
+            "paragraph": 493
         },
         "examples/AGENTS.md": {
-            "bytes": 3110,
+            "bytes": 3111,
             "paragraph": 514
+        },
+        "packages/shallot-avbd-physics/.claude/rules/avbd.md": {
+            "bytes": 5509,
+            "paragraph": 636
         }
     }
 }

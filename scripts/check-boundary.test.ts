@@ -73,67 +73,6 @@ test("the fixture tree is green before any mutation", () => {
     expect(result.consumers).toBe(1);
 });
 
-describe("private solver ownership", () => {
-    const bridge = "src/standard/physics/engine/index.ts";
-    const entry = "src/standard/physics/engine/index.ts";
-    const forward =
-        'export * from "../../../../../shallot-physics/src/standard/physics/engine/index";';
-    for (const [file, source, refusal] of [
-        [bridge, forward, ""],
-        [entry, 'import "@dylanebert/shallot";', "solver source leaves its isolated owner"],
-        [
-            entry,
-            'export * from "../../../../../../src/index";',
-            "solver source leaves its isolated owner",
-        ],
-        [
-            "examples/recipes/demo/src/main.ts",
-            'import "shallot-physics";',
-            "private solver is not a consumer installation surface",
-        ],
-        [
-            "examples/recipes/demo/src/main.ts",
-            'export * from "shallot-physics/internal";',
-            "private solver is not a consumer installation surface",
-        ],
-        [
-            "examples/recipes/demo/src/main.ts",
-            'import "../../../../src/standard/physics/engine/index";',
-            "escapes the project",
-        ],
-        [
-            "examples/recipes/demo/src/main.ts",
-            'import "../../../../packages/shallot-physics/tests/oracle";',
-            "",
-        ],
-        ["examples/recipes/demo/src/main.ts", 'import "@dylanebert/shallot/render/core";', ""],
-    ]) {
-        test(`${file}: ${source}`, () => {
-            const root = make();
-            write(
-                root,
-                "packages/shallot-physics/package.json",
-                JSON.stringify({ name: "shallot-physics", private: true }),
-            );
-            write(root, "src/index.ts", "export const engine = 1;");
-            write(root, entry, "export class World {}");
-            write(root, bridge, forward);
-            write(root, "packages/shallot-physics/tests/oracle.ts", "export const truth = 1;");
-            const baseline = checkBoundary(root, EMPTY);
-            expect(baseline.errors).toEqual([]);
-            expect(baseline.violations).toEqual([]);
-            write(root, file, source);
-            const result = checkBoundary(root, EMPTY);
-            expect(result.errors).toEqual([]);
-            if (refusal)
-                expect(
-                    result.violations.some((violation) => violation.reason.includes(refusal)),
-                ).toBe(true);
-            else expect(result.violations).toEqual([]);
-        });
-    }
-});
-
 describe("in-package computed loaders", () => {
     test("an undeclared computed loader in src/ refuses", () => {
         const root = make();

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { $ } from "bun";
+import { optimize } from "./wasm-opt";
 
 const root = resolve(import.meta.dir, "../rust");
 
@@ -10,11 +11,7 @@ const audioPkg = resolve(audio, "pkg");
 if (!existsSync(audioPkg)) mkdirSync(audioPkg);
 await $`cargo build --target wasm32-unknown-unknown --release`.cwd(audio);
 const audioWasm = resolve(audio, "target/wasm32-unknown-unknown/release/shallot_audio.wasm");
-try {
-    await $`wasm-opt -O3 --enable-simd --enable-nontrapping-float-to-int --enable-bulk-memory ${audioWasm} -o ${audioPkg}/shallot_audio.wasm`;
-} catch {
-    await $`cp ${audioWasm} ${audioPkg}/shallot_audio.wasm`;
-}
+await optimize(audioWasm, resolve(audioPkg, "shallot_audio.wasm"));
 await Bun.write(
     resolve(audioPkg, "shallot_audio.js"),
     `const url = new URL("shallot_audio.wasm", import.meta.url);

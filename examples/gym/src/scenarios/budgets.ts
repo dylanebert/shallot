@@ -41,12 +41,9 @@
 //
 // `BUDGET_EXEMPTIONS` is empty — every row is exact — because the two lazily-grown pools (`Mirror`'s
 // readback ring, `Slab`'s staging pool) are excluded at the allocation site (`LazyAlloc`,
-// `Profile.lazyBytes`), not by exempting the scenarios that hold one. `AvbdPlugin`'s other
-// grow-on-demand buffer, `setHulls`'s `hullData` (`standard/avbd/step.ts`), is not a third lazy site:
-// it re-uploads only when `Hulls.size` changes, a count fixed by which hulls a scenario registers at
-// build, so it carries no `LazyAlloc` mark. The AVBD-driven rows (`motor`/`sat`/`character`/`stress`)
-// are exact for the same reason — their measured disagreement traced to the shared `slab-staging`
-// label, never to AVBD's contact-order non-determinism.
+// `Profile.lazyBytes`), not by exempting the scenarios that hold one. The `motor`/`sat`/`character`/`stress`
+// rows are exact for the same reason — their measured disagreement traced to the shared `slab-staging`
+// label.
 //
 // `orbit-touch` is exact at DEFAULT params: 29 pipelines, 29 pipeline calls, 31_828_368 GPU bytes.
 export interface AxisBudget {
