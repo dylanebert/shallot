@@ -1,0 +1,12 @@
+{
+    "kind": "recipe",
+    "description": "Walk a first-person character controller across platforms.",
+    "scene": "scenes/first-person.scene",
+    "plugins": {
+        "Physics": true,
+        "Character": true,
+        "Player": true,
+        "Text": true,
+        "Demo": "./src/demo"
+    }
+}

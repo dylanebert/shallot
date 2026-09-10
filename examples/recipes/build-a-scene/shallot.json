@@ -1,7 +1,0 @@
-{
-  "scene": "scenes/build-a-scene.scene",
-  "plugins": {
-    "Orbit": true,
-    "Ring": "./src/build"
-  }
-}

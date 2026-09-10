@@ -1,0 +1,11 @@
+{
+    "kind": "recipe",
+    "description": "Drive a vehicle with W/S/A/D through the Physics escape hatch.",
+    "scene": "scenes/drive-a-vehicle.scene",
+    "plugins": {
+        "Orbit": true,
+        "Text": true,
+        "Physics": true,
+        "Car": "./src/car"
+    }
+}

@@ -1,0 +1,9 @@
+{
+    "kind": "recipe",
+    "description": "Run game logic every frame as an ECS system inside a plugin.",
+    "scene": "scenes/game-loop.scene",
+    "plugins": {
+        "Orbit": true,
+        "Spin": "./src/spin"
+    }
+}

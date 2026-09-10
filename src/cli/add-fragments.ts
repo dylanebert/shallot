@@ -11,7 +11,7 @@
 export const ENGINE_REFERENCE = `## Engine reference
 
 The engine is the documentation. Read \`node_modules/@dylanebert/shallot/README.md\` for the setup,
-and every public export carries JSDoc. The recipes live at \`node_modules/@dylanebert/shallot/examples/recipes/\`;
+and every public export carries JSDoc. The recipes live at \`node_modules/@dylanebert/shallot/examples/\`;
 read the one closest to your problem before writing a pattern from scratch.
 \`bunx shallot add <name> [dir]\` copies a recipe out of the installed package into a runnable project
 (bare: lists them).`;

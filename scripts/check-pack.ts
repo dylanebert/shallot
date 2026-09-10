@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "path";
 import { TEST_TIER_SUFFIXES } from "./test-tiers";
 
@@ -41,10 +41,7 @@ const forbidden: [string, (f: string) => boolean][] = [
     ["fixtures", (f) => f.includes("/fixtures/")],
     ["build output", (f) => f.includes("/target/") || f.includes("/node_modules/")],
     ["site assets", (f) => f.startsWith("assets/") && f !== "assets/icon-1024.png"],
-    [
-        "repo docs",
-        (f) => f.endsWith(".md") && f !== "README.md" && !f.startsWith("examples/recipes/"),
-    ],
+    ["repo docs", (f) => f.endsWith(".md") && f !== "README.md" && !f.startsWith("examples/")],
 ];
 const violations = files.flatMap((f) =>
     forbidden.filter(([, match]) => match(f)).map(([kind]) => `${f} (${kind})`),
@@ -75,7 +72,23 @@ for (const f of files.filter((f) => f.endsWith("package.json") && f !== "package
 
 const missing = required.filter((f) => !files.includes(f));
 if (!files.some((f) => f.startsWith("crates/audio/pkg/"))) missing.push("crates/audio/pkg/");
-if (!files.some((f) => f.startsWith("examples/recipes/"))) missing.push("examples/recipes/");
+// The shipped example set is exactly the `kind: "recipe"` manifests: `files` negates showcases by
+// name, so a new showcase that misses its negation (or a recipe caught by one) reds here.
+const examplesDir = resolve(pkgDir, "examples");
+const recipes = readdirSync(examplesDir)
+    .filter((name) => existsSync(resolve(examplesDir, name, "shallot.json")))
+    .filter(
+        (name) =>
+            JSON.parse(readFileSync(resolve(examplesDir, name, "shallot.json"), "utf8")).kind ===
+            "recipe",
+    )
+    .sort();
+const shipped = [
+    ...new Set(files.filter((f) => f.startsWith("examples/")).map((f) => f.split("/")[1])),
+].sort();
+if (recipes.length === 0) missing.push("examples/<recipe>/");
+if (shipped.join() !== recipes.join())
+    violations.push(`examples/ ships [${shipped.join(", ")}], recipes are [${recipes.join(", ")}]`);
 
 if (violations.length > 0) {
     console.error(`✗ ${violations.length} file(s) that must not ship in the npm pack:\n`);

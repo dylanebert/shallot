@@ -1,8 +1,0 @@
-{
-    "scene": "scenes/joints.scene",
-    "plugins": {
-        "Orbit": true,
-        "Physics": true,
-        "Joints": "./src/joints"
-    }
-}

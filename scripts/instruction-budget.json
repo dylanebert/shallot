@@ -1,5 +1,5 @@
 {
-    "total": 6476,
+    "total": 7928,
     "files": {
         "AGENTS.md": {
             "bytes": 4262,
@@ -10,8 +10,8 @@
             "paragraph": 74
         },
         "examples/AGENTS.md": {
-            "bytes": 2127,
-            "paragraph": 445
+            "bytes": 3579,
+            "paragraph": 3109
         }
     }
 }

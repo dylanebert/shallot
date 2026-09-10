@@ -67,13 +67,15 @@ Written for coding agents first, readable by hand. Both files move in the same c
 
 Examples live under `examples/`, indexed by [`examples/AGENTS.md`](examples/AGENTS.md):
 
-- `recipes/` — one minimal project per problem: first-person character, physics playground, import a model, day-night sky, and more.
-- `showcase/` — full projects rather than one concept each, under real-device gates: `ascii`, `visualization`. Retired units are Git tags indexed in [`ARCHIVE.md`](ARCHIVE.md).
+- recipes: one minimal project per problem, such as a first-person character, a physics playground, importing a model or a day-night sky.
+- showcases: full projects rather than one concept each, under real-device gates: `ascii`, `visualization`. Retired units are Git tags indexed in [`ARCHIVE.md`](ARCHIVE.md).
+
+Each example is one flat `examples/<name>/` directory; its `shallot.json` declares `kind` and `description`, and the index is generated from those.
 
 Run a recipe standalone:
 
 ```bash
-bunx shallot dev examples/recipes/orbit-camera
+bunx shallot dev examples/orbit-camera
 ```
 
 A new project starts from `bun create shallot <name>` — the scaffold is the single source, so there's no in-repo starter copy.

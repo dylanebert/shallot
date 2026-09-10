@@ -1,9 +1,0 @@
-{
-    "scene": "scenes/ragdoll.scene",
-    "plugins": {
-        "Physics": true,
-        "Gltf": true,
-        "Orbit": true,
-        "Ragdoll": "./src/ragdoll"
-    }
-}

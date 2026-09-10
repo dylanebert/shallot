@@ -1,0 +1,9 @@
+{
+  "kind": "recipe",
+  "description": "Build a scene declaratively or in code.",
+  "scene": "scenes/build-a-scene.scene",
+  "plugins": {
+    "Orbit": true,
+    "Ring": "./src/build"
+  }
+}

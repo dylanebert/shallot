@@ -1,9 +1,0 @@
-{
-    "scene": "scenes/drive-a-vehicle.scene",
-    "plugins": {
-        "Orbit": true,
-        "Text": true,
-        "Physics": true,
-        "Car": "./src/car"
-    }
-}

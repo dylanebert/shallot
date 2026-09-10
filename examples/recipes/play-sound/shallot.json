@@ -1,9 +1,0 @@
-{
-    "scene": "scenes/play-sound.scene",
-    "plugins": {
-        "Audio": true,
-        "Orbit": true,
-        "Text": true,
-        "AudioDemo": "./src/demo"
-    }
-}

@@ -1,8 +1,0 @@
-{
-    "scene": "scenes/surface-friction.scene",
-    "plugins": {
-        "Orbit": true,
-        "Physics": true,
-        "Ramp": "./src/ramp"
-    }
-}

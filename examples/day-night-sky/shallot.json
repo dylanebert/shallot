@@ -1,0 +1,10 @@
+{
+    "kind": "recipe",
+    "description": "Run a procedural sky whose sun follows the time of day.",
+    "scene": "scenes/day-night-sky.scene",
+    "plugins": {
+        "Sky": true,
+        "Orbit": true,
+        "SkyTune": "./src/tune"
+    }
+}

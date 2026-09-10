@@ -1,0 +1,10 @@
+{
+    "kind": "recipe",
+    "description": "Play animation clips with Animator playables.",
+    "scene": "scenes/animate-with-clips.scene",
+    "plugins": {
+        "Animation": true,
+        "Orbit": true,
+        "Bouncer": "./src/bounce"
+    }
+}

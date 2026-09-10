@@ -1,0 +1,10 @@
+{
+    "kind": "recipe",
+    "description": "Respond to held keys, key presses and the mouse.",
+    "scene": "scenes/respond-to-input.scene",
+    "plugins": {
+        "Orbit": true,
+        "Text": true,
+        "Drive": "./src/drive"
+    }
+}

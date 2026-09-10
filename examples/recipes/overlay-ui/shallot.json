@@ -1,7 +1,0 @@
-{
-    "scene": "scenes/overlay-ui.scene",
-    "plugins": {
-        "Orbit": true,
-        "Hud": "./src/hud"
-    }
-}

@@ -1,0 +1,10 @@
+{
+    "kind": "recipe",
+    "description": "Stylize the look with outlines.",
+    "scene": "scenes/stylize-the-look.scene",
+    "plugins": {
+        "Outline": true,
+        "Orbit": true,
+        "Selector": "./src/select"
+    }
+}

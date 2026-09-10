@@ -1,7 +1,0 @@
-{
-  "scene": "scenes/custom-material.scene",
-  "plugins": {
-    "Orbit": true,
-    "ShallotSurfaces": "./src/surfaces"
-  }
-}

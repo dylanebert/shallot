@@ -10,6 +10,14 @@
             "type": "string",
             "description": "Pointer to this schema for editor autocomplete + validation."
         },
+        "kind": {
+            "enum": ["recipe", "showcase"],
+            "description": "Examples only: which table of the generated examples index this project belongs to. Ignored by dev, build and run."
+        },
+        "description": {
+            "type": "string",
+            "description": "One line naming the problem the project answers; the examples index prints it."
+        },
         "scene": {
             "type": "string",
             "description": "Path to the project's scene file, relative to the manifest (e.g. \"scenes/main.scene\")."
