@@ -2,8 +2,7 @@ import type { StorageFlag, TgpuBuffer, TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import { Compute, capacity, type Plugin, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
-import { eulerAlias } from "../../engine/utils";
-import { Xform } from "../../engine/utils/core";
+import { eulerAlias, Xform } from "../../engine/utils";
 import { SlabPlugin, slab } from "../slab";
 import { composeKernel, composeLayout } from "./compose";
 

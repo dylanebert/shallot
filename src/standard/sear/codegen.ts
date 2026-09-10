@@ -1,6 +1,6 @@
 // Sear's shared render constants and relocatable clustered-light WGSL.
 
-import { chunk, octEncodeWgsl, spliceNs } from "../../engine/utils/core";
+import { chunk, octEncodeWgsl, spliceNs } from "../../engine/utils";
 import type { View } from "../render/core";
 import { clusterCell, distanceAttenuation, pointLightsWgsl, spotFactor } from "../render/core";
 

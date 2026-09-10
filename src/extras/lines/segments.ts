@@ -7,7 +7,7 @@
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { Compute } from "../../engine";
-import { packColor } from "../../engine/utils/core";
+import { packColor } from "../../engine/utils";
 import { DrawIndexedIndirect } from "../../standard/render/core";
 import { Segment } from "./surface";
 

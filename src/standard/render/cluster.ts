@@ -11,7 +11,7 @@ import {
     uniformLoad,
     Xform,
     xformQuat,
-} from "../../engine/utils/core";
+} from "../../engine/utils";
 import { Camera, CameraMode } from "./camera";
 import {
     MAX_POINT_LIGHTS,

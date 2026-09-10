@@ -13,7 +13,7 @@ import tgpu, { isTgpuFn } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import { Registry, type State } from "../../engine";
-import { Xform } from "../../engine/utils/core";
+import { Xform } from "../../engine/utils";
 
 // Free functions (barrel-named — `layout`/`register` are too generic for a barrel, the archived exports rules), not `Surfaces.layout`/`Surfaces.register` methods (the spec's literal wording):
 // `Registry<T>` (`engine/utils/registry.ts`) is generic infra shared by `Draws`/`Meshes`, so it must stay

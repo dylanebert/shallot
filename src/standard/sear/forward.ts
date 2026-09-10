@@ -23,7 +23,7 @@ import * as std from "typegpu/std";
 import type { Plugin, State, System } from "../../engine";
 import { Compute, capacity, f16x4, laneAlias, sparse, u32, unpackColor } from "../../engine";
 import { precompile } from "../../engine/runtime";
-import { unpackLdrColor, Xform } from "../../engine/utils/core";
+import { unpackLdrColor, Xform } from "../../engine/utils";
 import { GlazeSystem } from "../glaze";
 import { Camera, RenderPlugin } from "../render";
 import type { Draw, MeshBinding, MeshIndex, View } from "../render/core";

@@ -5,7 +5,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { MeshQuant } from "../../engine/utils/core";
+import { MeshQuant } from "../../engine/utils";
 import {
     clusterCell,
     distanceAttenuation,

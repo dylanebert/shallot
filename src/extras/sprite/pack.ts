@@ -7,7 +7,7 @@
 
 import * as d from "typegpu/data";
 import { f32, type State, sparse, u32, vec2 } from "../../engine";
-import { packColor } from "../../engine/utils/core";
+import { packColor } from "../../engine/utils";
 import { Transform } from "../../standard/transforms";
 import { SpriteData } from "./surface";
 

@@ -2,7 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { capacity } from "../../engine";
-import { Xform, xformPoint } from "../../engine/utils/core";
+import { Xform, xformPoint } from "../../engine/utils";
 import { CULL_FRUSTUM, CULL_VOLUME_FLOATS, DrawIndexedIndirect } from "../render/core";
 
 // The pack kernels: cull → count → scan → scatter, the compute half of the Part producer. Count and

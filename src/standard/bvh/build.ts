@@ -54,7 +54,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute } from "../../engine";
 import { precompile, precompileScope } from "../../engine/runtime";
-import { bitcastF32toU32, idiv } from "../../engine/utils/core";
+import { bitcastF32toU32, idiv } from "../../engine/utils";
 
 const WG_INIT = 256; // leaf-init: embarrassingly parallel, one thread per node
 const WG_TOPO = 128; // topology: one thread per internal node, each a small binary search

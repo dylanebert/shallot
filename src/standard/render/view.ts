@@ -2,7 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute, pixelRatio, type State } from "../../engine";
-import { chunk, spliceNs } from "../../engine/utils/core";
+import { chunk, spliceNs } from "../../engine/utils";
 import { Camera, Resolution } from "./camera";
 import { Render } from "./render";
 
@@ -74,7 +74,7 @@ export const viewWgsl = chunk("viewWgsl", [View], spliceNs);
  * base-format storage view (a storage view can't be sRGB), so the composite encodes the transfer the
  * hardware would apply on a render-attachment write. One source of truth so every composite (glaze +
  * consumer-fused) agrees, and the present gamma can't drift between them. The per-channel scalar twin is
- * `linearToSrgb1` (`utils/core`), which the LDR color codec packs through.
+ * `linearToSrgb1` (`utils`), which the LDR color codec packs through.
  *
  * @example let encoded = linearToSrgb(max(color, vec3f()));
  */

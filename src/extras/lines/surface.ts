@@ -12,7 +12,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { unpackLdrColor } from "../../engine/utils/core";
+import { unpackLdrColor } from "../../engine/utils";
 import {
     engineLayout,
     fsCtxSchema,

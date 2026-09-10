@@ -18,7 +18,7 @@ import {
     Xform,
     xformNormal,
     xformPoint,
-} from "../../engine/utils/core";
+} from "../../engine/utils";
 import type { Draw, Mesh } from "../render/core";
 import { Draws, Frame, LightCull, Lighting, Meshes, Render } from "../render/core";
 import { cascadeLayout, pointLayout, shadowLayout } from "./atlas";

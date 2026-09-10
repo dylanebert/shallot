@@ -21,7 +21,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { chunk, spliceNs } from "../../engine/utils/core";
+import { chunk, spliceNs } from "../../engine/utils";
 import { PointLightGpu, pointLightsWgsl } from "../render/core";
 import { EDGE_TEXELS, MAX_CASCADES, pointAtlasSize, pointCasters } from "./shadows";
 

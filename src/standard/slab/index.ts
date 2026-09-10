@@ -12,7 +12,7 @@ import {
     type Type,
     type TypedArray,
 } from "../../engine";
-import { entries } from "../../engine/ecs/core";
+import { entries } from "../../engine/ecs";
 import { deviceLost, type LazyAlloc, precompile } from "../../engine/runtime";
 import { allocMembership, MembershipSystem } from "./membership";
 import {

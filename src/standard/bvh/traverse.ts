@@ -29,7 +29,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { chunk, spliceNs } from "../../engine/utils/core";
+import { chunk, spliceNs } from "../../engine/utils";
 
 /** bytes per BVH2 node (2 × vec4<f32>) */
 export const BVH_NODE_BYTES = 32;

@@ -12,7 +12,7 @@
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { packLdrColor } from "../../engine/utils/core";
+import { packLdrColor } from "../../engine/utils";
 
 /**
  * one terminal cell: a glyph atlas index plus two packed LDR colors (foreground, background) — sRGB rgb,

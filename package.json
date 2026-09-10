@@ -43,9 +43,9 @@
             "types": "./src/project/vite.ts",
             "default": "./dist/vite.js"
         },
-        "./ecs/core": "./src/engine/ecs/core.ts",
-        "./scene/core": "./src/engine/scene/core.ts",
-        "./utils/core": "./src/engine/utils/core.ts",
+        "./ecs/core": "./src/engine/ecs/index.ts",
+        "./scene/core": "./src/engine/scene/index.ts",
+        "./utils/core": "./src/engine/utils/index.ts",
         "./fog/core": "./src/standard/fog/core.ts",
         "./glaze": "./src/standard/glaze/index.ts",
         "./part/core": "./src/standard/part/core.ts",

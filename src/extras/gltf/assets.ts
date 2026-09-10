@@ -6,8 +6,8 @@ import * as std from "typegpu/std";
 import { Compute, type Plugin, type State, type System } from "../../engine";
 import { readBinary, UnsupportedError } from "../../engine/runtime";
 import type { Node } from "../../engine/scene";
-import { Preloads } from "../../engine/scene/core";
-import { MeshQuant, unpackLdrColor, Xform } from "../../engine/utils/core";
+import { Preloads } from "../../engine/scene";
+import { MeshQuant, unpackLdrColor, Xform } from "../../engine/utils";
 import { Color, Part } from "../../standard/part";
 import { RenderPlugin } from "../../standard/render";
 import {

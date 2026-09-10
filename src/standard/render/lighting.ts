@@ -3,7 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State } from "../../engine";
 import { Compute, f32, sparse, unpackColor, vec4 } from "../../engine";
-import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/utils/core";
+import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/utils";
 import { slab } from "../slab";
 import { Transform } from "../transforms";
 

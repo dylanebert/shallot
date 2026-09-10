@@ -2,7 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import type { Plugin, System } from "../../engine";
 import { Compute, compose, decompose, multiply, vec4 } from "../../engine";
-import { chunk, packColor4, spliceNs } from "../../engine/utils/core";
+import { chunk, packColor4, spliceNs } from "../../engine/utils";
 import { Color } from "../../standard/part";
 import { RenderPlugin } from "../../standard/render";
 import { BeginFrameSystem, Render } from "../../standard/render/core";

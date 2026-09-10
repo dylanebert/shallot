@@ -15,7 +15,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { chunk, spliceNs } from "../../engine/utils/core";
+import { chunk, spliceNs } from "../../engine/utils";
 
 /**
  * tonemap operator for the {@link Glaze} `tonemap` field. `Neutral` (0) is the zero-config default:

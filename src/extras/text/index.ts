@@ -23,7 +23,7 @@ import {
     u32,
     vec2,
 } from "../../engine";
-import { packColor, Xform, xformPoint } from "../../engine/utils/core";
+import { packColor, Xform, xformPoint } from "../../engine/utils";
 import { mesh, RenderPlugin } from "../../standard/render";
 import { BeginFrameSystem, DrawIndexedIndirect, Draws, Meshes } from "../../standard/render/core";
 import {

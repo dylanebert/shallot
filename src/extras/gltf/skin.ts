@@ -3,7 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State, System } from "../../engine";
 import { Compute, checkTextureLimits } from "../../engine";
-import { unpackLdrColor, Xform, xformNormal, xformPoint } from "../../engine/utils/core";
+import { unpackLdrColor, Xform, xformNormal, xformPoint } from "../../engine/utils";
 import {
     fsCtxSchema,
     registerSurface,

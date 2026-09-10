@@ -2,7 +2,7 @@ import type { IndexFlag, StorageFlag, TgpuBuffer, UniformFlag } from "typegpu";
 import type { AnyData, AnyWgslData, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import { Compute, Registry } from "../../engine";
-import { MeshQuant, octEncode, packUnorm2 } from "../../engine/utils/core";
+import { MeshQuant, octEncode, packUnorm2 } from "../../engine/utils";
 
 export type MeshStorage<T extends AnyWgslData> = TgpuBuffer<WgslArray<T>> & StorageFlag;
 export type MeshIndex = MeshStorage<d.U32> & IndexFlag;

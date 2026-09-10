@@ -32,7 +32,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute } from "../../engine";
 import { precompile, precompileScope } from "../../engine/runtime";
-import { bitcastF32toU32, idiv } from "../../engine/utils/core";
+import { bitcastF32toU32, idiv } from "../../engine/utils";
 
 const WG = 256; // workgroup size, both kernels
 const MAX_SUB = 64; // max subgroup size on the floor — sizes the partials array so wgMin[sid] never reads OOB

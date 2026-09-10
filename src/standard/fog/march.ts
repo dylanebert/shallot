@@ -13,7 +13,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { chunk, octEncodeWgsl, spliceNs } from "../../engine/utils/core";
+import { chunk, octEncodeWgsl, spliceNs } from "../../engine/utils";
 import { distanceAttenuation, PointLightGpu, pointLightsWgsl, spotFactor } from "../render/core";
 import { lightEvalWgsl } from "../sear/core";
 

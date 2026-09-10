@@ -34,7 +34,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute } from "../../engine";
 import { precompile, precompileScope } from "../../engine/runtime";
-import { idiv, subgroupUniformityOff, uniformLoad } from "../../engine/utils/core";
+import { idiv, subgroupUniformityOff, uniformLoad } from "../../engine/utils";
 import { createRadixSortLds } from "./sort-lds";
 
 const RADIX = 256;

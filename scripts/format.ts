@@ -12,8 +12,8 @@ const {
     AnimationPlugin,
     AudioPlugin,
 } = await import("../src");
-const { register } = await import("../src/engine/ecs/core");
-const { normalizeAttr } = await import("../src/engine/scene/core");
+const { register } = await import("../src/engine/ecs");
+const { normalizeAttr } = await import("../src/engine/scene");
 
 // the engine defaults plus the opt-in viz extras that add scene-authorable components,
 // so normalizeAttr knows every component schema a scene can reference

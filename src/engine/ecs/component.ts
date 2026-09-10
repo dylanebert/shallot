@@ -1,4 +1,4 @@
-import { packColor4 } from "../utils/core";
+import { packColor4 } from "../utils";
 import type { Entity } from "./entity";
 
 /** SoA component: keys map to typed arrays indexed by entity */

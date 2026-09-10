@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { decodePos, MeshQuant, meshIdOf, Xform, xformPoint } from "../../engine/utils/core";
+import { decodePos, MeshQuant, meshIdOf, Xform, xformPoint } from "../../engine/utils";
 import { View } from "../../standard/render/core";
 
 // The outline's pass internals: the JFA + composite kernels with their bind group layouts, plus the pure

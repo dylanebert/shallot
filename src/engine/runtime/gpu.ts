@@ -194,7 +194,7 @@ export interface Compute {
 /** active GPU compute singleton, populated by {@link requestGPU} */
 export const Compute: Compute = {} as Compute;
 
-/** a verify/debug-only generated shader record. @internal */
+/** a generated shader record, for debugging. @internal */
 export interface ShaderArtifact {
     label: string;
     stage: string;
