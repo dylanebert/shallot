@@ -1,8 +1,8 @@
-import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { BenchmarkMeasurement } from "@dylanebert/shallot/extras";
 import { globToRegExp } from "../examples/gym/src/scenarios/coverage";
 import { SCENARIO_GATES, type ScenarioGate } from "../examples/gym/src/scenarios/timeouts";
+import { load, missing, PATHS, type Paths, remedy } from "./assets";
 import {
     type Check,
     type Memory,
@@ -88,27 +88,26 @@ function parseParamStrings(params: readonly string[]): Record<string, string> {
     return out;
 }
 
-/** the public asset paths a scenario needs for the given params, or `null` when it needs none.
- *  Checks the filesystem under `examples/gym/public/` — cheaper and more honest than an in-page
- *  fetch, and it skips before booting a page so no ready timeout burns. Returns the missing paths
- *  so the caller can name them in the skip announcement. */
+/** the pinned assets (`assets.json`) a scenario declares for the given params that are absent or fail
+ *  their hash, or `null` when none are. Checked before booting a page, so a missing asset reds by name
+ *  instead of timing out through the glTF loader. */
 export function missingAssets(
     scenario: string,
     paramStrings: readonly string[],
-    exists: (path: string) => boolean = existsSync,
+    paths: Paths = PATHS,
 ): string[] | null {
-    const gate = SCENARIO_GATES[scenario];
-    if (!gate?.assets) return null;
-    const params = parseParamStrings(paramStrings);
-    const paths = gate.assets(params);
-    if (paths.length === 0) return null;
-    const missing = paths.filter((p) => !exists(resolve(REPO_ROOT, GYM, "public", p)));
-    return missing.length > 0 ? missing : null;
+    const names = SCENARIO_GATES[scenario]?.assets?.(parseParamStrings(paramStrings)) ?? [];
+    if (names.length === 0) return null;
+    const absent = missing(
+        load().filter((a) => names.includes(a.name)),
+        paths,
+    );
+    return absent.length > 0 ? absent : null;
 }
 
-/** the skip announcement for a scenario whose assets are absent. */
-function assetSkipMessage(scenario: string, missing: string[]): string {
-    return `· ${scenario} — skipped (assets not found: ${missing.join(", ")} — mount them locally under examples/gym/public/, see .claude/rules/testing.md)`;
+/** the red line for a scenario whose declared assets are absent. */
+function assetFailure(scenario: string, absent: string[]): string {
+    return `✗ ${scenario} — ${absent.map(remedy).join("; ")}`;
 }
 
 /** `--list`'s roster, sorted — pure so the sort/format is unit-tested without booting a page. */
@@ -481,29 +480,21 @@ async function sweep(names: string[], args: Args): Promise<boolean> {
     if (args.count != null) shared.push(`count=${args.count}`);
     shared.push(...args.params);
 
-    // Missing mounts are unavailable, never page assertion failures.
+    // A missing declared asset is a failure, never a skip.
     const population = { selected: names.length, executed: 0, pass: 0, fail: 0, unavailable: 0 };
-    const batch = batchAll.filter((name) => {
-        const missing = missingAssets(name, args.params);
-        if (missing) {
-            console.log(assetSkipMessage(name, missing));
-            return false;
-        }
-        return true;
-    });
-    const isolate = isolateAll.filter((name) => {
-        const missing = missingAssets(name, args.params);
-        if (missing) {
-            console.log(assetSkipMessage(name, missing));
-            return false;
-        }
-        return true;
-    });
+    const ready = (name: string) => {
+        const absent = missingAssets(name, args.params);
+        if (!absent) return true;
+        console.log(assetFailure(name, absent));
+        population.fail++;
+        return false;
+    };
+    const batch = batchAll.filter(ready);
+    const isolate = isolateAll.filter(ready);
 
-    population.unavailable = names.length - batch.length - isolate.length;
     let allPass =
         names.length > 0 &&
-        batch.length + isolate.length > 0 &&
+        population.fail === 0 &&
         !(process.env.SHALLOT_DISPLAY_REQUIRED === "1" && population.unavailable > 0);
 
     for (const group of groupByTimeout(batch, args.timeoutMs)) {
@@ -638,13 +629,11 @@ async function main(): Promise<void> {
     if (timeoutMs != null) extra.push("--timeout", String(timeoutMs));
     if (args.leak != null) extra.push("--leak", String(args.leak));
 
-    // check assets on the filesystem before booting a page — a missing mount skips with a clear
-    // message instead of burning the 60s ready timeout on a 404 through the glTF loader.
-    const missing = missingAssets(args.scenario, args.params);
-    if (missing) {
-        console.log(`\n${assetSkipMessage(args.scenario, missing)}`);
-        console.log('population: {"selected":1,"executed":0,"pass":0,"fail":0,"unavailable":1}');
-        process.exit(process.env.SHALLOT_DISPLAY_REQUIRED === "1" ? 1 : 0);
+    const absent = missingAssets(args.scenario, args.params);
+    if (absent) {
+        console.log(`\n${assetFailure(args.scenario, absent)}`);
+        console.log('population: {"selected":1,"executed":0,"pass":0,"fail":1,"unavailable":0}');
+        process.exit(1);
     }
 
     const result = await verify(GYM, extra);

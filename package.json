@@ -101,6 +101,7 @@
         "test": "bun test src bin tests scripts evals examples/showcase/visualization/test examples/showcase/ocean/test",
         "test:install": "bun run scripts/install-test.ts",
         "test:changed": "bun run scripts/test-changed.ts",
+        "assets": "bun run scripts/assets.ts",
         "bench": "bun run scripts/bench.ts",
         "recipes": "bun run scripts/recipes.ts"
     },

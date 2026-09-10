@@ -193,7 +193,8 @@ mock.module("node:fs", () => ({ ...fs, existsSync: (path) => String(path).endsWi
             );
             const output = await new Response(proc.stdout).text();
             expect(await proc.exited).toBe(1);
-            expect(output).toContain('"selected":1,"executed":0,"pass":0,"fail":0,"unavailable":1');
+            expect(output).toContain("missing asset sponza: run bun run assets sponza");
+            expect(output).toContain('"selected":1,"executed":0,"pass":0,"fail":1,"unavailable":0');
         }
     } finally {
         rmSync(tmp, { recursive: true, force: true });

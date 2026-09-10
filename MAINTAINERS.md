@@ -38,18 +38,22 @@ bun run test:install                      # Pack engine/plugin, install, build/d
 bun run recipes [--recipe <name>]
 ```
 
+Gym assets are pinned in `assets.json`.
+`bun run assets [name...]` fetches them.
+Each is verified by sha256; a missing one reds, never skips.
+
 ```bash
 bun bin/cli.ts <dev|build|run|verify> [dir]
 # build/run: [--target <os>] [--portable]; build: [--release]
 ```
 
-OS: windows/mac/linux; web emits dist; native uses platform tools and builds `rust/window` per project. A non-portable Linux shell needs webkit2gtk-4.1 dev headers; the CLI refuses it for WebGPU anyway, so use `--portable`. Verify owns Verdict/exit, full-Chromium headless; `--headed` for display, `--connect` remote. Published `/harness`; bench/recipes wrap it. Gym defaults render; slugs select atoms. Screenshots never gate. Laws: `examples.md`.
+OS: windows/mac/linux; web emits dist; native uses platform tools and builds `rust/window` per project. A non-portable Linux shell needs webkit2gtk-4.1 dev headers; the CLI refuses it for WebGPU anyway, so use `--portable`. Published `/harness`; bench/recipes wrap it. Gym defaults render; slugs select atoms. Screenshots never gate. Laws: `examples.md`.
 
 ### Verification
 
 Before completion: format, check, test above. Release order: `testing.md`. After AVBD changes: `bun test ./packages/shallot-avbd-physics/tests/*.oracle.ts`; engine/host/twin: `bun test ./examples/gym/src`; physics fixtures per `physics.md`; Rust audio: `cargo test` from `rust/audio`.
 
-GPU/serialize/restore/config.ui/dev-server/physics changes owe bench/flow/recipe gates. Verify is headless; hardware refusal is nonzero; display callers use `--headed`. Reachability repairs owe source + physical public-build proof via build.probes.ts; other CLI/manifest/dependency/launch/runtime/scaffold/native-package changes owe test:install; links don’t prove it.
+GPU/serialize/restore/config.ui/dev-server/physics changes owe bench/flow/recipe gates. Reachability repairs owe source + physical public-build proof via build.probes.ts; other CLI/manifest/dependency/launch/runtime/scaffold/native-package changes owe test:install; links don’t prove it.
 
 ## Examples
 

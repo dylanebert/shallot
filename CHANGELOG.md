@@ -4,6 +4,7 @@ Newest first. **Breaking:** marks a change that needs consumer action; [`MIGRATI
 
 ## Unreleased
 
+- **repo** — Gym glTF assets (Sponza and the Khronos samples) are pinned by URL and sha256 in `assets.json` and fetched with `bun run assets`; `bun run build` ends with `assets --check`, and `bun bench` reds a scenario whose declared asset is missing instead of skipping it.
 - **repo** — The root manifest self-links (`"@dylanebert/shallot": "link:."`) and workspace members declare no engine dependency, so shipped recipe manifests carry no local path; `shallot recipe` inserts the installed engine version into the copy.
 - **build** — toolchains are pinned so shipped WASM bytes reproduce: Rust 1.98.1 via `rust-toolchain.toml`, `nightly-2026-09-01` for the shared physics kernel (the build fails naming the install command when it's missing), and binaryen 132 as a devDependency whose `wasm-opt` now always runs over the audio WASM and both kernels. Bun is pinned to 1.4.2 (`packageManager`, `engines`, `.bun-version`).
 - **site** — Moved the site to dylanebert/shallot-site.

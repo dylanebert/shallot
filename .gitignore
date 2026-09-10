@@ -63,7 +63,7 @@ packages/shallot-avbd-physics/tests/fixtures/
 test-results/
 playwright-report/
 
-# Gym local asset mounts (symlinks into reference/ — see .claude/rules/testing.md)
+# Gym assets fetched by `bun run assets` (pinned in assets.json)
 examples/gym/public/sponza
 examples/gym/public/gltf-samples
 scripts/install-test/compat-0.9.5/tarballs/
