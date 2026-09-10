@@ -135,11 +135,13 @@ const EXPECTED_RUNTIME_MODULES = [
     "standard/slab",
     "standard/transforms",
     "standard/tumble",
+    "types",
 ];
 
 const RUNTIME_MODULE_EXEMPTIONS: Record<string, string> = {
     // The surviving play-sound smoke asserts a Transform after input; it does not assert audio output.
     "standard/audio": "play-sound has no surviving audio assertion subject",
+    types: "env.d.ts is a declaration surface, not a runtime implementation module",
 };
 
 /** Exact witnesses for every runtime module appearing in a selection cone. A cone mutation must
@@ -256,6 +258,7 @@ const EXPECTED_RUNTIME_MODULE_ROWS: Record<string, string[]> = {
         "examples/recipes/surface-friction",
         "examples/gym",
     ],
+    types: [],
 };
 
 function runtimeFiles(): string[] {
@@ -273,6 +276,7 @@ function runtimeModules(): string[] {
         ...new Set(
             runtimeImplementationFiles().flatMap((file) => {
                 const parts = file.slice(`${RUNTIME_SRC}/`.length).split("/");
+                if (parts[0] === "types") return ["types"];
                 return ["engine", "extras", "standard"].includes(parts[0]) &&
                     parts[1] &&
                     !parts[1].endsWith(".ts")
