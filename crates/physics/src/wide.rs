@@ -57,14 +57,22 @@ pub struct SymMatrix3W {
 impl Vec3W {
     #[inline]
     pub fn splat0() -> Self {
-        Vec3W { x: FloatW::zero(), y: FloatW::zero(), z: FloatW::zero() }
+        Vec3W {
+            x: FloatW::zero(),
+            y: FloatW::zero(),
+            z: FloatW::zero(),
+        }
     }
 }
 
 /// `s * a` (b3MulSVW).
 #[inline]
 pub fn mul_svw(s: FloatW, a: Vec3W) -> Vec3W {
-    Vec3W { x: s.mul(a.x), y: s.mul(a.y), z: s.mul(a.z) }
+    Vec3W {
+        x: s.mul(a.x),
+        y: s.mul(a.y),
+        z: s.mul(a.z),
+    }
 }
 
 /// `a - s*b` (b3MulSubSVW).
@@ -90,19 +98,30 @@ pub fn mul_add_svw(a: Vec3W, s: FloatW, b: Vec3W) -> Vec3W {
 /// `a + b` on Vec2W (b3AddV2W).
 #[inline]
 pub fn add_v2w(a: Vec2W, b: Vec2W) -> Vec2W {
-    Vec2W { x: a.x.add(b.x), y: a.y.add(b.y) }
+    Vec2W {
+        x: a.x.add(b.x),
+        y: a.y.add(b.y),
+    }
 }
 
 /// `a - b` (b3SubVW).
 #[inline]
 pub fn sub_vw(a: Vec3W, b: Vec3W) -> Vec3W {
-    Vec3W { x: a.x.sub(b.x), y: a.y.sub(b.y), z: a.z.sub(b.z) }
+    Vec3W {
+        x: a.x.sub(b.x),
+        y: a.y.sub(b.y),
+        z: a.z.sub(b.z),
+    }
 }
 
 /// `a + b` (b3AddVW).
 #[inline]
 pub fn add_vw(a: Vec3W, b: Vec3W) -> Vec3W {
-    Vec3W { x: a.x.add(b.x), y: a.y.add(b.y), z: a.z.add(b.z) }
+    Vec3W {
+        x: a.x.add(b.x),
+        y: a.y.add(b.y),
+        z: a.z.add(b.z),
+    }
 }
 
 /// `m * a` for symmetric 2x2 (b3MulMV2W).
@@ -134,14 +153,22 @@ pub fn mul_mvw(m: SymMatrix3W, a: Vec3W) -> Vec3W {
 #[inline]
 pub fn mul_sub_mvw(a: Vec3W, m: SymMatrix3W, b: Vec3W) -> Vec3W {
     let c = mv_rows(m, b);
-    Vec3W { x: a.x.sub(c.x), y: a.y.sub(c.y), z: a.z.sub(c.z) }
+    Vec3W {
+        x: a.x.sub(c.x),
+        y: a.y.sub(c.y),
+        z: a.z.sub(c.z),
+    }
 }
 
 /// `a + m*b` (b3MulAddMVW).
 #[inline]
 pub fn mul_add_mvw(a: Vec3W, m: SymMatrix3W, b: Vec3W) -> Vec3W {
     let c = mv_rows(m, b);
-    Vec3W { x: a.x.add(c.x), y: a.y.add(c.y), z: a.z.add(c.z) }
+    Vec3W {
+        x: a.x.add(c.x),
+        y: a.y.add(c.y),
+        z: a.z.add(c.z),
+    }
 }
 
 /// `a . b` (b3DotW): `(aX*bX + aY*bY) + aZ*bZ`, left-associated.
@@ -208,7 +235,10 @@ mod tests {
         let by = b.y.to_array();
         let bz = b.z.to_array();
         for lane in 0..4 {
-            let want = dot3([ax[lane], ay[lane], az[lane]], [bx[lane], by[lane], bz[lane]]);
+            let want = dot3(
+                [ax[lane], ay[lane], az[lane]],
+                [bx[lane], by[lane], bz[lane]],
+            );
             assert_eq!(got[lane], want);
         }
     }

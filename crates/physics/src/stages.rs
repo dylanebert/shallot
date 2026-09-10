@@ -469,7 +469,11 @@ fn init_color_stages(
 
 /// Lay out the blocks and the stage list for `plan` in caller-owned storage. `stages` and `blocks`
 /// must be at least [`sizes`] long.
-pub fn build<'a>(plan: &Plan<'a>, stages: &'a mut [Stage], blocks: &'a mut [SyncBlock]) -> Context<'a> {
+pub fn build<'a>(
+    plan: &Plan<'a>,
+    stages: &'a mut [Stage],
+    blocks: &'a mut [SyncBlock],
+) -> Context<'a> {
     assert!(plan.colors.len() < MAX_COLORS);
     assert!(plan.worker_count >= 1);
 
@@ -489,8 +493,22 @@ pub fn build<'a>(plan: &Plan<'a>, stages: &'a mut [Stage], blocks: &'a mut [Sync
     let joint_at = mesh_at + d.mesh.count;
     let graph_at = joint_at + d.joint.count;
 
-    init_blocks(&mut blocks[body_at..], d.body, 0, plan.body_count, BlockType::Body, NULL_COLOR);
-    init_blocks(&mut blocks[wide_at..], d.wide, 0, plan.wide_total, BlockType::WideContact, NULL_COLOR);
+    init_blocks(
+        &mut blocks[body_at..],
+        d.body,
+        0,
+        plan.body_count,
+        BlockType::Body,
+        NULL_COLOR,
+    );
+    init_blocks(
+        &mut blocks[wide_at..],
+        d.wide,
+        0,
+        plan.wide_total,
+        BlockType::WideContact,
+        NULL_COLOR,
+    );
     init_blocks(
         &mut blocks[mesh_at..],
         d.mesh,
@@ -499,7 +517,14 @@ pub fn build<'a>(plan: &Plan<'a>, stages: &'a mut [Stage], blocks: &'a mut [Sync
         BlockType::Contact,
         NULL_COLOR,
     );
-    init_blocks(&mut blocks[joint_at..], d.joint, 0, plan.joint_total, BlockType::Joint, NULL_COLOR);
+    init_blocks(
+        &mut blocks[joint_at..],
+        d.joint,
+        0,
+        plan.joint_total,
+        BlockType::Joint,
+        NULL_COLOR,
+    );
 
     // Each color's blocks are contiguous: joints, then wide contacts, then mesh contacts (box3d's
     // order). A color stage points at the whole run, so all three kinds run concurrently.
@@ -544,18 +569,106 @@ pub fn build<'a>(plan: &Plan<'a>, stages: &'a mut [Stage], blocks: &'a mut [Sync
     debug_assert_eq!(at - graph_at, d.graph_block_count);
 
     let mut s = 0;
-    init_stage(stages, &mut s, StageType::PrepareJoints, joint_at, d.joint.count, NULL_COLOR);
-    init_stage(stages, &mut s, StageType::PrepareWideContacts, wide_at, d.wide.count, NULL_COLOR);
-    init_stage(stages, &mut s, StageType::PrepareContacts, mesh_at, d.mesh.count, NULL_COLOR);
-    init_stage(stages, &mut s, StageType::IntegrateVelocities, body_at, d.body.count, NULL_COLOR);
-    init_color_stages(stages, &mut s, StageType::WarmStart, 1, plan, &color_at, &color_blocks);
-    init_color_stages(stages, &mut s, StageType::Solve, ITERATIONS, plan, &color_at, &color_blocks);
-    init_stage(stages, &mut s, StageType::IntegratePositions, body_at, d.body.count, NULL_COLOR);
-    init_color_stages(stages, &mut s, StageType::Relax, RELAX_ITERATIONS, plan, &color_at, &color_blocks);
-    init_color_stages(stages, &mut s, StageType::Restitution, 1, plan, &color_at, &color_blocks);
-    init_stage(stages, &mut s, StageType::StoreWideImpulses, wide_at, d.wide.count, NULL_COLOR);
-    init_stage(stages, &mut s, StageType::StoreImpulses, mesh_at, d.mesh.count, NULL_COLOR);
-    init_stage(stages, &mut s, StageType::Finalize, body_at, d.body.count, NULL_COLOR);
+    init_stage(
+        stages,
+        &mut s,
+        StageType::PrepareJoints,
+        joint_at,
+        d.joint.count,
+        NULL_COLOR,
+    );
+    init_stage(
+        stages,
+        &mut s,
+        StageType::PrepareWideContacts,
+        wide_at,
+        d.wide.count,
+        NULL_COLOR,
+    );
+    init_stage(
+        stages,
+        &mut s,
+        StageType::PrepareContacts,
+        mesh_at,
+        d.mesh.count,
+        NULL_COLOR,
+    );
+    init_stage(
+        stages,
+        &mut s,
+        StageType::IntegrateVelocities,
+        body_at,
+        d.body.count,
+        NULL_COLOR,
+    );
+    init_color_stages(
+        stages,
+        &mut s,
+        StageType::WarmStart,
+        1,
+        plan,
+        &color_at,
+        &color_blocks,
+    );
+    init_color_stages(
+        stages,
+        &mut s,
+        StageType::Solve,
+        ITERATIONS,
+        plan,
+        &color_at,
+        &color_blocks,
+    );
+    init_stage(
+        stages,
+        &mut s,
+        StageType::IntegratePositions,
+        body_at,
+        d.body.count,
+        NULL_COLOR,
+    );
+    init_color_stages(
+        stages,
+        &mut s,
+        StageType::Relax,
+        RELAX_ITERATIONS,
+        plan,
+        &color_at,
+        &color_blocks,
+    );
+    init_color_stages(
+        stages,
+        &mut s,
+        StageType::Restitution,
+        1,
+        plan,
+        &color_at,
+        &color_blocks,
+    );
+    init_stage(
+        stages,
+        &mut s,
+        StageType::StoreWideImpulses,
+        wide_at,
+        d.wide.count,
+        NULL_COLOR,
+    );
+    init_stage(
+        stages,
+        &mut s,
+        StageType::StoreImpulses,
+        mesh_at,
+        d.mesh.count,
+        NULL_COLOR,
+    );
+    init_stage(
+        stages,
+        &mut s,
+        StageType::Finalize,
+        body_at,
+        d.body.count,
+        NULL_COLOR,
+    );
 
     debug_assert_eq!(s, need.stages);
 
@@ -610,7 +723,11 @@ fn execute_block<W: StageWork>(work: &W, ty: StageType, block: Block, worker_ind
 
 /// GetWorkerStartIndex: stagger the workers' home blocks so they don't all start on block 0. `None`
 /// when there are more workers than blocks and this worker has nothing to start on.
-fn worker_start_index(worker_index: usize, block_count: usize, worker_count: usize) -> Option<usize> {
+fn worker_start_index(
+    worker_index: usize,
+    block_count: usize,
+    worker_count: usize,
+) -> Option<usize> {
     if block_count <= worker_count {
         return (worker_index < block_count).then_some(worker_index);
     }
@@ -678,7 +795,12 @@ fn execute_main_stage<W: StageWork>(
     }
 
     if block_count == 1 {
-        execute_block(work, stage.ty, ctx.blocks[stage.block_start].block, ORCHESTRATOR);
+        execute_block(
+            work,
+            stage.ty,
+            ctx.blocks[stage.block_start].block,
+            ORCHESTRATOR,
+        );
         return Some(());
     }
 
@@ -885,7 +1007,14 @@ fn steal<W: StageWork>(ctx: &Context, work: &W, worker_index: usize) {
         // A worker that arrives late may be publishing-stale: it runs the stage it just read while
         // the orchestrator has already moved on. That is safe, not a race — the monotone sync index
         // means every CAS against an already-advanced block fails, so the worker does nothing.
-        execute_stage(ctx, work, &ctx.stages[stage_index], sync - 1, sync, worker_index);
+        execute_stage(
+            ctx,
+            work,
+            &ctx.stages[stage_index],
+            sync - 1,
+            sync,
+            worker_index,
+        );
 
         last = bits;
     }
@@ -900,12 +1029,24 @@ mod tests {
     /// which `sizes` promises it cannot.
     #[test]
     fn block_count_boundaries() {
-        assert_eq!(compute_block_count(0, 4, 16), BlockDim { size: 0, count: 0 });
-        assert_eq!(compute_block_count(1, 4, 16), BlockDim { size: 4, count: 1 });
+        assert_eq!(
+            compute_block_count(0, 4, 16),
+            BlockDim { size: 0, count: 0 }
+        );
+        assert_eq!(
+            compute_block_count(1, 4, 16),
+            BlockDim { size: 4, count: 1 }
+        );
         // Exactly min_size * max_block_count: still minimum size, exactly the cap of blocks.
-        assert_eq!(compute_block_count(64, 4, 16), BlockDim { size: 4, count: 16 });
+        assert_eq!(
+            compute_block_count(64, 4, 16),
+            BlockDim { size: 4, count: 16 }
+        );
         // One past: the size grows so the count stays at the cap.
-        assert_eq!(compute_block_count(65, 4, 16), BlockDim { size: 5, count: 13 });
+        assert_eq!(
+            compute_block_count(65, 4, 16),
+            BlockDim { size: 5, count: 13 }
+        );
         for n in 1..2000usize {
             let d = compute_block_count(n, 4, 16);
             assert!(d.count <= 16, "n={n} blew the block cap: {d:?}");

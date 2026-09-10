@@ -185,7 +185,11 @@ pub extern "C" fn reserve_shapes(cap: usize) -> u32 {
         if delta > 0 && top > old_top {
             ensure_capacity(top + delta);
             // `copy` is memmove; dest > src (the region only grows), so the overlap is handled.
-            core::ptr::copy(old_top as *const u8, (old_top + delta) as *mut u8, top - old_top);
+            core::ptr::copy(
+                old_top as *const u8,
+                (old_top + delta) as *mut u8,
+                top - old_top,
+            );
             crate::manifolds::relocate(delta);
             crate::broad::relocate(delta);
             crate::geo::relocate(delta);

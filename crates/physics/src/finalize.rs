@@ -80,8 +80,16 @@ fn capsule_aabb(geom: &[f32], xf: Transform) -> (Vec3, Vec3) {
     let c2 = xf.q.rotate(Vec3::new(geom[3], geom[4], geom[5])).add(xf.p);
     let r = geom[6];
     (
-        Vec3::new(minf(c1.x, c2.x) - r, minf(c1.y, c2.y) - r, minf(c1.z, c2.z) - r),
-        Vec3::new(maxf(c1.x, c2.x) + r, maxf(c1.y, c2.y) + r, maxf(c1.z, c2.z) + r),
+        Vec3::new(
+            minf(c1.x, c2.x) - r,
+            minf(c1.y, c2.y) - r,
+            minf(c1.z, c2.z) - r,
+        ),
+        Vec3::new(
+            maxf(c1.x, c2.x) + r,
+            maxf(c1.y, c2.y) + r,
+            maxf(c1.z, c2.z) + r,
+        ),
     )
 }
 
@@ -101,7 +109,12 @@ fn hull_aabb(geom: &[f32], xf: Transform) -> (Vec3, Vec3) {
 /// refit op-for-op: `computeShapeAABBOut` (tight) → `computeFatShapeAABBOut` (inflate by the speculative
 /// margin, each bound its own round) → `aabb.contains`. `shape_type` must be convex (caller partitions
 /// on [`is_convex_refit`]). Returns the candidate `[lower.xyz, upper.xyz]` + the escaped flag.
-pub fn refit_convex(shape_type: u32, geom: &[f32], xf: Transform, fat: &[f32; 6]) -> ([f32; 6], bool) {
+pub fn refit_convex(
+    shape_type: u32,
+    geom: &[f32],
+    xf: Transform,
+    fat: &[f32; 6],
+) -> ([f32; 6], bool) {
     let (lo, hi) = match shape_type {
         TY_SPHERE => sphere_aabb(geom, xf),
         TY_CAPSULE => capsule_aabb(geom, xf),
@@ -168,7 +181,10 @@ pub fn finalize(
         let max_delta_position = s.delta_position.length() + 2.0 * rotation_arc.length();
 
         // Position correction matters less than true velocity for sleep.
-        let sleep_velocity = maxf(max_velocity, POSITION_SLEEP_FACTOR * inv_dt * max_delta_position);
+        let sleep_velocity = maxf(
+            max_velocity,
+            POSITION_SLEEP_FACTOR * inv_dt * max_delta_position,
+        );
 
         s.delta_position = Vec3::ZERO;
         s.delta_rotation = Quat::IDENTITY;
@@ -310,8 +326,12 @@ mod refit_tests {
         };
         let s = SPECULATIVE_DISTANCE;
         // A fat AABB wider than the candidate → contained → not escaped.
-        let (cand, escaped) = refit_convex(TY_SPHERE, &geom, xf, &[-2.0, -2.0, -2.0, 2.0, 2.0, 2.0]);
-        assert_eq!(cand, [-1.0 - s, -1.0 - s, -1.0 - s, 1.0 + s, 1.0 + s, 1.0 + s]);
+        let (cand, escaped) =
+            refit_convex(TY_SPHERE, &geom, xf, &[-2.0, -2.0, -2.0, 2.0, 2.0, 2.0]);
+        assert_eq!(
+            cand,
+            [-1.0 - s, -1.0 - s, -1.0 - s, 1.0 + s, 1.0 + s, 1.0 + s]
+        );
         assert!(!escaped);
         // A fat AABB exactly the tight box → the speculative margin pokes out → escaped.
         let (_, escaped) = refit_convex(TY_SPHERE, &geom, xf, &[-1.0, -1.0, -1.0, 1.0, 1.0, 1.0]);

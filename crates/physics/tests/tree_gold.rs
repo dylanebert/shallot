@@ -85,7 +85,11 @@ fn reconstruct(tree_json: &Value) -> Pool {
         .collect();
     for (k, &idx) in chain.iter().enumerate() {
         let n = idx as usize * STRIDE;
-        let next = if k + 1 < chain.len() { chain[k + 1] } else { -1 };
+        let next = if k + 1 < chain.len() {
+            chain[k + 1]
+        } else {
+            -1
+        };
         slots[n + 10] = next as u32;
         slots[n + 11] = 0;
     }
@@ -199,7 +203,12 @@ fn rebuild_partial_matches_c() {
     let gold = load();
     let mut pool = reconstruct(checkpoint(&gold, "afterDestroy"));
     let new_root = run_rebuild(&mut pool, false);
-    assert_matches(&pool, checkpoint(&gold, "afterRebuild"), new_root, "afterRebuild");
+    assert_matches(
+        &pool,
+        checkpoint(&gold, "afterRebuild"),
+        new_root,
+        "afterRebuild",
+    );
 }
 
 #[test]

@@ -1,5 +1,5 @@
 // Regenerates the physics engine's bit-exact scene fixtures by building and running the Box3D C reference
-// at ../reference/box3d (branch `harness`) — the required checkout location relative to this repo.
+// pinned in crates/physics/reference.json, cloned on demand into the user cache (scripts/reference.ts).
 // Output lands in tests/physics/fixtures/; the engine's step.fixture.ts replays each scene and asserts
 // per-step hash equality against them.
 //
@@ -10,28 +10,19 @@
 // these fixtures pin the wide-simd wasm path too. Requires cmake and a C toolchain.
 //
 // The committed fixtures are the frozen contract (pin 29bf523 — tests/physics/fixtures/README.md); only
-// run this at a deliberate upstream sync. Absent the reference (a plain shallot checkout), it errors
-// honestly.
+// run this at a deliberate upstream sync. Offline with no cached checkout, it refuses with the remedy.
 //
 // Usage: bun run crates/physics/scripts/gen-fixtures.ts   (from the repo root)
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { ensureReference } from "./reference";
 
 const pkgRoot = resolve(import.meta.dir, "../../..");
-const shallotRoot = pkgRoot;
-const refDir = resolve(shallotRoot, "..", "reference", "box3d");
+const refDir = ensureReference();
 const buildDir = resolve(refDir, "build-fixtures");
 const outDir = resolve(pkgRoot, "src/standard/physics/solver/fixtures");
-
-if (!existsSync(refDir)) {
-    console.error(`box3d reference missing: ${refDir}`);
-    console.error(
-        "expected the box3d reference at reference/box3d beside the shallot checkout (../reference/box3d relative to this repo) on branch `harness`.",
-    );
-    process.exit(1);
-}
 
 function run(cmd: string, args: string[]) {
     const r = spawnSync(cmd, args, { cwd: refDir, stdio: "inherit" });

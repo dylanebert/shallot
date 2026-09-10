@@ -19,13 +19,13 @@
 
 use crate::body::flags as body_flags;
 use crate::body::{read_sim, read_state, STATE_STRIDE};
+use crate::col::Col;
 use crate::manifold_abi::{
-    read_dir, set_hit, M_FRICTION, M_NORMAL, M_POINTS, M_POINT_COUNT, M_ROLLING, M_TWIST,
-    MANIFOLD_STRIDE, P_ANCHOR_A, P_ANCHOR_B, P_NORMAL_IMPULSE, P_NORMAL_VELOCITY, P_SEPARATION,
-    P_TOTAL_NORMAL_IMPULSE, POOL_POINT_STRIDE, SLOT_CONTACT, SLOT_MANIFOLD_START, SLOT_POINT_START,
+    read_dir, set_hit, MANIFOLD_STRIDE, M_FRICTION, M_NORMAL, M_POINTS, M_POINT_COUNT, M_ROLLING,
+    M_TWIST, POOL_POINT_STRIDE, P_ANCHOR_A, P_ANCHOR_B, P_NORMAL_IMPULSE, P_NORMAL_VELOCITY,
+    P_SEPARATION, P_TOTAL_NORMAL_IMPULSE, SLOT_CONTACT, SLOT_MANIFOLD_START, SLOT_POINT_START,
     SLOT_STRIDE,
 };
-use crate::col::Col;
 use crate::math::{blend2, clampf, maxf, Mat2, Mat3, Quat, Vec2, Vec3, FLT_EPSILON};
 
 /// Sentinel body index for a static body (no solver state), mirroring box3d's `B3_NULL_INDEX`.
@@ -264,8 +264,10 @@ pub fn prepare(
             cols.mc.set(mo + 10, tangent_mass.cx.y);
             cols.mc.set(mo + 11, tangent_mass.cy.x);
             cols.mc.set(mo + 12, tangent_mass.cy.y);
-            cols.mc.set(mo + 13, warm_start_scale * friction_impulse.dot(tangent1));
-            cols.mc.set(mo + 14, warm_start_scale * friction_impulse.dot(tangent2));
+            cols.mc
+                .set(mo + 13, warm_start_scale * friction_impulse.dot(tangent1));
+            cols.mc
+                .set(mo + 14, warm_start_scale * friction_impulse.dot(tangent2));
             cols.mc.set(mo + 15, twist_mass);
             cols.mc.set(mo + 16, warm_start_scale * twist_impulse);
             write_v3(cols.mc, mo + 17, rolling_impulse.scale(warm_start_scale));
@@ -626,7 +628,12 @@ pub fn store(cols: &Columns, start: usize, count: usize, hit_event_threshold: f3
 
             let tangent1 = v3(cols.mc, mo + 3);
             let tangent2 = v3(cols.mc, mo + 6);
-            let friction = blend2(cols.mc.get(mo + 13), tangent1, cols.mc.get(mo + 14), tangent2);
+            let friction = blend2(
+                cols.mc.get(mo + 13),
+                tangent1,
+                cols.mc.get(mo + 14),
+                tangent2,
+            );
             cols.pool.set(mpo + M_TWIST, cols.mc.get(mo + 16)); // twistImpulse
             write_v3(cols.pool, mpo + M_FRICTION, friction); // frictionImpulse
             write_v3(cols.pool, mpo + M_ROLLING, v3(cols.mc, mo + 17)); // rollingImpulse
@@ -641,7 +648,8 @@ pub fn store(cols: &Columns, start: usize, count: usize, hit_event_threshold: f3
                 let total_normal_impulse = cols.mcp.get(po + 8);
                 let normal_velocity = cols.mcp.get(po + 10);
                 cols.pool.set(pp + P_NORMAL_IMPULSE, normal_impulse);
-                cols.pool.set(pp + P_TOTAL_NORMAL_IMPULSE, total_normal_impulse);
+                cols.pool
+                    .set(pp + P_TOTAL_NORMAL_IMPULSE, total_normal_impulse);
                 cols.pool.set(pp + P_NORMAL_VELOCITY, normal_velocity);
 
                 // One flag per contact: a confirmed impulse approaching faster than the threshold.

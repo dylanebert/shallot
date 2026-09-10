@@ -6,8 +6,8 @@
 
 use serde_json::Value;
 use shallot_physics::body::{
-    flags::DYNAMIC, FIN_OUT_STRIDE, FIN_STRIDE, SIM_STRIDE, SIM2_STRIDE, STATE_LIVE, STATE_STRIDE,
-    S2_CENTER0, S2_MIN_EXTENT, S2_ROTATION0,
+    flags::DYNAMIC, FIN_OUT_STRIDE, FIN_STRIDE, S2_CENTER0, S2_MIN_EXTENT, S2_ROTATION0,
+    SIM2_STRIDE, SIM_STRIDE, STATE_LIVE, STATE_STRIDE,
 };
 use shallot_physics::col::Col;
 use shallot_physics::finalize::finalize;
@@ -164,7 +164,11 @@ fn sweep_base_skips_fast_candidates() {
     let assert_base = |sim2: &[f32], sim: &[f32], fin: &[f32], i: usize, written: bool| {
         let s2 = i * SIM2_STRIDE;
         for k in 0..4 {
-            let want = if written { sim[i * SIM_STRIDE + 28 + k] } else { SENTINEL };
+            let want = if written {
+                sim[i * SIM_STRIDE + 28 + k]
+            } else {
+                SENTINEL
+            };
             assert_bits(
                 sim2[s2 + S2_ROTATION0 + k],
                 want,
@@ -172,7 +176,11 @@ fn sweep_base_skips_fast_candidates() {
             );
         }
         for k in 0..3 {
-            let want = if written { fin[i * FIN_STRIDE + k] } else { SENTINEL };
+            let want = if written {
+                fin[i * FIN_STRIDE + k]
+            } else {
+                SENTINEL
+            };
             assert_bits(
                 sim2[s2 + S2_CENTER0 + k],
                 want,

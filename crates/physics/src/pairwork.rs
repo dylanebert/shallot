@@ -139,7 +139,10 @@ pub extern "C" fn pairs_rebuild_out_ptr() -> *const u32 {
 /// One tree pool as a `[u32]` of `cap * STRIDE` slots.
 #[inline]
 unsafe fn pool_slice(tree_index: usize) -> &'static [u32] {
-    core::slice::from_raw_parts(broad::tree_ptr(tree_index), broad::tree_cap(tree_index) * tree::STRIDE)
+    core::slice::from_raw_parts(
+        broad::tree_ptr(tree_index),
+        broad::tree_cap(tree_index) * tree::STRIDE,
+    )
 }
 
 #[inline]
@@ -309,11 +312,15 @@ pub extern "C" fn query_pairs(set_cap: usize) -> u32 {
             // Dynamic proxies test kinematic then static; every proxy tests the dynamic tree.
             if query_dynamic {
                 let k = KINEMATIC as usize;
-                run_query(pools[k], roots[k], counts[k], lo, hi, stack, &mut em, KINEMATIC);
+                run_query(
+                    pools[k], roots[k], counts[k], lo, hi, stack, &mut em, KINEMATIC,
+                );
                 run_query(pools[0], roots[0], counts[0], lo, hi, stack, &mut em, 0);
             }
             let d = DYNAMIC as usize;
-            run_query(pools[d], roots[d], counts[d], lo, hi, stack, &mut em, DYNAMIC);
+            run_query(
+                pools[d], roots[d], counts[d], lo, hi, stack, &mut em, DYNAMIC,
+            );
 
             cand_end[i] = em.count as u32;
         }
@@ -359,9 +366,11 @@ fn run_query(
 pub extern "C" fn rebuild_trees() {
     unsafe {
         let state = core::slice::from_raw_parts(STATE_PTR as *const u32, 3 * STATE_STRIDE);
-        let out = core::slice::from_raw_parts_mut(REBUILD_OUT_PTR as *mut u32, 2 * REBUILD_OUT_STRIDE);
+        let out =
+            core::slice::from_raw_parts_mut(REBUILD_OUT_PTR as *mut u32, 2 * REBUILD_OUT_STRIDE);
         let mut leaf_indices = core::slice::from_raw_parts_mut(LEAFIDX_PTR as *mut i32, MAX_PROXY);
-        let mut leaf_centers = core::slice::from_raw_parts_mut(LEAFCEN_PTR as *mut f32, MAX_PROXY * 3);
+        let mut leaf_centers =
+            core::slice::from_raw_parts_mut(LEAFCEN_PTR as *mut f32, MAX_PROXY * 3);
         let mut gather_stack =
             core::slice::from_raw_parts_mut(GATHER_PTR as *mut i32, tree::STACK_SIZE);
         let mut build_stack =

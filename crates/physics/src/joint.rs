@@ -13,42 +13,41 @@ use crate::col::Col;
 use crate::contact::Softness;
 use crate::joint_abi::{
     get, get_mat3, get_quat, get_transform, get_vec3, joint_type, read_base, read_pose, set,
-    set_mat3, set_quat, set_transform, set_vec3, JointBase, DJ_ANCHOR_A, DJ_ANCHOR_B, DJ_AXIAL_MASS,
-    DJ_DAMPING_RATIO,
-    DJ_DELTA_CENTER, DJ_DIST_SOFTNESS, DJ_ENABLE, DJ_ENABLE_LIMIT, DJ_ENABLE_MOTOR, DJ_ENABLE_SPRING,
-    DJ_HERTZ, DJ_IMPULSE, DJ_LENGTH, DJ_LOWER_IMPULSE, DJ_LOWER_SPRING_FORCE, DJ_MAX_LENGTH,
-    DJ_MAX_MOTOR_FORCE, DJ_MIN_LENGTH, DJ_MOTOR_IMPULSE, DJ_MOTOR_SPEED, DJ_UPPER_IMPULSE,
-    DJ_UPPER_SPRING_FORCE, J_CONSTRAINT_DAMPING, J_CONSTRAINT_HERTZ, J_CONSTRAINT_SOFTNESS,
-    MJ_ANGULAR_DAMPING_RATIO, MJ_ANGULAR_HERTZ, MJ_ANGULAR_MASS, MJ_ANGULAR_SPRING,
-    MJ_ANGULAR_SPRING_IMPULSE, MJ_ANGULAR_VELOCITY, MJ_ANGULAR_VELOCITY_IMPULSE, MJ_DELTA_CENTER,
-    MJ_FRAME_A, MJ_FRAME_B, MJ_LINEAR_DAMPING_RATIO, MJ_LINEAR_HERTZ, MJ_LINEAR_SPRING,
-    MJ_LINEAR_SPRING_IMPULSE, MJ_LINEAR_VELOCITY, MJ_LINEAR_VELOCITY_IMPULSE, MJ_MAX_SPRING_FORCE,
-    MJ_MAX_SPRING_TORQUE, MJ_MAX_VELOCITY_FORCE, MJ_MAX_VELOCITY_TORQUE,
-    NULL_INDEX, PJ_ANGULAR_IMPULSE, PJ_DAMPING_RATIO, PJ_DELTA_CENTER, PJ_ENABLE,
-    PJ_ENABLE_LIMIT, PJ_ENABLE_MOTOR, PJ_ENABLE_SPRING, PJ_FIXED_ROTATION, PJ_FRAME_A, PJ_FRAME_B,
-    PJ_HERTZ, PJ_JOINT_AXIS, PJ_LOWER_IMPULSE, PJ_LOWER_TRANSLATION, PJ_MAX_MOTOR_FORCE,
-    PJ_MOTOR_IMPULSE, PJ_MOTOR_SPEED, PJ_PERP_AXIS_Y, PJ_PERP_AXIS_Z, PJ_PERP_IMPULSE,
-    PJ_ROTATION_MASS, PJ_SPRING_IMPULSE, PJ_SPRING_SOFTNESS, PJ_TARGET_TRANSLATION,
-    PJ_UPPER_IMPULSE, PJ_UPPER_TRANSLATION, PLJ_DAMPING_RATIO, PLJ_FIXED_ROTATION, PLJ_HERTZ,
-    PLJ_MAX_TORQUE, PLJ_PERP_AXIS_X, PLJ_PERP_AXIS_Y, PLJ_PERP_IMPULSE, PLJ_QUAT_A, PLJ_QUAT_B,
-    PLJ_SOFTNESS, RJ_AXIAL_MASS, RJ_DAMPING_RATIO, RJ_DELTA_CENTER, RJ_ENABLE, RJ_ENABLE_LIMIT,
-    RJ_ENABLE_MOTOR, RJ_ENABLE_SPRING, RJ_FIXED_ROTATION, RJ_FRAME_A, RJ_FRAME_B, RJ_HERTZ,
-    RJ_LINEAR_IMPULSE, RJ_LOWER_ANGLE, RJ_LOWER_IMPULSE, RJ_MAX_MOTOR_TORQUE, RJ_MOTOR_IMPULSE,
-    RJ_MOTOR_SPEED, RJ_PERP_AXIS_X, RJ_PERP_AXIS_Y, RJ_PERP_IMPULSE, RJ_ROTATION_AXIS_Z,
-    RJ_SPRING_IMPULSE, RJ_SPRING_SOFTNESS, RJ_TARGET_ANGLE, RJ_UPPER_ANGLE, RJ_UPPER_IMPULSE,
-    SJ_CONE_ANGLE, SJ_DAMPING_RATIO, SJ_DELTA_CENTER, SJ_ENABLE, SJ_ENABLE_CONE_LIMIT,
-    SJ_ENABLE_MOTOR, SJ_ENABLE_SPRING, SJ_ENABLE_TWIST_LIMIT, SJ_FIXED_ROTATION, SJ_FRAME_A,
-    SJ_FRAME_B, SJ_HERTZ, SJ_LINEAR_IMPULSE, SJ_LOWER_TWIST_ANGLE, SJ_LOWER_TWIST_IMPULSE,
-    SJ_MAX_MOTOR_TORQUE, SJ_MOTOR_IMPULSE, SJ_MOTOR_VELOCITY, SJ_ROTATION_MASS, SJ_SPRING_IMPULSE,
-    SJ_SPRING_SOFTNESS, SJ_SWING_AXIS, SJ_SWING_IMPULSE, SJ_SWING_MASS, SJ_TARGET_ROTATION,
-    SJ_TWIST_JACOBIAN, SJ_TWIST_MASS, SJ_UPPER_TWIST_ANGLE, SJ_UPPER_TWIST_IMPULSE, TY_DISTANCE,
-    TY_MOTOR, TY_PARALLEL, TY_PRISMATIC, TY_REVOLUTE, TY_SPHERICAL, TY_WELD, TY_WHEEL,
-    WHJ_ANGULAR_IMPULSE,
-    WHJ_DELTA_CENTER, WHJ_ENABLE, WHJ_ENABLE_SPIN_MOTOR, WHJ_ENABLE_STEERING,
-    WHJ_ENABLE_STEERING_LIMIT, WHJ_ENABLE_SUSPENSION_LIMIT, WHJ_ENABLE_SUSPENSION_SPRING,
-    WHJ_FIXED_ROTATION, WHJ_FRAME_A, WHJ_FRAME_B, WHJ_LINEAR_IMPULSE, WHJ_LOWER_STEERING_IMPULSE,
-    WHJ_LOWER_STEERING_LIMIT, WHJ_LOWER_SUSPENSION_IMPULSE, WHJ_LOWER_SUSPENSION_LIMIT,
-    WHJ_MAX_SPIN_TORQUE, WHJ_MAX_STEERING_TORQUE, WHJ_SPIN_IMPULSE, WHJ_SPIN_MASS, WHJ_SPIN_SPEED,
+    set_mat3, set_quat, set_transform, set_vec3, JointBase, DJ_ANCHOR_A, DJ_ANCHOR_B,
+    DJ_AXIAL_MASS, DJ_DAMPING_RATIO, DJ_DELTA_CENTER, DJ_DIST_SOFTNESS, DJ_ENABLE, DJ_ENABLE_LIMIT,
+    DJ_ENABLE_MOTOR, DJ_ENABLE_SPRING, DJ_HERTZ, DJ_IMPULSE, DJ_LENGTH, DJ_LOWER_IMPULSE,
+    DJ_LOWER_SPRING_FORCE, DJ_MAX_LENGTH, DJ_MAX_MOTOR_FORCE, DJ_MIN_LENGTH, DJ_MOTOR_IMPULSE,
+    DJ_MOTOR_SPEED, DJ_UPPER_IMPULSE, DJ_UPPER_SPRING_FORCE, J_CONSTRAINT_DAMPING,
+    J_CONSTRAINT_HERTZ, J_CONSTRAINT_SOFTNESS, MJ_ANGULAR_DAMPING_RATIO, MJ_ANGULAR_HERTZ,
+    MJ_ANGULAR_MASS, MJ_ANGULAR_SPRING, MJ_ANGULAR_SPRING_IMPULSE, MJ_ANGULAR_VELOCITY,
+    MJ_ANGULAR_VELOCITY_IMPULSE, MJ_DELTA_CENTER, MJ_FRAME_A, MJ_FRAME_B, MJ_LINEAR_DAMPING_RATIO,
+    MJ_LINEAR_HERTZ, MJ_LINEAR_SPRING, MJ_LINEAR_SPRING_IMPULSE, MJ_LINEAR_VELOCITY,
+    MJ_LINEAR_VELOCITY_IMPULSE, MJ_MAX_SPRING_FORCE, MJ_MAX_SPRING_TORQUE, MJ_MAX_VELOCITY_FORCE,
+    MJ_MAX_VELOCITY_TORQUE, NULL_INDEX, PJ_ANGULAR_IMPULSE, PJ_DAMPING_RATIO, PJ_DELTA_CENTER,
+    PJ_ENABLE, PJ_ENABLE_LIMIT, PJ_ENABLE_MOTOR, PJ_ENABLE_SPRING, PJ_FIXED_ROTATION, PJ_FRAME_A,
+    PJ_FRAME_B, PJ_HERTZ, PJ_JOINT_AXIS, PJ_LOWER_IMPULSE, PJ_LOWER_TRANSLATION,
+    PJ_MAX_MOTOR_FORCE, PJ_MOTOR_IMPULSE, PJ_MOTOR_SPEED, PJ_PERP_AXIS_Y, PJ_PERP_AXIS_Z,
+    PJ_PERP_IMPULSE, PJ_ROTATION_MASS, PJ_SPRING_IMPULSE, PJ_SPRING_SOFTNESS,
+    PJ_TARGET_TRANSLATION, PJ_UPPER_IMPULSE, PJ_UPPER_TRANSLATION, PLJ_DAMPING_RATIO,
+    PLJ_FIXED_ROTATION, PLJ_HERTZ, PLJ_MAX_TORQUE, PLJ_PERP_AXIS_X, PLJ_PERP_AXIS_Y,
+    PLJ_PERP_IMPULSE, PLJ_QUAT_A, PLJ_QUAT_B, PLJ_SOFTNESS, RJ_AXIAL_MASS, RJ_DAMPING_RATIO,
+    RJ_DELTA_CENTER, RJ_ENABLE, RJ_ENABLE_LIMIT, RJ_ENABLE_MOTOR, RJ_ENABLE_SPRING,
+    RJ_FIXED_ROTATION, RJ_FRAME_A, RJ_FRAME_B, RJ_HERTZ, RJ_LINEAR_IMPULSE, RJ_LOWER_ANGLE,
+    RJ_LOWER_IMPULSE, RJ_MAX_MOTOR_TORQUE, RJ_MOTOR_IMPULSE, RJ_MOTOR_SPEED, RJ_PERP_AXIS_X,
+    RJ_PERP_AXIS_Y, RJ_PERP_IMPULSE, RJ_ROTATION_AXIS_Z, RJ_SPRING_IMPULSE, RJ_SPRING_SOFTNESS,
+    RJ_TARGET_ANGLE, RJ_UPPER_ANGLE, RJ_UPPER_IMPULSE, SJ_CONE_ANGLE, SJ_DAMPING_RATIO,
+    SJ_DELTA_CENTER, SJ_ENABLE, SJ_ENABLE_CONE_LIMIT, SJ_ENABLE_MOTOR, SJ_ENABLE_SPRING,
+    SJ_ENABLE_TWIST_LIMIT, SJ_FIXED_ROTATION, SJ_FRAME_A, SJ_FRAME_B, SJ_HERTZ, SJ_LINEAR_IMPULSE,
+    SJ_LOWER_TWIST_ANGLE, SJ_LOWER_TWIST_IMPULSE, SJ_MAX_MOTOR_TORQUE, SJ_MOTOR_IMPULSE,
+    SJ_MOTOR_VELOCITY, SJ_ROTATION_MASS, SJ_SPRING_IMPULSE, SJ_SPRING_SOFTNESS, SJ_SWING_AXIS,
+    SJ_SWING_IMPULSE, SJ_SWING_MASS, SJ_TARGET_ROTATION, SJ_TWIST_JACOBIAN, SJ_TWIST_MASS,
+    SJ_UPPER_TWIST_ANGLE, SJ_UPPER_TWIST_IMPULSE, TY_DISTANCE, TY_MOTOR, TY_PARALLEL, TY_PRISMATIC,
+    TY_REVOLUTE, TY_SPHERICAL, TY_WELD, TY_WHEEL, WHJ_ANGULAR_IMPULSE, WHJ_DELTA_CENTER,
+    WHJ_ENABLE, WHJ_ENABLE_SPIN_MOTOR, WHJ_ENABLE_STEERING, WHJ_ENABLE_STEERING_LIMIT,
+    WHJ_ENABLE_SUSPENSION_LIMIT, WHJ_ENABLE_SUSPENSION_SPRING, WHJ_FIXED_ROTATION, WHJ_FRAME_A,
+    WHJ_FRAME_B, WHJ_LINEAR_IMPULSE, WHJ_LOWER_STEERING_IMPULSE, WHJ_LOWER_STEERING_LIMIT,
+    WHJ_LOWER_SUSPENSION_IMPULSE, WHJ_LOWER_SUSPENSION_LIMIT, WHJ_MAX_SPIN_TORQUE,
+    WHJ_MAX_STEERING_TORQUE, WHJ_SPIN_IMPULSE, WHJ_SPIN_MASS, WHJ_SPIN_SPEED,
     WHJ_STEERING_DAMPING_RATIO, WHJ_STEERING_HERTZ, WHJ_STEERING_MASS, WHJ_STEERING_SOFTNESS,
     WHJ_STEERING_SPRING_IMPULSE, WHJ_SUSPENSION_DAMPING_RATIO, WHJ_SUSPENSION_HERTZ,
     WHJ_SUSPENSION_MASS, WHJ_SUSPENSION_SOFTNESS, WHJ_SUSPENSION_SPRING_IMPULSE,
@@ -225,7 +224,8 @@ fn prepare_distance(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting:
 
     let cr_a = anchor_a.cross(axis);
     let cr_b = anchor_b.cross(axis);
-    let k = base.inv_mass_a + base.inv_mass_b
+    let k = base.inv_mass_a
+        + base.inv_mass_b
         + cr_a.dot(base.inv_ia.mul_v(cr_a))
         + cr_b.dot(base.inv_ib.mul_v(cr_b));
     let axial_mass = if k > 0.0 { 1.0 / k } else { 0.0 };
@@ -440,9 +440,7 @@ fn solve_distance(
 
             // upper limit (impulse sign flipped)
             {
-                let vr = v_a
-                    .sub(v_b)
-                    .add(w_a.cross(r_a).sub(w_b.cross(r_b)));
+                let vr = v_a.sub(v_b).add(w_a.cross(r_a).sub(w_b.cross(r_b)));
                 let cdot = axis.dot(vr);
                 let c = max_length - length;
                 let mut bias = 0.0;
@@ -523,11 +521,15 @@ fn prepare_weld(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting: boo
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
-        p: pose.qa.rotate(base.local_frame_a.p.sub(pose.local_center_a)),
+        p: pose
+            .qa
+            .rotate(base.local_frame_a.p.sub(pose.local_center_a)),
     };
     let frame_b = Transform {
         q: pose.qb.mul(base.local_frame_b.q),
-        p: pose.qb.rotate(base.local_frame_b.p.sub(pose.local_center_b)),
+        p: pose
+            .qb
+            .rotate(base.local_frame_b.p.sub(pose.local_center_b)),
     };
     let delta_center = pose.center_b.sub(pose.center_a);
 
@@ -546,7 +548,11 @@ fn prepare_weld(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting: boo
     let angular_spring = if angular_hertz == 0.0 {
         constraint_softness
     } else {
-        make_soft(angular_hertz, get(joints, slot, WJ_ANGULAR_DAMPING_RATIO), h)
+        make_soft(
+            angular_hertz,
+            get(joints, slot, WJ_ANGULAR_DAMPING_RATIO),
+            h,
+        )
     };
 
     set_transform(joints, slot, WJ_FRAME_A, frame_a);
@@ -555,7 +561,12 @@ fn prepare_weld(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting: boo
     set_mat3(joints, slot, WJ_ANGULAR_MASS, angular_mass);
     write_softness(joints, slot, WJ_LINEAR_SPRING, linear_spring);
     write_softness(joints, slot, WJ_ANGULAR_SPRING, angular_spring);
-    set(joints, slot, WJ_FIXED_ROTATION, if fixed_rotation { 1.0 } else { 0.0 });
+    set(
+        joints,
+        slot,
+        WJ_FIXED_ROTATION,
+        if fixed_rotation { 1.0 } else { 0.0 },
+    );
 
     if !enable_warm_starting {
         set_vec3(joints, slot, WJ_LINEAR_IMPULSE, Vec3::ZERO);
@@ -673,9 +684,7 @@ fn solve_weld(
         let r_a = end_a.state.delta_rotation.rotate(frame_a.p);
         let r_b = end_b.state.delta_rotation.rotate(frame_b.p);
 
-        let cdot = v_b
-            .add(w_b.cross(r_b))
-            .sub(v_a.add(w_a.cross(r_a)));
+        let cdot = v_b.add(w_b.cross(r_b)).sub(v_a.add(w_a.cross(r_a)));
 
         let mut bias = Vec3::ZERO;
         let mut mass_scale = 1.0_f32;
@@ -731,11 +740,15 @@ fn prepare_revolute(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting:
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
-        p: pose.qa.rotate(base.local_frame_a.p.sub(pose.local_center_a)),
+        p: pose
+            .qa
+            .rotate(base.local_frame_a.p.sub(pose.local_center_a)),
     };
     let frame_b = Transform {
         q: pose.qb.mul(base.local_frame_b.q),
-        p: pose.qb.rotate(base.local_frame_b.p.sub(pose.local_center_b)),
+        p: pose
+            .qb
+            .rotate(base.local_frame_b.p.sub(pose.local_center_b)),
     };
     let delta_center = pose.center_b.sub(pose.center_a);
 
@@ -774,7 +787,12 @@ fn prepare_revolute(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting:
     set_vec3(joints, slot, RJ_DELTA_CENTER, delta_center);
     set(joints, slot, RJ_AXIAL_MASS, axial_mass);
     write_softness(joints, slot, RJ_SPRING_SOFTNESS, soft);
-    set(joints, slot, RJ_FIXED_ROTATION, if fixed_rotation { 1.0 } else { 0.0 });
+    set(
+        joints,
+        slot,
+        RJ_FIXED_ROTATION,
+        if fixed_rotation { 1.0 } else { 0.0 },
+    );
 
     if !enable_warm_starting {
         set_vec3(joints, slot, RJ_LINEAR_IMPULSE, Vec3::ZERO);
@@ -1032,10 +1050,7 @@ fn solve_revolute(
         let r_a = end_a.state.delta_rotation.rotate(frame_a.p);
         let r_b = end_b.state.delta_rotation.rotate(frame_b.p);
 
-        let cdot = v_b
-            .add(w_b.cross(r_b))
-            .sub(v_a)
-            .sub(w_a.cross(r_a));
+        let cdot = v_b.add(w_b.cross(r_b)).sub(v_a).sub(w_a.cross(r_a));
 
         let mut bias = Vec3::ZERO;
         let mut mass_scale = 1.0_f32;
@@ -1060,7 +1075,9 @@ fn solve_revolute(
         k.cz.z += mm;
 
         let b = k.solve(cdot.add(bias));
-        let impulse = b.scale(-mass_scale).sub(linear_impulse.scale(impulse_scale));
+        let impulse = b
+            .scale(-mass_scale)
+            .sub(linear_impulse.scale(impulse_scale));
         linear_impulse = linear_impulse.add(impulse);
 
         v_a = v_a.mul_sub(m_a, impulse);
@@ -1096,11 +1113,15 @@ fn prepare_spherical(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
-        p: pose.qa.rotate(base.local_frame_a.p.sub(pose.local_center_a)),
+        p: pose
+            .qa
+            .rotate(base.local_frame_a.p.sub(pose.local_center_a)),
     };
     let frame_b = Transform {
         q: pose.qb.mul(base.local_frame_b.q),
-        p: pose.qb.rotate(base.local_frame_b.p.sub(pose.local_center_b)),
+        p: pose
+            .qb
+            .rotate(base.local_frame_b.p.sub(pose.local_center_b)),
     };
     let delta_center = pose.center_b.sub(pose.center_a);
 
@@ -1159,7 +1180,12 @@ fn prepare_spherical(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting
     set(joints, slot, SJ_SWING_MASS, swing_mass);
     set(joints, slot, SJ_TWIST_MASS, twist_mass);
     write_softness(joints, slot, SJ_SPRING_SOFTNESS, soft);
-    set(joints, slot, SJ_FIXED_ROTATION, if fixed_rotation { 1.0 } else { 0.0 });
+    set(
+        joints,
+        slot,
+        SJ_FIXED_ROTATION,
+        if fixed_rotation { 1.0 } else { 0.0 },
+    );
 
     if !enable_warm_starting {
         set_vec3(joints, slot, SJ_LINEAR_IMPULSE, Vec3::ZERO);
@@ -1394,10 +1420,7 @@ fn solve_spherical(
         let r_a = end_a.state.delta_rotation.rotate(frame_a.p);
         let r_b = end_b.state.delta_rotation.rotate(frame_b.p);
 
-        let cdot = v_b
-            .add(w_b.cross(r_b))
-            .sub(v_a)
-            .sub(w_a.cross(r_a));
+        let cdot = v_b.add(w_b.cross(r_b)).sub(v_a).sub(w_a.cross(r_a));
 
         let mut bias = Vec3::ZERO;
         let mut mass_scale = 1.0_f32;
@@ -1422,7 +1445,9 @@ fn solve_spherical(
         k.cz.z += mm;
 
         let b = k.solve(cdot.add(bias));
-        let impulse = b.scale(-mass_scale).sub(linear_impulse.scale(impulse_scale));
+        let impulse = b
+            .scale(-mass_scale)
+            .sub(linear_impulse.scale(impulse_scale));
         linear_impulse = linear_impulse.add(impulse);
 
         v_a = v_a.mul_sub(m_a, impulse);
@@ -1457,11 +1482,15 @@ fn prepare_prismatic(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
-        p: pose.qa.rotate(base.local_frame_a.p.sub(pose.local_center_a)),
+        p: pose
+            .qa
+            .rotate(base.local_frame_a.p.sub(pose.local_center_a)),
     };
     let frame_b = Transform {
         q: pose.qb.mul(base.local_frame_b.q),
-        p: pose.qb.rotate(base.local_frame_b.p.sub(pose.local_center_b)),
+        p: pose
+            .qb
+            .rotate(base.local_frame_b.p.sub(pose.local_center_b)),
     };
     let delta_center = pose.center_b.sub(pose.center_a);
 
@@ -1488,7 +1517,12 @@ fn prepare_prismatic(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting
     set_vec3(joints, slot, PJ_DELTA_CENTER, delta_center);
     set_mat3(joints, slot, PJ_ROTATION_MASS, rotation_mass);
     write_softness(joints, slot, PJ_SPRING_SOFTNESS, soft);
-    set(joints, slot, PJ_FIXED_ROTATION, if fixed_rotation { 1.0 } else { 0.0 });
+    set(
+        joints,
+        slot,
+        PJ_FIXED_ROTATION,
+        if fixed_rotation { 1.0 } else { 0.0 },
+    );
 
     if !enable_warm_starting {
         set(joints, slot, PJ_PERP_IMPULSE, 0.0);
@@ -1547,7 +1581,14 @@ fn warm_start_prismatic(joints: Col<f32>, slot: usize, state_col: Col<f32>, flag
 
     let axial_impulse = ((spring_impulse + motor_impulse) + lower_impulse) - upper_impulse;
 
-    let p = blend3(axial_impulse, joint_axis, perp_x, perp_y_axis, perp_y, perp_z_axis);
+    let p = blend3(
+        axial_impulse,
+        joint_axis,
+        perp_x,
+        perp_y_axis,
+        perp_y,
+        perp_z_axis,
+    );
     let l_a = blend3(axial_impulse, s_ax, perp_x, s_ay, perp_y, s_az).add(angular_impulse);
     let l_b = blend3(axial_impulse, s_bx, perp_x, s_by, perp_y, s_bz).add(angular_impulse);
 
@@ -1644,12 +1685,10 @@ fn solve_prismatic(
         let mass_scale = spring_soft.mass_scale;
         let impulse_scale = spring_soft.impulse_scale;
 
-        let v_rel = v_b
-            .add(w_b.cross(r_b))
-            .sub(v_a)
-            .sub(w_a.cross(r_a.add(d)));
+        let v_rel = v_b.add(w_b.cross(r_b)).sub(v_a).sub(w_a.cross(r_a.add(d)));
         let cdot = v_rel.dot(joint_axis);
-        let delta_impulse = -mass_scale * axial_mass * (cdot + bias) - impulse_scale * spring_impulse;
+        let delta_impulse =
+            -mass_scale * axial_mass * (cdot + bias) - impulse_scale * spring_impulse;
         spring_impulse += delta_impulse;
 
         let p = joint_axis.scale(delta_impulse);
@@ -1662,10 +1701,7 @@ fn solve_prismatic(
     }
 
     if enable_motor && !fixed_rotation {
-        let v_rel = v_b
-            .add(w_b.cross(r_b))
-            .sub(v_a)
-            .sub(w_a.cross(r_a.add(d)));
+        let v_rel = v_b.add(w_b.cross(r_b)).sub(v_a).sub(w_a.cross(r_a.add(d)));
         let cdot = v_rel.dot(joint_axis) - motor_speed;
 
         let mut delta_impulse = -axial_mass * cdot;
@@ -1701,10 +1737,7 @@ fn solve_prismatic(
                     mass_scale = cs.mass_scale;
                     impulse_scale = cs.impulse_scale;
                 }
-                let v_rel = v_b
-                    .add(w_b.cross(r_b))
-                    .sub(v_a)
-                    .sub(w_a.cross(r_a.add(d)));
+                let v_rel = v_b.add(w_b.cross(r_b)).sub(v_a).sub(w_a.cross(r_a.add(d)));
                 let cdot = v_rel.dot(joint_axis);
                 let old_impulse = lower_impulse;
                 let mut delta_impulse =
@@ -1739,10 +1772,7 @@ fn solve_prismatic(
                     impulse_scale = cs.impulse_scale;
                 }
                 // sign flipped on Cdot
-                let v_rel = v_b
-                    .add(w_b.cross(r_b))
-                    .sub(v_a)
-                    .sub(w_a.cross(r_a.add(d)));
+                let v_rel = v_b.add(w_b.cross(r_b)).sub(v_a).sub(w_a.cross(r_a.add(d)));
                 let cdot = -v_rel.dot(joint_axis);
                 let old_impulse = upper_impulse;
                 let delta_impulse =
@@ -1806,10 +1836,7 @@ fn solve_prismatic(
             impulse_scale = cs.impulse_scale;
         }
 
-        let v_rel = v_b
-            .add(w_b.cross(r_b))
-            .sub(v_a)
-            .sub(w_a.cross(r_a.add(d)));
+        let v_rel = v_b.add(w_b.cross(r_b)).sub(v_a).sub(w_a.cross(r_a.add(d)));
         let cdot = Vec2::new(perp_y_axis.dot(v_rel), perp_z_axis.dot(v_rel));
 
         let s_ay = r_a.add(d).cross(perp_y_axis);
@@ -1877,11 +1904,15 @@ fn prepare_wheel(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting: bo
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
-        p: pose.qa.rotate(base.local_frame_a.p.sub(pose.local_center_a)),
+        p: pose
+            .qa
+            .rotate(base.local_frame_a.p.sub(pose.local_center_a)),
     };
     let frame_b = Transform {
         q: pose.qb.mul(base.local_frame_b.q),
-        p: pose.qb.rotate(base.local_frame_b.p.sub(pose.local_center_b)),
+        p: pose
+            .qb
+            .rotate(base.local_frame_b.p.sub(pose.local_center_b)),
     };
     let delta_center = pose.center_b.sub(pose.center_a);
 
@@ -1896,7 +1927,8 @@ fn prepare_wheel(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting: bo
     let suspension_axis = matrix_a.cx;
     let r_an = r_a.cross(suspension_axis);
     let r_bn = r_b.cross(suspension_axis);
-    let ks = base.inv_mass_a + base.inv_mass_b
+    let ks = base.inv_mass_a
+        + base.inv_mass_b
         + r_an.dot(base.inv_ia.mul_v(r_an))
         + r_bn.dot(base.inv_ib.mul_v(r_bn));
     let suspension_mass = if ks > 0.0 { 1.0 / ks } else { 0.0 };
@@ -1928,7 +1960,12 @@ fn prepare_wheel(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting: bo
     set(joints, slot, WHJ_STEERING_MASS, steering_mass);
     write_softness(joints, slot, WHJ_SUSPENSION_SOFTNESS, suspension_soft);
     write_softness(joints, slot, WHJ_STEERING_SOFTNESS, steering_soft);
-    set(joints, slot, WHJ_FIXED_ROTATION, if fixed_rotation { 1.0 } else { 0.0 });
+    set(
+        joints,
+        slot,
+        WHJ_FIXED_ROTATION,
+        if fixed_rotation { 1.0 } else { 0.0 },
+    );
 
     if !enable_warm_starting {
         set(joints, slot, WHJ_LINEAR_IMPULSE, 0.0);
@@ -2407,7 +2444,10 @@ fn solve_wheel(
                 -mass_scale * sol.x - impulse_scale * old_impulse.x,
                 -mass_scale * sol.y - impulse_scale * old_impulse.y,
             );
-            angular_impulse = Vec2::new(old_impulse.x + delta_impulse.x, old_impulse.y + delta_impulse.y);
+            angular_impulse = Vec2::new(
+                old_impulse.x + delta_impulse.x,
+                old_impulse.y + delta_impulse.y,
+            );
 
             let ang = blend2(delta_impulse.x, perp_axis_x, delta_impulse.y, perp_axis_y);
             w_a = w_a.sub(i_a.mul_v(ang));
@@ -2430,10 +2470,7 @@ fn solve_wheel(
             impulse_scale = cs.impulse_scale;
         }
 
-        let v_rel = v_b
-            .add(w_b.cross(r_b))
-            .sub(v_a)
-            .sub(w_a.cross(r_a.add(d)));
+        let v_rel = v_b.add(w_b.cross(r_b)).sub(v_a).sub(w_a.cross(r_a.add(d)));
         let cdot = Vec2::new(perp_y.dot(v_rel), perp_z.dot(v_rel));
 
         let kyy = ((m_a + m_b) + s_ay.dot(i_a.mul_v(s_ay))) + s_by.dot(i_b.mul_v(s_by));
@@ -2451,7 +2488,10 @@ fn solve_wheel(
             -mass_scale * sol.x - impulse_scale * old_impulse.x,
             -mass_scale * sol.y - impulse_scale * old_impulse.y,
         );
-        linear_impulse = Vec2::new(old_impulse.x + delta_impulse.x, old_impulse.y + delta_impulse.y);
+        linear_impulse = Vec2::new(
+            old_impulse.x + delta_impulse.x,
+            old_impulse.y + delta_impulse.y,
+        );
 
         let linear = blend2(delta_impulse.x, perp_y, delta_impulse.y, perp_z);
         v_a = v_a.mul_sub(m_a, linear);
@@ -2465,12 +2505,42 @@ fn solve_wheel(
     set(joints, slot, WHJ_ANGULAR_IMPULSE, angular_impulse.x);
     set(joints, slot, WHJ_ANGULAR_IMPULSE + 1, angular_impulse.y);
     set(joints, slot, WHJ_SPIN_IMPULSE, spin_impulse);
-    set(joints, slot, WHJ_SUSPENSION_SPRING_IMPULSE, suspension_spring_impulse);
-    set(joints, slot, WHJ_LOWER_SUSPENSION_IMPULSE, lower_suspension_impulse);
-    set(joints, slot, WHJ_UPPER_SUSPENSION_IMPULSE, upper_suspension_impulse);
-    set(joints, slot, WHJ_STEERING_SPRING_IMPULSE, steering_spring_impulse);
-    set(joints, slot, WHJ_LOWER_STEERING_IMPULSE, lower_steering_impulse);
-    set(joints, slot, WHJ_UPPER_STEERING_IMPULSE, upper_steering_impulse);
+    set(
+        joints,
+        slot,
+        WHJ_SUSPENSION_SPRING_IMPULSE,
+        suspension_spring_impulse,
+    );
+    set(
+        joints,
+        slot,
+        WHJ_LOWER_SUSPENSION_IMPULSE,
+        lower_suspension_impulse,
+    );
+    set(
+        joints,
+        slot,
+        WHJ_UPPER_SUSPENSION_IMPULSE,
+        upper_suspension_impulse,
+    );
+    set(
+        joints,
+        slot,
+        WHJ_STEERING_SPRING_IMPULSE,
+        steering_spring_impulse,
+    );
+    set(
+        joints,
+        slot,
+        WHJ_LOWER_STEERING_IMPULSE,
+        lower_steering_impulse,
+    );
+    set(
+        joints,
+        slot,
+        WHJ_UPPER_STEERING_IMPULSE,
+        upper_steering_impulse,
+    );
 
     if end_a.dynamic {
         write_velocity(state_col, base.sim_index_a, v_a, w_a);
@@ -2507,11 +2577,15 @@ fn prepare_motor(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting: bo
 
     let frame_a = Transform {
         q: pose.qa.mul(base.local_frame_a.q),
-        p: pose.qa.rotate(base.local_frame_a.p.sub(pose.local_center_a)),
+        p: pose
+            .qa
+            .rotate(base.local_frame_a.p.sub(pose.local_center_a)),
     };
     let frame_b = Transform {
         q: pose.qb.mul(base.local_frame_b.q),
-        p: pose.qb.rotate(base.local_frame_b.p.sub(pose.local_center_b)),
+        p: pose
+            .qb
+            .rotate(base.local_frame_b.p.sub(pose.local_center_b)),
     };
     let delta_center = pose.center_b.sub(pose.center_a);
 
@@ -2560,10 +2634,16 @@ fn warm_start_motor(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_co
     let r_a = end_a.state.delta_rotation.rotate(frame_a.p);
     let r_b = end_b.state.delta_rotation.rotate(frame_b.p);
 
-    let linear_impulse = get_vec3(joints, slot, MJ_LINEAR_VELOCITY_IMPULSE)
-        .add(get_vec3(joints, slot, MJ_LINEAR_SPRING_IMPULSE));
-    let angular_impulse = get_vec3(joints, slot, MJ_ANGULAR_VELOCITY_IMPULSE)
-        .add(get_vec3(joints, slot, MJ_ANGULAR_SPRING_IMPULSE));
+    let linear_impulse = get_vec3(joints, slot, MJ_LINEAR_VELOCITY_IMPULSE).add(get_vec3(
+        joints,
+        slot,
+        MJ_LINEAR_SPRING_IMPULSE,
+    ));
+    let angular_impulse = get_vec3(joints, slot, MJ_ANGULAR_VELOCITY_IMPULSE).add(get_vec3(
+        joints,
+        slot,
+        MJ_ANGULAR_SPRING_IMPULSE,
+    ));
 
     let v_a = end_a.state.linear_velocity.mul_sub(m_a, linear_impulse);
     let w_a = end_a
@@ -2683,9 +2763,7 @@ fn solve_motor(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col: Co
         let mass_scale = linear_spring.mass_scale;
         let impulse_scale = linear_spring.impulse_scale;
 
-        let cdot = v_b
-            .add(w_b.cross(r_b))
-            .sub(v_a.add(w_a.cross(r_a)));
+        let cdot = v_b.add(w_b.cross(r_b)).sub(v_a.add(w_a.cross(r_a)));
 
         let k = linear_k(m_a, m_b, base.inv_ia, base.inv_ib, r_a, r_b);
         let b = k.solve(cdot.add(bias));
@@ -2781,7 +2859,12 @@ fn prepare_parallel(joints: Col<f32>, slot: usize, h: f32, enable_warm_starting:
     set_vec3(joints, slot, PLJ_PERP_AXIS_X, perp_x);
     set_vec3(joints, slot, PLJ_PERP_AXIS_Y, perp_y);
     write_softness(joints, slot, PLJ_SOFTNESS, soft);
-    set(joints, slot, PLJ_FIXED_ROTATION, if fixed_rotation { 1.0 } else { 0.0 });
+    set(
+        joints,
+        slot,
+        PLJ_FIXED_ROTATION,
+        if fixed_rotation { 1.0 } else { 0.0 },
+    );
 
     if !enable_warm_starting {
         set(joints, slot, PLJ_PERP_IMPULSE, 0.0);
@@ -2809,10 +2892,20 @@ fn warm_start_parallel(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags
     let w_b = end_b.state.angular_velocity.add(i_b.mul_v(angular_impulse));
 
     if end_a.dynamic {
-        write_velocity(state_col, base.sim_index_a, end_a.state.linear_velocity, w_a);
+        write_velocity(
+            state_col,
+            base.sim_index_a,
+            end_a.state.linear_velocity,
+            w_a,
+        );
     }
     if end_b.dynamic {
-        write_velocity(state_col, base.sim_index_b, end_b.state.linear_velocity, w_b);
+        write_velocity(
+            state_col,
+            base.sim_index_b,
+            end_b.state.linear_velocity,
+            w_b,
+        );
     }
 }
 
@@ -2893,10 +2986,20 @@ fn solve_parallel(joints: Col<f32>, slot: usize, state_col: Col<f32>, flags_col:
     }
 
     if end_a.dynamic {
-        write_velocity(state_col, base.sim_index_a, end_a.state.linear_velocity, w_a);
+        write_velocity(
+            state_col,
+            base.sim_index_a,
+            end_a.state.linear_velocity,
+            w_a,
+        );
     }
     if end_b.dynamic {
-        write_velocity(state_col, base.sim_index_b, end_b.state.linear_velocity, w_b);
+        write_velocity(
+            state_col,
+            base.sim_index_b,
+            end_b.state.linear_velocity,
+            w_b,
+        );
     }
 }
 

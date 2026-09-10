@@ -6,8 +6,8 @@
 // One parameterized script covers every gold target — they differ only in the cmake target name and the
 // output filename. The valid names are the committed src/standard/physics/*/*.gold.json files.
 //
-// The reference lives at ../reference/box3d beside this shallot checkout. Absent it, this errors
-// honestly. The committed gold is the frozen contract
+// The reference is pinned in crates/physics/reference.json and cloned on demand into the user cache
+// (scripts/reference.ts); offline with no cached checkout, it refuses with the remedy. The committed gold is the frozen contract
 // (pin 29bf523); only run this at a deliberate upstream sync.
 //
 // Usage: bun run crates/physics/scripts/gen-gold.ts <name>   (from the repo root)
@@ -16,6 +16,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { ensureReference } from "./reference";
 
 const GOLD_NAMES = [
     "math",
@@ -43,22 +44,13 @@ if (!name || !GOLD_NAMES.includes(name)) {
 }
 
 const pkgRoot = resolve(import.meta.dir, "../../..");
-const shallotRoot = pkgRoot;
-const refDir = resolve(shallotRoot, "..", "reference", "box3d");
+const refDir = ensureReference();
 const buildDir = resolve(refDir, "build-fixtures");
 const physicsDir = resolve(pkgRoot, "src", "standard", "physics");
 const outPath =
     ["common", "collision", "shapes", "solver", "kernel"]
         .map((dir) => resolve(physicsDir, dir, `${name}.gold.json`))
         .find(existsSync) ?? resolve(physicsDir, "solver", `${name}.gold.json`);
-
-if (!existsSync(refDir)) {
-    console.error(`box3d reference missing: ${refDir}`);
-    console.error(
-        "expected the box3d reference at reference/box3d beside the shallot checkout (../reference/box3d relative to this repo) on branch `harness`.",
-    );
-    process.exit(1);
-}
 
 function run(cmd: string, args: string[]) {
     const r = spawnSync(cmd, args, { cwd: refDir, stdio: "inherit" });

@@ -5,7 +5,9 @@
 //! Rust `f32` is native IEEE-754 with no FMA contraction, so each TS `f32(...)`-wrapped op maps to one
 //! Rust op with the same operand order (see `math.rs`).
 
-use crate::math::{blend2, blend3, scalar_triple_product, Transform, Vec3, FLT_EPSILON, FLT_MAX, FLT_MIN};
+use crate::math::{
+    blend2, blend3, scalar_triple_product, Transform, Vec3, FLT_EPSILON, FLT_MAX, FLT_MIN,
+};
 
 const MAX_SIMPLEX_VERTICES: usize = 4;
 const MAX_GJK_ITERATIONS: i32 = 32;
@@ -148,7 +150,12 @@ fn barycentric_tri(a: Vec3, b: Vec3, c: Vec3) -> [f32; 4] {
     let a_x_b = a.cross(b);
     let ab_x_ac = ab.cross(ac);
     let divisor = ab_x_ac.dot(ab_x_ac);
-    [b_x_c.dot(ab_x_ac), c_x_a.dot(ab_x_ac), a_x_b.dot(ab_x_ac), divisor]
+    [
+        b_x_c.dot(ab_x_ac),
+        c_x_a.dot(ab_x_ac),
+        a_x_b.dot(ab_x_ac),
+        divisor,
+    ]
 }
 
 fn barycentric_tet(a: Vec3, b: Vec3, c: Vec3, d: Vec3) -> [f32; 5] {
@@ -537,9 +544,8 @@ fn compute_witness_points(simplex: &Simplex) -> (Vec3, Vec3) {
         ),
         4 => {
             // Force identical points and zero distance.
-            let sum = blend2(vs[0].a, vs[0].w_a, vs[1].a, vs[1].w_a).add(blend2(
-                vs[2].a, vs[2].w_a, vs[3].a, vs[3].w_a,
-            ));
+            let sum = blend2(vs[0].a, vs[0].w_a, vs[1].a, vs[1].w_a)
+                .add(blend2(vs[2].a, vs[2].w_a, vs[3].a, vs[3].w_a));
             (sum, sum)
         }
         _ => (Vec3::ZERO, Vec3::ZERO),

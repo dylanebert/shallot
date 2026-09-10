@@ -30,7 +30,9 @@ use shallot_physics::manifold_abi::{
     P_ANCHOR_B, P_BASE_SEPARATION, P_FEATURE_ID, P_NORMAL_IMPULSE, P_SEPARATION, SLOT_STRIDE,
 };
 use shallot_physics::math::Vec3;
-use shallot_physics::stages::{self, Block, BlockType, ColorSpan, Plan, Stage, StageWork, SyncBlock};
+use shallot_physics::stages::{
+    self, Block, BlockType, ColorSpan, Plan, Stage, StageWork, SyncBlock,
+};
 
 /// SAFETY: the staged solve's blocks are write-disjoint (`stages.rs`'s header states why), which is
 /// exactly `Col`'s promise; the serial run is single-threaded. Both are what this test asserts.
@@ -69,17 +71,42 @@ struct Layout {
 /// six contacts all share bodies 0..3 — with each other and with the colored contacts.
 fn layout() -> Layout {
     // color 0: convex over bodies 0..79 (pairs), mesh over 80..99
-    let c0_wide = (0..40).map(|i| Contact { a: 2 * i, b: Some(2 * i + 1) }).collect();
-    let c0_mesh = (0..10).map(|i| Contact { a: 80 + 2 * i, b: Some(81 + 2 * i) }).collect();
+    let c0_wide = (0..40)
+        .map(|i| Contact {
+            a: 2 * i,
+            b: Some(2 * i + 1),
+        })
+        .collect();
+    let c0_mesh = (0..10)
+        .map(|i| Contact {
+            a: 80 + 2 * i,
+            b: Some(81 + 2 * i),
+        })
+        .collect();
 
     // color 1: convex 0..39 vs 100..139, mesh 40..49 vs 140..149
-    let c1_wide = (0..40).map(|i| Contact { a: i, b: Some(100 + i) }).collect();
-    let c1_mesh = (0..10).map(|i| Contact { a: 40 + i, b: Some(140 + i) }).collect();
+    let c1_wide = (0..40)
+        .map(|i| Contact {
+            a: i,
+            b: Some(100 + i),
+        })
+        .collect();
+    let c1_mesh = (0..10)
+        .map(|i| Contact {
+            a: 40 + i,
+            b: Some(140 + i),
+        })
+        .collect();
 
     // color 2: 18 convex against static bodies (null lane B; not a multiple of 4, so the last wide
     // record is a partial 2-lane one), mesh 70..74 vs 170..174.
     let c2_wide = (0..18).map(|i| Contact { a: 50 + i, b: None }).collect();
-    let c2_mesh = (0..5).map(|i| Contact { a: 70 + i, b: Some(170 + i) }).collect();
+    let c2_mesh = (0..5)
+        .map(|i| Contact {
+            a: 70 + i,
+            b: Some(170 + i),
+        })
+        .collect();
 
     let overflow = vec![
         Contact { a: 0, b: Some(1) },
@@ -538,7 +565,12 @@ impl StageWork for Work<'_> {
 
     fn restitution_mesh(&self, b: Block) {
         self.tick();
-        contact::restitution(&self.columns(), b.start, b.count, self.restitution_threshold);
+        contact::restitution(
+            &self.columns(),
+            b.start,
+            b.count,
+            self.restitution_threshold,
+        );
     }
 
     fn store_wide(&self, b: Block, _worker_index: usize) {
@@ -626,12 +658,17 @@ fn whole(start: usize, count: usize, block_type: BlockType) -> Block {
 /// The serial path the engine ships (`src/solver.ts`), phase for phase: the flat prepares, then the
 /// sub-step loop with the overflow ahead of each color group, then restitution, store, and the
 /// finalize sweep. The independent oracle the staged run must reproduce bit for bit.
-fn solve_serial(work: &Work, spans: &[ColorSpan], wide_total: usize, mesh_start: usize, mesh_total: usize) {
+fn solve_serial(
+    work: &Work,
+    spans: &[ColorSpan],
+    wide_total: usize,
+    mesh_start: usize,
+    mesh_total: usize,
+) {
     let bodies = whole(0, BODY_COUNT, BlockType::Body);
     let all_wide = whole(0, wide_total, BlockType::WideContact);
     let all_mesh = whole(mesh_start, mesh_total, BlockType::Contact);
-    let color_wide =
-        |s: &ColorSpan| whole(s.wide_start, s.wide_count, BlockType::GraphWideContact);
+    let color_wide = |s: &ColorSpan| whole(s.wide_start, s.wide_count, BlockType::GraphWideContact);
     let color_mesh = |s: &ColorSpan| whole(s.mesh_start, s.mesh_count, BlockType::GraphContact);
 
     work.prepare_wide(all_wide);
@@ -748,7 +785,10 @@ fn staged_solve_is_worker_count_independent() {
     // The scene must actually exercise the machinery: several blocks per stage, and a real overflow.
     let s = build_scene();
     let sizes = stages::sizes(&plan(&s, 8));
-    assert!(sizes.blocks >= 20, "too few blocks to expose a claim race: {sizes:?}");
+    assert!(
+        sizes.blocks >= 20,
+        "too few blocks to expose a claim race: {sizes:?}"
+    );
     assert_eq!(s.spans.len(), 3);
     assert_eq!(s.overflow_count, 6);
 
@@ -771,7 +811,10 @@ fn staged_solve_is_worker_count_independent() {
         }
 
         if workers > 1 {
-            assert!(stolen > 0, "no block was stolen at {workers} workers: the test is vacuous");
+            assert!(
+                stolen > 0,
+                "no block was stolen at {workers} workers: the test is vacuous"
+            );
         }
     }
 }
@@ -852,8 +895,9 @@ fn fault_releases_the_orchestrator() {
             scope.spawn(move || {
                 // The worker's round body: a trap unwinds, the fault is published, the failure is
                 // reported. Exactly `src/pool.ts`'s catch, and in that order.
-                let died =
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| stages::run(ctx, work, 1)));
+                let died = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    stages::run(ctx, work, 1)
+                }));
                 if died.is_err() {
                     ctx.fault();
                 }

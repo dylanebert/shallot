@@ -6,9 +6,9 @@
 //! bit-for-bit.
 
 use serde_json::Value;
+use shallot_physics::col::Col;
 use shallot_physics::manifold_abi::{DIR_MANIFOLD_BASE, DIR_STRIDE};
 use shallot_physics::math::{Quat, Transform, Vec3};
-use shallot_physics::col::Col;
 use shallot_physics::recycle::try_recycle;
 
 /// SAFETY: a gold harness is single-threaded and each column has exactly one user, so `Col`'s

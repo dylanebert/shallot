@@ -12,29 +12,29 @@ use shallot_physics::joint::{prepare, solve, warm_start};
 use shallot_physics::joint_abi::{
     get, get_vec3, DJ_ANCHOR_A, DJ_ANCHOR_B, DJ_AXIAL_MASS, DJ_DAMPING_RATIO, DJ_DELTA_CENTER,
     DJ_DIST_SOFTNESS, DJ_ENABLE, DJ_ENABLE_LIMIT, DJ_ENABLE_MOTOR, DJ_ENABLE_SPRING, DJ_HERTZ,
-    DJ_IMPULSE, DJ_LENGTH, DJ_LOWER_IMPULSE, DJ_LOWER_SPRING_FORCE, DJ_MAX_LENGTH, DJ_MAX_MOTOR_FORCE,
-    DJ_MIN_LENGTH, DJ_MOTOR_IMPULSE, DJ_MOTOR_SPEED, DJ_UPPER_IMPULSE, DJ_UPPER_SPRING_FORCE,
-    JOINT_STRIDE, J_CENTER_A, J_CENTER_B, J_CONSTRAINT_DAMPING, J_CONSTRAINT_HERTZ,
-    J_CONSTRAINT_SOFTNESS, J_INV_IA, J_INV_IB, J_INV_MASS_A, J_INV_MASS_B, J_LOCAL_CENTER_A,
-    J_LOCAL_CENTER_B, J_LOCAL_FRAME_A, J_LOCAL_FRAME_B, J_QA, J_QB, J_SIM_INDEX_A, J_SIM_INDEX_B,
-    J_TYPE, MJ_ANGULAR_DAMPING_RATIO, MJ_ANGULAR_HERTZ, MJ_ANGULAR_SPRING_IMPULSE,
-    MJ_ANGULAR_VELOCITY, MJ_ANGULAR_VELOCITY_IMPULSE, MJ_LINEAR_DAMPING_RATIO, MJ_LINEAR_HERTZ,
-    MJ_LINEAR_SPRING_IMPULSE, MJ_LINEAR_VELOCITY, MJ_LINEAR_VELOCITY_IMPULSE, MJ_MAX_SPRING_FORCE,
-    MJ_MAX_SPRING_TORQUE, MJ_MAX_VELOCITY_FORCE, MJ_MAX_VELOCITY_TORQUE, NULL_INDEX,
-    PLJ_DAMPING_RATIO, PLJ_HERTZ, PLJ_MAX_TORQUE, PLJ_PERP_IMPULSE,
-    PJ_ANGULAR_IMPULSE, PJ_DAMPING_RATIO, PJ_ENABLE, PJ_ENABLE_LIMIT,
-    PJ_ENABLE_MOTOR, PJ_ENABLE_SPRING, PJ_HERTZ, PJ_LOWER_IMPULSE, PJ_LOWER_TRANSLATION,
-    PJ_MAX_MOTOR_FORCE, PJ_MOTOR_IMPULSE, PJ_MOTOR_SPEED, PJ_PERP_IMPULSE, PJ_SPRING_IMPULSE,
-    PJ_TARGET_TRANSLATION, PJ_UPPER_IMPULSE, PJ_UPPER_TRANSLATION, RJ_DAMPING_RATIO, RJ_ENABLE,
-    RJ_ENABLE_LIMIT, RJ_ENABLE_MOTOR,
-    RJ_ENABLE_SPRING, RJ_HERTZ, RJ_LINEAR_IMPULSE, RJ_LOWER_ANGLE, RJ_LOWER_IMPULSE,
-    RJ_MAX_MOTOR_TORQUE, RJ_MOTOR_IMPULSE, RJ_MOTOR_SPEED, RJ_PERP_IMPULSE, RJ_SPRING_IMPULSE,
-    RJ_TARGET_ANGLE, RJ_UPPER_ANGLE, RJ_UPPER_IMPULSE, SJ_CONE_ANGLE, SJ_DAMPING_RATIO, SJ_ENABLE,
-    SJ_ENABLE_CONE_LIMIT, SJ_ENABLE_MOTOR, SJ_ENABLE_SPRING, SJ_ENABLE_TWIST_LIMIT, SJ_HERTZ,
-    SJ_LINEAR_IMPULSE, SJ_LOWER_TWIST_ANGLE, SJ_LOWER_TWIST_IMPULSE, SJ_MAX_MOTOR_TORQUE,
-    SJ_MOTOR_IMPULSE, SJ_MOTOR_VELOCITY, SJ_SPRING_IMPULSE, SJ_SWING_IMPULSE, SJ_TARGET_ROTATION,
-    SJ_UPPER_TWIST_ANGLE, SJ_UPPER_TWIST_IMPULSE, TY_DISTANCE, TY_MOTOR, TY_PARALLEL, TY_PRISMATIC,
-    TY_REVOLUTE, TY_SPHERICAL, TY_WELD, TY_WHEEL, WHJ_ANGULAR_IMPULSE, WHJ_ENABLE, WHJ_ENABLE_SPIN_MOTOR,
+    DJ_IMPULSE, DJ_LENGTH, DJ_LOWER_IMPULSE, DJ_LOWER_SPRING_FORCE, DJ_MAX_LENGTH,
+    DJ_MAX_MOTOR_FORCE, DJ_MIN_LENGTH, DJ_MOTOR_IMPULSE, DJ_MOTOR_SPEED, DJ_UPPER_IMPULSE,
+    DJ_UPPER_SPRING_FORCE, JOINT_STRIDE, J_CENTER_A, J_CENTER_B, J_CONSTRAINT_DAMPING,
+    J_CONSTRAINT_HERTZ, J_CONSTRAINT_SOFTNESS, J_INV_IA, J_INV_IB, J_INV_MASS_A, J_INV_MASS_B,
+    J_LOCAL_CENTER_A, J_LOCAL_CENTER_B, J_LOCAL_FRAME_A, J_LOCAL_FRAME_B, J_QA, J_QB,
+    J_SIM_INDEX_A, J_SIM_INDEX_B, J_TYPE, MJ_ANGULAR_DAMPING_RATIO, MJ_ANGULAR_HERTZ,
+    MJ_ANGULAR_SPRING_IMPULSE, MJ_ANGULAR_VELOCITY, MJ_ANGULAR_VELOCITY_IMPULSE,
+    MJ_LINEAR_DAMPING_RATIO, MJ_LINEAR_HERTZ, MJ_LINEAR_SPRING_IMPULSE, MJ_LINEAR_VELOCITY,
+    MJ_LINEAR_VELOCITY_IMPULSE, MJ_MAX_SPRING_FORCE, MJ_MAX_SPRING_TORQUE, MJ_MAX_VELOCITY_FORCE,
+    MJ_MAX_VELOCITY_TORQUE, NULL_INDEX, PJ_ANGULAR_IMPULSE, PJ_DAMPING_RATIO, PJ_ENABLE,
+    PJ_ENABLE_LIMIT, PJ_ENABLE_MOTOR, PJ_ENABLE_SPRING, PJ_HERTZ, PJ_LOWER_IMPULSE,
+    PJ_LOWER_TRANSLATION, PJ_MAX_MOTOR_FORCE, PJ_MOTOR_IMPULSE, PJ_MOTOR_SPEED, PJ_PERP_IMPULSE,
+    PJ_SPRING_IMPULSE, PJ_TARGET_TRANSLATION, PJ_UPPER_IMPULSE, PJ_UPPER_TRANSLATION,
+    PLJ_DAMPING_RATIO, PLJ_HERTZ, PLJ_MAX_TORQUE, PLJ_PERP_IMPULSE, RJ_DAMPING_RATIO, RJ_ENABLE,
+    RJ_ENABLE_LIMIT, RJ_ENABLE_MOTOR, RJ_ENABLE_SPRING, RJ_HERTZ, RJ_LINEAR_IMPULSE,
+    RJ_LOWER_ANGLE, RJ_LOWER_IMPULSE, RJ_MAX_MOTOR_TORQUE, RJ_MOTOR_IMPULSE, RJ_MOTOR_SPEED,
+    RJ_PERP_IMPULSE, RJ_SPRING_IMPULSE, RJ_TARGET_ANGLE, RJ_UPPER_ANGLE, RJ_UPPER_IMPULSE,
+    SJ_CONE_ANGLE, SJ_DAMPING_RATIO, SJ_ENABLE, SJ_ENABLE_CONE_LIMIT, SJ_ENABLE_MOTOR,
+    SJ_ENABLE_SPRING, SJ_ENABLE_TWIST_LIMIT, SJ_HERTZ, SJ_LINEAR_IMPULSE, SJ_LOWER_TWIST_ANGLE,
+    SJ_LOWER_TWIST_IMPULSE, SJ_MAX_MOTOR_TORQUE, SJ_MOTOR_IMPULSE, SJ_MOTOR_VELOCITY,
+    SJ_SPRING_IMPULSE, SJ_SWING_IMPULSE, SJ_TARGET_ROTATION, SJ_UPPER_TWIST_ANGLE,
+    SJ_UPPER_TWIST_IMPULSE, TY_DISTANCE, TY_MOTOR, TY_PARALLEL, TY_PRISMATIC, TY_REVOLUTE,
+    TY_SPHERICAL, TY_WELD, TY_WHEEL, WHJ_ANGULAR_IMPULSE, WHJ_ENABLE, WHJ_ENABLE_SPIN_MOTOR,
     WHJ_ENABLE_STEERING, WHJ_ENABLE_STEERING_LIMIT, WHJ_ENABLE_SUSPENSION_LIMIT,
     WHJ_ENABLE_SUSPENSION_SPRING, WHJ_LINEAR_IMPULSE, WHJ_LOWER_STEERING_IMPULSE,
     WHJ_LOWER_STEERING_LIMIT, WHJ_LOWER_SUSPENSION_IMPULSE, WHJ_LOWER_SUSPENSION_LIMIT,
@@ -139,9 +139,19 @@ fn setup(input: &Value) -> (Vec<f32>, Vec<f32>, Vec<u32>) {
         set(DJ_MAX_LENGTH, f(input, "maxLength"));
         set(DJ_MAX_MOTOR_FORCE, f(input, "maxMotorForce"));
         set(DJ_MOTOR_SPEED, f(input, "motorSpeed"));
-        let enable = (if input["enableSpring"].as_i64().unwrap() != 0 { DJ_ENABLE_SPRING } else { 0 })
-            | (if input["enableLimit"].as_i64().unwrap() != 0 { DJ_ENABLE_LIMIT } else { 0 })
-            | (if input["enableMotor"].as_i64().unwrap() != 0 { DJ_ENABLE_MOTOR } else { 0 });
+        let enable = (if input["enableSpring"].as_i64().unwrap() != 0 {
+            DJ_ENABLE_SPRING
+        } else {
+            0
+        }) | (if input["enableLimit"].as_i64().unwrap() != 0 {
+            DJ_ENABLE_LIMIT
+        } else {
+            0
+        }) | (if input["enableMotor"].as_i64().unwrap() != 0 {
+            DJ_ENABLE_MOTOR
+        } else {
+            0
+        });
         set(DJ_ENABLE, f32::from_bits(enable));
         set(DJ_IMPULSE, f(input, "impulse"));
         set(DJ_LOWER_IMPULSE, f(input, "lowerImpulse"));
@@ -222,19 +232,47 @@ fn run_scenario(sc: &Value) {
         assert_bits(d.x, dc[0], &format!("{name}/prepare deltaCenter.x"));
         assert_bits(d.y, dc[1], &format!("{name}/prepare deltaCenter.y"));
         assert_bits(d.z, dc[2], &format!("{name}/prepare deltaCenter.z"));
-        assert_bits(get(jc, 0, DJ_AXIAL_MASS), f(g, "axialMass"), &format!("{name}/prepare axialMass"));
+        assert_bits(
+            get(jc, 0, DJ_AXIAL_MASS),
+            f(g, "axialMass"),
+            &format!("{name}/prepare axialMass"),
+        );
         let ds = arr(g, "distSoftness");
         for k in 0..3 {
-            assert_bits(get(jc, 0, DJ_DIST_SOFTNESS + k), ds[k], &format!("{name}/prepare distSoftness[{k}]"));
+            assert_bits(
+                get(jc, 0, DJ_DIST_SOFTNESS + k),
+                ds[k],
+                &format!("{name}/prepare distSoftness[{k}]"),
+            );
         }
         let cs = arr(g, "constraintSoftness");
         for k in 0..3 {
-            assert_bits(get(jc, 0, J_CONSTRAINT_SOFTNESS + k), cs[k], &format!("{name}/prepare constraintSoftness[{k}]"));
+            assert_bits(
+                get(jc, 0, J_CONSTRAINT_SOFTNESS + k),
+                cs[k],
+                &format!("{name}/prepare constraintSoftness[{k}]"),
+            );
         }
-        assert_bits(get(jc, 0, DJ_IMPULSE), f(g, "impulse"), &format!("{name}/prepare impulse"));
-        assert_bits(get(jc, 0, DJ_LOWER_IMPULSE), f(g, "lowerImpulse"), &format!("{name}/prepare lowerImpulse"));
-        assert_bits(get(jc, 0, DJ_UPPER_IMPULSE), f(g, "upperImpulse"), &format!("{name}/prepare upperImpulse"));
-        assert_bits(get(jc, 0, DJ_MOTOR_IMPULSE), f(g, "motorImpulse"), &format!("{name}/prepare motorImpulse"));
+        assert_bits(
+            get(jc, 0, DJ_IMPULSE),
+            f(g, "impulse"),
+            &format!("{name}/prepare impulse"),
+        );
+        assert_bits(
+            get(jc, 0, DJ_LOWER_IMPULSE),
+            f(g, "lowerImpulse"),
+            &format!("{name}/prepare lowerImpulse"),
+        );
+        assert_bits(
+            get(jc, 0, DJ_UPPER_IMPULSE),
+            f(g, "upperImpulse"),
+            &format!("{name}/prepare upperImpulse"),
+        );
+        assert_bits(
+            get(jc, 0, DJ_MOTOR_IMPULSE),
+            f(g, "motorImpulse"),
+            &format!("{name}/prepare motorImpulse"),
+        );
     }
 
     // warm start ------------------------------------------------------------------------------
@@ -244,7 +282,14 @@ fn run_scenario(sc: &Value) {
         let fc = col(&mut flags);
         warm_start(jc, 0, sc2, fc);
     }
-    check_vels(&sc["warmStart"], &mut state, b_static, name, "warmStart", None);
+    check_vels(
+        &sc["warmStart"],
+        &mut state,
+        b_static,
+        name,
+        "warmStart",
+        None,
+    );
 
     // solve (biased) --------------------------------------------------------------------------
     {
@@ -253,7 +298,14 @@ fn run_scenario(sc: &Value) {
         let fc = col(&mut flags);
         solve(jc, 0, sc2, fc, true, h, inv_h);
     }
-    check_vels(&sc["solveBias"], &mut state, b_static, name, "solveBias", Some(&joints));
+    check_vels(
+        &sc["solveBias"],
+        &mut state,
+        b_static,
+        name,
+        "solveBias",
+        Some(&joints),
+    );
 
     // relax (unbiased) ------------------------------------------------------------------------
     {
@@ -262,7 +314,14 @@ fn run_scenario(sc: &Value) {
         let fc = col(&mut flags);
         solve(jc, 0, sc2, fc, false, h, inv_h);
     }
-    check_vels(&sc["solveRelax"], &mut state, b_static, name, "solveRelax", Some(&joints));
+    check_vels(
+        &sc["solveRelax"],
+        &mut state,
+        b_static,
+        name,
+        "solveRelax",
+        Some(&joints),
+    );
 }
 
 fn check_vels(
@@ -292,10 +351,26 @@ fn check_vels(
     if let Some(joints) = joints {
         let mut jv = joints.to_vec();
         let jc = col(&mut jv);
-        assert_bits(get(jc, 0, DJ_IMPULSE), f(g, "impulse"), &format!("{name}/{phase} impulse"));
-        assert_bits(get(jc, 0, DJ_LOWER_IMPULSE), f(g, "lowerImpulse"), &format!("{name}/{phase} lowerImpulse"));
-        assert_bits(get(jc, 0, DJ_UPPER_IMPULSE), f(g, "upperImpulse"), &format!("{name}/{phase} upperImpulse"));
-        assert_bits(get(jc, 0, DJ_MOTOR_IMPULSE), f(g, "motorImpulse"), &format!("{name}/{phase} motorImpulse"));
+        assert_bits(
+            get(jc, 0, DJ_IMPULSE),
+            f(g, "impulse"),
+            &format!("{name}/{phase} impulse"),
+        );
+        assert_bits(
+            get(jc, 0, DJ_LOWER_IMPULSE),
+            f(g, "lowerImpulse"),
+            &format!("{name}/{phase} lowerImpulse"),
+        );
+        assert_bits(
+            get(jc, 0, DJ_UPPER_IMPULSE),
+            f(g, "upperImpulse"),
+            &format!("{name}/{phase} upperImpulse"),
+        );
+        assert_bits(
+            get(jc, 0, DJ_MOTOR_IMPULSE),
+            f(g, "motorImpulse"),
+            &format!("{name}/{phase} motorImpulse"),
+        );
     }
 }
 
@@ -532,9 +607,19 @@ fn run_revolute(sc: &Value) {
         set(RJ_TARGET_ANGLE, f(input, "targetAngle"));
         set(RJ_LOWER_ANGLE, f(input, "lowerAngle"));
         set(RJ_UPPER_ANGLE, f(input, "upperAngle"));
-        let enable = (if input["enableSpring"].as_i64().unwrap() != 0 { RJ_ENABLE_SPRING } else { 0 })
-            | (if input["enableMotor"].as_i64().unwrap() != 0 { RJ_ENABLE_MOTOR } else { 0 })
-            | (if input["enableLimit"].as_i64().unwrap() != 0 { RJ_ENABLE_LIMIT } else { 0 });
+        let enable = (if input["enableSpring"].as_i64().unwrap() != 0 {
+            RJ_ENABLE_SPRING
+        } else {
+            0
+        }) | (if input["enableMotor"].as_i64().unwrap() != 0 {
+            RJ_ENABLE_MOTOR
+        } else {
+            0
+        }) | (if input["enableLimit"].as_i64().unwrap() != 0 {
+            RJ_ENABLE_LIMIT
+        } else {
+            0
+        });
         set(RJ_ENABLE, f32::from_bits(enable));
         for (i, x) in arr(input, "linearImpulse").iter().enumerate() {
             set(RJ_LINEAR_IMPULSE + i, *x);
@@ -578,12 +663,48 @@ fn run_revolute(sc: &Value) {
             &format!("{phase} linearImpulse"),
         );
         let perp = arr(g, "perpImpulse");
-        check_scalar(&joints, RJ_PERP_IMPULSE, perp[0], name, &format!("{phase} perpImpulse.x"));
-        check_scalar(&joints, RJ_PERP_IMPULSE + 1, perp[1], name, &format!("{phase} perpImpulse.y"));
-        check_scalar(&joints, RJ_SPRING_IMPULSE, f(g, "springImpulse"), name, &format!("{phase} springImpulse"));
-        check_scalar(&joints, RJ_MOTOR_IMPULSE, f(g, "motorImpulse"), name, &format!("{phase} motorImpulse"));
-        check_scalar(&joints, RJ_LOWER_IMPULSE, f(g, "lowerImpulse"), name, &format!("{phase} lowerImpulse"));
-        check_scalar(&joints, RJ_UPPER_IMPULSE, f(g, "upperImpulse"), name, &format!("{phase} upperImpulse"));
+        check_scalar(
+            &joints,
+            RJ_PERP_IMPULSE,
+            perp[0],
+            name,
+            &format!("{phase} perpImpulse.x"),
+        );
+        check_scalar(
+            &joints,
+            RJ_PERP_IMPULSE + 1,
+            perp[1],
+            name,
+            &format!("{phase} perpImpulse.y"),
+        );
+        check_scalar(
+            &joints,
+            RJ_SPRING_IMPULSE,
+            f(g, "springImpulse"),
+            name,
+            &format!("{phase} springImpulse"),
+        );
+        check_scalar(
+            &joints,
+            RJ_MOTOR_IMPULSE,
+            f(g, "motorImpulse"),
+            name,
+            &format!("{phase} motorImpulse"),
+        );
+        check_scalar(
+            &joints,
+            RJ_LOWER_IMPULSE,
+            f(g, "lowerImpulse"),
+            name,
+            &format!("{phase} lowerImpulse"),
+        );
+        check_scalar(
+            &joints,
+            RJ_UPPER_IMPULSE,
+            f(g, "upperImpulse"),
+            name,
+            &format!("{phase} upperImpulse"),
+        );
     }
 }
 
@@ -624,10 +745,23 @@ fn run_spherical(sc: &Value) {
         for (i, x) in arr(input, "targetRotation").iter().enumerate() {
             set(SJ_TARGET_ROTATION + i, *x);
         }
-        let enable = (if input["enableSpring"].as_i64().unwrap() != 0 { SJ_ENABLE_SPRING } else { 0 })
-            | (if input["enableMotor"].as_i64().unwrap() != 0 { SJ_ENABLE_MOTOR } else { 0 })
-            | (if input["enableConeLimit"].as_i64().unwrap() != 0 { SJ_ENABLE_CONE_LIMIT } else { 0 })
-            | (if input["enableTwistLimit"].as_i64().unwrap() != 0 { SJ_ENABLE_TWIST_LIMIT } else { 0 });
+        let enable = (if input["enableSpring"].as_i64().unwrap() != 0 {
+            SJ_ENABLE_SPRING
+        } else {
+            0
+        }) | (if input["enableMotor"].as_i64().unwrap() != 0 {
+            SJ_ENABLE_MOTOR
+        } else {
+            0
+        }) | (if input["enableConeLimit"].as_i64().unwrap() != 0 {
+            SJ_ENABLE_CONE_LIMIT
+        } else {
+            0
+        }) | (if input["enableTwistLimit"].as_i64().unwrap() != 0 {
+            SJ_ENABLE_TWIST_LIMIT
+        } else {
+            0
+        });
         set(SJ_ENABLE, f32::from_bits(enable));
         for (i, x) in arr(input, "linearImpulse").iter().enumerate() {
             set(SJ_LINEAR_IMPULSE + i, *x);
@@ -665,12 +799,48 @@ fn run_spherical(sc: &Value) {
         }
         let g = &sc[phase];
         check_body_vels(g, &mut state, b_static, name, phase);
-        check_vec3(&joints, SJ_LINEAR_IMPULSE, &arr(g, "linearImpulse"), name, &format!("{phase} linearImpulse"));
-        check_vec3(&joints, SJ_SPRING_IMPULSE, &arr(g, "springImpulse"), name, &format!("{phase} springImpulse"));
-        check_vec3(&joints, SJ_MOTOR_IMPULSE, &arr(g, "motorImpulse"), name, &format!("{phase} motorImpulse"));
-        check_scalar(&joints, SJ_LOWER_TWIST_IMPULSE, f(g, "lowerTwistImpulse"), name, &format!("{phase} lowerTwistImpulse"));
-        check_scalar(&joints, SJ_UPPER_TWIST_IMPULSE, f(g, "upperTwistImpulse"), name, &format!("{phase} upperTwistImpulse"));
-        check_scalar(&joints, SJ_SWING_IMPULSE, f(g, "swingImpulse"), name, &format!("{phase} swingImpulse"));
+        check_vec3(
+            &joints,
+            SJ_LINEAR_IMPULSE,
+            &arr(g, "linearImpulse"),
+            name,
+            &format!("{phase} linearImpulse"),
+        );
+        check_vec3(
+            &joints,
+            SJ_SPRING_IMPULSE,
+            &arr(g, "springImpulse"),
+            name,
+            &format!("{phase} springImpulse"),
+        );
+        check_vec3(
+            &joints,
+            SJ_MOTOR_IMPULSE,
+            &arr(g, "motorImpulse"),
+            name,
+            &format!("{phase} motorImpulse"),
+        );
+        check_scalar(
+            &joints,
+            SJ_LOWER_TWIST_IMPULSE,
+            f(g, "lowerTwistImpulse"),
+            name,
+            &format!("{phase} lowerTwistImpulse"),
+        );
+        check_scalar(
+            &joints,
+            SJ_UPPER_TWIST_IMPULSE,
+            f(g, "upperTwistImpulse"),
+            name,
+            &format!("{phase} upperTwistImpulse"),
+        );
+        check_scalar(
+            &joints,
+            SJ_SWING_IMPULSE,
+            f(g, "swingImpulse"),
+            name,
+            &format!("{phase} swingImpulse"),
+        );
     }
 }
 
@@ -706,9 +876,19 @@ fn run_prismatic(sc: &Value) {
         set(PJ_TARGET_TRANSLATION, f(input, "targetTranslation"));
         set(PJ_LOWER_TRANSLATION, f(input, "lowerTranslation"));
         set(PJ_UPPER_TRANSLATION, f(input, "upperTranslation"));
-        let enable = (if input["enableSpring"].as_i64().unwrap() != 0 { PJ_ENABLE_SPRING } else { 0 })
-            | (if input["enableMotor"].as_i64().unwrap() != 0 { PJ_ENABLE_MOTOR } else { 0 })
-            | (if input["enableLimit"].as_i64().unwrap() != 0 { PJ_ENABLE_LIMIT } else { 0 });
+        let enable = (if input["enableSpring"].as_i64().unwrap() != 0 {
+            PJ_ENABLE_SPRING
+        } else {
+            0
+        }) | (if input["enableMotor"].as_i64().unwrap() != 0 {
+            PJ_ENABLE_MOTOR
+        } else {
+            0
+        }) | (if input["enableLimit"].as_i64().unwrap() != 0 {
+            PJ_ENABLE_LIMIT
+        } else {
+            0
+        });
         set(PJ_ENABLE, f32::from_bits(enable));
         for (i, x) in arr(input, "perpImpulse").iter().enumerate() {
             set(PJ_PERP_IMPULSE + i, *x);
@@ -745,13 +925,55 @@ fn run_prismatic(sc: &Value) {
         let g = &sc[phase];
         check_body_vels(g, &mut state, b_static, name, phase);
         let perp = arr(g, "perpImpulse");
-        check_scalar(&joints, PJ_PERP_IMPULSE, perp[0], name, &format!("{phase} perpImpulse.x"));
-        check_scalar(&joints, PJ_PERP_IMPULSE + 1, perp[1], name, &format!("{phase} perpImpulse.y"));
-        check_vec3(&joints, PJ_ANGULAR_IMPULSE, &arr(g, "angularImpulse"), name, &format!("{phase} angularImpulse"));
-        check_scalar(&joints, PJ_SPRING_IMPULSE, f(g, "springImpulse"), name, &format!("{phase} springImpulse"));
-        check_scalar(&joints, PJ_MOTOR_IMPULSE, f(g, "motorImpulse"), name, &format!("{phase} motorImpulse"));
-        check_scalar(&joints, PJ_LOWER_IMPULSE, f(g, "lowerImpulse"), name, &format!("{phase} lowerImpulse"));
-        check_scalar(&joints, PJ_UPPER_IMPULSE, f(g, "upperImpulse"), name, &format!("{phase} upperImpulse"));
+        check_scalar(
+            &joints,
+            PJ_PERP_IMPULSE,
+            perp[0],
+            name,
+            &format!("{phase} perpImpulse.x"),
+        );
+        check_scalar(
+            &joints,
+            PJ_PERP_IMPULSE + 1,
+            perp[1],
+            name,
+            &format!("{phase} perpImpulse.y"),
+        );
+        check_vec3(
+            &joints,
+            PJ_ANGULAR_IMPULSE,
+            &arr(g, "angularImpulse"),
+            name,
+            &format!("{phase} angularImpulse"),
+        );
+        check_scalar(
+            &joints,
+            PJ_SPRING_IMPULSE,
+            f(g, "springImpulse"),
+            name,
+            &format!("{phase} springImpulse"),
+        );
+        check_scalar(
+            &joints,
+            PJ_MOTOR_IMPULSE,
+            f(g, "motorImpulse"),
+            name,
+            &format!("{phase} motorImpulse"),
+        );
+        check_scalar(
+            &joints,
+            PJ_LOWER_IMPULSE,
+            f(g, "lowerImpulse"),
+            name,
+            &format!("{phase} lowerImpulse"),
+        );
+        check_scalar(
+            &joints,
+            PJ_UPPER_IMPULSE,
+            f(g, "upperImpulse"),
+            name,
+            &format!("{phase} upperImpulse"),
+        );
     }
 }
 
@@ -785,18 +1007,37 @@ fn run_wheel(sc: &Value) {
         set(WHJ_LOWER_SUSPENSION_LIMIT, f(input, "lowerSuspensionLimit"));
         set(WHJ_UPPER_SUSPENSION_LIMIT, f(input, "upperSuspensionLimit"));
         set(WHJ_SUSPENSION_HERTZ, f(input, "suspensionHertz"));
-        set(WHJ_SUSPENSION_DAMPING_RATIO, f(input, "suspensionDampingRatio"));
+        set(
+            WHJ_SUSPENSION_DAMPING_RATIO,
+            f(input, "suspensionDampingRatio"),
+        );
         set(WHJ_LOWER_STEERING_LIMIT, f(input, "lowerSteeringLimit"));
         set(WHJ_UPPER_STEERING_LIMIT, f(input, "upperSteeringLimit"));
         set(WHJ_TARGET_STEERING_ANGLE, f(input, "targetSteeringAngle"));
         set(WHJ_MAX_STEERING_TORQUE, f(input, "maxSteeringTorque"));
         set(WHJ_STEERING_HERTZ, f(input, "steeringHertz"));
         set(WHJ_STEERING_DAMPING_RATIO, f(input, "steeringDampingRatio"));
-        let enable = (if input["enableSpinMotor"].as_i64().unwrap() != 0 { WHJ_ENABLE_SPIN_MOTOR } else { 0 })
-            | (if input["enableSuspensionSpring"].as_i64().unwrap() != 0 { WHJ_ENABLE_SUSPENSION_SPRING } else { 0 })
-            | (if input["enableSuspensionLimit"].as_i64().unwrap() != 0 { WHJ_ENABLE_SUSPENSION_LIMIT } else { 0 })
-            | (if input["enableSteering"].as_i64().unwrap() != 0 { WHJ_ENABLE_STEERING } else { 0 })
-            | (if input["enableSteeringLimit"].as_i64().unwrap() != 0 { WHJ_ENABLE_STEERING_LIMIT } else { 0 });
+        let enable = (if input["enableSpinMotor"].as_i64().unwrap() != 0 {
+            WHJ_ENABLE_SPIN_MOTOR
+        } else {
+            0
+        }) | (if input["enableSuspensionSpring"].as_i64().unwrap() != 0 {
+            WHJ_ENABLE_SUSPENSION_SPRING
+        } else {
+            0
+        }) | (if input["enableSuspensionLimit"].as_i64().unwrap() != 0 {
+            WHJ_ENABLE_SUSPENSION_LIMIT
+        } else {
+            0
+        }) | (if input["enableSteering"].as_i64().unwrap() != 0 {
+            WHJ_ENABLE_STEERING
+        } else {
+            0
+        }) | (if input["enableSteeringLimit"].as_i64().unwrap() != 0 {
+            WHJ_ENABLE_STEERING_LIMIT
+        } else {
+            0
+        });
         set(WHJ_ENABLE, f32::from_bits(enable));
         for (i, x) in arr(input, "linearImpulse").iter().enumerate() {
             set(WHJ_LINEAR_IMPULSE + i, *x);
@@ -805,10 +1046,22 @@ fn run_wheel(sc: &Value) {
             set(WHJ_ANGULAR_IMPULSE + i, *x);
         }
         set(WHJ_SPIN_IMPULSE, f(input, "spinImpulse"));
-        set(WHJ_SUSPENSION_SPRING_IMPULSE, f(input, "suspensionSpringImpulse"));
-        set(WHJ_LOWER_SUSPENSION_IMPULSE, f(input, "lowerSuspensionImpulse"));
-        set(WHJ_UPPER_SUSPENSION_IMPULSE, f(input, "upperSuspensionImpulse"));
-        set(WHJ_STEERING_SPRING_IMPULSE, f(input, "steeringSpringImpulse"));
+        set(
+            WHJ_SUSPENSION_SPRING_IMPULSE,
+            f(input, "suspensionSpringImpulse"),
+        );
+        set(
+            WHJ_LOWER_SUSPENSION_IMPULSE,
+            f(input, "lowerSuspensionImpulse"),
+        );
+        set(
+            WHJ_UPPER_SUSPENSION_IMPULSE,
+            f(input, "upperSuspensionImpulse"),
+        );
+        set(
+            WHJ_STEERING_SPRING_IMPULSE,
+            f(input, "steeringSpringImpulse"),
+        );
         set(WHJ_LOWER_STEERING_IMPULSE, f(input, "lowerSteeringImpulse"));
         set(WHJ_UPPER_STEERING_IMPULSE, f(input, "upperSteeringImpulse"));
     }
@@ -836,18 +1089,84 @@ fn run_wheel(sc: &Value) {
         let g = &sc[phase];
         check_body_vels(g, &mut state, b_static, name, phase);
         let lin = arr(g, "linearImpulse");
-        check_scalar(&joints, WHJ_LINEAR_IMPULSE, lin[0], name, &format!("{phase} linearImpulse.x"));
-        check_scalar(&joints, WHJ_LINEAR_IMPULSE + 1, lin[1], name, &format!("{phase} linearImpulse.y"));
+        check_scalar(
+            &joints,
+            WHJ_LINEAR_IMPULSE,
+            lin[0],
+            name,
+            &format!("{phase} linearImpulse.x"),
+        );
+        check_scalar(
+            &joints,
+            WHJ_LINEAR_IMPULSE + 1,
+            lin[1],
+            name,
+            &format!("{phase} linearImpulse.y"),
+        );
         let ang = arr(g, "angularImpulse");
-        check_scalar(&joints, WHJ_ANGULAR_IMPULSE, ang[0], name, &format!("{phase} angularImpulse.x"));
-        check_scalar(&joints, WHJ_ANGULAR_IMPULSE + 1, ang[1], name, &format!("{phase} angularImpulse.y"));
-        check_scalar(&joints, WHJ_SPIN_IMPULSE, f(g, "spinImpulse"), name, &format!("{phase} spinImpulse"));
-        check_scalar(&joints, WHJ_SUSPENSION_SPRING_IMPULSE, f(g, "suspensionSpringImpulse"), name, &format!("{phase} suspensionSpringImpulse"));
-        check_scalar(&joints, WHJ_LOWER_SUSPENSION_IMPULSE, f(g, "lowerSuspensionImpulse"), name, &format!("{phase} lowerSuspensionImpulse"));
-        check_scalar(&joints, WHJ_UPPER_SUSPENSION_IMPULSE, f(g, "upperSuspensionImpulse"), name, &format!("{phase} upperSuspensionImpulse"));
-        check_scalar(&joints, WHJ_STEERING_SPRING_IMPULSE, f(g, "steeringSpringImpulse"), name, &format!("{phase} steeringSpringImpulse"));
-        check_scalar(&joints, WHJ_LOWER_STEERING_IMPULSE, f(g, "lowerSteeringImpulse"), name, &format!("{phase} lowerSteeringImpulse"));
-        check_scalar(&joints, WHJ_UPPER_STEERING_IMPULSE, f(g, "upperSteeringImpulse"), name, &format!("{phase} upperSteeringImpulse"));
+        check_scalar(
+            &joints,
+            WHJ_ANGULAR_IMPULSE,
+            ang[0],
+            name,
+            &format!("{phase} angularImpulse.x"),
+        );
+        check_scalar(
+            &joints,
+            WHJ_ANGULAR_IMPULSE + 1,
+            ang[1],
+            name,
+            &format!("{phase} angularImpulse.y"),
+        );
+        check_scalar(
+            &joints,
+            WHJ_SPIN_IMPULSE,
+            f(g, "spinImpulse"),
+            name,
+            &format!("{phase} spinImpulse"),
+        );
+        check_scalar(
+            &joints,
+            WHJ_SUSPENSION_SPRING_IMPULSE,
+            f(g, "suspensionSpringImpulse"),
+            name,
+            &format!("{phase} suspensionSpringImpulse"),
+        );
+        check_scalar(
+            &joints,
+            WHJ_LOWER_SUSPENSION_IMPULSE,
+            f(g, "lowerSuspensionImpulse"),
+            name,
+            &format!("{phase} lowerSuspensionImpulse"),
+        );
+        check_scalar(
+            &joints,
+            WHJ_UPPER_SUSPENSION_IMPULSE,
+            f(g, "upperSuspensionImpulse"),
+            name,
+            &format!("{phase} upperSuspensionImpulse"),
+        );
+        check_scalar(
+            &joints,
+            WHJ_STEERING_SPRING_IMPULSE,
+            f(g, "steeringSpringImpulse"),
+            name,
+            &format!("{phase} steeringSpringImpulse"),
+        );
+        check_scalar(
+            &joints,
+            WHJ_LOWER_STEERING_IMPULSE,
+            f(g, "lowerSteeringImpulse"),
+            name,
+            &format!("{phase} lowerSteeringImpulse"),
+        );
+        check_scalar(
+            &joints,
+            WHJ_UPPER_STEERING_IMPULSE,
+            f(g, "upperSteeringImpulse"),
+            name,
+            &format!("{phase} upperSteeringImpulse"),
+        );
     }
 }
 
@@ -926,10 +1245,34 @@ fn run_motor(sc: &Value) {
         }
         let g = &sc[phase];
         check_body_vels(g, &mut state, b_static, name, phase);
-        check_vec3(&joints, MJ_LINEAR_VELOCITY_IMPULSE, &arr(g, "linearVelocityImpulse"), name, &format!("{phase} linearVelocityImpulse"));
-        check_vec3(&joints, MJ_ANGULAR_VELOCITY_IMPULSE, &arr(g, "angularVelocityImpulse"), name, &format!("{phase} angularVelocityImpulse"));
-        check_vec3(&joints, MJ_LINEAR_SPRING_IMPULSE, &arr(g, "linearSpringImpulse"), name, &format!("{phase} linearSpringImpulse"));
-        check_vec3(&joints, MJ_ANGULAR_SPRING_IMPULSE, &arr(g, "angularSpringImpulse"), name, &format!("{phase} angularSpringImpulse"));
+        check_vec3(
+            &joints,
+            MJ_LINEAR_VELOCITY_IMPULSE,
+            &arr(g, "linearVelocityImpulse"),
+            name,
+            &format!("{phase} linearVelocityImpulse"),
+        );
+        check_vec3(
+            &joints,
+            MJ_ANGULAR_VELOCITY_IMPULSE,
+            &arr(g, "angularVelocityImpulse"),
+            name,
+            &format!("{phase} angularVelocityImpulse"),
+        );
+        check_vec3(
+            &joints,
+            MJ_LINEAR_SPRING_IMPULSE,
+            &arr(g, "linearSpringImpulse"),
+            name,
+            &format!("{phase} linearSpringImpulse"),
+        );
+        check_vec3(
+            &joints,
+            MJ_ANGULAR_SPRING_IMPULSE,
+            &arr(g, "angularSpringImpulse"),
+            name,
+            &format!("{phase} angularSpringImpulse"),
+        );
     }
 }
 
@@ -989,8 +1332,20 @@ fn run_parallel(sc: &Value) {
         let g = &sc[phase];
         check_body_vels(g, &mut state, b_static, name, phase);
         let perp = arr(g, "perpImpulse");
-        check_scalar(&joints, PLJ_PERP_IMPULSE, perp[0], name, &format!("{phase} perpImpulse.x"));
-        check_scalar(&joints, PLJ_PERP_IMPULSE + 1, perp[1], name, &format!("{phase} perpImpulse.y"));
+        check_scalar(
+            &joints,
+            PLJ_PERP_IMPULSE,
+            perp[0],
+            name,
+            &format!("{phase} perpImpulse.x"),
+        );
+        check_scalar(
+            &joints,
+            PLJ_PERP_IMPULSE + 1,
+            perp[1],
+            name,
+            &format!("{phase} perpImpulse.y"),
+        );
     }
 }
 

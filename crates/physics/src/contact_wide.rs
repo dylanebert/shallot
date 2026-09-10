@@ -107,7 +107,11 @@ fn st(col: Col<f32>, o: usize, v: FloatW) {
 }
 #[inline]
 fn ld_v3(col: Col<f32>, o: usize) -> Vec3W {
-    Vec3W { x: ld(col, o), y: ld(col, o + 4), z: ld(col, o + 8) }
+    Vec3W {
+        x: ld(col, o),
+        y: ld(col, o + 4),
+        z: ld(col, o + 8),
+    }
 }
 #[inline]
 fn st_v3(col: Col<f32>, o: usize, v: Vec3W) {
@@ -117,7 +121,10 @@ fn st_v3(col: Col<f32>, o: usize, v: Vec3W) {
 }
 #[inline]
 fn ld_v2(col: Col<f32>, o: usize) -> Vec2W {
-    Vec2W { x: ld(col, o), y: ld(col, o + 4) }
+    Vec2W {
+        x: ld(col, o),
+        y: ld(col, o + 4),
+    }
 }
 #[inline]
 fn st_v2(col: Col<f32>, o: usize, v: Vec2W) {
@@ -137,31 +144,83 @@ fn ld_sym3(col: Col<f32>, o: usize) -> SymMatrix3W {
 }
 #[inline]
 fn ld_sym2(col: Col<f32>, o: usize) -> SymMatrix2W {
-    SymMatrix2W { cxx: ld(col, o), cxy: ld(col, o + 4), cyy: ld(col, o + 8) }
+    SymMatrix2W {
+        cxx: ld(col, o),
+        cxy: ld(col, o + 4),
+        cyy: ld(col, o + 8),
+    }
 }
 
 // SoA store: pack one field's four lanes (indexed by lane) into the record's lane vectors.
 #[inline]
 fn st_lanes_v3(wide: Col<f32>, o: usize, lanes: &[Vec3; LANES]) {
-    st(wide, o, FloatW::set(lanes[0].x, lanes[1].x, lanes[2].x, lanes[3].x));
-    st(wide, o + 4, FloatW::set(lanes[0].y, lanes[1].y, lanes[2].y, lanes[3].y));
-    st(wide, o + 8, FloatW::set(lanes[0].z, lanes[1].z, lanes[2].z, lanes[3].z));
+    st(
+        wide,
+        o,
+        FloatW::set(lanes[0].x, lanes[1].x, lanes[2].x, lanes[3].x),
+    );
+    st(
+        wide,
+        o + 4,
+        FloatW::set(lanes[0].y, lanes[1].y, lanes[2].y, lanes[3].y),
+    );
+    st(
+        wide,
+        o + 8,
+        FloatW::set(lanes[0].z, lanes[1].z, lanes[2].z, lanes[3].z),
+    );
 }
 #[inline]
 fn st_lanes_sym3(wide: Col<f32>, o: usize, m: &[Mat3; LANES]) {
     // Symmetric components cxx,cxy,cxz,cyy,cyz,czz (column-major diagonal walk).
-    st(wide, o, FloatW::set(m[0].cx.x, m[1].cx.x, m[2].cx.x, m[3].cx.x));
-    st(wide, o + 4, FloatW::set(m[0].cx.y, m[1].cx.y, m[2].cx.y, m[3].cx.y));
-    st(wide, o + 8, FloatW::set(m[0].cx.z, m[1].cx.z, m[2].cx.z, m[3].cx.z));
-    st(wide, o + 12, FloatW::set(m[0].cy.y, m[1].cy.y, m[2].cy.y, m[3].cy.y));
-    st(wide, o + 16, FloatW::set(m[0].cy.z, m[1].cy.z, m[2].cy.z, m[3].cy.z));
-    st(wide, o + 20, FloatW::set(m[0].cz.z, m[1].cz.z, m[2].cz.z, m[3].cz.z));
+    st(
+        wide,
+        o,
+        FloatW::set(m[0].cx.x, m[1].cx.x, m[2].cx.x, m[3].cx.x),
+    );
+    st(
+        wide,
+        o + 4,
+        FloatW::set(m[0].cx.y, m[1].cx.y, m[2].cx.y, m[3].cx.y),
+    );
+    st(
+        wide,
+        o + 8,
+        FloatW::set(m[0].cx.z, m[1].cx.z, m[2].cx.z, m[3].cx.z),
+    );
+    st(
+        wide,
+        o + 12,
+        FloatW::set(m[0].cy.y, m[1].cy.y, m[2].cy.y, m[3].cy.y),
+    );
+    st(
+        wide,
+        o + 16,
+        FloatW::set(m[0].cy.z, m[1].cy.z, m[2].cy.z, m[3].cy.z),
+    );
+    st(
+        wide,
+        o + 20,
+        FloatW::set(m[0].cz.z, m[1].cz.z, m[2].cz.z, m[3].cz.z),
+    );
 }
 #[inline]
 fn st_lanes_sym2(wide: Col<f32>, o: usize, m: &[Mat2; LANES]) {
-    st(wide, o, FloatW::set(m[0].cx.x, m[1].cx.x, m[2].cx.x, m[3].cx.x));
-    st(wide, o + 4, FloatW::set(m[0].cx.y, m[1].cx.y, m[2].cx.y, m[3].cx.y));
-    st(wide, o + 8, FloatW::set(m[0].cy.y, m[1].cy.y, m[2].cy.y, m[3].cy.y));
+    st(
+        wide,
+        o,
+        FloatW::set(m[0].cx.x, m[1].cx.x, m[2].cx.x, m[3].cx.x),
+    );
+    st(
+        wide,
+        o + 4,
+        FloatW::set(m[0].cx.y, m[1].cx.y, m[2].cx.y, m[3].cx.y),
+    );
+    st(
+        wide,
+        o + 8,
+        FloatW::set(m[0].cy.y, m[1].cy.y, m[2].cy.y, m[3].cy.y),
+    );
 }
 #[inline]
 fn st_lanes_f(wide: Col<f32>, o: usize, l: &[f32; LANES]) {
@@ -180,7 +239,12 @@ fn body_terms(sim: Col<f32>, state: Col<f32>, index: u32) -> (f32, Mat3, Vec3, V
     } else {
         let s = read_sim(sim, index as usize);
         let st = read_state(state, index as usize);
-        (s.inv_mass, s.inv_inertia_world, st.linear_velocity, st.angular_velocity)
+        (
+            s.inv_mass,
+            s.inv_inertia_world,
+            st.linear_velocity,
+            st.angular_velocity,
+        )
     }
 }
 
@@ -339,10 +403,29 @@ fn gather(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> BodyState
         qs[lane] = s.delta_rotation.s;
     }
     BodyStateW {
-        v: Vec3W { x: fw(vx), y: fw(vy), z: fw(vz) },
-        w: Vec3W { x: fw(wx), y: fw(wy), z: fw(wz) },
-        dp: Vec3W { x: fw(dpx), y: fw(dpy), z: fw(dpz) },
-        dq: QuatW { v: Vec3W { x: fw(qx), y: fw(qy), z: fw(qz) }, s: fw(qs) },
+        v: Vec3W {
+            x: fw(vx),
+            y: fw(vy),
+            z: fw(vz),
+        },
+        w: Vec3W {
+            x: fw(wx),
+            y: fw(wy),
+            z: fw(wz),
+        },
+        dp: Vec3W {
+            x: fw(dpx),
+            y: fw(dpy),
+            z: fw(dpz),
+        },
+        dq: QuatW {
+            v: Vec3W {
+                x: fw(qx),
+                y: fw(qy),
+                z: fw(qz),
+            },
+            s: fw(qs),
+        },
     }
 }
 
@@ -368,7 +451,18 @@ fn gather_vel(state: Col<f32>, idx: Col<u32>, io: usize, _ident: usize) -> (Vec3
         wy[lane] = s.angular_velocity.y;
         wz[lane] = s.angular_velocity.z;
     }
-    (Vec3W { x: fw(vx), y: fw(vy), z: fw(vz) }, Vec3W { x: fw(wx), y: fw(wy), z: fw(wz) })
+    (
+        Vec3W {
+            x: fw(vx),
+            y: fw(vy),
+            z: fw(vz),
+        },
+        Vec3W {
+            x: fw(wx),
+            y: fw(wy),
+            z: fw(wz),
+        },
+    )
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -494,8 +588,16 @@ fn gather_vel(state: Col<f32>, idx: Col<u32>, io: usize, ident: usize) -> (Vec3W
             v128_load(p3.add(4) as *const v128),
         );
         (
-            Vec3W { x: FloatW::from_v128(vx), y: FloatW::from_v128(vy), z: FloatW::from_v128(vz) },
-            Vec3W { x: FloatW::from_v128(wx), y: FloatW::from_v128(wy), z: FloatW::from_v128(wz) },
+            Vec3W {
+                x: FloatW::from_v128(vx),
+                y: FloatW::from_v128(vy),
+                z: FloatW::from_v128(vz),
+            },
+            Vec3W {
+                x: FloatW::from_v128(wx),
+                y: FloatW::from_v128(wy),
+                z: FloatW::from_v128(wz),
+            },
         )
     }
 }
@@ -623,7 +725,10 @@ pub fn prepare(
         let mut friction_impulse_y = [0.0f32; 4];
         let mut rolling_mass = [Mat3::ZERO; 4];
         let mut rolling_impulse = [Vec3::ZERO; 4];
-        let mut tangent_mass = [Mat2 { cx: Vec2::new(0.0, 0.0), cy: Vec2::new(0.0, 0.0) }; 4];
+        let mut tangent_mass = [Mat2 {
+            cx: Vec2::new(0.0, 0.0),
+            cy: Vec2::new(0.0, 0.0),
+        }; 4];
         let mut p_anchor_a = [[Vec3::ZERO; 4]; MAX_POINTS];
         let mut p_anchor_b = [[Vec3::ZERO; 4]; MAX_POINTS];
         let mut p_base_sep = [[0.0f32; 4]; MAX_POINTS];
@@ -715,7 +820,11 @@ pub fn prepare(
             let kxx = m_a + m_b + rt_a1.dot(i_a.mul_v(rt_a1)) + rt_b1.dot(i_b.mul_v(rt_b1));
             let kyy = m_a + m_b + rt_a2.dot(i_a.mul_v(rt_a2)) + rt_b2.dot(i_b.mul_v(rt_b2));
             let kxy = rt_a1.dot(i_a.mul_v(rt_a2)) + rt_b1.dot(i_b.mul_v(rt_b2));
-            tangent_mass[lane] = Mat2 { cx: Vec2::new(kxx, kxy), cy: Vec2::new(kxy, kyy) }.invert();
+            tangent_mass[lane] = Mat2 {
+                cx: Vec2::new(kxx, kxy),
+                cy: Vec2::new(kxy, kyy),
+            }
+            .invert();
 
             let mf_friction_impulse = v3(pool, mpo + mabi::M_FRICTION);
             friction_impulse_x[lane] = warm_start_scale * mf_friction_impulse.dot(t1);
@@ -799,8 +908,11 @@ pub fn warm_start(
             let ra = ld_v3(wide, pb + P_ANCHOR_A);
             let rb = ld_v3(wide, pb + P_ANCHOR_B);
             let n_imp = ld(wide, pb + P_NORMAL_IMP);
-            let impulse =
-                Vec3W { x: n_imp.mul(normal.x), y: n_imp.mul(normal.y), z: n_imp.mul(normal.z) };
+            let impulse = Vec3W {
+                x: n_imp.mul(normal.x),
+                y: n_imp.mul(normal.y),
+                z: n_imp.mul(normal.z),
+            };
             ba_w = mul_sub_mvw(ba_w, ia, cross_w(ra, impulse));
             ba_v = mul_sub_svw(ba_v, inv_ma, impulse);
             bb_w = mul_add_mvw(bb_w, ib, cross_w(rb, impulse));
@@ -988,7 +1100,10 @@ pub fn solve(
                 };
                 let tangent_mass = ld_sym2(wide, wo + TANGENT_MASS);
                 let d0 = mul_mv2w(tangent_mass, vt);
-                let delta = Vec2W { x: d0.x.neg(), y: d0.y.neg() };
+                let delta = Vec2W {
+                    x: d0.x.neg(),
+                    y: d0.y.neg(),
+                };
                 let old = ld_v2(wide, wo + FRICTION_IMPULSE);
                 let mut new = add_v2w(old, delta);
                 let friction = ld(wide, wo + FRICTION);
@@ -997,8 +1112,14 @@ pub fn solve(
                 let mask = length_squared.greater_than(max_impulse.mul(max_impulse));
                 let normalize = max_impulse.div(length_squared.sqrt().add(eps));
                 let scale = FloatW::blend(one, normalize, mask);
-                new = Vec2W { x: scale.mul(new.x), y: scale.mul(new.y) };
-                let delta = Vec2W { x: new.x.sub(old.x), y: new.y.sub(old.y) };
+                new = Vec2W {
+                    x: scale.mul(new.x),
+                    y: scale.mul(new.y),
+                };
+                let delta = Vec2W {
+                    x: new.x.sub(old.x),
+                    y: new.y.sub(old.y),
+                };
                 st_v2(wide, wo + FRICTION_IMPULSE, new);
                 let p = add_vw(mul_svw(delta.x, t1), mul_svw(delta.y, t2));
                 ba.w = mul_sub_mvw(ba.w, ia, cross_w(ra, p));
@@ -1068,7 +1189,11 @@ pub fn restitution(
             let new_impulse = old_impulse.sub(neg_impulse).max(zero);
             let delta_impulse = new_impulse.sub(old_impulse);
             st(wide, pb + P_NORMAL_IMP, new_impulse);
-            st(wide, pb + P_TOTAL_NORMAL_IMP, total_normal.add(delta_impulse));
+            st(
+                wide,
+                pb + P_TOTAL_NORMAL_IMP,
+                total_normal.add(delta_impulse),
+            );
 
             let p = mul_svw(delta_impulse, normal);
             ba.w = mul_sub_mvw(ba.w, ia, cross_w(ra, p));
@@ -1123,9 +1248,18 @@ pub fn store(
             let mpo = d.manifold_base * mabi::MANIFOLD_STRIDE; // convex: exactly one manifold
             let contact_flags = d.flags;
 
-            pool.set(mpo + mabi::M_FRICTION, f1[lane] * t1x[lane] + f2[lane] * t2x[lane]);
-            pool.set(mpo + mabi::M_FRICTION + 1, f1[lane] * t1y[lane] + f2[lane] * t2y[lane]);
-            pool.set(mpo + mabi::M_FRICTION + 2, f1[lane] * t1z[lane] + f2[lane] * t2z[lane]);
+            pool.set(
+                mpo + mabi::M_FRICTION,
+                f1[lane] * t1x[lane] + f2[lane] * t2x[lane],
+            );
+            pool.set(
+                mpo + mabi::M_FRICTION + 1,
+                f1[lane] * t1y[lane] + f2[lane] * t2y[lane],
+            );
+            pool.set(
+                mpo + mabi::M_FRICTION + 2,
+                f1[lane] * t1z[lane] + f2[lane] * t2z[lane],
+            );
             pool.set(mpo + mabi::M_TWIST, twist[lane]);
             pool.set(mpo + mabi::M_ROLLING, rix[lane]);
             pool.set(mpo + mabi::M_ROLLING + 1, riy[lane]);
@@ -1135,12 +1269,18 @@ pub fn store(
             for pi in 0..point_count {
                 let pb = wo + POINTS + pi * POINT_STRIDE; // wide-record point
                 let pp = mpo + mabi::M_POINTS + pi * mabi::POOL_POINT_STRIDE; // pool point
-                pool.set(pp + mabi::P_NORMAL_IMPULSE, ld(wide, pb + P_NORMAL_IMP).to_array()[lane]);
+                pool.set(
+                    pp + mabi::P_NORMAL_IMPULSE,
+                    ld(wide, pb + P_NORMAL_IMP).to_array()[lane],
+                );
                 pool.set(
                     pp + mabi::P_TOTAL_NORMAL_IMPULSE,
                     ld(wide, pb + P_TOTAL_NORMAL_IMP).to_array()[lane],
                 );
-                pool.set(pp + mabi::P_NORMAL_VELOCITY, ld(wide, pb + P_REL_VEL).to_array()[lane]);
+                pool.set(
+                    pp + mabi::P_NORMAL_VELOCITY,
+                    ld(wide, pb + P_REL_VEL).to_array()[lane],
+                );
             }
 
             if contact_flags & ENABLE_HIT_EVENT != 0 {

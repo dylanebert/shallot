@@ -175,9 +175,21 @@ fn col_bytes(records: usize, stride: usize) -> usize {
 pub extern "C" fn reserve_broad(cap_s: usize, cap_k: usize, cap_d: usize, set_cap: usize) -> u32 {
     unsafe {
         let new_tree = [
-            if cap_s > TREE_CAP[0] { cap_s } else { TREE_CAP[0] },
-            if cap_k > TREE_CAP[1] { cap_k } else { TREE_CAP[1] },
-            if cap_d > TREE_CAP[2] { cap_d } else { TREE_CAP[2] },
+            if cap_s > TREE_CAP[0] {
+                cap_s
+            } else {
+                TREE_CAP[0]
+            },
+            if cap_k > TREE_CAP[1] {
+                cap_k
+            } else {
+                TREE_CAP[1]
+            },
+            if cap_d > TREE_CAP[2] {
+                cap_d
+            } else {
+                TREE_CAP[2]
+            },
         ];
         let new_set = if set_cap > SET_CAP { set_cap } else { SET_CAP };
         if new_tree[0] == TREE_CAP[0]
@@ -231,7 +243,11 @@ pub extern "C" fn reserve_broad(cap_s: usize, cap_k: usize, cap_d: usize, set_ca
         if delta > 0 && geo_end > old_top {
             ensure_capacity(geo_end + delta);
             // `copy` is memmove; dest > src (the region only grows), so the overlap is handled.
-            core::ptr::copy(old_top as *const u8, (old_top + delta) as *mut u8, geo_end - old_top);
+            core::ptr::copy(
+                old_top as *const u8,
+                (old_top + delta) as *mut u8,
+                geo_end - old_top,
+            );
             crate::geo::relocate(delta);
         } else {
             ensure_capacity(new_end);

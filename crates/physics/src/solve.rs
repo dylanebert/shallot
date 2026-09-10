@@ -280,7 +280,13 @@ impl StageWork for Work {
 
     fn prepare_joints(&self, b: Block) {
         for slot in b.start..b.start + b.count {
-            crate::joint::prepare(self.joints, slot, self.h, self.inv_h, self.enable_warm_starting);
+            crate::joint::prepare(
+                self.joints,
+                slot,
+                self.h,
+                self.inv_h,
+                self.enable_warm_starting,
+            );
         }
     }
 
@@ -307,7 +313,13 @@ impl StageWork for Work {
     fn prepare_overflow_joints(&self) {
         for slot in self.overflow_joint_start..self.overflow_joint_start + self.overflow_joint_count
         {
-            crate::joint::prepare(self.joints, slot, self.h, self.inv_h, self.enable_warm_starting);
+            crate::joint::prepare(
+                self.joints,
+                slot,
+                self.h,
+                self.inv_h,
+                self.enable_warm_starting,
+            );
         }
     }
 

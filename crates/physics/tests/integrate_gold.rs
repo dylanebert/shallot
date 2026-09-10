@@ -60,14 +60,7 @@ fn integrate_velocities_matches_c() {
         let gravity = Vec3::new(input[42], input[43], input[44]);
         let h = input[45];
 
-        integrate_velocities(
-            col(&mut state_col),
-            col(&mut sim_col),
-            0,
-            1,
-            gravity,
-            h,
-        );
+        integrate_velocities(col(&mut state_col), col(&mut sim_col), 0, 1, gravity, h);
 
         for k in 0..3 {
             assert_bits(

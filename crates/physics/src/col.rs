@@ -84,13 +84,21 @@ impl<'a, T: Copy> Col<'a, T> {
 
     #[inline]
     pub fn get(self, i: usize) -> T {
-        debug_assert!(i < self.len, "column index {i} out of bounds ({})", self.len);
+        debug_assert!(
+            i < self.len,
+            "column index {i} out of bounds ({})",
+            self.len
+        );
         unsafe { *self.ptr.add(i) }
     }
 
     #[inline]
     pub fn set(self, i: usize, v: T) {
-        debug_assert!(i < self.len, "column index {i} out of bounds ({})", self.len);
+        debug_assert!(
+            i < self.len,
+            "column index {i} out of bounds ({})",
+            self.len
+        );
         unsafe { *self.ptr.add(i) = v }
     }
 

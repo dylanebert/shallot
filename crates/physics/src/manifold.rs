@@ -2143,7 +2143,10 @@ mod c_parity {
     #[test]
     fn min_capsule_length() {
         // C: B3_MIN_CAPSULE_LENGTH = B3_LINEAR_SLOP (constants.h:55)
-        assert_eq!(super::MIN_CAPSULE_LENGTH.to_bits(), (0.005f32 * 1.0f32).to_bits());
+        assert_eq!(
+            super::MIN_CAPSULE_LENGTH.to_bits(),
+            (0.005f32 * 1.0f32).to_bits()
+        );
     }
 
     // ── math.rs pub consts (readable from this module via `math::`) ──
@@ -2159,7 +2162,10 @@ mod c_parity {
     fn flt_epsilon() {
         // C: FLT_EPSILON from <float.h> = 1.1920928955078125e-7 (2^-23)
         // Rust: FLT_EPSILON = 1.192_092_895_507_812_5e-7 (math.rs:21)
-        assert_eq!(math::FLT_EPSILON.to_bits(), 1.1920928955078125e-7f32.to_bits());
+        assert_eq!(
+            math::FLT_EPSILON.to_bits(),
+            1.1920928955078125e-7f32.to_bits()
+        );
     }
 
     #[test]

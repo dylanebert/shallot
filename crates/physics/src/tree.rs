@@ -349,7 +349,11 @@ fn build_tree(pool: &mut [u32], rb: &mut Rebuild, leaf_count: usize) -> i32 {
             let child1 = pool[node_index as usize * STRIDE + 8] as i32;
             let child2 = pool[node_index as usize * STRIDE + 9] as i32;
             union_into(pool, child1, child2, node_index);
-            set_height(pool, node_index, 1 + maxi(height_of(pool, child1), height_of(pool, child2)));
+            set_height(
+                pool,
+                node_index,
+                1 + maxi(height_of(pool, child1), height_of(pool, child2)),
+            );
             or_category(pool, node_index, child1, child2);
 
             top -= 1;
@@ -373,8 +377,12 @@ fn build_tree(pool: &mut [u32], rb: &mut Rebuild, leaf_count: usize) -> i32 {
                 pool[child_index as usize * STRIDE + 10] = node_index as u32; // parent
             } else {
                 top += 1;
-                let split =
-                    partition_mid(rb.leaf_indices, rb.leaf_centers, start_index as usize, count);
+                let split = partition_mid(
+                    rb.leaf_indices,
+                    rb.leaf_centers,
+                    start_index as usize,
+                    count,
+                );
                 let alloc = allocate_node(pool, rb);
                 let nb = top * ITEM_STRIDE;
                 rb.build_stack[nb] = alloc;
@@ -390,7 +398,11 @@ fn build_tree(pool: &mut [u32], rb: &mut Rebuild, leaf_count: usize) -> i32 {
     let child1 = pool[root_index as usize * STRIDE + 8] as i32;
     let child2 = pool[root_index as usize * STRIDE + 9] as i32;
     union_into(pool, child1, child2, root_index);
-    set_height(pool, root_index, 1 + maxi(height_of(pool, child1), height_of(pool, child2)));
+    set_height(
+        pool,
+        root_index,
+        1 + maxi(height_of(pool, child1), height_of(pool, child2)),
+    );
     or_category(pool, root_index, child1, child2);
 
     root_index
@@ -400,7 +412,13 @@ fn build_tree(pool: &mut [u32], rb: &mut Rebuild, leaf_count: usize) -> i32 {
 /// leaves (freeing the grown internals), then median-splits them into a fresh balanced tree. `full`
 /// rebuilds every node; otherwise only the enlarged subtrees. Returns the new root; `rb.node_count` /
 /// `rb.free_list` are updated in place. `proxy_count` is the tree's current proxy count.
-pub fn rebuild(pool: &mut [u32], root: i32, proxy_count: usize, full: bool, rb: &mut Rebuild) -> i32 {
+pub fn rebuild(
+    pool: &mut [u32],
+    root: i32,
+    proxy_count: usize,
+    full: bool,
+    rb: &mut Rebuild,
+) -> i32 {
     if proxy_count == 0 {
         return root;
     }

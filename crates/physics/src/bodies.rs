@@ -210,7 +210,11 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
         if delta > 0 && top > old_base {
             ensure_capacity(top + delta);
             // `copy` is memmove; dest > src (the region only grows), so the overlap is handled.
-            core::ptr::copy(old_base as *const u8, (old_base + delta) as *mut u8, top - old_base);
+            core::ptr::copy(
+                old_base as *const u8,
+                (old_base + delta) as *mut u8,
+                top - old_base,
+            );
             crate::fataabb::relocate(delta);
             crate::shapes::relocate(delta);
             crate::manifolds::relocate(delta);

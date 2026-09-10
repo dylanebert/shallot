@@ -13,11 +13,11 @@
 //! Every op maps one-to-one to the C scalar path (no SIMD, no FMA); bit-identical to the
 //! `DISABLE_SIMD` reference (see `math.rs`).
 
-use crate::manifold_abi::{
-    read_dir, MANIFOLD_STRIDE, M_NORMAL, M_POINTS, M_POINT_COUNT, P_ANCHOR_A, P_ANCHOR_B,
-    P_BASE_SEPARATION, P_PERSISTED, P_SEPARATION, POOL_POINT_STRIDE,
-};
 use crate::col::Col;
+use crate::manifold_abi::{
+    read_dir, MANIFOLD_STRIDE, M_NORMAL, M_POINTS, M_POINT_COUNT, POOL_POINT_STRIDE, P_ANCHOR_A,
+    P_ANCHOR_B, P_BASE_SEPARATION, P_PERSISTED, P_SEPARATION,
+};
 use crate::math::{maxf, minf, Mat3, Quat, Transform, Vec3};
 
 /// cos(7°): the recycle gate's angular-distance threshold (`B3_CONTACT_RECYCLE_ANGULAR_DISTANCE`).
@@ -83,7 +83,15 @@ pub fn try_recycle(
             // Minimize round-off: difference the two centers directly.
             let dc = center_b.sub(center_a);
 
-            recycle_separations(dir, pool, contact_id, manifold_count, matrix_a, matrix_b, dc);
+            recycle_separations(
+                dir,
+                pool,
+                contact_id,
+                manifold_count,
+                matrix_a,
+                matrix_b,
+                dc,
+            );
             return true;
         }
     }
@@ -127,7 +135,10 @@ fn recycle_separations(
             let r_a = matrix_a.mul_v(anchor_a);
             let r_b = matrix_b.mul_v(anchor_b);
             let dp = dc.add(r_b.sub(r_a));
-            pool.set(po + P_SEPARATION, pool.get(po + P_BASE_SEPARATION) + dp.dot(normal));
+            pool.set(
+                po + P_SEPARATION,
+                pool.get(po + P_BASE_SEPARATION) + dp.dot(normal),
+            );
             pool.set(po + P_PERSISTED, f32::from_bits(1));
         }
     }

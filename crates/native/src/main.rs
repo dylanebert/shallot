@@ -71,7 +71,10 @@ fn dist_dir() -> PathBuf {
     let dir = exe.parent().expect("exe has no parent");
     #[cfg(target_os = "macos")]
     {
-        dir.parent().expect("MacOS has no parent").join("Resources").join("dist")
+        dir.parent()
+            .expect("MacOS has no parent")
+            .join("Resources")
+            .join("dist")
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -130,7 +133,10 @@ mod tests {
     fn empty_embedded_list_falls_back_to_disk() {
         let assets: &[(&str, &[u8])] = &[];
         assert!(
-            matches!(resolve_asset(assets, "index.html"), Some(AssetResolution::Disk)),
+            matches!(
+                resolve_asset(assets, "index.html"),
+                Some(AssetResolution::Disk)
+            ),
             "empty embedded list must resolve to disk, not None"
         );
     }

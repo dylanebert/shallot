@@ -12,7 +12,7 @@
 //! [`Col`]s rather than `&mut` slices — `col.rs` carries the argument.
 
 use crate::body::{
-    FIN_OUT_STRIDE, FIN_STRIDE, SIM_STRIDE, SIM2_STRIDE, STATE_STRIDE, S2_HEAD_SHAPE,
+    FIN_OUT_STRIDE, FIN_STRIDE, S2_HEAD_SHAPE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE,
 };
 use crate::col::Col;
 use crate::contact::{
@@ -322,8 +322,7 @@ pub extern "C" fn prepare_contacts(
 pub extern "C" fn warm_start_contacts(start: usize, count: usize) {
     unsafe {
         let cols = columns();
-        contact::warm_start(
-            &cols, start, count);
+        contact::warm_start(&cols, start, count);
     }
 }
 
@@ -337,8 +336,7 @@ pub extern "C" fn solve_contacts(
 ) {
     unsafe {
         let cols = columns();
-        contact::solve(
-            &cols, start, count, use_bias != 0, inv_h, contact_speed);
+        contact::solve(&cols, start, count, use_bias != 0, inv_h, contact_speed);
     }
 }
 
@@ -346,8 +344,7 @@ pub extern "C" fn solve_contacts(
 pub extern "C" fn restitution(start: usize, count: usize, threshold: f32) {
     unsafe {
         let cols = columns();
-        contact::restitution(
-            &cols, start, count, threshold);
+        contact::restitution(&cols, start, count, threshold);
     }
 }
 
@@ -355,8 +352,7 @@ pub extern "C" fn restitution(start: usize, count: usize, threshold: f32) {
 pub extern "C" fn store_impulses(start: usize, count: usize, hit_event_threshold: f32) {
     unsafe {
         let cols = columns();
-        contact::store(
-            &cols, start, count, hit_event_threshold);
+        contact::store(&cols, start, count, hit_event_threshold);
     }
 }
 
@@ -463,7 +459,16 @@ pub extern "C" fn restitution_wide(start: usize, count: usize, threshold: f32) {
         let flags = u32s(FLAGS, b);
         let wide = f32s(WIDE, WIDE_COUNT * WIDE_STRIDE);
         let idx = u32s(WIDE_IDX, WIDE_COUNT * WIDE_IDX_STRIDE);
-        contact_wide::restitution(wide, idx, state, flags, start, count, threshold, ORCHESTRATOR);
+        contact_wide::restitution(
+            wide,
+            idx,
+            state,
+            flags,
+            start,
+            count,
+            threshold,
+            ORCHESTRATOR,
+        );
     }
 }
 
@@ -531,7 +536,11 @@ pub extern "C" fn restitution_colors(threshold: f32) {
         for c in 0..cc {
             let o = c * COLOR_SPAN_STRIDE;
             restitution_wide(spans.get(o) as usize, spans.get(o + 1) as usize, threshold);
-            restitution(spans.get(o + 2) as usize, spans.get(o + 3) as usize, threshold);
+            restitution(
+                spans.get(o + 2) as usize,
+                spans.get(o + 3) as usize,
+                threshold,
+            );
         }
     }
 }
@@ -673,7 +682,10 @@ fn write_manifold(m: &Manifold, pool: Col<f32>, base: usize) {
         pool.set(p + P_TOTAL_NORMAL_IMPULSE, pt.total_normal_impulse);
         pool.set(p + P_NORMAL_VELOCITY, pt.normal_velocity);
         pool.set(p + P_FEATURE_ID, f32::from_bits(pt.feature_id));
-        pool.set(p + P_TRIANGLE_INDEX, f32::from_bits(pt.triangle_index as u32));
+        pool.set(
+            p + P_TRIANGLE_INDEX,
+            f32::from_bits(pt.triangle_index as u32),
+        );
         pool.set(p + P_PERSISTED, f32::from_bits(pt.persisted as u32));
     }
 }
@@ -986,7 +998,11 @@ pub(crate) unsafe fn recycle_block(
             let contact_id = input[r + R_CONTACT] as usize;
 
             // Fat-AABB overlap first — matching the TS collide's first per-contact check.
-            if !fat_overlap(fat, input[r + R_SHAPE_A] as usize, input[r + R_SHAPE_B] as usize) {
+            if !fat_overlap(
+                fat,
+                input[r + R_SHAPE_A] as usize,
+                input[r + R_SHAPE_B] as usize,
+            ) {
                 out.set(i, 2);
                 continue;
             }
@@ -1036,7 +1052,11 @@ pub(crate) unsafe fn recycle_block(
 
 /// The whole recycle column, on the calling thread (the serial path).
 #[export_name = "dispatchRecycle"]
-pub extern "C" fn dispatch_recycle(count: usize, recycle_dist: f32, recycle_dist_non_touching: f32) {
+pub extern "C" fn dispatch_recycle(
+    count: usize,
+    recycle_dist: f32,
+    recycle_dist_non_touching: f32,
+) {
     unsafe { recycle_block(0, count, count, recycle_dist, recycle_dist_non_touching) }
 }
 
@@ -1100,8 +1120,10 @@ pub(crate) unsafe fn finalize_block(
 unsafe fn refit_block(sim: Col<f32>, fin: Col<f32>, start: usize, end: usize) {
     unsafe {
         let records = crate::bodies::body_cap() + crate::bodies::IDENT_RECORDS;
-        let sim2 =
-            core::slice::from_raw_parts(crate::bodies::sim2_base() as *const u32, records * SIM2_STRIDE);
+        let sim2 = core::slice::from_raw_parts(
+            crate::bodies::sim2_base() as *const u32,
+            records * SIM2_STRIDE,
+        );
         let shape_u = crate::shapes::col();
         let shape_f = crate::shapes::col_f();
         let fat = crate::fataabb::col_slice();

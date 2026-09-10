@@ -29,8 +29,8 @@
 //! caller memmoves the bytes).
 
 use crate::col::Col;
-use crate::shapes::region_top as manifold_anchor;
 use crate::manifold_abi::{DIR_STRIDE, MANIFOLD_STRIDE};
+use crate::shapes::region_top as manifold_anchor;
 
 const PAGE: usize = 65536;
 
@@ -59,7 +59,12 @@ pub fn dir_col() -> Col<'static, u32> {
 /// The persistent manifold pool column (`MANIFOLD_STRIDE` f32/record). The solver reads the manifolds
 /// in prepare and writes the solved impulses back in store.
 pub fn pool_col() -> Col<'static, f32> {
-    unsafe { Col::new(MANIFOLD_LAYOUT[POOL] as *mut f32, MANIFOLD_CAP * MANIFOLD_STRIDE) }
+    unsafe {
+        Col::new(
+            MANIFOLD_LAYOUT[POOL] as *mut f32,
+            MANIFOLD_CAP * MANIFOLD_STRIDE,
+        )
+    }
 }
 
 /// Byte offset the geometry region (geo.rs) starts from: past the manifold region if one was reserved,
@@ -126,8 +131,16 @@ pub extern "C" fn reserve_manifolds(contact_cap: usize, manifold_cap: usize) {
         // two so the next manifold grow memmoves from a stale `old_top` and orphans the static tree pool's
         // bytes (its query then returns nothing). Clamp requested caps up to the high-water — a single
         // world always requests >= its own cap, so this is a no-op there (bit-exact).
-        let contact_cap = if contact_cap > DIR_CAP { contact_cap } else { DIR_CAP };
-        let manifold_cap = if manifold_cap > MANIFOLD_CAP { manifold_cap } else { MANIFOLD_CAP };
+        let contact_cap = if contact_cap > DIR_CAP {
+            contact_cap
+        } else {
+            DIR_CAP
+        };
+        let manifold_cap = if manifold_cap > MANIFOLD_CAP {
+            manifold_cap
+        } else {
+            MANIFOLD_CAP
+        };
 
         let old_pool_base = MANIFOLD_LAYOUT[POOL] as usize;
         let old_cap = MANIFOLD_CAP;
@@ -154,7 +167,11 @@ pub extern "C" fn reserve_manifolds(contact_cap: usize, manifold_cap: usize) {
         };
         if delta > 0 && top > old_top {
             ensure_capacity(top + delta);
-            core::ptr::copy(old_top as *const u8, (old_top + delta) as *mut u8, top - old_top);
+            core::ptr::copy(
+                old_top as *const u8,
+                (old_top + delta) as *mut u8,
+                top - old_top,
+            );
             crate::broad::relocate(delta);
             crate::geo::relocate(delta);
         } else {
@@ -166,7 +183,11 @@ pub extern "C" fn reserve_manifolds(contact_cap: usize, manifold_cap: usize) {
         // first reservation (old_cap 0) or when the pool base is unchanged (only the pool cap grew).
         // The grow-only clamp above guarantees `old_cap <= manifold_cap` (the region never shrinks, even
         // across a fresh world reusing the singleton), so the `min` is a defensive bound that never binds.
-        let move_cap = if old_cap < manifold_cap { old_cap } else { manifold_cap };
+        let move_cap = if old_cap < manifold_cap {
+            old_cap
+        } else {
+            manifold_cap
+        };
         if move_cap != 0 && new_pool_base != old_pool_base {
             core::ptr::copy(
                 old_pool_base as *const u8,

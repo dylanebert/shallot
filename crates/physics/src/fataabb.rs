@@ -68,7 +68,9 @@ pub fn region_end() -> usize {
 /// shapeId). Empty before the first `reserveFatAabb`. Read by the in-kernel recycle overlap test
 /// (arena.rs, 4b.3c); TS writes it at refit time (`src/fataabbcolumns.ts`).
 pub fn col_slice() -> &'static [f32] {
-    unsafe { core::slice::from_raw_parts(FATAABB_LAYOUT[0] as *const f32, FATAABB_CAP * AABB_STRIDE) }
+    unsafe {
+        core::slice::from_raw_parts(FATAABB_LAYOUT[0] as *const f32, FATAABB_CAP * AABB_STRIDE)
+    }
 }
 
 /// Shift the region's byte offset up by `delta` after the body region below it grew and moved it (the
@@ -143,7 +145,11 @@ pub extern "C" fn reserve_fat_aabb(cap: usize) -> u32 {
         if delta > 0 && top > old_top {
             ensure_capacity(top + delta);
             // `copy` is memmove; dest > src (the region only grows), so the overlap is handled.
-            core::ptr::copy(old_top as *const u8, (old_top + delta) as *mut u8, top - old_top);
+            core::ptr::copy(
+                old_top as *const u8,
+                (old_top + delta) as *mut u8,
+                top - old_top,
+            );
             crate::shapes::relocate(delta);
             crate::manifolds::relocate(delta);
             crate::broad::relocate(delta);
