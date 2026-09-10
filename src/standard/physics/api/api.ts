@@ -6,7 +6,7 @@
 // This is authoring ergonomics only — the internals stay op-for-op faithful to Box3D regardless.
 // The step and the reads that depend on it (velocities, awake state) arrive with the solver stage.
 
-import { NULL_INDEX } from "./array";
+import { NULL_INDEX } from "../common/array";
 import {
     type BodyPlaneResult,
     type Body as BodyRecord,
@@ -35,23 +35,23 @@ import {
     getMassData,
     makeBodyId,
     updateBodyMassData,
-} from "./body";
-import type { CompoundData } from "./compound";
-import type { Manifold, ManifoldPoint } from "./contact";
-import { DEFAULT_MASK_BITS, HUGE, LINEAR_SLOP, SetType } from "./core";
-import type { ShapeProxy } from "./distance";
+} from "../world/body";
+import type { CompoundData } from "../shapes/compound";
+import type { Manifold, ManifoldPoint } from "../collision/contact";
+import { DEFAULT_MASK_BITS, HUGE, LINEAR_SLOP, SetType } from "../common/core";
+import type { ShapeProxy } from "../collision/distance";
 import {
     createDistanceJoint,
     type DistanceJoint as DistanceJointData,
     type DistanceJointDef,
     defaultDistanceJointDef,
     distanceJointCurrentLength,
-} from "./distanceJoint";
-import { type DebugDraw, worldDraw } from "./draw";
-import type { Capsule, MassData, Sphere } from "./geometry";
-import type { HeightFieldData } from "./heightfield";
-import type { HullData } from "./hull";
-import type { EntityId } from "./ids";
+} from "../solver/distanceJoint";
+import { type DebugDraw, worldDraw } from "../world/draw";
+import type { Capsule, MassData, Sphere } from "../shapes/geometry";
+import type { HeightFieldData } from "../shapes/heightfield";
+import type { HullData } from "../shapes/hull";
+import type { EntityId } from "../common/ids";
 import {
     createFilterJoint,
     defaultJointDef,
@@ -67,7 +67,7 @@ import {
     type JointType,
     setJointCollideConnected,
     wakeJointBodies,
-} from "./joint";
+} from "../solver/joint";
 import {
     type AABB,
     clampf,
@@ -81,21 +81,21 @@ import {
     type Vec3,
     vec3,
     type WorldTransform,
-} from "./math";
-import type { MeshData } from "./mesh";
+} from "../common/math";
+import type { MeshData } from "../shapes/mesh";
 import {
     createMotorJoint,
     defaultMotorJointDef,
     type MotorJoint as MotorJointData,
     type MotorJointDef,
-} from "./motorJoint";
-import type { PlaneResult } from "./mover";
+} from "../solver/motorJoint";
+import type { PlaneResult } from "../collision/mover";
 import {
     createParallelJoint,
     defaultParallelJointDef,
     type ParallelJoint as ParallelJointData,
     type ParallelJointDef,
-} from "./parallelJoint";
+} from "../solver/parallelJoint";
 import {
     createPrismaticJoint,
     defaultPrismaticJointDef,
@@ -103,8 +103,8 @@ import {
     type PrismaticJointDef,
     prismaticJointSpeed,
     prismaticJointTranslation,
-} from "./prismaticJoint";
-import type { Profile } from "./profile";
+} from "../solver/prismaticJoint";
+import type { Profile } from "../world/profile";
 import {
     castMover as castMoverInternal,
     castRayClosest as castRayClosestInternal,
@@ -113,14 +113,14 @@ import {
     collideMover as collideMoverInternal,
     overlapAABB as overlapAABBInternal,
     overlapShapeQuery,
-} from "./query";
+} from "../collision/query";
 import {
     createRevoluteJoint,
     defaultRevoluteJointDef,
     type RevoluteJoint as RevoluteJointData,
     type RevoluteJointDef,
     revoluteJointAngle,
-} from "./revoluteJoint";
+} from "../solver/revoluteJoint";
 import {
     computeShapeMass,
     createCapsuleShape,
@@ -133,7 +133,7 @@ import {
     getSensorData,
     isSensorShape,
     type Shape as ShapeRecord,
-} from "./shape";
+} from "../shapes/shape";
 import {
     createSphericalJoint,
     defaultSphericalJointDef,
@@ -141,9 +141,9 @@ import {
     type SphericalJointDef,
     sphericalJointConeAngle,
     sphericalJointTwistAngle,
-} from "./sphericalJoint";
-import { step as stepWorld } from "./step";
-import type { TreeStats } from "./tree";
+} from "../solver/sphericalJoint";
+import { step as stepWorld } from "../solver/step";
+import type { TreeStats } from "../collision/tree";
 import {
     type BodyDef,
     type BodyType,
@@ -155,13 +155,13 @@ import {
     type ShapeDef,
     type ShapeType,
     type WorldDef,
-} from "./types";
+} from "../common/types";
 import {
     createWeldJoint,
     defaultWeldJointDef,
     type WeldJoint as WeldJointData,
     type WeldJointDef,
-} from "./weldJoint";
+} from "../solver/weldJoint";
 import {
     createWheelJoint,
     defaultWheelJointDef,
@@ -169,7 +169,7 @@ import {
     type WheelJointDef,
     wheelJointSpinSpeed,
     wheelJointSteeringAngle,
-} from "./wheelJoint";
+} from "../solver/wheelJoint";
 import {
     type Counters,
     createWorld,
@@ -180,7 +180,7 @@ import {
     worldCounters,
     worldIsValid,
     worldProfile,
-} from "./world";
+} from "../world/world";
 
 function makeShapeId(world: WorldState, shape: ShapeRecord): EntityId {
     return { index1: shape.id + 1, world0: world.worldId, generation: shape.generation };

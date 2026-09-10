@@ -9,12 +9,12 @@
 // so joints join contacts in colors[OVERFLOW_INDEX].jointSims. Every arithmetic op is fround-wrapped
 // in the per-type files; see the README.
 
-import { NULL_INDEX } from "./array";
-import { type Body, getBodyTransformQuick, wakeBody } from "./body";
-import { bufferMove } from "./broadphase";
-import { destroyContact } from "./contact";
+import { NULL_INDEX } from "../common/array";
+import { type Body, getBodyTransformQuick, wakeBody } from "../world/body";
+import { bufferMove } from "../collision/broadphase";
+import { destroyContact } from "../collision/contact";
 import type { StepContext } from "./contactsolver";
-import { OVERFLOW_INDEX, SetType } from "./core";
+import { OVERFLOW_INDEX, SetType } from "../common/core";
 import {
     type DistanceJoint,
     getDistanceJointForce,
@@ -23,8 +23,8 @@ import {
     warmStartDistanceJoint,
 } from "./distanceJoint";
 import { createJointInGraph, removeJointFromGraph } from "./graph";
-import { allocId, freeId } from "./ids";
-import { linkJoint, unlinkJoint } from "./island";
+import { allocId, freeId } from "../common/ids";
+import { linkJoint, unlinkJoint } from "../world/island";
 import {
     absf,
     FLT_MAX,
@@ -38,7 +38,7 @@ import {
     transformWorldPoint,
     type Vec3,
     vec3,
-} from "./math";
+} from "../common/math";
 import {
     getMotorJointForce,
     getMotorJointTorque,
@@ -71,7 +71,7 @@ import {
     warmStartRevoluteJoint,
 } from "./revoluteJoint";
 import { makeSoft, type Softness } from "./softness";
-import { wakeSolverSet } from "./solverset";
+import { wakeSolverSet } from "../world/solverset";
 import {
     getSphericalJointForce,
     getSphericalJointTorque,
@@ -80,7 +80,7 @@ import {
     solveSphericalJoint,
     warmStartSphericalJoint,
 } from "./sphericalJoint";
-import { BodyType } from "./types";
+import { BodyType } from "../common/types";
 import {
     getWeldJointForce,
     getWeldJointTorque,
@@ -97,7 +97,7 @@ import {
     type WheelJoint,
     warmStartWheelJoint,
 } from "./wheelJoint";
-import type { WorldState } from "./world";
+import type { WorldState } from "../world/world";
 
 /** Joint kind (b3JointType). Numeric values mirror the C enum order (parallel = 0 … wheel = 8). */
 export const JointType = {

@@ -3,14 +3,14 @@
 // stage); here they're driven directly so the create/destroy path is exercised now.
 
 import { describe, expect, test } from "bun:test";
-import { NULL_INDEX } from "./array";
-import { createBody } from "./body";
+import { NULL_INDEX } from "../common/array";
+import { createBody } from "../world/body";
 import { createContact, destroyContact } from "./contact";
-import { SetType } from "./core";
-import { createSphereShape } from "./shape";
+import { SetType } from "../common/core";
+import { createSphereShape } from "../shapes/shape";
 import { containsKey } from "./table";
-import { BodyType, defaultBodyDef, defaultShapeDef, defaultWorldDef } from "./types";
-import { createWorld, getWorld, type WorldState } from "./world";
+import { BodyType, defaultBodyDef, defaultShapeDef, defaultWorldDef } from "../common/types";
+import { createWorld, getWorld, type WorldState } from "../world/world";
 
 function dynamicSphere(world: WorldState, radius: number) {
     const bodyId = createBody(world, { ...defaultBodyDef(), type: BodyType.Dynamic });

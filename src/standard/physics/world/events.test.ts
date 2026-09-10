@@ -12,7 +12,7 @@ import {
     makeBoxHull,
     type SurfaceMaterial,
     World,
-} from "./index";
+} from "../api/index";
 
 const sphere = (radius: number) => ({ center: { x: 0, y: 0, z: 0 }, radius });
 const material = (over: Partial<SurfaceMaterial>): SurfaceMaterial => ({

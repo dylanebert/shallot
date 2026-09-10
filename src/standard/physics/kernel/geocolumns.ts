@@ -4,9 +4,9 @@
 // hull compactly through this module. Upload is per hull-set change (shape create/destroy), never per
 // step. The strides + record layout MIRROR kernel/src/geo.rs — the wasm side is the contract.
 
-import type { HullData } from "./hull";
+import type { HullData } from "../shapes/hull";
 import { kernel } from "./kernel";
-import type { WorldState } from "./world";
+import type { WorldState } from "../world/world";
 
 /** u32 words per hull record (RECORD_STRIDE in geo.rs): center.xyz + v/e/f counts + 5 pool offsets. */
 const RECORD_STRIDE = 12;

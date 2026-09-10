@@ -13,13 +13,13 @@
 // any memory.grow, detaches every typed-array view — so callers refresh the stores over the relocated
 // regions after a grow (the same discipline reserveBodies/reserveFatAabb follow).
 
-import { NULL_INDEX } from "./array";
-import type { Capsule, Sphere } from "./geometry";
-import type { HullData } from "./hull";
+import { NULL_INDEX } from "../common/array";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import type { HullData } from "../shapes/hull";
 import { kernel } from "./kernel";
-import type { Shape } from "./shape";
-import { ShapeType } from "./types";
-import type { WorldState } from "./world";
+import type { Shape } from "../shapes/shape";
+import { ShapeType } from "../common/types";
+import type { WorldState } from "../world/world";
 
 /** 4-byte stride of one shape record, mirroring `shapes.rs`: type(1) next(1) geometry(7) refit(7). */
 export const SHAPE_STRIDE = 16;

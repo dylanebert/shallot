@@ -3,10 +3,10 @@
 // body A's local z, and a twist limit about the shared axis. Every op is fround-wrapped, mirroring the
 // C scalar expression tree exactly. See the README.
 
-import { NULL_INDEX } from "./array";
-import { BodyFlags, getBodyTransformQuick, identityBodyState } from "./body";
+import { NULL_INDEX } from "../common/array";
+import { BodyFlags, getBodyTransformQuick, identityBodyState } from "../world/body";
 import type { StepContext } from "./contactsolver";
-import { SetType } from "./core";
+import { SetType } from "../common/core";
 import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
 import {
     clampf,
@@ -22,9 +22,9 @@ import {
     type Transform,
     type Vec3,
     vec3,
-} from "./math";
+} from "../common/math";
 import { makeSoft, type Softness } from "./softness";
-import type { WorldState } from "./world";
+import type { WorldState } from "../world/world";
 
 /** Spherical joint payload (b3SphericalJoint). Impulses persist across steps for warm starting. */
 export type SphericalJoint = {

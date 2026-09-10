@@ -7,7 +7,7 @@
 // never hashed by the sim, so the representation is free to change — only the BVH build order and the
 // query's triangle-visit order are load-bearing for bit-exactness. fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
-import { HUGE, LINEAR_SLOP, OVERLAP_SLOP } from "./core";
+import { HUGE, LINEAR_SLOP, OVERLAP_SLOP } from "../common/core";
 import {
     type CastOutput,
     computeProxyAABB,
@@ -21,7 +21,7 @@ import {
     type ShapeProxy,
     shapeCast,
     shapeDistance,
-} from "./distance";
+} from "../collision/distance";
 import type { Capsule } from "./geometry";
 import {
     type AABB,
@@ -42,8 +42,8 @@ import {
     type Vec3,
     vec3,
     xf,
-} from "./math";
-import type { PlaneResult } from "./mover";
+} from "../common/math";
+import type { PlaneResult } from "../collision/mover";
 
 const BIN_COUNT = 8;
 const DESIRED_TRIANGLES_PER_LEAF = 4;

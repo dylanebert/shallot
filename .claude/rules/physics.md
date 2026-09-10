@@ -49,6 +49,6 @@ MT: host-resolved bounded pool, not all cores/scene API. Main instantiates first
 
 ## Fixtures
 
-Read `src/standard/physics/{engine/fixtures,samples}/README.md` and `engine/upstream.json` before solver changes. Committed C fixtures, phase golds and sample trajectories are truth: never hand-edit or adjust for mismatch. Minting needs the external harness fork/C toolchain and must fail honestly without it. Freeze the pin by default; arithmetic/order changes need regen, data movement alone does not.
+Read `src/standard/physics/{solver/fixtures,samples}/README.md` and `api/upstream.json` before solver changes. Committed C fixtures, phase golds and sample trajectories are truth: never hand-edit or adjust for mismatch. Minting needs the external harness fork/C toolchain and must fail honestly without it. Freeze the pin by default; arithmetic/order changes need regen, data movement alone does not.
 
 Kernel: `cargo test` in `rust/physics`, then `bun run rust/physics/scripts/build-kernel.ts`; commit both wasm artifacts. MT changes also run sibling `run-fixtures.ts` at `SHALLOT_PHYSICS_THREADS` unset, 2, 8 and `auto`, plus `exit-test.ts`. Keep joint-event assertions at ST/2/8: hashes cannot see events.

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { boundingPowerOf2, roundUpPowerOf2 } from "./bits";
+import { boundingPowerOf2, roundUpPowerOf2 } from "../common/bits";
 import { addKey, containsKey, createSet, keyHash, pairKeyHi, pairKeyLo, removeKey } from "./table";
 
 // Ports test_table.c: fill every i<j shape pair, remove the j==i+1 diagonal, verify membership

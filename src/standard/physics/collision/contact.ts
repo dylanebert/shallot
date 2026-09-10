@@ -6,22 +6,22 @@
 // Deterministic shape ordering. Contacts are created during pair finding, and the manifold + graph paths
 // integrate with the solver stage. fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
-import { NULL_INDEX, swapRemove } from "./array";
-import { type Body, BodyFlags, wakeBody } from "./body";
-import { type CompoundData, getCompoundChild } from "./compound";
-import { SetType } from "./core";
+import { NULL_INDEX, swapRemove } from "../common/array";
+import { type Body, BodyFlags, wakeBody } from "../world/body";
+import { type CompoundData, getCompoundChild } from "../shapes/compound";
+import { SetType } from "../common/core";
 import { emptyCache, type SimplexCache } from "./distance";
-import type { Capsule, Sphere } from "./geometry";
-import { removeContactFromGraph } from "./graph";
-import { allocId, freeId } from "./ids";
-import { unlinkContact } from "./island";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import { removeContactFromGraph } from "../solver/graph";
+import { allocId, freeId } from "../common/ids";
+import { unlinkContact } from "../world/island";
 import { emptySATCache, type SATCache } from "./manifold";
-import type { AABB } from "./math";
-import { maxf, type Quat, quat, type Transform, type Vec3 } from "./math";
-import { getShapeMaterials, type Shape } from "./shape";
+import type { AABB } from "../common/math";
+import { maxf, type Quat, quat, type Transform, type Vec3 } from "../common/math";
+import { getShapeMaterials, type Shape } from "../shapes/shape";
 import { addKey, removeKey } from "./table";
-import { BodyType, ShapeType } from "./types";
-import type { WorldState } from "./world";
+import { BodyType, ShapeType } from "../common/types";
+import type { WorldState } from "../world/world";
 
 /** Which per-step collide list an awake contact belongs to (incremental partition, maintained here +
  * in solverset.ts against the create/destroy/wake/sleep event set; consumed by collide.ts). A contact

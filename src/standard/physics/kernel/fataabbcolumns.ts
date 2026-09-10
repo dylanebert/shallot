@@ -10,9 +10,9 @@
 // regions after a grow (the same discipline reserveBodies follows).
 
 import { kernel } from "./kernel";
-import type { AABB } from "./math";
-import type { Shape } from "./shape";
-import type { WorldState } from "./world";
+import type { AABB } from "../common/math";
+import type { Shape } from "../shapes/shape";
+import type { WorldState } from "../world/world";
 
 /** f32 stride of one shape's fat AABB in the column (lower.xyz + upper.xyz), mirroring `fataabb.rs`. */
 const AABB_STRIDE = 6;

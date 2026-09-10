@@ -3,14 +3,14 @@
 // with optional min/max limits and a motor. Every op is fround-wrapped, mirroring the C scalar
 // expression tree exactly. See the README.
 
-import { NULL_INDEX } from "./array";
-import { BodyFlags, getBodyTransformQuick, identityBodyState } from "./body";
+import { NULL_INDEX } from "../common/array";
+import { BodyFlags, getBodyTransformQuick, identityBodyState } from "../world/body";
 import type { StepContext } from "./contactsolver";
-import { HUGE, LINEAR_SLOP, SetType } from "./core";
+import { HUGE, LINEAR_SLOP, SetType } from "../common/core";
 import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
-import { clampf, FLT_MAX, f32, mat3, maxf, quat, type Vec3, vec3 } from "./math";
+import { clampf, FLT_MAX, f32, mat3, maxf, quat, type Vec3, vec3 } from "../common/math";
 import { makeSoft, type Softness } from "./softness";
-import type { WorldState } from "./world";
+import type { WorldState } from "../world/world";
 
 /** Distance joint payload (b3DistanceJoint). Impulses persist across steps for warm starting. */
 export type DistanceJoint = {

@@ -7,7 +7,7 @@ import {
     makeBoxHull,
     type Body as SolverBody,
     type World as SolverWorld,
-} from "./engine";
+} from "./api";
 import { Hulls } from "./hull";
 import { Body, ShapeKind } from "./index";
 

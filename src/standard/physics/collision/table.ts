@@ -10,7 +10,7 @@
 // read mints a fresh BigInt — one per probe iteration. Hashes live in a parallel Uint32Array; hash 0
 // is the empty-slot sentinel, matching the C (which also leaves the collision unguarded).
 
-import { roundUpPowerOf2 } from "./bits";
+import { roundUpPowerOf2 } from "../common/bits";
 
 const SHAPE_MASK = (1 << 22) - 1;
 const CHILD_MASK = (1 << 20) - 1;

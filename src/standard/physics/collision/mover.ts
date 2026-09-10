@@ -7,8 +7,8 @@
 // and a clipVelocity flag), runs solvePlanes to resolve the target motion, then clipVector to remove
 // the into-plane velocity component.
 
-import { LINEAR_SLOP } from "./core";
-import { absf, clampf, f32, minf, type Plane, plane, type Vec3, vec3 } from "./math";
+import { LINEAR_SLOP } from "../common/core";
+import { absf, clampf, f32, minf, type Plane, plane, type Vec3, vec3 } from "../common/math";
 
 /** The plane between a mover and a shape, plus the closest point on that shape (b3PlaneResult). */
 export type PlaneResult = {

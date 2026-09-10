@@ -5,20 +5,20 @@
 // scripts/gen-mover-gold.ts). Equality, not tolerance (the README).
 
 import { describe, expect, test } from "bun:test";
-import { type CompoundData, collideMoverAndCompound, createCompound } from "./compound";
+import { type CompoundData, collideMoverAndCompound, createCompound } from "../shapes/compound";
 import {
     type Capsule,
     collideMoverAndCapsule,
     collideMoverAndSphere,
     type Sphere,
-} from "./geometry";
-import { collideMoverAndHeightField, createGrid } from "./heightfield";
-import { collideMoverAndHull, createHull, type HullData, makeBoxHull } from "./hull";
-import { type Transform, type Vec3, xf } from "./math";
-import { collideMoverAndMesh, createGridMesh, type Mesh } from "./mesh";
+} from "../shapes/geometry";
+import { collideMoverAndHeightField, createGrid } from "../shapes/heightfield";
+import { collideMoverAndHull, createHull, type HullData, makeBoxHull } from "../shapes/hull";
+import { type Transform, type Vec3, xf } from "../common/math";
+import { collideMoverAndMesh, createGridMesh, type Mesh } from "../shapes/mesh";
 import { type CollisionPlane, clipVector, type PlaneResult, solvePlanes } from "./mover";
 import gold from "./mover.gold.json";
-import { defaultSurfaceMaterial } from "./types";
+import { defaultSurfaceMaterial } from "../common/types";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {

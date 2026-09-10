@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { hi32, lo32 } from "./bits";
-import { ALL_BITS_HI, ALL_BITS_LO } from "./core";
-import { type AABB, FLT_MAX, type Vec3, vec3 } from "./math";
+import { hi32, lo32 } from "../common/bits";
+import { ALL_BITS_HI, ALL_BITS_LO } from "../common/core";
+import { type AABB, FLT_MAX, type Vec3, vec3 } from "../common/math";
 import {
     type BoxCastInput,
     boxCast,

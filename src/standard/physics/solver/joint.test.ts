@@ -3,7 +3,7 @@
 // the joint-connected contact filter, and that a revolute joint actually constrains its bodies.
 
 import { describe, expect, test } from "bun:test";
-import { LINEAR_SLOP } from "./core";
+import { LINEAR_SLOP } from "../common/core";
 import {
     BodyType,
     type Joint,
@@ -12,8 +12,8 @@ import {
     makeCubeHull,
     type Vec3,
     World,
-} from "./index";
-import { f32, PI } from "./math";
+} from "../api/index";
+import { f32, PI } from "../common/math";
 
 function frame(x: number, y: number, z: number) {
     return { p: { x, y, z }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };

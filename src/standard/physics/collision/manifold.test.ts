@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { emptyCache } from "./distance";
-import type { Capsule, Sphere } from "./geometry";
-import { createCylinder, type HullData, makeBoxHull } from "./hull";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import { createCylinder, type HullData, makeBoxHull } from "../shapes/hull";
 import {
     collideCapsuleAndSphere,
     collideCapsules,
@@ -22,7 +22,7 @@ import {
     pointToSegmentDistance,
     type Transform,
     type Vec3,
-} from "./math";
+} from "../common/math";
 import {
     collideCapsuleAndTriangle,
     collideHullAndTriangle,

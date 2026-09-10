@@ -16,7 +16,7 @@ import {
 import { type UploadHull, uploadGeometry } from "./geocolumns";
 import { AUTO_THREADS, announce, COOP_COEP_HINT, type Host, init, kernel, resolve } from "./kernel";
 import { SHARED_STACK_SIZE } from "./kernel.shared.wasm";
-import { createManifoldStore, DIR_STRIDE, MANIFOLD_STRIDE } from "./manifoldstore";
+import { createManifoldStore, DIR_STRIDE, MANIFOLD_STRIDE } from "../collision/manifoldstore";
 import { maxWorkers } from "./pool";
 
 // `init({ threads: 0 })` throughout: `init()` now multithreads by default (bun/node have SAB), which
@@ -154,7 +154,7 @@ test("collideHullsGeo matches the manifold gold over the static geometry columns
     await init({ threads: 0 });
     const k = kernel();
     const gold = JSON.parse(
-        readFileSync(new URL("./manifold.gold.json", import.meta.url), "utf8"),
+        readFileSync(new URL("../collision/manifold.gold.json", import.meta.url), "utf8"),
     ) as {
         hulls: {
             name: string;

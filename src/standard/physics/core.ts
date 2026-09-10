@@ -4,7 +4,7 @@
 // anchors. Tooling driving `Physics.world` (or its own `World`) past the atomic core needs the solver's
 // free functions: shape builders, `BodyType`/joint configs, debug draw, `hashWorldState`.
 //
-// The solver half is an explicit re-export, not `export * from "./engine"`: the engine barrel exports
+// The solver half is an explicit re-export, not `export * from "./api"`: the engine barrel exports
 // `shutdown`, which terminates the process-singleton kernel's worker pool that PhysicsPlugin shares, so a
 // consumer calling it would silently degrade every physics scene to single-thread. `init` and `threads`
 // stay. Mirror the engine barrel here whenever it gains a public symbol.
@@ -128,7 +128,7 @@ export {
     type WorldDef,
     type WorldState,
     type WorldTransform,
-} from "./engine";
+} from "./api";
 export { type Hull, type HullFace, Hulls, UNIT_CUBE_ID } from "./hull";
 export {
     type BodyState,

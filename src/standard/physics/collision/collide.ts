@@ -8,8 +8,8 @@
 // links the contact into an island (b3LinkContact, waking a sleeping partner); stopped touching
 // unlinks it. Every op is fround-wrapped; see the README.
 
-import { NULL_INDEX, swapRemove } from "./array";
-import { BodyFlags, getBodySim } from "./body";
+import { NULL_INDEX, swapRemove } from "../common/array";
+import { BodyFlags, getBodySim } from "../world/body";
 import {
     D_CONTACT,
     D_GEOM_A,
@@ -28,17 +28,17 @@ import {
     R_SHAPE_B,
     R_WAS_TOUCHING,
     RECYCLE_STRIDE,
-} from "./columns";
-import { type ChildShape, type CompoundData, getCompoundChild } from "./compound";
+} from "../kernel/columns";
+import { type ChildShape, type CompoundData, getCompoundChild } from "../shapes/compound";
 import { type Contact, ContactFlags, destroyContact, type Manifold } from "./contact";
-import type { StepContext } from "./contactsolver";
-import { CONTACT_RECYCLE_ANGULAR_DISTANCE, SetType, SPECULATIVE_DISTANCE } from "./core";
-import { rebuildGeometry } from "./geocolumns";
-import type { Capsule, Sphere } from "./geometry";
-import { addContactToGraph, removeContactFromGraph } from "./graph";
-import type { HullData } from "./hull";
-import { linkContact, unlinkContact } from "./island";
-import { kernel, ParKind, runPar } from "./kernel";
+import type { StepContext } from "../solver/contactsolver";
+import { CONTACT_RECYCLE_ANGULAR_DISTANCE, SetType, SPECULATIVE_DISTANCE } from "../common/core";
+import { rebuildGeometry } from "../kernel/geocolumns";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import { addContactToGraph, removeContactFromGraph } from "../solver/graph";
+import type { HullData } from "../shapes/hull";
+import { linkContact, unlinkContact } from "../world/island";
+import { kernel, ParKind, runPar } from "../kernel/kernel";
 import {
     collideCapsuleAndSphere,
     collideCapsules,
@@ -65,11 +65,11 @@ import {
     type Vec3,
     vec3,
     type WorldTransform,
-} from "./math";
+} from "../common/math";
 import { computeMeshManifolds } from "./mesh_contact";
-import { getShapeMaterial, type Shape } from "./shape";
-import { BodyType, ShapeType } from "./types";
-import type { WorldState } from "./world";
+import { getShapeMaterial, type Shape } from "../shapes/shape";
+import { BodyType, ShapeType } from "../common/types";
+import type { WorldState } from "../world/world";
 
 const UINT32_MAX = 0xffffffff;
 

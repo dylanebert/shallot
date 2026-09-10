@@ -11,10 +11,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { BodyFlags, getBodySim, getBodyState } from "./body";
-import { B_FLAGS, B_STATE, IDENT_RECORDS, N_BODY } from "./bodycolumns";
-import { STATE_LIVE, STATE_STRIDE } from "./columns";
-import { hashWorldState } from "./hash";
+import { BodyFlags, getBodySim, getBodyState } from "../world/body";
+import { B_FLAGS, B_STATE, IDENT_RECORDS, N_BODY } from "../kernel/bodycolumns";
+import { STATE_LIVE, STATE_STRIDE } from "../kernel/columns";
+import { hashWorldState } from "../world/hash";
 import {
     type Body,
     BodyType,
@@ -34,9 +34,9 @@ import {
     makeOffsetBoxHull,
     type Vec3,
     World,
-} from "./index";
-import { init, kernel, sharedBytes, shutdown, threads } from "./kernel";
-import { computeCosSin, DEG_TO_RAD, offsetPos, quat, vec3 } from "./math";
+} from "../api/index";
+import { init, kernel, sharedBytes, shutdown, threads } from "../kernel/kernel";
+import { computeCosSin, DEG_TO_RAD, offsetPos, quat, vec3 } from "../common/math";
 
 const QUAT_ID = { v: { x: 0, y: 0, z: 0 }, s: 1 };
 
@@ -90,8 +90,8 @@ type Fixture = {
 };
 
 function loadFixture(scene: string): Fixture {
-    // Fixtures live at the package's oracle tier (src/standard/physics/engine/fixtures/), outside
-    // src/ so npm's files:["src"] never ships them — engine dir is src/standard/physics/engine.
+    // Fixtures live at the package's oracle tier (src/standard/physics/solver/fixtures/), outside
+    // src/ so npm's files:["src"] never ships them — engine dir is src/standard/physics/solver.
     const path = resolve(import.meta.dir, "./fixtures", `${scene}.json`);
     return JSON.parse(readFileSync(path, "utf8")) as Fixture;
 }

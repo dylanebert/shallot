@@ -10,7 +10,7 @@ import { parse, parseExpression } from "@babel/parser";
  *  bound that keeps it readable. Every other computed `import()`/`require()` refuses: a specifier this
  *  reader cannot resolve is a hole in the source cone, not a detail. */
 const COMPUTED_LOADERS: Record<string, string> = {
-    "src/standard/physics/engine/pool.ts":
+    "src/standard/physics/kernel/pool.ts":
         "the Node-only branch loads the fixed node:worker_threads specifier with vite-ignore; the browser branch creates an embedded Blob worker",
     "src/project/command.ts":
         "eagerly resolves every enabled entry from the project root, then imports those resolved identities",

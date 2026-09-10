@@ -22,8 +22,8 @@ import {
     type Transform,
     type Vec3,
     World,
-} from "./index";
-import { quat } from "./math";
+} from "../api/index";
+import { quat } from "../common/math";
 
 const PI = Math.PI;
 

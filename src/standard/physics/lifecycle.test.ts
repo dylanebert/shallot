@@ -11,9 +11,9 @@ import {
     ShapeKind,
     Spring,
     springTraits,
-} from "../physics";
-import { Hulls } from "../physics/core";
-import { shutdown } from "../physics/engine";
+} from "./";
+import { Hulls } from "./core";
+import { shutdown } from "./api";
 import { Slab } from "../slab";
 import { PhysicsPlugin } from "./index";
 

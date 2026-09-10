@@ -2,11 +2,11 @@
 // dynamic trees (static / kinematic / dynamic) plus the move buffer that records which proxies
 // changed this step, in deterministic insertion order.
 
-import { GrowVec } from "./array";
-import { type BitSet, clearBit, createBitSet, getBit, setBitGrow } from "./bitset";
-import { type BroadStore, createBroadStore } from "./broadcolumns";
-import type { AABB } from "./math";
-import { aabb } from "./math";
+import { GrowVec } from "../common/array";
+import { type BitSet, clearBit, createBitSet, getBit, setBitGrow } from "../common/bitset";
+import { type BroadStore, createBroadStore } from "../kernel/broadcolumns";
+import type { AABB } from "../common/math";
+import { aabb } from "../common/math";
 import { createSet, type HashSet } from "./table";
 import type { DynamicTree } from "./tree";
 import * as tree from "./tree";

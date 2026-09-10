@@ -4,10 +4,10 @@
 // collinear. Closed by a point-to-line linear constraint. Every op is fround-wrapped, mirroring the C
 // scalar expression tree exactly. See the README.
 
-import { NULL_INDEX } from "./array";
-import { BodyFlags, getBodyState, getBodyTransformQuick, identityBodyState } from "./body";
+import { NULL_INDEX } from "../common/array";
+import { BodyFlags, getBodyState, getBodyTransformQuick, identityBodyState } from "../world/body";
 import type { StepContext } from "./contactsolver";
-import { SetType } from "./core";
+import { SetType } from "../common/core";
 import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
 import {
     atan2,
@@ -24,9 +24,9 @@ import {
     type Vec2,
     type Vec3,
     vec3,
-} from "./math";
+} from "../common/math";
 import { makeSoft, type Softness } from "./softness";
-import type { WorldState } from "./world";
+import type { WorldState } from "../world/world";
 
 /** Wheel joint payload (b3WheelJoint). Impulses persist across steps for warm starting. */
 export type WheelJoint = {

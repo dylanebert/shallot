@@ -6,13 +6,13 @@
 // persistent manifolds, and warm-start impulses carry forward by normal + feature id. The port
 // targets the scalar force-overflow build; every op is fround-wrapped (see the README).
 
-import { NULL_INDEX, qsort } from "./array";
+import { NULL_INDEX, qsort } from "../common/array";
 import type { Contact, ConvexContactCache } from "./contact";
-import { LINEAR_SLOP, MAX_AABB_MARGIN, MESH_REST_OFFSET, SPECULATIVE_DISTANCE } from "./core";
+import { LINEAR_SLOP, MAX_AABB_MARGIN, MESH_REST_OFFSET, SPECULATIVE_DISTANCE } from "../common/core";
 import { emptyCache } from "./distance";
-import type { Capsule, Sphere } from "./geometry";
-import { getHeightFieldTriangle, type HeightFieldData, queryHeightField } from "./heightfield";
-import type { HullData } from "./hull";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import { getHeightFieldTriangle, type HeightFieldData, queryHeightField } from "../shapes/heightfield";
+import type { HullData } from "../shapes/hull";
 import {
     emptySATCache,
     type LocalManifold,
@@ -40,16 +40,16 @@ import {
     vec3,
     type WorldTransform,
     xf,
-} from "./math";
-import { getMeshTriangle, type Mesh, MeshEdgeFlags, queryMesh } from "./mesh";
-import { getShapeMaterials, type Shape } from "./shape";
+} from "../common/math";
+import { getMeshTriangle, type Mesh, MeshEdgeFlags, queryMesh } from "../shapes/mesh";
+import { getShapeMaterials, type Shape } from "../shapes/shape";
 import {
     collideCapsuleAndTriangle,
     collideHullAndTriangle,
     collideSphereAndTriangle,
 } from "./triangle_manifold";
-import { ShapeType } from "./types";
-import type { WorldState } from "./world";
+import { ShapeType } from "../common/types";
+import type { WorldState } from "../world/world";
 
 // This guards against excessive memory usage and complex collision.
 const MAX_MESH_CONTACT_TRIANGLES = 256;

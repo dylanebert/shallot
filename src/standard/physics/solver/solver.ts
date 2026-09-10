@@ -9,9 +9,9 @@
 // sets. Fast non-bullet bodies are swept inline during finalize (continuous.ts). Every op is
 // fround-wrapped; see the README.
 
-import { NULL_INDEX } from "./array";
-import { BODY_TRANSIENT_FLAGS, BodyFlags, type BodyState, getBodySim } from "./body";
-import * as bp from "./broadphase";
+import { NULL_INDEX } from "../common/array";
+import { BODY_TRANSIENT_FLAGS, BodyFlags, type BodyState, getBodySim } from "../world/body";
+import * as bp from "../collision/broadphase";
 import {
     type Columns,
     FIN_OUT_STRIDE,
@@ -22,7 +22,7 @@ import {
     SIM_STRIDE,
     SIM2_STRIDE,
     writeMat3,
-} from "./columns";
+} from "../kernel/columns";
 import {
     computeLayout,
     readbackHitEvents,
@@ -37,8 +37,8 @@ import {
     solveBullets,
     solveContinuous,
 } from "./continuous";
-import { OVERFLOW_INDEX, SetType, SPECULATIVE_DISTANCE, TIME_TO_SLEEP } from "./core";
-import { splitIsland } from "./island";
+import { OVERFLOW_INDEX, SetType, SPECULATIVE_DISTANCE, TIME_TO_SLEEP } from "../common/core";
+import { splitIsland } from "../world/island";
 import {
     flagJointEvent,
     prepareColorJoints,
@@ -48,8 +48,8 @@ import {
     warmStartColorJoints,
     warmStartOverflowJoints,
 } from "./joint";
-import { countJoints, marshalJoints, readbackJointImpulses } from "./jointcolumns";
-import { kernel, runPool, workers } from "./kernel";
+import { countJoints, marshalJoints, readbackJointImpulses } from "../kernel/jointcolumns";
+import { kernel, runPool, workers } from "../kernel/kernel";
 import {
     type AABB,
     aabb,
@@ -60,13 +60,13 @@ import {
     type Vec3,
     vec3,
     type WorldTransform,
-} from "./math";
-import { elapsed, makeTimer, reset, ticks } from "./profile";
-import { computeFatShapeAABBOut, getShapeUserMaterialId, type Shape } from "./shape";
-import { isConvexRefit, S_CAND, S_ESCAPED, SHAPE_STRIDE } from "./shapecolumns";
-import { trySleepIsland } from "./solverset";
-import { BodyType } from "./types";
-import { setMoveTransform, type WorldState } from "./world";
+} from "../common/math";
+import { elapsed, makeTimer, reset, ticks } from "../world/profile";
+import { computeFatShapeAABBOut, getShapeUserMaterialId, type Shape } from "../shapes/shape";
+import { isConvexRefit, S_CAND, S_ESCAPED, SHAPE_STRIDE } from "../kernel/shapecolumns";
+import { trySleepIsland } from "../world/solverset";
+import { BodyType } from "../common/types";
+import { setMoveTransform, type WorldState } from "../world/world";
 
 const SPEED_CAPPED = BodyFlags.isSpeedCapped;
 const TOI = BodyFlags.hadTimeOfImpact;

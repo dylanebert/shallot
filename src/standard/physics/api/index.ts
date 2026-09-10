@@ -50,12 +50,12 @@ export {
     type CompoundMeshDef,
     type CompoundSphereDef,
     createCompound,
-} from "./compound";
-export type { Manifold, ManifoldPoint } from "./contact";
-export type { ShapeProxy } from "./distance";
-export { DebugColor, type DebugDraw, defaultDebugDraw } from "./draw";
-export type { Capsule, MassData, Sphere } from "./geometry";
-export { hashWorldState } from "./hash";
+} from "../shapes/compound";
+export type { Manifold, ManifoldPoint } from "../collision/contact";
+export type { ShapeProxy } from "../collision/distance";
+export { DebugColor, type DebugDraw, defaultDebugDraw } from "../world/draw";
+export type { Capsule, MassData, Sphere } from "../shapes/geometry";
+export { hashWorldState } from "../world/hash";
 export {
     createGrid,
     createHeightField,
@@ -63,7 +63,7 @@ export {
     HEIGHT_FIELD_HOLE,
     type HeightFieldData,
     type HeightFieldDef,
-} from "./heightfield";
+} from "../shapes/heightfield";
 export {
     createCone,
     createCylinder,
@@ -74,10 +74,10 @@ export {
     makeCubeHull,
     makeOffsetBoxHull,
     makeTransformedBoxHull,
-} from "./hull";
-export { JointType } from "./joint";
-export { type InitOptions, init, shutdown, threads } from "./kernel";
-export type { AABB, Mat3, Pos, Quat, Transform, Vec3, WorldTransform } from "./math";
+} from "../shapes/hull";
+export { JointType } from "../solver/joint";
+export { type InitOptions, init, shutdown, threads } from "../kernel/kernel";
+export type { AABB, Mat3, Pos, Quat, Transform, Vec3, WorldTransform } from "../common/math";
 export {
     createBoxMesh,
     createGridMesh,
@@ -89,16 +89,16 @@ export {
     type MeshData,
     type MeshDef,
     MeshEdgeFlags,
-} from "./mesh";
+} from "../shapes/mesh";
 export {
     type CollisionPlane,
     clipVector,
     type PlaneResult,
     type PlaneSolverResult,
     solvePlanes,
-} from "./mover";
-export type { Profile } from "./profile";
-export type { TreeStats } from "./tree";
+} from "../collision/mover";
+export type { Profile } from "../world/profile";
+export type { TreeStats } from "../collision/tree";
 export {
     type BodyDef,
     BodyType,
@@ -116,5 +116,5 @@ export {
     ShapeType,
     type SurfaceMaterial,
     type WorldDef,
-} from "./types";
-export type { Counters, WorldState } from "./world";
+} from "../common/types";
+export type { Counters, WorldState } from "../world/world";

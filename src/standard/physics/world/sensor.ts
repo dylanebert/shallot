@@ -7,15 +7,15 @@
 // one loop, and the eventBits optimization drops out (a sensor whose overlaps didn't change emits no
 // events regardless, so the diff always runs). fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
-import { NULL_INDEX } from "./array";
+import { NULL_INDEX } from "../common/array";
 import { getBodyTransformQuick } from "./body";
-import { MAX_SHAPE_CAST_POINTS, SetType } from "./core";
-import type { EntityId } from "./ids";
-import { minInt, type Transform, toRelativeTransform, type Vec3, xf } from "./math";
-import { shouldShapesCollide } from "./pairs";
-import { makeShapeProxy, overlapShape, type Shape } from "./shape";
-import * as tree from "./tree";
-import { BodyType, ShapeType } from "./types";
+import { MAX_SHAPE_CAST_POINTS, SetType } from "../common/core";
+import type { EntityId } from "../common/ids";
+import { minInt, type Transform, toRelativeTransform, type Vec3, xf } from "../common/math";
+import { shouldShapesCollide } from "../collision/pairs";
+import { makeShapeProxy, overlapShape, type Shape } from "../shapes/shape";
+import * as tree from "../collision/tree";
+import { BodyType, ShapeType } from "../common/types";
 import type { WorldState } from "./world";
 
 /** A tracked overlap: the visitor shape's id and generation (b3Visitor). */

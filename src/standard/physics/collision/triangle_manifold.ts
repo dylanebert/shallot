@@ -4,9 +4,9 @@
 // cache and the shared clip/query helpers from manifold.ts. fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
 import { type DistanceInput, emptyCache, type SimplexCache, shapeDistance } from "./distance";
-import type { Capsule, Sphere } from "./geometry";
-import type { HullData } from "./hull";
-import { findHullSupportVertex } from "./hull";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import type { HullData } from "../shapes/hull";
+import { findHullSupportVertex } from "../shapes/hull";
 import {
     type ClipVertex,
     clipPolygon,
@@ -40,7 +40,7 @@ import {
     type Vec3,
     vec3,
     xf,
-} from "./math";
+} from "../common/math";
 
 // B3_LINEAR_SLOP with the default unit length of 1 (mirrors manifold.ts — the narrowphase frame).
 const LINEAR_SLOP = f32(0.005);

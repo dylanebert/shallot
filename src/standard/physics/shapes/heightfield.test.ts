@@ -7,7 +7,7 @@ import {
     type ShapeCastPairInput,
     type ShapeProxy,
     shapeCast,
-} from "./distance";
+} from "../collision/distance";
 import gold from "./geometry.gold.json";
 import {
     createGrid,
@@ -21,7 +21,7 @@ import {
     rayCastHeightField,
     shapeCastHeightField,
 } from "./heightfield";
-import { aabb, intersectRayTriangle, type Vec3, xf } from "./math";
+import { aabb, intersectRayTriangle, type Vec3, xf } from "../common/math";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {

@@ -13,7 +13,7 @@ use serde_json::Value;
 use physics_kernel::tree::{self, Rebuild, STACK_SIZE, STRIDE};
 
 fn load() -> Value {
-    let raw = include_str!("../../src/standard/physics/engine/tree.gold.json");
+    let raw = include_str!("../../../src/standard/physics/collision/tree.gold.json");
     serde_json::from_str(raw).expect("parse tree.gold.json")
 }
 

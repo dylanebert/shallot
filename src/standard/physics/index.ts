@@ -17,7 +17,7 @@ import { PrepassSystem } from "../sear/core";
 import { SlabPlugin, slab } from "../slab";
 import { Transform } from "../transforms";
 import { nlerpShortest, renderScale } from "./compose";
-import { init, type Body as SolverBody, World } from "./engine";
+import { init, type Body as SolverBody, World } from "./api";
 import { Hulls } from "./hull";
 import { resetConstraints, resyncConstraints, syncJoints, syncSprings } from "./joints";
 import { marshalBody } from "./marshal";

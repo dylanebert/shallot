@@ -8,7 +8,7 @@
 // wasm layout is the contract; a mismatch here silently corrupts the solve, so keep them in lockstep.
 
 import { kernel } from "./kernel";
-import type { Mat3 } from "./math";
+import type { Mat3 } from "../common/math";
 
 /** Write a Mat3 into `col` at `o` in the kernel's row order (cx, cy, cz) — the sim column's inertia
  * layout (read_sim, kernel/src/body.rs). Shared by the body-store marshal and finalize's raw write. */

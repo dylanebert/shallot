@@ -9,9 +9,9 @@ import {
     collideMoverAndCapsule,
     collideMoverAndSphere,
     type Sphere,
-} from "./geometry";
-import { collideMoverAndHull, makeBoxHull } from "./hull";
-import { absf, type Vec3, vec3 } from "./math";
+} from "../shapes/geometry";
+import { collideMoverAndHull, makeBoxHull } from "../shapes/hull";
+import { absf, type Vec3, vec3 } from "../common/math";
 import { type CollisionPlane, solvePlanes } from "./mover";
 
 const FLT_MAX = 3.4028234663852886e38;

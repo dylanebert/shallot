@@ -16,12 +16,12 @@
 // `store` writes the solved impulses straight back into the pool, and `readbackHitEvents` collects the
 // contacts it flagged.
 
-import type { BodySim, BodyState } from "./body";
-import { COLOR_SPAN_STRIDE, type Columns, SLOT_STRIDE, WIDE_META_STRIDE } from "./columns";
-import { OVERFLOW_INDEX } from "./core";
+import type { BodySim, BodyState } from "../world/body";
+import { COLOR_SPAN_STRIDE, type Columns, SLOT_STRIDE, WIDE_META_STRIDE } from "../kernel/columns";
+import { OVERFLOW_INDEX } from "../common/core";
 import type { GraphColor } from "./graph";
 import type { Softness } from "./softness";
-import type { WorldState } from "./world";
+import type { WorldState } from "../world/world";
 
 /** SIMD lane width (B3_SIMD_WIDTH): convex contacts pack 4 to a wide record. */
 const LANES = 4;

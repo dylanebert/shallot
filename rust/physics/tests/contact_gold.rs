@@ -18,7 +18,7 @@ fn col<T: Copy>(v: &mut [T]) -> Col<'_, T> {
     unsafe { Col::of(v) }
 }
 
-const GOLD: &str = include_str!("../../src/standard/physics/engine/contact.gold.json");
+const GOLD: &str = include_str!("../../../src/standard/physics/collision/contact.gold.json");
 
 fn from_bits(hex: &str) -> f32 {
     let bits = u32::from_str_radix(hex.trim_start_matches("0x"), 16).expect("hex");

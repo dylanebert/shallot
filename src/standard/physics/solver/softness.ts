@@ -2,7 +2,7 @@
 // its own leaf module (math-only) so both the contact solver and the joints can pull it without an
 // import cycle through body.ts. fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
-import { f32, PI } from "./math";
+import { f32, PI } from "../common/math";
 
 /** Soft-constraint coefficients derived from a target frequency (b3Softness). */
 export type Softness = { biasRate: number; massScale: number; impulseScale: number };

@@ -7,7 +7,7 @@
 // There is no upstream test_sensor.c; the determinism suite covers sensors upstream, out of v1 scope.
 
 import { describe, expect, test } from "bun:test";
-import { BodyType, World } from "./index";
+import { BodyType, World } from "../api/index";
 
 const SENSOR = { isSensor: true, enableSensorEvents: true };
 const VISIBLE = { enableSensorEvents: true };

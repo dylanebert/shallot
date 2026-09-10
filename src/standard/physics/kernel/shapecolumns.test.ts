@@ -7,18 +7,18 @@
 // cargo test would otherwise hold.
 
 import { describe, expect, test } from "bun:test";
-import { NULL_INDEX } from "./array";
+import { NULL_INDEX } from "../common/array";
 import { IDENT_RECORDS, N_BODY } from "./bodycolumns";
 import { S2_HEAD_SHAPE, SIM2_STRIDE } from "./columns";
-import { SetType } from "./core";
-import type { Capsule, Sphere } from "./geometry";
-import type { HullData } from "./hull";
-import { makeBoxHull } from "./hull";
-import { BodyType, createGridMesh, World } from "./index";
+import { SetType } from "../common/core";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import type { HullData } from "../shapes/hull";
+import { makeBoxHull } from "../shapes/hull";
+import { BodyType, createGridMesh, World } from "../api/index";
 import { kernel } from "./kernel";
 import { isConvexRefit, S_GEOM, S_NEXT, S_TYPE, SHAPE_STRIDE } from "./shapecolumns";
-import { ShapeType } from "./types";
-import type { WorldState } from "./world";
+import { ShapeType } from "../common/types";
+import type { WorldState } from "../world/world";
 
 /** exactly-representable helper so the test positions aren't f64 literals feeding the engine. */
 function f(x: number): number {

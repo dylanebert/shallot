@@ -3,10 +3,10 @@
 // optionally softened by a spring (linearHertz / angularHertz). Every op is fround-wrapped, mirroring
 // the C scalar expression tree exactly. See the README.
 
-import { NULL_INDEX } from "./array";
-import { BodyFlags, identityBodyState } from "./body";
+import { NULL_INDEX } from "../common/array";
+import { BodyFlags, identityBodyState } from "../world/body";
 import type { StepContext } from "./contactsolver";
-import { SetType } from "./core";
+import { SetType } from "../common/core";
 import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
 import {
     FLT_MIN,
@@ -18,9 +18,9 @@ import {
     type Transform,
     type Vec3,
     vec3,
-} from "./math";
+} from "../common/math";
 import { makeSoft, type Softness } from "./softness";
-import type { WorldState } from "./world";
+import type { WorldState } from "../world/world";
 
 /** Weld joint payload (b3WeldJoint). Impulses persist across steps for warm starting. */
 export type WeldJoint = {

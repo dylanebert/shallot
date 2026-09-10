@@ -2,7 +2,7 @@
 // Ported op-for-op from Box3D's sphere.c / capsule.c (Erin Catto, MIT). fround discipline per
 // the README.
 
-import { LINEAR_SLOP, OVERLAP_SLOP } from "./core";
+import { LINEAR_SLOP, OVERLAP_SLOP } from "../common/core";
 import {
     type CastOutput,
     type DistanceInput,
@@ -14,7 +14,7 @@ import {
     type ShapeProxy,
     shapeCast,
     shapeDistance,
-} from "./distance";
+} from "../collision/distance";
 import {
     type AABB,
     clampf,
@@ -36,8 +36,8 @@ import {
     type Vec3,
     vec3,
     xf,
-} from "./math";
-import type { PlaneResult } from "./mover";
+} from "../common/math";
+import type { PlaneResult } from "../collision/mover";
 
 /** Mass, local center of mass, and inertia about that center (b3MassData). */
 export type MassData = {

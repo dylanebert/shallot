@@ -6,7 +6,7 @@
 // stage. The stepping subtests (HelloWorld, EmptyWorld, ...) belong to that stage.
 
 import { describe, expect, test } from "bun:test";
-import { computeSphereMass } from "./geometry";
+import { computeSphereMass } from "../shapes/geometry";
 import {
     BodyType,
     createCompound,
@@ -16,8 +16,8 @@ import {
     makeBoxHull,
     type Vec3,
     World,
-} from "./index";
-import { f32 } from "./math";
+} from "../api/index";
+import { f32 } from "../common/math";
 
 const PI = Math.PI;
 

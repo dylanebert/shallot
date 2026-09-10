@@ -6,9 +6,9 @@
 
 import type { DistanceInput, SimplexCache } from "./distance";
 import { getPointSupport, shapeDistance } from "./distance";
-import type { Capsule, Sphere } from "./geometry";
-import type { HullData } from "./hull";
-import { findHullSupportFace, findHullSupportVertex } from "./hull";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import type { HullData } from "../shapes/hull";
+import { findHullSupportFace, findHullSupportVertex } from "../shapes/hull";
 import {
     absf,
     arbitraryPerp,
@@ -32,7 +32,7 @@ import {
     type Vec3,
     vec3,
     xf,
-} from "./math";
+} from "../common/math";
 
 const NULL_INDEX = -1;
 // B3_LINEAR_SLOP = 0.005 * lengthUnitsPerMeter; length units default to 1 (no world here).

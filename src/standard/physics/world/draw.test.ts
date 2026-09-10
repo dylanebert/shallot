@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { type DebugDraw, defaultDebugDraw } from "./draw";
-import { BodyType, makeBoxHull, type Vec3, World } from "./index";
+import { BodyType, makeBoxHull, type Vec3, World } from "../api/index";
 
 /** A debug draw that tallies each callback and records the last string, over the defaults + flags. */
 function counting(flags: Partial<DebugDraw> = {}): DebugDraw & { counts: Record<string, number> } {

@@ -5,10 +5,10 @@
 // Sphere/capsule/hull/mesh/height-field/compound shapes are ported: create/destroy, mass/AABB/extent/
 // centroid, the proxy, and materials. fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
-import { NULL_INDEX } from "./array";
-import { type Body, getBodyTransformQuick, updateBodyMassData } from "./body";
-import { syncHeadShape } from "./bodycolumns";
-import * as bp from "./broadphase";
+import { NULL_INDEX } from "../common/array";
+import { type Body, getBodyTransformQuick, updateBodyMassData } from "../world/body";
+import { syncHeadShape } from "../kernel/bodycolumns";
+import * as bp from "../collision/broadphase";
 import {
     type CompoundData,
     collideMoverAndCompound,
@@ -20,7 +20,7 @@ import {
     rayCastCompound,
     shapeCastCompound,
 } from "./compound";
-import { destroyContact } from "./contact";
+import { destroyContact } from "../collision/contact";
 import {
     AABB_MARGIN_FRACTION,
     LINEAR_SLOP,
@@ -28,7 +28,7 @@ import {
     MAX_SHAPE_CAST_POINTS,
     SetType,
     SPECULATIVE_DISTANCE,
-} from "./core";
+} from "../common/core";
 import {
     type CastOutput,
     emptyCastOutput,
@@ -37,8 +37,8 @@ import {
     type ShapeCastInput,
     type ShapeProxy,
     type Sweep,
-} from "./distance";
-import { writeFatAabb } from "./fataabbcolumns";
+} from "../collision/distance";
+import { writeFatAabb } from "../kernel/fataabbcolumns";
 import {
     type Capsule,
     collideMoverAndCapsule,
@@ -82,7 +82,7 @@ import {
     rayCastHull,
     shapeCastHull,
 } from "./hull";
-import { allocId, freeId } from "./ids";
+import { allocId, freeId } from "../common/ids";
 import {
     type AABB,
     aabb,
@@ -99,7 +99,7 @@ import {
     vec3,
     type WorldTransform,
     xf,
-} from "./math";
+} from "../common/math";
 import {
     collideMoverAndMesh,
     computeMeshAABB,
@@ -110,9 +110,9 @@ import {
     safeScale,
     shapeCastMesh,
 } from "./mesh";
-import type { PlaneResult } from "./mover";
-import { createSensor, destroySensor, type Visitor } from "./sensor";
-import { unlinkShape, writeShape } from "./shapecolumns";
+import type { PlaneResult } from "../collision/mover";
+import { createSensor, destroySensor, type Visitor } from "../world/sensor";
+import { unlinkShape, writeShape } from "../kernel/shapecolumns";
 import {
     BodyType,
     cloneMaterial,
@@ -121,8 +121,8 @@ import {
     ShapeType,
     type SurfaceMaterial,
     toFilterBits,
-} from "./types";
-import { addHullToDatabase, removeHullFromDatabase, type WorldState } from "./world";
+} from "../common/types";
+import { addHullToDatabase, removeHullFromDatabase, type WorldState } from "../world/world";
 
 /** Min extent (smallest sphere fitting inside) and max extent per axis, for sleeping (b3ShapeExtent). */
 export type ShapeExtent = { minExtent: number; maxExtent: Vec3 };

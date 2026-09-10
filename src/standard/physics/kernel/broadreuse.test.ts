@@ -22,7 +22,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 // with everything, spiking the manifold count past the reused high-water and forcing the mid-step
 // relocation the bug corrupts. Prints the static-shape count each step; the parent asserts it stays 3.
 const child = `
-import { BodyType, makeBoxHull, World } from ${JSON.stringify(resolve(here, "index.ts"))};
+import { BodyType, makeBoxHull, World } from ${JSON.stringify(resolve(here, "../api/index.ts"))};
 const IDENT = { v: { x: 0, y: 0, z: 0 }, s: 1 };
 const H = 1e9, DT = 1 / 60;
 const worldBox = { lowerBound: { x: -H, y: -H, z: -H }, upperBound: { x: H, y: H, z: H } };

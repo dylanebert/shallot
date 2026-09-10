@@ -11,9 +11,9 @@
 // never per-iteration (that would reintroduce churn).
 
 import { kernel } from "./kernel";
-import type { HashSet } from "./table";
-import type { DynamicTree } from "./tree";
-import type { WorldState } from "./world";
+import type { HashSet } from "../collision/table";
+import type { DynamicTree } from "../collision/tree";
+import type { WorldState } from "../world/world";
 
 /** u32/f32 slots per dynamic-tree node — mirrors `STRIDE` in `src/tree.ts` + `TREE_STRIDE` in broad.rs. */
 const TREE_STRIDE = 12;

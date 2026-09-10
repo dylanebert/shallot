@@ -9,21 +9,21 @@
 // (limit arcs, motor/steering indicators) and the contact/island/graph-color diagnostics are the
 // heavier diagnostic tier, out of the minimal renderer's fidelity floor.
 
-import { NULL_INDEX } from "./array";
-import { hi32, lo32 } from "./bits";
+import { NULL_INDEX } from "../common/array";
+import { hi32, lo32 } from "../common/bits";
 import { type Body, BodyFlags, getBodySim, getBodyTransformQuick } from "./body";
-import type { BroadPhase } from "./broadphase";
-import { getCompoundChild } from "./compound";
-import { SetType } from "./core";
-import type { Capsule, Sphere } from "./geometry";
-import type { HeightFieldData } from "./heightfield";
-import type { HullData } from "./hull";
-import { getJointConstraintForce, getJointConstraintTorque, getJointSim, JointType } from "./joint";
-import { type AABB, type Pos, transformWorldPoint, vec3, type WorldTransform, xf } from "./math";
-import type { Mesh } from "./mesh";
-import type { Shape } from "./shape";
-import * as tree from "./tree";
-import { BodyType, ShapeType, type SurfaceMaterial } from "./types";
+import type { BroadPhase } from "../collision/broadphase";
+import { getCompoundChild } from "../shapes/compound";
+import { SetType } from "../common/core";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import type { HeightFieldData } from "../shapes/heightfield";
+import type { HullData } from "../shapes/hull";
+import { getJointConstraintForce, getJointConstraintTorque, getJointSim, JointType } from "../solver/joint";
+import { type AABB, type Pos, transformWorldPoint, vec3, type WorldTransform, xf } from "../common/math";
+import type { Mesh } from "../shapes/mesh";
+import type { Shape } from "../shapes/shape";
+import * as tree from "../collision/tree";
+import { BodyType, ShapeType, type SurfaceMaterial } from "../common/types";
 import type { WorldState } from "./world";
 
 const BODY_TYPE_COUNT = 3;

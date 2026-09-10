@@ -11,7 +11,7 @@ import {
     overlapCompound,
     rayCastCompound,
     shapeCastCompound,
-} from "./compound";
+} from "../shapes/compound";
 import type { CastOutput, ShapeProxy } from "./distance";
 import {
     type Capsule,
@@ -20,13 +20,13 @@ import {
     rayCastSphere,
     type Sphere,
     shapeCastSphere,
-} from "./geometry";
+} from "../shapes/geometry";
 import {
     createGrid,
     overlapHeightField,
     rayCastHeightField,
     shapeCastHeightField,
-} from "./heightfield";
+} from "../shapes/heightfield";
 import {
     createHull,
     type HullData,
@@ -34,11 +34,11 @@ import {
     overlapHull,
     rayCastHull,
     shapeCastHull,
-} from "./hull";
-import { type Transform, type Vec3, xf } from "./math";
-import { createGridMesh, type Mesh, overlapMesh, rayCastMesh, shapeCastMesh } from "./mesh";
+} from "../shapes/hull";
+import { type Transform, type Vec3, xf } from "../common/math";
+import { createGridMesh, type Mesh, overlapMesh, rayCastMesh, shapeCastMesh } from "../shapes/mesh";
 import gold from "./query.gold.json";
-import { defaultSurfaceMaterial } from "./types";
+import { defaultSurfaceMaterial } from "../common/types";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {

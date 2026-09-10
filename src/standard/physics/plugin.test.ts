@@ -13,8 +13,8 @@ import {
     ShapeKind,
     Spring,
     springTraits,
-} from "../physics";
-import { Hulls } from "../physics/core";
+} from "./";
+import { Hulls } from "./core";
 import {
     BodyType,
     createHull,
@@ -26,7 +26,7 @@ import {
     type Body as SolverBody,
     shutdown,
     World,
-} from "../physics/engine";
+} from "./api";
 import { Slab } from "../slab";
 import { composePose, PhysicsPlugin } from "./index";
 
@@ -877,7 +877,7 @@ describe("compose covers static bodies", () => {
 
 describe("physics/core mirror", () => {
     test("core re-exports the engine barrel minus shutdown, plus physics's own seam", async () => {
-        const engine = await import("./engine");
+        const engine = await import("./api");
         const core = await import("./core");
         const engineKeys = new Set(Object.keys(engine));
         const coreKeys = new Set(Object.keys(core));

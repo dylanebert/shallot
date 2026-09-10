@@ -7,11 +7,11 @@
 // fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity". This file holds the types + accessors; the
 // create/destroy/setType/mass machinery is appended below.
 
-import { NULL_INDEX, swapRemove } from "./array";
-import { reserveBodies, residentPush, residentRemove } from "./bodycolumns";
-import { moveProxy as bpMoveProxy } from "./broadphase";
-import { destroyContact, writeBodySimIndex } from "./contact";
-import { BODY_NAME_LENGTH, HUGE, SetType, SPECULATIVE_DISTANCE } from "./core";
+import { NULL_INDEX, swapRemove } from "../common/array";
+import { reserveBodies, residentPush, residentRemove } from "../kernel/bodycolumns";
+import { moveProxy as bpMoveProxy } from "../collision/broadphase";
+import { destroyContact, writeBodySimIndex } from "../collision/contact";
+import { BODY_NAME_LENGTH, HUGE, SetType, SPECULATIVE_DISTANCE } from "../common/core";
 import {
     type DistanceInput,
     emptyCache,
@@ -19,12 +19,12 @@ import {
     type ShapeCastInput,
     type ShapeProxy,
     shapeDistance,
-} from "./distance";
-import { writeFatAabb } from "./fataabbcolumns";
-import type { Capsule, MassData } from "./geometry";
-import { allocId, type EntityId, freeId } from "./ids";
+} from "../collision/distance";
+import { writeFatAabb } from "../kernel/fataabbcolumns";
+import type { Capsule, MassData } from "../shapes/geometry";
+import { allocId, type EntityId, freeId } from "../common/ids";
 import { createIsland, destroyIsland, linkJoint, splitIsland, unlinkJoint } from "./island";
-import { destroyJointInternal } from "./joint";
+import { destroyJointInternal } from "../solver/joint";
 import {
     type AABB,
     aabb,
@@ -46,8 +46,8 @@ import {
     type Vec3,
     vec3,
     type WorldTransform,
-} from "./math";
-import type { PlaneResult } from "./mover";
+} from "../common/math";
+import type { PlaneResult } from "../collision/mover";
 import { destroySensor } from "./sensor";
 import {
     collideMover,
@@ -63,7 +63,7 @@ import {
     rayCastShape,
     type Shape,
     shapeCastShape,
-} from "./shape";
+} from "../shapes/shape";
 import {
     destroySolverSet,
     emptySolverSet,
@@ -79,7 +79,7 @@ import {
     ShapeType,
     shouldQueryCollide,
     toQueryFilterBits,
-} from "./types";
+} from "../common/types";
 import type { WorldState } from "./world";
 
 /** Body flags (b3BodyFlags). Lock bits, transient per-step markers, and the dynamic/sleep bits. */

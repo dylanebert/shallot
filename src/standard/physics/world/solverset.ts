@@ -7,7 +7,7 @@
 // (the sleep transition) handles wake completion by transferring touching contacts back to the graph (via graph.ts).
 // transferJoint moves a joint's sim between sets (used by setType).
 
-import { NULL_INDEX, swapRemove } from "./array";
+import { NULL_INDEX, swapRemove } from "../common/array";
 import {
     BODY_TRANSIENT_FLAGS,
     type Body,
@@ -16,18 +16,18 @@ import {
     cloneBodySim,
     identityBodyState,
 } from "./body";
-import { residentPush, residentRemove } from "./bodycolumns";
-import { ContactFlags, reclassifyBodyContacts, writeBodySimIndex } from "./contact";
-import { SetType } from "./core";
+import { residentPush, residentRemove } from "../kernel/bodycolumns";
+import { ContactFlags, reclassifyBodyContacts, writeBodySimIndex } from "../collision/contact";
+import { SetType } from "../common/core";
 import {
     addJointToGraph,
     removeContactFromGraph,
     removeJointFromGraph,
     wakeSetConstraints,
-} from "./graph";
-import { allocId, freeId } from "./ids";
+} from "../solver/graph";
+import { allocId, freeId } from "../common/ids";
 import type { IslandSim } from "./island";
-import type { Joint, JointSim } from "./joint";
+import type { Joint, JointSim } from "../solver/joint";
 import type { WorldState } from "./world";
 
 /** Contiguous SoA storage for one solver set (b3SolverSet). */

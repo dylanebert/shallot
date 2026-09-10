@@ -6,26 +6,26 @@
 // fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
 import type { Body } from "./body";
-import { type BodyStore, createBodyStore, releaseResident } from "./bodycolumns";
-import { type BroadPhase, createBroadPhase } from "./broadphase";
-import { type Contact, initializeContactRegisters } from "./contact";
-import type { StepContext } from "./contactsolver";
-import { CONTACT_RECYCLE_DISTANCE } from "./core";
-import { createFatAabbStore, type FatAabbStore } from "./fataabbcolumns";
-import { type ConstraintGraph, createGraph } from "./graph";
-import type { HullData } from "./hull";
-import { allocId, createIdPool, type EntityId, type IdPool, idCount } from "./ids";
+import { type BodyStore, createBodyStore, releaseResident } from "../kernel/bodycolumns";
+import { type BroadPhase, createBroadPhase } from "../collision/broadphase";
+import { type Contact, initializeContactRegisters } from "../collision/contact";
+import type { StepContext } from "../solver/contactsolver";
+import { CONTACT_RECYCLE_DISTANCE } from "../common/core";
+import { createFatAabbStore, type FatAabbStore } from "../kernel/fataabbcolumns";
+import { type ConstraintGraph, createGraph } from "../solver/graph";
+import type { HullData } from "../shapes/hull";
+import { allocId, createIdPool, type EntityId, type IdPool, idCount } from "../common/ids";
 import type { Island } from "./island";
-import type { Joint } from "./joint";
-import { createManifoldStore, type ManifoldStore } from "./manifoldstore";
-import { f32, froundConfig, maxf, type Vec3, type WorldTransform } from "./math";
+import type { Joint } from "../solver/joint";
+import { createManifoldStore, type ManifoldStore } from "../collision/manifoldstore";
+import { f32, froundConfig, maxf, type Vec3, type WorldTransform } from "../common/math";
 import { newProfile, type Profile } from "./profile";
 import type { Sensor, SensorBeginTouchEvent } from "./sensor";
-import type { Shape } from "./shape";
-import { destroyShapeAllocations } from "./shape";
-import { createShapeStore, type ShapeStore } from "./shapecolumns";
+import type { Shape } from "../shapes/shape";
+import { destroyShapeAllocations } from "../shapes/shape";
+import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
 import { destroySolverSet, emptySolverSet, type SolverSet } from "./solverset";
-import type { Capacity, MixCallback, WorldDef } from "./types";
+import type { Capacity, MixCallback, WorldDef } from "../common/types";
 
 /** Maximum concurrent worlds (B3_MAX_WORLDS). */
 export const MAX_WORLDS = 128;

@@ -6,9 +6,9 @@
 import { expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { NULL_INDEX } from "./array";
-import { AwakeContact, type Contact, ContactFlags } from "./contact";
-import { SetType } from "./core";
+import { NULL_INDEX } from "../common/array";
+import { AwakeContact, type Contact, ContactFlags } from "../collision/contact";
+import { SetType } from "../common/core";
 import {
     type Body,
     BodyType,
@@ -18,10 +18,10 @@ import {
     defaultSurfaceMaterial,
     makeBoxHull,
     World,
-} from "./index";
+} from "../api/index";
 import { SCENES } from "./step.scenes";
-import { ShapeType } from "./types";
-import type { WorldState } from "./world";
+import { ShapeType } from "../common/types";
+import type { WorldState } from "../world/world";
 
 const QUAT_ID = { v: { x: 0, y: 0, z: 0 }, s: 1 };
 
