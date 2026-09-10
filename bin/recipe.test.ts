@@ -16,7 +16,7 @@ function corpus(): { recipesDir: string; version: string } {
         writeFileSync(
             join(dir, "package.json"),
             `${JSON.stringify(
-                { name, private: true, dependencies: { "@dylanebert/shallot": "workspace:*" } },
+                { name, private: true, dependencies: { "@dylanebert/shallot": "file:../../.." } },
                 null,
                 4,
             )}\n`,
@@ -49,7 +49,14 @@ describe("pinEngine", () => {
         expect(pinned("1.2.3")).toBe("1.2.3");
     });
 
-    test("leaves a non-workspace dep untouched", () => {
+    test("file: and link: pin to the exact version", () => {
+        for (const spec of ["file:../../..", "link:@dylanebert/shallot"]) {
+            const out = pinEngine(`{"dependencies":{"@dylanebert/shallot":"${spec}"}}`, "0.8.0");
+            expect(JSON.parse(out).dependencies["@dylanebert/shallot"]).toBe("0.8.0");
+        }
+    });
+
+    test("leaves a registry dep untouched", () => {
         const out = pinEngine('{"dependencies":{"@dylanebert/shallot":"^0.7.0"}}', "0.8.0");
         expect(JSON.parse(out).dependencies["@dylanebert/shallot"]).toBe("^0.7.0");
     });

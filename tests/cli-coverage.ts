@@ -379,7 +379,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
         file: "bin/recipe.ts",
         arm: "unit",
         reason:
-            "listRecipes, occupied, pinEngine's every workspace-marker form, and runRecipe's every branch " +
+            "listRecipes, occupied, pinEngine's every file:/link:/workspace-marker form, and runRecipe's every branch " +
             "(absent corpus, bare list, unknown name, copy+pin, doc+tsconfig emission, refuse-nonempty) " +
             "are all directly asserted by recipe.test.ts against a temp-dir recipe corpus.",
     },
