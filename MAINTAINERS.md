@@ -2,7 +2,7 @@
 
 Repo-level contract; `AGENTS.md` is the consumer contract and ships in the npm package, this file does not. Grep `examples/AGENTS.md` first.
 
-Owners: the root package (`src`, `bin`, `rust`, `tests`), `packages/create-shallot`; evals, examples.
+Owners: the root package (`src`, `bin`, `rust`, `tests`); evals, examples. The scaffold and the AVBD solver live in their own repositories.
 
 ## Rules
 
@@ -51,10 +51,10 @@ OS: windows/mac/linux; web emits dist; native uses platform tools and builds `ru
 
 ### Verification
 
-Before completion: format, check, test above. Release order: `testing.md`. After AVBD changes: `bun test ./packages/shallot-avbd-physics/tests/*.oracle.ts`; engine/host/twin: `bun test ./examples/gym/src`; physics fixtures per `physics.md`; Rust audio: `cargo test` from `rust/audio`.
+Before completion: format, check, test above. Release order: `testing.md`. Engine/host/twin: `bun test ./examples/gym/src`; physics fixtures per `physics.md`; Rust audio: `cargo test` from `rust/audio`.
 
 GPU/serialize/restore/config.ui/dev-server/physics changes owe bench/flow/recipe gates. Reachability repairs owe source + physical public-build proof via build.probes.ts; other CLI/manifest/dependency/launch/runtime/scaffold/native-package changes owe test:install; links don’t prove it.
 
 ## Examples
 
-Tiers/conventions: `examples/AGENTS.md`, `examples.md`. Sole hello source: `packages/create-shallot/index.ts`, no starter copy; emitted AGENTS points to engine, CLAUDE imports it. Examples ship icon.svg, dispose State on HMR/unmount, obey package AGENTS UI containment; only ejected never-embedded gym/visualization may own viewport.
+Tiers/conventions: `examples/AGENTS.md`, `examples.md`. Sole hello source: the `create-shallot` repository, no starter copy here; emitted AGENTS points to engine, CLAUDE imports it. Examples ship icon.svg, dispose State on HMR/unmount, obey package AGENTS UI containment; only ejected never-embedded gym/visualization may own viewport.

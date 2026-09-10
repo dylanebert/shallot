@@ -12,9 +12,9 @@ Five demos are built and served at [dylanebert.com/shallot](https://dylanebert.c
 
 | demo | play | code |
 |---|---|---|
-| Collapse | [play](https://dylanebert.com/shallot/collapse/) | [code](https://github.com/dylanebert/shallot/tree/v0.10.0/examples/showcase/collapse) |
+| Collapse | [play](https://dylanebert.com/shallot/collapse/) | [code](https://github.com/dylanebert/shallot-avbd-physics/tree/main/examples/collapse) |
 | Roads | [play](https://dylanebert.com/shallot/roads/) | [code](https://github.com/dylanebert/shallot/tree/v0.10.0/examples/showcase/roads) |
-| Sandbox | [play](https://dylanebert.com/shallot/sandbox/) | [code](https://github.com/dylanebert/shallot/tree/v0.10.0/examples/showcase/sandbox) |
+| Sandbox | [play](https://dylanebert.com/shallot/sandbox/) | [code](https://github.com/dylanebert/shallot-avbd-physics/tree/main/examples/sandbox) |
 | Visualization | [play](https://dylanebert.com/shallot/visualization/) | [code](https://github.com/dylanebert/shallot/tree/v0.10.0/examples/showcase/visualization) |
 | Voxel | [play](https://dylanebert.com/shallot/voxel/) | [code](https://github.com/dylanebert/shallot/tree/v0.10.0/examples/showcase/voxel) |
 
@@ -60,7 +60,7 @@ Written for coding agents first, readable by hand. Both files move in the same c
 Examples live under `examples/`, indexed by [`examples/AGENTS.md`](examples/AGENTS.md):
 
 - `recipes/` — one minimal project per problem: first-person character, physics playground, import a model, day-night sky, and more.
-- `showcase/` — full projects rather than one concept each, several under real-device gates: `collapse`, `roads`, `sandbox`, `visualization`, `voxel`.
+- `showcase/` — full projects rather than one concept each, several under real-device gates: `roads`, `visualization`, `voxel`. The AVBD showcases, `collapse` and `sandbox`, live in [dylanebert/shallot-avbd-physics](https://github.com/dylanebert/shallot-avbd-physics).
 - `gym/` — machine-verdict scenarios: the real-device test and benchmark tier.
 
 Run a recipe standalone:
@@ -108,8 +108,6 @@ Portable builds bundle the Chromium runtime (CEF) instead of the system webview.
 ### layout
 
 - `` — public engine-and-tools distribution, `@dylanebert/shallot`
-- `packages/shallot-{runtime,cli,physics}/` — private source owners, projected into that distribution
-- `packages/create-shallot/` — `bun create shallot` scaffold
 - `examples/` — example projects against the engine
 - `evals/` — agent-agnostic eval suite
 

@@ -42,7 +42,6 @@ export interface CoverageRow {
 export const CLI_POPULATION_GLOBS: readonly string[] = [
     "bin/*.ts",
     "src/project/*.ts",
-    "packages/create-shallot/index.ts",
     "src/extras/outline/*.ts",
 ];
 
@@ -141,8 +140,8 @@ function exportsOf(source: string): string[] {
  *  {@link cliTestFiles} — the pure {@link checkCliCoverage} takes the result as plain data.
  *
  *  The import walk spans the whole repo, not {@link cliTestFiles}'s glob-scoped inverse: `catalog.test.ts`
- *  sits beside `src/project/engine.ts` and inside the population, but `cli-coverage.test.ts` and
- *  `create-shallot.test.ts` don't, and a row's test may live anywhere. Only relative specifiers resolve —
+ *  sits beside `src/project/engine.ts` and inside the population, but `cli-coverage.test.ts` doesn't,
+ *  and a row's test may live anywhere. Only relative specifiers resolve —
  *  a package specifier (`@dylanebert/shallot`) reaches this layer's files only through a barrel, which is
  *  not the direct import a `unit` row claims. */
 export async function cliCoverageLinks(
@@ -585,24 +584,5 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "test:install/bench/flows/recipes run ever edits a file under a booted dev server's watch, and " +
             "this stage's stub server never drives a real chokidar event either. No stage in the spec's " +
             "Approach owns it; occupant: configureServer's onProjectFile callback.",
-    },
-    {
-        file: "packages/create-shallot/index.ts",
-        arm: "tier",
-        reason:
-            "template's emitted file map is directly asserted by recipe.test.ts (imported cross-package: " +
-            "the AGENTS.md/ENGINE_REFERENCE and CLAUDE.md/CLAUDE_IMPORT contents), which recipe.ts's own " +
-            "corpus fixtures build from. Stage 2 pulled the `if (import.meta.main)` CLI block (arg " +
-            "parsing, the existing-dir guard, the created-project console output) out into an exported " +
-            "main(argv) returning an exit code rather than calling process.exit itself, directly asserted " +
-            'by create-shallot.test.ts\'s `describe("main")` block (no-name usage error, existing-dir ' +
-            'refusal, success); scaffold gets its own temp-dir test in the same file (`describe("scaffold' +
-            '")`, nested public/ dirs created). All real logic in the file is now directly unit-tested. ' +
-            "What remains is the one-line `if (import.meta.main) process.exit(main(...))` entry adapter — " +
-            "no logic of its own, but genuinely unreached by `bun test` (importing the module for its " +
-            'exports never sets import.meta.main) — run for real on every `bun run test:install` ("bun ' +
-            'create shallot (scaffold → install → build the starter)", `bun packages/create-shallot/' +
-            "index.ts starter-app` as a real subprocess). Same shape as dev.ts's row: unit-tested logic, " +
-            "tier-tested entry wiring, so the file's weakest reached tier is tier.",
     },
 ];

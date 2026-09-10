@@ -25,7 +25,6 @@ import { join, resolve } from "node:path";
 
 const EVALS = import.meta.dir;
 const ENGINE = resolve(EVALS, "..");
-const CREATE_SHALLOT = resolve(EVALS, "../packages/create-shallot/index.ts");
 
 function run(cmd: string[], cwd: string): { ok: boolean; out: string } {
     const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
@@ -99,7 +98,7 @@ function main(): void {
     // bare arm: strip the shipped context at the tarball so a later `bun add` can't re-extract it back
     if (bare) stripTarball(engineTgz);
 
-    const scaffold = run(["bun", CREATE_SHALLOT, "app"], work);
+    const scaffold = run(["bunx", "create-shallot", "app"], work);
     if (!scaffold.ok) throw new Error(`create-shallot failed:\n${scaffold.out}`);
 
     // a real user installs the published engine; the packed tarball stands in for it

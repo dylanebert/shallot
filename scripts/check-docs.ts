@@ -1,7 +1,6 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { Glob } from "bun";
 import { dirname, relative, resolve } from "path";
-import { template } from "../packages/create-shallot/index";
 import { TEST_TIER_SUFFIX_NAMES } from "../tests/test-tiers";
 import { checkExists, workspacePkgPaths } from "./check-scripts";
 import { EXAMPLE_GATES } from "./example-gates";
@@ -241,34 +240,7 @@ for (const match of docs) {
     }
 }
 
-// The scaffold is a pin site too, and the source text isn't the artifact a `bun create shallot`
-// user gets — `template()` is. Reading its *emitted* `package.json` (not grepping the source
-// literal) pins the same object an installer actually resolves against. Mutation proof: bumping
-// the `typescript` literal in `packages/create-shallot/index.ts` from `^7.0.2` to `^7.0.3` reds
-// this arm (witnessed 2026-08-25, exit 1 — `typescript@^7.0.3 — the manifest declares ^7.0.2`).
-const scaffoldPkg = JSON.parse(template("check-docs-probe")["package.json"]) as {
-    dependencies?: Record<string, string>;
-    devDependencies?: Record<string, string>;
-};
-const SCAFFOLD_PINS: { name: string; field: "dependencies" | "devDependencies" }[] = [
-    { name: "typegpu", field: "dependencies" },
-    { name: "unplugin-typegpu", field: "devDependencies" },
-    { name: "typescript", field: "devDependencies" },
-];
-for (const { name, field } of SCAFFOLD_PINS) {
-    const found = scaffoldPkg[field]?.[name];
-    if (found !== declared[name]) {
-        drift.push({
-            file: "packages/create-shallot/index.ts (template() package.json)",
-            line: 0,
-            name,
-            found: found ?? "(missing)",
-            want: declared[name],
-        });
-    }
-}
-
-// The install-test fixtures are a third pin site: the install gate green-lights whatever version
+// The install-test fixtures are a second pin site: the install gate green-lights whatever version
 // they carry, so a fixture stuck on the old minor certifies the drifted install as working. No
 // hand-list of line numbers — scan every line naming `typegpu` with a version token attached
 // (real code, not the prose comments that also mention the version for context) and classify each

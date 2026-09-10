@@ -179,16 +179,6 @@
         "pngjs": "^7.0.0",
       },
     },
-    "examples/showcase/collapse": {
-      "name": "collapse",
-      "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot-avbd-physics": "file:../../../packages/shallot-avbd-physics",
-      },
-      "devDependencies": {
-        "@playwright/test": "^1.63.0",
-      },
-    },
     "examples/showcase/ocean": {
       "name": "ocean",
       "version": "0.0.0",
@@ -206,16 +196,6 @@
         "@playwright/test": "^1.63.0",
         "@types/pngjs": "^6.0.5",
         "pngjs": "^7.0.0",
-      },
-    },
-    "examples/showcase/sandbox": {
-      "name": "sandbox",
-      "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot-avbd-physics": "file:../../../packages/shallot-avbd-physics",
-      },
-      "devDependencies": {
-        "@playwright/test": "^1.63.0",
       },
     },
     "examples/showcase/visualization": {
@@ -238,18 +218,6 @@
       },
       "devDependencies": {
         "@playwright/test": "^1.63.0",
-      },
-    },
-    "packages/create-shallot": {
-      "name": "create-shallot",
-      "version": "0.10.0",
-      "bin": "./index.ts",
-    },
-    "packages/shallot-avbd-physics": {
-      "name": "@dylanebert/shallot-avbd-physics",
-      "version": "0.10.0",
-      "peerDependencies": {
-        "@dylanebert/shallot": "0.10.0",
       },
     },
   },
@@ -311,8 +279,6 @@
     "@cacheable/utils": ["@cacheable/utils@2.5.0", "", { "dependencies": { "hashery": "^1.5.1", "keyv": "^5.6.0" } }, "sha512-buipgOVDkkPXNR5+xBpDw7Zk2n1EvU7qBJCNUcL7rhQ//kfpOXPAvQ511Os0vpLYJ1pZnvudNytkQt2hst3wqA=="],
 
     "@dylanebert/shallot": ["shallot@root:", {}],
-
-    "@dylanebert/shallot-avbd-physics": ["@dylanebert/shallot-avbd-physics@workspace:packages/shallot-avbd-physics"],
 
     "@eslint-community/eslint-utils": ["@eslint-community/eslint-utils@4.10.1", "", { "dependencies": { "eslint-visitor-keys": "^3.4.3" }, "peerDependencies": { "eslint": "^6.0.0 || ^7.0.0 || >=8.0.0" } }, "sha512-cuadcxVFE8sDK6iWJbs8Sn0av2Nrh2QSGQhVlBW9AaAHqHwjWsZHT8LJ4hFGPh7ASBV2deFdM7H/DPjulmh8rg=="],
 
@@ -510,13 +476,9 @@
 
     "caniuse-lite": ["caniuse-lite@1.0.30001810", "", {}, "sha512-TITQPUkaz+aVk5GL6NhOdwk1aEaNTSDPsGFWrTuhKGtjTF70jL/Oht2W4c6rXUe5fu7Ie19VIahAXHIIiWWNeg=="],
 
-    "collapse": ["collapse@workspace:examples/showcase/collapse"],
-
     "compute-and-readback": ["compute-and-readback@workspace:examples/recipes/compute-and-readback"],
 
     "convert-source-map": ["convert-source-map@2.0.0", "", {}, "sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg=="],
-
-    "create-shallot": ["create-shallot@workspace:packages/create-shallot"],
 
     "cross-spawn": ["cross-spawn@7.0.6", "", { "dependencies": { "path-key": "^3.1.0", "shebang-command": "^2.0.0", "which": "^2.0.1" } }, "sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA=="],
 
@@ -731,8 +693,6 @@
     "roads": ["roads@workspace:examples/showcase/roads"],
 
     "rolldown": ["rolldown@1.2.8", "", { "dependencies": { "@oxc-project/types": "=0.149.0", "@rolldown/pluginutils": "^1.0.0" }, "optionalDependencies": { "@rolldown/binding-android-arm-eabi": "1.2.8", "@rolldown/binding-android-arm64": "1.2.8", "@rolldown/binding-darwin-arm64": "1.2.8", "@rolldown/binding-darwin-x64": "1.2.8", "@rolldown/binding-freebsd-x64": "1.2.8", "@rolldown/binding-linux-arm-gnueabihf": "1.2.8", "@rolldown/binding-linux-arm64-gnu": "1.2.8", "@rolldown/binding-linux-arm64-musl": "1.2.8", "@rolldown/binding-linux-ppc64-gnu": "1.2.8", "@rolldown/binding-linux-s390x-gnu": "1.2.8", "@rolldown/binding-linux-x64-gnu": "1.2.8", "@rolldown/binding-linux-x64-musl": "1.2.8", "@rolldown/binding-openharmony-arm64": "1.2.8", "@rolldown/binding-win32-arm64-msvc": "1.2.8", "@rolldown/binding-win32-x64-msvc": "1.2.8" }, "bin": { "rolldown": "./bin/cli.mjs" } }, "sha512-Z67nTmhZe7anqnM/EjI392w5i/ANUinjip7QYsOyN37oayduxt3ksdX0hf5OOamkAd53BiIHfbfSzfUmzKFQqQ=="],
-
-    "sandbox": ["sandbox@workspace:examples/showcase/sandbox"],
 
     "save-and-restore": ["save-and-restore@workspace:examples/recipes/save-and-restore"],
 

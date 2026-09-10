@@ -701,16 +701,7 @@ export async function findDeadExports(
     // Step 2: walk consumer files, extract imports, resolve to original exporters (comments stripped)
     const consumed = new Map<string, Map<string, Consumer[]>>();
 
-    const consumerDirs = [
-        "src",
-        "packages/shallot-avbd-physics/src",
-        "packages/shallot-avbd-physics/tests",
-        "tests",
-        "bin",
-        "scripts",
-        "examples",
-        "evals",
-    ];
+    const consumerDirs = ["src", "tests", "bin", "scripts", "examples", "evals"];
 
     for (const dir of consumerDirs) {
         const full = resolve(rootDir, dir);
