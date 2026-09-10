@@ -6,7 +6,7 @@
 // knowledge), so they're module-scope singletons shared across every instance — one shader module, two
 // buffer sets. The re-gather is a *consumer* of the cull spine's output (`render/core` owns the spine that
 // feeds it); it knows sear-private concepts (the packing convention below, the atlas record shape, the
-// `eids`-lane swap), so it lives here, not in render/core (the agnosticism inversion render.md forbids).
+// `eids`-lane swap), so it lives here, not in render/core (the agnosticism inversion the archived render rules forbids).
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
@@ -15,7 +15,7 @@ import { DrawIndexedIndirect } from "../render/core";
 
 // the re-gather packs each instance's (eid, dense combo index) into one u32 in the re-gathered list — eid in
 // the low COMBO_SHIFT bits, the combo above. The list rides the surface's `eids` binding lane (the heaviest
-// surfaces sit at the 10-storage ceiling — gpu.md — so the combo can't get its own binding). COMBO_SHIFT
+// surfaces sit at the 10-storage ceiling — the archived GPU rules — so the combo can't get its own binding). COMBO_SHIFT
 // holds the whole eid range (`capacity`), leaving 32 − COMBO_SHIFT bits for the combo (≫ the combo caps).
 // The packer (Pass B below) and the atlas VS that unpacks it (sear's point/cascade pipelines) share these.
 export const COMBO_SHIFT = Math.ceil(Math.log2(capacity));
@@ -23,7 +23,7 @@ export const EID_MASK = (1 << COMBO_SHIFT) - 1;
 
 // one DrawIndexedIndirect record per casting mesh, written by Pass A: instanceCount = Σ combo
 // survivors, firstInstance = the mesh's base into the re-gathered list. Stride derived from the schema
-// (gpu.md: a second hand-authored stride is layout drift waiting to happen).
+// (the archived GPU rules: a second hand-authored stride is layout drift waiting to happen).
 export const SHADOW_ARG_STRIDE = d.sizeOf(DrawIndexedIndirect);
 
 // the two A/B compute pipelines — module-scope singletons, compiled once by prepareRegather. The WGSL is
@@ -145,7 +145,7 @@ export async function prepareRegather(device: GPUDevice): Promise<void> {
     // Pass B — one thread per (casting mesh, combo): copy that combo's culled eids from the spine's
     // packedEids region into the mesh's contiguous run at the combo's within-run offset (Σ earlier combos'
     // counts), packing the dense combo index above the eid. The serial inner copy is the per-(mesh, combo)
-    // count; a per-instance dispatch is the deferred optimization (gpu.md rule 8) if a mesh ever owns a large
+    // count; a per-instance dispatch is the deferred optimization if a mesh ever owns a large
     // per-combo count
     _bLayout = device.createBindGroupLayout({
         label: "sear-regather-b",
@@ -423,7 +423,7 @@ export function createRegather(label: string): Regather {
             );
             // Pass A (per-mesh args, 1 thread) → Pass B (scatter, one thread per (mesh, combo)) in one pass —
             // the same intra-pass dispatch-ordering the Part pack relies on, so B sees A's args writes
-            // (gpu.md "Cross a dispatch boundary"). The atlas render then sees the compute output by in-encoder ordering
+            //. The atlas render then sees the compute output by in-encoder ordering
             cpass.setPipeline(_aPipe!);
             cpass.setBindGroup(0, aGroup(drawArgs, meta, runIndex));
             cpass.dispatchWorkgroups(1);

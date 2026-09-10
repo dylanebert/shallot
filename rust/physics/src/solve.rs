@@ -23,7 +23,7 @@
 //! written here, and the worker's `Atomics.wait`/`load` is the acquire. That ordering also means the
 //! buffers below are only ever written while every worker is parked.
 //!
-//! **No `memory.grow` between the fork and the join** (the MT concurrency invariant, `.claude/rules/physics.md`): the columns are derived
+//! **No `memory.grow` between the fork and the join** (the MT concurrency invariant): the columns are derived
 //! once, here, and shared by value with every worker; a region grow would relocate them under the
 //! workers' feet. Every `reserve*` runs pre-solve on the main thread, which is why deriving once is
 //! sound.

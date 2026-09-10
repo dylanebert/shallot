@@ -1,7 +1,7 @@
 // the Basis Universal transcoder, vendored from three.js's prebuilt artifacts (the proven reference build —
 // reference/three.js/examples/jsm/libs/basis). A KTX2 file holds Basis-compressed (ETC1S/UASTC) texels; the
 // transcoder decodes them to a GPU-native compressed format (BC7 / ETC2 / ASTC) — the largest single
-// bandwidth lever for a textured scene (gpu.md). The wrapper is emscripten UMD glue with an appended ESM
+// bandwidth lever for a textured scene. The wrapper is emscripten UMD glue with an appended ESM
 // default export; we feed it the wasm bytes so it never path-resolves.
 import BASIS from "./codec/basis_transcoder.js";
 import type { TranscodeTarget } from "./target";

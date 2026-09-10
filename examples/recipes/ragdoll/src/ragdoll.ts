@@ -170,7 +170,7 @@ interface Bone {
     spawnQuat: Q4;
 }
 
-// runtime state, reset each build (a State is rebuilt on every scene switch or play/stop — ecs.md)
+// runtime state, reset each build (a State is rebuilt on every scene switch or play/stop)
 let figure = -1;
 let bones: Bone[] = [];
 let bindPos: V3 = [0, 0, 0]; // the pelvis bone's object-space bind — the instance transform's fixed factor

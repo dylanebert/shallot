@@ -76,7 +76,7 @@ export interface HarnessTarget {
      *  compositor screenshot, appended to the {@link Verdict}'s `checks` and folded into the command's
      *  pass/fail. Upstream evidence (mesh/draw counts, timings, error absence) proves only its own rung —
      *  a {@link PixelProbe} is the rung that catches a scene whose real content never reached the composited
-     *  frame despite every upstream signal reading green (`testing.md` "GPU evidence ladder"). Opt-in: a
+     *  frame despite every upstream signal reading green. Opt-in: a
      *  harness that renders no framed scene declares `noRender` instead, never both. */
     pixelProbe?: PixelProbe[];
     /** run the verification and resolve a {@link Verdict}. `opts` carries the command's `--query`

@@ -2,7 +2,7 @@
 // builder. Replaces the
 // single-kernel H-PLOC build (and its atomic-climb refit), which relied on
 // cross-workgroup memory ordering WGSL cannot express (no device-scope fence — see
-// gpu.md "Cross-workgroup ordering"). Cheaper to rebuild every frame, at the cost
+// the archived GPU rules "Cross-workgroup ordering"). Cheaper to rebuild every frame, at the cost
 // of lower SAH than PLOC — the right trade for the forest's per-frame rebuild, whose
 // consumer (shadow any-hit) is the least SAH-sensitive ray.
 //
@@ -23,7 +23,7 @@
 //    children's. The unsound way (H-PLOC's build + the old refit) is a single-dispatch
 //    atomic climb where a lane reads a sibling subtree's bounds written by another
 //    workgroup, ordered only by an atomic flag — not visible without a device fence
-//    (gpu.md "Cross-workgroup ordering"). Instead we relax: each sweep is its own
+//   . Instead we relax: each sweep is its own
 //    dispatch, a node completes only when BOTH children completed in a PRIOR sweep, so
 //    every cross-node read crosses a dispatch boundary (spec-clean visibility) and a
 //    node's bounds are written once, with no concurrent reader. `valid` flags are
@@ -40,7 +40,7 @@
 // rightChild = prim index. Child pointers stay local (0-based within the BLAS); the
 // traverser adds the slot base, so concatenated in-place BLASes need no rebase.
 // `NODE_BASE` (count[1]) offsets only the physical read/write address for the in-place
-// caster build (gpu.md binding rule 3 — folded into the count buffer's header).
+// caster build (the archived GPU rules binding rule 3 — folded into the count buffer's header).
 //
 // Validated on the real GPU by the `accel` gym scenario's build gate: per fixture, readback
 // the nodes and check the oracle's invariants + SAH within tolerance + ray-vs-brute-
@@ -310,7 +310,7 @@ const delta = tgpu
 // The two searches use genuine dynamic loops, not for-loops capped at a small constant: a
 // constant bound is a DXC unroll target, and an unrolled binary search issues every
 // iteration's scattered keys[] load + bloats code and registers regardless of the early
-// break (gpu.md "verify the unroll happened"). The dynamic loop runs only the ~log2(range)
+// break. The dynamic loop runs only the ~log2(range)
 // real iterations. Both provably terminate — lMax doubles only while in range (delta = -1
 // past the ends stops it), and t halves to 0 — so no hang-guard counter is needed (adding
 // one risks re-enabling the unroll).
@@ -636,7 +636,7 @@ export async function createBuild(
     const nodes =
         shared.nodes ?? storage("build-nodes", nodeCount * NODE_U32 * 4, GPUBufferUsage.COPY_SRC);
     // control buffer: [0] = prim count, [1] = node-write base. 8 B so the build-in-place caster
-    // can fold the per-mesh base into [1] without a binding (gpu.md rule 3); standalone leaves
+    // can fold the per-mesh base into [1] without a binding; standalone leaves
     // [1] zero-init (base 0). Every pass reads [0] for its node range + dispatch sizing.
     const count = shared.count ?? storage("build-count", 8, GPUBufferUsage.COPY_DST);
     // double-buffered completion flags for the bounds relaxation (one u32 per node, local index)

@@ -36,7 +36,7 @@ export interface Profile {
     readonly gpuFires: ReadonlyMap<string, number>;
     /** cumulative indirect-draw count per pass since attach: summed over every frame the pass issued
      *  draws. Pair with {@link indirectFires} for the per-frame count (`indirectCount / indirectFires`)
-     *  and derive Dawn's injected-validation floor via `INDIRECT_FLOOR_US` (gpu.md). The benchmark
+     *  and derive Dawn's injected-validation floor via `INDIRECT_FLOOR_US`. The benchmark
      *  window-diffs it like {@link gpuTime} / {@link gpuFires}, untimed by `timestampWrites`. */
     readonly indirectCount: ReadonlyMap<string, number>;
     /** cumulative frame count per pass: how many frames the pass reported indirect draws. */
@@ -75,7 +75,7 @@ export interface Profile {
     readonly fenceWaitMs: number;
     /** live GPU buffer bytes, summed over every buffer allocated since attach and decremented on
      *  `destroy()`: exact and device-independent for a fixed scenario at fixed params, the byte-budget
-     *  gate's total (`testing.md`'s exact-equality structural rung). */
+     *  gate's total (the archived testing rules' exact-equality structural rung). */
     readonly bufferBytes: number;
     /** live GPU texture bytes, the texture twin of {@link bufferBytes}. */
     readonly textureBytes: number;
@@ -95,7 +95,7 @@ export interface Profile {
      *  round-trip + a GPU serialization point, untimed by `timestampWrites` (the cost surfaces in fence
      *  wait, not a pass). A frame issues several (render, the slab flush, a mirror readback, the
      *  profiler's own resolve), so the benchmark window-diffs this into submits/frame, the lever for
-     *  collapsing them into one encoder (gpu.md "Single queue"). */
+     *  collapsing them into one encoder. */
     readonly submitCount: number;
 }
 
@@ -441,7 +441,7 @@ class ProfileImpl implements Profile {
         // the pipeline's own name, rather than the forcer's more-accurate span landing as a spurious
         // second row beside its own near-zero stub. Two genuinely different pipelines colliding on the
         // same explicit label lose one entry the same way — accepted, since a label is meant to be a
-        // stable per-pipeline diagnostic key (`gpu.md`), not disambiguated.
+        // stable per-pipeline diagnostic key, not disambiguated.
         //
         // A MISSING label carries no such naming discipline, so it disambiguates instead: several
         // anonymous pipelines are common (nobody labeled them), and collapsing them under one
@@ -876,7 +876,7 @@ function createOverlay(opts?: OverlayOptions): Overlay {
     const gpu = section(root, "gpu");
     const gpuPool = createRowPool(gpu.body, 16);
     // the untimed GPU cost the profiler can predict: Dawn's injected indirect-draw validation
-    // (#drawIndexedIndirect × INDIRECT_FLOOR_US, gpu.md). Per-pass below + a Σ on the caption. It lives in
+    // (#drawIndexedIndirect × INDIRECT_FLOOR_US, the archived GPU rules). Per-pass below + a Σ on the caption. It lives in
     // the gpu section because it's a GPU cost — NOT under fence wait, which is a pipelined residual it
     // doesn't sum into (fence can read below the floor when the frame isn't GPU-bound)
     const indirectCaption = el("div", {

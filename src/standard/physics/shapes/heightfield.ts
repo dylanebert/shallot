@@ -7,7 +7,7 @@
 // The C stores the field as one byte blob with offsets into the height/material/flag arrays; the port
 // models it as a plain struct of arrays. The raw bytes are never hashed by the sim (only body/contact
 // state is), so the representation is free — the compression, the flag bits, and the query's triangle-
-// visit order are what must stay bit-exact. fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
+// visit order are what must stay bit-exact. fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
 import {
     type CastOutput,

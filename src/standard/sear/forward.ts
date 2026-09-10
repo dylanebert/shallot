@@ -700,7 +700,7 @@ function renderColor(
     const { color: msaaColor, depth } = colorTargets(eid, view.width, view.height, aa);
     const pass = beginColor(eid, msaaColor, depth, view.framebuffer, clear);
     // tally the indirect draws this camera issues (opaque + blend) so the profiler derives the injected
-    // validation floor (gpu.md); the honest count is post the `if (pipe)` skip
+    // validation floor; the honest count is post the `if (pipe)` skip
     let draws = 0;
     const drawTyped = (draw: Draw, r: RecordedSurface, pipe: (typeof r.t)["color"]): void => {
         pipe!
@@ -979,7 +979,7 @@ const typedUnlitFs = tgpu.fn(
 // varying through the `typedVaryingVs`/`typedVaryingFs` copier pair (`pipelines.ts`), so this `vs` runs
 // `litPbr` once per vertex. `sunVisibility`/`pointScale`/`fragWorld` sit at their defaults here (per-vertex
 // shading runs before the fs scaffold fills them) — the same fully-lit sun / zero-point-contribution the
-// raw path's per-vertex mode gets (render.md "Surface authoring").
+// raw path's per-vertex mode gets.
 const typedVertexVaryings = { litColor: d.vec3f };
 const typedVertexPatch = vsPatchSchema(typedVertexVaryings);
 const typedVertexVs = tgpu.fn(
@@ -1066,7 +1066,7 @@ export const SearPlugin: Plugin = {
     // Material sets metallic > 0 (dielectric 0), so a bare Part shades exactly like the pre-PBR diffuse.
     initialize(state) {
         // a fresh State recreates its own off-screen shadow cameras lazily — drop any eids cached by
-        // a prior build so this re-run never aliases recycled entities (ecs.md module-scope contract)
+        // a prior build so this re-run never aliases recycled entities (the archived ECS rules module-scope contract)
         resetPointShadows();
         resetCascades();
         initMaterial();

@@ -422,7 +422,7 @@ export class SDFGenerator {
                 .$name("text-sdf-uniforms");
             tempBuffers.push(uniformBuffer);
 
-            // the ArrayBuffer write path, never the schema-array form (gpu.md: the serializer is ~480×
+            // the ArrayBuffer write path, never the schema-array form (the archived GPU rules: the serializer is ~480×
             // `Float32Array.set`) — CPU truth stays a typed array
             const segmentData = new Float32Array(segments.length * 4);
             for (let i = 0; i < segments.length; i++) {

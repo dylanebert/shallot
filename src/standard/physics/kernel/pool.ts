@@ -261,7 +261,7 @@ export async function createPool(
             if (!alive) {
                 throw new Error("pool.run called on a dead pool — a worker already faulted");
             }
-            // No `memory.grow`/region relocation while workers are active (physics.md concurrency
+            // No `memory.grow`/region relocation while workers are active (the archived physics rules concurrency
             // invariants): every `reserve*` runs pre-fork on the main thread, so parallel phases touch
             // pre-reserved columns only. Held by construction — snapshot the byte length at wake and
             // compare after the join to catch a future violator (a reserve that slipped inside a round)

@@ -21,7 +21,7 @@ import { lightEvalWgsl } from "../sear/core";
 export const WORKGROUP = 8;
 
 /** the march's constant loop cap. DXC chokes on a fully-dynamic loop bound, so the marched loop runs to this
- * compile-time constant and `break`s at the runtime `steps` (gpu.md "DXC: constant upper bound + dynamic
+ * compile-time constant and `break`s at the runtime `steps` (the archived GPU rules "DXC: constant upper bound + dynamic
  * break"); a captured JS constant folds to a literal in the emitted WGSL. `packFog` clamps `Fog.steps` to it,
  * so a clamped step count integrates the full ray at the cap resolution, never a silent under-integration. */
 export const FOG_MAX_STEPS = 256;

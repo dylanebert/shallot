@@ -22,7 +22,7 @@ type Quat = [number, number, number, number];
 
 // the controller constants — mirror the f64 controller oracle (the spec); the CPU == oracle
 // gate (`character-sweep.oracle.ts`) keeps the two homes in sync, the `SPECULATIVE_DISTANCE` shape
-// (`physics.md`).
+//.
 /** depenetration iterations per tick — a corner needs a few pushes to resolve both planes */
 const MAX_SLIDE_ITERS = 6;
 /** closest-point alternation iterations for the segment-vs-polytope query — converges on a box in a few steps */

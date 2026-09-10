@@ -1,4 +1,4 @@
-// Compile the Node-reachable tooling export (`exports.md`'s compiled-tooling-export law): a
+// Compile the Node-reachable tooling export (the archived exports rules' compiled-tooling-export law): a
 // `vite.config.ts` resolves through Node's plain ESM loader, which throws `ERR_UNKNOWN_FILE_EXTENSION` on
 // the package's raw `.ts` source — the reason every other export stays raw `.ts` (the mandatory TypeGPU
 // transform must see engine source untransformed) doesn't reach `./vite`, whose only consumption context

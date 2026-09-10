@@ -1,5 +1,13 @@
 [
     {
+        "name": "cells-face",
+        "url": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbY2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKxjPQ.ttf",
+        "sha256": "44ce4a84f20d60f24539bd0cef11f79c29e38609e0f8adf18551c9794a5d9dc3",
+        "bytes": 112172,
+        "dest": "fonts/jetbrains-mono.ttf",
+        "license": "OFL-1.1"
+    },
+    {
         "name": "sponza",
         "url": "https://raw.githubusercontent.com/toji/sponza-optimized/6a0658fc8d49c332d61261579b455a6b8d962346/Sponza-KTX-Draco.glb",
         "sha256": "b91c09e228cae38ca7fb05045acac85787e3ac05d98da417c0b0aed2e2a8bb51",

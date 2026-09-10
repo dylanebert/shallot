@@ -3,7 +3,7 @@ import { resolve } from "path";
 import { TEST_TIER_SUFFIXES } from "./test-tiers";
 
 // The published tarball ships source, the CLI, the compiled tooling leaves, the Rust audio WASM and
-// native-window crate, the icon, recipes and consumer docs; never tests, oracles, tiers, probes,
+// native-window crate, the icon and recipes; never tests, oracles, tiers, probes,
 // fixtures, goldens or build output. Asserted against the real `bun pm pack` output, not the `files`
 // allowlist in isolation, so a negation the packer ignores still reds.
 const pkgDir = resolve(import.meta.dir, "..");
@@ -39,10 +39,12 @@ const forbidden: [string, (f: string) => boolean][] = [
     ["test tiers", (f) => TEST_TIER_SUFFIXES.test(f) || f.endsWith(".fixture.ts")],
     ["goldens", (f) => f.endsWith(".gold.json")],
     ["fixtures", (f) => f.includes("/fixtures/")],
-    ["test support", (f) => f.startsWith("src/testing/")],
     ["build output", (f) => f.includes("/target/") || f.includes("/node_modules/")],
     ["site assets", (f) => f.startsWith("assets/") && f !== "assets/icon-1024.png"],
-    ["maintainer docs", (f) => f === "MAINTAINERS.md" || f === "CONTRIBUTING.md"],
+    [
+        "repo docs",
+        (f) => f.endsWith(".md") && f !== "README.md" && !f.startsWith("examples/recipes/"),
+    ],
 ];
 const violations = files.flatMap((f) =>
     forbidden.filter(([, match]) => match(f)).map(([kind]) => `${f} (${kind})`),
@@ -57,9 +59,6 @@ const required = [
     "rust/native/Cargo.toml",
     "rust/native/Cargo.lock",
     "assets/icon-1024.png",
-    "AGENTS.md",
-    "MIGRATION.md",
-    "examples/AGENTS.md",
     "shallot.schema.json",
 ];
 // A shipped manifest must not name the engine by a local path: copy-out pins the installed version,

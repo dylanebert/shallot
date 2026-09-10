@@ -34,7 +34,7 @@ import type { GltfVat } from "./vat";
 // (color) + the folded `skin` slab (time + material index) + the per-material palette + the baseColor size
 // buckets + four data PBR arrays + sampler (shared with the textured path's published names) + the two VAT
 // textures + their sampler + the VAT params. Storage count is 5 (eids/transforms/color/skin/materialData) +
-// sear's shared 5 (vertices/pointLights/lightGrid/lightIndices/meshQuant) = 10, the ceiling (gpu.md), zero
+// sear's shared 5 (vertices/pointLights/lightGrid/lightIndices/meshQuant) = 10, the ceiling, zero
 // headroom: folding (time, materialIndex) into one `skin` vec4 is what buys the room (replacing the textured
 // path's separate `materialIndex` slab) now that the quant table claimed the last shared lane. The texture
 // arrays are a separate limit; the baseColor buckets share the textured path's `sampleAlbedo` switch (shade.ts).
@@ -193,7 +193,7 @@ function publishVat(vat: AssembledVat): void {
  * encode a baked clip into the two filterable VAT textures + the params uniform, returning the assembled set
  * the asset cache holds + {@link publishVat} binds. Positions → `rgba16float` remapped to the per-mesh AABB
  * `[0,1]` (where f16 holds the most precision), normals → `rgba16float` plain xyz (renormalized in the VS,
- * **not** oct, so the hardware frame-lerp can't cross the octahedral seam; gpu.md rule 9). Both are core
+ * **not** oct, so the hardware frame-lerp can't cross the octahedral seam; archived GPU rule 9). Both are core
  * filterable formats (the 16-bit *norm* formats need the non-floor `texture-formats-tier1` feature), so the
  * linear clamp sampler gives the VS free hardware frame-lerp on every floor device. The remap keeps f16
  * sub-0.1-unit on a model-scale mesh, far inside the rgba8 banding the survey rejected.
@@ -321,7 +321,7 @@ export function disposeVatFallback(): void {
 /**
  * advance each skinned instance's play time, looping on its own clip duration (`Skin.anim.w`, so N meshes
  * with different clip lengths coexist). Reload-safe: time is derived from `state.time.elapsed` + the
- * instance's phase lane, never accumulated (ecs.md "no module-level accumulator"). A `simulation`-group
+ * instance's phase lane, never accumulated. A `simulation`-group
  * system, so SlabSystem (`draw`, first) flushes the write before sear's geometry passes read it.
  */
 export const SkinSystem: System = {

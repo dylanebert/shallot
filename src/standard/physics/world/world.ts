@@ -3,7 +3,7 @@
 // array of records; the hot payload lives in solver sets. Worlds live in a fixed registry so a
 // stale world id (to a destroyed, possibly recycled, world) is detected by a generation mismatch.
 //
-// fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
+// fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
 import { type BroadPhase, createBroadPhase } from "../collision/broadphase";
 import { type Contact, initializeContactRegisters } from "../collision/contact";

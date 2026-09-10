@@ -334,7 +334,7 @@ export const ClusterSystem: System = {
 
 // bound once, on the forced precompile (which drains after every plugin has warmed). Every input is
 // this module's own, allocated in `warmClusters` before the forcer is registered — so a missing one is
-// a wiring bug and throws, never a silently skipped frame (`ecs.md` Anti-patterns)
+// a wiring bug and throws, never a silently skipped frame (the archived ECS rules Anti-patterns)
 function bindGrid(): TgpuComputePipeline {
     if (_bound) return _bound;
     if (!_pipe || !_typedViews || !_typedAabbs)
@@ -544,7 +544,7 @@ const hits = tgpu.fn(
 // transforms one light to this view's space, then every thread tests the whole batch against its cluster
 // AABB — the mat4 transform runs once per workgroup, not once per cluster. Two sweeps (count, then
 // reserve + write) avoid a function-private index array (the Metal dynamically-indexed-private-array
-// miscompile, gpu.md). The batch loop bound comes through `uniformLoad` so the in-loop barriers pass
+// miscompile, the archived GPU rules). The batch loop bound comes through `uniformLoad` so the in-loop barriers pass
 // uniformity analysis; out-of-range threads mask on `live` instead of returning, for the same reason.
 const cullKernel = tgpu.computeFn({
     workgroupSize: [64],
@@ -656,7 +656,7 @@ const OVERFLOW_PERIOD = 240;
 
 // bound once, on the forced precompile. A typed bind group takes a raw GPUBuffer, which is what keeps
 // the slab mirrors' and `membership`'s reach-in open. Every input is stable post-warm, so a missing one
-// is a wiring bug and gets the named throw — never a skipped frame (`ecs.md` Anti-patterns)
+// is a wiring bug and gets the named throw — never a skipped frame (the archived ECS rules Anti-patterns)
 function bindCompact(): TgpuComputePipeline {
     if (_compactBound) return _compactBound;
     if (!_compactPipe || !_typedLights)

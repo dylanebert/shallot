@@ -1,67 +1,10 @@
-# dependencies
 node_modules
-bun.lockb
-
-# output
-out
 dist
-build
 *.tgz
-
-# code coverage
-coverage
-*.lcov
-
-# logs
-logs
-*.log
-report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
-
-# dotenv environment variable files
-.env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
-
-# npm
-.npmrc
-
-# caches
-.eslintcache
+**/rust/*/pkg/
+rust/*/target/
 .cache
 *.tsbuildinfo
-
-# IDEs
-.idea
-
-# OS
+.claude/settings.local.json
 .DS_Store
 Thumbs.db
-
-# IDE
-.vscode
-
-# Claude
-.claude/settings.local.json
-
-# Debug/testing artifacts
-.debug/
-
-# WASM build artifacts (wasm-pack output)
-**/rust/*/pkg/
-
-# Playwright
-test-results/
-playwright-report/
-
-# Recordings
-recordings/
-
-# Benchmark SQLite journals
-*.db-wal
-*.db-shm
-
-# Python bytecode (asset-generation scripts)
-__pycache__/
-

@@ -266,8 +266,8 @@ async function recipeFlow(work: string, engineTgz: string, sandbox: string, name
     // pointer names node_modules and resolves in the real install (the reach the distribution decision
     // rests on), and that CLAUDE.md reaches it through the import rather than copying it.
     check(
-        "the copied recipe's AGENTS.md points at node_modules",
-        /node_modules\/@dylanebert\/shallot\/AGENTS\.md/.test(
+        "the copied recipe's AGENTS.md points at the installed README",
+        /node_modules\/@dylanebert\/shallot\/README\.md/.test(
             readFileSync(join(dest, "AGENTS.md"), "utf8"),
         ),
     );
@@ -284,7 +284,7 @@ async function recipeFlow(work: string, engineTgz: string, sandbox: string, name
     );
     check(
         "the copied recipe's engine-pointer path resolves after install",
-        existsSync(join(dest, "node_modules/@dylanebert/shallot/AGENTS.md")),
+        existsSync(join(dest, "node_modules/@dylanebert/shallot/README.md")),
     );
     check(
         "the copied recipe carries a standalone tsconfig",
@@ -302,25 +302,25 @@ async function recipeFlow(work: string, engineTgz: string, sandbox: string, name
         console.log(`copied-out producer recipe browser boot: ${UNAVAILABLE}`);
 }
 
-// MIGRATION.md's "An ejected Vite project" recipe, read straight out of the doc rather than
+// The README's ejected Vite config, read straight out of the doc rather than
 // re-typed — the failure this flow exists to catch is the recipe itself shipping broken, and a
 // hand-written copy could silently diverge from what a consumer actually pastes. Anchored on the
 // `// vite.config.ts` comment the doc's fenced block opens with, through the fence's closing ``` .
 function ejectedViteConfig(): string {
-    const doc = readFileSync(resolve(import.meta.dir, "../MIGRATION.md"), "utf8");
+    const doc = readFileSync(resolve(import.meta.dir, "../README.md"), "utf8");
     const start = doc.indexOf("// vite.config.ts");
-    if (start === -1) throw new Error("MIGRATION.md's ejected Vite recipe marker not found");
+    if (start === -1) throw new Error("the README's ejected Vite config marker not found");
     const fenceEnd = doc.indexOf("\n```", start);
-    if (fenceEnd === -1) throw new Error("MIGRATION.md's ejected Vite recipe has no closing fence");
+    if (fenceEnd === -1) throw new Error("the README's ejected Vite config has no closing fence");
     return doc.slice(start, fenceEnd);
 }
 
 // a true ejected shape (a real consumer's ejected shape, not the CLI's zero-config path): the
 // project owns its own index.html + vite.config.ts. `./vite` ships a compiled `dist/vite.js` default
-// alongside its `.ts` source `types` (`exports.md`), because Vite loads vite.config.ts in a plain
+// alongside its `.ts` source `types`, because Vite loads vite.config.ts in a plain
 // `node` subprocess that applies no TS transform to a `node_modules` import.
 async function ejectedFlow(work: string, engineTgz: string) {
-    console.log("ejected Vite project (MIGRATION.md's recipe, booted verbatim)…");
+    console.log("ejected Vite project (the README's config, booted verbatim)…");
     const proj = join(work, "ejected");
     mkdirSync(join(proj, "src"), { recursive: true });
     mkdirSync(join(proj, "scenes"), { recursive: true });
@@ -423,7 +423,7 @@ const TRANSPILED =
 // (`shared/symbols.js`), so `isTgpuFn(x)` imported from a consumer's own resolution of `typegpu`
 // returns true for an engine-built fn iff both resolve one physical copy — the property the 0.9.0
 // break actually turned on. Pure module resolution + a symbol check, no GPU involved, so this runs (and
-// is asserted) before any browser refusal: a display-less host still exercises it (testing.md
+// is asserted) before any browser refusal: a display-less host still exercises it (the archived testing rules
 // "Install gate"). `typegpu2` is a genuine
 // second physical copy — an alias install of the identical version (`npm:typegpu@~0.12.5`) landing in
 // its own `node_modules/typegpu2`, a distinct module-graph evaluation with its own `Symbol()` calls, not
@@ -754,22 +754,11 @@ if (import.meta.main) {
             "the schema shipped in the tarball",
             existsSync(join(sandbox, "node_modules/@dylanebert/shallot/shallot.schema.json")),
         );
-        // the version-matched agent context must ship (engine AGENTS.md + the
-        // examples index + the recipes corpus), and the shipped index must not dangle at tiers the tarball
-        // omits (showcase lives in the repo only).
+        // the version-matched recipes corpus must ship; showcase lives in the repo only.
         const shipped = join(sandbox, "node_modules/@dylanebert/shallot");
         check(
-            "the engine AGENTS.md shipped in the tarball",
-            existsSync(join(shipped, "AGENTS.md")),
-        );
-        check(
-            "the 0.9 migration guide shipped in the tarball",
-            existsSync(join(shipped, "MIGRATION.md")),
-        );
-        check(
             "the recipes corpus shipped in the tarball",
-            existsSync(join(shipped, "examples/AGENTS.md")) &&
-                existsSync(join(shipped, "examples/recipes/build-a-scene/src/build.ts")) &&
+            existsSync(join(shipped, "examples/recipes/build-a-scene/src/build.ts")) &&
                 existsSync(join(shipped, "examples/recipes/save-and-restore/shallot.json")),
         );
         check(

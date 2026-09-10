@@ -17,7 +17,7 @@ export type MeshBinding =
  * streams + `indices` GPU storage. `vertices` is the 16 B/vertex main stream
  * (`vec4<u32>`: unorm16 pos + meshId, oct normal, unorm16 uv); `position` is the
  * 8 B/vertex depth/shadow stream (pos + meshId only); `quant` is the per-mesh
- * `MeshQuant` table the decode dequantizes against (gpu.md rule 6). `indices` is
+ * `MeshQuant` table the decode dequantizes against. `indices` is
  * `u32` absolute vertex positions. `indexBase`/`indexCount` slice the index
  * stream. All have `STORAGE` usage: consumer renderers pull indexed vertices in
  * WGSL, never via `setVertexBuffer` / `setIndexBuffer`.
@@ -97,7 +97,7 @@ export const Meshes: Registry<Mesh> = new Registry<Mesh>();
 
 /** bytes per vertex in the **f32 staging array** producers fill (8 floats × 4 = 32 B). The lossless
  *  authoring layout. {@link quantizeMeshes} packs it to the 16 B GPU main stream + 8 B position stream
- *  (gpu.md rule 6); a GPU producer writes those directly via `posQuantPackWgsl()`. */
+ * ; a GPU producer writes those directly via `posQuantPackWgsl()`. */
 export const VERTEX_STRIDE = 32;
 
 /** f32 lanes per vertex in the staging array: `px py pz u  nx ny nz v` (the `posU` + `normalV` authoring layout) */
@@ -120,7 +120,7 @@ let _placeholderIndices: MeshIndex | null = null;
  * local-space axis-aligned bounds `{ min, max }` of a vertex buffer (the shared
  * `posU + normalV` layout, position in the first three floats per record).
  * Pure: the one position-AABB scan both the cull sphere ({@link meshBounds})
- * and the unorm16 dequant range (the per-mesh `MeshQuant`, gpu.md rule 6) derive
+ * and the unorm16 dequant range (the per-mesh `MeshQuant`, archived GPU rule 6) derive
  * from, so they share one source. An empty buffer returns a zero box.
  */
 function meshAabb(vertices: Float32Array): {
@@ -268,12 +268,12 @@ const MESH_QUANT_FLOATS = 12;
 
 /**
  * the GPU vertex streams a quantized family uploads, derived from the packed f32
- * (gpu.md rule 6). `main` is 16 B/vertex (`vec4<u32>`): w0 = unorm16 pos.xy,
+ *. `main` is 16 B/vertex (`vec4<u32>`): w0 = unorm16 pos.xy,
  * w1 = unorm16 pos.z | (meshId << 16), w2 = oct normal, w3 = unorm16 uv.
  * `position` is the 8 B/vertex depth/shadow stream (w0, w1: pos + meshId only).
  * `quant` is `MeshQuant` per mesh (the position + uv AABB the decode dequantizes
  * against, selected by meshId). The f32 stays the lossless authoring form: only
- * the GPU mirror quantizes (the slab packed-mirror discipline, ecs.md).
+ * the GPU mirror quantizes (the slab packed-mirror discipline, the archived ECS rules).
  */
 export interface QuantStreams {
     main: Uint32Array;
@@ -420,7 +420,7 @@ export function flushMeshes(): void {
 
 /**
  * drop every registered mesh + any staged-but-unflushed data, resetting the registry for a fresh build
- * (`RenderPlugin.initialize`, ecs.md "clear then rebuild"). Static producers re-stage via {@link mesh} in
+ * (`RenderPlugin.initialize`, the archived ECS rules "clear then rebuild"). Static producers re-stage via {@link mesh} in
  * their own initialize, so a producer toggled off leaves no stale slice to be paired against
  * a live surface (the pack registers a Draw per `(surface, mesh)` pair, including a dead one otherwise).
  */

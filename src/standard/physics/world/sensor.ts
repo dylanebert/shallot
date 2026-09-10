@@ -5,7 +5,7 @@
 //
 // Single-threaded and serial: the C's per-worker sensor task + the event-publish pass collapse into
 // one loop, and the eventBits optimization drops out (a sensor whose overlaps didn't change emits no
-// events regardless, so the diff always runs). fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
+// events regardless, so the diff always runs). fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
 import { shouldShapesCollide } from "../collision/pairs";
 import * as tree from "../collision/tree";

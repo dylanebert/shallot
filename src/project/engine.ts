@@ -13,7 +13,7 @@ export const DEFAULT_PLUGIN_NAMES = [
     "Glaze",
 ] as const;
 
-// Engine plugins that ship on their own subpath rather than the main barrel (exports.md — barrel-adjacent,
+// Engine plugins that ship on their own subpath rather than the main barrel (the archived exports rules — barrel-adjacent,
 // not barrel-listed). Dep-free for the same reason as
 // DEFAULT_PLUGIN_NAMES above; catalog.test.ts gates each entry against the real subpath export.
 export const SUBPATH_PLUGIN_MODULES: Record<string, string> = {};

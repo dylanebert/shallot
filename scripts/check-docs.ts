@@ -111,10 +111,10 @@ async function checkRealization(root: string): Promise<string[]> {
 
 const root = resolve(import.meta.dir, "..");
 const commandErrors = await checkRealization(root);
-const entry = (await Bun.file(resolve(root, "MAINTAINERS.md")).text())
+const entry = (await Bun.file(resolve(root, "AGENTS.md")).text())
     .split("## Commands\n")[1]
-    ?.split("### Verification")[0];
-if (!entry) commandErrors.push("MAINTAINERS.md: missing Commands block");
+    ?.split("\n## ")[0];
+if (!entry) commandErrors.push("AGENTS.md: missing Commands block");
 const scripts = (await Bun.file(resolve(root, "package.json")).json()).scripts;
 let inCommandFence = false;
 let commandCount = 0;
@@ -144,11 +144,10 @@ for (const line of (entry ?? "").split("\n")) {
                 Object.hasOwn(scripts, token) ||
                 (token.includes("/") && existsSync(resolve(root, token)));
         }
-        if (!reachable)
-            commandErrors.push(`MAINTAINERS.md: unreachable repository command: ${command}`);
+        if (!reachable) commandErrors.push(`AGENTS.md: unreachable repository command: ${command}`);
     }
 }
-if (!commandCount) commandErrors.push("MAINTAINERS.md: empty command population");
+if (!commandCount) commandErrors.push("AGENTS.md: empty command population");
 commandErrors.push(
     ...(await checkExists([resolve(root, "package.json")])).map((error) => error.detail),
 );
@@ -251,7 +250,6 @@ if (violations.length > 0) {
 const PIN_SOURCES: Record<string, { manifest: string; field: string }> = {
     typegpu: { manifest: "package.json", field: "peerDependencies" },
     "unplugin-typegpu": { manifest: "package.json", field: "dependencies" },
-    "eslint-plugin-typegpu": { manifest: "package.json", field: "devDependencies" },
     typescript: { manifest: "package.json", field: "devDependencies" },
 };
 
@@ -380,7 +378,7 @@ if (fixtureUnclassified.length > 0) {
 
 // The manifests are a pin site too, and the roster is what git tracks, not what a hand list
 // names — the same law as the doc set above. A `package.json` that declares
-// `typegpu`/`unplugin-typegpu`/`eslint-plugin-typegpu` at a range the canonical manifest
+// `typegpu`/`unplugin-typegpu` at a range the canonical manifest
 // doesn't pin is the same drift the doc and fixture arms catch: an example project carrying
 // the old minor nests its own copy and the two copies' branded internals disagree. This arm
 // enumerates every git-tracked `package.json` and reds when a declared range disagrees with
@@ -456,16 +454,13 @@ if (drift.length > 0) {
 }
 
 // The entry-doc chain a reader (or an agent's context loader) actually walks is root-to-leaf, not
-// a single file: `AGENTS.md` and `MAINTAINERS.md` (which `CLAUDE.md` imports) plus whichever leaf
+// a single file: `AGENTS.md` (which `CLAUDE.md` imports) plus whichever leaf
 // directory's own `AGENTS.md` it's working under.
-// `style.md`'s budget was a remembered manual `wc -c` — enforced here per chain, since a bump that
+// The budget is enforced per chain, since a bump that
 // keeps every individual file under budget can still blow the chain a reader loads (measured
 // 2026-08-16: the published-package chain sat 3 B under 32768).
 const ENTRY_DOC_BUDGET = 32768;
-const ENTRY_DOC_CHAINS: string[][] = [
-    ["AGENTS.md", "MAINTAINERS.md"],
-    ["AGENTS.md", "MAINTAINERS.md", "examples/AGENTS.md"],
-];
+const ENTRY_DOC_CHAINS: string[][] = [["AGENTS.md"], ["AGENTS.md", "examples/AGENTS.md"]];
 
 const chainOverages: { chain: string[]; bytes: number }[] = [];
 for (const chain of ENTRY_DOC_CHAINS) {
@@ -488,90 +483,6 @@ if (chainOverages.length > 0) {
     console.error(
         "\nAn agent's context loader reads root-to-leaf; past the budget the deepest file silently " +
             "drops and its whole contract vanishes. Fold detail into a path-scoped rule instead.",
-    );
-    process.exit(1);
-}
-
-// ── Arm (a): cross-citation resolution (case-insensitive) ──────────────────────────────────────
-//
-// A cross-citation is `<rule>.md "phrase"` — a rule filename followed by a double-quoted phrase —
-// naming a passage in another rule file, optionally continued with ` / "phrase"` for additional
-// phrases from the same rule (e.g. `render.md "Point-light shadows" / "Sun shadows"`). Each phrase
-// must resolve in the named file, compared CASE-INSENSITIVELY: a case-sensitive pass
-// false-positives on `gpu.md "reuse over add"` against its "**Reuse over add.**". A continuation phrase (` / "phrase"`) belongs
-// to the same rule citation, so each must be checked — not just the first: if the second phrase
-// vanished from the named rule the arm would stay green if only the first were checked.
-
-const RULE_NAMES: string[] = [];
-for await (const match of new Glob("*.md").scan({ cwd: resolve(root, ".claude/rules") })) {
-    RULE_NAMES.push(match.replace(/\.md$/, ""));
-}
-
-// cache rule file contents (lowercased for case-insensitive search)
-const ruleFileCache = new Map<string, string>();
-async function ruleFileText(name: string): Promise<string> {
-    const path = `.claude/rules/${name}.md`;
-    if (!ruleFileCache.has(path)) {
-        ruleFileCache.set(path, (await Bun.file(resolve(root, path)).text()).toLowerCase());
-    }
-    return ruleFileCache.get(path)!;
-}
-
-// Match the full citation span: `rule.md "phrase"` plus any trailing ` / "phrase"` continuations
-// that belong to the same rule citation. The continuation group is non-capturing (a repeated
-// capture group would only keep the last match), so all phrases are extracted from the full match
-// text via PHRASE_RE.
-const CITATION_RE = new RegExp(
-    `\\b(${RULE_NAMES.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\.md "([^"]+)"(?:\\s*/\\s*"([^"]+)")*`,
-    "g",
-);
-const PHRASE_RE = /"([^"]+)"/g;
-
-type CitationViolation = { file: string; line: number; rule: string; phrase: string };
-const citationViolations: CitationViolation[] = [];
-let citationCount = 0;
-
-for (const match of docs) {
-    const lines = (await Bun.file(resolve(root, match)).text()).split("\n");
-    for (let i = 0; i < lines.length; i++) {
-        for (const m of lines[i].matchAll(CITATION_RE)) {
-            const rule = m[1];
-            const text = await ruleFileText(rule);
-            // extract every quoted phrase from the full citation span (head + continuations)
-            for (const [, phrase] of m[0].matchAll(PHRASE_RE)) {
-                citationCount++;
-                if (!text.includes(phrase.toLowerCase())) {
-                    citationViolations.push({
-                        file: match,
-                        line: i + 1,
-                        rule,
-                        phrase,
-                    });
-                }
-            }
-        }
-    }
-}
-
-if (citationCount === 0) {
-    console.error(
-        '✗ cross-citation arm matched no `<rule>.md "phrase"` citation — the arm would be vacuously green.',
-    );
-    process.exit(1);
-}
-
-if (citationViolations.length > 0) {
-    console.error(
-        `✗ ${citationViolations.length} cross-citation(s) that don't resolve in the named file (case-insensitive):\n`,
-    );
-    for (const v of citationViolations) {
-        console.error(`  ${v.file}:${v.line}: ${v.rule}.md "${v.phrase}"`);
-    }
-    console.error(
-        '\nA `<rule>.md "phrase"` cross-citation must resolve as a case-insensitive substring in the ' +
-            "named rule file. A case-sensitive comparison false-positives on phrases whose casing differs " +
-            '(e.g. gpu.md "reuse over add" resolves against "**Reuse over add.**"), so the comparison ' +
-            "is case-insensitive by design.",
     );
     process.exit(1);
 }
@@ -779,542 +690,7 @@ if (rosterFindings.length > 0) {
     process.exit(1);
 }
 
-// ── Arm (e): citation resolution — formatting-invariant identifier population ──────────────
-//
-// Every token in `.claude/rules/**` outside a fenced code block matching an identifier *shape*
-// — camelCase, PascalCase, snake/SCREAMING_SNAKE, lowercase-with-digits, or a backticked `*.ts`
-// path — **backticked or bare** — must resolve against the tree or a committed roster. The
-// population predicate is formatting-invariant: a token is caught whether it's in backticks or
-// bare in prose, so removing backticks does not remove a citation from the
-// arm's population.
-//
-// Resolution is a one-pass token index over `*.ts`/`*.rs`/`*.wgsl` (excluding `node_modules`,
-// `scripts/check-docs.ts`), NOT `git grep --fixed-strings`:
-// substring matching reads 8 sites green off longer tokens (e.g. `spotInner` matches
-// `spotInnerF`, `hullSat` matches `hullSatWgsl`, `InFragmentStage` matches
-// `maxStorageBuffersInFragmentStage`). The token index tokenizes source files into individual
-// identifier words and does exact set-membership — `spotInner` only resolves if `spotInner`
-// appears as a standalone token, not as a substring of `spotInnerF`.
-//
-// Foreign-namespace roster classes live in `FOREIGN_NAMESPACES` below. The
-// per-entry allowlist is retired — the arm carries no per-site residue. Each roster entry
-// is asserted THREE WAYS: (1) the entry is genuinely cited by at least one rule file,
-// (2) the symbol/path is genuinely absent from the tree (disjointness law, round 7),
-// (3) the total entry count is pinned as a literal and asserted equal. The attribution
-// leg is gone — round 3's attribution token was a proxy that laundered exemptions passed
-// and real exemptions failed (10 entries failed the attribution leg and were de-backtickked
-// rather than adjudicated). The roster replaces attribution: a foreign-namespace symbol
-// resolves against a committed roster, not against an attribution token on the citing line.
-//
-// Population: the arm scans `.claude/rules/**/*.md` only — `AGENTS.md` and `CLAUDE.md`
-// are excluded because they sit outside `.claude/rules/` (at the repo root and
-// ``), so the glob does not reach them; a reader can verify with
-// `git ls-files '**/AGENTS.md' '**/CLAUDE.md'` that no hit starts with `.claude/rules/`.
-
-// Foreign symbols cited by rules but absent from the source token index.
-// Every class is asserted nonempty, every entry cited and absent from
-// the tree, and the total pinned. No uncited slots can launder dead citations.
-const FOREIGN_NAMESPACES: Record<string, ReadonlySet<string>> = {
-    TypeGPU: new Set(["sideEffects"]),
-    SteamAudio: new Set(["gain_effect", "direct_effect"]),
-};
-
-// ── Shape predicates ───────────────────────────────────────────────────────────────────────
-
-function isCamelCase(w: string): boolean {
-    return /^[a-z]/.test(w) && /[A-Z]/.test(w) && !w.includes("_");
-}
-function isPascalCase(w: string): boolean {
-    return /^[A-Z]/.test(w) && /[a-z][A-Z]/.test(w) && !w.includes("_");
-}
-function isSnakeOrScreaming(w: string): boolean {
-    return (
-        w.includes("_") &&
-        /^[A-Za-z_][A-Za-z0-9_]*$/.test(w) &&
-        /[A-Za-z0-9]/.test(w) &&
-        w.length >= 2
-    );
-}
-
-/** SCREAMING_SNAKE — all uppercase letters, digits, and underscores. */
-function isScreamingSnake(w: string): boolean {
-    return w.includes("_") && /^[A-Z0-9_]+$/.test(w) && /[A-Z]/.test(w) && w.length >= 2;
-}
-
-/** snake_case — underscored but not all-uppercase (excludes SCREAMING_SNAKE). */
-function isSnakeCase(w: string): boolean {
-    return isSnakeOrScreaming(w) && !isScreamingSnake(w);
-}
-function isLowercaseWithDigits(w: string): boolean {
-    return /^[a-z][a-z0-9]*$/.test(w) && /[0-9]/.test(w) && !w.includes("_");
-}
-function isHex(w: string): boolean {
-    return /^[0-9a-f]+$/.test(w) && /[0-9]/.test(w) && /[a-f]/.test(w);
-}
-
-/** Strong shapes (camelCase, PascalCase) — caught bare or backticked. */
-function matchesStrongShape(w: string): boolean {
-    if (w.length < 2) return false;
-    if (isHex(w)) return false;
-    return isCamelCase(w) || isPascalCase(w);
-}
-
-/** Weak shapes (snake_case, lowercase-with-digits) — caught bare or backticked. */
-function matchesWeakShape(w: string): boolean {
-    if (w.length < 2) return false;
-    if (isHex(w)) return false;
-    return isSnakeCase(w) || isLowercaseWithDigits(w);
-}
-
-/** SCREAMING_SNAKE — caught bare or backticked. */
-function matchesScreamingSnake(w: string): boolean {
-    if (w.length < 2) return false;
-    if (isHex(w)) return false;
-    return isScreamingSnake(w);
-}
-
-/**
- * Full shape match — all identifier shapes (camelCase, PascalCase, SCREAMING_SNAKE,
- * snake_case, lowercase-with-digits) are caught bare or backticked. The population
- * is formatting-invariant: a token is caught whether it's in backticks or bare in
- * prose. Shape false positives (prose terms that match an identifier shape but
- * are not code citations) are excluded by predicate or fixed in the prose, never by
- * a per-entry allowlist.
- */
-function matchesShape(w: string): boolean {
-    if (matchesStrongShape(w)) return true;
-    if (matchesScreamingSnake(w)) return true;
-    if (matchesWeakShape(w)) return true;
-    return false;
-}
-
-// ── Candidate types ─────────────────────────────────────────────────────────────────────────
-
-type CitationCandidate = {
-    file: string;
-    line: number;
-    ref: string;
-    kind: "ts-path" | "identifier";
-};
-
-// ── Candidate extraction ───────────────────────────────────────────────────────────────────
-
-const TS_PATH_RE = /`([^`]*\.ts)`/g;
-const IDENTIFIER_RE = /`([A-Za-z_][A-Za-z0-9_]*(?:\(\))?)`/g;
-const BARE_TOKEN_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
-// A multi-token backtick span: backtick content that is not a single identifier or .ts path
-const MULTI_TOKEN_SPAN_RE = /`([^`]+)`/g;
-// Arithmetic context: preceded or followed by +, -, *, /, =, ^, ·, ×, ÷, ≤, ≥
-// (comparison operators ≤/≥ only — not </> which are TypeScript angle brackets in spans)
-const ARITH_RE = /[-+*/=^·×÷−≤≥]/;
-
-/**
- * Extract citation candidates from rule files.
- *
- * Returns candidates keyed by {file, line, ref} — deduplicated.
- *
- * Predicate fixes applied:
- *  1. Bare tokens preceded by `*` are glob fragments → skipped.
- *  2. `.ts` path interiors are not re-tokenized → stripped before bare extraction.
- *  3. All identifier shapes (including weak shapes) are caught bare or backticked.
- *  4. In-span tokens: a token followed by `(` is a call citation (must resolve);
- *     one in arithmetic context is a formula variable (excluded).
- */
-async function extractCandidates(
-    ruleFiles: string[],
-    root: string,
-): Promise<{ candidates: CitationCandidate[] }> {
-    const candidates: CitationCandidate[] = [];
-    const seen = new Set<string>();
-
-    function addCandidate(file: string, line: number, ref: string, kind: "ts-path" | "identifier") {
-        const key = `${file}:${line}:${ref}`;
-        if (seen.has(key)) return;
-        seen.add(key);
-        candidates.push({ file, line, ref, kind });
-    }
-
-    for (const file of ruleFiles) {
-        const fullPath = resolve(root, file);
-        const text = await Bun.file(fullPath).text();
-        const lines = text.split("\n");
-        let inFence = false;
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            if (line.trim().startsWith("```")) {
-                inFence = !inFence;
-                continue;
-            }
-            if (inFence) continue;
-
-            // 1. Backtick-cited .ts paths
-            const tsPathSpans: string[] = [];
-            for (const m of line.matchAll(TS_PATH_RE)) {
-                const ref = m[1];
-                if (
-                    ref.startsWith(".") ||
-                    ref.includes("*") ||
-                    ref.includes(" ") ||
-                    ref.includes("{")
-                )
-                    continue;
-                addCandidate(file, i + 1, ref, "ts-path");
-                tsPathSpans.push(m[0]);
-            }
-
-            // 2. Backtick-cited identifiers (solo-backtick spans)
-            for (const m of line.matchAll(IDENTIFIER_RE)) {
-                const ref = m[1].replace(/\(\)$/, "");
-                if (ref.endsWith(".ts")) continue;
-                if (matchesShape(ref)) {
-                    addCandidate(file, i + 1, ref, "identifier");
-                }
-            }
-
-            // 3. Bare identifier-shaped tokens
-            // Strip URLs (tokens inside URLs are not citations)
-            let stripped = line.replace(/https?:\/\/[^\s)]*/g, " ");
-            // Strip ALL backtick spans — in-span tokens are handled by the in-span logic below,
-            // which applies the arithmetic-context and call-citation predicates. The bare
-            // extraction catches only tokens outside any backtick span.
-            stripped = stripped.replace(/`[^`]+`/g, " ");
-
-            for (const m of stripped.matchAll(BARE_TOKEN_RE)) {
-                const ref = m[0];
-                const index = m.index ?? 0;
-                // A bare token preceded by `*` and starting with `_` is a glob suffix
-                // (e.g. `*_WGSL`, `*_REQUIRED`). A bare `*`-prefix drop is inadmissible —
-                // `*foo` also spells a mis-bulleted dead symbol — so `*`-prefixed tokens
-                // starting with a letter are caught.
-                if (index > 0 && stripped[index - 1] === "*" && ref.startsWith("_")) continue;
-                // All identifier shapes are caught bare (re-admitted, round 6b): camelCase,
-                // PascalCase, SCREAMING_SNAKE, snake_case, and lowercase-with-digits.
-                if (matchesShape(ref)) {
-                    addCandidate(file, i + 1, ref, "identifier");
-                }
-            }
-
-            // 4. In-span tokens from multi-token backtick spans
-            // Re-scan the original line for multi-token backtick spans
-            for (const m of line.matchAll(MULTI_TOKEN_SPAN_RE)) {
-                const spanContent = m[1];
-                // Skip if this is a .ts path (already extracted) or a solo identifier (already extracted)
-                if (spanContent.endsWith(".ts")) continue;
-                if (/^[A-Za-z_][A-Za-z0-9_]*(?:\(\))?$/.test(spanContent)) continue;
-
-                // Tokenize the span content and apply in-span predicate
-                for (const tm of spanContent.matchAll(BARE_TOKEN_RE)) {
-                    const ref = tm[0];
-                    const tIndex = tm.index ?? 0;
-                    // Find the next non-whitespace char after the token
-                    let afterIdx = tIndex + ref.length;
-                    while (afterIdx < spanContent.length && spanContent[afterIdx] === " ")
-                        afterIdx++;
-                    const afterChar = afterIdx < spanContent.length ? spanContent[afterIdx] : "";
-                    // Find the previous non-whitespace char before the token
-                    let beforeIdx = tIndex - 1;
-                    while (beforeIdx >= 0 && spanContent[beforeIdx] === " ") beforeIdx--;
-                    const beforeChar = beforeIdx >= 0 ? spanContent[beforeIdx] : "";
-
-                    // Fix 4a: a token followed by `(` is a call citation — must resolve
-                    if (afterChar === "(") {
-                        if (matchesShape(ref)) {
-                            addCandidate(file, i + 1, ref, "identifier");
-                        }
-                        continue;
-                    }
-                    // Fix 4b: a token in arithmetic context is a formula variable — excluded
-                    if (ARITH_RE.test(beforeChar) || ARITH_RE.test(afterChar)) {
-                        continue;
-                    }
-                    // Otherwise: a token inside a multi-token span — all identifier
-                    // shapes (weak shapes admitted in-span, round 7). Formula variables
-                    // in arithmetic context (including comparison operators) are excluded
-                    // above.
-                    if (matchesShape(ref)) {
-                        addCandidate(file, i + 1, ref, "identifier");
-                    }
-                }
-            }
-        }
-    }
-
-    return { candidates };
-}
-
-// ── Token index ────────────────────────────────────────────────────────────────────────────
-
-const INDEX_TOKEN_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
-
-/**
- * Build a one-pass token index over `*.ts`/`*.rs`/`*.wgsl` files.
- * Excludes `node_modules` and `scripts/check-docs.ts` (its comments mention the
- * symbols it checks, which would false-resolve dead citations).
- */
-async function buildTokenIndex(trackedFiles: string[], root: string): Promise<Set<string>> {
-    const index = new Set<string>();
-    const sourceFiles = trackedFiles.filter(
-        (f) =>
-            (f.endsWith(".ts") || f.endsWith(".rs") || f.endsWith(".wgsl")) &&
-            !f.includes("node_modules") &&
-            f !== "scripts/check-docs.ts",
-    );
-    for (const f of sourceFiles) {
-        const text = await Bun.file(resolve(root, f)).text();
-        for (const m of text.matchAll(INDEX_TOKEN_RE)) {
-            index.add(m[0]);
-        }
-    }
-    return index;
-}
-
-// ── Resolution ──────────────────────────────────────────────────────────────────────────────
-
-function tsPathResolves(path: string, trackedSet: Set<string>): boolean {
-    const tries = [path, `src/${path}`, `${path}`];
-    for (const t of tries) {
-        if (trackedSet.has(t)) return true;
-    }
-    const suffix = `/${path}`;
-    for (const f of trackedSet) {
-        if (f.endsWith(suffix)) return true;
-    }
-    return false;
-}
-
-function resolvesAnywhere(
-    ref: string,
-    kind: string,
-    tokenIndex: Set<string>,
-    trackedSet: Set<string>,
-    combinedRoster: Set<string>,
-): boolean {
-    if (kind === "ts-path") {
-        if (tsPathResolves(ref, trackedSet)) return true;
-        return combinedRoster.has(ref);
-    }
-    if (tokenIndex.has(ref)) return true;
-    return combinedRoster.has(ref);
-}
-
-// ── Population: scan .claude/rules/**/*.md for identifier-shaped tokens ────────────────────
-//
-// The population is the set of tracked .md files under .claude/rules/, derived from `git ls-files`
-// (same law as the doc scan above — the scope is what git tracks, not what the filesystem holds).
-
 const trackedFiles = allTrackedFiles.stdout.toString().split("\0").filter(Boolean);
-const trackedSet = new Set(trackedFiles);
-
-const rulesTracked = Bun.spawnSync(["git", "-C", root, "ls-files", "-z", "*.md"], { cwd: root });
-if (!rulesTracked.success) {
-    console.error(
-        "✗ `git ls-files` failed — the citation-resolution arm needs a git checkout to scope its rule set.",
-    );
-    process.exit(1);
-}
-const ruleFiles = rulesTracked.stdout
-    .toString()
-    .split("\0")
-    .filter(Boolean)
-    .filter((f) => f.startsWith(".claude/rules/"));
-if (ruleFiles.length === 0) {
-    console.error(
-        "✗ `git ls-files '*.md'` matched nothing under .claude/rules/ — the citation-resolution arm would be vacuously green.",
-    );
-    process.exit(1);
-}
-
-// ── One-pass token index over *.ts / *.rs / *.wgsl ────────────────────────────────────────
-//
-// Build a Set<string> of every identifier token in every tracked source file. Resolution is
-// exact set-membership, not `git grep --fixed-strings` (substring matching). Excludes
-// `node_modules` and `scripts/check-docs.ts` (its comments mention the symbols it checks,
-// which would false-resolve dead citations).
-
-const tokenIndex = await buildTokenIndex(trackedFiles, root);
-if (tokenIndex.size === 0) {
-    console.error(
-        "✓ token index is empty — no tracked *.ts/*.rs/*.wgsl files found (excluding node_modules and scripts).",
-    );
-    process.exit(1);
-}
-
-// ── Combined roster set ────────────────────────────────────────────────────────────────────
-//
-// Merge all rosters into a single set for O(1) lookup. Each roster is asserted non-empty below.
-
-const allRosters = Object.entries(FOREIGN_NAMESPACES).map(([name, roster]) => ({
-    name: `FOREIGN_NAMESPACES.${name}`,
-    roster,
-}));
-
-// Assert each roster non-empty — a roster that loses its last entry would make the arm vacuously
-// green for that class.
-for (const { name, roster } of allRosters) {
-    if (roster.size === 0) {
-        console.error(
-            `✗ roster ${name} is empty — a citation-resolution arm with an empty roster is vacuously green for that class.`,
-        );
-        process.exit(1);
-    }
-}
-
-const combinedRoster = new Set<string>();
-for (const { roster } of allRosters) {
-    for (const sym of roster) combinedRoster.add(sym);
-}
-
-// ── Identifier shape predicates ────────────────────────────────────────────────────────────
-//
-// Shape predicates and candidate extraction are defined above.
-// The predicate is formatting-invariant: all identifier shapes (camelCase,
-// PascalCase, SCREAMING_SNAKE, snake_case, lowercase-with-digits) are caught
-// bare or backticked. A bare `*`-prefix drop is inadmissible — only `*`-prefixed
-// tokens starting with `_` (glob suffixes) are skipped. `.ts` path interiors
-// are not re-tokenized. In-span tokens are split by predicate: a token followed
-// by `(` is a call citation; one in arithmetic context is a formula variable.
-
-// ── Candidate extraction ───────────────────────────────────────────────────────────────────
-
-const { candidates: citationCandidates } = await extractCandidates(ruleFiles, root);
-
-if (citationCandidates.length === 0) {
-    console.error(
-        "✗ citation-resolution arm matched no identifier-shaped token or *.ts path — the arm would be vacuously green.",
-    );
-    process.exit(1);
-}
-
-// ── Resolution ──────────────────────────────────────────────────────────────────────────────
-//
-// For .ts paths: try as-is, legacy distribution prefixes, then canonical-owner suffix
-// match against the tracked set.
-// For identifiers: exact set-membership in the token index (NOT substring matching).
-// For both: if unresolved against the tree, check against the combined roster.
-
-// ── Pinned cardinalities ───────────────────────────────────────────────────────────────
-//
-// Candidates must resolve in the tree or a cited, disjoint foreign roster.
-// Pin the candidate floor and roster cardinality to expose population narrowing.
-
-// Disjunct 2: the citation population floor. A predicate narrowing shrinks the population
-// below the floor and reds; legitimate prose growth passes and re-pins the floor
-// opportunistically upward.
-const PINNED_CITATION_COUNT = 114;
-if (citationCandidates.length < PINNED_CITATION_COUNT) {
-    console.error(
-        `✗ citation count below floor: floor ${PINNED_CITATION_COUNT}, actual ${citationCandidates.length}.
-` +
-            `  A predicate narrowing shrinks the population below the floor. ` +
-            `  Restore the narrowed predicate.`,
-    );
-    process.exit(1);
-}
-
-// Disjunct 3: the roster total entry count. Every entry is asserted cited by at least
-// one rule file (both ways: a real member, genuinely needed). Zero slack means a launder
-// cannot occupy an existing slot, and adding one moves this number in the diff that adds it.
-const PINNED_ROSTER_ENTRY_COUNT = 3;
-const totalRosterEntries = allRosters.reduce((n, { roster }) => n + roster.size, 0);
-if (totalRosterEntries !== PINNED_ROSTER_ENTRY_COUNT) {
-    console.error(
-        `✗ roster entry count mismatch: pinned ${PINNED_ROSTER_ENTRY_COUNT}, actual ${totalRosterEntries}.
-` +
-            `  Update PINNED_ROSTER_ENTRY_COUNT in scripts/check-docs.ts to match, ` +
-            `or prune the uncited entries from FOREIGN_NAMESPACES.`,
-    );
-    process.exit(1);
-}
-
-// Assert every roster entry is cited by at least one rule file (both ways: a real member,
-// genuinely needed). A roster entry is "cited" if it appears as a ref in the citation
-// candidates extracted from the rule files. Uncited entries are slack a launder could
-// occupy without moving the pinned count.
-const candidateRefs = new Set(citationCandidates.map((c) => c.ref));
-const uncitedRosterEntries: string[] = [];
-for (const { name, roster } of allRosters) {
-    for (const entry of roster) {
-        if (!candidateRefs.has(entry)) {
-            uncitedRosterEntries.push(`${name}: ${entry}`);
-        }
-    }
-}
-if (uncitedRosterEntries.length > 0) {
-    console.error(
-        `✗ ${uncitedRosterEntries.length} roster entr(y/ies) not cited by any rule file:
-` +
-            uncitedRosterEntries.map((e) => `    ${e}`).join("\n") +
-            `
-  Every roster entry must be cited by at least one rule file (both ways: a real ` +
-            `member, genuinely needed). Prune uncited entries from FOREIGN_NAMESPACES.`,
-    );
-    process.exit(1);
-}
-
-// Assert every roster entry is ABSENT from the tree token index (the disjointness law:
-// every disjunct's member set is disjoint from every other's, so each surviving member
-// is load-bearing and removing one reds). A roster entry that also resolves in the tree
-// is redundant with disjunct 1 — it costs nothing to remove, which means the pinned
-// total buys nothing against a swap-in (measured at f6b302e: 34 of 75 roster entries
-// also resolved in the tree, so a swap-in was free).
-const rosterInTree: string[] = [];
-for (const { name, roster } of allRosters) {
-    for (const entry of roster) {
-        if (tokenIndex.has(entry)) {
-            rosterInTree.push(`${name}: ${entry}`);
-        }
-    }
-}
-if (rosterInTree.length > 0) {
-    console.error(
-        `✗ ${rosterInTree.length} roster entr(y/ies) also present in the tree token index:
-` +
-            rosterInTree.map((e) => `    ${e}`).join("\n") +
-            `
-  Every roster entry must be absent from the tree token index (disjointness law: ` +
-            `each disjunct's member set is disjoint from every other's, so each surviving ` +
-            `member is load-bearing). Prune the redundant entries from FOREIGN_NAMESPACES.`,
-    );
-    process.exit(1);
-}
-
-type StaleCitation = {
-    file: string;
-    line: number;
-    ref: string;
-    kind: string;
-    reason: string;
-};
-
-const staleCitations: StaleCitation[] = [];
-
-for (const c of citationCandidates) {
-    const live = resolvesAnywhere(c.ref, c.kind, tokenIndex, trackedSet, combinedRoster);
-    if (live) continue; // live — no violation
-
-    // Stale citation
-    staleCitations.push({
-        file: c.file,
-        line: c.line,
-        ref: c.ref,
-        kind: c.kind,
-        reason: `stale ${c.kind} \`${c.ref}\` does not resolve against the tree or any roster`,
-    });
-}
-
-if (staleCitations.length > 0) {
-    console.error(`✗ citation resolution: ${staleCitations.length} stale citation(s):\n`);
-    for (const v of staleCitations) {
-        console.error(`  ${v.file}${v.line ? `:${v.line}` : ""}: ${v.reason}`);
-    }
-    console.error(
-        "\nEvery identifier-shaped token in `.claude/rules/**` (backticked or bare, outside " +
-            "fenced code blocks) must resolve against the tree or a committed roster. A token " +
-            "that no source file or roster contains is a stale claim.",
-    );
-    process.exit(1);
-}
-
 // ── Arm (f): pointer-validity — dead *.md path citations in comments ──────────────────
 //
 // A comment in a .ts file citing a *.md path that resolves to nothing in-repo reds.
@@ -1425,7 +801,10 @@ if (!testCommand) {
     console.error("✗ command composition: missing test arguments");
     process.exit(1);
 }
-const testPaths = testCommand[1].trim().split(/\s+/);
+const testPaths = testCommand[1]
+    .trim()
+    .split(/\s+/)
+    .filter((arg) => !arg.startsWith("--"));
 if (testPaths.some((path) => path.startsWith("-") || /[;&|]/.test(path))) {
     console.error("✗ command composition: unsupported root test syntax; update the reader");
     process.exit(1);
@@ -1477,11 +856,7 @@ if (!instructionListing.success || !instructionModes.success) {
     process.exit(1);
 }
 const instructionFiles = [...new Set(instructionListing.stdout.toString().split("\0"))]
-    .filter((file) =>
-        /(?:^|\/)(?:AGENTS|CLAUDE)\.md$|^MAINTAINERS\.md$|(?:^|\/)\.claude\/rules\/[^/]+\.md$/.test(
-            file,
-        ),
-    )
+    .filter((file) => /(?:^|\/)(?:AGENTS|CLAUDE)\.md$/.test(file))
     .sort();
 const symlinkFiles = new Set(
     instructionModes.stdout
@@ -1543,13 +918,6 @@ if (await instructionBaseline.exists()) {
     }
 } else if (!lowerInstructions.length) {
     instructionFindings.push("missing baseline; seed explicitly with --lower");
-} else {
-    const style = measured.files[".claude/rules/style.md"];
-    if (!style || style.bytes > 3000 || style.paragraph > 800) {
-        instructionFindings.push(
-            "initial style must be <=3000 bytes and <=800 paragraph characters",
-        );
-    }
 }
 if (instructionFindings.length) {
     console.error(`✗ instruction ratchet:\n${instructionFindings.join("\n")}`);
@@ -1566,12 +934,8 @@ console.log(
     `✓ doc commands clean (${scanTargets.length} file(s)), ` +
         `install/scaffold/fixture/manifest pins match the manifests (${scanned} doc(s), ${fixtureMatched} fixture line(s), ${manifestPkgCount} manifest(s)), ` +
         `entry-doc chains under budget (${ENTRY_DOC_CHAINS.length} chain(s)), ` +
-        `cross-citations resolve (${citationCount} citation(s)), ` +
         `showcase index complete (${showcaseDirs.size} dir(s)), ` +
         `evals task-index complete (${evalsTaskDirs.size} task(s)), ` +
         `tier restatements absent (${suffixWords.length} suffix(es)), ` +
-        `citation resolution clean (${citationCandidates.length} citation(s) from ${ruleFiles.length} rule file(s), ` +
-        `${allRosters.length} roster(s) with ${totalRosterEntries} entr(y/ies), ` +
-        `token index ${tokenIndex.size} token(s)), ` +
         `pointer-validity clean (${pointerCitationCount} .md citation(s))`,
 );

@@ -383,7 +383,7 @@ export function cascadeAtlasSize(resolution: number, n: number): number {
 
 // the pooled off-screen ortho depth-only cameras, one per active cascade — each takes one of the reserved
 // CASCADE_RESERVE cull slots, so the Part pack frustum-culls casters into every cascade independently. Module-
-// cached eids are borrows: reset on every (re)build (ecs.md "Reload-safety").
+// cached eids are borrows: reset on every (re)build.
 let _cascadeEids: number[] = [];
 let _cascadeCount = 0;
 // dense per-cascade (the first _cascadeCount valid): the **folded** tile viewProj the atlas VS projects by
@@ -644,7 +644,7 @@ export function updateCascades(state: State, main: number): void {
 // over-amplification). The viewProjs are computed here CPU-side (one per combo, the tile placement folded
 // in — {@link tileTransform}); sear re-gathers the per-combo culled members into one contiguous run per
 // casting mesh + a per-instance combo index, so the atlas still renders in **one indirect draw per casting
-// mesh** (the Dawn ~1µs/indirect-draw floor — gpu.md "WebGPU-specific traps"), now reading per-combo
+// mesh** (the Dawn ~1µs/indirect-draw floor — the archived GPU rules "WebGPU-specific traps"), now reading per-combo
 // *culled* counts. The face/cone frustum is widened by a constant texel margin (the PlayCanvas seam fix)
 // and the receiver clamps its 3×3 PCF taps to the tile interior, so a sample never bleeds into a neighbour.
 
@@ -902,7 +902,7 @@ let _slotWarned = false;
 // scatter` spine the main camera uses (the per-combo cull). Sized to the active combo count each frame
 // (cold — the caster set is hysteresis-stable), posed from the face/cone basis so render's
 // `computeViewProj` reproduces the combo's pre-fold viewProj. Module-cached eids are borrows: reset on
-// every (re)build (ecs.md "Reload-safety").
+// every (re)build.
 let _comboEids: number[] = [];
 
 // the light eids that won an atlas slot last frame — the hysteresis incumbent set. Ranking by distance to

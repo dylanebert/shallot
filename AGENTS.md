@@ -1,19 +1,29 @@
 # Shallot
 
-WebGPU game engine: ECS, scenes, plugins. JSDoc owns APIs. Search `examples/AGENTS.md` and read a recipe first; `bunx shallot add <name> [dir]` copies one (bare lists). Repo maintainers: read `MAINTAINERS.md`.
+WebGPU game engine: ECS, scenes, plugins. This is the repository's agent contract; consumers read the README and JSDoc, which owns APIs. Search `examples/AGENTS.md` and read a recipe first.
 
 ## Commands
 
 ```bash
-bun create shallot <name>
-bunx shallot dev [dir]
-bunx shallot build [dir]
-bunx shallot run [dir]
-bunx shallot add <name> [dir]
-bunx shallot check [dir]
+bun run build          # audio WASM, dist/vite.js, physics kernel
+bun run check          # tsc, biome, check-*.ts, scenes
+bun run test
+bun run format
+bun run test:install   # pack, install, build/dev/add
+bun run assets [name]  # --icons rewrites mark icons
+bun run prepack
+bun bin/shallot.ts <dev|build|run|add> [dir]
 ```
 
-`check` isn't available yet (exits 2); other verbs run `shallot-<verb>` from PATH. `bunx tsc --noEmit`. `shallot.json` names scene/plugins; CLI supplies HTML/Vite. Native targets use Rust/system dependencies; `--portable` bundles Chromium.
+CLI, manifest, dependency, runtime and native-package changes owe `test:install`; a `bun link` of a local engine doesn't prove the packed shape.
+
+## Toolchain and pins
+
+- Bun per `packageManager`, TypeScript 7, Rust per `rust-toolchain.toml`. Biome is the only linter.
+- `@types/node` and `@webgpu/types` are runtime dependencies because `types` points at source.
+- `bun-webgpu` pins a `dylanebert/bun-webgpu` main commit until kommander/bun-webgpu#10 merges, then returns to upstream.
+- Bump a pin with every doc and fixture site in one commit; `check-docs` reds on drift.
+- Retired units are a Git tag plus an `ARCHIVE.md` row, never a directory.
 
 ## Philosophy
 
@@ -35,22 +45,18 @@ Mount only in `config.ui(container, state)` or `mountOverlay(canvas, state)`, sa
 
 ## GPU
 
-[MIGRATION.md](./MIGRATION.md) governs new code too: exact-once transforms, ejected/framework inclusion, consumer tests, schemas, ownership, TGSL integers/lint, surfaces/varyings/fragment inputs, warm queues. Compute on Render.encoder; register on render/core. Only allocators destroy. CPU truth is typed arrays, not per-frame objects.
+Transform TGSL exactly once. Compute on Render.encoder; register on render/core. Only allocators destroy. CPU truth is typed arrays, not per-frame objects.
 
 Hard ceiling: 10 storage bindings/stage across ALL groups, including read-only. Consolidate buffers/headers/uploads, not per-entity CPU iteration. Batch async raw compilation; label raw modules/pipelines, name TypeGPU factories. Use preferred canvas format. DXC needs constant loop bounds/dynamic break, not large dynamic-loop functions.
 
-Debug CPU → labeled WGSL/API → safe fragment/compute log → resource probe → verify; no rung proves the next. Logging perturbs bindings/atomics, is bounded/delayed, excludes vertices; external-pass drains need replay. Probe if replay changes behavior; Mirror is delayed telemetry. No atomic debug buffer if logging suffices; capture last after naming pass/draw.
-
 ## Render, physics, assets
 
-Decode scene sRGB hex to linear; surfaces stay linear, composite alone encodes sRGB. Bright accents saturate: darken/lower intensity, tune dominant tones, not a global gamma multiplier. Physics is opt-in PhysicsPlugin; Body/Spring/Joint author it, Physics.world extends it. Hand-wired joint bodies must spawn non-overlapping to avoid persistent fighting contacts.
+Decode scene sRGB hex to linear; surfaces stay linear, composite alone encodes sRGB. Physics is opt-in PhysicsPlugin; Body/Spring/Joint author it, Physics.world extends it. Hand-wired joint bodies must spawn non-overlapping to avoid persistent fighting contacts.
 
-Procedural-first, no format-shaped substrate. GltfPlugin converts to mesh/material/VAT/rig data; engine-owned SkinPlugin accepts glTF/physics/procedural poses. Producers compose skin/core surfaces.
+Procedural-first, no format-shaped substrate. GltfPlugin converts to mesh/material/VAT/rig data; engine-owned SkinPlugin accepts glTF/physics/procedural poses.
 
 ## Testing
 
-Unit verdicts need a native adapter; real GPU gates cover compile/raster/readback. Keep permanent tests, temporary labs; derive tolerances (exact ~1e-10, f32 ~1e-6 relative, convergence from order/steps), never tune. Measure GPU timestamps, not FPS.
+Unit verdicts need a native adapter; real GPU gates cover compile/raster/readback. Derive tolerances (exact ~1e-10, f32 ~1e-6 relative, convergence from order/steps), never tune. Measure GPU timestamps, not FPS. Hardware refusal fails.
 
-`shallot verify` is removed; `check` replaces it. Hardware refusal fails. COOP/COEP needs CORS/CORP or local assets; physics is single-threaded.
-
-Publish `window.__harness`: pin `{ready:false}` immediately, then installHarness from `/harness`; initialize pins, run resolves entities and returns a Verdict. Seed storage/exercise restore for persistence. JSDoc owns pose reads/flags; remove temporary harness plugins.
+Publish `window.__harness`: pin `{ready:false}` immediately, then installHarness from `/harness`; run resolves entities and returns a Verdict.

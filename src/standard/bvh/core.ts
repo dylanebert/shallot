@@ -11,7 +11,7 @@
 // The build is LBVH (Karras radix-tree topology + a coherence-safe bottom-up bounds
 // relaxation), not the former single-kernel H-PLOC: the H-PLOC build (and its
 // atomic-climb refit) relied on cross-workgroup memory ordering WGSL cannot express,
-// which manifested as the forest shadow flicker (gpu.md "Cross-workgroup ordering").
+// which manifested as the forest shadow flicker.
 // build + refit both live in {@link createBuild} (build.ts) — the bounds relaxation
 // doubles as the refit, so there is no separate refit stage to derive parents for.
 
@@ -171,7 +171,7 @@ export async function createBvh(
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
         });
     // the one control buffer, shared by every stage — written by the caller (CPU or GPU
-    // producer): [0] = prim count, [1] = node-write base (folded here per gpu.md binding rule 3)
+    // producer): [0] = prim count, [1] = node-write base (folded here per the archived GPU rules binding rule 3)
     const count = device.createBuffer({
         label: "bvh-count",
         size: 8,

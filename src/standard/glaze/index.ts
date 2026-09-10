@@ -3,7 +3,7 @@
 // writes the swapchain (`view.present`), applying the per-camera postfx chain on the way. The swapchain
 // is a base-format storage texture (not sRGB), so glaze encodes linear→sRGB itself (`linearToSrgb`) — the
 // same path a consumer's own fused composite takes. Compute, not a render pass, so the present costs no
-// tile load/store on TBDR (gpu.md "Render passes on TBDR"); WebGPU exposes no programmable blending, so a
+// tile load/store on TBDR; WebGPU exposes no programmable blending, so a
 // compute dispatch reading the offscreen and writing the swapchain once is the portable fused-postfx
 // substitute. Renderer-agnostic: it imports only `render/core` and reads `view.framebuffer` / `view.present`,
 // so sear (MSAA-resolved) and a custom renderer (single-sample) both composite through it. A renderer

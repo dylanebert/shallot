@@ -198,7 +198,7 @@ export function readComponent(
  * A target inside the serialized set that lacks a scene id is minted one; a
  * target outside it resolves to its scene id if it has one, or throws if not
  * (destroyed or unnamed). A round-trip preserves codec-representable component
- * state; GPU buffers and derived entities are rebuilt, not serialized (`ecs.md`).
+ * state; GPU buffers and derived entities are rebuilt, not serialized.
  *
  * @example
  * const xml = stringify(serialize(state));

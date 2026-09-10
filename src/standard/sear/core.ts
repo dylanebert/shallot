@@ -7,7 +7,7 @@ export { pointAtlasView, shadowSampler, sunShadowParams, sunShadowView } from ".
 export { DEPTH_FORMAT, lightEvalWgsl, TAG_FORMAT, TAG_NONE, Tag } from "./codegen";
 // the `Surfaces`/`Backgrounds` contract: schema-carrying bindings + TGSL-fn code chunks.
 // `surfaceLayout`/`registerSurface`/
-// `backgroundLayout` carry their namespace (`layout`/`register` are too generic for a barrel, exports.md);
+// `backgroundLayout` carry their namespace (`layout`/`register` are too generic for a barrel, the archived exports rules);
 // the IO schemas (`VsIn`/`vsPatchSchema`/`fsCtxSchema`/`BgCtx`) are what a typed chunk is authored against
 export type {
     Background,

@@ -103,12 +103,11 @@ export const unpackSnorm2x16 = tgpu.fn(
     "use gpu";
     return isBeingTranspiled()
         ? unpackSnorm2x16Wgsl(e)
-        : // eslint-disable-next-line typegpu/no-math -- Math.max is confined to the folded-away CPU arm
-          d.vec2f(Math.max(-1, ((e << 16) >> 16) / 32767), Math.max(-1, (e >> 16) / 32767));
+        : d.vec2f(Math.max(-1, ((e << 16) >> 16) / 32767), Math.max(-1, (e >> 16) / 32767));
 });
 
 /** pack two [0,1] lanes into a unorm16x2 `u32` (lane x → low 16 bits): WGSL `pack2x16unorm`. Uniform
- *  1.5e-5 spacing across the range (gpu.md rule 6), so it beats f16 in any bounded range.
+ *  1.5e-5 spacing across the range, so it beats f16 in any bounded range.
  *  @example const enc = packUnorm2x16(vec2f(1, 0)); // 0x0000ffff */
 export const packUnorm2x16 = tgpu.fn(
     [d.vec2f],
@@ -169,13 +168,12 @@ export const idiv = tgpu.fn(
     d.u32,
 )((a, b) => {
     "use gpu";
-    // eslint-disable-next-line typegpu/no-math -- Math.floor is confined to the folded-away CPU arm
     return isBeingTranspiled() ? idivWgsl(a, b) : Math.floor(a / b);
 });
 
 /** WGSL `workgroupUniformLoad(&v)`: a control barrier whose result the uniformity analysis treats as
  *  uniform, which is what makes a `workgroupBarrier` inside a flag-gated loop legal (the decoupled-
- *  fallback scan's early-exit, gpu.md "the decoupled-scan exception"). GPU-only — a workgroup variable
+ *  fallback scan's early-exit, the archived GPU rules "the decoupled-scan exception"). GPU-only — a workgroup variable
  *  has no CPU meaning. Bind one loader per variable at module scope and read it as `.$` at the call
  *  site, which emits the intrinsic inline against that variable.
  *
@@ -242,7 +240,7 @@ export function chunk(
 
 /** the module-scope `diagnostic(off, subgroup_uniformity);` directive — the sanctioned opt-out for
  *  WGSL's uniformity analysis rejecting a subgroup op inside a loop whose condition derives from a
- *  subgroup reduction (gpu.md "Subgroup ops in data-dependent loops"). **Always pair it with a fixed
+ *  subgroup reduction. **Always pair it with a fixed
  *  iteration cap**, so a logic error degrades to a wrong result instead of a GPU watchdog hang.
  *
  *  Not a function, and how you attach it depends on what consumes the WGSL. A bare `tgpu.resolve` takes

@@ -219,7 +219,7 @@ export function pointCastersSchema() {
 // resolve suffixes it `PointCasters_1`, which the raw splice site couldn't reference), while the uniforms
 // are re-sized from the live config at every warm. So a config change between builds would bind a
 // re-sized buffer against a stale struct: `checkShadowConfig` turns that into a named throw at warm,
-// which is what "fixed before build(), like capacity" (render.md) means.
+// which is what "fixed before build(), like capacity" means.
 let _folded: { casters: number; atlas: number } | null = null;
 
 /**

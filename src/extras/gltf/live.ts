@@ -27,7 +27,7 @@ import { materialFns } from "./shade";
 // the bindings every live-skin surface declares: the instancing convention (eids + transforms) + the
 // substrate's three (`skin` / `skinData` / `skinParams`, skin/core) + the shared material palette + the
 // material's texture arrays/sampler (shared with the textured + VAT paths). Storage count is 5
-// (eids/transforms/skin/materialData/skinData) + sear's shared 5 = 10, the ceiling (gpu.md), zero headroom:
+// (eids/transforms/skin/materialData/skinData) + sear's shared 5 = 10, the ceiling, zero headroom:
 // folding `color` into the palette header (`liveTintWgsl`) is what buys the room for `skinData` versus the
 // VAT skin surface's `color` binding. The texture arrays + the `skinParams` uniform are separate limits, not
 // storage. Declaration order is binding order, so the substrate's three are placed individually rather than

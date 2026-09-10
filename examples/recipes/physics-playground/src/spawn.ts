@@ -27,7 +27,7 @@ const spawn = {
 
 export const Spawn = {
     name: "Spawn",
-    // module-scoped counters are runtime state, so reset them each build (ecs.md "reload-safety")
+    // module-scoped counters are runtime state, so reset them each build
     warm() {
         count = 0;
         next = 0;

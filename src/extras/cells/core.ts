@@ -1,13 +1,13 @@
 // Cells' `*/core` extension surface — for a custom pipeline / tooling / diagnostic consumer
-// (`exports.md`'s Barrel rules), the way `gltf/core` / `skin/core` / `animation/core` publish their own
+// (the archived exports rules' Barrel rules), the way `gltf/core` / `skin/core` / `animation/core` publish their own
 // substrate ahead of (or instead of) an author-facing plugin. `CellsPlugin` (`./index.ts`) rides the main
 // `extras` barrel; this subpath is the GPU cell layout contract underneath it: the packing (`Cell` + its
 // byte/lane constants), the codec (`packCell` / `unpackCell`), the headless fill producer, the real
 // content producer (`recordSelect` / `dispatchSelect`, structure-first glyph selection over a rendered
 // scene), the glyph uv-rect + size table builders, the web sink's instanced draw, and the glyph ramp. Not on the
 // main `extras` barrel itself: none of this is a component, singleton, or registration function a game
-// author calls (`exports.md`'s barrel-vs-`*/core` split), and `Cell` / `createCellGrid` are exactly the
-// kind of generic name that subpath exists to avoid colliding on the bare barrel (`exports.md`'s Naming
+// author calls (the archived exports rules' barrel-vs-`*/core` split), and `Cell` / `createCellGrid` are exactly the
+// kind of generic name that subpath exists to avoid colliding on the bare barrel (the archived exports rules' Naming
 // section). The `examples/gym` `cells` scenario is this subpath's consumer — it drives every producer here
 // through a `Mirror` readback, with no canvas of its own.
 //
