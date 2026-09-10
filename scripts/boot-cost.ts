@@ -134,7 +134,7 @@ async function spawnVerify(
     extra: string[],
     extraEnv: Record<string, string>,
 ): Promise<Spawned> {
-    const cmd = ["bun", CLI, "verify", dir, "--json", ...extra];
+    const cmd = ["bun", CLI, "verify", dir, "--json", "--headed", ...extra];
     const proc = Bun.spawn(cmd, {
         cwd: REPO_ROOT,
         stdout: "pipe",

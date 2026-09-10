@@ -15,8 +15,9 @@ import { devConfig } from "./dev";
 import { composeViteConfig, isProject, loadProjectConfig } from "./toolchain";
 
 // `shallot verify [dir]` — the shipped, self-terminating verification gate. It boots the project in a
-// real headed browser (the only launch that reaches real GPU hardware), waits for it to render (or for a `window.__harness` the project installs),
-// reads a pass/fail Verdict, and exits 0 on pass / nonzero on fail. Playwright is lazy + optional (never
+// full Chromium browser headlessly by default, or explicitly headed with `--headed`, waits for it to
+// render (or for a `window.__harness` the project installs), reads a pass/fail Verdict, and exits 0 on
+// pass / nonzero on fail. Playwright is lazy + optional (never
 // a hard dep of @dylanebert/shallot); the browser path drives the Playwright LIBRARY API in-process — no
 // @playwright/test runner, no config file. Boot = the dev server by default, `--dist` = the existing
 // build served statically. One page load, one verdict, then everything tears down.
@@ -26,7 +27,7 @@ const EXIT_PASS = 0;
 const EXIT_FAIL = 1; // booted, but the verdict was false (assertions / render / page errors)
 const EXIT_SETUP = 2; // bad flags, no project, missing dist, boot failed — never reached a verdict
 const EXIT_NO_PLAYWRIGHT = 3; // playwright module or its chromium browser isn't installed
-export const EXIT_NO_DISPLAY = 4; // the browser only offered a software adapter — refused before any check ran
+export const EXIT_NO_DISPLAY = 4; // no usable real-GPU adapter, or an explicitly headed launch has no display
 
 // Software rasterizers by the name they report in `GPUAdapterInfo`: Chromium's SwiftShader, Mesa's two,
 // and D3D's WARP. Deliberately a name list rather than a capability probe — a software adapter clears
@@ -39,14 +40,14 @@ const SOFTWARE_ADAPTER = /swiftshader|llvmpipe|lavapipe|warp|basic render/i;
 /**
  * true when `hardware` (a joined `GPUAdapterInfo` identity string, or `readHardware`'s `"unknown"`
  * fallback when no adapter was offered at all) is not real GPU hardware. Pure — testable without a
- * browser. The CLI's own display gate: probed before any check runs, so a software adapter is refused
+ * browser. The CLI's own hardware gate: probed before any check runs, so a software adapter is refused
  * outright rather than left to crash mid-run.
  */
 export function isSoftwareAdapter(hardware: string): boolean {
     return hardware === "unknown" || SOFTWARE_ADAPTER.test(hardware);
 }
 
-/** the display gate's decision for a probed adapter identity: {@link EXIT_NO_DISPLAY} to refuse, `null`
+/** the hardware gate's decision for a probed adapter identity: {@link EXIT_NO_DISPLAY} to refuse, `null`
  *  to proceed. The seam `verifyCommand`'s refusal path reduces to, so the decision — and its exit code —
  *  is unit-testable without a browser (`testing.md`: a default-suite verdict must not depend on
  *  device execution). */
@@ -70,11 +71,10 @@ export function displayGateMessage(hardware: string): string {
 }
 
 /**
- * true when this host can launch a *headed* browser, which is the only launch that reaches real GPU
- * hardware: a headless Chromium falls back to a software rasterizer (measured 2026-09-08 on a Linux
- * Wayland session with a discrete NVIDIA GPU: headed reports `nvidia / lovelace`, headless reports
- * `google / swiftshader` under every WebGPU flag set tried). On Linux that needs a display server;
- * on macOS and Windows a launch always has one. Pure — testable without a browser.
+ * true when this host can launch an explicitly *headed* browser. Only that local selection needs a
+ * display server on Linux; the public default is full Chromium headless and a remote `--connect` browser
+ * owns its own display and launch mode. On macOS and Windows a headed launch always has a window server.
+ * Pure — testable without a browser.
  */
 export function headedLaunchAvailable(
     platform: string,
@@ -84,16 +84,21 @@ export function headedLaunchAvailable(
     return !!(env.DISPLAY || env.WAYLAND_DISPLAY);
 }
 
-/** the refusal diagnostic for a host with no display: verify cannot launch headed, and a headless
- *  launch would only offer a software adapter the display gate refuses anyway — so it says which is
- *  missing rather than reporting a software adapter as the finding. */
+/** the refusal diagnostic for an explicitly headed host with no display. The public headless default
+ *  remains display-independent; this message is only for the local selection that asked for a window. */
 export function noDisplayMessage(): string {
     return (
-        `shallot verify launches a headed browser, but this host has no display (neither DISPLAY nor ` +
-        `WAYLAND_DISPLAY is set). A headless launch only offers a software rasterizer, which clears ` +
-        `every feature/limit check and then crashes mid-run. Run on a session with a display, or ` +
-        `attach to a browser on one via --connect.`
+        `shallot verify was asked to launch a headed browser, but this host has no display (neither ` +
+        `DISPLAY nor WAYLAND_DISPLAY is set). Run it on a session with a display, or attach to a ` +
+        `browser on one via --connect.`
     );
+}
+
+/** The local launch options are pure so the default/headed mode and the full Chromium GPU recipe share one tested construction. */
+export function localLaunchOptions(
+    headed: boolean,
+): { headless: boolean } & typeof REAL_GPU_LAUNCH {
+    return { ...REAL_GPU_LAUNCH, headless: !headed };
 }
 
 // Match real failure signatures only — "adapter limits" / "requestAdapter" are normal startup chatter.
@@ -131,6 +136,8 @@ export interface VerifyArgs {
     /** attach to a remote browser at this Playwright ws endpoint (`chromium.connect`); the endpoint's
      *  owner keeps the browser process, this run only drives it. Absent: launch a local browser. */
     connect?: string;
+    /** launch the local full Chromium with a visible window instead of the default headless mode. */
+    headed: boolean;
     /** print per-phase wall-clock spans (server boot, first page load, harness ready, run, memory idle,
      *  capture, teardown) after the verdict — makes a slow or hung run attributable to a phase. */
     timings: boolean;
@@ -183,6 +190,7 @@ export function parseVerifyArgs(raw: string[]): VerifyArgs {
         memory: false,
         alloc: false,
         leak: 0,
+        headed: false,
         timings: false,
         attribution: false,
         run: [],
@@ -201,6 +209,7 @@ export function parseVerifyArgs(raw: string[]): VerifyArgs {
         else if (a?.startsWith("--leak="))
             args.leak = numNonNeg("--leak", a.slice("--leak=".length));
         else if (a === "--help" || a === "-h") args.help = true;
+        else if (a === "--headed") args.headed = true;
         else if (a === "--screenshot" && raw[i + 1]) args.screenshot = raw[++i];
         else if (a === "--connect" && raw[i + 1]) args.connect = raw[++i];
         else if (a?.startsWith("--connect=")) args.connect = a.slice("--connect=".length);
@@ -229,6 +238,11 @@ export function parseVerifyArgs(raw: string[]): VerifyArgs {
     // window too (--memory/--alloc are already exclusive above).
     if (args.leak > 0 && !args.memory) {
         throw new Error("--leak requires --memory (nothing samples the injected allocation)");
+    }
+    if (args.headed && args.connect) {
+        throw new Error(
+            "--headed cannot be combined with --connect (the endpoint owns its browser mode)",
+        );
     }
     return args;
 }
@@ -1862,7 +1876,7 @@ async function importPlaywright(projectDir: string): Promise<{ chromium: unknown
 }
 
 const usage = `
-  shallot verify [dir] — boot the project in a headed browser and check it renders
+  shallot verify [dir] — boot the project in full Chromium headlessly and check it renders
 
   By default runs the dev server and waits for a settled, non-blank frame (booted + rendered
   + zero page errors). A project that installs window.__harness (import { installHarness } from
@@ -1879,8 +1893,10 @@ const usage = `
     --alloc               Expose window.__probeAlloc(windowMs) for a harness run() to measure allocation
     --leak <bytesPerSec>  Inject a retained allocation at this rate once the harness is ready — red-proof for
                           the --memory leak detector (pair with --memory; off by default)
+    --headed              Launch the local full Chromium with a visible window (default: headless)
     --connect <ws>        Drive a remote browser at this Playwright ws endpoint (chromium.connect) rather
-                          than launching one — the endpoint owner supplies the browser's channel + flags
+                          than launching one — the endpoint owner supplies the browser's channel + flags;
+                          cannot be combined with --headed
     --timings             Print per-phase wall-clock spans after the verdict (server boot, first page
                           load, harness ready, run, memory idle, capture, teardown)
     --attribution         Read back the startup pipeline-compile attribution twice, once when the boot
@@ -1902,6 +1918,8 @@ const usage = `
   (an ejected vite app) boots a plain vite server rooted at it.
 
   Requires playwright (optional): ${INSTALL_PLAYWRIGHT}
+  Default verification is headless; use --headed only for display-dependent checks. A remote --connect
+  endpoint owns its launch mode.
 `;
 
 // Node's stdout-to-a-pipe is async: `console.log`/`process.stdout.write` queue the write and return
@@ -1957,9 +1975,19 @@ function attachErrorCapture(page: Page): { errors: string[]; warnings: string[] 
         if (kind === "err" || kind === "page-error" || ERR_HINT.test(text)) errors.push(text);
         else if (kind === "warn") warnings.push(text);
     };
-    page.on("console", (msg: { type(): string; text(): string }) => {
+    page.on("console", (msg: { type(): string; text(): string; location?(): { url: string } }) => {
         const type = msg.type();
-        record(type === "error" ? "err" : type === "warning" ? "warn" : "log", msg.text());
+        const text = msg.text();
+        // Full Chromium headless asks for a conventional favicon even when an app has no icon. That
+        // browser-owned 404 is not an app/page error; retain every other console error, including 404s.
+        const location = msg.location?.();
+        if (
+            type === "error" &&
+            /Failed to load resource: the server responded with a status of 404/.test(text) &&
+            location?.url.endsWith("/favicon.ico")
+        )
+            return;
+        record(type === "error" ? "err" : type === "warning" ? "warn" : "log", text);
     });
     page.on("pageerror", (err: Error) => record("page-error", `${err.name}: ${err.message}`));
     page.on("crash", () => record("page-error", "page crashed"));
@@ -1995,6 +2023,13 @@ async function verifyCommand(raw: string[]): Promise<number> {
     const projectDir = resolve(args.dir);
     const checkpoints: Checkpoint[] = [{ name: "start", t: Date.now() }];
 
+    // Only an explicitly headed local launch needs a display. Refuse before Playwright or Vite setup so
+    // this path cannot leave a server behind; a remote endpoint owns its browser and its display.
+    if (args.headed && !args.connect && !headedLaunchAvailable(process.platform, process.env)) {
+        reportError(noDisplayMessage(), args.json);
+        return EXIT_NO_DISPLAY;
+    }
+
     const pw = await importPlaywright(projectDir);
     if (!pw) {
         reportError(
@@ -2028,14 +2063,6 @@ async function verifyCommand(raw: string[]): Promise<number> {
     checkpoints.push({ name: "server boot", t: Date.now() });
     const url = buildUrl(booter.url, args.query);
 
-    // No display, no headed launch, and headless reaches only a software adapter — refuse by name here
-    // rather than launching into one and reporting the adapter as the finding. A remote browser
-    // (--connect) is launched on its own host, so this host's display says nothing about it.
-    if (!args.connect && !headedLaunchAvailable(process.platform, process.env)) {
-        reportError(noDisplayMessage(), args.json);
-        return EXIT_NO_DISPLAY;
-    }
-
     let browser: Browser | undefined;
     let result: Result | undefined;
     const batchResults: Result[] = [];
@@ -2050,18 +2077,10 @@ async function verifyCommand(raw: string[]): Promise<number> {
             browser = args.connect
                 ? await chromium.connect(args.connect, { timeout: 30_000 })
                 : await chromium.launch({
-                      // Headed, always. A headless launch reaches only a software rasterizer (measured
-                      // 2026-09-08: headed `nvidia / lovelace`, headless `google / swiftshader` under
-                      // every WebGPU flag set tried), which the display gate below refuses — so headless
-                      // is not a cheaper mode, it is a mode that cannot verify. It also fixes the rAF
-                      // sampler: a display-less frame clock has no real compositor/vsync, so its
-                      // timestamps undershoot real block durations (probed: 90ms→66.7ms, 120ms→100ms,
-                      // below ~90ms never reported). A browser window appears on the session's display
-                      // for the run's duration; `headedLaunchAvailable` refuses above when there is none.
-                      headless: false,
-                      // the published real-GPU recipe (`src/harness/browser.ts`) — its JSDoc carries the
-                      // headless-shell/SwiftShader finding this channel exists to avoid.
-                      ...REAL_GPU_LAUNCH,
+                      // Full Chromium is deliberate: the stripped headless-shell is software-only. The
+                      // public default is headless; display/compositor callers opt into a visible window
+                      // with --headed while retaining the same channel and WebGPU flags.
+                      ...localLaunchOptions(args.headed),
                   });
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -2072,11 +2091,11 @@ async function verifyCommand(raw: string[]): Promise<number> {
             return EXIT_NO_PLAYWRIGHT;
         }
 
-        // The display gate: probe the adapter identity on a throwaway page before running any check —
+        // The hardware gate: probe the adapter identity on a throwaway page before running any check —
         // refuse a software adapter outright rather than let it clear the feature/limit floor and then
         // die mid-run. Refuse, not skip: this CLI is a user-invoked verifier, so a silent zero-exit here
-        // would be the same class of lie in the other direction — a caller that wants skip-on-no-display
-        // (this repo's own wrappers, `skipReason()`) owns that decision itself, upstream of this CLI.
+        // would be the same class of lie in the other direction. Callers with a display-specific claim
+        // retain their own explicit headed precheck upstream of this CLI.
         // One probe covers both the single-run and batch paths below (the adapter is a property of this
         // browser session, not of any one run). Navigates to the booted URL first: `requestAdapter`
         // returns no adapter at all on an opaque `about:blank` origin (measured), the same real page load

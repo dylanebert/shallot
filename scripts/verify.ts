@@ -1,13 +1,15 @@
 import { resolve } from "node:path";
 
-// Shared thin wrapper the repo bench/flows scripts drive the shipped gate through. `shallot verify` boots
-// the target (an ejected vite app — the gym or a flow project), picks its own port, runs the published
-// `window.__harness` in a real browser, and prints a JSON Result under `--json`. These scripts spawn it,
-// pull that JSON off stdout, and interpret it — no server boot, no port logic, no Playwright here.
+// Shared thin wrapper the repo bench/flows scripts drive the generated public gate through. `shallot
+// verify` boots the target (an ejected vite app — the gym or a flow project), picks its own port, runs the
+// published `window.__harness` in a real browser, and prints a JSON Result under `--json`. These scripts
+// spawn it, pull that JSON off stdout, and interpret it — no server boot, no port logic, no Playwright here.
 
 const repoRoot = resolve(import.meta.dir, "..");
 export const REPO_ROOT = repoRoot;
-export const CLI = resolve(repoRoot, "packages/shallot-cli/bin/cli.ts");
+// Producers must run first: this is the public projection that an installed bin mirrors, not the
+// canonical package source whose relative imports and generated publication can diverge.
+export const CLI = resolve(repoRoot, "packages/shallot/bin/cli.ts");
 
 /** one named check inside a verify Verdict (the published protocol's shape on the wire). */
 export interface Check {
@@ -170,10 +172,9 @@ export interface ShaderArtifactSummary {
     messages?: Array<{ type: string; message: string; lineNum: number; linePos: number }>;
 }
 
-// verify drives a headed browser against local hardware, so its one prerequisite is a display: on Linux
-// a session with neither DISPLAY nor WAYLAND_DISPLAY has no headed launch and therefore no conformant
-// adapter (measured: headless Chrome falls back to a software rasterizer, which misses the device floor).
-// Returns a human reason to skip, or null to proceed.
+// Repository drivers retain an explicit headed/display-dependent boundary for their incumbent claims,
+// so their own precheck remains separate from the public verifier's default hardware refusal. Returns a
+// human reason to skip for those legacy owners, or null to proceed.
 export function skipReason(): string | null {
     if (process.platform === "linux" && !(process.env.DISPLAY || process.env.WAYLAND_DISPLAY)) {
         return "no display";

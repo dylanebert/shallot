@@ -507,7 +507,7 @@ async function sweep(names: string[], args: Args): Promise<boolean> {
         !(process.env.SHALLOT_DISPLAY_REQUIRED === "1" && population.unavailable > 0);
 
     for (const group of groupByTimeout(batch, args.timeoutMs)) {
-        const extra = [...queryFlags(shared), ...(args.memory ? ["--memory"] : [])];
+        const extra = ["--headed", ...queryFlags(shared), ...(args.memory ? ["--memory"] : [])];
         if (group.timeoutMs != null) extra.push("--timeout", String(group.timeoutMs));
         const outcome = await verifyBatch(
             GYM,
@@ -535,6 +535,7 @@ async function sweep(names: string[], args: Args): Promise<boolean> {
 
     for (const name of isolate) {
         const extra = [
+            "--headed",
             ...queryFlags([...shared, `scenario=${name}`]),
             // stress's CPU-memory probe is its own gate, not the informational leak sampler — always on.
             ...(name === "stress" ? ["--alloc"] : args.memory ? ["--memory"] : []),
@@ -625,6 +626,7 @@ async function main(): Promise<void> {
     query.push(...args.params);
 
     const extra = [
+        "--headed",
         ...queryFlags(query),
         // the stress CPU-memory axis drives its own no-forced-GC allocation probe (window.__probeAlloc); its
         // parallel forced GCs would corrupt that window, so swap the always-on retained sampler for the probe.

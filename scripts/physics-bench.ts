@@ -8,7 +8,7 @@ import { type Check, queryFlags, skipReason, verify } from "./verify";
 const { SMALL_N } = await import("../packages/shallot-runtime/src/standard/avbd/step");
 
 // physics-bench — the standing perf + scaling-robustness surface for the AVBD solver. Drives the §6 gym
-// physics scenarios headless, one isolated page per cell (fresh vite server + GPU), and reads each scenario's
+// physics scenarios with explicit headed mode, one isolated page per cell (fresh vite server + GPU), and reads each scenario's
 // `measured` reporter (a structured `Check.data` payload — the per-step GPU spans, the dispatch count, the
 // store size, the fall-through signals). Three outputs:
 //
@@ -125,6 +125,7 @@ async function runUrl(
         const res = await verify(
             "examples/gym",
             [
+                "--headed",
                 ...queryFlags([...query.split("&"), `warmup=${WARMUP}`, `frames=${FRAMES}`]),
                 "--memory",
                 "--timeout",

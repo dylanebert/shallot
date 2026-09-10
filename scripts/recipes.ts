@@ -89,6 +89,7 @@ const RECIPES: Recipe[] = rosterFrom([...dynamicDirs, ...STATIC_REASONS.keys()],
 async function runRecipe(r: Recipe): Promise<boolean> {
     console.log(`\n--- ${r.dir} ---`);
     const result = await verify(`examples/recipes/${r.dir}`, [
+        "--headed",
         "--timeout",
         String(r.timeoutMs ?? 60_000),
     ]);
