@@ -9,20 +9,25 @@ const BASE = { claim: "base", class: "pure", tier: "step", premises: [], budget:
 check(
     "a declaration missing a field refuses",
     {
-        claim: "check() refuses a declaration missing any of claim, class, tier, premises, budget",
-        class: "pure",
+        claim: "check() requires claim and tier while deriving class, premises and budget defaults",
         tier: "step",
-        premises: [],
         budget: 100,
     },
     () => {
-        for (const field of ["claim", "class", "tier", "premises", "budget"]) {
+        for (const field of ["claim", "tier"]) {
             const partial: Record<string, unknown> = { ...BASE };
             delete partial[field];
             expect(() => validateDeclaration("here", partial)).toThrow(
                 `invalid declaration: here is missing \`${field}\``,
             );
         }
+        expect(validateDeclaration("here", { claim: "browser", tier: "browser" })).toEqual({
+            claim: "browser",
+            class: "process",
+            tier: "browser",
+            premises: [],
+            budget: 20000,
+        });
         expect(() => validateDeclaration("here", BASE)).not.toThrow();
     },
 );
@@ -30,10 +35,8 @@ check(
 check(
     "a declaration outside the class and tier vocabulary refuses",
     {
-        claim: "check() refuses a class or tier outside the four classes and six tiers",
-        class: "pure",
+        claim: "check() refuses a class or tier outside the four classes and six tiers, and rejects tier contradictions",
         tier: "step",
-        premises: [],
         budget: 100,
     },
     () => {
@@ -43,12 +46,24 @@ check(
         expect(() => validateDeclaration("here", { ...BASE, tier: "smoke" })).toThrow(
             "has tier `smoke`",
         );
-        for (const value of ["pure", "process", "seat", "oracle"]) {
-            expect(() => validateDeclaration("here", { ...BASE, class: value })).not.toThrow();
+        for (const [tier, className] of Object.entries({
+            step: "pure",
+            gpu: "seat",
+            browser: "process",
+            headed: "seat",
+            built: "process",
+            live: "oracle",
+        })) {
+            expect(() =>
+                validateDeclaration("here", { claim: "base", tier, class: className }),
+            ).not.toThrow();
         }
-        for (const value of ["step", "gpu", "browser", "headed", "built", "live"]) {
-            expect(() => validateDeclaration("here", { ...BASE, tier: value })).not.toThrow();
-        }
+        expect(() => validateDeclaration("here", { ...BASE, class: "process" })).toThrow(
+            "contradicts tier `step`",
+        );
+        expect(() => validateDeclaration("here", { ...BASE, budget: 1001 })).toThrow(
+            "above the step ceiling of 1000ms",
+        );
     },
 );
 
@@ -56,9 +71,7 @@ check(
     "a bad premises list or budget refuses",
     {
         claim: "check() refuses non-string premises and a budget that is not a positive finite number",
-        class: "pure",
         tier: "step",
-        premises: [],
         budget: 100,
     },
     () => {
@@ -80,10 +93,7 @@ check(
     "the declared budget is the runner timeout",
     {
         claim: "check() passes the declared budget to the runner, so a body that overruns it fails as a timeout",
-        class: "process",
-        tier: "step",
-        premises: [],
-        budget: 1000,
+        tier: "built",
     },
     () => {
         const root = resolve(import.meta.dir, "../..");
@@ -109,9 +119,7 @@ check(
     "the public import path resolves",
     {
         claim: "check() is reachable at @dylanebert/shallot/harness/check, the path an extension imports",
-        class: "pure",
         tier: "step",
-        premises: [],
         budget: 100,
     },
     () => {

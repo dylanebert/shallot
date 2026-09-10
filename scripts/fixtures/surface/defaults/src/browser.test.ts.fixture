@@ -1,0 +1,3 @@
+import { check } from "@dylanebert/shallot/harness/check";
+
+check("browser defaults", { claim: "browser defaults", tier: "browser" }, () => {});

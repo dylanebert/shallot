@@ -45,10 +45,7 @@ check(
     "a low-friction box slides off the ramp while a high-friction box holds",
     {
         claim: "Body.friction makes a low-friction box leave the ramp while a high-friction box holds",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     async () => {
         const state = await headlessRecipeState();

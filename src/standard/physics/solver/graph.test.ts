@@ -13,10 +13,7 @@ const { Static, Kinematic, Dynamic } = BodyType;
 check(
     "dynamic-dynamic pairs pack into the lowest non-conflicting color",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "the constraint graph puts two dynamic-dynamic pairs sharing a body in one color, so the colored solver would write the same body from two constraints in the same batch",
     },
     () => {
@@ -37,10 +34,7 @@ check(
 check(
     "a dynamic body saturating every dynamic color spills to overflow",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "a dynamic body already present in every dynamic graph color takes one more constraint into a color instead of the overflow batch, so that constraint would race its own body",
     },
     () => {
@@ -57,10 +51,7 @@ check(
 check(
     "dynamic-static constraints build from the high end, tracking only the dynamic body",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "dynamic-static constraints are colored from the low end or record the static body in the color's body set, so static-anchored constraints would crowd the dynamic-dynamic colors and false-conflict on a shared static body",
     },
     () => {
@@ -78,10 +69,7 @@ check(
 check(
     "the static side is symmetric on body B",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "the graph colorer handles a static body only in the A slot, so a static-A/dynamic-B constraint would be colored as if both sides were dynamic",
     },
     () => {
@@ -95,10 +83,7 @@ check(
 check(
     "kinematic bodies color like static ones (only the dynamic bit is tracked)",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "a kinematic body is colored on the dynamic-dynamic branch, so kinematic-anchored constraints would occupy the low colors and conflict with real dynamic pairs",
     },
     () => {

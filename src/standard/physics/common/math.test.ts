@@ -107,10 +107,7 @@ check(
     "atan2 sweep is bit-exact vs the C reference",
     {
         claim: "the physics atan2 polynomial drifts from the Box3D C reference by at least one f32 bit somewhere on the quadrant sweep",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         expect(g.atan2.length).toBeGreaterThan(0);
@@ -124,10 +121,7 @@ check(
     "computeCosSin sweep is bit-exact vs the C reference",
     {
         claim: "the physics computeCosSin approximation drifts from the Box3D C reference by at least one f32 bit on the angle sweep",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         expect(g.cosSin.length).toBeGreaterThan(0);
@@ -143,10 +137,7 @@ check(
     "vec/quat/matrix/transform gold cases are bit-exact",
     {
         claim: "one of the vec3, quat, mat2, mat3 or transform ports returns different f32 bits than the recorded Box3D C reference case",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         expect(g.cases.length).toBeGreaterThan(20);
@@ -172,10 +163,7 @@ check(
     "atan2 tracks libm within 0.0023 degrees",
     {
         claim: "the physics atan2 approximation is not merely imprecise but wrong in quadrant or branch, exceeding its 4e-5 radian tolerance against libm",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const AtanTol = 4e-5;
@@ -192,10 +180,7 @@ check(
     "computeCosSin tracks libm within 0.002",
     {
         claim: "the physics computeCosSin range reduction misplaces an angle outside the primary period, exceeding 0.002 absolute error against libm",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         for (let t = -10; t < 10; t += 0.05) {
@@ -211,10 +196,7 @@ check(
     "vec3.normalize yields unit length",
     {
         claim: "vec3.normalize divides by the wrong magnitude, so the result is not unit length within four float epsilons",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const u = m.vec3.normalize({ x: 0.2, y: -0.5, z: 3.0 });
@@ -226,10 +208,7 @@ check(
     "transform point round-trips through its inverse",
     {
         claim: "xf.invPoint does not undo xf.point, so the rotation is applied before instead of after the translation",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const axis = m.vec3.normalize({ x: 0.3, y: -0.7, z: 0.5 });
@@ -246,10 +225,7 @@ check(
     "mat3 times its inverse is identity",
     {
         claim: "mat3.invert or mat3.mul transposes a column or drops a cofactor, so their product is not the identity",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const mat: Mat3 = {
@@ -271,10 +247,7 @@ check(
     "mat3.solve agrees with invert then multiply",
     {
         claim: "mat3.solve's Cramer determinants disagree with inverting the same matrix and multiplying, so the solver picks a wrong column",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const mat: Mat3 = {
@@ -295,10 +268,7 @@ check(
     "quat compose then decompose recovers the operand",
     {
         claim: "quat.invMul is not the left inverse of quat.mul, so a relative rotation conjugates the wrong operand",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const q1 = m.quat.fromAxisAngle(m.vec3.axisZ(), -0.5 * Math.PI);
@@ -315,10 +285,7 @@ check(
     "computeQuatBetweenUnitVectors rotates the first onto the second",
     {
         claim: "computeQuatBetweenUnitVectors builds a rotation that lands v1 somewhere other than v2, or returns a non-finite quaternion",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const v1 = m.vec3.normalize({ x: 0.2, y: -0.5, z: 3.0 });
@@ -336,10 +303,7 @@ check(
     "nlerp twist angle tracks alpha across a 90 degree turn",
     {
         claim: "quat.nlerp or quat.getTwistAngle is non-monotonic in alpha across a quarter turn about z, straying more than a degree from the interpolated angle",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const q1 = m.quat.identity();
@@ -356,10 +320,7 @@ check(
     "arbitraryPerp is orthogonal to its input",
     {
         claim: "arbitraryPerp returns a vector with a nonzero dot against its input, so contact tangent frames would be skewed",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const n = { x: 0.50405544, y: 0.621548057, z: 0.599671543 };
@@ -371,10 +332,7 @@ check(
     "scalar min and max mirror the C branches, not Math.min/max",
     {
         claim: "minf or maxf delegates to Math.min/Math.max, so NaN poisons the result and signed zero orders the wrong way",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         // minf(NaN, b) === b (Math.min would be NaN); minf(-0, +0) === +0.

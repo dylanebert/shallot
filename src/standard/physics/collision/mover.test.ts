@@ -28,10 +28,7 @@ check(
     "solvePlanes converges two parallel planes in two iterations",
     {
         claim: "the mover plane solver stops converging on an easy pair of parallel planes, burning iterations or landing short of the deeper plane",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const planes = [rigidPlane(v(0, 0, 1), 0.5), rigidPlane(v(0, 0, 1), 1.0)];
@@ -45,10 +42,7 @@ check(
     "solvePlanes spends the full twenty iterations on a deep target",
     {
         claim: "the mover plane solver's iteration ceiling stops holding, so a deeply penetrating target exits early or runs unbounded",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const planes = [
@@ -67,10 +61,7 @@ check(
     "a mover clear of a sphere reports no collision plane",
     {
         claim: "mover-versus-sphere invents a contact plane for a mover nowhere near the sphere, so a character snags on empty space",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const shape: Sphere = { center: v(0, 0, 0), radius: 0.5 };
@@ -83,10 +74,7 @@ check(
     "a mover touching a sphere is pushed straight out by the overlap depth",
     {
         claim: "mover-versus-sphere returns an unnormalized normal, the wrong push direction, or a depth other than the actual overlap on a shallow touch",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const shape: Sphere = { center: v(0, 0, 0), radius: 0.5 };
@@ -104,10 +92,7 @@ check(
     "a mover concentric with a sphere falls back to a perpendicular normal at full depth",
     {
         claim: "mover-versus-sphere degenerates when the mover axis runs through the sphere centre, emitting a zero or axis-aligned-with-the-mover normal instead of the perpendicular fallback at the combined radius",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const shape: Sphere = { center: v(0, 0, 0), radius: 0.5 };
@@ -129,10 +114,7 @@ check(
     "a mover clear of a capsule reports no collision plane",
     {
         claim: "mover-versus-capsule invents a contact plane for a mover well above the capsule, so a character snags on empty space",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const mover: Capsule = { center1: v(-1, 5, 0), center2: v(1, 5, 0), radius: 0.2 };
@@ -144,10 +126,7 @@ check(
     "a mover touching a capsule is pushed straight out by the overlap depth",
     {
         claim: "mover-versus-capsule returns an unnormalized normal, the wrong push direction, or a depth other than the actual overlap on a shallow touch",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const mover: Capsule = { center1: v(-1, 0.4, 0), center2: v(1, 0.4, 0), radius: 0.2 };
@@ -164,10 +143,7 @@ check(
     "crossing capsule core segments fall back to a normal perpendicular to both axes",
     {
         claim: "mover-versus-capsule picks a normal in the plane of two crossing core segments instead of the mutual perpendicular, so a crossed character is pushed along a shape axis",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const mover: Capsule = { center1: v(0, 0, -1), center2: v(0, 0, 1), radius: 0.2 };
@@ -185,10 +161,7 @@ check(
     "coincident capsule axes fall back to a perpendicular of the mover axis",
     {
         claim: "mover-versus-capsule degenerates when both core segments lie on the same axis, emitting a zero or along-axis normal instead of a perpendicular at the combined radius",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const mover: Capsule = { center1: v(-1, 0, 0), center2: v(1, 0, 0), radius: 0.2 };
@@ -207,10 +180,7 @@ check(
     "a mover clear of a box hull reports no collision plane",
     {
         claim: "mover-versus-hull invents a contact plane for a mover far above the box, so a character snags on empty space",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const mover: Capsule = { center1: v(-0.3, 5, 0), center2: v(0.3, 5, 0), radius: 0.2 };
@@ -222,10 +192,7 @@ check(
     "a mover touching a box hull's +Y face is pushed up by the overlap depth",
     {
         claim: "mover-versus-hull returns an unnormalized normal, a push that is not the touched face normal, or a depth other than the actual overlap",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const mover: Capsule = { center1: v(-0.3, 0.6, 0), center2: v(0.3, 0.6, 0), radius: 0.2 };
@@ -242,10 +209,7 @@ check(
     "a mover buried inside a box hull is dropped rather than given a zero normal",
     {
         claim: "mover-versus-hull emits a plane with a degenerate zero normal for a mover fully inside the box instead of dropping the contact",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const mover: Capsule = { center1: v(-0.2, 0, 0), center2: v(0.2, 0, 0), radius: 0.1 };

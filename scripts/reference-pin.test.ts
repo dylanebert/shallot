@@ -38,10 +38,7 @@ check(
     "the shipped solver fixtures carry the declared Box3D commit",
     {
         claim: "check-reference-pin.ts passes only when the committed Box3D reference commit equals the solver fixture generator record",
-        class: "process",
-        tier: "step",
-        premises: [],
-        budget: 1000,
+        tier: "built",
     },
     () => {
         const result = run(ROOT);
@@ -55,10 +52,7 @@ check(
     "editing the reference commit reds the freshness reader",
     {
         claim: "check-reference-pin.ts reds when reference.json is changed without regenerating the solver fixtures",
-        class: "process",
-        tier: "step",
-        premises: [],
-        budget: 1000,
+        tier: "built",
     },
     () => {
         const tree = seed(RECORDED);

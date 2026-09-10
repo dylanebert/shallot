@@ -9,10 +9,7 @@ check(
     "storeId after loadId is the identity on a packed id",
     {
         claim: "the entity id packing loses or reorders bits on a full round trip through loadId and storeId",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const x = 0x0123456789abcdefn;
@@ -24,10 +21,7 @@ check(
     "id fields decode from the u64 layout",
     {
         claim: "loadId reads index1, world0 or generation from the wrong bit field of the packed u64",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const id = loadId(0x0123456789abcdefn);
@@ -41,10 +35,7 @@ check(
     "a high-bit index1 sign-extends and still round-trips",
     {
         claim: "an index1 with its top bit set fails to sign-extend on load, so a negative index round-trips as a large positive one",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const id = { index1: -1, world0: 0x1234, generation: 0x5678 };
@@ -56,10 +47,7 @@ check(
     "the id pool hands out dense ids and reuses freed ones last in first out",
     {
         claim: "the id pool leaves holes in its dense range, miscounts live ids against capacity, or recycles freed ids in the wrong order",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const pool = createIdPool();

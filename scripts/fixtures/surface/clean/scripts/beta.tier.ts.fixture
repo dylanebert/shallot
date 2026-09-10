@@ -1,3 +1,3 @@
 import { check } from "@dylanebert/shallot/harness/check";
 
-check("beta builds", { claim: "beta builds", class: "process", tier: "built", premises: [], budget: 30000 }, () => {});
+check("beta builds", { claim: "beta builds", tier: "built" }, () => {});

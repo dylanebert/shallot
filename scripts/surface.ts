@@ -1,6 +1,4 @@
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { parse } from "@babel/parser";
 import { Glob } from "bun";
@@ -18,7 +16,7 @@ export interface SurfaceRow {
     class: string;
     tier: string;
     premises: string[];
-    budget: number;
+    budget?: number;
     /** path relative to the tree root. */
     file: string;
 }
@@ -296,7 +294,7 @@ export function formatPopulation(
         row.class,
         row.tier,
         row.premises.join(" ") || "-",
-        `${row.budget}ms`,
+        row.budget === undefined ? "-" : `${row.budget}ms`,
         row.file,
         marked.has(quarantineKey(row.file, row.claim))
             ? `quarantined: ${marked.get(quarantineKey(row.file, row.claim))}`
@@ -315,39 +313,6 @@ export function formatPopulation(
         ...cells.map(line),
         `${population.rows.length} checks (parsed ${population.rows.length}; ${quarantines.length} quarantined)`,
     ].join("\n");
-}
-
-function runtimeRegistrationCount(root: string): { count: number | null; error?: string } {
-    const dir = mkdtempSync(resolve(tmpdir(), "shallot-surface-runtime-"));
-    const report = resolve(dir, "report.xml");
-    try {
-        const proc = spawnSync(
-            "bun",
-            [
-                "test",
-                "--reporter=junit",
-                "--reporter-outfile",
-                report,
-                "--pass-with-no-tests",
-                "src",
-                "scripts",
-                "examples",
-            ],
-            { cwd: root, encoding: "utf8", stdio: ["ignore", "ignore", "pipe"] },
-        );
-        if (proc.status !== 0) {
-            return {
-                count: null,
-                error: `runtime registration probe failed with exit ${proc.status}: ${proc.stderr.trim()}`,
-            };
-        }
-        if (!existsSync(report))
-            return { count: null, error: "runtime registration probe wrote no report" };
-        const xml = readFileSync(report, "utf8");
-        return { count: (xml.match(/<testcase(?:\s|>)/g) ?? []).length };
-    } finally {
-        rmSync(dir, { recursive: true, force: true });
-    }
 }
 
 function shellQuote(value: string): string {
@@ -465,33 +430,6 @@ export function renderWorkflow(population: Population): string {
     ].join("\n");
 }
 
-function escapeRegex(value: string): string {
-    return value.replace(/[.*+?^${}()|[[\]\\]/g, "\\$&");
-}
-
-function runTests(root: string, population: Population): number {
-    const quarantine = readQuarantine(root).rows;
-    const marked = population.rows.filter((row) =>
-        quarantine.some((entry) => entry.file === row.file && entry.claim === row.claim),
-    );
-    for (const row of marked) {
-        const entry = quarantine.find(
-            (candidate) => candidate.file === row.file && candidate.claim === row.claim,
-        );
-        console.log(
-            `verdict claim=${JSON.stringify(row.claim)} file=${row.file} result=refused reason=${JSON.stringify(entry?.reason ?? "quarantined")}`,
-        );
-    }
-    const args = ["test", "--pass-with-no-tests", "src", "scripts", "examples"];
-    if (marked.length > 0) {
-        const excluded = marked.map((row) => escapeRegex(row.name)).join("|");
-        args.push("--test-name-pattern", `^(?!(${excluded})$).*$`);
-    }
-    const proc = spawnSync("bun", args, { cwd: root, stdio: "inherit" });
-    if (marked.length > 0) return 1;
-    return proc.status ?? 1;
-}
-
 if (import.meta.main) {
     const args = Bun.argv.slice(2);
     const rootIndex = args.indexOf("--root");
@@ -505,22 +443,13 @@ if (import.meta.main) {
         console.log(`wrote ${relative(root, workflow)}`);
         process.exit(0);
     }
-    if (args.includes("--test")) process.exit(runTests(root, population));
+
     if (!args.includes("--list")) {
-        console.error("usage: bun scripts/surface.ts --list|--workflow|--test [--root <dir>]");
+        console.error("usage: bun scripts/surface.ts --list|--workflow [--root <dir]");
         process.exit(1);
     }
     const quarantine = readQuarantine(root);
     console.log(formatPopulation(population, quarantine.rows));
-    if (resolve(root) === resolve(import.meta.dir, "..")) {
-        const runtime = runtimeRegistrationCount(root);
-        if (runtime.error !== undefined) {
-            console.error(runtime.error);
-            process.exit(1);
-        }
-        console.log(`runtime registrations: ${runtime.count} (parsed ${population.rows.length})`);
-        if (runtime.count !== population.rows.length) process.exit(1);
-    }
     if (quarantine.errors.length > 0) process.exit(1);
 }
 

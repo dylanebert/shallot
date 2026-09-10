@@ -131,10 +131,7 @@ check(
     "collideSpheres matches the C reference manifold bit for bit",
     {
         claim: "the sphere-sphere manifold drifts from the pinned Box3D C reference on point count, normal, contact point, separation or feature id",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         for (const scene of gold.spheres) {
@@ -152,10 +149,7 @@ check(
     "collideCapsuleAndSphere matches the C reference manifold bit for bit",
     {
         claim: "the capsule-sphere manifold drifts from the pinned Box3D C reference on point count, normal, contact point, separation or feature id",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         for (const scene of gold.capsuleSphere) {
@@ -173,10 +167,7 @@ check(
     "collideHullAndSphere matches the C reference manifold across repeated warm calls",
     {
         claim: "the hull-sphere manifold drifts from the pinned Box3D C reference, or its warm simplex cache changes the answer on the second call for the same pose",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         for (const scene of gold.hullSphere) {
@@ -197,10 +188,7 @@ check(
     "collideCapsules matches the C reference manifold bit for bit",
     {
         claim: "the capsule-capsule manifold drifts from the pinned Box3D C reference on point count, normal, contact point, separation or feature id",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         for (const scene of gold.capsules) {
@@ -218,10 +206,7 @@ check(
     "collideHullAndCapsule matches the C reference manifold across repeated warm calls",
     {
         claim: "the hull-capsule manifold drifts from the pinned Box3D C reference, or its warm simplex cache changes the answer on the second call for the same pose",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         for (const scene of gold.hullCapsule) {
@@ -242,10 +227,7 @@ check(
     "collideHulls matches the C reference manifold and SAT cache across repeated warm calls",
     {
         claim: "the hull-hull SAT and clipping path drifts from the pinned Box3D C reference on the clipped manifold or on the separating-feature cache it warms for the next call",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         for (const scene of gold.hulls) {
@@ -267,10 +249,7 @@ check(
     "collideSphereAndTriangle matches the C reference manifold bit for bit",
     {
         claim: "the sphere-triangle manifold drifts from the pinned Box3D C reference on its manifold or on the triangle feature mesh-contact reduction reads",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         for (const scene of gold.sphereTriangle) {
@@ -287,10 +266,7 @@ check(
     "collideCapsuleAndTriangle matches the C reference manifold across repeated warm calls",
     {
         claim: "the capsule-triangle manifold drifts from the pinned Box3D C reference on its manifold, its triangle feature, or under its own warm simplex cache",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         for (const scene of gold.capsuleTriangle) {
@@ -310,10 +286,7 @@ check(
     "collideHullAndTriangle matches the C reference manifold and SAT cache across repeated warm calls",
     {
         claim: "the hull-triangle manifold drifts from the pinned Box3D C reference on its manifold, its triangle feature, or on the separating-feature cache it warms",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         for (const scene of gold.hullTriangle) {
@@ -334,10 +307,7 @@ check(
     "two unit cubes overlapping by 0.1 give a four-point face manifold",
     {
         claim: "hull-hull face clipping loses a corner or mis-scales penetration, so a 0.1 box-box overlap stops producing four points each separated by about -0.1",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         // Analytic invariant from Box3D's LargeWorldManifoldTest (float path).
@@ -360,10 +330,7 @@ check(
     "pointToSegmentDistance projects inside and clamps to the endpoints",
     {
         claim: "pointToSegmentDistance fails to clamp a query beyond either end of the segment, returning an extrapolated point instead of the endpoint itself",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const a = v(0, 0, 0);
@@ -379,10 +346,7 @@ check(
     "lineDistance finds the closest points on two skew lines",
     {
         claim: "lineDistance solves the wrong pair on two skew infinite lines, so the capsule and edge-edge paths built on it pick the wrong closest points",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         // Line 1 along x through origin; line 2 along y through (0,0,1). Closest points are the
@@ -398,10 +362,7 @@ check(
     "isWithinSegments rejects an out-of-range fraction",
     {
         claim: "isWithinSegments accepts a fraction outside [0,1], letting an infinite-line solution be used as if it lay on the finite segments",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         expect(
