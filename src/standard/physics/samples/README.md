@@ -22,7 +22,7 @@ at the first divergent step. That is the oracle the earlier examples port lacked
 ## Mint recipe
 
 ```
-bun run rust/physics/scripts/gen-sample-golds.ts     # from the repo root
+bun run crates/physics/scripts/gen-sample-golds.ts     # from the repo root
 ```
 
 - **Defaults** (`defaultContext()`): 60 Hz (timeStep 1/60), 4 substeps, gravity (0, -10, 0), sleep on,
@@ -41,7 +41,7 @@ bun run rust/physics/scripts/gen-sample-golds.ts     # from the repo root
 **The source project is retired** (upstream was deorbited when its engine folded into shallot, 2026-07),
 so regeneration is no longer possible: these golds are **frozen truth**, the same status as the C fixtures —
 never hand-edit or re-mint; a mismatch is an engine or authoring bug, never a gold to adjust. The source
-commit above is historical provenance. `rust/physics/scripts/gen-sample-golds.ts` is kept as the mint's recipe
+commit above is historical provenance. `crates/physics/scripts/gen-sample-golds.ts` is kept as the mint's recipe
 record; run without the retired checkout it errors honestly. The committed golds carry the whole contract —
 no checkout ever needs the source corpus to run the ported scenarios' oracle.
 

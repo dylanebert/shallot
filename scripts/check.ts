@@ -14,6 +14,7 @@ const arms: [string, string[]][] = [
         ["bun", resolve(import.meta.dir, file)],
     ]),
     ["scene format", ["bun", resolve(import.meta.dir, "format.ts"), "--check"]],
+    ["cargo fmt", ["cargo", "fmt", "--all", "--check"]],
 ];
 
 for (const [name, command] of arms) {

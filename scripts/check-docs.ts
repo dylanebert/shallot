@@ -63,7 +63,7 @@ async function checkExists(pkgPaths: string[]): Promise<{ detail: string }[]> {
 }
 
 /** Engine `files` entries written at build or pack time: tooling bundles and audio wasm. */
-const PRODUCED = ["dist", "rust/audio/pkg"];
+const PRODUCED = ["dist", "crates/audio/pkg"];
 
 /** Every declared bin and positive files entry must exist or have a pack producer. */
 async function checkRealization(root: string): Promise<string[]> {

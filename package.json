@@ -68,8 +68,8 @@
     "files": [
         "src",
         "bin",
-        "rust/audio/pkg",
-        "rust/native",
+        "crates/audio/pkg",
+        "crates/native",
         "assets/icon-1024.png",
         "dist",
         "examples/recipes",
@@ -96,7 +96,7 @@
         "build": "bun run ./scripts/build.ts",
         "check": "bun run scripts/check.ts",
         "format": "biome check --write && bun run scripts/format.ts",
-        "test": "bun test --pass-with-no-tests src scripts",
+        "test": "cargo test --workspace --exclude shallot-native --quiet && bun test --pass-with-no-tests src scripts",
         "test:install": "bun run scripts/install-test.ts",
         "assets": "bun run scripts/assets.ts",
         "prepack": "bun run ./scripts/tooling.ts"

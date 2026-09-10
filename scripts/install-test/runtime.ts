@@ -162,9 +162,9 @@ export function inspectRuntime(shipped: string): void {
     });
     const outputs = [
         ...sources,
-        "rust/audio/pkg/shallot_audio.js",
-        "rust/audio/pkg/shallot_audio.d.ts",
-        "rust/audio/pkg/shallot_audio.wasm",
+        "crates/audio/pkg/shallot_audio.js",
+        "crates/audio/pkg/shallot_audio.d.ts",
+        "crates/audio/pkg/shallot_audio.wasm",
     ].sort();
     assert(outputs.includes("src/types/env.d.ts"));
     for (const file of outputs)

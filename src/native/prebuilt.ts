@@ -78,13 +78,13 @@ export function resolvePrebuiltDecision(
     }
 }
 
-// Archive contract (pinned in the spec's Approach): one shallot-window-<target>-<mode>.tar.gz per
+// Archive contract (pinned in the spec's Approach): one shallot-native-<target>-<mode>.tar.gz per
 // matrix cell, plus a top-level SHA256SUMS asset covering all archives. URL derived from the version
 // tag — no new version site for check-versions.ts.
 const GITHUB_RELEASES = "https://github.com/dylanebert/shallot/releases/download";
 
 export function prebuiltArchiveName(target: string, mode: PrebuiltMode): string {
-    return `shallot-window-${target}-${mode}.tar.gz`;
+    return `shallot-native-${target}-${mode}.tar.gz`;
 }
 
 export function prebuiltUrl(version: string, target: string, mode: PrebuiltMode): string {
@@ -227,7 +227,7 @@ export async function tryPrebuilt(
     }
 
     const cacheDir = prebuiltCacheDir(version, target, mode);
-    const binaryName = target.includes("windows") ? "shallot-window.exe" : "shallot-window";
+    const binaryName = target.includes("windows") ? "shallot-native.exe" : "shallot-native";
     const binaryPath = resolve(cacheDir, binaryName);
     // Sentinel written only after a fully successful extract, so a partial extraction (process
     // killed mid-write, disk full) is never read as a cache hit — the hit path checks this, not

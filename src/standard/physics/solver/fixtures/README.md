@@ -25,11 +25,11 @@ Default is freeze — the pin's whole value is the bit-exact contract; re-valida
 pure cost. When a box3d coherence boundary earns a sync, regenerate with the C reference as the mint instrument:
 
 ```
-bun run rust/physics/scripts/gen-fixtures.ts  # from the repo root; scene fixtures (this dir)
+bun run crates/physics/scripts/gen-fixtures.ts  # from the repo root; scene fixtures (this dir)
 bun run physics/gen-gold <name>        # canonical src/standard/physics/<dir> gold
 ```
 
-Both require the box3d C reference checked out at `../reference/box3d` relative to this repo (a `reference/box3d`
-sibling of the shallot checkout) on the `harness` branch, plus cmake and a C toolchain. Absent it, the scripts error
-honestly. Never hand-edit a fixture: it is C-generated truth, and a mismatch is an engine bug, not a fixture to
+Both build the box3d C reference pinned in `crates/physics/reference.json`, cloned on demand into
+`~/.cache/shallot/reference/` (`bun run crates/physics/scripts/reference.ts --where` prints the path), plus cmake and a
+C toolchain. Offline with no cached checkout, the scripts refuse with the remedy. Never hand-edit a fixture: it is C-generated truth, and a mismatch is an engine bug, not a fixture to
 adjust.

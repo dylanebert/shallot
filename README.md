@@ -98,7 +98,7 @@ bun install
 bun run build
 ```
 
-`build` compiles the audio wasm kernel (`rust/audio`), the `dist/` tooling and the physics kernel (`rust/physics`, inlined into committed `.wasm.ts` files; the multithreaded artifact needs a nightly toolchain and is kept as committed without one). The native window host (`rust/window`) is built per project by `shallot build --target`.
+`build` compiles the audio wasm kernel (`crates/audio`), the `dist/` tooling and the physics kernel (`crates/physics`, inlined into committed `.wasm.ts` files; the multithreaded artifact needs a nightly toolchain and is kept as committed without one). The native window host (`crates/native`) is built per project by `shallot build --target`.
 
 ### native build prerequisites
 

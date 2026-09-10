@@ -1,4 +1,4 @@
-import loadAudioWasm from "../../../rust/audio/pkg/shallot_audio.js";
+import loadAudioWasm from "../../../crates/audio/pkg/shallot_audio.js";
 import { byId, getParamPairs, type Instrument } from "./instrument";
 import { flushSamples, resetSampleUploads } from "./sample";
 import { createWorkletURL } from "./worklet";

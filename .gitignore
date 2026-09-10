@@ -1,8 +1,8 @@
 node_modules
 dist
 *.tgz
-**/rust/*/pkg/
-rust/*/target/
+/target/
+crates/*/pkg/
 .cache
 *.tsbuildinfo
 .claude/settings.local.json
