@@ -139,8 +139,8 @@ console.log("NODE_LEAF_OK");\n`,
     );
     const record = JSON.parse(readFileSync(join(shipped, "dist/cli-inputs.json"), "utf8"));
     const hash = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
-    const owner = resolve(import.meta.dir, "../../packages/shallot");
-    const tracked = Bun.spawnSync(["git", "ls-files", "--", "packages/shallot"], {
+    const owner = resolve(import.meta.dir, "../..");
+    const tracked = Bun.spawnSync(["git", "ls-files", "--", "."], {
         cwd: resolve(import.meta.dir, "../.."),
     });
     assert.equal(tracked.exitCode, 0, "canonical source inventory");
@@ -148,7 +148,7 @@ console.log("NODE_LEAF_OK");\n`,
         .toString()
         .trim()
         .split("\n")
-        .map((file) => file.replace("packages/shallot/", ""))
+        .map((file) => file.replace("", ""))
         .filter((file) =>
             /^(bin\/|src\/project\/|src\/harness\/browser\.ts$|rust\/window\/|assets\/|scripts\/build\.ts$|package\.json$)/.test(
                 file,

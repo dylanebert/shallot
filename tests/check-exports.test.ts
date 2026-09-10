@@ -13,7 +13,7 @@ import {
     resolveSpecifier,
     shouldFail,
     stripComments,
-} from "../../../scripts/check-exports";
+} from "../scripts/check-exports";
 
 // Fixture trees live under the OS tmpdir, never the repo — `--root`-style isolation so a
 // planted dead export never touches a tracked file. Each test gets its own dir; cleaned up after.
@@ -42,29 +42,29 @@ describe("canonical runtime public closure", () => {
     const entries = { ".": "./src/index.ts" };
     const make = () =>
         fixture({
-            "packages/shallot/package.json": JSON.stringify({ exports: entries }),
-            "packages/shallot/src/index.ts": "export const publicValue = 1;",
+            "package.json": JSON.stringify({ exports: entries }),
+            "src/index.ts": "export const publicValue = 1;",
         });
     test("canonical definition is public through the executable projection", async () => {
         const root = make();
-        expect(computeEntryFiles(root, entries)).toEqual(["packages/shallot/src/index.ts"]);
+        expect(computeEntryFiles(root, entries)).toEqual(["src/index.ts"]);
         expect(await findDeadExports(root)).toEqual([]);
     });
     test("missing public projection refuses despite a surviving canonical definition", () => {
         const root = make();
-        rmSync(join(root, "packages/shallot/src/index.ts"));
+        rmSync(join(root, "src/index.ts"));
         expect(() => computeEntryFiles(root, entries)).toThrow("missing runtime export projection");
     });
     test("missing canonical definition refuses despite a surviving projection", () => {
         const root = make();
-        rmSync(join(root, "packages/shallot/src/index.ts"));
+        rmSync(join(root, "src/index.ts"));
         expect(() => computeEntryFiles(root, entries)).toThrow("missing canonical runtime source");
     });
     for (const target of ["./absent", "@dylanebert/shallot/absent"]) {
         test(`unresolved public re-export refuses: ${target}`, async () => {
             const root = make();
             writeFileSync(
-                join(root, "packages/shallot/src/index.ts"),
+                join(root, "src/index.ts"),
                 `export * from ${JSON.stringify(target)};`,
             );
             await expect(findDeadExports(root)).rejects.toThrow("unresolved source re-export");
@@ -307,41 +307,41 @@ describe("extractImports", () => {
 describe("resolveSpecifier", () => {
     test("resolves a relative import to a .ts file", () => {
         const root = fixture({
-            "packages/shallot/src/module.ts": "export const foo = 1;",
-            "packages/shallot/src/consumer.ts": 'import { foo } from "./module";',
-            "packages/shallot/package.json": JSON.stringify({ exports: {} }),
+            "src/module.ts": "export const foo = 1;",
+            "src/consumer.ts": 'import { foo } from "./module";',
+            "package.json": JSON.stringify({ exports: {} }),
         });
-        const resolved = resolveSpecifier("packages/shallot/src/consumer.ts", "./module", root, {});
-        expect(resolved).toBe("packages/shallot/src/module.ts");
+        const resolved = resolveSpecifier("src/consumer.ts", "./module", root, {});
+        expect(resolved).toBe("src/module.ts");
     });
 
     test("resolves a relative import to an index.ts", () => {
         const root = fixture({
-            "packages/shallot/src/mod/index.ts": "export const foo = 1;",
-            "packages/shallot/src/consumer.ts": 'import { foo } from "./mod";',
-            "packages/shallot/package.json": JSON.stringify({ exports: {} }),
+            "src/mod/index.ts": "export const foo = 1;",
+            "src/consumer.ts": 'import { foo } from "./mod";',
+            "package.json": JSON.stringify({ exports: {} }),
         });
-        const resolved = resolveSpecifier("packages/shallot/src/consumer.ts", "./mod", root, {});
-        expect(resolved).toBe("packages/shallot/src/mod/index.ts");
+        const resolved = resolveSpecifier("src/consumer.ts", "./mod", root, {});
+        expect(resolved).toBe("src/mod/index.ts");
     });
 
     test("resolves a package import through the exports map", () => {
         const root = fixture({
-            "packages/shallot/src/index.ts": "export const foo = 1;",
-            "packages/shallot/package.json": JSON.stringify({
+            "src/index.ts": "export const foo = 1;",
+            "package.json": JSON.stringify({
                 exports: { ".": "./src/index.ts" },
             }),
         });
         const resolved = resolveSpecifier("examples/app/src/app.ts", "@dylanebert/shallot", root, {
             ".": "./src/index.ts",
         });
-        expect(resolved).toBe("packages/shallot/src/index.ts");
+        expect(resolved).toBe("src/index.ts");
     });
 
     test("resolves a package subpath through the exports map", () => {
         const root = fixture({
-            "packages/shallot/src/extras/index.ts": "export const foo = 1;",
-            "packages/shallot/package.json": JSON.stringify({
+            "src/extras/index.ts": "export const foo = 1;",
+            "package.json": JSON.stringify({
                 exports: { "./extras": "./src/extras/index.ts" },
             }),
         });
@@ -351,30 +351,30 @@ describe("resolveSpecifier", () => {
             root,
             { "./extras": "./src/extras/index.ts" },
         );
-        expect(resolved).toBe("packages/shallot/src/extras/index.ts");
+        expect(resolved).toBe("src/extras/index.ts");
     });
 
     test("resolves a wildcard ./src/* export", () => {
         const root = fixture({
-            "packages/shallot/src/engine/ecs/reflection.ts": "export const foo = 1;",
-            "packages/shallot/package.json": JSON.stringify({
+            "src/engine/ecs/reflection.ts": "export const foo = 1;",
+            "package.json": JSON.stringify({
                 exports: { "./src/*": "./src/*" },
             }),
         });
         const resolved = resolveSpecifier(
-            "packages/shallot/tests/test.test.ts",
+            "tests/test.test.ts",
             "@dylanebert/shallot/src/engine/ecs/reflection",
             root,
             { "./src/*": "./src/*" },
         );
-        expect(resolved).toBe("packages/shallot/src/engine/ecs/reflection.ts");
+        expect(resolved).toBe("src/engine/ecs/reflection.ts");
     });
 
     test("returns null for non-package, non-relative specifiers", () => {
         const root = fixture({
-            "packages/shallot/package.json": JSON.stringify({ exports: {} }),
+            "package.json": JSON.stringify({ exports: {} }),
         });
-        const resolved = resolveSpecifier("packages/shallot/src/consumer.ts", "typegpu", root, {});
+        const resolved = resolveSpecifier("src/consumer.ts", "typegpu", root, {});
         expect(resolved).toBeNull();
     });
 });
@@ -382,9 +382,9 @@ describe("resolveSpecifier", () => {
 describe("computeEntryFiles", () => {
     test("resolves named entry points to file paths", () => {
         const root = fixture({
-            "packages/shallot/src/index.ts": "export const foo = 1;",
-            "packages/shallot/src/extras/index.ts": "export const bar = 2;",
-            "packages/shallot/package.json": JSON.stringify({
+            "src/index.ts": "export const foo = 1;",
+            "src/extras/index.ts": "export const bar = 2;",
+            "package.json": JSON.stringify({
                 exports: {
                     ".": "./src/index.ts",
                     "./extras": "./src/extras/index.ts",
@@ -398,14 +398,14 @@ describe("computeEntryFiles", () => {
             "./src/*": "./src/*",
         });
         expect(entries.sort()).toEqual(
-            ["packages/shallot/src/index.ts", "packages/shallot/src/extras/index.ts"].sort(),
+            ["src/index.ts", "src/extras/index.ts"].sort(),
         );
     });
 
     test("ignores the ./src/* wildcard escape hatch", () => {
         const root = fixture({
-            "packages/shallot/src/index.ts": "export const foo = 1;",
-            "packages/shallot/package.json": JSON.stringify({
+            "src/index.ts": "export const foo = 1;",
+            "package.json": JSON.stringify({
                 exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
             }),
         });
@@ -413,72 +413,72 @@ describe("computeEntryFiles", () => {
             ".": "./src/index.ts",
             "./src/*": "./src/*",
         });
-        expect(entries).toEqual(["packages/shallot/src/index.ts"]);
+        expect(entries).toEqual(["src/index.ts"]);
     });
 });
 
 describe("computePublicSurface", () => {
     test("star re-export makes all direct exports of the source public", () => {
         const directExports = new Map([
-            ["packages/shallot/src/index.ts", new Set(["reExportedFn"])],
-            ["packages/shallot/src/module.ts", new Set(["reExportedFn", "notReExported"])],
+            ["src/index.ts", new Set(["reExportedFn"])],
+            ["src/module.ts", new Set(["reExportedFn", "notReExported"])],
         ]);
         const reExports = new Map<string, { names: string[] | "*"; sourceFile: string }[]>([
             [
-                "packages/shallot/src/index.ts",
-                [{ names: "*" as const, sourceFile: "packages/shallot/src/module.ts" }],
+                "src/index.ts",
+                [{ names: "*" as const, sourceFile: "src/module.ts" }],
             ],
         ]);
         const surface = computePublicSurface(
-            ["packages/shallot/src/index.ts"],
+            ["src/index.ts"],
             directExports,
             reExports,
         );
         // star re-export: all direct exports of module.ts are public
-        expect(surface.has("packages/shallot/src/module.ts::reExportedFn")).toBe(true);
-        expect(surface.has("packages/shallot/src/module.ts::notReExported")).toBe(true);
+        expect(surface.has("src/module.ts::reExportedFn")).toBe(true);
+        expect(surface.has("src/module.ts::notReExported")).toBe(true);
         // the barrel's own direct export is also public
-        expect(surface.has("packages/shallot/src/index.ts::reExportedFn")).toBe(true);
+        expect(surface.has("src/index.ts::reExportedFn")).toBe(true);
     });
 
     test("named re-export makes only the named symbol public, not siblings", () => {
         const directExports = new Map([
-            ["packages/shallot/src/index.ts", new Set<string>()],
-            ["packages/shallot/src/module.ts", new Set(["foo", "bar"])],
+            ["src/index.ts", new Set<string>()],
+            ["src/module.ts", new Set(["foo", "bar"])],
         ]);
         const reExports = new Map([
             [
-                "packages/shallot/src/index.ts",
-                [{ names: ["foo"], sourceFile: "packages/shallot/src/module.ts" }],
+                "src/index.ts",
+                [{ names: ["foo"], sourceFile: "src/module.ts" }],
             ],
         ]);
         const surface = computePublicSurface(
-            ["packages/shallot/src/index.ts"],
+            ["src/index.ts"],
             directExports,
             reExports,
         );
-        expect(surface.has("packages/shallot/src/module.ts::foo")).toBe(true);
-        expect(surface.has("packages/shallot/src/module.ts::bar")).toBe(false);
+        expect(surface.has("src/module.ts::foo")).toBe(true);
+        expect(surface.has("src/module.ts::bar")).toBe(false);
     });
 });
 
 describe("findDeadExports — red-first proof", () => {
     test("flags a planted zero-consumer export and does not flag a live one", async () => {
         const root = fixture({
-            "packages/shallot/package.json": JSON.stringify({
+            "package.json": JSON.stringify({
                 exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
             }),
-            "packages/shallot/src/module.ts": `
+            "src/module.ts": `
 export function deadFn(): number { return 0; }
 export function liveFn(): number { return 1; }
 export function inFileFn(): number { return inFileFn(); }
 `,
-            "packages/shallot/src/consumer.ts": `
+            "src/consumer.ts": `
 import { liveFn } from "./module";
 liveFn();
 `,
             // index re-exports liveFn (public surface) but NOT deadFn or inFileFn
-            "packages/shallot/src/index.ts": `export { liveFn } from "./module";`,
+            "src/index.ts": `export { liveFn } from "./module";`,
         });
 
         const dead = await findDeadExports(root);
@@ -500,23 +500,23 @@ liveFn();
 
     test("flags a test-only export (consumed only by a .test.ts file)", async () => {
         const root = fixture({
-            "packages/shallot/package.json": JSON.stringify({
+            "package.json": JSON.stringify({
                 exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
             }),
-            "packages/shallot/src/module.ts": `
+            "src/module.ts": `
 export function testOnlyFn(): number { return 0; }
 export function prodFn(): number { return 1; }
 `,
-            "packages/shallot/src/consumer.ts": `
+            "src/consumer.ts": `
 import { prodFn } from "./module";
 prodFn();
 `,
-            "packages/shallot/tests/test.test.ts": `
+            "tests/test.test.ts": `
 import { testOnlyFn } from "../src/module";
 testOnlyFn();
 `,
             // index re-exports prodFn (public) but NOT testOnlyFn
-            "packages/shallot/src/index.ts": `export { prodFn } from "./module";`,
+            "src/index.ts": `export { prodFn } from "./module";`,
         });
 
         const dead = await findDeadExports(root);
@@ -532,15 +532,15 @@ testOnlyFn();
 
     test("follows barrel re-export chains: a symbol consumed through a barrel is not flagged", async () => {
         const root = fixture({
-            "packages/shallot/package.json": JSON.stringify({
+            "package.json": JSON.stringify({
                 exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
             }),
-            "packages/shallot/src/module.ts": `
+            "src/module.ts": `
 export function barrelFn(): number { return 0; }
 `,
             // barrelFn is on the public surface (star re-exported from entry point) AND consumed
-            "packages/shallot/src/index.ts": `export * from "./module";`,
-            "packages/shallot/src/consumer.ts": `
+            "src/index.ts": `export * from "./module";`,
+            "src/consumer.ts": `
 import { barrelFn } from "./index";
 barrelFn();
 `,
@@ -552,19 +552,19 @@ barrelFn();
 
     test("namespace import only consumes exports actually accessed through the namespace", async () => {
         const root = fixture({
-            "packages/shallot/package.json": JSON.stringify({
+            "package.json": JSON.stringify({
                 exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
             }),
-            "packages/shallot/src/module.ts": `
+            "src/module.ts": `
 export function usedNs(): number { return 0; }
 export function unusedNs(): number { return 0; }
 `,
-            "packages/shallot/src/consumer.ts": `
+            "src/consumer.ts": `
 import * as ns from "./module";
 ns.usedNs();
 `,
             // index re-exports usedNs (public) but NOT unusedNs
-            "packages/shallot/src/index.ts": `export { usedNs } from "./module";`,
+            "src/index.ts": `export { usedNs } from "./module";`,
         });
 
         const dead = await findDeadExports(root);
@@ -578,19 +578,19 @@ ns.usedNs();
 
     test("allowlist suppresses a flagged export", async () => {
         const root = fixture({
-            "packages/shallot/package.json": JSON.stringify({
+            "package.json": JSON.stringify({
                 exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
             }),
-            "packages/shallot/src/module.ts": `
+            "src/module.ts": `
 export function allowedDead(): number { return 0; }
 export function notAllowed(): number { return 0; }
 `,
             // neither is re-exported from the entry point
-            "packages/shallot/src/index.ts": `export const other = 1;`,
+            "src/index.ts": `export const other = 1;`,
         });
 
         const dead = await findDeadExports(root, [
-            { file: "packages/shallot/src/module.ts", name: "allowedDead" },
+            { file: "src/module.ts", name: "allowedDead" },
         ]);
         expect(dead.find((d) => d.name === "allowedDead")).toBeUndefined();
         expect(dead.find((d) => d.name === "notAllowed")).toBeDefined();
@@ -598,18 +598,18 @@ export function notAllowed(): number { return 0; }
 
     test("a clean fixture with no dead exports reports empty", async () => {
         const root = fixture({
-            "packages/shallot/package.json": JSON.stringify({
+            "package.json": JSON.stringify({
                 exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
             }),
-            "packages/shallot/src/module.ts": `
+            "src/module.ts": `
 export function liveFn(): number { return 1; }
 `,
-            "packages/shallot/src/consumer.ts": `
+            "src/consumer.ts": `
 import { liveFn } from "./module";
 liveFn();
 `,
             // liveFn is both consumed AND on the public surface
-            "packages/shallot/src/index.ts": `export * from "./module";`,
+            "src/index.ts": `export * from "./module";`,
         });
 
         const dead = await findDeadExports(root);
@@ -620,15 +620,15 @@ liveFn();
 
     test("a symbol with zero in-repo consumers but re-exported from a declared entry point is NOT flagged", async () => {
         const root = fixture({
-            "packages/shallot/package.json": JSON.stringify({
+            "package.json": JSON.stringify({
                 exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
             }),
-            "packages/shallot/src/module.ts": `
+            "src/module.ts": `
 export function publicFn(): number { return 0; }
 export function deadFn(): number { return 0; }
 `,
             // index.ts re-exports publicFn but NOT deadFn
-            "packages/shallot/src/index.ts": `export { publicFn } from "./module";`,
+            "src/index.ts": `export { publicFn } from "./module";`,
         });
 
         const dead = await findDeadExports(root);
@@ -644,18 +644,18 @@ export function deadFn(): number { return 0; }
 
     test("a symbol re-exported through a star barrel chain from an entry point is NOT flagged", async () => {
         const root = fixture({
-            "packages/shallot/package.json": JSON.stringify({
+            "package.json": JSON.stringify({
                 exports: {
                     ".": "./src/index.ts",
                     "./extras": "./src/extras/index.ts",
                     "./src/*": "./src/*",
                 },
             }),
-            "packages/shallot/src/mod.ts": `
+            "src/mod.ts": `
 export function deepFn(): number { return 0; }
 `,
-            "packages/shallot/src/extras/index.ts": `export * from "../mod";`,
-            "packages/shallot/src/index.ts": `export * from "./mod";`,
+            "src/extras/index.ts": `export * from "../mod";`,
+            "src/index.ts": `export * from "./mod";`,
         });
 
         const dead = await findDeadExports(root);
@@ -665,14 +665,14 @@ export function deepFn(): number { return 0; }
 
     test("the ./src/* wildcard is ignored: a symbol only reachable through it IS flagged", async () => {
         const root = fixture({
-            "packages/shallot/package.json": JSON.stringify({
+            "package.json": JSON.stringify({
                 exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
             }),
-            "packages/shallot/src/module.ts": `
+            "src/module.ts": `
 export function wildcardOnly(): number { return 0; }
 `,
             // index.ts does NOT re-export from module — module is only reachable via ./src/*
-            "packages/shallot/src/index.ts": `export const other = 1;`,
+            "src/index.ts": `export const other = 1;`,
         });
 
         const dead = await findDeadExports(root);
@@ -684,10 +684,10 @@ export function wildcardOnly(): number { return 0; }
 
     test("JSDoc @example reference is not counted as a consumer or export", async () => {
         const root = fixture({
-            "packages/shallot/package.json": JSON.stringify({
+            "package.json": JSON.stringify({
                 exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
             }),
-            "packages/shallot/src/module.ts": `
+            "src/module.ts": `
 /**
  * @example
  * \`\`\`
@@ -697,14 +697,14 @@ export function wildcardOnly(): number { return 0; }
 export function realFn(): number { return 0; }
 export function deadFn(): number { return 0; }
 `,
-            "packages/shallot/src/consumer.ts": `
+            "src/consumer.ts": `
 // realFn is used here, but deadFn is only mentioned in a comment
 import { realFn } from "./module";
 realFn();
 // deadFn is mentioned here but not imported
 `,
             // index re-exports realFn (public) but NOT deadFn
-            "packages/shallot/src/index.ts": `export { realFn } from "./module";`,
+            "src/index.ts": `export { realFn } from "./module";`,
         });
 
         const dead = await findDeadExports(root);
@@ -761,19 +761,19 @@ describe("exit-condition split — only zero-consumer is fatal", () => {
 
     test("fixture: advisory buckets non-empty, zero-consumer empty → shouldFail is false (passing case)", async () => {
         const root = fixture({
-            "packages/shallot/package.json": JSON.stringify({
+            "package.json": JSON.stringify({
                 exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
             }),
-            "packages/shallot/src/module.ts": `
+            "src/module.ts": `
 export function inFileFn(): number { return inFileFn(); }
 export function testOnlyFn(): number { return 0; }
 `,
-            "packages/shallot/tests/test.test.ts": `
+            "tests/test.test.ts": `
 import { testOnlyFn } from "../src/module";
 testOnlyFn();
 `,
             // index re-exports neither — both are advisory, zero-consumer is empty
-            "packages/shallot/src/index.ts": `export const other = 1;`,
+            "src/index.ts": `export const other = 1;`,
         });
 
         const dead = await findDeadExports(root);
@@ -790,15 +790,15 @@ testOnlyFn();
 
     test("fixture: non-empty zero-consumer → shouldFail is true (failing case)", async () => {
         const root = fixture({
-            "packages/shallot/package.json": JSON.stringify({
+            "package.json": JSON.stringify({
                 exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
             }),
-            "packages/shallot/src/module.ts": `
+            "src/module.ts": `
 export function deadFn(): number { return 0; }
 export function inFileFn(): number { return inFileFn(); }
 `,
             // index re-exports neither
-            "packages/shallot/src/index.ts": `export const other = 1;`,
+            "src/index.ts": `export const other = 1;`,
         });
 
         const dead = await findDeadExports(root);

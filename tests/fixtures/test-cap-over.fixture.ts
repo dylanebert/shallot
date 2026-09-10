@@ -1,4 +1,4 @@
-// Fixture for `packages/shallot/tests/test-cap.test.ts`: a file the cap must red when the cap is
+// Fixture for `tests/test-cap.test.ts`: a file the cap must red when the cap is
 // driven to 0 ms. Named `.fixture.ts` so bun's default test-file pattern does not collect it under
 // `bun test` — and `bunfig.toml`'s `root = "."` (widened from `"packages/shallot"` in S3) scopes
 // discovery to the repo root, so a fixture outside `packages/shallot` is collected by a bare

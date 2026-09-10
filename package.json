@@ -1,6 +1,85 @@
 {
-    "name": "shallot",
-    "private": true,
+    "name": "@dylanebert/shallot",
+    "version": "0.10.0",
+    "description": "WebGPU game engine. Procedural-first, ECS, declarative scenes. In development.",
+    "sideEffects": [
+        "./src/standard/index.ts",
+        "./src/standard/defaults.ts"
+    ],
+    "license": "MIT",
+    "author": "Dylan Ebert <dylan.ebert@gmail.com>",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/dylanebert/shallot.git"
+    },
+    "homepage": "https://github.com/dylanebert/shallot",
+    "bugs": "https://github.com/dylanebert/shallot/issues",
+    "keywords": ["webgpu", "game-engine", "ecs", "3d", "graphics", "physics", "rendering"],
+    "type": "module",
+    "main": "./src/index.ts",
+    "types": "./src/index.ts",
+    "exports": {
+        ".": "./src/index.ts",
+        "./extras": "./src/extras/index.ts",
+        "./harness": "./src/harness/index.ts",
+        "./harness/pixels": "./src/harness/pixels.ts",
+        "./harness/browser": {
+            "types": "./src/harness/browser.ts",
+            "default": "./dist/harness-browser.js"
+        },
+        "./vite": {
+            "types": "./src/project/vite.ts",
+            "default": "./dist/vite.js"
+        },
+        "./ecs/core": "./src/engine/ecs/core.ts",
+        "./scene/core": "./src/engine/scene/core.ts",
+        "./utils/core": "./src/engine/utils/core.ts",
+        "./fog/core": "./src/standard/fog/core.ts",
+        "./glaze": "./src/standard/glaze/index.ts",
+        "./part/core": "./src/standard/part/core.ts",
+        "./render/core": "./src/standard/render/core.ts",
+        "./sear/core": "./src/standard/sear/core.ts",
+        "./physics/core": "./src/standard/physics/core.ts",
+        "./avbd": "./src/standard/avbd/index.ts",
+        "./avbd/core": "./src/standard/avbd/core.ts",
+        "./character/core": "./src/standard/character/core.ts",
+        "./tumble/core": "./src/standard/tumble/core.ts",
+        "./bvh/core": "./src/standard/bvh/core.ts",
+        "./audio/core": "./src/standard/audio/core.ts",
+        "./cells/core": "./src/extras/cells/core.ts",
+        "./gltf/core": "./src/extras/gltf/core.ts",
+        "./skin/core": "./src/extras/skin/core.ts",
+        "./text/core": "./src/extras/text/core.ts",
+        "./animation/core": "./src/extras/animation/core.ts",
+        "./runtime": "./src/engine/runtime/index.ts"
+    },
+    "bin": {
+        "shallot": "./bin/cli.ts"
+    },
+    "files": [
+        "src",
+        "bin",
+        "rust/audio/pkg",
+        "rust/window",
+        "assets/icon-1024.png",
+        "dist",
+        "examples/recipes",
+        "examples/AGENTS.md",
+        "!examples/recipes/*/node_modules",
+        "!examples/recipes/*/tsconfig.json",
+        "AGENTS.md",
+        "MIGRATION.md",
+        "shallot.schema.json",
+        "!**/*.test.ts",
+        "!**/*.tier.ts",
+        "!**/*.oracle.ts",
+        "!**/*.probes.ts",
+        "!**/*.fixture.ts",
+        "!**/*.gold.json",
+        "!**/fixtures/**",
+        "!**/target/**",
+        "!tests/**"
+    ],
     "workspaces": [
         "packages/*",
         "examples/gym",
@@ -9,10 +88,12 @@
         "examples/showcase/*"
     ],
     "scripts": {
-        "build": "bun run --cwd packages/shallot build",
+        "prepack": "bun run ./scripts/tooling.ts",
+        "postpack": "bun run ./scripts/postpack.ts",
+        "build": "bun run ./scripts/build.ts",
         "check": "tsc && biome check && eslint . --max-warnings=0 && bun run scripts/check-versions.ts && bun run scripts/check-imports.ts && bun run scripts/check-boundary.ts && bun run scripts/check-docs.ts && bun run scripts/check-pack.ts && bun run scripts/check-scripts.ts && bun run scripts/check-exports.ts && bun run scripts/check-node-import.ts && bun run scripts/check-site.ts && bun run scripts/check-tumble-fp.ts && bun run scripts/check-examples.ts && bun run scripts/check-compat-pin.ts && bun run scripts/format.ts --check",
         "format": "biome check --write && bun run scripts/format.ts",
-        "test": "bun test packages/shallot packages/shallot-tumble scripts evals site examples/showcase/visualization/test examples/showcase/ocean/test",
+        "test": "bun test src bin tests scripts packages/shallot-tumble evals site examples/showcase/visualization/test examples/showcase/ocean/test",
         "test:install": "bun run scripts/install-test.ts",
         "test:changed": "bun run scripts/test-changed.ts",
         "test:ocean-realization": "bun test --timeout 20000 ./examples/showcase/ocean/test/realization.oracle.ts",
@@ -26,7 +107,31 @@
         "site:pages": "bun run scripts/build-pages.ts",
         "demos": "bun run scripts/demos.ts",
         "rum-intake": "bun run scripts/rum-intake-check.ts",
-        "local": "bun run scripts/local-test.ts"
+        "local": "bun run scripts/local-test.ts",
+        "audio:wasm-bench": "bun run ./scripts/audio-wasm-bench.ts",
+        "dump-cells-ascii": "bun --preload ./tests/tgsl.ts scripts/dump-cells-ascii.ts"
+    },
+    "dependencies": {
+        "@types/node": "^26.0.0",
+        "@webgpu/types": "^0.1.70",
+        "unplugin-typegpu": "~0.12.3",
+        "vite": "^8.0.16"
+    },
+    "peerDependencies": {
+        "bun-webgpu": "0.1.7",
+        "playwright": "^1.0.0",
+        "typegpu": "~0.12.4"
+    },
+    "peerDependenciesMeta": {
+        "bun-webgpu": {
+            "optional": true
+        },
+        "playwright": {
+            "optional": true
+        }
+    },
+    "optionalDependencies": {
+        "pngjs": "^7.0.0"
     },
     "devDependencies": {
         "@babel/core": "^7.29.7",
@@ -35,14 +140,23 @@
         "@babel/plugin-syntax-typescript": "^7.29.7",
         "@biomejs/biome": "^2.5.10",
         "@playwright/test": "^1.62.1",
+        "@types/bun": "latest",
         "@types/jpeg-js": "^0.3.7",
         "@types/pngjs": "^6.0.5",
+        "bun-webgpu": "0.1.7",
         "eslint": "^9.39.5",
         "eslint-plugin-typegpu": "~0.12.0",
+        "fast-check": "^4.6.0",
         "jiti": "^2.7.0",
         "jpeg-js": "^0.4.4",
+        "js-yaml": "^4.1.0",
         "playwright": "^1.62.1",
         "pngjs": "^7.0.0",
-        "typescript": "^7.0.2"
-    }
+        "typegpu": "~0.12.4",
+        "typescript": "^7.0.2",
+        "wgpu-matrix": "^3.4.0"
+    },
+    "trustedDependencies": [
+        "webgpu"
+    ]
 }

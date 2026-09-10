@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { body as rigidBody } from "../../../../packages/shallot/tests/avbd/rigid";
-import gold from "../../../../packages/shallot/tests/avbd/sat-gold-vectors.json";
+import { body as rigidBody } from "../../../../tests/avbd/rigid";
+import gold from "../../../../tests/avbd/sat-gold-vectors.json";
 import {
     body,
     flat,
     integerDiscipline,
     noIntegerDivision,
     pointerDiscipline,
-} from "../../../../packages/shallot/tests/wgsl";
+} from "../../../../tests/wgsl";
 import {
     boxResult,
     createLateSatPipelineCache,

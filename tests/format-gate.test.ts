@@ -16,8 +16,8 @@ import { join, resolve } from "node:path";
 // so each test creates a temp fixture tree under the repo root (never a tracked file).
 // The script's own imports resolve relative to the script file, not cwd, so the engine loads regardless.
 
-const SCRIPT = join(import.meta.dir, "../../../scripts/format.ts");
-const REPO_ROOT = resolve(import.meta.dir, "../../..");
+const SCRIPT = join(import.meta.dir, "../scripts/format.ts");
+const REPO_ROOT = resolve(import.meta.dir, "..");
 // Fixtures live under the gitignored `_format-gate-fixtures/` dir (see .gitignore) so a
 // process-level kill (SIGTERM from the per-file test cap) that bypasses `finally` cleanup
 // cannot leave untracked dirs in the tracked tree. The dir is non-dot and directly under
@@ -48,7 +48,7 @@ function runFormat(args: string[]) {
 }
 
 test("formatting needs no native projection; native setup still refuses its absence", () => {
-    const projection = join(REPO_ROOT, "packages/shallot/dist/native.js");
+    const projection = join(REPO_ROOT, "dist/native.js");
     const { dir, scenePath } = fixtureScene();
     const saved = join(dir, "native.js");
     writeFileSync(join(dir, "error.scene"), "<scene><unknown /></scene>");
@@ -69,7 +69,7 @@ test("formatting needs no native projection; native setup still refuses its abse
             [
                 "bun",
                 "-e",
-                'const { loadNative } = await import("./packages/shallot/bin/bun-native.ts"); await loadNative();',
+                'const { loadNative } = await import("./bin/bun-native.ts"); await loadNative();',
             ],
             { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
         );

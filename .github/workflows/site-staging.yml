@@ -56,12 +56,12 @@ jobs:
 
       # `--staging` packs the ENGINE'S OWN WORKING TREE (`bun pm pack`, S1's locked decision),
       # unlike prod mode, which installs the already-published npm tarball. A fresh checkout's
-      # `rust/audio/pkg/` is gitignored build output (`packages/shallot/scripts/build.ts`'s
+      # `rust/audio/pkg/` is gitignored build output (`scripts/build.ts`'s
       # audio section produces it; the published tarball ships it, a clean checkout doesn't), so
       # staging mode needs it built here or the pack omits it and every ejected demo's audio
       # import fails to resolve. GitHub runners ship rustup + a stable toolchain preinstalled
       # (see release.yml); only the wasm32 target needs adding. No `wasm-opt` install — the
-      # build script's own try/cp fallback (`packages/shallot/scripts/build.ts`) covers its
+      # build script's own try/cp fallback (`scripts/build.ts`) covers its
       # absence, so this step mirrors that fallback rather than requiring the optimizer. The
       # rust/window native-host build (release.yml's job) is NOT run here — the web build never
       # touches it.
@@ -69,7 +69,7 @@ jobs:
         run: rustup target add wasm32-unknown-unknown
 
       - name: Build audio wasm
-        working-directory: packages/shallot/rust/audio
+        working-directory: rust/audio
         run: |
           set -e
           mkdir -p pkg

@@ -64,7 +64,7 @@ function registerPlugins() {
 }
 
 async function readScene(name: string): Promise<string> {
-    const path = `${import.meta.dir}/../../../../../examples/${name}`;
+    const path = `${import.meta.dir}/../../../examples/${name}`;
     return Bun.file(path).text();
 }
 

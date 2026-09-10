@@ -1647,7 +1647,7 @@ describe("batch-then-bisect", () => {
     });
 
     // Repair-arm regression guard (level-batched drain, adversarial pass):
-    // witnessed RED before the fix, exit code 1, `bun test ./packages/shallot/src/engine/runtime/
+    // witnessed RED before the fix, exit code 1, `bun test ./src/engine/runtime/
     // gpu.test.ts -t "mid-batch-await"` — 2 fail — against the pre-fix `precompileAll`, which
     // reconstructed `_precompile` from a `Forcer[][]` snapshot taken *before* the level's shared
     // `await`. A `precompile()` call landing during that await pushed onto the live array and was

@@ -44,7 +44,7 @@ const make = (): string => {
     );
     write(
         root,
-        "packages/shallot/package.json",
+        "package.json",
         JSON.stringify({
             name: "@dylanebert/shallot",
             dependencies: { typegpu: "~0.12.4" },
@@ -56,13 +56,13 @@ const make = (): string => {
             },
         }),
     );
-    write(root, "packages/shallot/src/index.ts", "export const engine = 1;\n");
-    write(root, "packages/shallot/src/standard/render/core.ts", "export const core = 1;\n");
-    write(root, "packages/shallot/src/project/generate.ts", "export const plan = 1;\n");
-    write(root, "packages/shallot/tests/oracle.ts", "export const oracle = 1;\n");
+    write(root, "src/index.ts", "export const engine = 1;\n");
+    write(root, "src/standard/render/core.ts", "export const core = 1;\n");
+    write(root, "src/project/generate.ts", "export const plan = 1;\n");
+    write(root, "tests/oracle.ts", "export const oracle = 1;\n");
     write(
         root,
-        "packages/shallot/bin/cli.ts",
+        "bin/cli.ts",
         'import { core } from "../src/standard/render/core";\nvoid core;\n',
     );
     write(
@@ -86,12 +86,12 @@ describe("runtime direction with a private tooling owner", () => {
         const root = make();
         write(
             root,
-            "packages/shallot/package.json",
+            "package.json",
             JSON.stringify({ name: "shallot-cli", private: true }),
         );
         write(
             root,
-            "packages/shallot/src/escape.ts",
+            "src/escape.ts",
             'import "../../../examples/recipes/demo/src/main";',
         );
         const result = checkBoundary(root, EMPTY);
@@ -112,17 +112,17 @@ describe("runtime direction with a private tooling owner", () => {
             const root = make();
             write(
                 root,
-                "packages/shallot/package.json",
+                "package.json",
                 JSON.stringify({ name: "shallot-cli", private: true }),
             );
             write(
                 root,
-                "packages/shallot/src/harness/browser.ts",
+                "src/harness/browser.ts",
                 "export const launch = 1;\n",
             );
             write(
                 root,
-                "packages/shallot/package.json",
+                "package.json",
                 JSON.stringify({
                     name: "@dylanebert/shallot",
                     exports: {
@@ -137,12 +137,12 @@ describe("runtime direction with a private tooling owner", () => {
             );
             write(
                 root,
-                "packages/shallot/src/harness/index.ts",
+                "src/harness/index.ts",
                 'export * from "./runtime"; export { launch } from "@dylanebert/shallot/harness/browser";',
             );
             write(
                 root,
-                "packages/shallot/src/harness/runtime.ts",
+                "src/harness/runtime.ts",
                 'import "../standard/render/core";',
             );
             write(
@@ -150,12 +150,12 @@ describe("runtime direction with a private tooling owner", () => {
                 "tsconfig.json",
                 JSON.stringify({
                     compilerOptions: {
-                        paths: { "@launch": ["packages/shallot/src/harness/browser.ts"] },
+                        paths: { "@launch": ["src/harness/browser.ts"] },
                     },
                 }),
             );
             expect(checkBoundary(root, EMPTY).violations).toEqual([]);
-            write(root, "packages/shallot/src/consumer.ts", source);
+            write(root, "src/consumer.ts", source);
             const result = checkBoundary(root, EMPTY);
             expect(result.errors).toEqual([]);
             expect(result.violations).toHaveLength(1);
@@ -167,14 +167,14 @@ describe("runtime direction with a private tooling owner", () => {
 });
 
 describe("private solver ownership", () => {
-    const bridge = "packages/shallot/src/standard/tumble/engine/index.ts";
+    const bridge = "src/standard/tumble/engine/index.ts";
     const entry = "packages/shallot-tumble/src/standard/tumble/engine/index.ts";
     const forward =
         'export * from "../../../../../shallot-tumble/src/standard/tumble/engine/index";';
     for (const [file, source, refusal] of [
         [bridge, forward, ""],
         [
-            "packages/shallot/src/escape.ts",
+            "src/escape.ts",
             'export * from "../../shallot-tumble/src/standard/tumble/engine/index";',
             "runtime leaves its canonical owner",
         ],
@@ -195,7 +195,7 @@ describe("private solver ownership", () => {
             "private solver is not a consumer installation surface",
         ],
         [
-            "packages/shallot/bin/cli.ts",
+            "bin/cli.ts",
             'import "shallot-tumble";',
             "tooling reaches the private solver",
         ],
@@ -219,7 +219,7 @@ describe("private solver ownership", () => {
                     `packages/${name}/package.json`,
                     JSON.stringify({ name, private: true }),
                 );
-            write(root, "packages/shallot/src/index.ts", "export const engine = 1;");
+            write(root, "src/index.ts", "export const engine = 1;");
             write(root, entry, "export class World {}");
             write(root, bridge, forward);
             write(root, "packages/shallot-tumble/tests/oracle.ts", "export const truth = 1;");
@@ -254,10 +254,10 @@ describe("canonical runtime ownership", () => {
                     `packages/${owner}/package.json`,
                     JSON.stringify({ name: owner, private: true }),
                 );
-            write(root, "packages/shallot/src/index.ts", "export const engine = 1;");
+            write(root, "src/index.ts", "export const engine = 1;");
             write(
                 root,
-                "packages/shallot/src/standard/render/core.ts",
+                "src/standard/render/core.ts",
                 "export const core = 1;",
             );
             write(
@@ -270,7 +270,7 @@ describe("canonical runtime ownership", () => {
                 }),
             );
             expect(checkBoundary(root, EMPTY).violations).toEqual([]);
-            write(root, "packages/shallot/src/consumer.ts", source);
+            write(root, "src/consumer.ts", source);
             const result = checkBoundary(root, EMPTY);
             expect(result.errors).toEqual([]);
             expect(result.violations.map((v) => v.reason)).toEqual(
@@ -297,7 +297,7 @@ describe("runtime unresolved and aliased exits", () => {
                     `packages/${owner}/package.json`,
                     JSON.stringify({ name: owner, private: true }),
                 );
-            write(root, "packages/shallot/src/index.ts", "export const engine = 1;");
+            write(root, "src/index.ts", "export const engine = 1;");
             if (alias)
                 write(
                     root,
@@ -311,11 +311,11 @@ describe("runtime unresolved and aliased exits", () => {
                     }),
                 );
             expect(checkBoundary(root, EMPTY).violations).toEqual([]);
-            write(root, "packages/shallot/src/consumer.ts", source);
+            write(root, "src/consumer.ts", source);
             const result = checkBoundary(root, EMPTY);
             expect(result.errors).toEqual([]);
             expect(
-                result.violations.filter((v) => v.file.startsWith("packages/shallot/")),
+                result.violations.filter((v) => v.file.startsWith("")),
             ).toHaveLength(1);
         });
     }
@@ -327,7 +327,7 @@ describe("runtime unresolved and aliased exits", () => {
                 `packages/${owner}/package.json`,
                 JSON.stringify({ name: owner, private: true }),
             );
-        const file = "packages/shallot/src/pool.ts";
+        const file = "src/pool.ts";
         write(root, file, 'const spec = "node:worker_threads"; void import(spec);');
         const ledger = { ...EMPTY, computedLoaders: { [file]: "bounded Node host adapter" } };
         expect(checkBoundary(root, ledger).violations).toEqual([]);
@@ -357,7 +357,7 @@ describe("consumer escapes", () => {
         write(
             root,
             "examples/recipes/demo/src/main.ts",
-            'import { plan } from "../../../../packages/shallot/src/project/generate";\nvoid plan;\n',
+            'import { plan } from "../../../../src/project/generate";\nvoid plan;\n',
         );
         expect(checkBoundary(root, EMPTY).violations[0]?.reason).toContain("escapes the project");
     });
@@ -399,7 +399,7 @@ describe("consumer escapes", () => {
         write(
             root,
             "examples/recipes/demo/src/main.ts",
-            'import { oracle } from "../../../../packages/shallot/tests/oracle";\nvoid oracle;\n',
+            'import { oracle } from "../../../../tests/oracle";\nvoid oracle;\n',
         );
         expect(checkBoundary(root, EMPTY).violations).toEqual([]);
     });
@@ -465,7 +465,7 @@ describe("reader gap controls", () => {
     });
     test("blank tooling dispositions refuse", () => {
         const root = make();
-        const file = "packages/shallot/bin/run.ts";
+        const file = "bin/run.ts";
         write(root, file, 'void import(path); import "../src/project/generate";');
         const result = checkBoundary(root, {
             ...EMPTY,
@@ -499,14 +499,14 @@ describe("reader gap controls", () => {
                 compilerOptions: {
                     paths: {
                         "@private": [
-                            "packages/shallot/src/standard/render/core.ts",
-                            "packages/shallot/src/project/generate.ts",
+                            "src/standard/render/core.ts",
+                            "src/project/generate.ts",
                         ],
                     },
                 },
             }),
         );
-        write(root, "packages/shallot/bin/run.ts", 'import "@private";');
+        write(root, "bin/run.ts", 'import "@private";');
         expect(checkBoundary(root, EMPTY).violations[0]?.reason).toContain("no declared seam");
     });
     test("consumer package imports refuses even without use", () => {
@@ -525,7 +525,7 @@ describe("reader gap controls", () => {
             "tsconfig.json",
             JSON.stringify({
                 compilerOptions: {
-                    paths: { "@dylanebert/shallot/src/*": ["packages/shallot/src/*"] },
+                    paths: { "@dylanebert/shallot/src/*": ["src/*"] },
                 },
             }),
         );
@@ -539,7 +539,7 @@ describe("reader gap controls", () => {
     test("consumer concatenated imports require a bounded disposition", () => {
         const root = make();
         const file = "examples/recipes/demo/src/main.ts";
-        write(root, file, 'void import("../../../packages/shallot/" + "src/project/generate");');
+        write(root, file, 'void import("../../../" + "src/project/generate");');
         expect(checkBoundary(root, EMPTY).violations[0]?.reason).toContain("no declared bound");
         const result = checkBoundary(root, {
             ...EMPTY,
@@ -577,10 +577,10 @@ describe("reader gap controls", () => {
                     ? JSON.stringify({
                           compilerOptions: {
                               baseUrl: ".",
-                              paths: { "@private": ["packages/shallot/src/project/generate.ts"] },
+                              paths: { "@private": ["src/project/generate.ts"] },
                           },
                       })
-                    : `export default { resolve: { alias: { "@private": ${JSON.stringify(resolve(root, "packages/shallot/src/project/generate.ts"))} } } };`,
+                    : `export default { resolve: { alias: { "@private": ${JSON.stringify(resolve(root, "src/project/generate.ts"))} } } };`,
             );
             write(root, "examples/recipes/demo/src/main.ts", 'export { plan } from "@private";');
             expect(checkBoundary(root, EMPTY).violations[0]?.reason).toContain(
@@ -596,7 +596,7 @@ describe("reader gap controls", () => {
     ]) {
         test(`tooling alternate private spelling refuses: ${source}`, () => {
             const root = make();
-            write(root, "packages/shallot/bin/run.ts", source);
+            write(root, "bin/run.ts", source);
             expect(checkBoundary(root, EMPTY).violations[0]?.reason).toContain("no declared seam");
         });
     }
@@ -607,7 +607,7 @@ describe("tooling reaches", () => {
         const root = make();
         write(
             root,
-            "packages/shallot/bin/cli.ts",
+            "bin/cli.ts",
             'import { plan } from "../src/project/generate";\nvoid plan;\n',
         );
         expect(checkBoundary(root, EMPTY).violations[0]?.reason).toContain("no declared seam");
@@ -615,7 +615,7 @@ describe("tooling reaches", () => {
 
     test("a computed loader in bin/ with no declared bound refuses", () => {
         const root = make();
-        write(root, "packages/shallot/bin/cli.ts", "export const load = (p) => import(p);\n");
+        write(root, "bin/cli.ts", "export const load = (p) => import(p);\n");
         expect(checkBoundary(root, EMPTY).violations[0]?.reason).toContain(
             "builds a module specifier at runtime",
         );
@@ -650,7 +650,7 @@ describe("two-way completeness", () => {
         const root = make();
         write(
             root,
-            "packages/shallot/package.json",
+            "package.json",
             JSON.stringify({
                 name: "@dylanebert/shallot",
                 dependencies: { widget: "workspace:*" },
@@ -666,7 +666,7 @@ describe("two-way completeness", () => {
         const root = make();
         write(
             root,
-            "packages/shallot/package.json",
+            "package.json",
             JSON.stringify({
                 name: "@dylanebert/shallot",
                 dependencies: { widget: "file:../widget" },
@@ -759,7 +759,7 @@ describe("the seam ledger cannot outlive its subjects", () => {
         const root = make();
         const ledger: Ledger = {
             ...EMPTY,
-            toolingSeams: { 'packages/shallot/bin/cli.ts "../src/project/generate"': "stale" },
+            toolingSeams: { 'bin/cli.ts "../src/project/generate"': "stale" },
         };
         expect(checkBoundary(root, ledger).errors.join("\n")).toContain(
             "declared tooling seam names no live import",
@@ -770,12 +770,12 @@ describe("the seam ledger cannot outlive its subjects", () => {
         const root = make();
         write(
             root,
-            "packages/shallot/bin/cli.ts",
+            "bin/cli.ts",
             'import { plan } from "../src/project/generate";\nvoid plan;\n',
         );
         const ledger: Ledger = {
             ...EMPTY,
-            toolingSeams: { 'packages/shallot/bin/cli.ts "../src/project/generate"': "declared" },
+            toolingSeams: { 'bin/cli.ts "../src/project/generate"': "declared" },
         };
         const result = checkBoundary(root, ledger);
         expect(result.violations).toEqual([]);
@@ -785,7 +785,7 @@ describe("the seam ledger cannot outlive its subjects", () => {
     test("a computed-loader declaration naming no live call site refuses", () => {
         const ledger: Ledger = {
             ...EMPTY,
-            computedLoaders: { "packages/shallot/bin/cli.ts": "stale" },
+            computedLoaders: { "bin/cli.ts": "stale" },
         };
         expect(checkBoundary(make(), ledger).errors.join("\n")).toContain(
             "declared computed loader names no live call site",

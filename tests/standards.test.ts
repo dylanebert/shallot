@@ -110,7 +110,7 @@ const GAP_GOLDEN = [
 ];
 
 describe("differential registry (real filesystem)", () => {
-    const root = resolve(import.meta.dir, "../../..");
+    const root = resolve(import.meta.dir, "..");
 
     test("no differential registry key is stale, no can't-have reason is missing, no test entry is missing a file or symbol", async () => {
         const kernels = await kernelExports();

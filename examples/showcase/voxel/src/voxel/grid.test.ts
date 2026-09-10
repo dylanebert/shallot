@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { flat } from "../../../../../packages/shallot/tests/wgsl";
+import { flat } from "../../../../../tests/wgsl";
 import {
     addressingWgsl,
     BINDING_FLOOR,

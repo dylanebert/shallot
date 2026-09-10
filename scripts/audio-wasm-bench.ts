@@ -18,7 +18,7 @@
 // non-stripped build, the "which loops vectorized" read 1.2's autovec audit
 // consumes.
 //
-// Run: `bun run audio:wasm-bench` from packages/shallot.
+// Run: `bun run audio:wasm-bench` from the repo root.
 
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";

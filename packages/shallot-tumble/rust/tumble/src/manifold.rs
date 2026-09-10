@@ -1971,7 +1971,7 @@ pub fn collide_hulls(
 // `scripts/check-tumble-fp.ts` is TypeScript-only and does not reach Rust. The triggers below
 // watch the *design boundary moving*, not that static fact: trigger (a) fires if a new f64 path
 // appears outside `math.rs`; trigger (b) fires if overlap/separation symbols enter Rust code.
-// Reopen if either trigger moves (run from packages/shallot/; `grep -v ':[0-9]*:\s*//'` strips comment-only
+// Reopen if either trigger moves (run from ; `grep -v ':[0-9]*:\s*//'` strips comment-only
 // lines so the trigger cannot match its own documentation or this table's prose):
 //   (a) grep -rn 'f64' rust/tumble/src/*.rs | grep -v ':[0-9]*:\s*//' | grep -v 'math.rs'
 //   (b) grep -rnE 'SeparationFunction|separation_function|make_separation|overlap_capsule|overlap_hull|overlap_sphere|shape_overlap|test_overlap|OVERLAP_SLOP|kToleranceSquared|k_tolerance_squared' rust/tumble/src/*.rs | grep -v ':[0-9]*:\s*//'

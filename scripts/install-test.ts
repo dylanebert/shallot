@@ -32,7 +32,7 @@ import { projectTumble, tumbleArms } from "./install-test/tumble";
 import { type ShaderArtifactSummary, type VerifyResult, verify } from "./verify";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
-const ENGINE_DIR = resolve(REPO_ROOT, "packages/shallot");
+const ENGINE_DIR = resolve(REPO_ROOT);
 const WIDGET_DIR = resolve(import.meta.dir, "install-test/widget");
 const CREATE_SHALLOT_DIR = resolve(import.meta.dir, "../packages/create-shallot");
 const CLI = "node_modules/.bin/shallot"; // execute the installation's declared public bin
@@ -67,11 +67,11 @@ function pkgJson(fields: Record<string, unknown>, indent = 2): string {
 
 /** Packing runs the engine's postpack cleanup, so restore the public projection before root wrappers invoke it. */
 function restorePublicProjection(): void {
-    const runtime = run(["bun", "packages/shallot/scripts/project.ts"], REPO_ROOT);
+    const runtime = run(["bun", "scripts/project.ts"], REPO_ROOT);
     if (!runtime.ok) throw new Error(`runtime projection failed:\n${runtime.out}`);
-    const cli = run(["bun", "packages/shallot/scripts/tooling.ts"], REPO_ROOT);
+    const cli = run(["bun", "scripts/tooling.ts"], REPO_ROOT);
     if (!cli.ok) throw new Error(`public CLI projection failed:\n${cli.out}`);
-    assert(existsSync(join(REPO_ROOT, "packages/shallot/bin/cli.ts")));
+    assert(existsSync(join(REPO_ROOT, "bin/cli.ts")));
 }
 
 /** vite colors its banner and its errors; match against the plain text so a TTY can't change a verdict. */
@@ -647,7 +647,7 @@ async function recipeFlow(work: string, engineTgz: string, sandbox: string, name
 // hand-written copy could silently diverge from what a consumer actually pastes. Anchored on the
 // `// vite.config.ts` comment the doc's fenced block opens with, through the fence's closing ``` .
 function ejectedViteConfig(): string {
-    const doc = readFileSync(resolve(import.meta.dir, "../packages/shallot/MIGRATION.md"), "utf8");
+    const doc = readFileSync(resolve(import.meta.dir, "../MIGRATION.md"), "utf8");
     const start = doc.indexOf("// vite.config.ts");
     if (start === -1) throw new Error("MIGRATION.md's ejected Vite recipe marker not found");
     const fenceEnd = doc.indexOf("\n```", start);
@@ -1394,7 +1394,7 @@ function tgslFlow(sandbox: string, dist: string) {
         `bundle=${bundled.length} bytes; expected=${ExpectedMetaVersion}; metaVersions=${metaVersionTally}; identifiers: ${nearbyIdentifiers.join(", ") || "(none)"}`,
     );
 
-    // the recipe a plain bun/node consumer follows, exactly as the repo runs it (packages/shallot/
+    // the recipe a plain bun/node consumer follows, exactly as the repo runs it (
     // tests/tgsl.ts): `.ts` only, because the bun arm re-emits every file its filter matches with an
     // explicit loader — including the ones it prunes — which strips CJS default-export interop from a
     // plain `.js` dependency. Shipping the unfiltered form here would document a recipe that breaks

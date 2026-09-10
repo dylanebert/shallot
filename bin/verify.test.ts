@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { isDegradedBootMessage } from "@dylanebert/shallot/harness";
-import { SCENARIO_GATES } from "../../../examples/gym/src/scenarios/timeouts";
+import { SCENARIO_GATES } from "../examples/gym/src/scenarios/timeouts";
 import {
     benchTimeout,
     type ForMatch,
@@ -15,11 +15,11 @@ import {
     normalizeForPath,
     partitionSweep,
     resolveFor,
-} from "../../../scripts/bench";
-import { parsePhases, parseResources, parseTransformLine } from "../../../scripts/boot-cost";
-import { verifyDiagnostic } from "../../../scripts/install-test";
-import type { ShaderArtifactSummary, VerifyResult } from "../../../scripts/verify";
-import { initialFrameSamplerState, sampleFrame } from "../../../site/rum-sampler";
+} from "../scripts/bench";
+import { parsePhases, parseResources, parseTransformLine } from "../scripts/boot-cost";
+import { verifyDiagnostic } from "../scripts/install-test";
+import type { ShaderArtifactSummary, VerifyResult } from "../scripts/verify";
+import { initialFrameSamplerState, sampleFrame } from "../site/rum-sampler";
 import {
     ATTRIBUTION_INIT_SCRIPT,
     batchPass,
@@ -87,7 +87,7 @@ import {
     withTimeout,
 } from "./verify";
 
-const REPO_ROOT = resolve(import.meta.dir, "../../..");
+const REPO_ROOT = resolve(import.meta.dir, "..");
 
 /**
  * a scratch dir under the repo's own `node_modules/.cache`, not `tmpdir()` — the bundles and fixture
@@ -895,31 +895,31 @@ describe("selfTimeMsByNodeId — S1b's CPU-profile self-time accounting", () => 
 describe("classifyCpuFrame — S1b's named-candidate bucket table", () => {
     test("routes each of the spec's named mechanisms to a distinct bucket", () => {
         const pipelines = classifyCpuFrame(
-            "file:///repo/packages/shallot/src/standard/sear/pipelines.ts",
+            "file:///repo/src/standard/sear/pipelines.ts",
             "preparePipelines",
         );
         const forward = classifyCpuFrame(
-            "file:///repo/packages/shallot/src/standard/sear/forward.ts",
+            "file:///repo/src/standard/sear/forward.ts",
             "unwrapVariant",
         );
         const gpu = classifyCpuFrame(
-            "file:///repo/packages/shallot/src/engine/runtime/gpu.ts",
+            "file:///repo/src/engine/runtime/gpu.ts",
             "precompileAll",
         );
         const regather = classifyCpuFrame(
-            "file:///repo/packages/shallot/src/standard/sear/regather.ts",
+            "file:///repo/src/standard/sear/regather.ts",
             "prepareRegather",
         );
         const ecs = classifyCpuFrame(
-            "file:///repo/packages/shallot/src/engine/ecs/scheduler.ts",
+            "file:///repo/src/engine/ecs/scheduler.ts",
             "tick",
         );
         const scene = classifyCpuFrame(
-            "file:///repo/packages/shallot/src/engine/scene/preload.ts",
+            "file:///repo/src/engine/scene/preload.ts",
             "preload",
         );
         const decode = classifyCpuFrame(
-            "file:///repo/packages/shallot/src/extras/gltf/pool.ts",
+            "file:///repo/src/extras/gltf/pool.ts",
             "decodeInWorker",
         );
         const buckets = new Set([pipelines, forward, gpu, regather, ecs, scene, decode]);
@@ -957,7 +957,7 @@ describe("classifyCpuFrame — S1b's named-candidate bucket table", () => {
 
     test("an unmatched frame falls through to a per-file bucket rather than disappearing", () => {
         const out = classifyCpuFrame(
-            "file:///repo/packages/shallot/src/some/new/module.ts",
+            "file:///repo/src/some/new/module.ts",
             "boot",
         );
         expect(out).toContain("new/module.ts");
@@ -969,7 +969,7 @@ describe("summarizeCpuProfile — the pure profile-to-attribution reduction", ()
         const pipelinesFrame = {
             functionName: "preparePipelines",
             scriptId: "1",
-            url: "file:///repo/packages/shallot/src/standard/sear/pipelines.ts",
+            url: "file:///repo/src/standard/sear/pipelines.ts",
             lineNumber: 41,
             columnNumber: 0,
         };
@@ -1262,57 +1262,57 @@ describe("missingAssets", () => {
 
 describe("resolveFor", () => {
     const table = {
-        outline: { covers: ["packages/shallot/src/extras/outline/**/*.ts"] },
-        sprite: { covers: ["packages/shallot/src/extras/sprite/**/*.ts"] },
-        backend: { covers: ["packages/shallot/src/standard/avbd/**/*.ts"] },
+        outline: { covers: ["src/extras/outline/**/*.ts"] },
+        sprite: { covers: ["src/extras/sprite/**/*.ts"] },
+        backend: { covers: ["src/standard/avbd/**/*.ts"] },
         "stacking-arch": {},
     };
 
     test("a path matches every scenario whose covers glob resolves it", () => {
-        const [m] = resolveFor(["packages/shallot/src/extras/outline/pass.ts"], table);
+        const [m] = resolveFor(["src/extras/outline/pass.ts"], table);
         expect(m.scenarios).toEqual(["outline"]);
     });
 
     test("a path under two scenarios' globs matches both, sorted", () => {
         const twoWay = {
             ...table,
-            accel: { covers: ["packages/shallot/src/standard/avbd/**/*.ts"] },
+            accel: { covers: ["src/standard/avbd/**/*.ts"] },
         };
-        const [m] = resolveFor(["packages/shallot/src/standard/avbd/collide.ts"], twoWay);
+        const [m] = resolveFor(["src/standard/avbd/collide.ts"], twoWay);
         expect(m.scenarios).toEqual(["accel", "backend"]);
     });
 
     // red-proven: before the `covers` filter existed this returned every table key regardless of the
     // path, which would have silently unioned a tumble path (below) into the whole roster.
     test("a path no glob covers resolves to an empty scenario list, not the whole table", () => {
-        const [m] = resolveFor(["packages/shallot/src/engine/ecs/state.ts"], table);
+        const [m] = resolveFor(["src/engine/ecs/state.ts"], table);
         expect(m.scenarios).toEqual([]);
     });
 
     test("resolves one entry per input path, in order", () => {
         const matches = resolveFor(
             [
-                "packages/shallot/src/extras/outline/pass.ts",
-                "packages/shallot/src/extras/sprite/x.ts",
+                "src/extras/outline/pass.ts",
+                "src/extras/sprite/x.ts",
             ],
             table,
         );
         expect(matches.map((m: ForMatch) => m.path)).toEqual([
-            "packages/shallot/src/extras/outline/pass.ts",
-            "packages/shallot/src/extras/sprite/x.ts",
+            "src/extras/outline/pass.ts",
+            "src/extras/sprite/x.ts",
         ]);
     });
 });
 
 describe("forUnmatchedReason", () => {
     test("a tumble path points at tumble.md's own standing gates, not this table", () => {
-        expect(forUnmatchedReason("packages/shallot/src/standard/tumble/body.ts")).toContain(
+        expect(forUnmatchedReason("src/standard/tumble/body.ts")).toContain(
             "tumble.md",
         );
     });
 
     test("any other unmatched path names SCENARIO_GATES as what it's outside of", () => {
-        expect(forUnmatchedReason("packages/shallot/src/engine/ecs/state.ts")).toContain(
+        expect(forUnmatchedReason("src/engine/ecs/state.ts")).toContain(
             "SCENARIO_GATES",
         );
     });
@@ -1320,7 +1320,7 @@ describe("forUnmatchedReason", () => {
 
 describe("forExitCode", () => {
     // the instrument red this replaces: `bun bench --for examples/gym` matched no `covers` glob (they
-    // all spell `packages/shallot/src/...`), swept nothing and exited 0, so the gym gate row reported
+    // all spell `src/...`), swept nothing and exited 0, so the gym gate row reported
     // success without running a single scenario.
     test("an unmatched, non-excluded path refuses", () => {
         expect(forExitCode([{ path: "examples/gym", scenarios: [] }])).toBe(1);
@@ -1328,7 +1328,7 @@ describe("forExitCode", () => {
 
     test("a declared tumble exclusion stays green", () => {
         expect(
-            forExitCode([{ path: "packages/shallot/src/standard/tumble/body.ts", scenarios: [] }]),
+            forExitCode([{ path: "src/standard/tumble/body.ts", scenarios: [] }]),
         ).toBe(0);
     });
 
@@ -1350,12 +1350,12 @@ describe("formatForResolution", () => {
     test("a matched path prints its scenarios; an unmatched one prints why, not an empty roster", () => {
         const out = formatForResolution([
             { path: "a.ts", scenarios: ["outline", "sprite"] },
-            { path: "packages/shallot/src/standard/tumble/b.ts", scenarios: [] },
+            { path: "src/standard/tumble/b.ts", scenarios: [] },
         ]);
         const lines = out.split("\n");
         expect(lines[0]).toBe("a.ts → outline, sprite");
         expect(lines[1]).toContain("tumble.md");
-        expect(lines[1]).not.toBe("packages/shallot/src/standard/tumble/b.ts → ");
+        expect(lines[1]).not.toBe("src/standard/tumble/b.ts → ");
     });
 });
 
@@ -1424,18 +1424,18 @@ describe("normalizeForPath", () => {
 
     test("an absolute path inside the repo becomes the repo-relative spelling the globs use", () => {
         expect(
-            normalizeForPath("/repo/packages/shallot/src/standard/sear/pipelines.ts", root, root),
-        ).toBe("packages/shallot/src/standard/sear/pipelines.ts");
+            normalizeForPath("/repo/src/standard/sear/pipelines.ts", root, root),
+        ).toBe("src/standard/sear/pipelines.ts");
     });
 
     test("a path relative to a cwd deeper than the root resolves against that cwd", () => {
         expect(
-            normalizeForPath("src/standard/sear/pipelines.ts", "/repo/packages/shallot", root),
-        ).toBe("packages/shallot/src/standard/sear/pipelines.ts");
+            normalizeForPath("src/standard/sear/pipelines.ts", "/repo", root),
+        ).toBe("src/standard/sear/pipelines.ts");
     });
 
     test("an already-normalized path is unchanged", () => {
-        const p = "packages/shallot/src/extras/outline/pass.ts";
+        const p = "src/extras/outline/pass.ts";
         expect(normalizeForPath(p, root, root)).toBe(p);
     });
 
@@ -2699,7 +2699,7 @@ describe("harnessBucketNames — S1c's absence arm over a captured CPU profile",
     const pipelinesFrame = {
         functionName: "preparePipelines",
         scriptId: "1",
-        url: "file:///repo/packages/shallot/src/standard/sear/pipelines.ts",
+        url: "file:///repo/src/standard/sear/pipelines.ts",
         lineNumber: 41,
         columnNumber: 0,
     };

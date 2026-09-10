@@ -19,7 +19,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { Glob } from "bun";
-import { TEST_TIER_SUFFIXES } from "../packages/shallot/tests/test-tiers";
+import { TEST_TIER_SUFFIXES } from "../tests/test-tiers";
 import { isRegexLiteralStart, scanRegexLiteral } from "./source-mask";
 
 const PKG = "@dylanebert/shallot";
@@ -356,7 +356,7 @@ export function extractImports(content: string): ImportEntry[] {
 // --- Specifier resolution ---------------------------------------------------
 
 function sourceOwner(root: string, path: string): string {
-    if (!existsSync(resolve(root, "packages/shallot/package.json"))) return path;
+    if (!existsSync(resolve(root, "package.json"))) return path;
     if (
         existsSync(resolve(root, "packages/shallot-tumble/package.json")) &&
         /^packages\/shallot(?:-runtime)?\/src\/standard\/tumble\/engine\//.test(path)
@@ -367,23 +367,23 @@ function sourceOwner(root: string, path: string): string {
         return owner;
     }
     if (
-        path.startsWith("packages/shallot/src/project/") ||
-        path === "packages/shallot/src/harness/browser.ts"
+        path.startsWith("src/project/") ||
+        path === "src/harness/browser.ts"
     ) {
-        const owner = path.replace("packages/shallot/", "packages/shallot/");
+        const owner = path.replace("", "");
         if (!existsSync(resolve(root, owner)))
             throw new Error(`missing canonical tooling source: ${owner}`);
         return owner;
     }
     if (
-        existsSync(resolve(root, "packages/shallot/package.json")) &&
-        path.startsWith("packages/shallot/src/") &&
+        existsSync(resolve(root, "package.json")) &&
+        path.startsWith("src/") &&
         ![
-            "packages/shallot/src/harness/index.ts",
-            "packages/shallot/src/harness/index.test.ts",
+            "src/harness/index.ts",
+            "src/harness/index.test.ts",
         ].includes(path)
     ) {
-        const owner = path.replace("packages/shallot/", "packages/shallot/");
+        const owner = path.replace("", "");
         if (!existsSync(resolve(root, owner)))
             throw new Error(`missing canonical runtime source: ${owner}`);
         return owner;
@@ -413,7 +413,7 @@ export function resolveSpecifier(
 
     if (specifier === PKG || specifier.startsWith(PKG + "/")) {
         const subpath = specifier === PKG ? "." : `./${specifier.slice(PKG.length + 1)}`;
-        const pkgDir = resolve(rootDir, "packages/shallot");
+        const pkgDir = resolve(rootDir);
 
         const target = (entry: unknown) =>
             typeof entry === "string" ? entry : (entry as { types?: string })?.types;
@@ -472,7 +472,7 @@ export function computeEntryFiles(
     rootDir: string,
     packageExports: Record<string, unknown>,
 ): string[] {
-    const pkgDir = resolve(rootDir, "packages/shallot");
+    const pkgDir = resolve(rootDir);
     const entryFiles: string[] = [];
 
     for (const [key, value] of Object.entries(packageExports)) {
@@ -481,7 +481,7 @@ export function computeEntryFiles(
         const target = typeof value === "string" ? value : (value as { types?: string })?.types;
         if (typeof target !== "string") continue;
         if (
-            existsSync(resolve(rootDir, "packages/shallot/package.json")) &&
+            existsSync(resolve(rootDir, "package.json")) &&
             target.startsWith("./src/") &&
             !target.startsWith("./src/project/") &&
             target !== "./src/harness/browser.ts" &&
@@ -496,7 +496,7 @@ export function computeEntryFiles(
         );
         if (existsSync(resolved)) {
             entryFiles.push(sourceOwner(rootDir, relative(rootDir, resolved).replace(/\\/g, "/")));
-        } else if (existsSync(resolve(rootDir, "packages/shallot/package.json"))) {
+        } else if (existsSync(resolve(rootDir, "package.json"))) {
             throw new Error(`missing public export target: ${key} → ${resolved}`);
         }
     }
@@ -610,8 +610,8 @@ export async function findDeadExports(
     rootDir: string,
     allowlist: { file: string; name: string }[] = [],
 ): Promise<DeadExport[]> {
-    const srcDir = resolve(rootDir, "packages/shallot/src");
-    const pkgPath = resolve(rootDir, "packages/shallot/package.json");
+    const srcDir = resolve(rootDir, "src");
+    const pkgPath = resolve(rootDir, "package.json");
     if (!existsSync(pkgPath)) return [];
     const pkg = (await Bun.file(pkgPath).json()) as { exports?: Record<string, unknown> };
     const packageExports = pkg.exports ?? {};
@@ -672,15 +672,15 @@ export async function findDeadExports(
     const consumed = new Map<string, Map<string, Consumer[]>>();
 
     const consumerDirs = [
-        "packages/shallot/src",
-        "packages/shallot/src",
+        "src",
+        "src",
         "packages/shallot-tumble/src",
         "packages/shallot-tumble/scripts",
         "packages/shallot-tumble/tests",
-        "packages/shallot/tests",
-        "packages/shallot/bin",
-        "packages/shallot/src",
-        "packages/shallot/scripts",
+        "tests",
+        "bin",
+        "src",
+        "scripts",
         "scripts",
         "examples",
         "evals",

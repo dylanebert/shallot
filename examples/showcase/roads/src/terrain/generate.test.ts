@@ -4,7 +4,7 @@ import {
     flat,
     integerDiscipline,
     noIntegerDivision,
-} from "../../../../../packages/shallot/tests/wgsl";
+} from "../../../../../tests/wgsl";
 import { heightKernelWgsl } from "./generate";
 import { HALF, SPACING, VERTS } from "./grid";
 

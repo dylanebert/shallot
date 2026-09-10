@@ -7,7 +7,7 @@
         "gate": "bunx shallot verify . --screenshot ocean.png"
     },
     "dependencies": {
-        "@dylanebert/shallot": "workspace:*",
+        "@dylanebert/shallot": "file:../../..",
         "typegpu": "~0.12.4"
     }
 }

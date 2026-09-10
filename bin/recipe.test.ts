@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { template } from "../../create-shallot/index";
+import { template } from "../packages/create-shallot/index";
 import { listRecipes, occupied, pinEngine, runRecipe } from "./recipe";
 import { CLAUDE_IMPORT, ENGINE_REFERENCE, recipeDoc } from "./scaffold";
 

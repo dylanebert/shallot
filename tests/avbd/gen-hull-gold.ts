@@ -13,7 +13,7 @@ import { spawnSync } from "child_process";
 import { existsSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
-const repoRoot = resolve(import.meta.dir, "..", "..", "..", "..", "..");
+const repoRoot = resolve(import.meta.dir, "..", "..");
 const refDir = resolve(repoRoot, "reference");
 const harness = resolve(refDir, "bullet3-sat-harness.cpp");
 const out = resolve(import.meta.dir, "hull-gold-vectors.json");

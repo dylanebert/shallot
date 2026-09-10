@@ -1,6 +1,7 @@
 ---
 paths:
-  - "packages/{shallot/src/standard/audio/**/*.ts,shallot/rust/audio/**/*.rs}"
+  - "src/standard/audio/**/*.ts"
+  - "rust/audio/**/*.rs"
 ---
 
 # Audio

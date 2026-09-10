@@ -1,6 +1,10 @@
 ---
 paths:
-  - "packages/{shallot/src/**/*.ts,shallot/package.json,shallot-tumble/**/*.ts,shallot-tumble/package.json,shallot/src/harness/*.ts,shallot/package.json,shallot/src/**/*.ts,shallot/package.json}"
+  - "src/**/*.ts"
+  - "package.json"
+  - "packages/shallot-tumble/**/*.ts"
+  - "packages/shallot-tumble/package.json"
+  - "src/harness/*.ts"
   - "examples/showcase/ocean/src/ocean/**"
 ---
 
@@ -16,11 +20,11 @@ Skin is engine-owned, format-independent pose storage, with no surface: glTF, ph
 
 ## Compiled tooling exports
 
-Private `shallot-{runtime,tumble,cli}` own runtime/audio, solver, CLI/project/native. Runtime's `scripts/project.ts`: dev forwards or raw pack copies; one solver, no installed forwards/duplicates. Tooling builds bin/types/assets, `./vite`/`./harness/browser`; rebuild after postpack. Node leaves exclude runtime/TGSL; browser leaf is import-free.
+The root package owns runtime/audio, CLI/project/native; `packages/shallot-tumble` owns the solver, reached by relative bridge. Tooling builds `dist/` for `./vite`/`./harness/browser` and the native loader; rebuild after postpack. Node leaves exclude runtime/TGSL; browser leaf is import-free.
 
-The public raw `src/harness/index.ts` composes runtime plus the compiled browser leaf. Runtime's `harness/runtime.ts` and siblings never import that composite or tooling. Preserve the complete public value/type surface. Missing/stale projections fail; never infer ownership from the installed `src/` prefix.
+The public raw `src/harness/index.ts` composes runtime plus the browser leaf by relative import. Runtime's `harness/runtime.ts` and siblings never import that composite or tooling. Preserve the complete public value/type surface.
 
-Transform TGSL exactly once. Ejected Vite uses `unplugin-typegpu/vite` and `projectPlugin(dir)` with both packages excluded from prebundling. Framework TGSL runs after its compiler with matching include IDs. Recipes: `packages/shallot/MIGRATION.md`.
+Transform TGSL exactly once. Ejected Vite uses `unplugin-typegpu/vite` and `projectPlugin(dir)` with both packages excluded from prebundling. Framework TGSL runs after its compiler with matching include IDs. Recipes: `MIGRATION.md`.
 
 ## Distribution layers
 

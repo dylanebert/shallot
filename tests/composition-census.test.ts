@@ -6,7 +6,7 @@ import { resolvePlugins } from "../src/engine/app/compose";
 import { DEFAULT_PLUGINS } from "../src/standard/defaults";
 import { roster } from "./conformance-roster";
 
-const root = resolve(import.meta.dir, "../../..");
+const root = resolve(import.meta.dir, "..");
 
 type CensusRow = { path: string; gate: string };
 type SourceFile = { path: string; source: string };
@@ -29,11 +29,11 @@ const PROJECT_GATES: readonly Gate[] = [
     [/^evals\/tasks\/[^/]+\/gate\.ts$/, "bun run test"],
     [
         /^packages\/shallot\/src\/project\/command\.ts$/,
-        "bun test ./packages/shallot/src/project",
+        "bun test ./src/project",
     ],
     [
         /^packages\/shallot\/scripts\/dump-cells-ascii\.ts$/,
-        "bun run --cwd packages/shallot dump-cells-ascii",
+        "bun run dump-cells-ascii",
     ],
 ];
 

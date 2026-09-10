@@ -10,7 +10,7 @@ import {
     toSvg,
     toText,
     word,
-} from "../packages/shallot/src/standard/loading/mark";
+} from "../src/standard/loading/mark";
 import { brandPage } from "../site/brand/page";
 import { toPng } from "../site/brand/png";
 import { llmsTxt, siteIndex } from "../site/home";
@@ -79,7 +79,7 @@ export async function buildBrand(
     write(
         "mark.ts",
         readFileSync(
-            resolve(root, "packages/shallot/src/standard/loading/mark.ts"),
+            resolve(root, "src/standard/loading/mark.ts"),
             "utf8",
         ),
     );
@@ -108,7 +108,7 @@ export async function buildPages(
 
 if (import.meta.main) {
     const pkg = JSON.parse(
-        readFileSync(resolve(root, "packages/shallot/package.json"), "utf8"),
+        readFileSync(resolve(root, "package.json"), "utf8"),
     ) as {
         version: string;
     };

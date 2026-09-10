@@ -48,23 +48,23 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 // the f64 oracle (tests/, out of the published src/) is the executable spec the GPU gates compare against,
 // reached by relative path. accel.ts reaches the BVH oracle the same way.
-import { collide, SPECULATIVE_DISTANCE } from "../../../../packages/shallot/tests/avbd/collide";
-import { CORPUS } from "../../../../packages/shallot/tests/avbd/corpus";
-import { boxHull } from "../../../../packages/shallot/tests/avbd/hull";
-import { type Quat, sub, type Vec3 } from "../../../../packages/shallot/tests/avbd/math";
+import { collide, SPECULATIVE_DISTANCE } from "../../../../tests/avbd/collide";
+import { CORPUS } from "../../../../tests/avbd/corpus";
+import { boxHull } from "../../../../tests/avbd/hull";
+import { type Quat, sub, type Vec3 } from "../../../../tests/avbd/math";
 import {
     capsule,
     body as makeBody,
     type Body as OracleBody,
     sphere,
-} from "../../../../packages/shallot/tests/avbd/rigid";
-import { narrowphase } from "../../../../packages/shallot/tests/avbd/rounded";
-import { makeSolver, step as oracleStep } from "../../../../packages/shallot/tests/avbd/solver";
+} from "../../../../tests/avbd/rigid";
+import { narrowphase } from "../../../../tests/avbd/rounded";
+import { makeSolver, step as oracleStep } from "../../../../tests/avbd/solver";
 import {
     collideRounded,
     collideRoundedPolytope,
     SatResult,
-} from "../../../../packages/shallot/tests/avbd/tgsl";
+} from "../../../../tests/avbd/tgsl";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
 
 // pile — contact-settling rigidbodies, the AVBD solver's canonical GPU-correctness home (physics.md "GPU

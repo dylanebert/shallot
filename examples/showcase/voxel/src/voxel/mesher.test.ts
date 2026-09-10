@@ -6,7 +6,7 @@ import {
     flat,
     integerDiscipline,
     noDivision,
-} from "../../../../../packages/shallot/tests/wgsl";
+} from "../../../../../tests/wgsl";
 import { TOTAL_CELLS } from "./grid";
 import {
     cleanupWarmOwner,

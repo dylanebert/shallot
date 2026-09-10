@@ -9,7 +9,7 @@ const repoRoot = resolve(import.meta.dir, "..");
 export const REPO_ROOT = repoRoot;
 // Producers must run first: this is the public projection that an installed bin mirrors, not the
 // canonical package source whose relative imports and generated publication can diverge.
-export const CLI = resolve(repoRoot, "packages/shallot/bin/cli.ts");
+export const CLI = resolve(repoRoot, "bin/cli.ts");
 
 /** one named check inside a verify Verdict (the published protocol's shape on the wire). */
 export interface Check {

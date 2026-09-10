@@ -16,7 +16,7 @@ import {
     VENDORED_PLUGINS,
 } from "./prepack";
 
-const REPO = resolve(import.meta.dir, "../../..");
+const REPO = resolve(import.meta.dir, "..");
 
 /** a two-recipe corpus: one plain recipe with a smoke plugin, one whose plugin lives in a package. */
 function fixture(): { root: string; src: string; dest: string } {

@@ -1,8 +1,8 @@
 import { Glob } from "bun";
 import { dirname, join, relative, resolve } from "path";
 
-const src = resolve(import.meta.dir, "../packages/shallot/src");
-const pkg = await Bun.file(resolve(import.meta.dir, "../packages/shallot/package.json")).json();
+const src = resolve(import.meta.dir, "../src");
+const pkg = await Bun.file(resolve(import.meta.dir, "../package.json")).json();
 
 // Extract allowed subpath targets from package.json exports
 // e.g. "./render/core" → "standard/render/core" (relative to src/)

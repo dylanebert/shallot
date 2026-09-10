@@ -11,7 +11,7 @@ const runner = resolve(import.meta.dir, "tumble-gold-runner.ts");
 const shallotRoot = resolve(import.meta.dir, "..", "..", "..");
 // The engine barrel's module graph references WebGPU globals (`GPUShaderStage`) at eval time; a plain
 // `bun run` child has none. `bun test` gets them from bunfig's preload — the child gets the same setup.
-const setup = resolve(shallotRoot, "packages/shallot/tests/setup.ts");
+const setup = resolve(shallotRoot, "tests/setup.ts");
 const concurrency = 4;
 
 /** One child invocation: an entry's gold replay (`--slug`) or one knob probe (`--slug --knob N`). */

@@ -326,7 +326,7 @@ describe("fillIndexForLuma (in-range property)", () => {
     });
 });
 
-// fillIndexForLuma's own differential (`packages/shallot/tests/standards.ts` registry entry) — the
+// fillIndexForLuma's own differential (`tests/standards.ts` registry entry) — the
 // range-check above proves the output stays in bounds, never that the rounding is correct, so this is
 // the independent reference. WGSL's round() rounds ties to even, not JS's default half-away-from-zero,
 // and `fillIndexForLuma`'s `luma` parameter is `d.f32`, so the input itself is quantized to float32

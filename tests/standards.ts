@@ -27,7 +27,7 @@ export interface KernelExport {
 
 export async function sourceModules(): Promise<string[]> {
     const out: string[] = [];
-    for (const root of [SRC_DIR, join(import.meta.dir, "../../shallot-tumble/src")]) {
+    for (const root of [SRC_DIR, join(import.meta.dir, "../packages/shallot-tumble/src")]) {
         const before = out.length;
         for await (const path of new Bun.Glob("**/*.ts").scan({ cwd: root })) {
             if (
@@ -316,13 +316,13 @@ export type DifferentialRegistry = Record<string, DifferentialEntry>;
 export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     octEncodeNormal: {
         test: {
-            file: "packages/shallot/src/engine/utils/encode.test.ts",
+            file: "src/engine/utils/encode.test.ts",
             symbol: "octEncodeNormal",
         },
     },
     collideHull: {
         test: {
-            file: "packages/shallot/src/standard/avbd/collide.test.ts",
+            file: "src/standard/avbd/collide.test.ts",
             symbol: "collideHull",
         },
     },
@@ -339,40 +339,40 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     applyGrade: {
         test: {
-            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            file: "src/standard/glaze/glaze.test.ts",
             symbol: "applyGrade",
         },
     },
     applySaturation: {
         test: {
-            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            file: "src/standard/glaze/glaze.test.ts",
             symbol: "applySaturation",
         },
     },
     applyVignette: {
         test: {
-            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            file: "src/standard/glaze/glaze.test.ts",
             symbol: "applyVignette",
         },
     },
     bayer4: {
         test: {
-            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            file: "src/standard/glaze/glaze.test.ts",
             symbol: "bayer4",
         },
     },
     bitcastF32toU32: {
         test: {
-            file: "packages/shallot/src/engine/utils/tgsl.test.ts",
+            file: "src/engine/utils/tgsl.test.ts",
             symbol: "bitcastF32toU32",
         },
     },
     brdf: {
-        test: { file: "packages/shallot/src/standard/sear/shade.test.ts", symbol: "brdf" },
+        test: { file: "src/standard/sear/shade.test.ts", symbol: "brdf" },
     },
     brdfSphere: {
         test: {
-            file: "packages/shallot/src/standard/sear/shade.test.ts",
+            file: "src/standard/sear/shade.test.ts",
             symbol: "brdfSphere",
         },
     },
@@ -384,19 +384,19 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     bvhRoot: {
         test: {
-            file: "packages/shallot/src/standard/bvh/traverse.test.ts",
+            file: "src/standard/bvh/traverse.test.ts",
             symbol: "bvhRoot",
         },
     },
     cellFootprintPx: {
         test: {
-            file: "packages/shallot/src/extras/cells/draw.test.ts",
+            file: "src/extras/cells/draw.test.ts",
             symbol: "cellFootprintPx",
         },
     },
     clusterCell: {
         test: {
-            file: "packages/shallot/src/standard/render/cluster.test.ts",
+            file: "src/standard/render/cluster.test.ts",
             symbol: "clusterCell",
         },
     },
@@ -404,11 +404,11 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
         gap: "a CPU differential would call clusterOf's pure vec/branch math against a hand-computed froxel index for a given fragCoord/near/far/cluster config; none written",
     },
     collideBoxBox: {
-        test: { file: "packages/shallot/tests/avbd/sat.oracle.ts", symbol: "collideBoxBox" },
+        test: { file: "tests/avbd/sat.oracle.ts", symbol: "collideBoxBox" },
     },
     collideRounded: {
         test: {
-            file: "packages/shallot/tests/avbd/rounded.oracle.ts",
+            file: "tests/avbd/rounded.oracle.ts",
             symbol: "collideRounded",
             alias: "tgslCollideRounded",
         },
@@ -424,13 +424,13 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     directionalGlyphIndex: {
         test: {
-            file: "packages/shallot/src/extras/cells/select.test.ts",
+            file: "src/extras/cells/select.test.ts",
             symbol: "directionalGlyphIndex",
         },
     },
     distanceAttenuation: {
         test: {
-            file: "packages/shallot/src/standard/render/lighting.test.ts",
+            file: "src/standard/render/lighting.test.ts",
             symbol: "distanceAttenuation",
         },
     },
@@ -439,7 +439,7 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     ditherPosterizeL: {
         test: {
-            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            file: "src/standard/glaze/glaze.test.ts",
             symbol: "ditherPosterizeL",
         },
     },
@@ -451,67 +451,67 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     fillIndexForLuma: {
         test: {
-            file: "packages/shallot/src/extras/cells/select.test.ts",
+            file: "src/extras/cells/select.test.ts",
             symbol: "fillIndexForLuma",
         },
     },
     fogComposite: {
         test: {
-            file: "packages/shallot/src/standard/fog/march.test.ts",
+            file: "src/standard/fog/march.test.ts",
             symbol: "fogComposite",
         },
     },
     fogDensity: {
         test: {
-            file: "packages/shallot/src/standard/fog/march.test.ts",
+            file: "src/standard/fog/march.test.ts",
             symbol: "fogDensity",
         },
     },
     fogTransmittance: {
         test: {
-            file: "packages/shallot/src/standard/fog/march.test.ts",
+            file: "src/standard/fog/march.test.ts",
             symbol: "fogTransmittance",
         },
     },
     fresnelSchlick: {
         test: {
-            file: "packages/shallot/src/standard/sear/shade.test.ts",
+            file: "src/standard/sear/shade.test.ts",
             symbol: "fresnelSchlick",
         },
     },
     glyphFootprintT: {
         test: {
-            file: "packages/shallot/src/extras/cells/draw.test.ts",
+            file: "src/extras/cells/draw.test.ts",
             symbol: "glyphFootprintT",
         },
     },
     halfLambert: {
         test: {
-            file: "packages/shallot/src/standard/sear/shade.test.ts",
+            file: "src/standard/sear/shade.test.ts",
             symbol: "halfLambert",
         },
     },
     henyeyGreenstein: {
         test: {
-            file: "packages/shallot/src/standard/fog/march.test.ts",
+            file: "src/standard/fog/march.test.ts",
             symbol: "henyeyGreenstein",
         },
     },
     idiv: {
-        test: { file: "packages/shallot/src/engine/utils/tgsl.test.ts", symbol: "idiv" },
+        test: { file: "src/engine/utils/tgsl.test.ts", symbol: "idiv" },
     },
     ign: {
         gap: "a CPU differential would call ign(vec2f) on a handful of pixel coordinates and compare against the hand-computed interleaved-gradient-noise fraction; none written",
     },
     inScatterContribution: {
         test: {
-            file: "packages/shallot/src/standard/fog/march.test.ts",
+            file: "src/standard/fog/march.test.ts",
             symbol: "inScatterContribution",
         },
     },
     interleaveBits32: {
         test: {
-            file: "packages/shallot/src/standard/bvh/morton.test.ts",
+            file: "src/standard/bvh/morton.test.ts",
             symbol: "interleaveBits32",
         },
     },
@@ -529,7 +529,7 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     lineQuad: {
         test: {
-            file: "packages/shallot/src/extras/lines/lines.test.ts",
+            file: "src/extras/lines/lines.test.ts",
             symbol: "lineQuad",
         },
     },
@@ -544,46 +544,46 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     localBoundaryMagnitude: {
         test: {
-            file: "packages/shallot/src/extras/cells/select.test.ts",
+            file: "src/extras/cells/select.test.ts",
             symbol: "localBoundaryMagnitude",
         },
     },
     luma: {
-        test: { file: "packages/shallot/src/extras/cells/select.test.ts", symbol: "luma" },
+        test: { file: "src/extras/cells/select.test.ts", symbol: "luma" },
     },
     meshIdOf: {
         test: {
-            file: "packages/shallot/src/engine/utils/encode.test.ts",
+            file: "src/engine/utils/encode.test.ts",
             symbol: "meshIdOf",
         },
     },
     mortonCode: {
         test: {
-            file: "packages/shallot/src/standard/bvh/morton.test.ts",
+            file: "src/standard/bvh/morton.test.ts",
             symbol: "mortonCode",
         },
     },
     octDecodeNormal: {
         test: {
-            file: "packages/shallot/src/engine/utils/encode.test.ts",
+            file: "src/engine/utils/encode.test.ts",
             symbol: "octDecodeNormal",
         },
     },
     oklabL: {
         test: {
-            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            file: "src/standard/glaze/glaze.test.ts",
             symbol: "oklabL",
         },
     },
     orderU32: {
         test: {
-            file: "packages/shallot/src/standard/bvh/bounds.test.ts",
+            file: "src/standard/bvh/bounds.test.ts",
             symbol: "orderU32",
         },
     },
     packCell: {
         test: {
-            file: "packages/shallot/src/extras/cells/cell.test.ts",
+            file: "src/extras/cells/cell.test.ts",
             symbol: "packCell",
         },
     },
@@ -592,37 +592,37 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     packLdrColor: {
         test: {
-            file: "packages/shallot/src/engine/utils/encode.test.ts",
+            file: "src/engine/utils/encode.test.ts",
             symbol: "packLdrColor",
         },
     },
     packQuatSnorm16x4: {
         test: {
-            file: "packages/shallot/src/engine/utils/encode.test.ts",
+            file: "src/engine/utils/encode.test.ts",
             symbol: "packQuatSnorm16x4",
         },
     },
     packSnorm2x16: {
         test: {
-            file: "packages/shallot/src/engine/utils/tgsl.test.ts",
+            file: "src/engine/utils/tgsl.test.ts",
             symbol: "packSnorm2x16",
         },
     },
     packUnorm2x16: {
         test: {
-            file: "packages/shallot/src/engine/utils/tgsl.test.ts",
+            file: "src/engine/utils/tgsl.test.ts",
             symbol: "packUnorm2x16",
         },
     },
     packUnorm4x8: {
         test: {
-            file: "packages/shallot/src/engine/utils/tgsl.test.ts",
+            file: "src/engine/utils/tgsl.test.ts",
             symbol: "packUnorm4x8",
         },
     },
     pointFaceOf: {
         test: {
-            file: "packages/shallot/src/standard/sear/shadows.test.ts",
+            file: "src/standard/sear/shadows.test.ts",
             symbol: "pointFaceOf",
         },
     },
@@ -631,7 +631,7 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     pointReceiver: {
         test: {
-            file: "packages/shallot/src/standard/sear/shadows.test.ts",
+            file: "src/standard/sear/shadows.test.ts",
             symbol: "pointReceiver",
         },
     },
@@ -640,24 +640,24 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     polyMake: {
         test: {
-            file: "packages/shallot/src/standard/avbd/collide.test.ts",
+            file: "src/standard/avbd/collide.test.ts",
             symbol: "polyMake",
         },
     },
     reconstructWorld: {
         test: {
-            file: "packages/shallot/src/standard/fog/march.test.ts",
+            file: "src/standard/fog/march.test.ts",
             symbol: "reconstructWorld",
         },
     },
     reinhard: {
         test: {
-            file: "packages/shallot/src/extras/cells/select.test.ts",
+            file: "src/extras/cells/select.test.ts",
             symbol: "reinhard",
         },
     },
     sampleSky: {
-        test: { file: "packages/shallot/src/extras/sky/sky.test.ts", symbol: "sampleSky" },
+        test: { file: "src/extras/sky/sky.test.ts", symbol: "sampleSky" },
     },
     sampleStars: {
         gap: 'a CPU differential would call sampleStars(dir, intensity, amount) directly and compare the hash-grid star color against a hand-computed reference cell/brightness; none written — sky.test.ts only greps the resolved WGSL for "fn sampleStars(", a structural check, not a call.',
@@ -667,19 +667,19 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     screenCorner: {
         test: {
-            file: "packages/shallot/src/extras/sprite/sprite.test.ts",
+            file: "src/extras/sprite/sprite.test.ts",
             symbol: "screenCorner",
         },
     },
     sdfToSignedDistance: {
         test: {
-            file: "packages/shallot/src/extras/text/text.test.ts",
+            file: "src/extras/text/text.test.ts",
             symbol: "sdfToSignedDistance",
         },
     },
     spotFactor: {
         test: {
-            file: "packages/shallot/src/standard/render/lighting.test.ts",
+            file: "src/standard/render/lighting.test.ts",
             symbol: "spotFactor",
         },
     },
@@ -688,13 +688,13 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     sunInScatter: {
         test: {
-            file: "packages/shallot/src/standard/fog/march.test.ts",
+            file: "src/standard/fog/march.test.ts",
             symbol: "sunInScatter",
         },
     },
     textSrgbToLinear: {
         test: {
-            file: "packages/shallot/src/extras/text/text.test.ts",
+            file: "src/extras/text/text.test.ts",
             symbol: "textSrgbToLinear",
         },
     },
@@ -703,13 +703,13 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     tmAces: {
         test: {
-            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            file: "src/standard/glaze/glaze.test.ts",
             symbol: "tmAces",
         },
     },
     tmAgx: {
         test: {
-            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            file: "src/standard/glaze/glaze.test.ts",
             symbol: "tmAgx",
         },
     },
@@ -718,25 +718,25 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     tmLuma: {
         test: {
-            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            file: "src/standard/glaze/glaze.test.ts",
             symbol: "tmLuma",
         },
     },
     tmNeutral: {
         test: {
-            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            file: "src/standard/glaze/glaze.test.ts",
             symbol: "tmNeutral",
         },
     },
     tmReinhard: {
         test: {
-            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            file: "src/standard/glaze/glaze.test.ts",
             symbol: "tmReinhard",
         },
     },
     tmReinhardLuminance: {
         test: {
-            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            file: "src/standard/glaze/glaze.test.ts",
             symbol: "tmReinhardLuminance",
         },
     },
@@ -754,19 +754,19 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     tmSomewhatBoring: {
         test: {
-            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            file: "src/standard/glaze/glaze.test.ts",
             symbol: "tmSomewhatBoring",
         },
     },
     tonemap: {
         test: {
-            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            file: "src/standard/glaze/glaze.test.ts",
             symbol: "tonemap",
         },
     },
     unorderU32: {
         test: {
-            file: "packages/shallot/src/standard/bvh/bounds.test.ts",
+            file: "src/standard/bvh/bounds.test.ts",
             symbol: "unorderU32",
         },
     },
@@ -778,25 +778,25 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     unpackQuatSnorm16x4: {
         test: {
-            file: "packages/shallot/src/engine/utils/encode.test.ts",
+            file: "src/engine/utils/encode.test.ts",
             symbol: "unpackQuatSnorm16x4",
         },
     },
     unpackSnorm2x16: {
         test: {
-            file: "packages/shallot/src/engine/utils/tgsl.test.ts",
+            file: "src/engine/utils/tgsl.test.ts",
             symbol: "unpackSnorm2x16",
         },
     },
     unpackUnorm2x16: {
         test: {
-            file: "packages/shallot/src/engine/utils/tgsl.test.ts",
+            file: "src/engine/utils/tgsl.test.ts",
             symbol: "unpackUnorm2x16",
         },
     },
     viewDepth: {
         test: {
-            file: "packages/shallot/src/standard/sear/shade.test.ts",
+            file: "src/standard/sear/shade.test.ts",
             symbol: "viewDepth",
         },
     },
@@ -808,7 +808,7 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     worldCorner: {
         test: {
-            file: "packages/shallot/src/extras/sprite/sprite.test.ts",
+            file: "src/extras/sprite/sprite.test.ts",
             symbol: "worldCorner",
         },
     },
@@ -823,13 +823,13 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     xformQuat: {
         test: {
-            file: "packages/shallot/src/engine/utils/encode.test.ts",
+            file: "src/engine/utils/encode.test.ts",
             symbol: "xformQuat",
         },
     },
     yLockedCorner: {
         test: {
-            file: "packages/shallot/src/extras/sprite/sprite.test.ts",
+            file: "src/extras/sprite/sprite.test.ts",
             symbol: "yLockedCorner",
         },
     },

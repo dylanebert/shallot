@@ -6,7 +6,7 @@ import {
     splashFrame,
     TICK_MS,
     toSvg,
-} from "../../packages/shallot/src/standard/loading/mark";
+} from "../../src/standard/loading/mark";
 
 // Browser entry for the site pages. Splashes the lockup in as pixel squares on `[data-splash-svg]`
 // and paints the terminal on `[data-terminal]`; click replays either. Shows the WebGPU note only

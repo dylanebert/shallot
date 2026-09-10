@@ -4,7 +4,7 @@ import {
     flat,
     integerDiscipline,
     noIntegerDivision,
-} from "../../../../packages/shallot/tests/wgsl";
+} from "../../../../tests/wgsl";
 import { createPipelineCache, packRays, traceEntryWgsl } from "./bvh-lib";
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {

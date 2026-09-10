@@ -1,6 +1,6 @@
 // Tree-wide static arm: a zero-workgroup dispatch or a zero-count `.draw` in any shipped or example
 // forcer warns in a stranger's console at deploy time, and nothing else under gate or CI catches a
-// reintroduced one — so this scans the whole tree (`SCAN_DIRS` below), not `packages/shallot/src`
+// reintroduced one — so this scans the whole tree (`SCAN_DIRS` below), not `src`
 // alone. `prebuilt.test.ts`'s static arms are the precedent for a repo-shape assertion living
 // beside the code it checks rather than inside a script nobody runs.
 //
@@ -16,25 +16,25 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { Glob } from "bun";
 
-const REPO_ROOT = resolve(import.meta.dir, "../../..");
+const REPO_ROOT = resolve(import.meta.dir, "..");
 
 // Mirrors `check-exports.ts`'s `consumerDirs`: every tree a shipped or example forcer can live in.
-// `packages/shallot/tests` is included too — a fixture accidentally left in real source under here
+// `tests` is included too — a fixture accidentally left in real source under here
 // would still be caught.
 const SCAN_DIRS = [
-    "packages/shallot/src",
-    "packages/shallot/src",
-    "packages/shallot/src",
-    "packages/shallot/bin",
-    "packages/shallot/scripts",
-    "packages/shallot/tests",
+    "src",
+    "src",
+    "src",
+    "bin",
+    "scripts",
+    "tests",
     "scripts",
     "examples",
     "evals",
 ];
 
 // Built by concatenation, never as a literal, so this file itself is never a false positive when the
-// scan root is the real repo (this file lives under `packages/shallot/tests`, one of `SCAN_DIRS`).
+// scan root is the real repo (this file lives under `tests`, one of `SCAN_DIRS`).
 const ZERO_DISPATCH = `dispatchWorkgroups${"("}0${")"}`;
 const ZERO_DRAW = `.draw${"("}0${")"}`;
 // The three widened shapes, same concatenation discipline: a float-literal zero, and the two
@@ -96,7 +96,7 @@ describe("no zero-workgroup dispatch or zero-count draw survives in the shipped 
     // `examples/showcase/**` forcers close's architectural pass found still dispatching
     // (`voxel/mesher.ts`, `voxel/generate.ts`, `roads/posts.ts`, `roads/terrain/generate.ts`) — a
     // fifth site anywhere under `SCAN_DIRS` reds this the moment it's written, source-tree wide.
-    test("packages/shallot/src, examples/**, scripts/, bin/, and evals/ carry none", async () => {
+    test("src, examples/**, scripts/, bin/, and evals/ carry none", async () => {
         const violations = await findZeroDispatches(REPO_ROOT);
         expect(violations).toEqual([]);
     });
@@ -107,7 +107,7 @@ describe("no zero-workgroup dispatch or zero-count draw survives in the shipped 
     test("a fixture zero-workgroup dispatch is caught (not deletable-by-narrowing)", async () => {
         const root = mkdtempSync(join(tmpdir(), "no-zero-dispatch-"));
         try {
-            const srcDir = join(root, "packages/shallot/src/standard/rogue");
+            const srcDir = join(root, "src/standard/rogue");
             mkdirSync(srcDir, { recursive: true });
             writeFileSync(
                 join(srcDir, "rogue.ts"),
@@ -115,7 +115,7 @@ describe("no zero-workgroup dispatch or zero-count draw survives in the shipped 
             );
             const violations = await findZeroDispatches(root);
             expect(violations).toHaveLength(1);
-            expect(violations[0].file).toBe("packages/shallot/src/standard/rogue/rogue.ts");
+            expect(violations[0].file).toBe("src/standard/rogue/rogue.ts");
             expect(violations[0].match).toBe(ZERO_DISPATCH);
         } finally {
             rmSync(root, { recursive: true, force: true });
@@ -148,7 +148,7 @@ describe("no zero-workgroup dispatch or zero-count draw survives in the shipped 
     test("a fixture float-literal zero dispatch is caught", async () => {
         const root = mkdtempSync(join(tmpdir(), "no-zero-dispatch-float-"));
         try {
-            const srcDir = join(root, "packages/shallot/src/standard/float-zero");
+            const srcDir = join(root, "src/standard/float-zero");
             mkdirSync(srcDir, { recursive: true });
             writeFileSync(
                 join(srcDir, "float-zero.ts"),
@@ -157,7 +157,7 @@ describe("no zero-workgroup dispatch or zero-count draw survives in the shipped 
             const violations = await findZeroDispatches(root);
             expect(violations).toHaveLength(1);
             expect(violations[0].file).toBe(
-                "packages/shallot/src/standard/float-zero/float-zero.ts",
+                "src/standard/float-zero/float-zero.ts",
             );
             expect(violations[0].match).toBe(ZERO_DISPATCH_FLOAT);
         } finally {
@@ -170,7 +170,7 @@ describe("no zero-workgroup dispatch or zero-count draw survives in the shipped 
     test("a fixture multi-argument dispatch with x=0 is caught", async () => {
         const root = mkdtempSync(join(tmpdir(), "no-zero-dispatch-multiarg-"));
         try {
-            const srcDir = join(root, "packages/shallot/src/standard/multiarg-zero");
+            const srcDir = join(root, "src/standard/multiarg-zero");
             mkdirSync(srcDir, { recursive: true });
             writeFileSync(
                 join(srcDir, "multiarg-zero.ts"),
@@ -179,7 +179,7 @@ describe("no zero-workgroup dispatch or zero-count draw survives in the shipped 
             const violations = await findZeroDispatches(root);
             expect(violations).toHaveLength(1);
             expect(violations[0].file).toBe(
-                "packages/shallot/src/standard/multiarg-zero/multiarg-zero.ts",
+                "src/standard/multiarg-zero/multiarg-zero.ts",
             );
             expect(violations[0].match).toBe(ZERO_DISPATCH_MULTI_MATCH);
         } finally {
@@ -216,7 +216,7 @@ describe("no zero-workgroup dispatch or zero-count draw survives in the shipped 
     test("a non-zero dispatch or draw count never trips the arm", async () => {
         const root = mkdtempSync(join(tmpdir(), "no-zero-dispatch-real-"));
         try {
-            const srcDir = join(root, "packages/shallot/src/standard/real");
+            const srcDir = join(root, "src/standard/real");
             mkdirSync(srcDir, { recursive: true });
             writeFileSync(
                 join(srcDir, "real.ts"),

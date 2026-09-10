@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { flat } from "../../../../packages/shallot/tests/wgsl";
+import { flat } from "../../../../tests/wgsl";
 import { mulberry32 } from "./dragCorpus";
 import { clampToBound } from "./editPure";
 import { ROAD_MIN_LENGTH } from "./overlay/network";

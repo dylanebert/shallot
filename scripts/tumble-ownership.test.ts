@@ -10,7 +10,7 @@ for (const threads of [0, 2]) {
             [
                 "bun",
                 "--preload",
-                "./packages/shallot/tests/setup.ts",
+                "./tests/setup.ts",
                 "-e",
                 `
 import assert from "node:assert/strict";

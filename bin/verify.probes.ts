@@ -13,7 +13,7 @@ import {
 // seconds-scale suite must not do —
 // and did flake once inside it. Run when you touch the probes:
 //
-//     bun test ./packages/shallot/bin/verify.probes.ts
+//     bun test ./bin/verify.probes.ts
 //
 // The sentinel left behind in `verify.test.ts` is the pure half — `installHarnessProbe`,
 // `summarizeResourceTiming`, the saturation rendering — which pins the mechanism without a browser.

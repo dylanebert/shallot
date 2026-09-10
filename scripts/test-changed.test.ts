@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { Glob } from "bun";
-import { TEST_TIER_SUFFIX_NAMES } from "../packages/shallot/tests/test-tiers";
+import { TEST_TIER_SUFFIX_NAMES } from "../tests/test-tiers";
 import { EXAMPLE_GATES } from "./example-gates";
 import { OCEAN_CPU_GATES } from "./ocean-oracle-gates";
 import { changedPaths, main, runCommand, selectCpuGates, selectExampleGates } from "./test-changed";
@@ -16,7 +16,7 @@ describe("changed-path selector", () => {
         expect(dirs(["examples/recipes/moving-platform/src/plugin.ts"])).toEqual([
             "examples/recipes/moving-platform",
         ]);
-        expect(dirs(["packages/shallot/src/standard/render/plugin.ts"])).toEqual([
+        expect(dirs(["src/standard/render/plugin.ts"])).toEqual([
             "examples/recipes/day-night-sky",
             "examples/recipes/gpu-particles",
             "examples/flows/no-walls",
@@ -28,7 +28,7 @@ describe("changed-path selector", () => {
             "examples/showcase/voxel",
             "examples/gym",
         ]);
-        expect(dirs(["packages/shallot/src/standard/fog/index.ts"])).toEqual([
+        expect(dirs(["src/standard/fog/index.ts"])).toEqual([
             "examples/gym",
         ]);
         expect(dirs(["bun.lock"])).toEqual(EXAMPLE_GATES.map((row) => row.dir));

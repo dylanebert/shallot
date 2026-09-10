@@ -29,7 +29,7 @@ import { nonWorkspaceShallotDependencies } from "./build-site";
 //      ejected project, `index.html`) is not a buildable demo.
 //   2. the ejected manifest names the release version — the in-repo `package.json` pins
 //      `@dylanebert/shallot` as `workspace:*`; the build script rewrites it to the release version
-//      from `packages/shallot/package.json`. This clause verifies the in-repo form is `workspace:*`
+//      from `package.json`. This clause verifies the in-repo form is `workspace:*`
 //      and that the release version is a real semver (not `workspace:*`), so the ejection would
 //      produce a published-consumer pin, not a workspace alias that can't resolve outside the repo.
 //   3. no import escapes a demo's own directory — an ejected demo importing anything outside its
@@ -100,14 +100,14 @@ if (noManifest.length > 0) {
 
 // --- clause 2: the ejected manifest names the release version -----------------------------
 
-const pkg = (await Bun.file(resolve(root, "packages/shallot/package.json")).json()) as {
+const pkg = (await Bun.file(resolve(root, "package.json")).json()) as {
     version: string;
 };
 const version = pkg.version;
 
 const semverRe = /^\d+\.\d+\.\d+/;
 if (!semverRe.test(version)) {
-    fail(`✗ packages/shallot/package.json version "${version}" is not a semver release`);
+    fail(`✗ package.json version "${version}" is not a semver release`);
 }
 
 const badVersion: string[] = [];
@@ -255,7 +255,7 @@ if (stamp) {
         } else if (stamp.mode.version !== version) {
             fail(
                 `✗ build stamp records prod mode pinned to v${stamp.mode.version}, but ` +
-                    `packages/shallot/package.json now names v${version} — rebuild with ` +
+                    `package.json now names v${version} — rebuild with ` +
                     "`bun run site`",
             );
         }

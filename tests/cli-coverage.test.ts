@@ -156,18 +156,18 @@ describe("checkCliCoverage (fixtures)", () => {
 
 describe("globToRegExp", () => {
     test("* matches within one path segment, not across /", () => {
-        const re = globToRegExp("packages/shallot/bin/*.ts");
-        expect(re.test("packages/shallot/bin/cli.ts")).toBe(true);
-        expect(re.test("packages/shallot/bin/nested/cli.ts")).toBe(false);
-        expect(re.test("packages/shallot/bin/cli.test.ts")).toBe(true); // filtered by cliPopulation, not the glob itself
+        const re = globToRegExp("bin/*.ts");
+        expect(re.test("bin/cli.ts")).toBe(true);
+        expect(re.test("bin/nested/cli.ts")).toBe(false);
+        expect(re.test("bin/cli.test.ts")).toBe(true); // filtered by cliPopulation, not the glob itself
     });
 });
 
 describe("cliPopulation suffix exclusion", () => {
     test("excludes every test-tier suffix the shared roster names, not just .test.ts", async () => {
-        const root = resolve(import.meta.dir, "../../.."); // packages/shallot/tests -> repo root
+        const root = resolve(import.meta.dir, ".."); // tests -> repo root
         const population = await cliPopulation(root);
-        expect(population).not.toContain("packages/shallot/bin/verify.probes.ts");
+        expect(population).not.toContain("bin/verify.probes.ts");
         for (const path of population) {
             expect(path).not.toMatch(TEST_TIER_SUFFIXES);
         }
@@ -179,7 +179,7 @@ describe("cliPopulation suffix exclusion", () => {
 // on-switch, no exemption list, red the moment a walked file lacks a row, a row drifts from the walk, or
 // a file carries more than one row.
 describe("CLI_COVERAGE against the real repo (both directions)", () => {
-    const root = resolve(import.meta.dir, "../../.."); // packages/shallot/tests -> repo root
+    const root = resolve(import.meta.dir, ".."); // tests -> repo root
 
     test("every walked file has exactly one row, every row names a walked file", async () => {
         const population = await cliPopulation(root);
@@ -204,10 +204,10 @@ describe("CLI_COVERAGE against the real repo (both directions)", () => {
 
     test("the population globs cover the three CLI/toolchain paths plus stage 6's outline straggler", () => {
         expect(CLI_POPULATION_GLOBS).toEqual([
-            "packages/shallot/bin/*.ts",
-            "packages/shallot/src/project/*.ts",
+            "bin/*.ts",
+            "src/project/*.ts",
             "packages/create-shallot/index.ts",
-            "packages/shallot/src/extras/outline/*.ts",
+            "src/extras/outline/*.ts",
         ]);
     });
 

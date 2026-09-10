@@ -1,4 +1,4 @@
-import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot/src/engine/runtime/gpu";
+import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../src/engine/runtime/gpu";
 import { compileConcurrencyRatio } from "../site/rum-compile-vitals";
 import { queryFlags, skipReason, verify } from "./verify";
 

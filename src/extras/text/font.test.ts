@@ -5,7 +5,7 @@ import { parseFont } from "./font";
 // The TTF binary decoder. parseFont walks the sfnt table directory and the glyf
 // outlines into the Font query surface. The brand font (Outfit) is the real
 // fixture; the rejection paths run on hand-built headers.
-const bytes = readFileSync(new URL("../../../../../assets/font.ttf", import.meta.url));
+const bytes = readFileSync(new URL("../../../assets/font.ttf", import.meta.url));
 const buffer = bytes.buffer.slice(
     bytes.byteOffset,
     bytes.byteOffset + bytes.byteLength,

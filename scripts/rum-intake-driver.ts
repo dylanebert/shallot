@@ -35,7 +35,7 @@ import { chromium } from "playwright";
 // same bundle-graph concern `site/rum-compile-vitals.ts`'s docblock records for the *browser*
 // bundle doesn't apply here, so importing the real constant is fine and is the wire's own source
 // of truth rather than a second hand-copied string.
-import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot/src/engine/runtime/gpu";
+import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../src/engine/runtime/gpu";
 
 const INTAKE_HOST_RE = /browser-intake-datadoghq\.com/;
 const BELOW_THRESHOLD_MS = 20;

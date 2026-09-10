@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseArgs } from "../../../scripts/bench";
+import { parseArgs } from "../scripts/bench";
 
 // `scripts/bench.ts`'s six numeric flags (`--seed`, `--count`, `--warmup`, `--frames`, `--timeout`,
 // `--leak`) each reject a non-numeric value with a message naming the flag, so a typo doesn't flow NaN

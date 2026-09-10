@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 
 // The CLI script path — used by the F2 arm that spawns the script and reads its exit code,
 // the same pattern as `format-gate.test.ts` / `test-cap.test.ts`.
-const SCRIPT = resolve(import.meta.dir, "../../../scripts/check-tumble-fp.ts");
+const SCRIPT = resolve(import.meta.dir, "../scripts/check-tumble-fp.ts");
 
 // A meta-test over repo-root tooling, same placement pattern as check-scripts.test.ts /
 // check-exports.test.ts — `scripts/check-tumble-fp.ts` stays at `scripts/`, beside its siblings;
@@ -20,7 +20,7 @@ import {
     sweepTrig,
     sweepUnparsed,
     TRIG_ALLOWLIST,
-} from "../../../scripts/check-tumble-fp";
+} from "../scripts/check-tumble-fp";
 
 // The real tumble engine source — S2 (audit-tumble-engine-bitexact-literals) wrapped all 11
 // sites the sweep flagged into rule 1a's fround-correct form, so the pinned floor is now 0.
@@ -29,7 +29,7 @@ import {
 // hull.ts:1410 minH, distance.ts:1154 kToleranceSquared — plus eight sites equal to the C
 // reference only by coincidence); S2 moved the three and wrapped the eight, and the check now
 // pins 0 so a regression (a new bare non-exact literal) reds rather than drifting silently.
-const REAL_ROOT = resolve(import.meta.dir, "../../shallot-tumble/src/standard/tumble");
+const REAL_ROOT = resolve(import.meta.dir, "../packages/shallot-tumble/src/standard/tumble");
 
 // Fixture trees live under the OS tmpdir, never the repo — same `--root`-style isolation as
 // check-scripts.test.ts / check-exports.test.ts, so a planted violation never touches a tracked

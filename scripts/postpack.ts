@@ -7,5 +7,4 @@
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 
-rmSync(resolve(import.meta.dir, "../examples"), { recursive: true, force: true });
 rmSync(resolve(import.meta.dir, "../dist"), { recursive: true, force: true });

@@ -23,7 +23,6 @@
 import {
     cpSync,
     existsSync,
-    mkdirSync,
     readdirSync,
     readFileSync,
     rmSync,
@@ -31,9 +30,7 @@ import {
 } from "node:fs";
 import { basename, resolve } from "node:path";
 
-const ROOT = resolve(import.meta.dir, "../../.."); // packages/shallot/scripts → repo root
-const SRC = resolve(ROOT, "examples");
-const DEST = resolve(import.meta.dir, "../examples"); // packages/shallot/examples (gitignored projection)
+const ROOT = resolve(import.meta.dir, ".."); // scripts → repo root
 
 // repo-only plumbing that can't resolve outside the workspace (package.json is kept — it's what makes a
 // copied-out recipe a runnable project), plus the smoke-test plugin the copy-out must not carry
@@ -186,12 +183,4 @@ export function shippedIndex(src: string): string {
     if (start < 0 || end < 0)
         throw new Error("examples/AGENTS.md: expected ## Recipes and ## Gym sections");
     return `${HEADER}${md.slice(start, end).trimEnd()}\n`;
-}
-
-if (import.meta.main) {
-    rmSync(DEST, { recursive: true, force: true });
-    mkdirSync(DEST, { recursive: true });
-    projectRecipes(ROOT, SRC, DEST);
-    writeFileSync(resolve(DEST, "AGENTS.md"), shippedIndex(SRC));
-    console.log(`prepack: projected recipes + index → ${DEST}`);
 }

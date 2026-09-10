@@ -27,7 +27,7 @@ import { missingCrateDiagnosticPass } from "./install-test";
 // its complete path/byte digest is compared after restoration.
 
 const ROOT = resolve(import.meta.dir, "..");
-const ENGINE = resolve(ROOT, "packages/shallot");
+const ENGINE = resolve(ROOT);
 const CLI = "node_modules/.bin/shallot";
 
 type CommandResult = { ok: boolean; out: string; exit: number };

@@ -2,7 +2,7 @@ import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { Glob } from "bun";
 import { resolve } from "path";
 import { template } from "../packages/create-shallot/index";
-import { TEST_TIER_SUFFIX_NAMES } from "../packages/shallot/tests/test-tiers";
+import { TEST_TIER_SUFFIX_NAMES } from "../tests/test-tiers";
 import { FIXTURE_DIR as COMPAT_FIXTURE_DIR } from "./check-compat-pin";
 import { checkRealization } from "./check-realization";
 import { checkExists } from "./check-scripts";
@@ -36,7 +36,7 @@ for (const line of (entry ?? "").split("\n")) {
         let reachable = false;
         if (match?.[1] === "bunx") {
             const bin = resolve(root, "node_modules/.bin", token!);
-            const expected = resolve(root, "packages/shallot/bin/cli.ts");
+            const expected = resolve(root, "bin/cli.ts");
             reachable =
                 token === "shallot" &&
                 existsSync(bin) &&
@@ -151,8 +151,8 @@ if (violations.length > 0) {
 // that release shipped with, and a blanket version sweep would be wrong to move it (same law as
 // MIGRATION.md's dated prose, `check-versions.ts`).
 const PIN_SOURCES: Record<string, { manifest: string; field: string }> = {
-    typegpu: { manifest: "packages/shallot/package.json", field: "peerDependencies" },
-    "unplugin-typegpu": { manifest: "packages/shallot/package.json", field: "dependencies" },
+    typegpu: { manifest: "package.json", field: "peerDependencies" },
+    "unplugin-typegpu": { manifest: "package.json", field: "dependencies" },
     "eslint-plugin-typegpu": { manifest: "package.json", field: "devDependencies" },
     typescript: { manifest: "package.json", field: "devDependencies" },
 };
@@ -399,7 +399,7 @@ if (drift.length > 0) {
 // 2026-08-16: the packages/shallot chain sat 3 B under 32768).
 const ENTRY_DOC_BUDGET = 32768;
 const ENTRY_DOC_CHAINS: string[][] = [
-    ["AGENTS.md", "packages/shallot/AGENTS.md"],
+    ["AGENTS.md", "AGENTS.md"],
     ["AGENTS.md", "examples/AGENTS.md"],
 ];
 
@@ -668,12 +668,12 @@ const rosterFindings: string[] = [];
 // without updating a hand-list.
 //
 // Two exclusions, stated explicitly:
-// 1. `packages/shallot/tests/test-tiers.ts` — the roster's own definition module; it MUST contain the
+// 1. `tests/test-tiers.ts` — the roster's own definition module; it MUST contain the
 //    suffix names (it is where the constant lives).
 // 2. `scripts/check-docs.ts` — this arm's own text; a self-referential gate matches its own
 //    description of what it checks (per `.claude/rules/specs.md`'s self-reference principle).
 const ROSTER_EXCLUSIONS = new Set([
-    "packages/shallot/tests/test-tiers.ts",
+    "tests/test-tiers.ts",
     "scripts/check-docs.ts",
     "scripts/stale-claim-predicates.ts",
 ]);
@@ -753,7 +753,7 @@ if (rosterFindings.length > 0) {
 //
 // Population: the arm scans `.claude/rules/**/*.md` only — `AGENTS.md` and `CLAUDE.md`
 // are excluded because they sit outside `.claude/rules/` (at the repo root and
-// `packages/shallot/`), so the glob does not reach them; a reader can verify with
+// ``), so the glob does not reach them; a reader can verify with
 // `git ls-files '**/AGENTS.md' '**/CLAUDE.md'` that no hit starts with `.claude/rules/`.
 
 import { FOREIGN_NAMESPACES } from "./rosters";

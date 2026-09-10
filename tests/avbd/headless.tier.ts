@@ -27,7 +27,7 @@
 // present) the file runs ~0.7 s, but the placement decision must hold for the cold worst
 // case, so it stays a by-path tier (the cap's own promotion move, 2). Re-run numbers are
 // expected to vary with the host (lavapipe is CPU-executed). Run by path from the shallot
-// root: `bun test ./packages/shallot/tests/avbd/headless.tier.ts`.
+// root: `bun test ./tests/avbd/headless.tier.ts`.
 //
 // Trigger cone (a by-path tier file's header is its registry, test-cap.ts:96): the transitive
 // import cone of this file's arms — `src/standard/avbd/**` (plugin + PhysicsStep),

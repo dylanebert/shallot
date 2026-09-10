@@ -125,7 +125,7 @@ type Node = { type: string } & Record<string, unknown>;
 // empty root — is runnable without editing this file: the readers take a
 // root, they do not hard-code the worktree path.
 function evalRoot(): string {
-    return process.env.CHECK_EVAL_GATES_ROOT ?? resolve(import.meta.dir, "..", "..", "..");
+    return process.env.CHECK_EVAL_GATES_ROOT ?? resolve(import.meta.dir, "..");
 }
 
 function parseTs(src: string): Node {

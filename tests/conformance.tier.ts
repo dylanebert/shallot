@@ -35,7 +35,7 @@
 // Re-derive this list from the imports above if it drifts — the derivation is the operative rule,
 // not the enumeration. A by-path tier file's own header is its registry (`test-cap.ts:96`).
 //
-// Run by path from the shallot root: `bun test ./packages/shallot/tests/conformance.tier.ts`.
+// Run by path from the shallot root: `bun test ./tests/conformance.tier.ts`.
 //
 // GPUDevice observation: `conform()` threads one `GPUDevice` forward across its two passes via
 // `Compute.device` (the module-level singleton). The second pass reuses the first's device by design

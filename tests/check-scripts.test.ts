@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const REPO_ROOT = join(import.meta.dir, "../../..");
+const REPO_ROOT = join(import.meta.dir, "..");
 const CHECK_SCRIPTS = join(REPO_ROOT, "scripts", "check-scripts.ts");
 
 // A meta-test over repo-root tooling, not the engine — same shape as cli-coverage.test.ts's
@@ -16,7 +16,7 @@ import {
     checkReachable,
     run,
     workspacePkgPaths,
-} from "../../../scripts/check-scripts";
+} from "../scripts/check-scripts";
 
 // Fixture trees live under the OS tmpdir, never the repo — `--root`-style isolation so a
 // mutation this suite needs (a phantom target, an undocumented script, an orphan file) never

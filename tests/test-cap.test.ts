@@ -1,5 +1,5 @@
 /**
- * Arms for the per-file test-duration cap (`packages/shallot/tests/test-cap.ts`) and for the
+ * Arms for the per-file test-duration cap (`tests/test-cap.ts`) and for the
  * configuration that reaches it (the repo-root `bunfig.toml`).
  *
  * Four load-bearing arms, each pinning a property a single-file arm cannot see:
@@ -41,9 +41,9 @@ import {
 } from "./test-cap";
 import { TEST_TIER_SUFFIX_NAMES } from "./test-tiers";
 
-const REPO_ROOT = join(import.meta.dir, "../../..");
+const REPO_ROOT = join(import.meta.dir, "..");
 const PRELOAD = join(import.meta.dir, "test-cap.ts");
-const OVER_FIXTURE_REL = "packages/shallot/tests/fixtures/test-cap-over.fixture.ts";
+const OVER_FIXTURE_REL = "tests/fixtures/test-cap-over.fixture.ts";
 const OVER_FIXTURE = join(REPO_ROOT, OVER_FIXTURE_REL);
 
 type Run = { exitCode: number; output: string };
@@ -107,13 +107,13 @@ describe("cap resolution and the derived exemption", () => {
      * (`Expected: true / Received: false`) and red the both-ways arm below with it.
      */
     test("exemption is derived from the suffix, so no default-tier path can be exempt", () => {
-        expect(isCapExempt("packages/shallot/tests/avbd/oracle.oracle.ts")).toBe(true);
-        expect(isCapExempt("packages/shallot/bin/verify.probes.ts")).toBe(true);
+        expect(isCapExempt("tests/avbd/oracle.oracle.ts")).toBe(true);
+        expect(isCapExempt("bin/verify.probes.ts")).toBe(true);
         expect(isCapExempt("examples/showcase/roads/src/editCorridor.tier.ts")).toBe(true);
-        expect(isCapExempt("packages/shallot/tests/foo.lab.ts")).toBe(true);
-        expect(isCapExempt("packages/shallot/tests/conformance.test.ts")).toBe(false);
+        expect(isCapExempt("tests/foo.lab.ts")).toBe(true);
+        expect(isCapExempt("tests/conformance.test.ts")).toBe(false);
         expect(isCapExempt(OVER_FIXTURE_REL)).toBe(false);
-        expect(isCapExempt("packages/shallot/tests/oracle.ts")).toBe(false);
+        expect(isCapExempt("tests/oracle.ts")).toBe(false);
     });
 
     /**
@@ -170,14 +170,14 @@ describe("cap resolution and the derived exemption", () => {
      * The population is derived from `git ls-files` — the tracked-file list, independent of the
      * predicate under test and of `resolveCapMs` — not from the cap's own resolver.
      *
-     * Witnessed red: with `"packages/shallot/tests/test-cap.test.ts"` removed from `Allowed`, this
-     * arm reds naming `packages/shallot/tests/test-cap.test.ts` — `childEnv`'s own
+     * Witnessed red: with `"tests/test-cap.test.ts"` removed from `Allowed`, this
+     * arm reds naming `tests/test-cap.test.ts` — `childEnv`'s own
      * `env.TEST_FILE_CAP_MS = capMs;` is a real assignment in a real tracked file, so the
      * predicate fires on production text, not on a fixture. Witnessed red (temporary assignment):
      * a `TEST_FILE_CAP_MS=10000` line added to `bunfig.toml` reds this arm naming `bunfig.toml`.
      */
     test("nothing in the tree sets TEST_FILE_CAP_MS, so the env override cannot be a standing escape", () => {
-        const Allowed = ["packages/shallot/tests/test-cap.test.ts"];
+        const Allowed = ["tests/test-cap.test.ts"];
         const tracked = Bun.spawnSync(["git", "ls-files"], {
             cwd: REPO_ROOT,
             stdout: "pipe",
@@ -219,8 +219,8 @@ describe("cap resolution and the derived exemption", () => {
      * derivation.
      */
     test("the message names the file, the reading, the cap, and only the two permitted moves", () => {
-        const msg = capMessage("packages/shallot/tests/conformance.test.ts", 5321.4, 5000);
-        expect(msg).toContain("packages/shallot/tests/conformance.test.ts");
+        const msg = capMessage("tests/conformance.test.ts", 5321.4, 5000);
+        expect(msg).toContain("tests/conformance.test.ts");
         expect(msg).toMatch(/ran 5321\.4ms of tests against a 5000ms cap/);
 
         const lines = msg.split("\n");
@@ -270,7 +270,7 @@ describe("cap resolution and the derived exemption", () => {
      * `isolationLine` was `-1` and this arm failed at `toBeGreaterThanOrEqual(0)`.
      */
     test("the isolation pre-read precedes the two responses, never reading as a third move", () => {
-        const msg = capMessage("packages/shallot/tests/conformance.test.ts", 5321.4, 5000);
+        const msg = capMessage("tests/conformance.test.ts", 5321.4, 5000);
         const lines = msg.split("\n");
         const isolationLine = lines.findIndex((line) => /alone by path/.test(line));
         const responsesLine = lines.findIndex((line) => /^Two responses/.test(line));

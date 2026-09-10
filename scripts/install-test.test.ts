@@ -95,7 +95,7 @@ test("the 16 legacy caller constructions are explicitly headed and Ocean stays o
     expect(total).toBe(16);
 
     const wrapper = readFileSync(resolve(import.meta.dir, "verify.ts"), "utf8");
-    expect(wrapper).toContain('"packages/shallot/bin/cli.ts"');
+    expect(wrapper).toContain('"bin/cli.ts"');
     expect(wrapper).not.toContain('"--headed"');
 
     const install = readFileSync(resolve(import.meta.dir, "install-test.ts"), "utf8");

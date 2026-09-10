@@ -38,16 +38,16 @@ import {
     WORLD,
 } from "@dylanebert/shallot/avbd/core";
 import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
-import { joint as oracleJoint } from "../../../../packages/shallot/tests/avbd/joint";
+import { joint as oracleJoint } from "../../../../tests/avbd/joint";
 // the f64 oracle (tests/, out of the published src/) is the executable spec the GPU constraint solve compares
 // against — reached by relative path, like the pile scenario reaches the rigid oracle.
-import type { Quat, Vec3 } from "../../../../packages/shallot/tests/avbd/math";
+import type { Quat, Vec3 } from "../../../../tests/avbd/math";
 import {
     body as makeBody,
     type Body as OracleBody,
-} from "../../../../packages/shallot/tests/avbd/rigid";
-import { makeSolver, step as oracleStep } from "../../../../packages/shallot/tests/avbd/solver";
-import { spring as oracleSpring } from "../../../../packages/shallot/tests/avbd/spring";
+} from "../../../../tests/avbd/rigid";
+import { makeSolver, step as oracleStep } from "../../../../tests/avbd/solver";
+import { spring as oracleSpring } from "../../../../tests/avbd/spring";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
 
 // constraints — the authored Force scenario (Phase 6, the §6.6 promotion of the `springs` + `joints` labs).

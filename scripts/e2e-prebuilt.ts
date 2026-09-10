@@ -40,7 +40,7 @@ import { join, resolve } from "node:path";
 const GREEN_RUN_ID = "32253745114";
 const REPO = "dylanebert/shallot";
 const LINUX_TARGET = "x86_64-unknown-linux-gnu";
-const ENGINE_DIR = resolve(import.meta.dir, "../packages/shallot");
+const ENGINE_DIR = resolve(import.meta.dir, "..");
 const CREATE_SHALLOT = resolve(import.meta.dir, "../packages/create-shallot/index.ts");
 const ENGINE_PKG = JSON.parse(readFileSync(resolve(ENGINE_DIR, "package.json"), "utf8"));
 const VERSION = ENGINE_PKG.version;

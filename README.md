@@ -4,7 +4,7 @@ webgpu game engine
 
 - fast by default
 - instant iteration
-- runs where webgpu does
+- runs in any WebGPU browser, or native
 
 ## live demos
 
@@ -35,11 +35,22 @@ A project is plain data plus code: a `shallot.json` manifest, a `.scene` file, a
 
 `bunx shallot verify` boots the project in full Chromium headlessly by default and exits 0 or nonzero, a check you, an agent, or CI can run to catch a project that no longer boots or renders. Use `--headed` only for checks whose claim depends on a display or compositor; `--connect` drives an endpoint-owned browser. It drives a real browser through the optional playwright peer, so install that once per project: `bun add -d playwright && bunx playwright install chromium`. The packed-install probe is `bun test --timeout 120000 ./scripts/install-test.probes.ts`.
 
+## add to an existing project
+
+```bash
+bun add @dylanebert/shallot typegpu@~0.12.4
+bun add -d unplugin-typegpu@~0.12.3
+```
+
+TypeGPU is a required peer, and TGSL needs exactly one TypeGPU transform in your bundler. A `shallot.json` project gets that from the CLI. An ejected Vite app adds `typegpu()` from `unplugin-typegpu/vite` plus `optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] }`. [MIGRATION.md](https://github.com/dylanebert/shallot/blob/main/MIGRATION.md) has the full setup, and it's also the GPU-consumer port from 0.8.
+
+`bunx shallot recipe <name> [dir]` copies a recipe out as a runnable, version-matched project.
+
 ## the repo is the docs
 
 The source is the reference: every public export carries a JSDoc contract. There's no docs site to drift from it, and two files carry the consumer surface:
 
-- [`packages/shallot/AGENTS.md`](packages/shallot/AGENTS.md) — the consumer contract: commands, the ECS and plugin conventions, the GPU, render, physics, and testing rules. Ships in the npm package.
+- [`AGENTS.md`](https://github.com/dylanebert/shallot/blob/main/AGENTS.md) — the repo and consumer contract: commands, the ECS and plugin conventions, the GPU, render, physics, and testing rules. Ships in the npm package.
 - [`examples/AGENTS.md`](examples/AGENTS.md) — the examples index: one line per entry, so you grep for the problem you have. The recipes section ships in the npm package as well.
 
 Written for coding agents first, readable by hand. Both files move in the same commit as the code they describe, so there's no generated layer to fall behind.
@@ -81,7 +92,7 @@ bun install
 bun run build
 ```
 
-`build` compiles the audio wasm kernel (`packages/shallot/rust/audio`) and the native window host (`packages/shallot/rust/window`). The tumble physics kernel is a committed wasm artifact: rebuild it with `bun run --cwd packages/shallot-tumble scripts/build-tumble-kernel.ts` after touching `rust/tumble`.
+`build` compiles the audio wasm kernel (`rust/audio`) and the native window host (`rust/window`). The tumble physics kernel is a committed wasm artifact: rebuild it with `bun run --cwd packages/shallot-tumble scripts/build-tumble-kernel.ts` after touching `rust/tumble`.
 
 ### native build prerequisites
 
@@ -97,7 +108,7 @@ Portable builds bundle the Chromium runtime (CEF) instead of the system webview.
 
 ### layout
 
-- `packages/shallot/` — public engine-and-tools distribution, `@dylanebert/shallot`
+- `` — public engine-and-tools distribution, `@dylanebert/shallot`
 - `packages/shallot-{runtime,cli,tumble}/` — private source owners, projected into that distribution
 - `packages/create-shallot/` — `bun create shallot` scaffold
 - `examples/` — example projects against the engine

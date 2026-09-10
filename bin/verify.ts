@@ -1479,7 +1479,7 @@ export function decodeSampleNode(png: {
 // without that cost: the screenshot capture is a CDP/compositor operation, not page JS, and decoding it
 // with pngjs happens in this process, so nothing here runs on the profiled main thread.
 //
-// pngjs is an optional dependency of @dylanebert/shallot (packages/shallot/package.json), present in the
+// pngjs is an optional dependency of @dylanebert/shallot (package.json), present in the
 // repo's root devDependencies. Under `--attribution` (a developer diagnostic, not a consumer feature)
 // the pngjs decode is REQUIRED: if it fails, the function throws rather than silently falling back to the
 // page-side decode — the fallback IS the contamination this stage removes, so a silent fallback under

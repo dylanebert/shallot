@@ -35,7 +35,7 @@ import { AvbdPlugin } from "@dylanebert/shallot/avbd";
 import { Avbd, BODY_VEC4, PENALTY_MIN } from "@dylanebert/shallot/avbd/core";
 import { grounded, jump, move, pose } from "@dylanebert/shallot/character/core";
 import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
-import type { Vec3 } from "../../../../packages/shallot/tests/avbd/math";
+import type { Vec3 } from "../../../../tests/avbd/math";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
 import { disposeLoad, getLoad, LoadPlugin, setLoad } from "../load";
 

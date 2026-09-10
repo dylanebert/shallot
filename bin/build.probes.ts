@@ -17,14 +17,14 @@ import { dirname, join, relative, resolve } from "node:path";
 import { buildWeb } from "./build";
 
 // G2's permanent command is:
-//     bun test --timeout 120000 ./packages/shallot/bin/build.probes.ts
+//     bun test --timeout 120000 ./bin/build.probes.ts
 // The source and installed arms both drive `bin/cli.ts build`'s buildWeb → viteBuild → projectPlugin
 // `generateBundle` path; the capture plugin is ordered before `projectPlugin` to prove the unused
 // tree-shaken new-URL asset existed before the pruning hook ran. This is deliberately a build probe,
 // not a browser/native/default-suite gate.
 
-const SHALL0T_ROOT = resolve(import.meta.dir, "../../..");
-const ENGINE_PACKAGE = resolve(SHALL0T_ROOT, "packages/shallot");
+const SHALL0T_ROOT = resolve(import.meta.dir, "..");
+const ENGINE_PACKAGE = SHALL0T_ROOT;
 const EVIDENCE = join(tmpdir(), "shallot-manifest-css-assets-build-probe");
 const CHILD_BYTES = Buffer.alloc(5_001, 0x43);
 const UNUSED_BYTES = Buffer.alloc(5_001, 0x55);
@@ -321,7 +321,7 @@ test("manifest build retains imported CSS/child assets and prunes a tree-shaken 
         assert.match(physicalBuildOutput, /done\./, "public bin build must complete");
 
         writeJson(join(EVIDENCE, "receipt.json"), {
-            command: "bun test --timeout 120000 ./packages/shallot/bin/build.probes.ts",
+            command: "bun test --timeout 120000 ./bin/build.probes.ts",
             runtime: Bun.version,
             source: {
                 project: sourceFixtureValue.project,

@@ -12,7 +12,7 @@
          to a bare edge band and only two of the three visible faces carry legible fill; 0.5 opens the top
          face to a real but still 2-row sliver, and 0.55 is where it clears three rows of its own fill
          glyphs while the cube still stays inside the 80x24 grid
-         (`packages/shallot/scripts/dump-cells-ascii.ts`'s own dump confirms both at this orbit). -->
+         (`scripts/dump-cells-ascii.ts`'s own dump confirms both at this orbit). -->
     <a id="camera" camera sear transform orbit="distance: 2.2; yaw: 0.6; pitch: 0.55" />
 
     <!-- lit, view-independent by construction (per-face glyph-selection contract):

@@ -51,7 +51,7 @@ import {
     primMin,
     slivers,
     uniformRandom,
-} from "../../../../packages/shallot/tests/bvh/fixtures";
+} from "../../../../tests/bvh/fixtures";
 import {
     type Bvh2,
     compareRays,
@@ -64,7 +64,7 @@ import {
     sceneBounds,
     sortMorton,
     treeMaxDepth,
-} from "../../../../packages/shallot/tests/bvh/oracle";
+} from "../../../../tests/bvh/oracle";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
 import {
     createTracer,

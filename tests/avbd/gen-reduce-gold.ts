@@ -9,7 +9,7 @@ import { spawnSync } from "child_process";
 import { existsSync, writeFileSync } from "fs";
 import { resolve } from "path";
 
-const repoRoot = resolve(import.meta.dir, "..", "..", "..", "..", "..");
+const repoRoot = resolve(import.meta.dir, "..", "..");
 const refDir = resolve(repoRoot, "reference", "avbd-demo3d");
 const out = resolve(import.meta.dir, "reduce-gold.json");
 

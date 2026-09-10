@@ -15,7 +15,7 @@ import { existsSync, mkdirSync } from "fs";
 import { resolve } from "path";
 
 const frames = Number(Bun.argv[2] ?? 600);
-const repoRoot = resolve(import.meta.dir, "..", "..", "..", "..", "..");
+const repoRoot = resolve(import.meta.dir, "..", "..");
 const refDir = resolve(repoRoot, "reference", "avbd-demo3d");
 const fixtureRoot = resolve(import.meta.dir, "..", "fixtures", "avbd");
 

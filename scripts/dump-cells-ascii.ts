@@ -16,10 +16,10 @@
 // `GlazePlugin` entirely (it only reads the pre-Glaze offscreen `CellsPlugin` selects from, never the
 // swapchain).
 //
-// Run from the `packages/shallot` package root (the registered `dump-cells-ascii` script, so the TGSL
+// Run from the repo root (the registered `dump-cells-ascii` script, so the TGSL
 // preload below — required, `bun run` alone does not apply a `bunfig.toml` `[test]`-only preload — is
 // never forgotten): `bun run dump-cells-ascii -- [--yaw <radians>] [--pitch <radians>]`, or equivalently
-// from the shallot repo root: `bun run --cwd packages/shallot dump-cells-ascii -- --yaw <radians>`.
+// from the shallot repo root: `bun run dump-cells-ascii -- --yaw <radians>`.
 // `--cell-w` and `--cell-h` pin capture geometry when replay cells are non-square. Defaults match the
 // recipe scene's own authored orbit (`yaw: 0.6; pitch: 0.55`) and square 11px cells.
 
@@ -54,7 +54,7 @@ import { cellGlyphChar, unpackCell } from "../src/extras/cells/core";
 import { attachCanvas } from "../src/standard/render/core";
 
 const SCENE_URL = new URL(
-    "../../../examples/recipes/render-to-a-terminal/public/scenes/render-to-a-terminal.scene",
+    "../examples/recipes/render-to-a-terminal/public/scenes/render-to-a-terminal.scene",
     import.meta.url,
 );
 

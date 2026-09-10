@@ -11,8 +11,8 @@ import {
 } from "../../src/standard/avbd/step";
 import { type Body, body } from "./rigid";
 
-// Trigger cone: `packages/shallot/src/standard/avbd/**/*.ts` and this tier's direct fixtures. Run from
-// the shallot root with `bun test ./packages/shallot/tests/avbd/differential.tier.ts`.
+// Trigger cone: `src/standard/avbd/**/*.ts` and this tier's direct fixtures. Run from
+// the shallot root with `bun test ./tests/avbd/differential.tier.ts`.
 // Red arm: the temporary raw TGSL integer-division mutation makes the geometry-band assertion fail
 // after compilation and execution; the focused run recorded 0 pass / 1 fail / 3 expects before restore.
 

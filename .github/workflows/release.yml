@@ -111,7 +111,7 @@ jobs:
             pkg-config
 
       - name: Build shallot-window shell (release)
-        working-directory: packages/shallot/rust/window
+        working-directory: rust/window
         run: |
           if [ "${{ matrix.mode }}" = "portable" ]; then
             cargo build --release --target ${{ matrix.target }} --no-default-features --features portable
@@ -133,7 +133,7 @@ jobs:
           ARCHIVE: ${{ matrix.archive }}
         run: |
           set -e
-          CRATE="packages/shallot/rust/window"
+          CRATE="rust/window"
           STAGE="stage"
           mkdir -p "$STAGE"
 
