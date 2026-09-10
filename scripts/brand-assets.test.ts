@@ -4,16 +4,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { template } from "../packages/create-shallot/index";
-import {
-    icon,
-    iconTargets,
-    NATIVE_ICON,
-    nativeIcon,
-    ROOT,
-    SCAFFOLD,
-    scaffoldSource,
-} from "./brand-assets";
+import { icon, iconTargets, NATIVE_ICON, nativeIcon, ROOT } from "./brand-assets";
 
 const read = (file: string) => readFileSync(resolve(ROOT, file), "utf8");
 
@@ -21,11 +12,6 @@ test("every default example icon is the rendered mark", () => {
     const targets = iconTargets();
     expect(targets.length).toBeGreaterThan(30);
     for (const file of targets) expect(read(file)).toBe(`${icon()}\n`);
-});
-
-test("the scaffold writes the same icon", () => {
-    expect(template("demo")["public/icon.svg"]).toBe(`${icon()}\n`);
-    expect(scaffoldSource(read(SCAFFOLD))).toBe(read(SCAFFOLD));
 });
 
 test("the native window icon is the framed mark at 1024", () => {

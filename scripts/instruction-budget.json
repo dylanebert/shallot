@@ -56,10 +56,6 @@
         "examples/AGENTS.md": {
             "bytes": 3111,
             "paragraph": 514
-        },
-        "packages/shallot-avbd-physics/.claude/rules/avbd.md": {
-            "bytes": 5509,
-            "paragraph": 636
         }
     }
 }

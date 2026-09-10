@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { compose, DARK, fromBlocks, MARK, toSvg } from "../src/standard/loading/mark";
 import { toPng } from "./png";
@@ -47,15 +47,7 @@ export function iconTargets(): string[] {
     return files;
 }
 
-export const SCAFFOLD = "packages/create-shallot/index.ts";
 export const NATIVE_ICON = "assets/icon-1024.png";
-
-/** The scaffold's inline `ICON`, rewritten around the render. */
-export function scaffoldSource(source: string): string {
-    const literal = /const ICON = `[\s\S]*?`;\n/;
-    if (!literal.test(source)) throw new Error(`brand-assets: no ICON constant in ${SCAFFOLD}`);
-    return source.replace(literal, `const ICON = \`${icon()}\n\`;\n`);
-}
 
 if (import.meta.main) {
     if (!process.argv.includes("--write")) {
@@ -65,8 +57,6 @@ if (import.meta.main) {
     const svg = `${icon()}\n`;
     const targets = iconTargets();
     for (const file of targets) writeFileSync(resolve(ROOT, file), svg);
-    const scaffold = resolve(ROOT, SCAFFOLD);
-    writeFileSync(scaffold, scaffoldSource(readFileSync(scaffold, "utf8")));
     writeFileSync(resolve(ROOT, NATIVE_ICON), nativeIcon());
-    console.log(`✓ brand assets written (${targets.length} icons, scaffold, native icon)`);
+    console.log(`✓ brand assets written (${targets.length} icons, native icon)`);
 }

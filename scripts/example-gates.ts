@@ -34,8 +34,8 @@ const ORBIT = src("extras/orbit");
 /** Flow and rendered-page assertions observe the boot path even when their specific claim is elsewhere. */
 const BOOT = src("engine/ecs", "standard/glaze", "standard/loading");
 
-/** The rigid-body surface and the GPU solver package read by the physics assertions. */
-const PHYSICS = [...src("standard/physics"), "packages/shallot-avbd-physics/src/**"];
+/** The rigid-body surface read by the physics assertions. */
+const PHYSICS = src("standard/physics");
 
 /** Shallot-owned selection roster. Each row's cone is its own directory plus the runtime and producer
  * modules its surviving assertion claims about. Whole-roster escalation on the lock or any manifest
@@ -238,20 +238,6 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         motion: true,
     },
     {
-        dir: "examples/showcase/collapse",
-        tier: "showcase",
-        covers: [
-            "examples/showcase/collapse/**",
-            ...BARRELS,
-            ...HARNESS,
-            ...BOOT,
-            ...src("extras/orbit", "standard/input", "standard/render"),
-            "packages/shallot-avbd-physics/src/**",
-        ],
-        gate: "bun run --cwd examples/showcase/collapse gate",
-        motion: true,
-    },
-    {
         dir: "examples/showcase/ocean",
         tier: "showcase",
         covers: [
@@ -283,19 +269,6 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         ],
         gate: "bun run --cwd examples/showcase/roads gate",
         motion: true,
-    },
-    {
-        dir: "examples/showcase/sandbox",
-        tier: "showcase",
-        covers: [
-            "examples/showcase/sandbox/**",
-            ...BARRELS,
-            ...HARNESS,
-            ...BOOT,
-            ...INPUT,
-            ...src("standard/player", "standard/render"),
-        ],
-        gate: "bun run --cwd examples/showcase/sandbox gate",
     },
     {
         dir: "examples/showcase/visualization",
@@ -357,7 +330,6 @@ export const EXAMPLE_GATES: ExampleGate[] = [
                 "standard/player",
                 "standard/transforms",
             ),
-            "packages/shallot-avbd-physics/src/**",
         ],
         gate: "bun bench --sweep && bun run --cwd examples/gym gate",
     },

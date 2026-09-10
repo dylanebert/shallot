@@ -5,7 +5,6 @@
             "src/**/*.ts",
             "bin/**/*.ts",
             "tests/**/*.ts",
-            "packages/**/*.ts",
             "examples/**/*.ts",
             "evals/**/*.ts",
             "scripts/**/*.ts",

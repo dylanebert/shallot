@@ -34,7 +34,6 @@ import { type ShaderArtifactSummary, type VerifyResult, verify } from "./verify"
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const ENGINE_DIR = resolve(REPO_ROOT);
 const WIDGET_DIR = resolve(import.meta.dir, "install-test/widget");
-const CREATE_SHALLOT_DIR = resolve(import.meta.dir, "../packages/create-shallot");
 const CLI = "node_modules/.bin/shallot"; // execute the installation's declared public bin
 
 const freePort = (): Promise<number> =>
@@ -393,128 +392,6 @@ function identityProbeScript(withPaths = false): string {
             ? `console.log("PATH_TYPEGPU=" + Bun.resolveSync("typegpu", import.meta.dir));\n` +
               `console.log("PATH_TYPEGPU2=" + Bun.resolveSync("typegpu2", import.meta.dir));\n`
             : "")
-    );
-}
-
-// `bun create shallot` → install the packed engine → build — the brand-new-user path (the starter
-// template is an index.html-free manifest project; this is the asserted form of `bun local`'s scaffold).
-function createShallotFlow(work: string, engineTgz: string) {
-    console.log("bun create shallot (scaffold → install → build the starter)…");
-    const parent = join(work, "scaffold");
-    mkdirSync(parent, { recursive: true });
-    const scaffoldTgz = pack(CREATE_SHALLOT_DIR, join(work, "scaffold-pack"));
-    writeFileSync(
-        join(parent, "package.json"),
-        JSON.stringify({
-            private: true,
-            dependencies: { "create-shallot": `file:${scaffoldTgz}` },
-        }),
-    );
-    const scaffoldInstall = run(["bun", "install"], parent);
-    check("the packed scaffold installs", scaffoldInstall.ok, scaffoldInstall.out.slice(-400));
-    if (!scaffoldInstall.ok) return;
-    const scaffoldRoot = join(parent, "node_modules/create-shallot");
-    check("the scaffold is a physical install", realpathSync(scaffoldRoot) === scaffoldRoot);
-    const created = run(["bun", "node_modules/.bin/create-shallot", "starter-app"], parent);
-    check(
-        "create-shallot scaffolds a project",
-        created.ok,
-        created.ok ? "" : created.out.slice(-400),
-    );
-    const proj = join(parent, "starter-app");
-    if (!existsSync(join(proj, "package.json"))) return;
-    // a real user installs the published engine; here, the packed tarball stands in
-    const pkg = JSON.parse(readFileSync(join(proj, "package.json"), "utf8"));
-    // the scaffold must pin @dylanebert/shallot to the scaffold's own version (lockstep-gated by
-    // check-versions.ts), not "latest" — a "latest" pin beside exact-tilde typegpu/unplugin-typegpu
-    // pins could resolve to a newer engine whose peer ranges the pins don't satisfy.
-    const createPkg = JSON.parse(readFileSync(join(scaffoldRoot, "package.json"), "utf8")) as {
-        version: string;
-    };
-    const expectedShallotRange = `~${createPkg.version}`;
-    check(
-        "the scaffold pins @dylanebert/shallot to the scaffold's own version (not latest)",
-        pkg.dependencies?.["@dylanebert/shallot"] === expectedShallotRange,
-        `got ${pkg.dependencies?.["@dylanebert/shallot"]}, expected ${expectedShallotRange}`,
-    );
-    pkg.dependencies["@dylanebert/shallot"] = `file:${engineTgz}`;
-    writeFileSync(join(proj, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
-    const inst = run(["bun", "install"], proj);
-    check("the scaffolded starter installs", inst.ok, inst.ok ? "" : inst.out.slice(-400));
-    if (!inst.ok) return;
-    const built = run(["bun", CLI, "build", "."], proj);
-    check("the scaffolded starter builds", built.ok, built.ok ? "" : built.out.slice(-600));
-    check("starter build produced dist/index.html", existsSync(join(proj, "dist", "index.html")));
-
-    // the emitted docs must point an agent at the installed engine (node_modules), not a repo URL, and
-    // every path they name must resolve inside the freshly installed project.
-    const doc = readFileSync(join(proj, "AGENTS.md"), "utf8");
-    check(
-        "scaffold docs point at node_modules, not a GitHub URL",
-        /node_modules\/@dylanebert\/shallot\/AGENTS\.md/.test(doc) &&
-            /node_modules\/@dylanebert\/shallot\/examples\/AGENTS\.md/.test(doc) &&
-            !/github\.com\/dylanebert\/shallot/.test(doc),
-    );
-    for (const rel of [
-        "node_modules/@dylanebert/shallot/AGENTS.md",
-        "node_modules/@dylanebert/shallot/examples/AGENTS.md",
-    ]) {
-        check(`the scaffold's ${rel} pointer resolves`, existsSync(join(proj, rel)));
-    }
-    check(
-        "scaffold docs name `shallot verify` as the verification step",
-        /shallot verify/.test(doc),
-    );
-    check(
-        "scaffold docs name `shallot recipe` as the copy-out command",
-        /shallot recipe/.test(doc),
-    );
-    // runnable command lines standardize on `bunx shallot <cmd>` — a bare `shallot <cmd>` at a line or
-    // `&&`-chain start only resolves when globally linked (check-docs.ts guards the repo's own docs; this
-    // guards the docs create-shallot emits, which check-docs can't scan statically). Prose naming the CLI
-    // surface (backtick-preceded) is unaffected.
-    check(
-        "scaffold docs carry no bare `shallot <cmd>` runnable line",
-        !/(^|&&)\s*shallot\s+(dev|build|run|verify|recipe)\b/m.test(doc),
-    );
-
-    // the shipped verify gate, run as an installed agent would: --help is a clean exit, and a project
-    // with no playwright gets the distinct exit 3 + the actionable install command (a browser run itself
-    // is display/GPU-gated — not asserted here).
-    const help = run(["bun", CLI, "verify", "--help"], proj);
-    check("shallot verify --help exits 0", help.ok, help.ok ? "" : help.out.slice(-200));
-    const noPw = Bun.spawnSync(["bun", CLI, "verify", "."], {
-        cwd: proj,
-        stdout: "pipe",
-        stderr: "pipe",
-    });
-    check(
-        "shallot verify exits 3 with an install remedy when playwright is absent",
-        noPw.exitCode === 3 &&
-            /playwright install chromium/.test(
-                `${noPw.stdout.toString()}\n${noPw.stderr.toString()}`,
-            ),
-        `exit ${noPw.exitCode}`,
-    );
-
-    // the intact scaffold typechecks: spin.ts is present, so the program reaches the engine's shipped
-    // source in node_modules — the shipped types (@types/node dep + ImportMeta.env augmentation) must
-    // resolve every error a consumer's tsc would see.
-    const tscIntact = run(["bunx", "tsc", "--noEmit"], proj);
-    check(
-        "tsc --noEmit on the intact scaffold typechecks clean (program reaches the engine)",
-        tscIntact.ok,
-        tscIntact.ok ? "" : tscIntact.out.slice(-400),
-    );
-
-    // the TS18003 trap: deleting the demo plugin (its comment invites it) empties src/ but must not break
-    // the scaffold's documented `bunx tsc --noEmit` — the env.d.ts anchor keeps `include: ["src"]` matched.
-    rmSync(join(proj, "src", "spin.ts"));
-    const tsc = run(["bunx", "tsc", "--noEmit"], proj);
-    check(
-        "tsc --noEmit stays green with an emptied src/ (no TS18003)",
-        tsc.ok,
-        tsc.ok ? "" : tsc.out.slice(-400),
     );
 }
 
@@ -1800,7 +1677,6 @@ if (import.meta.main) {
 
         await identityBrowserFlow(work, engineTgz);
 
-        createShallotFlow(work, engineTgz);
         await compatibilityFlow(work, engineTgz);
         await outputFlow(work, engineTgz);
     } finally {

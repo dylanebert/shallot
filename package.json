@@ -87,7 +87,6 @@
         "!tests/**"
     ],
     "workspaces": [
-        "packages/*",
         "examples/gym",
         "examples/recipes/*",
         "examples/showcase/*"

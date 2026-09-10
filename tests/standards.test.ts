@@ -78,7 +78,6 @@ describe("TGSL corpus standards", () => {
  *  Shrinking it is the follow-on work. */
 const GAP_GOLDEN = [
     "clusterOf",
-    "collideRoundedPolytope",
     "decodePos",
     "decodeUv",
     "distributionGGX",

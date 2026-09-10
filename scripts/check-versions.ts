@@ -2,19 +2,12 @@ import { resolve } from "path";
 
 const root = resolve(import.meta.dir, "..");
 const shallot = await Bun.file(resolve(root, "package.json")).json();
-const create = await Bun.file(resolve(root, "packages/create-shallot/package.json")).json();
 const release = process.argv.includes("--release");
 
 const fail = (msg: string) => {
     console.error(msg);
     process.exit(1);
 };
-
-if (shallot.version !== create.version) {
-    fail(
-        `Version mismatch: @dylanebert/shallot@${shallot.version} vs create-shallot@${create.version}`,
-    );
-}
 
 // Release-time only: nothing else catches a bump that never happened. Every other arm compares
 // version sites to each other, so a whole cycle run against an unbumped tree is uniformly green
@@ -56,22 +49,6 @@ for (const crate of ["rust/audio/Cargo.toml", "rust/window/Cargo.toml"]) {
     const version = text.match(/^version = "(.+)"/m)?.[1];
     if (version !== shallot.version) {
         fail(`Version mismatch: ${crate}@${version} vs @dylanebert/shallot@${shallot.version}`);
-    }
-}
-
-// `bun.lock` records each member package's version independently of its `package.json`, and a
-// stale entry survives a release untouched: it read 0.9.0 through the whole 0.9.1 cycle, because
-// nothing read it. The root entry carries no version. Bun writes the lockfile with trailing commas,
-// which `JSON.parse` rejects — strip them at the boundary (no lockfile string value ends in a comma
-// before a closing brace).
-const lockText = await Bun.file(resolve(root, "bun.lock")).text();
-const lock = JSON.parse(lockText.replace(/,(\s*[}\]])/g, "$1"));
-for (const dir of ["packages/shallot-avbd-physics", "packages/create-shallot"]) {
-    const version = lock.workspaces?.[dir]?.version;
-    if (version !== shallot.version) {
-        fail(
-            `Version mismatch: bun.lock records ${dir}@${version} vs @dylanebert/shallot@${shallot.version} — re-run \`bun install\`.`,
-        );
     }
 }
 

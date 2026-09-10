@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { template } from "../packages/create-shallot/index";
 import { listRecipes, occupied, pinEngine, runRecipe } from "./recipe";
 import { CLAUDE_IMPORT, ENGINE_REFERENCE, recipeDoc } from "./scaffold";
 
@@ -161,22 +160,15 @@ describe("runRecipe", () => {
     });
 });
 
-// The engine pointer is single-sourced in scaffold.ts (bin/ ships; create-shallot ships only its own
-// index.ts and can't import it). This guards that create-shallot's own scaffold carries the identical
-// stanza — the "stays consistent with" the two sources rely on, since neither can import the other.
+// The engine pointer is single-sourced in scaffold.ts; the create-shallot repository carries its own copy.
 describe("scaffold pointer is one source", () => {
     test("recipe copy-out doc embeds the ENGINE_REFERENCE stanza", () => {
         expect(recipeDoc("orbit-camera")).toContain(ENGINE_REFERENCE);
     });
 
-    test("create-shallot's scaffold AGENTS.md carries the same stanza", () => {
-        expect(template("starter-app")["AGENTS.md"]).toContain(ENGINE_REFERENCE);
-    });
 
-    // One contract, two entrypoints: the scaffolded CLAUDE.md imports AGENTS.md rather than copying it,
-    // so an edit to one can't drift from the other. Both emitters must spell the import identically.
-    test("both scaffolds emit CLAUDE.md as the AGENTS.md import, not a copy", () => {
-        expect(template("starter-app")["CLAUDE.md"]).toBe(CLAUDE_IMPORT);
+    // The scaffolded CLAUDE.md imports AGENTS.md rather than copying it, so an edit to one can't drift.
+    test("the scaffolded CLAUDE.md is the AGENTS.md import, not a copy", () => {
         expect(CLAUDE_IMPORT.split("\n")[0]).toBe("@AGENTS.md");
     });
 

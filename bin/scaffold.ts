@@ -1,15 +1,12 @@
 // Scaffold fragments emitted into a recipe copied out by `shallot recipe` (bin/recipe.ts): the
 // AGENTS.md pointer stanza that hands an agent the engine's contract, the CLAUDE.md that imports it,
-// and a standalone tsconfig. They live here — in the engine package, which ships `bin/` — because the
-// two would-be sources can't import each other: `create-shallot` ships only `index.ts` and runs before the engine
-// is installed (nothing to import), and the engine tarball omits `create-shallot`. So this is the one
-// source for the copy-out, and `create-shallot`'s own AGENTS.md carries the identical
-// `ENGINE_REFERENCE` stanza, guarded consistent by `recipe.test.ts`.
+// and a standalone tsconfig. The create-shallot scaffold, a separate repository, carries its own copy of
+// `ENGINE_REFERENCE` and `CLAUDE_IMPORT`; the two must be kept identical by hand.
 
 // The reach the recipes-install-ux distribution decision rests on: a stock harness (Claude Code,
 // Cursor, Codex) never reads instruction files from node_modules, but it follows an explicit path from
 // a file in the project it opens. A copied recipe therefore carries this at its root so an agent finds
-// the installed engine's agent surface. Kept byte-identical to `create-shallot`'s scaffold stanza.
+// the installed engine's agent surface.
 export const ENGINE_REFERENCE = `## Engine reference
 
 The engine is the documentation. Read \`node_modules/@dylanebert/shallot/AGENTS.md\` for the full
@@ -23,7 +20,7 @@ it for the problem you have, then read that recipe's source, before writing a pa
 // `@`-import. An import, not a symlink — a Windows checkout without developer mode gets a literal
 // text file from a symlink. The trailing sentence is the cost of that choice: the import expands only
 // for a session rooted in this file's own directory, so opened from a parent the line is literal text
-// and the prose pointer is all the reader gets. Kept identical to `create-shallot`'s scaffold constant.
+// and the prose pointer is all the reader gets.
 export const CLAUDE_IMPORT = `@AGENTS.md
 
 If the import line above is showing as literal text, this file was loaded from a parent directory; read the AGENTS.md next to this file before working here.

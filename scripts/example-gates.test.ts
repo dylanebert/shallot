@@ -43,10 +43,8 @@ const EXPECTED_DIRS = [
     "examples/recipes/stylize-the-look",
     "examples/recipes/surface-friction",
     "examples/showcase/ascii",
-    "examples/showcase/collapse",
     "examples/showcase/ocean",
     "examples/showcase/roads",
-    "examples/showcase/sandbox",
     "examples/showcase/visualization",
     "examples/showcase/voxel",
     "examples/gym",
@@ -55,10 +53,8 @@ const EXPECTED_DIRS = [
 const STANDARD_RENDER_ROWS = [
     "examples/recipes/day-night-sky",
     "examples/recipes/gpu-particles",
-    "examples/showcase/collapse",
     "examples/showcase/ocean",
     "examples/showcase/roads",
-    "examples/showcase/sandbox",
     "examples/showcase/visualization",
     "examples/showcase/voxel",
     "examples/gym",
@@ -73,9 +69,7 @@ const INPUT_ROWS = [
     "examples/recipes/respond-to-input",
     "examples/recipes/save-and-restore",
     "examples/showcase/ascii",
-    "examples/showcase/collapse",
     "examples/showcase/roads",
-    "examples/showcase/sandbox",
     "examples/showcase/visualization",
     "examples/showcase/voxel",
     "examples/gym",
@@ -83,10 +77,8 @@ const INPUT_ROWS = [
 
 const BOOT_ROWS = [
     "examples/showcase/ascii",
-    "examples/showcase/collapse",
     "examples/showcase/ocean",
     "examples/showcase/roads",
-    "examples/showcase/sandbox",
     "examples/showcase/visualization",
     "examples/showcase/voxel",
     "examples/gym",
@@ -159,7 +151,6 @@ const EXPECTED_RUNTIME_MODULE_ROWS: Record<string, string[]> = {
     "extras/orbit": [
         "examples/recipes/render-to-a-terminal",
         "examples/showcase/ascii",
-        "examples/showcase/collapse",
         "examples/showcase/roads",
         "examples/showcase/visualization",
         "examples/showcase/voxel",
@@ -196,7 +187,7 @@ const EXPECTED_RUNTIME_MODULE_ROWS: Record<string, string[]> = {
         "examples/showcase/voxel",
         "examples/gym",
     ],
-    "standard/player": ["examples/showcase/sandbox", "examples/gym"],
+    "standard/player": ["examples/gym"],
     "standard/render": STANDARD_RENDER_ROWS,
     "standard/sear": [
         "examples/recipes/gpu-particles",
@@ -261,10 +252,10 @@ function trackedFiles(): string[] {
     return result.stdout.toString().split("\n").filter(Boolean);
 }
 
-test("the current 27/4/7/gym roster is pinned by identity", () => {
+test("the current 27/4/5/gym roster is pinned by identity", () => {
     expect(EXAMPLE_GATES.map((row) => row.dir)).toEqual(EXPECTED_DIRS);
     expect(EXAMPLE_GATES.filter((row) => row.tier === "recipes")).toHaveLength(27);
-    expect(EXAMPLE_GATES.filter((row) => row.tier === "showcase")).toHaveLength(7);
+    expect(EXAMPLE_GATES.filter((row) => row.tier === "showcase")).toHaveLength(5);
     expect(EXAMPLE_GATES.filter((row) => row.tier === "gym")).toHaveLength(1);
 });
 
@@ -283,25 +274,12 @@ test("a runtime file selects the rows with the corresponding assertion subject",
         "examples/recipes/compute-and-readback",
         "examples/gym",
     ]);
-    expect(dirs(["packages/shallot-avbd-physics/src/index.ts"])).toEqual([
-        "examples/recipes/breakable-joints",
-        "examples/recipes/drive-a-vehicle",
-        "examples/recipes/joints",
-        "examples/recipes/moving-platform",
-        "examples/recipes/physics-playground",
-        "examples/recipes/surface-friction",
-        "examples/showcase/collapse",
-        "examples/gym",
-    ]);
     expect(dirs([`${RUNTIME_SRC}/standard/character/index.ts`])).toEqual(["examples/gym"]);
     expect(dirs([`${RUNTIME_SRC}/standard/mirror/index.ts`])).toEqual([
         "examples/recipes/compute-and-readback",
         "examples/gym",
     ]);
-    expect(dirs([`${RUNTIME_SRC}/standard/player/index.ts`])).toEqual([
-        "examples/showcase/sandbox",
-        "examples/gym",
-    ]);
+    expect(dirs([`${RUNTIME_SRC}/standard/player/index.ts`])).toEqual(["examples/gym"]);
     expect(dirs([`${RUNTIME_SRC}/standard/transforms/index.ts`])).toEqual([
         "examples/recipes/animate-with-clips",
         "examples/recipes/first-person",
