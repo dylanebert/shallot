@@ -92,7 +92,7 @@ export function cellGlyphString(): string {
 
 // The GPU-side half of this contract — the uv-rect + size tables the instanced draw reads per glyph
 // index — is `glyphs.ts`'s `buildGlyphUvTable` / `buildGlyphSizeTable`, against a live `GlyphAtlas`
-// (`text/core`'s `createGlyphAtlas` + `ensureString`, the same shelf-packed atlas `extras/text`'s own
+// (`extras/text`'s `createGlyphAtlas` + `ensureString`, the same shelf-packed atlas `extras/text`'s own
 // instanced glyph quads use — reused rather than re-derived) that `CellsPlugin` (`./index.ts`) owns the
 // lifecycle of. The contract:
 //

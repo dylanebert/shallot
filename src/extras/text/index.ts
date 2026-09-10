@@ -539,15 +539,15 @@ export const TextPlugin: Plugin = {
     },
 };
 
-// Text's `*/core` extension surface — the shared SDF glyph atlas substrate for a producer that needs it
+// Text's extension surface — the shared SDF glyph atlas substrate for a producer that needs it
 // without the retained `Text` component + its layout/anchor machinery: atlas creation/warming, plus the
 // SDF decode (`sdfToSignedDistance`) and packed-color decode (`textSrgbToLinear`) a consuming fragment
 // stage evaluates the same way this module's own `fs` does. First consumer: `extras/cells`, the ASCII
 // cell renderer's glyph atlas, which renders directly on the GPU through the existing instanced SDF
 // glyph atlas — a simplification of this system, monospace and anchor-free, reusing the same atlas
-// rather than building a second one. `check-imports.ts` forbids a deep
-// cross-module import into `./atlas` / `./font` / `./glyph` directly, so this subpath is the sanctioned
-// reuse seam — same shape as `skin/core` existing for glTF's PBR trio to compose against.
+// rather than building a second one. A sibling module imports these through this barrel, never
+// `./atlas` / `./font` / `./glyph` directly: this is the sanctioned reuse seam, the same shape as the skin
+// module's extension surface existing for glTF's PBR trio to compose against.
 export {
     computeGlyphMetrics,
     createGlyphAtlas,

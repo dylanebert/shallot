@@ -103,7 +103,7 @@ export function sliceDepth(view: ClusterView, z: number): number {
  * the light cull binned into. Tile `(0, 0)` is NDC `(-1, -1)` — bottom-left — so the y tile flips from
  * the top-down screen y. Sear's color FS passes fragCoord-derived args; the fog march passes its pixel
  * plus the per-step view depth (the tile xy is fixed along the ray, the z slice moves per step).
- * Relocatable, spliced by both (`lightEvalWgsl`, `sear/core`).
+ * Relocatable, spliced by both (`lightEvalWgsl`, `sear`).
  *
  * @example let cell = clusterCell(fx, fy, viewZ, near, far, slot);
  */

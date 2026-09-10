@@ -7,7 +7,7 @@ import {
     type State,
     type System,
 } from "@dylanebert/shallot";
-import { StepSystem } from "@dylanebert/shallot/physics/core";
+import { StepSystem } from "@dylanebert/shallot/physics";
 
 // a moving platform, on the published substrate surface: a KINEMATIC body driven from code. A `mass: 0`
 // body is normally static, but `Physics.backend.setKinematic(eid, pos, quat)` moves it each fixed tick and

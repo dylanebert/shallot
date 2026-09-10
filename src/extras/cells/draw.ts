@@ -1,5 +1,5 @@
 // The web sink: an instanced draw of `cols * rows` monospace quads against the shared SDF glyph atlas
-// (`text/core`), no readback — the same pipeline with the expensive tail deleted. A simplification of `extras/text`'s own instanced glyph draw: no world
+// (`extras/text`), no readback — the same pipeline with the expensive tail deleted. A simplification of `extras/text`'s own instanced glyph draw: no world
 // transform, no per-entity eid lookup, no per-string layout pass — every cell is a fixed monospace box
 // whose position derives purely from its instance index. The quad's *geometry* always covers the whole
 // box ("the grid is the frame" property lives in every pixel of every cell getting a real write, so

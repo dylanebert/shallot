@@ -14,7 +14,7 @@ export const CameraMode = {
  * camera component. Pose comes from {@link Transform} (looks down its local -Z). A lone camera
  * auto-binds to the first `<canvas>` in the document, so the single-view case needs no wiring;
  * multi-view (or a dynamically-created canvas) binds each camera explicitly via `attachCanvas`
- * from `render/core`. `clearColor` is hex sRGB-encoded (e.g. `0x5cbfbf`); sear unpacks to linear
+ * from `render`. `clearColor` is hex sRGB-encoded (e.g. `0x5cbfbf`); sear unpacks to linear
  * when recording the camera's render pass
  *
  * @example

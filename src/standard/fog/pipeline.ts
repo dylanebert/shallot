@@ -6,7 +6,7 @@
 //
 // Six of the ten group-1 bindings (`pointAtlas`/`shadowSamp`/`pointShadows`/`tileRects` for the point path,
 // `shadowMap`/`sunShadow` for the sun path) are read only inside sear's relocatable shadow receivers
-// (`pointShadowOf` / `sampleSunShadow`, `sear/core`), which are WGSL-bodied and read those six as free
+// (`pointShadowOf` / `sampleSunShadow`, `sear`), which are WGSL-bodied and read those six as free
 // names — a real-reference call into them reaches `tgpu.resolve`'s call graph (the call itself is tracked),
 // but the free names inside their bodies are not (the same forcing-touch pattern the AVBD solver's `hullData` uses), so
 // nothing here would otherwise force their WGSL declarations. `fogKernel` below forces them into scope with

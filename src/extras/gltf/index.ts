@@ -3,7 +3,7 @@
 // preloader loads the file before the scene resolves, and its route sync decorates the Part with the
 // textured/skinned surface + material. The importer itself stays a one-way utility — it registers meshes /
 // surfaces / VATs and returns a descriptor, creating no entities; place programmatically via `placeGltf` /
-// `placeScene`. The decode / cache / tooling surface is `@dylanebert/shallot/gltf/core`.
+// `placeScene`. The decode / cache / tooling surface follows at the end of this file, off the `extras` barrel.
 
 export type { GltfHandle, GltfImport, GltfPlacement } from "./assets";
 export { GltfPlugin, loadGltf, placeGltf, placeScene } from "./assets";

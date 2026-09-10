@@ -153,7 +153,7 @@ const _canvasOwners: WeakMap<HTMLCanvasElement, State> = new WeakMap();
 // read `import.meta.env.DEV` typeof-safely: the engine is bundled by arbitrary consumer bundlers, and a
 // bare `import.meta.env.DEV` throws where `import.meta.env` is undefined (non-vite). Optional-chained,
 // wrapped so an exotic `import.meta` shape can't take down attachCanvas. Exported as a test seam (pins the
-// false-not-throw contract off a vite build) — not on the `render/core` barrel.
+// false-not-throw contract off a vite build) — not on the `render` barrel.
 export function devEnabled(): boolean {
     try {
         const env = import.meta.env as Record<string, unknown> | undefined;
@@ -167,7 +167,7 @@ export function devEnabled(): boolean {
  * dev-only rebuild guard, canvas-keyed: warn when `canvas` is still held by a live, undisposed *different*
  * State — an app rebuilt without disposing the prior one (the leak class `State.onDispose` closes), then
  * record the new owner. Two apps on distinct canvases stay silent; a proper dispose flips the prior owner's
- * `disposed`, so a later rebind is silent too. Internal + a test seam — not on the `render/core` barrel.
+ * `disposed`, so a later rebind is silent too. Internal + a test seam — not on the `render` barrel.
  */
 export function trackCanvasOwner(canvas: HTMLCanvasElement, state: State): void {
     const prior = _canvasOwners.get(canvas);

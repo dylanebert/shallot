@@ -5,7 +5,7 @@
 // same path a consumer's own fused composite takes. Compute, not a render pass, so the present costs no
 // tile load/store on TBDR; WebGPU exposes no programmable blending, so a
 // compute dispatch reading the offscreen and writing the swapchain once is the portable fused-postfx
-// substitute. Renderer-agnostic: it imports only `render/core` and reads `view.framebuffer` / `view.present`,
+// substitute. Renderer-agnostic: it imports only `render` and reads `view.framebuffer` / `view.present`,
 // so sear (MSAA-resolved) and a custom renderer (single-sample) both composite through it. A renderer
 // orders itself ahead with `before: [GlazeSystem]`; glaze never imports a renderer.
 //

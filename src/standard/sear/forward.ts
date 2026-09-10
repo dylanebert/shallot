@@ -94,7 +94,7 @@ export { DEPTH_FORMAT, TAG_FORMAT, TAG_NONE, Tag } from "./codegen";
  * marker selecting Sear as the active renderer on a Camera entity. A camera carrying it renders through
  * sear's color pass, plus the opt-in prepass lanes its {@link Tag} / {@link Depth} markers request.
  * Lives in the renderer impl with the systems that query it; the thin `sear` barrel re-exports it to the
- * game author, `sear/core` re-exports the systems to an extender.
+ * game author, the `sear` barrel exports the systems to an extender.
  *
  * @example
  * ```

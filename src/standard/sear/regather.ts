@@ -4,7 +4,7 @@
 // point/spot tiles, the CSM cascade tiles) instantiates its own `Regather`; the two A/B compute pipelines
 // are geometry-blind (they read slot-major counts + the eid pool alone, with no projection or mesh
 // knowledge), so they're module-scope singletons shared across every instance — one shader module, two
-// buffer sets. The re-gather is a *consumer* of the cull spine's output (`render/core` owns the spine that
+// buffer sets. The re-gather is a *consumer* of the cull spine's output (`render` owns the spine that
 // feeds it); it knows sear-private concepts (the packing convention below, the atlas record shape, the
 // `eids`-lane swap), so it lives here, not in render (render stays renderer-agnostic).
 

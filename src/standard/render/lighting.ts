@@ -232,7 +232,7 @@ export const pointLightsWgsl = chunk("pointLightsWgsl", [PointLights], spliceNs)
  * exactly zero at and past the range, and flat at `1/radiusSq` inside the source sphere
  * (Karis representative point: `radiusSq = 0` would spike toward ∞ at the bulb). One
  * function, both sides: sear's clustered loop and the fog march splice it (`lightEvalWgsl`,
- * `sear/core`), the CPU oracles call it directly — there is no WGSL twin to drift from.
+ * `sear`), the CPU oracles call it directly — there is no WGSL twin to drift from.
  *
  * @example const atten = distanceAttenuation(distSq, 1 / (range * range), radius * radius);
  */

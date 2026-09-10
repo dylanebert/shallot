@@ -218,7 +218,7 @@ export const sunInScatter = tgpu.fn(
  * the in-scatter primitives, spliced by the production fog shader and the fog probe:
  * {@link henyeyGreenstein}, the clustered {@link inScatterContribution}, and the directional
  * {@link sunInScatter}. Splice **after** `pointLightsWgsl()` + `octEncodeWgsl()` + `lightEvalWgsl()`
- * (`sear/core`) — the contribution calls their `distanceAttenuation` / `spotFactor`.
+ * (`sear`) — the contribution calls their `distanceAttenuation` / `spotFactor`.
  */
 export function fogInScatterWgsl(): string {
     // force the base chunks first, so `PointLightGpu` and the light-eval primitives land in the chunks that

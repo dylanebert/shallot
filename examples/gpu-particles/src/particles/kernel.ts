@@ -1,4 +1,4 @@
-import { FrameGpu } from "@dylanebert/shallot/render/core";
+import { FrameGpu } from "@dylanebert/shallot/render";
 import tgpu, { type StorageFlag, type TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";

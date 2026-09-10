@@ -43,23 +43,15 @@
             "types": "./src/project/vite.ts",
             "default": "./dist/vite.js"
         },
-        "./ecs/core": "./src/engine/ecs/index.ts",
-        "./scene/core": "./src/engine/scene/index.ts",
-        "./utils/core": "./src/engine/utils/index.ts",
-        "./fog/core": "./src/standard/fog/index.ts",
+        "./runtime": "./src/engine/runtime/index.ts",
+        "./ecs": "./src/engine/ecs/index.ts",
+        "./utils": "./src/engine/utils/index.ts",
+        "./render": "./src/standard/render/index.ts",
+        "./sear": "./src/standard/sear/index.ts",
         "./glaze": "./src/standard/glaze/index.ts",
-        "./part/core": "./src/standard/part/index.ts",
-        "./render/core": "./src/standard/render/index.ts",
-        "./sear/core": "./src/standard/sear/index.ts",
-        "./physics/core": "./src/standard/physics/index.ts",
-        "./character/core": "./src/standard/character/index.ts",
-        "./bvh/core": "./src/standard/bvh/index.ts",
-        "./cells/core": "./src/extras/cells/index.ts",
-        "./gltf/core": "./src/extras/gltf/index.ts",
-        "./skin/core": "./src/extras/skin/index.ts",
-        "./text/core": "./src/extras/text/index.ts",
-        "./animation/core": "./src/extras/animation/index.ts",
-        "./runtime": "./src/engine/runtime/index.ts"
+        "./physics": "./src/standard/physics/index.ts",
+        "./character": "./src/standard/character/index.ts",
+        "./bvh": "./src/standard/bvh/index.ts"
     },
     "bin": {
         "shallot": "./bin/shallot.ts"

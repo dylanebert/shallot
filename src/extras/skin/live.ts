@@ -685,7 +685,7 @@ export const LiveSkinSystem: System = {
  * physics ragdoll, a scripted driver — with no glTF asset in the scene.
  *
  * It provides the substrate, not a way to draw: palette + component + system + the pose-write API, plus the
- * WGSL a surface splices (`@dylanebert/shallot/skin/core`). The producer supplies the surface that reads it,
+ * WGSL a surface splices (exported from the skin module). The producer supplies the surface that reads it,
  * with whatever material path it wants — `extras/gltf`'s `skin-live` PBR trio (registered by `GltfPlugin`)
  * is one such consumer. `GltfPlugin` wires the same substrate itself for an imported rig, so a glTF app
  * needs neither this plugin nor a second copy of the schedule slot; having both is harmless, since the

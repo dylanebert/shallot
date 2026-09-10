@@ -6,9 +6,9 @@ import {
     registerBackground,
     registerSurface,
     surfaceLayout,
-} from "@dylanebert/shallot/render/core";
-import { engineLayout, lit, sunVisibility } from "@dylanebert/shallot/sear/core";
-import { unpackLdrColor, Xform } from "@dylanebert/shallot/utils/core";
+} from "@dylanebert/shallot/render";
+import { engineLayout, lit, sunVisibility } from "@dylanebert/shallot/sear";
+import { unpackLdrColor, Xform } from "@dylanebert/shallot/utils";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";

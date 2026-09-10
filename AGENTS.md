@@ -31,7 +31,7 @@ Components are data, systems behavior, not methods/managers. Scenes author compo
 
 ## Imports
 
-`@dylanebert/shallot`: author APIs/defaults; `/extras`: opt-in convenience, also bare. Audio/mirror are bare-only. `/runtime`: platform/device; `*/core` and `/glaze`: extensions. Never deep-import src; file issues for missing seams. Plugins register components/traits.
+`@dylanebert/shallot`: author APIs/defaults; `/extras`: opt-in convenience, also bare. Audio/mirror are bare-only. `/runtime`: platform/device; `/ecs`, `/utils`, `/render`, `/sear`, `/glaze`, `/physics`, `/character`, `/bvh`: extensions. Never deep-import src; file issues for missing seams. Plugins register components/traits.
 
 ## ECS & Plugins
 
@@ -45,7 +45,7 @@ Mount only in `config.ui(container, state)` or `mountOverlay(canvas, state)`, sa
 
 ## GPU
 
-Transform TGSL exactly once. Compute on Render.encoder; register on render/core. Only allocators destroy. CPU truth is typed arrays, not per-frame objects.
+Transform TGSL exactly once. Compute on Render.encoder; register on render. Only allocators destroy. CPU truth is typed arrays, not per-frame objects.
 
 Hard ceiling: 10 storage bindings/stage across ALL groups, including read-only. Consolidate buffers/headers/uploads, not per-entity CPU iteration. Batch async raw compilation; label raw modules/pipelines, name TypeGPU factories. Use preferred canvas format. DXC needs constant loop bounds/dynamic break, not large dynamic-loop functions.
 
