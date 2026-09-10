@@ -12,7 +12,7 @@ In `.claude/rules/`: `audio.md`, `ecs.md`, `examples.md`, `exports.md`, `gpu.md`
 
 ## Architecture
 
-Before Bevy machinery/analogues, read ecs.md "Bevy as the structural reference": take/skip, adoption axes, views/frame. Small immediate ECS/scheduler is deliberate.
+Before Bevy machinery/analogues, read ecs.md "Bevy as the structural reference": take/skip, adoption axes, views/frame. Small immediate ECS/scheduler is deliberate. Archive = Git tag + `ARCHIVE.md` row, never a directory.
 
 ## Platform support floor
 
@@ -57,4 +57,4 @@ GPU/serialize/restore/config.ui/dev-server/physics changes owe bench/flow/recipe
 
 ## Examples
 
-Tiers/conventions: `examples/AGENTS.md`, `examples.md`. Sole hello source: the `create-shallot` repository, no starter copy here; emitted AGENTS points to engine, CLAUDE imports it. Examples ship icon.svg, dispose State on HMR/unmount, obey package AGENTS UI containment; only ejected never-embedded gym/visualization may own viewport.
+Tiers/conventions: `examples/AGENTS.md`, `examples.md`. Sole hello source: the `create-shallot` repository, no starter copy here. Examples ship icon.svg, dispose State on HMR/unmount, obey package AGENTS UI containment; only ejected never-embedded gym/visualization may own viewport.

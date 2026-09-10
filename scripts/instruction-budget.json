@@ -1,5 +1,5 @@
 {
-    "total": 63391,
+    "total": 57638,
     "files": {
         ".claude/rules/audio.md": {
             "bytes": 3677,
@@ -50,12 +50,12 @@
             "paragraph": 94
         },
         "MAINTAINERS.md": {
-            "bytes": 3885,
+            "bytes": 3848,
             "paragraph": 493
         },
         "examples/AGENTS.md": {
-            "bytes": 3111,
-            "paragraph": 514
+            "bytes": 2904,
+            "paragraph": 496
         }
     }
 }
