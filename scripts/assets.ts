@@ -12,6 +12,8 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { compose, DARK, fromBlocks, MARK, toSvg } from "../src/standard/loading/mark";
+import { toPng } from "./png";
 
 /** one pinned asset in `assets.json`: a single file (`sha256`/`bytes`, `url` and `dest` name the file)
  *  or a directory (`files`, `url` and `dest` name the directory each `path` joins). `dest` is relative to
@@ -23,6 +25,8 @@ export interface Asset {
     sha256?: string;
     bytes?: number;
     files?: { path: string; sha256: string; bytes: number }[];
+    /** SPDX identifier, for a third-party asset whose license travels with its pin. */
+    license?: string;
 }
 
 export interface Pin {
@@ -72,6 +76,16 @@ export function pins(asset: Asset): Pin[] {
 
 export function remedy(name: string): string {
     return `missing asset ${name}: run bun run assets ${name}`;
+}
+
+/** the verified cache path of single-file asset `name`, for generators that read an asset directly.
+ *  Throws the fetch remedy when the entry is absent or fails its hash. */
+export function cached(name: string, paths: Paths = PATHS): string {
+    const asset = load().find((a) => a.name === name);
+    if (!asset || asset.files) throw new Error(`no single-file asset ${name} in assets.json`);
+    const path = join(paths.cache, asset.sha256 ?? "");
+    if (!existsSync(path) || sha256(path) !== asset.sha256) throw new Error(remedy(name));
+    return path;
 }
 
 function sha256(path: string): string {
@@ -161,9 +175,44 @@ function select(all: Asset[], names: string[]): Asset[] {
     return names.length === 0 ? all : all.filter((a) => names.includes(a.name));
 }
 
+// Every default icon a shallot project ships is a render of the one bitmap mark, so the shape
+// can't drift between the boot splash, a scaffolded project's favicon and the native window.
+const NATIVE_ICON = "assets/icon-1024.png";
+// The native icon is opaque and square: the 12×14 mark centred in a 16×16 field on the dark ground,
+// 64 device pixels a cell. A window manager scales it down; the frame keeps the mark off the edge.
+const FRAME = 16;
+const NATIVE_SCALE = 64;
+
+function icons(): number {
+    const mark = fromBlocks(MARK.m);
+    const svg = `${toSvg(mark, DARK, 1)}\n`;
+    const tracked = Bun.spawnSync(["git", "ls-files", "-z", "examples"], { cwd: ROOT });
+    if (!tracked.success) throw new Error("`git ls-files` failed");
+    const targets = tracked.stdout
+        .toString()
+        .split("\0")
+        .filter((file) => file.endsWith("/public/icon.svg"));
+    if (targets.length === 0) throw new Error("no example icons; the write is empty");
+    for (const file of targets) writeFileSync(resolve(ROOT, file), svg);
+    const width = mark[0]?.length ?? 0;
+    const framed = compose(FRAME, FRAME, [
+        {
+            grid: mark,
+            x: Math.floor((FRAME - width) / 2),
+            y: Math.floor((FRAME - mark.length) / 2),
+        },
+    ]);
+    writeFileSync(resolve(ROOT, NATIVE_ICON), toPng(framed, DARK, NATIVE_SCALE, DARK.bg));
+    return targets.length;
+}
+
 const mb = (bytes: number) => `${(bytes / 1e6).toFixed(1)} MB`;
 
 async function main(argv: string[]): Promise<number> {
+    if (argv.includes("--icons")) {
+        console.log(`assets: wrote ${icons()} example icons and ${NATIVE_ICON}`);
+        return 0;
+    }
     const check = argv.includes("--check");
     const assets = select(
         load(),

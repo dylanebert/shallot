@@ -25,9 +25,9 @@ import {
 // the breakdown has been reviewed against the corpus's `model-index.json` tags + the glTF 2.0 spec — the
 // matrix is a reviewed pin, not an unexamined snapshot.
 //
-// Run: bun run src/extras/gltf/gltf-conformance.ts [--write]
+// Run: bun run scripts/generate/gltf-conformance.ts [--write]
 
-const MATRIX_PATH = join(import.meta.dir, "../../testing/gltf-matrix.json");
+const MATRIX_PATH = join(import.meta.dir, "../../src/testing/gltf-matrix.json");
 
 // the matrix, deterministically ordered (models, variants, feature keys all sorted) so a regen is a clean diff
 function buildMatrix(entries: CorpusEntry[]): Matrix {

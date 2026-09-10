@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { decodeDraco, loadDraco } from "./draco";
-import { isGlb, parseGlb } from "./glb";
-import { type GltfJson, type GltfScene, parse } from "./gltf";
-import { decodeMeshopt, loadMeshopt } from "./meshopt";
+import { decodeDraco, loadDraco } from "../../src/extras/gltf/draco";
+import { isGlb, parseGlb } from "../../src/extras/gltf/glb";
+import { type GltfJson, type GltfScene, parse } from "../../src/extras/gltf/gltf";
+import { decodeMeshopt, loadMeshopt } from "../../src/extras/gltf/meshopt";
 
 // the shared corpus walk for the glTF conformance suite (roadmap "glTF import — conformance + regression
 // suite"). The CPU half of `loadGltf` — fetch → glb-split → resolve buffers → inject the Draco codec → `parse`
@@ -16,10 +16,7 @@ import { decodeMeshopt, loadMeshopt } from "./meshopt";
 /** the corpus, symlinked nowhere — read straight from the `reference/gltf-sample-assets` submodule (the
  *  author's workspace layout, not the consumer's). Absent on a fresh clone that didn't clone the corpus;
  *  {@link corpusPresent} gates every consumer. */
-export const CORPUS = join(
-    import.meta.dir,
-    "../../../../../../reference/gltf-sample-assets/Models",
-);
+export const CORPUS = join(import.meta.dir, "../../../../../reference/gltf-sample-assets/Models");
 
 /** true when the corpus is checked out — the loud-skip gate for the test + the generator. */
 export function corpusPresent(): boolean {
