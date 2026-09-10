@@ -18,8 +18,7 @@ const COMPUTED_LOADERS: Record<string, string> = {
         "the bare-process isolation fixture imports the named command entry under test",
     "bin/features.ts":
         "preflights all enabled project-root entry identities before engine/local evaluation, then reads required features from those identities",
-    "bin/bun-native.ts":
-        "loads the downloaded native projection, after its sha256 matches the pinned hash",
+    "bin/bun-native.ts": "imports the optional bun-webgpu peer, only under Bun",
     "bin/verify.ts":
         "loads the consumer project's own installed playwright, resolved from its package root",
 };

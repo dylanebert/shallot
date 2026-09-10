@@ -158,7 +158,7 @@ console.log("NODE_LEAF_OK");\n`,
             hash(join(owner, file)),
             `installed source ${file}`,
         );
-    for (const file of ["dist/vite.js", "dist/harness-browser.js", "dist/native.js"])
+    for (const file of ["dist/vite.js", "dist/harness-browser.js"])
         assert(existsSync(join(shipped, file)), `installed compiled tooling ${file}`);
     exec("restored raw surface", raw, true, /HARNESS_CONTRACT_OK/);
     console.log(`harness: ${sources.length} source files match their installed bytes`);
