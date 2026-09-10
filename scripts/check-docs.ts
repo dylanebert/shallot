@@ -1,8 +1,66 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { Glob } from "bun";
 import { dirname, relative, resolve } from "path";
-import { checkExists, workspacePkgPaths } from "./check-scripts";
 import { TEST_TIER_SUFFIX_NAMES } from "./test-tiers";
+
+async function readScripts(pkgPath: string): Promise<Record<string, string>> {
+    const pkg = (await Bun.file(pkgPath).json()) as { scripts?: Record<string, string> };
+    return pkg.scripts ?? {};
+}
+
+// Expand the root `workspaces` globs (bun's own resolution: a literal dir, or `<base>/*`) into
+// every member's package.json path.
+async function workspacePkgPaths(rootDir: string, patterns: string[]): Promise<string[]> {
+    const paths: string[] = [];
+    for (const pattern of patterns) {
+        const starIdx = pattern.indexOf("*");
+        if (starIdx === -1) {
+            paths.push(resolve(rootDir, pattern, "package.json"));
+            continue;
+        }
+        const base = pattern.slice(0, starIdx).replace(/\/$/, "");
+        const glob = new Glob(pattern.slice(base.length + 1));
+        for await (const match of glob.scan({ cwd: resolve(rootDir, base), onlyFiles: false })) {
+            paths.push(resolve(rootDir, base, match, "package.json"));
+        }
+    }
+    return paths.filter((p) => existsSync(p));
+}
+
+// Every declared script resolves to an existing file/dir, or delegates to a script its target
+// declares. `bunx` segments and bare `bun test` filters are external and unchecked.
+async function checkExists(pkgPaths: string[]): Promise<{ detail: string }[]> {
+    const violations: { detail: string }[] = [];
+    for (const pkgPath of pkgPaths) {
+        const dir = dirname(pkgPath);
+        for (const [name, cmd] of Object.entries(await readScripts(pkgPath))) {
+            for (const segment of cmd.split("&&")) {
+                if (/\bbunx\s+/.test(segment)) continue;
+                const m = segment.match(/\bbun\s+(?:(run|test)\s+)?(?:--cwd\s+(\S+)\s+)?(\S+)/);
+                if (!m) continue;
+                const [, verb, cwdArg, token] = m;
+                if (token.startsWith("-")) continue;
+                const base = cwdArg ? resolve(dir, cwdArg) : dir;
+                if (token.includes("/") || token.includes(".")) {
+                    const target = resolve(base, token);
+                    if (!existsSync(target))
+                        violations.push({
+                            detail: `${pkgPath} ${name}: target "${token}" does not exist (resolved ${target})`,
+                        });
+                    continue;
+                }
+                if (verb === "test") continue;
+                const targetPkgPath = resolve(base, "package.json");
+                if (!existsSync(targetPkgPath)) continue;
+                if (!(token in (await readScripts(targetPkgPath))))
+                    violations.push({
+                        detail: `${pkgPath} ${name}: delegates to script "${token}" not declared in ${targetPkgPath}`,
+                    });
+            }
+        }
+    }
+    return violations;
+}
 
 /** Engine `files` entries written at build or pack time: tooling bundles and audio wasm. */
 const PRODUCED = ["dist", "rust/audio/pkg"];

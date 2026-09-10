@@ -6,14 +6,12 @@
     "scripts": {
         "dev": "vite",
         "build": "vite build",
-        "preview": "vite preview",
-        "gate": "bun test --cwd ../../.. ./examples/showcase/visualization/test/rendered.test.ts && playwright test"
+        "preview": "vite preview"
     },
     "dependencies": {
         "typegpu": "~0.12.5"
     },
     "devDependencies": {
-        "@playwright/test": "^1.63.0",
         "unplugin-typegpu": "~0.12.3",
         "vite": "^8.3.0"
     }

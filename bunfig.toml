@@ -1,5 +1,0 @@
-[test]
-root = "."
-# The TypeGPU transform (`tgsl.ts`, exactly one instance) and the WebGPU global setup, both beside
-# the inline tests that need them. bun reads `bunfig.toml` from the working directory only.
-preload = ["./src/testing/tgsl.ts", "./src/testing/setup.ts"]

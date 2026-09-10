@@ -111,15 +111,15 @@ Portable builds bundle the Chromium runtime (CEF) instead of the system webview.
 run from the repo root. The `test` script in [`package.json`](package.json) defines the default test paths.
 
 ```bash
-bun run test       # default unit suite (bun-webgpu)
-bun check          # read-only: tsc + biome + eslint + repo checks + scene-format report
+bun check          # read-only: tsc + biome + check-pack + check-docs
+bun run test       # empty until tests are re-admitted by declaration
 bun run format     # biome + scene formatter
 bun run build      # rust artifacts
 ```
 
 Engine-internal layout, the full command table, and the rules index are in [`AGENTS.md`](AGENTS.md); the conventions themselves are path-scoped under [`.claude/rules/`](.claude/rules/).
 
-`bun check` and `bun run test` are the gate before pushing. The by-path slow suites, the invitation-only PR policy, and where to file an issue are in [CONTRIBUTING.md](CONTRIBUTING.md).
+`bun check` is the gate before pushing. The old tests live at the `archive/tests-pre-slice` tag (see [ARCHIVE.md](ARCHIVE.md)) and come back one declared check at a time. The by-path slow suites, the invitation-only PR policy, and where to file an issue are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## license
 
