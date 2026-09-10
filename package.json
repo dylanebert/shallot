@@ -96,7 +96,7 @@
         "build": "bun run ./scripts/build.ts",
         "check": "bun run scripts/check.ts",
         "format": "biome check --write && bun run scripts/format.ts",
-        "test": "bun test --pass-with-no-tests src scripts",
+        "test": "cargo test --workspace --exclude shallot-native --quiet && bun test --pass-with-no-tests src scripts",
         "test:install": "bun run scripts/install-test.ts",
         "assets": "bun run scripts/assets.ts",
         "prepack": "bun run ./scripts/tooling.ts"
