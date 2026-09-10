@@ -36,7 +36,7 @@ bun run prepack        # compile the Node-reachable tooling
 
 ## Tests
 
-`bun run test` runs `cargo test` over the Cargo workspace, every crate except the native host, and then `bun test`, which finds nothing today. The TypeScript tests were retired to the `archive/tests-pre-slice` tag. Each one comes back only as a declared claim with a class and a tier, physics gold replays first; [`ARCHIVE.md`](ARCHIVE.md) lists the order.
+`bun run test` runs `cargo test` over the Cargo workspace, every crate except the native host, and then `bun test`, which runs every declared check. A check is `check(name, { claim, class, tier, premises, budget }, body)` from `@dylanebert/shallot/harness/check`; an undeclared test file refuses at load, and `bun scripts/surface.ts --list` prints the population. The TypeScript tests were retired to the `archive/tests-pre-slice` tag. Each one comes back only as a declared claim with a class and a tier, physics gold replays first; [`ARCHIVE.md`](ARCHIVE.md) lists the order.
 
 ## Pins and freshness
 
