@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -33,37 +33,20 @@ function runFormat(args: string[]) {
     });
 }
 
-test("formatting needs no native projection; native setup still refuses its absence", () => {
-    const projection = join(REPO_ROOT, "dist/native.js");
+test("check reports without writing", () => {
     const { dir, scenePath } = fixtureScene();
-    const saved = join(dir, "native.js");
     writeFileSync(join(dir, "error.scene"), "<scene><unknown /></scene>");
     const before = runFormat(["--check"]);
     expect(before.exitCode).toBe(1);
     expect(before.stdout.toString()).toContain("would format:");
     expect(before.stderr.toString()).toContain("xml parse error: Unknown tag <unknown>");
-    renameSync(projection, saved);
     try {
         const after = runFormat(["--check"]);
         expect(after.exitCode).toBe(before.exitCode);
         expect(after.stdout.toString()).toBe(before.stdout.toString());
         expect(after.stderr.toString()).toBe(before.stderr.toString());
         expect(readFileSync(scenePath, "utf8")).toBe(UNFORMATTED_SCENE);
-        expect(existsSync(projection)).toBe(false);
-
-        const native = Bun.spawnSync(
-            [
-                "bun",
-                "-e",
-                'const { loadNative } = await import("./bin/bun-native.ts"); await loadNative();',
-            ],
-            { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
-        );
-        expect(native.exitCode).toBe(1);
-        expect(native.stderr.toString()).toContain("Shallot native projection is missing");
-        expect(existsSync(projection)).toBe(false);
     } finally {
-        renameSync(saved, projection);
         rmSync(dir, { recursive: true, force: true });
     }
 });

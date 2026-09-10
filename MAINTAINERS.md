@@ -2,7 +2,7 @@
 
 Repo-level contract; `AGENTS.md` is the consumer contract and ships in the npm package, this file does not. Grep `examples/AGENTS.md` first.
 
-Owners: the root package (`src`, `bin`, `rust`, `tests`); evals, examples. The scaffold and the AVBD solver live in their own repositories.
+Owners: the root package (`src`, `bin`, `rust`); evals, examples. The scaffold and the AVBD solver live in their own repositories.
 
 ## Rules
 
@@ -19,6 +19,9 @@ Before Bevy machinery/analogues, read ecs.md "Bevy as the structural reference":
 One WebGPU 1.0 floor: indirect-first-instance, bgra8unorm-storage, rg11b10ufloat-renderable. Only default-plugin needs belong here; others declare required/preferred plugin features. Missing required fails before loading; only preferred features may fall back (BVH subgroups→LDS). Don't gate guaranteed features. Keep feature use behind narrow interfaces.
 
 Targets: desktop Chrome/Edge, recent Android Chrome, Safari26+ Apple Silicon, Steam Deck. Native defaults: wry WebView2/WKWebView/WebKitGTK; portable CEF required on Linux. Admission by features/limits, not browser name; a missing floor boots, explains, exits. Details: `gpu.md`.
+
+Bun bridge: `dylanebert/bun-webgpu` fork, ownership fix pending kommander/bun-webgpu#9.
+Freshness returns to upstream on merge.
 
 ## Commands
 
@@ -40,7 +43,7 @@ bun bin/cli.ts <dev|build|run|verify> [dir]
 # build/run: [--target <os>] [--portable]; build: [--release]
 ```
 
-OS: windows/mac/linux; web emits dist; native uses platform tools and builds `rust/window` per project. A non-portable Linux shell needs webkit2gtk-4.1 dev headers; the CLI refuses it for WebGPU anyway, so use `--portable`. Published `/harness`; recipes wrap it. Screenshots never gate. Laws: `examples.md`.
+OS: windows/mac/linux; web emits dist; native uses platform tools and builds `rust/window` per project. Published `/harness`; recipes wrap it. Screenshots never gate. Laws: `examples.md`.
 
 ### Verification
 

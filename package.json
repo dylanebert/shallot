@@ -117,7 +117,7 @@
         "vite": "^8.3.0"
     },
     "peerDependencies": {
-        "bun-webgpu": "0.1.7",
+        "bun-webgpu": ">=0.1.7",
         "playwright": "^1.0.0",
         "typegpu": "~0.12.5"
     },
@@ -144,7 +144,7 @@
         "@types/jpeg-js": "^0.3.7",
         "@types/pngjs": "^6.0.5",
         "binaryen": "132.0.0",
-        "bun-webgpu": "0.1.7",
+        "bun-webgpu": "github:dylanebert/bun-webgpu#shallot-bridge/fork",
         "eslint": "^10.10.0",
         "eslint-plugin-typegpu": "~0.12.0",
         "fast-check": "^4.9.0",
