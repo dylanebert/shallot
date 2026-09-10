@@ -19,14 +19,23 @@ interface Env {
 
 function env(): Env {
     const pkg = JSON.parse(readFileSync(resolve(PACKAGE_ROOT, "package.json"), "utf8"));
-    return { recipesDir: resolve(PACKAGE_ROOT, "examples/recipes"), version: pkg.version };
+    return { recipesDir: resolve(PACKAGE_ROOT, "examples"), version: pkg.version };
 }
 
-/** recipe directory names available to copy — a dir is a recipe when it carries a `shallot.json`. */
+/** recipe directory names available to copy — a dir is a recipe when its `shallot.json` declares
+ *  `"kind": "recipe"`; the directory layout says nothing. */
 export function listRecipes(recipesDir: string): string[] {
     if (!existsSync(recipesDir)) return [];
     return readdirSync(recipesDir)
-        .filter((name) => existsSync(resolve(recipesDir, name, "shallot.json")))
+        .filter((name) => {
+            const manifest = resolve(recipesDir, name, "shallot.json");
+            if (!existsSync(manifest)) return false;
+            try {
+                return JSON.parse(readFileSync(manifest, "utf8")).kind === "recipe";
+            } catch {
+                return false;
+            }
+        })
         .sort();
 }
 

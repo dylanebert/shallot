@@ -72,9 +72,12 @@
         "crates/native",
         "assets/icon-1024.png",
         "dist",
-        "examples/recipes",
-        "!examples/recipes/*/node_modules",
-        "!examples/recipes/*/tsconfig.json",
+        "examples",
+        "!examples/AGENTS.md",
+        "!examples/ascii",
+        "!examples/visualization",
+        "!examples/*/node_modules",
+        "!examples/*/tsconfig.json",
         "!src/extras/gltf/fixtures",
         "!src/standard/physics/samples",
         "!src/standard/physics/solver/fixtures",
@@ -89,8 +92,7 @@
         "!**/target/**"
     ],
     "workspaces": [
-        "examples/recipes/*",
-        "examples/showcase/*"
+        "examples/*"
     ],
     "scripts": {
         "build": "bun run ./scripts/build.ts",
@@ -99,6 +101,7 @@
         "test": "cargo test --workspace --exclude shallot-native --quiet && bun test --pass-with-no-tests src scripts",
         "test:install": "bun run scripts/install-test.ts",
         "assets": "bun run scripts/assets.ts",
+        "examples:index": "bun run scripts/examples-index.ts",
         "prepack": "bun run ./scripts/tooling.ts"
     },
     "dependencies": {
