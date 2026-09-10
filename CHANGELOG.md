@@ -4,6 +4,7 @@ Newest first. **Breaking:** marks a change that needs consumer action; [`MIGRATI
 
 ## Unreleased
 
+- **site** — Moved the site to dylanebert/shallot-site.
 - **build** — `bun run build` compiles `dist/`, the audio WASM and the physics kernel, and no longer compiles `rust/window`; `shallot build --target` builds the window host per project. Without a nightly toolchain the multithreaded kernel artifact is kept as committed. The Linux non-portable refusal now names `--portable` directly.
 - **physics (breaking)** — AVBD leaves the core. The `./avbd` and `./avbd/core` subpaths, the `Avbd: true` manifest key and the AVBD oracle move to the private workspace package `@dylanebert/shallot-avbd-physics`, which plugs in through `physics/core` and published subpaths only; name it in `shallot.json` as `"Avbd": "@dylanebert/shallot-avbd-physics"`. `character/core` now publishes the sweep (`sweepCharacter`, `CharState`, `SweepBody`, `SweepDiag`, `MAX_CHAR_CANDIDATES`) for its parity oracle.
 - **physics (breaking)** — the solver's old name is retired: the kernel crate is `physics-kernel`, the thread-count variable is `SHALLOT_PHYSICS_THREADS`, and the manifest plugin key is `Physics`. The float-literal scan and its rule file are deleted.

@@ -94,7 +94,7 @@ export async function checkExists(pkgPaths: string[]): Promise<Violation[]> {
 }
 
 const SIBLING = /\.(?:test|probes)\.ts$/;
-const IMPORT_ROOTS = ["scripts", "src", "bin", "tests", "examples", "evals", "packages", "site"];
+const IMPORT_ROOTS = ["scripts", "src", "bin", "tests", "examples", "evals", "packages"];
 
 // Every import/require specifier in the source trees, with the importing file's repo-relative path.
 async function importSpecifiers(rootDir: string): Promise<{ from: string; spec: string }[]> {
