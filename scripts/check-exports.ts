@@ -355,42 +355,6 @@ export function extractImports(content: string): ImportEntry[] {
 
 // --- Specifier resolution ---------------------------------------------------
 
-function sourceOwner(root: string, path: string): string {
-    if (!existsSync(resolve(root, "package.json"))) return path;
-    if (
-        existsSync(resolve(root, "packages/shallot-tumble/package.json")) &&
-        /^packages\/shallot(?:-runtime)?\/src\/standard\/tumble\/engine\//.test(path)
-    ) {
-        const owner = path.replace(/^packages\/shallot(?:-runtime)?\//, "packages/shallot-tumble/");
-        if (!existsSync(resolve(root, owner)))
-            throw Error(`missing canonical solver source: ${owner}`);
-        return owner;
-    }
-    if (
-        path.startsWith("src/project/") ||
-        path === "src/harness/browser.ts"
-    ) {
-        const owner = path.replace("", "");
-        if (!existsSync(resolve(root, owner)))
-            throw new Error(`missing canonical tooling source: ${owner}`);
-        return owner;
-    }
-    if (
-        existsSync(resolve(root, "package.json")) &&
-        path.startsWith("src/") &&
-        ![
-            "src/harness/index.ts",
-            "src/harness/index.test.ts",
-        ].includes(path)
-    ) {
-        const owner = path.replace("", "");
-        if (!existsSync(resolve(root, owner)))
-            throw new Error(`missing canonical runtime source: ${owner}`);
-        return owner;
-    }
-    return path;
-}
-
 export function resolveSpecifier(
     fromFile: string,
     specifier: string,
@@ -405,7 +369,7 @@ export function resolveSpecifier(
         const decl = abs.endsWith(".js") ? [abs.replace(/\.js$/, ".d.ts")] : [];
         for (const candidate of [abs + ".ts", join(abs, "index.ts"), ...decl, abs]) {
             if (existsSync(candidate)) {
-                return sourceOwner(rootDir, relative(rootDir, candidate).replace(/\\/g, "/"));
+                return relative(rootDir, candidate).replace(/\\/g, "/");
             }
         }
         return null;
@@ -423,12 +387,8 @@ export function resolveSpecifier(
         if (exact) {
             const t = target(exact);
             if (t) {
-                const resolved = resolve(
-                    rootDir,
-                    sourceOwner(rootDir, relative(rootDir, resolve(pkgDir, t))),
-                );
-                if (existsSync(resolved))
-                    return sourceOwner(rootDir, relative(rootDir, resolved).replace(/\\/g, "/"));
+                const resolved = resolve(rootDir, relative(rootDir, resolve(pkgDir, t)));
+                if (existsSync(resolved)) return relative(rootDir, resolved).replace(/\\/g, "/");
             }
         }
 
@@ -451,10 +411,7 @@ export function resolveSpecifier(
                     resolve(pkgDir, resolvedPath),
                 ]) {
                     if (existsSync(candidate))
-                        return sourceOwner(
-                            rootDir,
-                            relative(rootDir, candidate).replace(/\\/g, "/"),
-                        );
+                        return relative(rootDir, candidate).replace(/\\/g, "/");
                 }
             }
         }
@@ -490,12 +447,9 @@ export function computeEntryFiles(
             throw new Error(`missing runtime export projection: ${key} → ${target}`);
         }
 
-        const resolved = resolve(
-            rootDir,
-            sourceOwner(rootDir, relative(rootDir, resolve(pkgDir, target))),
-        );
+        const resolved = resolve(rootDir, relative(rootDir, resolve(pkgDir, target)));
         if (existsSync(resolved)) {
-            entryFiles.push(sourceOwner(rootDir, relative(rootDir, resolved).replace(/\\/g, "/")));
+            entryFiles.push(relative(rootDir, resolved).replace(/\\/g, "/"));
         } else if (existsSync(resolve(rootDir, "package.json"))) {
             throw new Error(`missing public export target: ${key} → ${resolved}`);
         }
@@ -626,13 +580,10 @@ export async function findDeadExports(
 
     const srcGlob = new Glob("**/*.ts");
     const sources = new Set<string>();
-    for (const dir of [
-        srcDir,
-        resolve(rootDir, "packages/shallot-tumble/src"),
-    ]) {
+    for (const dir of [srcDir, resolve(rootDir, "packages/shallot-tumble/src")]) {
         if (!existsSync(dir)) continue;
         for await (const path of srcGlob.scan({ cwd: dir })) {
-            sources.add(sourceOwner(rootDir, relative(rootDir, resolve(dir, path))));
+            sources.add(relative(rootDir, resolve(dir, path)));
         }
     }
     for (const path of sources) {

@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-    body,
-    flat,
-    integerDiscipline,
-    noDivision,
-} from "../../../../../tests/wgsl";
+import { body, flat, integerDiscipline, noDivision } from "../../../../../tests/wgsl";
 import { createDensityRunner, densityWgsl } from "./generate";
 
 describe("density kernel reference", () => {

@@ -28,9 +28,7 @@ describe("changed-path selector", () => {
             "examples/showcase/voxel",
             "examples/gym",
         ]);
-        expect(dirs(["src/standard/fog/index.ts"])).toEqual([
-            "examples/gym",
-        ]);
+        expect(dirs(["src/standard/fog/index.ts"])).toEqual(["examples/gym"]);
         expect(dirs(["bun.lock"])).toEqual(EXAMPLE_GATES.map((row) => row.dir));
         expect(dirs(["examples/showcase/visualization/package.json"])).toEqual(
             EXAMPLE_GATES.map((row) => row.dir),

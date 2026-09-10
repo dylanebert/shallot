@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 export const harnessContract = `
@@ -117,8 +117,8 @@ console.log("NODE_LEAF_OK");\n`,
     );
     for (const [file, command, name] of [
         ["dist/harness-browser.js", node, "missing compiled leaf"],
-        ["src/harness/browser.ts", typecheck, "missing type projection"],
-        ["src/harness/runtime.ts", raw, "missing runtime projection"],
+        ["src/harness/browser.ts", typecheck, "missing type source"],
+        ["src/harness/runtime.ts", raw, "missing runtime source"],
     ] as const) {
         const path = join(shipped, file);
         try {
@@ -137,39 +137,29 @@ console.log("NODE_LEAF_OK");\n`,
         },
         () => exec("compiled aggregate replacement", raw, false, /HARNESS_SURFACE/),
     );
-    const record = JSON.parse(readFileSync(join(shipped, "dist/cli-inputs.json"), "utf8"));
     const hash = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
     const owner = resolve(import.meta.dir, "../..");
-    const tracked = Bun.spawnSync(["git", "ls-files", "--", "."], {
-        cwd: resolve(import.meta.dir, "../.."),
-    });
+    const tracked = Bun.spawnSync(
+        ["git", "ls-files", "--", "bin", "src/project", "src/harness/browser.ts"],
+        {
+            cwd: owner,
+        },
+    );
     assert.equal(tracked.exitCode, 0, "canonical source inventory");
-    const expectedInputs = tracked.stdout
+    const sources = tracked.stdout
         .toString()
         .trim()
         .split("\n")
-        .map((file) => file.replace("", ""))
-        .filter((file) =>
-            /^(bin\/|src\/project\/|src\/harness\/browser\.ts$|rust\/window\/|assets\/|scripts\/build\.ts$|package\.json$)/.test(
-                file,
-            ),
-        )
-        .filter((file) => !/\.(test|probes)\.ts$|\/\.gitignore$/.test(file))
-        .sort();
-    expectedInputs.push("../shallot/scripts/projections.ts");
-    expectedInputs.sort();
-    assert(expectedInputs.length > 40, "nonempty tooling source population");
-    assert.deepEqual(
-        Object.keys(record.inputs).sort(),
-        expectedInputs,
-        "two-way canonical projection population",
-    );
-    for (const [file, expected] of Object.entries(record.inputs))
-        assert.equal(hash(join(owner, file)), expected, `canonical input ${file}`);
-    for (const [file, expected] of Object.entries(record.outputs))
-        assert.equal(hash(join(shipped, file)), expected, `installed projection ${file}`);
+        .filter((file) => !/\.(test|probes|fixture)\.ts$|\/fixtures\/|\/\.gitignore$/.test(file));
+    assert(sources.length > 40, "nonempty tooling source population");
+    for (const file of sources)
+        assert.equal(
+            hash(join(shipped, file)),
+            hash(join(owner, file)),
+            `installed source ${file}`,
+        );
+    for (const file of ["dist/vite.js", "dist/harness-browser.js", "dist/native.js"])
+        assert(existsSync(join(shipped, file)), `installed compiled tooling ${file}`);
     exec("restored raw surface", raw, true, /HARNESS_CONTRACT_OK/);
-    console.log(
-        `harness: ${Object.keys(record.inputs).length} canonical hashes, ${Object.keys(record.outputs).length} installed projections`,
-    );
+    console.log(`harness: ${sources.length} source files match their installed bytes`);
 }

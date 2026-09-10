@@ -3,8 +3,8 @@ import { dirname, relative, resolve } from "node:path";
 import { Glob } from "bun";
 import { workspacePkgPaths } from "./check-scripts";
 
-/** Engine `files` entries written at build or pack time: recipes by prepack, tooling bundles, audio wasm. */
-const PRODUCED = ["examples", "dist", "rust/audio/pkg"];
+/** Engine `files` entries written at build or pack time: tooling bundles and audio wasm. */
+const PRODUCED = ["dist", "rust/audio/pkg"];
 
 /** Every declared bin and positive files entry must exist or have a pack producer. */
 export async function checkRealization(root: string): Promise<string[]> {
@@ -21,9 +21,7 @@ export async function checkRealization(root: string): Promise<string[]> {
             typeof value.bin === "string" ? [value.bin] : Object.values(value.bin ?? {});
         const files: string[] = value.files ?? [];
         const projected = (target: string, kind: "bin" | "files"): boolean =>
-            dir === resolve(root) &&
-            kind === "files" &&
-            PRODUCED.includes(target);
+            dir === resolve(root) && kind === "files" && PRODUCED.includes(target);
         for (const [kind, targets] of [
             ["bin", bins],
             ["files", files.filter((file) => !file.startsWith("!"))],

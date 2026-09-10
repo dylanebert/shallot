@@ -747,8 +747,8 @@ if (import.meta.main) {
     const roots =
         rootArgIdx >= 0
             ? [resolve(process.argv[rootArgIdx + 1])]
-            : ["shallot", "shallot-tumble"].map((owner) =>
-                  resolve(import.meta.dir, `../packages/${owner}/src/standard/tumble`),
+            : [".", "packages/shallot-tumble"].map((owner) =>
+                  resolve(import.meta.dir, "..", owner, "src/standard/tumble"),
               );
     const readings = await Promise.all(
         roots.map(async (root) => ({

@@ -402,7 +402,7 @@ test("live runtime modules select a row or name their explicit exemption", () =>
 
 test("the tracked runtime population has a lower-than-incumbent, lower-only selection ceiling", () => {
     const files = runtimeFiles();
-    expect(files).toHaveLength(306);
+    expect(files).toHaveLength(324);
     const worst = files
         .map((file) => ({ file, rows: selectExampleGates([file]).length }))
         .sort((a, b) => b.rows - a.rows || a.file.localeCompare(b.file));

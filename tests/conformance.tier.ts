@@ -53,12 +53,7 @@ import { clear, getComponent, getTraits } from "../src/engine/ecs/core";
 import { AnimationPlugin } from "../src/extras/animation";
 import { GltfPlugin } from "../src/extras/gltf";
 import { LinesPlugin } from "../src/extras/lines";
-import {
-    LiveSkinSystem,
-    Skin,
-    SkinPlugin,
-    skinTraits,
-} from "../src/extras/skin";
+import { LiveSkinSystem, Skin, SkinPlugin, skinTraits } from "../src/extras/skin";
 import { PartPlugin } from "../src/standard/part";
 import { RenderPlugin } from "../src/standard/render";
 import { Draws, Surfaces } from "../src/standard/render/core";

@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { parse, parseExpression } from "@babel/parser";
-import { COMPUTED_LOADERS, NON_WORKSPACE_PACKAGES, TOOLING_SEAMS } from "./boundary-seams";
+import { COMPUTED_LOADERS, NON_WORKSPACE_PACKAGES } from "./boundary-seams";
 
 // Distribution boundary: a consumer of the published @dylanebert/shallot surface reaches the engine only
 // through the package name, and only through its declared `exports` — never repo-only directories
@@ -23,22 +23,19 @@ import { COMPUTED_LOADERS, NON_WORKSPACE_PACKAGES, TOOLING_SEAMS } from "./bound
 // still must use the published exports — the allowance is the tests/ oracle only, not `src/`.
 //
 // The population is every declared workspace except the engine package itself, so a new workspace is
-// governed by construction rather than by remembering to list it. The engine package's own tooling
-// (`bin/**`) is scanned under a second rule: it may reach engine source only through a module the export
-// map publishes, or through a `TOOLING_SEAMS` entry that says why. A specifier built at runtime is a hole
-// in the cone rather than a detail, so a computed `import()`/`require()` needs a `COMPUTED_LOADERS` entry.
+// governed by construction rather than by remembering to list it. The package's own `src/` and `bin/`
+// are one owner and may reach each other freely. A specifier built at runtime is a hole in the cone
+// rather than a detail, so a computed `import()`/`require()` anywhere needs a `COMPUTED_LOADERS` entry.
 //
 // Limits: plugin-driven resolution and svelte.config aliases need an omission review; aliases also
 // apply to node-side tests (deny-direction over-inclusion). Only literal Vite object aliases and
 // tsconfigs extending the walked ancestor chain are resolvable; other declared forms refuse.
 //
 // Default scans this repo. `--root <dir>` scans an external consumer tree, where every project is a
-// consumer and neither the tooling nor the completeness rule applies.
+// consumer and neither the loader nor the completeness rule applies.
 
 const PKG = "@dylanebert/shallot";
 const ENGINE_PACKAGE = ".";
-const TOOLING_PACKAGE = ".";
-const RUNTIME_PACKAGE = ".";
 const SOLVER_PACKAGE = "packages/shallot-tumble";
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".svelte"];
 
@@ -129,18 +126,17 @@ export function references(source: string): Reference[] {
     return found.sort((a, b) => a.line - b.line);
 }
 
-/** every source file under `dir`, skipping node_modules and build output. */
+const SKIP = new Set(["node_modules", ".git", "dist", "target"]);
+
+/** every source file under `dir`. The walk never follows installs or build output: a workspace's
+ *  `node_modules` links back to the root, which a recursive read loops on. */
 function sourceFiles(dir: string): string[] {
     if (!existsSync(dir)) return [];
-    return readdirSync(dir, { recursive: true, withFileTypes: true })
-        .filter(
-            (e) =>
-                e.isFile() &&
-                SOURCE_EXTENSIONS.some((ext) => e.name.endsWith(ext)) &&
-                !e.parentPath.includes(`${sep}node_modules${sep}`) &&
-                !e.parentPath.includes(`${sep}dist${sep}`),
-        )
-        .map((e) => resolve(e.parentPath, e.name));
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        const path = resolve(dir, e.name);
+        if (e.isDirectory()) return SKIP.has(e.name) ? [] : sourceFiles(path);
+        return e.isFile() && SOURCE_EXTENSIONS.some((ext) => e.name.endsWith(ext)) ? [path] : [];
+    });
 }
 
 /** Every workspace directory the root manifest declares, repo-root-relative. A directory that looks like
@@ -162,14 +158,14 @@ export function workspaceRoots(root: string, patterns: string[]): string[] {
     return roots.sort();
 }
 
-/** every package.json directory under `dir` (skipping node_modules) is a project. */
+/** every package.json directory under `dir` is a project. The walk never follows installs or build
+ *  output: a workspace's `node_modules` links back to the root, which a recursive read loops on. */
 function projectRoots(dir: string): string[] {
     const roots: string[] = [];
-    for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
-        if (entry.name !== "package.json") continue;
-        if (entry.parentPath.includes(`${sep}node_modules`)) continue;
-        roots.push(resolve(entry.parentPath));
-    }
+    const entries = readdirSync(dir, { withFileTypes: true });
+    if (entries.some((e) => e.isFile() && e.name === "package.json")) roots.push(resolve(dir));
+    for (const e of entries)
+        if (e.isDirectory() && !SKIP.has(e.name)) roots.push(...projectRoots(resolve(dir, e.name)));
     return roots;
 }
 
@@ -357,7 +353,7 @@ function scanConsumers(
     roots: string[],
     surface: ReturnType<typeof publishedSurface>,
     oracleSeam: string,
-    ledger: Ledger = { toolingSeams: {}, computedLoaders: {}, nonWorkspacePackages: {} },
+    ledger: Ledger = { computedLoaders: {}, nonWorkspacePackages: {} },
     usedLoaders = new Set<string>(),
     errors: string[] = [],
 ): Violation[] {
@@ -442,250 +438,22 @@ function scanConsumers(
     return violations;
 }
 
-/** the engine package's own tooling: it lives inside the package, so a relative reach is not a project
- *  escape — but a reach into engine source the export map does not publish is a private coupling that a
- *  later extraction has to carry, so each one is declared or refused. */
-function scanTooling(
-    repoRoot: string,
-    surface: ReturnType<typeof publishedSurface>,
-    ledger: Ledger,
-    errors: string[],
-): { violations: Violation[]; usedSeams: Set<string>; usedLoaders: Set<string> } {
+/** Computed loaders inside the package itself (`src/`, `bin/`): a specifier built at runtime is a hole in
+ *  every source reader, so each one carries a declared bound. */
+function scanLoaders(repoRoot: string, ledger: Ledger, used: Set<string>): Violation[] {
     const violations: Violation[] = [];
-    const usedSeams = new Set<string>();
-    const usedLoaders = new Set<string>();
-    const aliasTargets = aliasReader(repoRoot);
-    const privateTooling = existsSync(resolve(repoRoot, TOOLING_PACKAGE, "package.json"));
-    const files = privateTooling
-        ? ["bin", "src"].flatMap((dir) => sourceFiles(resolve(repoRoot, TOOLING_PACKAGE, dir)))
-        : sourceFiles(resolve(repoRoot, ENGINE_PACKAGE, "bin"));
-    for (const full of files) {
+    for (const full of ["src", "bin"].flatMap((dir) => sourceFiles(resolve(repoRoot, dir)))) {
         const file = relative(repoRoot, full).split(sep).join("/");
-        errors.push(...aliasTargets(full, "").errors);
         for (const r of references(readFileSync(full, "utf8"))) {
-            if (r.computed) {
-                if (ledger.computedLoaders[file]?.trim()) usedLoaders.add(file);
-                else
-                    violations.push({
-                        file,
-                        line: r.line,
-                        import: "import(<computed>)",
-                        reason: "builds a module specifier at runtime with no declared bound (scripts/boundary-seams.ts)",
-                    });
-                continue;
-            }
-            const spec = r.spec as string;
-            if (spec === "shallot-tumble" || spec.startsWith("shallot-tumble/"))
+            if (!r.computed) continue;
+            if (ledger.computedLoaders[file]?.trim()) used.add(file);
+            else
                 violations.push({
                     file,
                     line: r.line,
-                    import: spec,
-                    reason: "tooling reaches the private solver instead of its public core",
+                    import: "import(<computed>)",
+                    reason: "builds a module specifier at runtime with no declared bound (scripts/boundary-seams.ts)",
                 });
-            const targets = spec.startsWith(".")
-                ? [resolve(dirname(full), spec)]
-                : spec.startsWith(`${PKG}/src/`)
-                  ? [resolve(repoRoot, ENGINE_PACKAGE, spec.slice(PKG.length + 1))]
-                  : aliasTargets(full, spec).targets;
-            for (const resolved of targets) {
-                if (
-                    privateTooling &&
-                    resolved &&
-                    !resolved.startsWith(resolve(repoRoot, TOOLING_PACKAGE) + sep) &&
-                    !resolved.startsWith(resolve(repoRoot, ENGINE_PACKAGE, "src") + sep) &&
-                    !resolved.startsWith(resolve(repoRoot, RUNTIME_PACKAGE, "src") + sep) &&
-                    !resolved.startsWith(resolve(repoRoot, ENGINE_PACKAGE, "tests") + sep)
-                ) {
-                    const key = `${file} "${spec}"`;
-                    if (ledger.toolingSeams[key]?.trim()) usedSeams.add(key);
-                    else
-                        violations.push({
-                            file,
-                            line: r.line,
-                            import: spec,
-                            reason: "escapes the private tooling owner without a declared seam",
-                        });
-                    continue;
-                }
-                if (
-                    !resolved ||
-                    (!resolved.startsWith(resolve(repoRoot, ENGINE_PACKAGE, "src") + sep) &&
-                        !resolved.startsWith(resolve(repoRoot, RUNTIME_PACKAGE, "src") + sep))
-                )
-                    continue;
-                const target = relative(
-                    resolve(
-                        repoRoot,
-                        resolved.startsWith(resolve(repoRoot, RUNTIME_PACKAGE) + sep)
-                            ? RUNTIME_PACKAGE
-                            : ENGINE_PACKAGE,
-                    ),
-                    resolved,
-                )
-                    .split(sep)
-                    .join("/");
-                const published = [target, `${target}.ts`, `${target}/index.ts`].some((candidate) =>
-                    surface.targets.has(candidate),
-                );
-                if (published) continue;
-                const key = `${file} "${spec}"`;
-                if (ledger.toolingSeams[key]?.trim()) {
-                    usedSeams.add(key);
-                    continue;
-                }
-                violations.push({
-                    file,
-                    line: r.line,
-                    import: spec,
-                    reason: `reaches unpublished engine source ${target} with no declared seam (scripts/boundary-seams.ts)`,
-                });
-            }
-        }
-    }
-    return { violations, usedSeams, usedLoaders };
-}
-
-/** Runtime owns every maintained source except the fixed public harness composition entry. */
-export function runtimeDirection(
-    repoRoot: string,
-    exports: Record<string, unknown>,
-    errors: string[],
-    ledger: Ledger,
-    usedLoaders: Set<string>,
-): Violation[] {
-    if (!existsSync(resolve(repoRoot, TOOLING_PACKAGE, "package.json"))) return [];
-    const publicRoot = resolve(repoRoot, ENGINE_PACKAGE, "src");
-    const sourceRoot = existsSync(resolve(repoRoot, RUNTIME_PACKAGE, "package.json"))
-        ? resolve(repoRoot, RUNTIME_PACKAGE, "src")
-        : publicRoot;
-    const composite = resolve(publicRoot, "harness/index.ts");
-    const browser = resolve(publicRoot, "harness/browser.ts");
-    const project = resolve(publicRoot, "project");
-    const tooling = resolve(repoRoot, TOOLING_PACKAGE);
-    const runtimeOwner = resolve(sourceRoot, "..");
-    const rootManifest = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8"));
-    const privateNames = workspaceRoots(repoRoot, rootManifest.workspaces)
-        .filter((path) => path !== ENGINE_PACKAGE && resolve(repoRoot, path) !== runtimeOwner)
-        .flatMap((path) => {
-            const manifest = resolve(repoRoot, path, "package.json");
-            return existsSync(manifest)
-                ? [JSON.parse(readFileSync(manifest, "utf8")).name as string]
-                : [];
-        });
-    const aliases = aliasReader(repoRoot);
-    const violations: Violation[] = [];
-    const forbidden = (path: string) => {
-        const variants = [path, `${path}.ts`, `${path}/index.ts`];
-        return (
-            variants.includes(composite) ||
-            variants.includes(browser) ||
-            path === project ||
-            path.startsWith(project + sep) ||
-            path === tooling ||
-            path.startsWith(tooling + sep) ||
-            path.startsWith(resolve(repoRoot, ENGINE_PACKAGE, "dist") + sep)
-        );
-    };
-    for (const file of sourceFiles(sourceRoot)) {
-        if (
-            file === composite ||
-            file === browser ||
-            file.startsWith(project + sep) ||
-            /\.(test|fixture)\.ts$/.test(file)
-        )
-            continue;
-        for (const ref of references(readFileSync(file, "utf8"))) {
-            if (ref.computed) {
-                const path = relative(repoRoot, file).split(sep).join("/");
-                if (ledger.computedLoaders[path]?.trim()) usedLoaders.add(path);
-                else
-                    violations.push({
-                        file: path,
-                        line: ref.line,
-                        import: "import(<computed>)",
-                        reason: "builds a module specifier at runtime with no declared bound (scripts/boundary-seams.ts)",
-                    });
-                continue;
-            }
-            if (!ref.spec) continue;
-            const solverBridge = resolve(
-                repoRoot,
-                RUNTIME_PACKAGE,
-                "src/standard/tumble/engine/index.ts",
-            );
-            const solverEntry = resolve(
-                repoRoot,
-                SOLVER_PACKAGE,
-                "src/standard/tumble/engine/index",
-            );
-            if (
-                file === solverBridge &&
-                ref.spec.startsWith(".") &&
-                resolve(dirname(file), ref.spec) === solverEntry &&
-                existsSync(`${solverEntry}.ts`)
-            )
-                continue;
-            const alias = aliases(file, ref.spec);
-            errors.push(...alias.errors);
-            const targets = ref.spec.startsWith(".")
-                ? [resolve(dirname(file), ref.spec)]
-                : [...alias.targets];
-            if (ref.spec === PKG || ref.spec.startsWith(PKG + "/")) {
-                const key = ref.spec === PKG ? "." : `.${ref.spec.slice(PKG.length)}`;
-                const entry = exports[key];
-                const target =
-                    typeof entry === "string"
-                        ? entry
-                        : (entry as { types?: string } | undefined)?.types;
-                if (target) targets.push(resolve(repoRoot, ENGINE_PACKAGE, target));
-                if (key.startsWith("./src/")) targets.push(resolve(repoRoot, ENGINE_PACKAGE, key));
-            }
-            if (
-                ref.spec === "shallot-cli" ||
-                ref.spec.startsWith("shallot-cli/") ||
-                targets.some(forbidden)
-            ) {
-                violations.push({
-                    file: relative(repoRoot, file),
-                    line: ref.line,
-                    import: ref.spec,
-                    reason: "runtime reaches tooling or the distribution's composite harness",
-                });
-            } else if (
-                ref.spec === PKG ||
-                ref.spec.startsWith(PKG + "/") ||
-                privateNames.some(
-                    (name) => ref.spec === name || ref.spec!.startsWith(name + "/"),
-                ) ||
-                targets.some(
-                    (target) => target !== runtimeOwner && !target.startsWith(runtimeOwner + sep),
-                )
-            ) {
-                const key =
-                    ref.spec === PKG
-                        ? "."
-                        : ref.spec.startsWith(PKG + "/")
-                          ? `.${ref.spec.slice(PKG.length)}`
-                          : "";
-                const declared = exports[key];
-                const target = typeof declared === "string" ? declared : undefined;
-                const canonical = target?.startsWith("./src/")
-                    ? resolve(sourceRoot, target.slice("./src/".length))
-                    : "";
-                const published = target ? resolve(repoRoot, ENGINE_PACKAGE, target) : "";
-                const bound = targets.every((path) =>
-                    [path, `${path}.ts`, `${path}/index.ts`].some(
-                        (candidate) => candidate === canonical || candidate === published,
-                    ),
-                );
-                if (!canonical || !existsSync(canonical) || !bound)
-                    violations.push({
-                        file: relative(repoRoot, file),
-                        line: ref.line,
-                        import: ref.spec,
-                        reason: "runtime leaves its canonical owner without a declared runtime export",
-                    });
-            }
         }
     }
     return violations;
@@ -694,13 +462,11 @@ export function runtimeDirection(
 /** The declared escapes this run reads. Injectable so a fixture tree can carry its own ledger: the real
  *  tables name real repo files, and a fixture cannot satisfy them. */
 export interface Ledger {
-    toolingSeams: Record<string, string>;
     computedLoaders: Record<string, string>;
     nonWorkspacePackages: Record<string, string>;
 }
 
 export const REPO_LEDGER: Ledger = {
-    toolingSeams: TOOLING_SEAMS,
     computedLoaders: COMPUTED_LOADERS,
     nonWorkspacePackages: NON_WORKSPACE_PACKAGES,
 };
@@ -721,9 +487,7 @@ export function checkBoundary(repoRoot: string, ledger: Ledger = REPO_LEDGER): B
     );
     const surface = publishedSurface(enginePkg.exports as Record<string, unknown>);
     const declared = workspaceRoots(repoRoot, rootPkg.workspaces as string[]);
-    const consumerDirs = declared.filter(
-        (dir) => dir !== ENGINE_PACKAGE && dir !== TOOLING_PACKAGE && dir !== RUNTIME_PACKAGE,
-    );
+    const consumerDirs = declared.filter((dir) => dir !== ENGINE_PACKAGE);
     const consumerRoots = consumerDirs
         .map((dir) => resolve(repoRoot, dir))
         .filter((dir) => existsSync(dir) && statSync(dir).isDirectory());
@@ -740,9 +504,7 @@ export function checkBoundary(repoRoot: string, ledger: Ledger = REPO_LEDGER): B
         usedLoaders,
         errors,
     );
-    const tooling = scanTooling(repoRoot, surface, ledger, errors);
-    violations.push(...tooling.violations);
-    violations.push(...runtimeDirection(repoRoot, enginePkg.exports, errors, ledger, usedLoaders));
+    violations.push(...scanLoaders(repoRoot, ledger, usedLoaders));
     const solverSource = resolve(repoRoot, SOLVER_PACKAGE, "src");
     for (const file of sourceFiles(solverSource)) {
         if (/\.(test|fixture)\.ts$/.test(file)) continue;
@@ -796,12 +558,8 @@ export function checkBoundary(repoRoot: string, ledger: Ledger = REPO_LEDGER): B
             );
     }
 
-    for (const key of Object.keys(ledger.toolingSeams)) {
-        if (!tooling.usedSeams.has(key))
-            errors.push(`declared tooling seam names no live import: ${key}`);
-    }
     for (const file of Object.keys(ledger.computedLoaders)) {
-        if (!tooling.usedLoaders.has(file) && !usedLoaders.has(file))
+        if (!usedLoaders.has(file))
             errors.push(`declared computed loader names no live call site: ${file}`);
     }
     return { violations, errors: [...new Set(errors)], consumers: consumerRoots.length };
@@ -856,7 +614,7 @@ if (import.meta.main) {
         const result = checkBoundary(repoRoot);
         if (!report(result)) process.exit(1);
         console.log(
-            `✓ distribution boundary clean (${result.consumers} consumer project(s), tooling seams and workspace cone complete)`,
+            `✓ distribution boundary clean (${result.consumers} consumer project(s), computed loaders and workspace cone complete)`,
         );
     }
 }

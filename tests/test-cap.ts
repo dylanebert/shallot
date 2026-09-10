@@ -38,7 +38,7 @@
  * `beforeAll`/`afterAll` is invisible to it.
  *
  * Shallot's `bunfig.toml` carries `root = "."`, which scopes bun's test discovery to the repo
- * root, so a `.test.ts` file outside `packages/shallot` is collected by a bare `bun test`. The
+ * root, so a `.test.ts` file anywhere in the repo is collected by a bare `bun test`. The
  * cap fires on any `bun test` whose cwd is the shallot root, regardless of what paths are passed.
  */
 import { afterEach, beforeEach } from "bun:test";

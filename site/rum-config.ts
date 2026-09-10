@@ -60,7 +60,7 @@ const DATADOG_RUM_CDN_URL = `https://www.datadoghq-browser-agent.com/us1/v${DATA
 // every `bun run demos` entry point failed on it). The CDN does answer a CORS request with
 // `Access-Control-Allow-Origin: *` (verified against a request carrying an `Origin` header), and a
 // CORS-mode load is exempt from the CORP check entirely — so `crossOrigin` fixes the verify-only failure
-// without needing a header change in `packages/shallot` (out of scope) or the deployed site, which never
+// without needing a header change in the engine package (out of scope) or the deployed site, which never
 // sets COEP (a static host can't set headers, the doc comment above `CROSS_ORIGIN_ISOLATION` already notes).
 export function datadogInitSnippet(mode: "prod" | "staging" = "prod"): string {
     const envSnippet = mode === "staging" ? RUM_ENV_SNIPPET_STAGING : RUM_ENV_SNIPPET;

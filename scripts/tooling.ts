@@ -2,9 +2,8 @@
 // `vite.config.ts` and a `playwright.config.ts` both resolve through Node's plain ESM loader, which
 // throws `ERR_UNKNOWN_FILE_EXTENSION` on the package's raw `.ts` source — the reason every other export
 // stays raw `.ts` (the mandatory TypeGPU transform must see engine source untransformed) doesn't reach
-// these two, whose only consumption context is Node. `dist/` is generated here, gitignored, never
-// committed — `postpack.ts` removes it after pack, same shape as the examples projection in
-// `prepack.ts`. `tsc` still type-checks against source (`package.json`'s `types` condition, which only
+// these two, whose only consumption context is Node. `dist/` is generated here by `bun run build` and
+// `prepack`, gitignored, never committed. `tsc` still type-checks against source (`package.json`'s `types` condition, which only
 // `tsc` reads — a bundler resolves straight to `default`, not `types`), so this emits no `.d.ts`.
 //
 // `src/project/` is a closed island — node builtins plus the `vite` / `unplugin-typegpu` externals it
@@ -14,14 +13,7 @@
 // rather than silently inlining.
 
 import { createHash } from "node:crypto";
-import {
-    cpSync,
-    mkdirSync,
-    mkdtempSync,
-    readFileSync,
-    rmSync,
-    writeFileSync,
-} from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -36,7 +28,7 @@ if (new Bun.Transpiler({ loader: "ts" }).scan(readFileSync(leaf, "utf8")).import
 }
 const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
-// dist/ is regenerated on every pack — never accumulate a stale build's leftovers (a manual `shallot
+// dist/ is regenerated on every build — never accumulate a stale build's leftovers (a manual `shallot
 // build` run against this package as its own project would otherwise land unrelated output here too).
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });

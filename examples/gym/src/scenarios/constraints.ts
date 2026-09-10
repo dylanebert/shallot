@@ -42,10 +42,7 @@ import { joint as oracleJoint } from "../../../../tests/avbd/joint";
 // the f64 oracle (tests/, out of the published src/) is the executable spec the GPU constraint solve compares
 // against — reached by relative path, like the pile scenario reaches the rigid oracle.
 import type { Quat, Vec3 } from "../../../../tests/avbd/math";
-import {
-    body as makeBody,
-    type Body as OracleBody,
-} from "../../../../tests/avbd/rigid";
+import { body as makeBody, type Body as OracleBody } from "../../../../tests/avbd/rigid";
 import { makeSolver, step as oracleStep } from "../../../../tests/avbd/solver";
 import { spring as oracleSpring } from "../../../../tests/avbd/spring";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";

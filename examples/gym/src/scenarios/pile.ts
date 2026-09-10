@@ -60,11 +60,7 @@ import {
 } from "../../../../tests/avbd/rigid";
 import { narrowphase } from "../../../../tests/avbd/rounded";
 import { makeSolver, step as oracleStep } from "../../../../tests/avbd/solver";
-import {
-    collideRounded,
-    collideRoundedPolytope,
-    SatResult,
-} from "../../../../tests/avbd/tgsl";
+import { collideRounded, collideRoundedPolytope, SatResult } from "../../../../tests/avbd/tgsl";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
 
 // pile — contact-settling rigidbodies, the AVBD solver's canonical GPU-correctness home (physics.md "GPU

@@ -3,6 +3,7 @@ import { resolve } from "path";
 const root = resolve(import.meta.dir, "..");
 const shallot = await Bun.file(resolve(root, "package.json")).json();
 const create = await Bun.file(resolve(root, "packages/create-shallot/package.json")).json();
+const release = process.argv.includes("--release");
 
 const fail = (msg: string) => {
     console.error(msg);
@@ -15,18 +16,20 @@ if (shallot.version !== create.version) {
     );
 }
 
-const tooling = await Bun.file(resolve(root, "package.json")).json();
-if (tooling.version !== shallot.version) fail("tooling/distribution version mismatch");
-for (const field of [
-    "dependencies",
-    "peerDependencies",
-    "optionalDependencies",
-    "peerDependenciesMeta",
-]) {
-    for (const [name, range] of Object.entries(tooling[field] ?? {})) {
-        if (JSON.stringify(shallot[field]?.[name]) !== JSON.stringify(range)) {
-            fail(`tooling dependency projection mismatch: ${field}.${name}`);
-        }
+// Release-time only: nothing else catches a bump that never happened. Every other arm compares
+// version sites to each other, so a whole cycle run against an unbumped tree is uniformly green
+// until npm rejects the republish — with the tell (a pack named `…-0.9.0.tgz`) buried in the
+// dogfood evidence. A release tags `v<version>` on `main`, so an existing tag means this version
+// already shipped. Run before the pack: `bun run scripts/check-versions.ts --release`.
+if (release) {
+    const tag = `v${shallot.version}`;
+    const found = Bun.spawnSync(["git", "tag", "--list", tag], { cwd: root });
+    if (found.exitCode !== 0) {
+        const why = found.exitCode === null ? "spawn failed" : `exit ${found.exitCode}`;
+        fail(`git tag --list failed (${why}) — cannot verify ${tag} is untagged.`);
+    }
+    if (found.stdout.toString().trim() !== "") {
+        fail(`${tag} is already tagged — ${shallot.version} shipped; bump before packing.`);
     }
 }
 
@@ -38,19 +41,6 @@ if (
     Object.keys(solver.peerDependencies ?? {}).length
 )
     fail("solver must remain dependency-free");
-const runtime = await Bun.file(resolve(root, "package.json")).json();
-if (runtime.version !== shallot.version) fail("runtime/distribution version mismatch");
-for (const field of [
-    "dependencies",
-    "peerDependencies",
-    "optionalDependencies",
-    "peerDependenciesMeta",
-]) {
-    for (const [name, range] of Object.entries(runtime[field] ?? {})) {
-        if (JSON.stringify(shallot[field]?.[name]) !== JSON.stringify(range))
-            fail(`runtime dependency projection mismatch: ${field}.${name}`);
-    }
-}
 
 // Runtime dependencies must resolve to a PUBLISHED version. A `link:` / `file:` / `workspace:`
 // protocol (handy for local co-development) survives verbatim into the published tarball and is
@@ -70,10 +60,7 @@ for (const [name, range] of Object.entries(shallot.dependencies ?? {})) {
 // own-package entry from the manifest on the next build (`rust/audio`'s is gitignored;
 // `rust/window`'s is tracked for reproducible native builds). `rust/tumble` is `publish = false`
 // and versions independently of the release.
-for (const crate of [
-    "rust/audio/Cargo.toml",
-    "rust/window/Cargo.toml",
-]) {
+for (const crate of ["rust/audio/Cargo.toml", "rust/window/Cargo.toml"]) {
     const text = await Bun.file(resolve(root, crate)).text();
     const version = text.match(/^version = "(.+)"/m)?.[1];
     if (version !== shallot.version) {
@@ -81,17 +68,14 @@ for (const crate of [
     }
 }
 
-// `bun.lock` records each workspace package's version independently of its `package.json`, and a
+// `bun.lock` records each member package's version independently of its `package.json`, and a
 // stale entry survives a release untouched: it read 0.9.0 through the whole 0.9.1 cycle, because
-// nothing read it. Bun writes the lockfile with trailing commas, which `JSON.parse` rejects —
-// strip them at the boundary (no lockfile string value ends in a comma before a closing brace).
+// nothing read it. The root entry carries no version. Bun writes the lockfile with trailing commas,
+// which `JSON.parse` rejects — strip them at the boundary (no lockfile string value ends in a comma
+// before a closing brace).
 const lockText = await Bun.file(resolve(root, "bun.lock")).text();
 const lock = JSON.parse(lockText.replace(/,(\s*[}\]])/g, "$1"));
-for (const dir of [
-    ".",
-    "packages/shallot-tumble",
-    "packages/create-shallot",
-]) {
+for (const dir of ["packages/shallot-tumble", "packages/create-shallot"]) {
     const version = lock.workspaces?.[dir]?.version;
     if (version !== shallot.version) {
         fail(
@@ -101,15 +85,13 @@ for (const dir of [
 }
 
 // The docs half of the release checklist, which is the half that slipped in 0.9.1: it published
-// and tagged with no changelog entry. The changelog is read by no other gate and is only ever
-// wrong right after a bump — tying it to the current version is what makes the bump-then-document
-// order self-enforcing rather than remembered. A missing bump is `--release` below; a *partial*
-// one is the arms above.
+// and tagged with no changelog entry. Between releases the top section is `Unreleased`; a release
+// renames it to the version, so `--release` refuses anything but the version on top.
 const changelog = await Bun.file(resolve(root, "CHANGELOG.md")).text();
-const newest = changelog.match(/^## (\d+\.\d+\.\d+)/m)?.[1];
-if (newest !== shallot.version) {
+const top = changelog.match(/^## (\S+)/m)?.[1];
+if (top !== shallot.version && (release || top !== "Unreleased")) {
     fail(
-        `CHANGELOG.md's newest entry is ${newest}, not ${shallot.version} — every release earns its entry.`,
+        `CHANGELOG.md's top section is ${top}, not ${release ? shallot.version : `${shallot.version} or Unreleased`} — every release earns its entry.`,
     );
 }
 
@@ -136,21 +118,4 @@ if (readmeLinkCount === 0) {
     fail(
         "README.md carries no `tree/v<version>` links — the README-link arm would be vacuously green.",
     );
-}
-
-// Release-time only: nothing else catches a bump that never happened. Every other arm compares
-// version sites to each other, so a whole cycle run against an unbumped tree is uniformly green
-// until npm rejects the republish — with the tell (a pack named `…-0.9.0.tgz`) buried in the
-// dogfood evidence. A release tags `v<version>` on `main`, so an existing tag means this version
-// already shipped. Run before the pack: `bun run scripts/check-versions.ts --release`.
-if (process.argv.includes("--release")) {
-    const tag = `v${shallot.version}`;
-    const found = Bun.spawnSync(["git", "tag", "--list", tag], { cwd: root });
-    if (found.exitCode !== 0) {
-        const why = found.exitCode === null ? "spawn failed" : `exit ${found.exitCode}`;
-        fail(`git tag --list failed (${why}) — cannot verify ${tag} is untagged.`);
-    }
-    if (found.stdout.toString().trim() !== "") {
-        fail(`${tag} is already tagged — ${shallot.version} shipped; bump before packing.`);
-    }
 }

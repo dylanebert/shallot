@@ -67,6 +67,7 @@
         "examples/AGENTS.md",
         "!examples/recipes/*/node_modules",
         "!examples/recipes/*/tsconfig.json",
+        "!src/extras/gltf/fixtures",
         "AGENTS.md",
         "MIGRATION.md",
         "shallot.schema.json",
@@ -89,7 +90,6 @@
     ],
     "scripts": {
         "prepack": "bun run ./scripts/tooling.ts",
-        "postpack": "bun run ./scripts/postpack.ts",
         "build": "bun run ./scripts/build.ts",
         "check": "tsc && biome check && eslint . --max-warnings=0 && bun run scripts/check-versions.ts && bun run scripts/check-imports.ts && bun run scripts/check-boundary.ts && bun run scripts/check-docs.ts && bun run scripts/check-pack.ts && bun run scripts/check-scripts.ts && bun run scripts/check-exports.ts && bun run scripts/check-node-import.ts && bun run scripts/check-site.ts && bun run scripts/check-tumble-fp.ts && bun run scripts/check-examples.ts && bun run scripts/check-compat-pin.ts && bun run scripts/format.ts --check",
         "format": "biome check --write && bun run scripts/format.ts",

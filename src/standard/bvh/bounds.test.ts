@@ -1,11 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-    body,
-    flat,
-    IDIV_LEAF,
-    integerDiscipline,
-    noDivision,
-} from "../../../tests/wgsl";
+import { body, flat, IDIV_LEAF, integerDiscipline, noDivision } from "../../../tests/wgsl";
 import { boundsWgsl, orderU32, unorderU32 } from "./bounds";
 
 // The ordered-u32 codec is the reduction's whole correctness argument — WebGPU has integer atomics

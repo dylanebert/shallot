@@ -22,11 +22,7 @@ import {
     roundedWgsl,
 } from "../src/standard/avbd/collide";
 import { bvhRootWgsl, bvhTraverseWgsl } from "../src/standard/bvh/core";
-import {
-    fogInScatterWgsl,
-    fogMarchWgsl,
-    fogStructWgsl,
-} from "../src/standard/fog/core";
+import { fogInScatterWgsl, fogMarchWgsl, fogStructWgsl } from "../src/standard/fog/core";
 import { tonemapWgsl } from "../src/standard/glaze/tonemap";
 import {
     frameWgsl,

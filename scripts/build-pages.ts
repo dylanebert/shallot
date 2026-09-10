@@ -1,5 +1,10 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { brandPage } from "../site/brand/page";
+import { toPng } from "../site/brand/png";
+import { llmsTxt, siteIndex } from "../site/home";
+import { ROSTER } from "../site/roster";
+import { datadogInitSnippet } from "../site/rum-config";
 import {
     DARK,
     fromBlocks,
@@ -11,11 +16,6 @@ import {
     toText,
     word,
 } from "../src/standard/loading/mark";
-import { brandPage } from "../site/brand/page";
-import { toPng } from "../site/brand/png";
-import { llmsTxt, siteIndex } from "../site/home";
-import { ROSTER } from "../site/roster";
-import { datadogInitSnippet } from "../site/rum-config";
 
 // `bun run site:pages` — the site's own pages without the demos: out/site/index.html, llms.txt and
 // out/site/brand/ with its downloads. `build-site.ts` calls the same function after the demo
@@ -76,13 +76,7 @@ export async function buildBrand(
     write("wordmark.svg", toSvg(word(), DARK, 1));
     write("wordmark.png", toPng(word(), DARK, 8));
     write("mark.txt", `${toText(toCells(mark))}\n`);
-    write(
-        "mark.ts",
-        readFileSync(
-            resolve(root, "src/standard/loading/mark.ts"),
-            "utf8",
-        ),
-    );
+    write("mark.ts", readFileSync(resolve(root, "src/standard/loading/mark.ts"), "utf8"));
 }
 
 /** Writes the home index, `llms.txt`, and the brand pages. `rumMode` picks the Datadog env
@@ -107,9 +101,7 @@ export async function buildPages(
 }
 
 if (import.meta.main) {
-    const pkg = JSON.parse(
-        readFileSync(resolve(root, "package.json"), "utf8"),
-    ) as {
+    const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as {
         version: string;
     };
     const ref = Bun.spawnSync(["git", "rev-parse", "--short", "HEAD"], { cwd: root });

@@ -55,18 +55,10 @@ describe("canonical runtime public closure", () => {
         rmSync(join(root, "src/index.ts"));
         expect(() => computeEntryFiles(root, entries)).toThrow("missing runtime export projection");
     });
-    test("missing canonical definition refuses despite a surviving projection", () => {
-        const root = make();
-        rmSync(join(root, "src/index.ts"));
-        expect(() => computeEntryFiles(root, entries)).toThrow("missing canonical runtime source");
-    });
     for (const target of ["./absent", "@dylanebert/shallot/absent"]) {
         test(`unresolved public re-export refuses: ${target}`, async () => {
             const root = make();
-            writeFileSync(
-                join(root, "src/index.ts"),
-                `export * from ${JSON.stringify(target)};`,
-            );
+            writeFileSync(join(root, "src/index.ts"), `export * from ${JSON.stringify(target)};`);
             await expect(findDeadExports(root)).rejects.toThrow("unresolved source re-export");
         });
     }
@@ -397,9 +389,7 @@ describe("computeEntryFiles", () => {
             "./extras": "./src/extras/index.ts",
             "./src/*": "./src/*",
         });
-        expect(entries.sort()).toEqual(
-            ["src/index.ts", "src/extras/index.ts"].sort(),
-        );
+        expect(entries.sort()).toEqual(["src/index.ts", "src/extras/index.ts"].sort());
     });
 
     test("ignores the ./src/* wildcard escape hatch", () => {
@@ -424,16 +414,9 @@ describe("computePublicSurface", () => {
             ["src/module.ts", new Set(["reExportedFn", "notReExported"])],
         ]);
         const reExports = new Map<string, { names: string[] | "*"; sourceFile: string }[]>([
-            [
-                "src/index.ts",
-                [{ names: "*" as const, sourceFile: "src/module.ts" }],
-            ],
+            ["src/index.ts", [{ names: "*" as const, sourceFile: "src/module.ts" }]],
         ]);
-        const surface = computePublicSurface(
-            ["src/index.ts"],
-            directExports,
-            reExports,
-        );
+        const surface = computePublicSurface(["src/index.ts"], directExports, reExports);
         // star re-export: all direct exports of module.ts are public
         expect(surface.has("src/module.ts::reExportedFn")).toBe(true);
         expect(surface.has("src/module.ts::notReExported")).toBe(true);
@@ -447,16 +430,9 @@ describe("computePublicSurface", () => {
             ["src/module.ts", new Set(["foo", "bar"])],
         ]);
         const reExports = new Map([
-            [
-                "src/index.ts",
-                [{ names: ["foo"], sourceFile: "src/module.ts" }],
-            ],
+            ["src/index.ts", [{ names: ["foo"], sourceFile: "src/module.ts" }]],
         ]);
-        const surface = computePublicSurface(
-            ["src/index.ts"],
-            directExports,
-            reExports,
-        );
+        const surface = computePublicSurface(["src/index.ts"], directExports, reExports);
         expect(surface.has("src/module.ts::foo")).toBe(true);
         expect(surface.has("src/module.ts::bar")).toBe(false);
     });
@@ -589,9 +565,7 @@ export function notAllowed(): number { return 0; }
             "src/index.ts": `export const other = 1;`,
         });
 
-        const dead = await findDeadExports(root, [
-            { file: "src/module.ts", name: "allowedDead" },
-        ]);
+        const dead = await findDeadExports(root, [{ file: "src/module.ts", name: "allowedDead" }]);
         expect(dead.find((d) => d.name === "allowedDead")).toBeUndefined();
         expect(dead.find((d) => d.name === "notAllowed")).toBeDefined();
     });

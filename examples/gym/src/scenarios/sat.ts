@@ -51,13 +51,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { boxHull, coneHull, tetHull } from "../../../../tests/avbd/hull";
 import { add, type Quat, rotate, type Vec3 } from "../../../../tests/avbd/math";
-import {
-    body,
-    capsule,
-    hull,
-    type Body as OracleBody,
-    sphere,
-} from "../../../../tests/avbd/rigid";
+import { body, capsule, hull, type Body as OracleBody, sphere } from "../../../../tests/avbd/rigid";
 import { narrowphase } from "../../../../tests/avbd/rounded";
 import gold from "../../../../tests/avbd/sat-gold-vectors.json";
 import {

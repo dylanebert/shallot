@@ -11,6 +11,10 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { Glob } from "bun";
+import { llmsTxt, siteIndex } from "../site/home";
+import { type DemoEntry, ROSTER } from "../site/roster";
+import { datadogInitSnippet } from "../site/rum-config";
+import { demoFingerprints, type SiteMode, writeStamp } from "../site/site-stamp";
 // `PIPELINE_COMPILE_MEASURE_PREFIX` is imported here — a Node-side build script, never bundled
 // for the browser — and threaded into `buildRumRuntimeBundle`'s `Bun.build` call via `define`,
 // never via a plain `import` inside `site/rum-runtime.ts` itself. `gpu.ts` has a top-level
@@ -21,10 +25,6 @@ import { Glob } from "bun";
 // browser bundle carries the string and nothing else — `site/rum-compile-vitals.ts`'s own
 // docblock records the same measurement for the reader who only sees the pure module.
 import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../src/engine/runtime/gpu";
-import { llmsTxt, siteIndex } from "../site/home";
-import { type DemoEntry, ROSTER } from "../site/roster";
-import { datadogInitSnippet } from "../site/rum-config";
-import { demoFingerprints, type SiteMode, writeStamp } from "../site/site-stamp";
 import { buildBrand, bundleClient } from "./build-pages";
 
 // the RUM init snippet lives in `site/rum-config.ts` so the pages build can inject it too;

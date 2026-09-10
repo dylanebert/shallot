@@ -327,11 +327,6 @@ async function main() {
             }
         }
 
-        // Clean up any pack projections left in the engine dir (prepack creates them; postpack
-        // removes them on success, but a mid-pack failure can leave them behind).
-        rmSync(join(ENGINE_DIR, "examples"), { recursive: true, force: true });
-        rmSync(join(ENGINE_DIR, "dist"), { recursive: true, force: true });
-
         // Remove temp dirs.
         rmSync(work, { recursive: true, force: true });
     }

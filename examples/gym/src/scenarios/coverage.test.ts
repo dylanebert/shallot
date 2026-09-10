@@ -88,11 +88,9 @@ describe("gate coverage checker (fixtures)", () => {
     });
 
     test("an extras directory in both is a finding", () => {
-        const findings = checkExtrasClassification(
-            ["sky"],
-            ["src/extras/sky/index.ts"],
-            { sky: "used to be CPU-only" },
-        );
+        const findings = checkExtrasClassification(["sky"], ["src/extras/sky/index.ts"], {
+            sky: "used to be CPU-only",
+        });
         expect(findings).toEqual([{ kind: "extras-unclassified", detail: "sky" }]);
     });
 

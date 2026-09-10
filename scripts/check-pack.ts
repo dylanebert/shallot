@@ -1,8 +1,13 @@
 import { resolve } from "path";
+import { TEST_TIER_SUFFIXES } from "../tests/test-tiers";
 
-// The published tarball must ship only what a consumer needs. Test files and glTF fixtures are
-// dev-only weight — this asserts against the real `bun pm pack`
-// output, not the `files` field in isolation, so a future files-field edit can't silently regress it.
+// The published tarball ships source, the CLI, the compiled tooling leaves, the Rust audio WASM and
+// native-window crate, the icon, recipes and consumer docs; never tests, oracles, tiers, probes,
+// fixtures, goldens or build output. Asserted against the real `bun pm pack` output, not the `files`
+// allowlist in isolation, so a negation the packer ignores still reds.
+//
+// Recipes ship with their `src/smoke.ts`: each recipe's `shallot.json` names it, so a copied-out
+// recipe needs it.
 const pkgDir = resolve(import.meta.dir, "..");
 
 const proc = Bun.spawn(["bun", "pm", "pack", "--dry-run"], {
@@ -32,48 +37,47 @@ if (files.length === 0) {
     process.exit(1);
 }
 
-// `.probes.ts` is the by-path gate suffix — a test file the default `bun test` glob deliberately misses
-// (suite-speed discipline), which is exactly why it also slips a `.test.ts`-only pack check.
-const violations = files.filter(
-    (f) => f.endsWith(".test.ts") || f.endsWith(".probes.ts") || f.includes("/fixtures/"),
+const forbidden: [string, (f: string) => boolean][] = [
+    ["test tiers", (f) => TEST_TIER_SUFFIXES.test(f) || f.endsWith(".fixture.ts")],
+    ["goldens", (f) => f.endsWith(".gold.json")],
+    ["fixtures", (f) => f.includes("/fixtures/")],
+    ["tests/", (f) => f.startsWith("tests/")],
+    ["build output", (f) => f.includes("/target/") || f.includes("/node_modules/")],
+    ["site assets", (f) => f.startsWith("assets/") && f !== "assets/icon-1024.png"],
+    ["maintainer docs", (f) => f === "MAINTAINERS.md" || f === "CONTRIBUTING.md"],
+];
+const violations = files.flatMap((f) =>
+    forbidden.filter(([, match]) => match(f)).map(([kind]) => `${f} (${kind})`),
 );
+
+const required = [
+    "src/index.ts",
+    "bin/cli.ts",
+    "dist/vite.js",
+    "dist/harness-browser.js",
+    "rust/window/Cargo.toml",
+    "rust/window/Cargo.lock",
+    "assets/icon-1024.png",
+    "AGENTS.md",
+    "MIGRATION.md",
+    "examples/AGENTS.md",
+    "shallot.schema.json",
+];
+const missing = required.filter((f) => !files.includes(f));
+if (!files.some((f) => f.startsWith("rust/audio/pkg/"))) missing.push("rust/audio/pkg/");
+if (!files.some((f) => f.startsWith("examples/recipes/"))) missing.push("examples/recipes/");
 
 if (violations.length > 0) {
     console.error(`✗ ${violations.length} file(s) that must not ship in the npm pack:\n`);
-    for (const f of violations) console.error(`  ${f}`);
-    console.error(
-        "\nTest files and glTF fixtures are dev-only weight. Exclude them via the `files` field\n" +
-            "in package.json.",
-    );
-    process.exit(1);
+    for (const v of violations) console.error(`  ${v}`);
 }
-
-// the native-host crate ships in the tarball so `shallot build --target <native>` compiles it lazily
-// from a standard install. Assert the crate source and the relocated icon are present, and that the
-// build artifacts (target/) never ship.
-const required = ["rust/window/Cargo.toml", "rust/window/Cargo.lock", "assets/icon-1024.png"];
-const missing = required.filter((f) => !files.includes(f));
 if (missing.length > 0) {
     console.error(`✗ ${missing.length} required file(s) missing from the npm pack:\n`);
     for (const f of missing) console.error(`  ${f}`);
-    console.error(
-        "\nThe rust/window crate source and the icon must ship for native builds from an install.",
-    );
+}
+if (violations.length > 0 || missing.length > 0) {
+    console.error("\nFix the `files` allowlist in package.json (dist/ needs `bun run build`).");
     process.exit(1);
 }
 
-const targetLeaks = files.filter((f) => f.startsWith("rust/window/target/"));
-if (targetLeaks.length > 0) {
-    console.error(
-        `✗ ${targetLeaks.length} rust/window/target/ file(s) leaked into the npm pack:\n`,
-    );
-    for (const f of targetLeaks) console.error(`  ${f}`);
-    console.error(
-        "\nBuild artifacts must not ship. Exclude them via the `files` field in package.json.",
-    );
-    process.exit(1);
-}
-
-console.log(
-    `✓ tarball clean (${files.length} files, no test.ts or fixtures, crate + icon present)`,
-);
+console.log(`✓ tarball matches the files allowlist (${files.length} files)`);
