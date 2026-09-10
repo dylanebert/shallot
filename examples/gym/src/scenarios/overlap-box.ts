@@ -1,13 +1,13 @@
-// collision-overlap-box — stage-4 gym twin: the tumble.js `OverlapBox` sample
+// collision-overlap-box — stage-4 gym twin: the upstream `OverlapBox` sample
 // (`samples/src/samples/collision.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold. The circling `overlapAABB` query + HUD count (`render()`) is outside the gold contract —
 // it only feeds debug-draw output, never mutates the world — so only `build()` ports.
 
-import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/collision-overlap-box.json";
+import goldJson from "../../../../src/standard/physics/samples/collision-overlap-box.json";
 import { register } from "../gym";
-import type { SampleGold } from "../tumble-oracle";
-import { buildOverlapBox, renderOverlapBox } from "../tumble-overlap-box";
-import { sampleScenario } from "../tumble-sample";
+import type { SampleGold } from "../physics-oracle";
+import { buildOverlapBox, renderOverlapBox } from "../physics-overlap-box";
+import { sampleScenario } from "../physics-sample";
 
 register(
     sampleScenario({

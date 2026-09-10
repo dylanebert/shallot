@@ -12,6 +12,7 @@ import {
     Part,
     PartPlugin,
     Physics,
+    PhysicsPlugin,
     type Plugin,
     RenderPlugin,
     run,
@@ -23,7 +24,6 @@ import {
     type System,
     Transform,
     TransformsPlugin,
-    TumblePlugin,
 } from "@dylanebert/shallot";
 import { ProfilePlugin } from "@dylanebert/shallot/extras";
 import { type Check, frames, type Params, register, type Scenario } from "../gym";
@@ -31,7 +31,7 @@ import { type Check, frames, type Params, register, type Scenario } from "../gym
 // raining — the streaming-spawn stress: bodies rain onto a pile continuously and the oldest are recycled once
 // the live count hits the cap, so the world churns at a steady body budget (the debris / particle / projectile
 // pattern — bounded, not unbounded growth). It gates the substrate's live create + destroy path (`state.create`
-// / `state.destroy` → the tumble backend's marshal / unmarshal) under constant load, and benchmarks stepping a
+// / `state.destroy` → the physics backend's marshal / unmarshal) under constant load, and benchmarks stepping a
 // full pile while it turns over. Deterministic: a seeded PRNG places every drop, so headless runs the same pile.
 
 const SPAWN_EVERY = 2; // fixed ticks between drops
@@ -94,7 +94,7 @@ const scenario: Scenario = {
                 InputPlugin,
                 OrbitPlugin,
                 RenderPlugin,
-                TumblePlugin,
+                PhysicsPlugin,
                 PartPlugin,
                 SearPlugin,
                 GlazePlugin,
@@ -139,9 +139,8 @@ const scenario: Scenario = {
     },
 
     async assert(): Promise<Check[]> {
-        const backend = Physics.backend;
-        if (!backend) return [{ name: "raining", pass: false, detail: "no backend" }];
-        // `raining-spawner` (registered after TumblePlugin's SyncSystem) drops a body's Body component
+        const backend = Physics;
+        // `raining-spawner` (registered after PhysicsPlugin's SyncSystem) drops a body's Body component
         // after this tick's marshal already ran, so the newest live eid needs one more fixed tick before
         // `readBody` sees it. Await that one sync pass directly rather than counting frames.
         for (let i = 0; i < 30 && queue.some((eid) => !backend.readBody(eid)); i++) await frames(1);

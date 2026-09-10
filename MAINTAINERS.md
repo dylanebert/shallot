@@ -2,13 +2,13 @@
 
 Repo-level contract; `AGENTS.md` is the consumer contract and ships in the npm package, this file does not. Grep `examples/AGENTS.md` first.
 
-Owners: the root package (`src`, `bin`, `rust`, `tests`), `packages/{shallot-tumble,create-shallot}`; evals, examples.
+Owners: the root package (`src`, `bin`, `rust`, `tests`), `packages/create-shallot`; evals, examples.
 
 ## Rules
 
 Read `.claude/rules/style.md` always; matching rules below via authoritative `paths:` frontmatter. Repo-root globs govern delivery, not authority. Claude Code loads on matching reads; others read manually. Edit frontmatter, not duplicate globs.
 
-In `.claude/rules/`: `audio.md`, `avbd.md`, `ecs.md`, `examples.md`, `exports.md`, `gpu.md`, `physics.md`, `render.md`, `testing.md`, `tumble.md`, `visual-identity.md`.
+In `.claude/rules/`: `audio.md`, `ecs.md`, `examples.md`, `exports.md`, `gpu.md`, `physics.md`, `render.md`, `testing.md`, `visual-identity.md`.
 
 ## Architecture
 
@@ -23,7 +23,7 @@ Targets: desktop Chrome/Edge, recent Android Chrome, Safari26+ Apple Silicon, St
 ## Commands
 
 ```bash
-bun run build                             # After bun install: audio WASM, dist/ tooling, native window
+bun run build                             # After bun install: audio WASM, dist/ tooling, physics kernel
 bun run test                              # Unit gate; needs build and a native adapter
 bun run test:changed -- --base <ref> --diff <ref>
 bun check                                 # Read-only tsc/Biome/checks; pack test is check-pack
@@ -43,11 +43,11 @@ bun bin/cli.ts <dev|build|run|verify> [dir]
 # build/run: [--target <os>] [--portable]; build: [--release]
 ```
 
-OS: windows/mac/linux; web emits dist; native uses platform tools. Verify owns Verdict/exit, full-Chromium headless; `--headed` for display, `--connect` remote. Published `/harness`; bench/recipes wrap it. Gym defaults render; slugs select atoms. Screenshots never gate. Laws: `examples.md`.
+OS: windows/mac/linux; web emits dist; native uses platform tools and builds `rust/window` per project. A non-portable Linux shell needs webkit2gtk-4.1 dev headers; the CLI refuses it for WebGPU anyway, so use `--portable`. Verify owns Verdict/exit, full-Chromium headless; `--headed` for display, `--connect` remote. Published `/harness`; bench/recipes wrap it. Gym defaults render; slugs select atoms. Screenshots never gate. Laws: `examples.md`.
 
 ### Verification
 
-Before completion: format, check, test above. Release order: `testing.md`. After AVBD/physics: `bun test ./tests/avbd/*.oracle.ts`; engine/host/twin: `bun test ./examples/gym/src`; tumble fixtures from package per `tumble.md`; Rust audio: `cargo test` from `rust/audio`.
+Before completion: format, check, test above. Release order: `testing.md`. After AVBD changes: `bun test ./packages/shallot-avbd-physics/tests/*.oracle.ts`; engine/host/twin: `bun test ./examples/gym/src`; physics fixtures per `physics.md`; Rust audio: `cargo test` from `rust/audio`.
 
 GPU/serialize/restore/config.ui/dev-server/physics changes owe bench/flow/recipe gates. Verify is headless; hardware refusal is nonzero; display callers use `--headed`. Reachability repairs owe source + physical public-build proof via build.probes.ts; other CLI/manifest/dependency/launch/runtime/scaffold/native-package changes owe test:install; links don’t prove it.
 

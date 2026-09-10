@@ -2,8 +2,6 @@
 paths:
   - "src/**/*.ts"
   - "package.json"
-  - "packages/shallot-tumble/**/*.ts"
-  - "packages/shallot-tumble/package.json"
   - "src/harness/*.ts"
   - "examples/showcase/ocean/src/ocean/**"
 ---
@@ -20,7 +18,7 @@ Skin is engine-owned, format-independent pose storage, with no surface: glTF, ph
 
 ## Compiled tooling exports
 
-One published package at the repo root ships its real source; `package.json` `files` is the allowlist and `scripts/check-pack.ts` asserts the packed list. `packages/shallot-tumble` owns the solver, reached by relative bridge. `bun run build` and `prepack` compile `dist/` for `./vite`/`./harness/browser` and the native loader. Node leaves exclude runtime/TGSL; browser leaf is import-free.
+One published package at the repo root ships its real source; `package.json` `files` is the allowlist and `scripts/check-pack.ts` asserts the packed list. The physics solver and its inlined kernel ship under `src/standard/physics`. `bun run build` and `prepack` compile `dist/` for `./vite`/`./harness/browser` and the native loader. Node leaves exclude runtime/TGSL; browser leaf is import-free.
 
 The public raw `src/harness/index.ts` composes runtime plus the browser leaf by relative import. Runtime's `harness/runtime.ts` and siblings never import that composite or tooling. Preserve the complete public value/type surface.
 
@@ -36,7 +34,7 @@ Barrels expose author components, singletons, registration and types. Core subpa
 
 Every release-public export has definition-site JSDoc: lowercase, one line, examples on most callables. Fields must be actionable to scene authors, otherwise internal derived state; defaults are principled values, not float garbage. Avoid names needing import aliases: generic names belong in a subpath or stay internal.
 
-List import-time effects AND barrels hosting bare effect imports in `sideEffects`, exact paths, no globs. Physics stays opt-in and tree-shakes away: Tumble/Physics on the main barrel, inlined tumble kernel with no extra install, AVBD only on its subpath. Backend install/uninstall and system anchors stay on `physics/core`, with no solver there. Curate `tumble/core` to mirror new engine public symbols but NEVER export shutdown: the shared worker pool is engine-owned. Init and read-only threads introspection remain, not threading knobs.
+List import-time effects AND barrels hosting bare effect imports in `sideEffects`, exact paths, no globs. Physics stays opt-in and tree-shakes away: `Physics`/`PhysicsPlugin` on the main barrel, inlined kernel with no extra install. `physics/core` is the outside-solver seam (traits, defs, signatures, anchors, `Hulls`); physics never imports an extension. Curate `physics/core` to mirror new engine public symbols but NEVER export shutdown: the shared worker pool is engine-owned. Init and read-only threads introspection remain, not threading knobs.
 
 ## Registry pattern
 

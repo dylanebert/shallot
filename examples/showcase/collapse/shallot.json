@@ -4,7 +4,7 @@
     "Orbit": true,
     "Profile": true,
     "Mirror": true,
-    "Avbd": true,
+    "Avbd": "@dylanebert/shallot-avbd-physics",
     "Collapse": "./src/collapse"
   }
 }

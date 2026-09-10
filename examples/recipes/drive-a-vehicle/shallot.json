@@ -3,7 +3,7 @@
     "plugins": {
         "Orbit": true,
         "Text": true,
-        "Tumble": true,
+        "Physics": true,
         "Car": "./src/car",
         "CarSmoke": "./src/smoke"
     }

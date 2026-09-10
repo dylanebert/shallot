@@ -121,7 +121,7 @@ export function installHarness(state: State): HarnessTarget {
             return state.time.elapsed > 0;
         },
         read(eid: number): PoseState | null {
-            const body = Physics.backend?.readBody(eid);
+            const body = Physics.readBody(eid);
             if (body) {
                 return {
                     pos: [body.pos[0], body.pos[1], body.pos[2]],

@@ -12,7 +12,6 @@ import {
     type Mirror,
     mirror,
     mountOverlay,
-    Physics,
     Player,
     type Plugin,
     pointerLockStatus,
@@ -24,9 +23,9 @@ import {
     type System,
     Transform,
 } from "@dylanebert/shallot";
-import { Avbd, type JointDef } from "@dylanebert/shallot/avbd/core";
 import { fsCtxSchema, lit, registerSurface, surfaceLayout } from "@dylanebert/shallot/sear/core";
 import { unpackLdrColor, Xform } from "@dylanebert/shallot/utils/core";
+import { Avbd, type JointDef } from "@dylanebert/shallot-avbd-physics/core";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
@@ -393,8 +392,7 @@ function world(state: State): void {
 function build(state: State): void {
     const step = Avbd.step;
     if (!step) throw new Error("[sandbox] AvbdPlugin not warmed — no step");
-    const backend = Physics.backend;
-    if (!backend) throw new Error("[sandbox] no physics backend installed");
+    const backend = Avbd;
 
     world(state);
     pyramid(state, 0, 0, -4.0, 10);

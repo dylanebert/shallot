@@ -58,7 +58,7 @@ export async function runProject(
         await buildWeb(projectDir);
         const server = await preview({
             root: projectDir,
-            // cross-origin isolation so tumble physics multithreads (COOP/COEP → shared WebAssembly.Memory)
+            // cross-origin isolation so physics multithreads (COOP/COEP → shared WebAssembly.Memory)
             preview: { port: opts.port, open: true, headers: CROSS_ORIGIN_ISOLATION },
         });
         server.printUrls();

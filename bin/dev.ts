@@ -69,7 +69,7 @@ export function devConfig(
             port: opts.port,
             strictPort: opts.strictPort,
             open: opts.open ?? true,
-            // cross-origin isolation so tumble physics multithreads (COOP/COEP → shared WebAssembly.Memory)
+            // cross-origin isolation so physics multithreads (COOP/COEP → shared WebAssembly.Memory)
             headers: CROSS_ORIGIN_ISOLATION,
             // searchForWorkspaceRoot restores vite's default fs.allow root (which an explicit `allow`
             // overrides). The engine package (`@dylanebert/shallot`, with its `rust/audio/pkg/*.wasm`

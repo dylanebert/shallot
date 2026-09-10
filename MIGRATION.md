@@ -1,6 +1,6 @@
 # Migrating to 0.10
 
-Keep one `@dylanebert/shallot` installation. The `shallot` CLI, scaffold commands, manifest defaults, `vite` and `harness/browser` subpaths remain included. Runtime, tooling and Tumble now have private source owners; you do not install them. Selecting physics still needs no extra solver installation.
+Keep one `@dylanebert/shallot` installation. The `shallot` CLI, scaffold commands, manifest defaults, `vite` and `harness/browser` subpaths remain included. Runtime, tooling and Physics now have private source owners; you do not install them. Selecting physics still needs no extra solver installation.
 
 The `@dylanebert/shallot/src/*` wildcard is removed. Use the bare package for author APIs (including `State`, `Physics` and loading themes), `/runtime` for platform/device services, `/harness` for verification, and the named `*/core` extension subpaths. The former loading-module import becomes `import { shallotDark } from "@dylanebert/shallot"`. Arbitrary implementation files have no supported replacement; request a public seam rather than resolving package directories yourself.
 

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Body, build, Compute, MirrorPlugin, Physics, SlabPlugin } from "@dylanebert/shallot";
-import { AvbdPlugin } from "@dylanebert/shallot/avbd";
+import { Body, build, Physics, PhysicsPlugin, SlabPlugin } from "@dylanebert/shallot";
 import {
     BACKEND_BOX_HALF,
     BACKEND_DROP_Y,
@@ -21,7 +20,7 @@ const TICKS = 240;
 describe("headless backend settle verdict", () => {
     test("settles without falling through in the browser twin's authored band", async () => {
         const app = await build({
-            plugins: [SlabPlugin, MirrorPlugin, AvbdPlugin],
+            plugins: [SlabPlugin, PhysicsPlugin],
             defaults: false,
             capacity: CAPACITY,
             scene: `<scene>
@@ -32,14 +31,12 @@ describe("headless backend settle verdict", () => {
         try {
             const box = [...app.state.query([Body])].find((eid) => Body.mass.get(eid) > 0);
             expect(box).toBeDefined();
-            if (box !== undefined) Physics.backend?.readBody(box);
+            if (box !== undefined) Physics.readBody(box);
             for (let tick = 0; tick < TICKS; tick++) {
                 app.state.step();
-                await Compute.device.queue.onSubmittedWorkDone();
-                await Bun.sleep(0);
             }
 
-            const pose = box === undefined ? null : Physics.backend?.readBody(box);
+            const pose = box === undefined ? null : Physics.readBody(box);
             expect(pose).not.toBeNull();
             const y = pose?.pos[1] ?? Number.NaN;
             expect(Number.isFinite(y), "settled body y is finite").toBe(true);

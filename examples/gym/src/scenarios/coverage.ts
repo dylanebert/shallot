@@ -13,8 +13,8 @@ import { GATE_EXEMPTIONS, SCENARIO_GATES, type ScenarioGate } from "./timeouts";
  *  canonical GPU code — `bounds.ts`, `build.ts`, `sort.ts`; that gap in `gpu.md`'s frontmatter has since been
  *  fixed, so the two now agree here) and `standard/avbd` (the GPU physics swap-in, `avbd.md`'s own `paths:`,
  *  deliberately not `gpu.md`'s). Reusing the codebase's own committed boundaries for "GPU-side" rather
- *  than inventing a second one (one source of truth). Deliberately excludes tumble physics: it
- *  runs on the CPU wasm kernel and is bit-exact-gated by `bun test` + the committed fixtures (`tumble.md`),
+ *  than inventing a second one (one source of truth). Deliberately excludes physics: it
+ *  runs on the CPU wasm kernel and is bit-exact-gated by `bun test` + the committed fixtures (`physics.md`),
  *  so its truth already lives in a tier this check isn't responsible for; it excludes ECS/scene
  *  core for the same reason (`bun test` unit coverage). */
 export const GPU_MODULE_GLOBS: readonly string[] = [

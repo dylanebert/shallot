@@ -3,18 +3,18 @@ import {
     Color,
     Inputs,
     Part,
+    Physics,
     type Plugin,
     ShapeKind,
     type State,
     type System,
-    Tumble,
 } from "@dylanebert/shallot";
 
 // a drivable vehicle on wheel joints. each wheel joint gives one wheel a suspension spring (frame A's x is
 // the suspension axis, pointing up), a spin axis, and — on the front wheels — a steering DOF. the rear wheels
 // carry a spin motor (the throttle), the front wheels a steering target. the chassis + wheels are substrate
 // `Body` entities (their friction is authored right on the body); the wheel joints, and a soft parallel joint
-// to the ground that keeps the car upright, ride `Tumble.world`, the escape hatch past the substrate's
+// to the ground that keeps the car upright, ride `Physics.world`, the escape hatch past the substrate's
 // `Spring`/`Joint`. drive with W/S (throttle) and A/D (steer). sphere wheels sidestep wheel-orientation
 // bookkeeping, so the joint frames stay simple.
 //
@@ -22,7 +22,7 @@ import {
 // this recipe rides the escape hatch; the gym twin `joints-driving` is the oracle-gated gold.
 
 type V3 = { x: number; y: number; z: number };
-type Wheel = ReturnType<NonNullable<typeof Tumble.world>["createWheelJoint"]>;
+type Wheel = ReturnType<NonNullable<typeof Physics.world>["createWheelJoint"]>;
 
 const THROTTLE = 14; // rad/s spin speed at full throttle
 const STEER = Math.PI / 5; // rad steering lock
@@ -104,11 +104,11 @@ function build(state: State): void {
 // wire the four wheel joints + the parallel upright joint once every body has marshaled. the front two
 // (indices 0, 1) steer; the rear two (2, 3) carry the spin motor.
 function wire(): void {
-    const world = Tumble.world;
+    const world = Physics.world;
     if (!world || wired) return;
-    const ground = Tumble.body(groundEid);
-    const chassis = Tumble.body(chassisEid);
-    const wheels = wheelEids.map((e) => Tumble.body(e));
+    const ground = Physics.body(groundEid);
+    const chassis = Physics.body(chassisEid);
+    const wheels = wheelEids.map((e) => Physics.body(e));
     if (!ground || !chassis || wheels.some((w) => !w)) return;
 
     rear = [];
@@ -184,8 +184,8 @@ const driver: System = {
         // a parked car sleeps, and setting a motor speed does NOT wake a sleeping body — so wake the wheels +
         // chassis on any driver input, or the first throttle after the car settles would be ignored.
         if (throttle !== 0 || steer !== 0) {
-            Tumble.body(chassisEid)?.setAwake(true);
-            for (const e of wheelEids) Tumble.body(e)?.setAwake(true);
+            Physics.body(chassisEid)?.setAwake(true);
+            for (const e of wheelEids) Physics.body(e)?.setAwake(true);
         }
     },
 };

@@ -10,7 +10,7 @@
 // wasm, plus the declarative by-name gate: preloader import + route sync with no import code), skin-live
 // (the live joint-palette substrate — a hand-built 2-bone rig posed through LiveSkin, deform + moving
 // shadow + reach-bound probes, no glTF asset), ragdoll (the live palette's physics producer — RiggedFigure
-// imported {live} + an 11-capsule tumble ragdoll on the Tumble.world escape hatch, a readBody → skinMatrix
+// imported {live} + an 11-capsule physics ragdoll on the Physics.world escape hatch, a readBody → skinMatrix
 // pose driver; upright→crumple deform + reach-survivor probes),
 // transparency, and the backdrop rows background / sky (the bindings-free + uniform-bound
 // `Backgrounds` recipes filling un-rendered pixels)), `gltf` (the asset lifecycle atom — load → dispose/rebuild cache hit →
@@ -32,9 +32,9 @@
 // rigidbodies), `constraints` (springs + joints), `character` (the kinematic controller), each gated
 // against the f64 oracle. `backend` is the substrate swap gate: one
 // scene authored purely against `standard/physics` (settle, no-fall-through, raycast, kinematic drive +
-// firehose writeback) that runs unmodified under `--param backend=tumble|avbd` — behavioral parity, not
+// firehose writeback) that runs unmodified under `--param backend=physics|avbd` — behavioral parity, not
 // bit-exact (two solvers can't hash-match a trajectory), plus a per-system CPU-span perf snapshot. Three
-// scenarios gate the tumble `Tumble.world` escape-hatch surface past the substrate: `queries` (the spatial
+// scenarios gate the physics `Physics.world` escape-hatch surface past the substrate: `queries` (the spatial
 // query trio — `castRayClosest` / `castShape` / `overlapAABB` over one deterministic obstacle scene),
 // `rotation` (free angular dynamics in a zero-g world — the Dzhanibekov intermediate-axis flip + a parallel
 // joint locking a panel's orientation), and `raining` (the streaming-spawn stress: bodies rain onto a pile
@@ -49,11 +49,11 @@
 // `validateGpu` (gpu.ts), `drainLog` (log.ts), and `probeBuffer`/`probeTexture` (probe.ts) — verified by
 // import, not guessed. `mesh-fixture` is the release-prerequisite final-compositor hardening fixture: a
 // custom-registered surface + a Part entity on the built-in `unlit` surface, both drawn through the real
-// part/render/sear pipeline. `joints-paddle` is the tumble sample-host
-// pilot: a tumble.js sample (`Paddle`) authored through the escape hatch
-// (`tumble-sample.ts` + `tumble-paddle.ts`), verified bit-exact against its committed gold and rendered via
+// part/render/sear pipeline. `joints-paddle` is the physics sample-host
+// pilot: a upstream sample (`Paddle`) authored through the escape hatch
+// (`physics-sample.ts` + `physics-paddle.ts`), verified bit-exact against its committed gold and rendered via
 // the source-faithful debug-draw + mouse-grab layer every stage-4 sample twin reuses (the red-first oracle
-// proof is `tumble-pilot.test.ts`). The stage-4 burn-down adds one gym twin per tumble.js sample the same
+// proof is `physics-pilot.test.ts`). The stage-4 burn-down adds one gym twin per upstream sample the same
 // way: `bodies-body-type` (the kinematic-platform sweep — the `update()` seam the pilot test proves),
 // `stacking-arch` (a friction-only masonry showpiece, no knobs), `stacking-box-pyramid` (the canonical settling-pyramid
 // resting-contact test), `stacking-dominoes` (a concentric-ring toppling chain reaction), `shapes-inclined-plane` (a
@@ -79,7 +79,7 @@
 // revolute-hinged boxes swinging out and settling), `joints-driving` (a wheel-jointed car — throttle bakes into
 // the rear spin motors at build time, since the sample's live throttle/steer knobs only apply through
 // `act()`, never called by the mint), `joints-parallel` (two hovering panels
-// under constant torque — a parallel joint locks one level while the free panel tumbles, no knobs), `joints-rope` (a
+// under constant torque — a parallel joint locks one level while the free panel physicss, no knobs), `joints-rope` (a
 // capsule chain on spherical joints, released from horizontal — it swings and coils in 3D), `joints-suspension` (a
 // platform hung from four distance-joint springs — drop crates and it bobs), `mesh-terrain` (a sine-wave
 // triangle-mesh ground — a grid of the `shape` knob's shape rolls down the hills and settles in the
@@ -89,8 +89,8 @@
 // — the `grid` knob — piling up together, bit-exact deterministic by construction), `character-mover` (a
 // self-driven kinematic capsule mover patrolling a walled arena on the plane solver — pogo ground-follow up
 // a ramp and steps, shoving crates; the drive lives in `update()`), with more
-// landing as the tumble-inline sample set is ported;
-// the full list + the shared gold-match test live in `tumble-registry.ts` / `tumble-golds.test.ts`. The tier doctrine — targeted real-device tier run per-scenario, triple-duty
+// landing as the physics-inline sample set is ported;
+// the full list + the shared gold-match test live in `physics-registry.ts` / `physics-golds.test.ts`. The tier doctrine — targeted real-device tier run per-scenario, triple-duty
 // atoms, in-flight dogfoods — is `CLAUDE.md` Examples + `testing.md`.
 import "./accel";
 import "./arch";
@@ -102,12 +102,10 @@ import "./bullet-vs-stack";
 import "./cantilever";
 import "./cells";
 import "./chain";
-import "./character";
 import "./character-mover";
 import "./compound-simple";
 import "./compound-spheres";
 import "./compound-tile-floor";
-import "./constraints";
 import "./convex-hull";
 import "./convex-primitives";
 import "./dominoes";
@@ -123,14 +121,12 @@ import "./inclined-plane";
 import "./joint-break";
 import "./mesh-fixture";
 import "./motion-locks";
-import "./motor";
 import "./orbit-touch";
 import "./outline";
 import "./overlap-box";
 import "./paddle";
 import "./parallel";
 import "./pendulum";
-import "./pile";
 import "./queries";
 import "./ragdoll";
 import "./raining";
@@ -139,7 +135,6 @@ import "./render";
 import "./restitution";
 import "./rope";
 import "./rotation";
-import "./sat";
 import "./sensor-sweep";
 import "./shape-cast";
 import "./shape-soup";

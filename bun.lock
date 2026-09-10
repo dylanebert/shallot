@@ -265,6 +265,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "file:../../..",
+        "@dylanebert/shallot-avbd-physics": "file:../../../packages/shallot-avbd-physics",
       },
       "devDependencies": {
         "@playwright/test": "^1.58.2",
@@ -296,6 +297,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "file:../../..",
+        "@dylanebert/shallot-avbd-physics": "file:../../../packages/shallot-avbd-physics",
       },
       "devDependencies": {
         "@playwright/test": "^1.58.2",
@@ -330,11 +332,14 @@
       "version": "0.10.0",
       "bin": "./index.ts",
     },
-    "packages/shallot-tumble": {
-      "name": "shallot-tumble",
+    "packages/shallot-avbd-physics": {
+      "name": "@dylanebert/shallot-avbd-physics",
       "version": "0.10.0",
       "devDependencies": {
-        "@types/bun": "latest",
+        "@dylanebert/shallot": "file:../..",
+      },
+      "peerDependencies": {
+        "@dylanebert/shallot": "0.10.0",
       },
     },
   },
@@ -396,6 +401,8 @@
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.10", "", { "os": "win32", "cpu": "x64" }, "sha512-M+2dgBsl3lXRiTfgPVc2p3anS4Tocojke4rzFLScZ2Y/wmF+36dRb1iHCLiyGqOzQGyTplZH1HnEYviiAqi3nA=="],
 
     "@dylanebert/shallot": ["shallot@root:", {}],
+
+    "@dylanebert/shallot-avbd-physics": ["@dylanebert/shallot-avbd-physics@workspace:packages/shallot-avbd-physics"],
 
     "@eslint-community/eslint-utils": ["@eslint-community/eslint-utils@4.10.1", "", { "dependencies": { "eslint-visitor-keys": "^3.4.3" }, "peerDependencies": { "eslint": "^6.0.0 || ^7.0.0 || >=8.0.0" } }, "sha512-cuadcxVFE8sDK6iWJbs8Sn0av2Nrh2QSGQhVlBW9AaAHqHwjWsZHT8LJ4hFGPh7ASBV2deFdM7H/DPjulmh8rg=="],
 
@@ -826,8 +833,6 @@
     "save-and-restore": ["save-and-restore@workspace:examples/recipes/save-and-restore"],
 
     "semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
-
-    "shallot-tumble": ["shallot-tumble@workspace:packages/shallot-tumble"],
 
     "shebang-command": ["shebang-command@2.0.0", "", { "dependencies": { "shebang-regex": "^3.0.0" } }, "sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA=="],
 

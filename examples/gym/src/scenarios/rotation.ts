@@ -11,6 +11,8 @@ import {
     OrbitPlugin,
     Part,
     PartPlugin,
+    Physics,
+    PhysicsPlugin,
     type Plugin,
     RenderPlugin,
     run,
@@ -22,25 +24,23 @@ import {
     type System,
     Transform,
     TransformsPlugin,
-    Tumble,
-    TumblePlugin,
 } from "@dylanebert/shallot";
 import { ProfilePlugin } from "@dylanebert/shallot/extras";
 import { StepSystem } from "@dylanebert/shallot/physics/core";
 import { type Check, frames, register, type Scenario } from "../gym";
 
-// rotation — free rigid-body angular dynamics in a zero-gravity world (`Tumble.world.setGravity(0)`, the
+// rotation — free rigid-body angular dynamics in a zero-gravity world (`Physics.world.setGravity(0)`, the
 // escape hatch — the substrate world runs at −10). Two effects with crisp invariants in one scene: the
-// Dzhanibekov flip (a flat "book" spun about its intermediate axis of inertia tumbles chaotically while the
+// Dzhanibekov flip (a flat "book" spun about its intermediate axis of inertia physicss chaotically while the
 // major- and minor-axis spins stay stable) and a parallel joint (it locks a panel's orientation while leaving
-// it free to translate, so a torqued held panel barely turns while its unconstrained twin tumbles). The
+// it free to translate, so a torqued held panel barely turns while its unconstrained twin physicss). The
 // bodies are substrate `Body` entities; only the parallel joint + the zero-g override reach through the hatch.
 
 const BOOK_HALF: [number, number, number] = [0.35, 0.08, 0.5]; // I_z < I_x < I_y → x is the intermediate axis
 const SPIN = 5;
 const TICKS = 450; // enough fixed ticks for the intermediate-axis flip to develop
 
-let bookXEid = -1; // spun about the intermediate axis — tumbles
+let bookXEid = -1; // spun about the intermediate axis — physicss
 let bookYEid = -1; // spun about the max-inertia axis — stable
 let bookZEid = -1; // spun about the min-inertia axis — stable
 let refEid = -1;
@@ -70,21 +70,21 @@ function body(
     return eid;
 }
 
-// the fixed-tick driver. once every body has marshaled (`Tumble.body` resolves), seed the book spins once and
+// the fixed-tick driver. once every body has marshaled (`Physics.body` resolves), seed the book spins once and
 // wire the parallel joint — seeding must be one-shot, or re-writing the angular velocity each tick would erase
-// the tumble it is meant to develop. thereafter it torques the panels and tracks each book's off-axis angular
-// speed (energy leaked off its spin axis — the tumble signature).
+// the physics it is meant to develop. thereafter it torques the panels and tracks each book's off-axis angular
+// speed (energy leaked off its spin axis — the physics signature).
 const driver: System = {
     name: "rotation-driver",
     group: "fixed",
     before: [StepSystem],
     update() {
-        const world = Tumble.world;
-        const bookX = Tumble.body(bookXEid);
-        const bookY = Tumble.body(bookYEid);
-        const bookZ = Tumble.body(bookZEid);
-        const ref = Tumble.body(refEid);
-        const held = Tumble.body(heldEid);
+        const world = Physics.world;
+        const bookX = Physics.body(bookXEid);
+        const bookY = Physics.body(bookYEid);
+        const bookZ = Physics.body(bookZEid);
+        const ref = Physics.body(refEid);
+        const held = Physics.body(heldEid);
         if (!seeded) {
             if (!world || !bookX || !bookY || !bookZ || !ref || !held) return;
             bookX.setAngularVelocity({ x: SPIN, y: 0.01, z: 0.01 });
@@ -94,7 +94,7 @@ const driver: System = {
             seeded = true;
         }
         held?.applyTorque({ x: 1.5, y: 1.5, z: 0 }, true);
-        Tumble.body(freeEid)?.applyTorque({ x: 1.5, y: 1.5, z: 0 }, true);
+        Physics.body(freeEid)?.applyTorque({ x: 1.5, y: 1.5, z: 0 }, true);
         if (bookX)
             bookXMaxOff = Math.max(
                 bookXMaxOff,
@@ -123,13 +123,13 @@ const scenario: Scenario = {
                 InputPlugin,
                 OrbitPlugin,
                 RenderPlugin,
-                TumblePlugin,
+                PhysicsPlugin,
                 PartPlugin,
                 SearPlugin,
                 GlazePlugin,
             ] as Plugin[],
         });
-        Tumble.world?.setGravity({ x: 0, y: 0, z: 0 });
+        Physics.world?.setGravity({ x: 0, y: 0, z: 0 });
 
         state.add(state.create(), AmbientLight);
         state.add(state.create(), DirectionalLight);
@@ -142,7 +142,7 @@ const scenario: Scenario = {
         // contact geometrically impossible. The bookZ↔held gap (1.5) budgets BOTH bodies' swept reach:
         // held's x-extent ~0.9 plus bookZ's swept ~0.36 = 1.26 < 1.5 — but that ~0.9 holds only while the
         // parallel joint pins held's orientation (the heldTilt < 0.15 rad assert). A broken joint lets held
-        // tumble to its ~1.27 corner reach (1.27 + 0.36 = 1.63 > 1.5, contact) — but the joint assert
+        // physics to its ~1.27 corner reach (1.27 + 0.36 = 1.63 > 1.5, contact) — but the joint assert
         // reddens first, so this budget never rests on a silent near-miss.
         bookXEid = body(state, -5.5, 0, BOOK_HALF, 1, [0.9, 0.5, 0.4]);
         bookYEid = body(state, -3.5, 0, BOOK_HALF, 1, [0.5, 0.7, 0.6]);
@@ -185,7 +185,7 @@ const scenario: Scenario = {
 
     assert(): Promise<Check[]> {
         const tilt = (eid: number): number => {
-            const b = Tumble.body(eid);
+            const b = Physics.body(eid);
             if (!b) return Number.NaN;
             const q = b.getRotation();
             return Math.hypot(q.v.x, q.v.y, q.v.z);
@@ -194,7 +194,7 @@ const scenario: Scenario = {
         const freeTilt = tilt(freeEid);
         return Promise.resolve([
             {
-                name: "Dzhanibekov: intermediate-axis book tumbles (energy leaks off its spin axis)",
+                name: "Dzhanibekov: intermediate-axis book physicss (energy leaks off its spin axis)",
                 pass: bookXMaxOff > 1.5,
                 detail: `book-x off-axis peak ${bookXMaxOff.toFixed(2)} (expect > 1.5)`,
             },
@@ -209,7 +209,7 @@ const scenario: Scenario = {
                 detail: `held tilt ${heldTilt.toFixed(3)} (expect < 0.15)`,
             },
             {
-                name: "the free panel tumbles under the same torque",
+                name: "the free panel physicss under the same torque",
                 pass: Number.isFinite(freeTilt) && freeTilt > 0.3,
                 detail: `free tilt ${freeTilt.toFixed(3)} (expect > 0.3)`,
             },
@@ -217,7 +217,7 @@ const scenario: Scenario = {
     },
 
     live(): string {
-        return `rotation — book-x off ${bookXMaxOff.toFixed(2)} (tumbles), book-y off ${bookYMaxOff.toFixed(2)} (stable)`;
+        return `rotation — book-x off ${bookXMaxOff.toFixed(2)} (physicss), book-y off ${bookYMaxOff.toFixed(2)} (stable)`;
     },
 };
 

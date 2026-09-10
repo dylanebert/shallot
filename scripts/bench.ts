@@ -117,7 +117,7 @@ export function formatRoster(names: readonly string[]): string {
 }
 
 /** one `--for <path>` resolution: every scenario whose `covers` glob (from {@link SCENARIO_GATES}) matches
- *  the path. `scenarios` is empty when nothing covers it — a tumble path (excluded from the GPU-src
+ *  the path. `scenarios` is empty when nothing covers it — a physics path (excluded from the GPU-src
  *  population by design, `coverage.ts`) or any other path outside the table's tracked coverage — and
  *  the caller must say so explicitly (see {@link forUnmatchedReason}) rather than print an empty roster
  *  that reads like "nothing gates this file". */
@@ -152,16 +152,16 @@ export function resolveFor(
 }
 
 /** true when a path matching no `covers` glob is a declared exclusion rather than a coverage hole.
- *  Tumble physics is gated by its own standing gates (`tumble.md`), not this table. */
+ *  physics is gated by its own standing gates (`physics.md`), not this table. */
 export function isDeclaredExclusion(path: string): boolean {
-    return path.includes("standard/tumble/");
+    return path.includes("standard/physics/");
 }
 
-/** why a path matched no scenario — a tumble path is a declared exclusion (`tumble.md`'s own standing
+/** why a path matched no scenario — a physics path is a declared exclusion (`physics.md`'s own standing
  *  gates cover it, not this table); anything else is genuinely outside the table's tracked coverage. */
 export function forUnmatchedReason(path: string): string {
     if (isDeclaredExclusion(path)) {
-        return "no scenario declares coverage — tumble physics is gated by its own standing gates (tumble.md), not this table";
+        return "no scenario declares coverage — physics is gated by its own standing gates (physics.md), not this table";
     }
     return "no scenario declares coverage in SCENARIO_GATES";
 }

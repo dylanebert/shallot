@@ -2,7 +2,7 @@
     "scene": "scenes/surface-friction.scene",
     "plugins": {
         "Orbit": true,
-        "Tumble": true,
+        "Physics": true,
         "Ramp": "./src/ramp",
         "FrictionSmoke": "./src/smoke"
     }

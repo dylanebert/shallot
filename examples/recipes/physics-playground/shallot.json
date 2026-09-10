@@ -2,7 +2,7 @@
   "scene": "scenes/physics-playground.scene",
   "plugins": {
     "Orbit": true,
-    "Tumble": true,
+    "Physics": true,
     "Spawn": "./src/spawn",
     "Smoke": "./src/smoke"
   }

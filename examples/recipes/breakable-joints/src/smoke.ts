@@ -28,7 +28,7 @@ export const Smoke: Plugin = {
             while (performance.now() - t0 < SETTLE_MS) await frame();
             let broke = 0;
             for (const e of eids) {
-                const b = Physics.backend?.readBody(e);
+                const b = Physics.readBody(e);
                 if (b && b.pos[1] < FLOOR_Y) broke++;
             }
             const ok = broke >= 1;

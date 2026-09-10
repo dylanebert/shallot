@@ -2,7 +2,6 @@
 paths:
   - "src/**/*.test.ts"
   - "scripts/*.ts"
-  - "packages/shallot-tumble/**/*.ts"
   - "tests/**/*.ts"
   - "{src,bin,tests,scripts}/**/*.{test,probes}.ts"
   - "scripts/build.ts"

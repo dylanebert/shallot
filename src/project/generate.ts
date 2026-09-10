@@ -6,7 +6,7 @@ import type { Manifest } from "./manifest";
 // becomes static imports. Pure over (manifest, absDir, scenes), so `generate.test.ts` pins the emitted
 // import lines without a running vite. Engine plugins resolve to a lean named import — the main
 // barrel (`import { OrbitPlugin } from "@dylanebert/shallot"`, tree-shaken) for most, or a backend
-// plugin's own subpath (`SUBPATH_PLUGIN_MODULES`, e.g. `AvbdPlugin` from `@dylanebert/shallot/avbd`) when
+// plugin's own subpath (`SUBPATH_PLUGIN_MODULES`) when
 // it isn't barrel-listed; a local/external plugin is a module whose **default export** is the Plugin
 // (Expo / Obsidian / Babel convention — the package declares its entry, e.g. a subpath `my-plugin/grid`
 // default-exporting GridPlugin). The runtime guard below fails loud when a default import resolved to

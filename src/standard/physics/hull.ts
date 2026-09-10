@@ -1,6 +1,5 @@
-// Convex-hull authoring geometry — the backend-neutral registry of convex hull shapes a `Body` references
-// by id. Backend-specific GPU packing (the flat buffer format `standard/avbd`'s collide pass reads) lives
-// in `avbd/hull.ts`; this file owns only the geometry itself, shared by any backend. No GJK/EPA; no
+// Convex-hull authoring geometry — the registry of convex hull shapes a `Body` references by id. A solver
+// builds its own colliders from it (marshal.ts; an outside solver through physics/core). No GJK/EPA; no
 // quickhull build here — authored hulls come from explicit geometry until a mesh→hull path lands.
 
 import { Registry } from "../../engine";
@@ -27,7 +26,7 @@ export const Hulls = new Registry<Hull>();
 
 // the built-in unit cube (full-size 2, verts ±1) reserved at id 0 — a box collider is THIS hull scaled by
 // its half-extents, so a hull SAT reads box and hull through ONE branch-free accessor path. Vertex/face/
-// edge order matches the AVBD oracle `boxHull([2,2,2])`.
+// edge order is the canonical `boxHull([2,2,2])` layout.
 const UNIT_CUBE: Omit<Hull, "name"> = {
     verts: [
         [-1, -1, -1],

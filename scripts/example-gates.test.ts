@@ -125,7 +125,6 @@ const EXPECTED_RUNTIME_MODULES = [
     "standard/sear",
     "standard/slab",
     "standard/transforms",
-    "standard/tumble",
     "types",
 ];
 
@@ -228,15 +227,6 @@ const EXPECTED_RUNTIME_MODULE_ROWS: Record<string, string[]> = {
         "examples/showcase/visualization",
         "examples/gym",
     ],
-    "standard/tumble": [
-        "examples/recipes/breakable-joints",
-        "examples/recipes/drive-a-vehicle",
-        "examples/recipes/joints",
-        "examples/recipes/moving-platform",
-        "examples/recipes/physics-playground",
-        "examples/recipes/surface-friction",
-        "examples/gym",
-    ],
     types: [],
 };
 
@@ -304,7 +294,7 @@ test("a runtime file selects the rows with the corresponding assertion subject",
         "examples/recipes/compute-and-readback",
         "examples/gym",
     ]);
-    expect(dirs(["packages/shallot-tumble/src/index.ts"])).toEqual([
+    expect(dirs(["packages/shallot-physics/src/index.ts"])).toEqual([
         "examples/recipes/breakable-joints",
         "examples/recipes/drive-a-vehicle",
         "examples/recipes/joints",

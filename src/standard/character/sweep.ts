@@ -1,7 +1,7 @@
 // CPU character sweep — the runtime collide-and-slide that owns a kinematic capsule's pose, computed on
 // the CPU each fixed tick so the player's input → pose path is same-frame (no GPU readback). It is the SOLE
-// runtime controller, the f32-tier twin of the f64 oracle `tests/avbd/character.ts` (the spec): a faithful
-// port of the oracle's `moveCharacter`, validated against it (`tests/avbd/character-sweep.oracle.ts`). The
+// runtime controller, the f32-tier twin of an f64 controller oracle (the spec): a faithful
+// port of the oracle's `moveCharacter`, validated against it. The
 // algorithm is unchanged from the oracle — gather (sphere-cull), collide-and-slide along the geometric
 // closest-point MTV, ground snap, moving-platform carry, the coyote/jump-buffer timers, the full-speed push
 // — only the data it reads is reshaped: runtime poses the caller supplies (the character's own `Body` pose,
@@ -20,7 +20,7 @@ import { type Hull, type HullFace, qRotate } from "../physics/core";
 type Vec3 = [number, number, number];
 type Quat = [number, number, number, number];
 
-// the controller constants — mirror the f64 oracle (`tests/avbd/character.ts`, the spec); the CPU == oracle
+// the controller constants — mirror the f64 controller oracle (the spec); the CPU == oracle
 // gate (`character-sweep.oracle.ts`) keeps the two homes in sync, the `SPECULATIVE_DISTANCE` shape
 // (`physics.md`).
 /** depenetration iterations per tick — a corner needs a few pushes to resolve both planes */
@@ -170,7 +170,7 @@ function pointInFace(h: Hull, f: HullFace, p: Vec3): boolean {
 
 // closest point on a convex hull to a LOCAL-frame query — the general convex path (face region → edge →
 // vertex outside; least-penetrating face inside). A verbatim port of the oracle `closestPointOnHull`
-// (tests/avbd/hull.ts); the WGSL twin is collide.ts `closestPointOnHull`. No GJK/EPA — analytic + exact.
+// (the f64 hull oracle). No GJK/EPA — analytic + exact.
 function closestPointHull(h: Hull, q: Vec3): Closest {
     let maxD = -Infinity;
     let maxFace = 0;

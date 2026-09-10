@@ -2,18 +2,18 @@ import {
     Body,
     Color,
     Part,
+    Physics,
     type Plugin,
     type State,
     type System,
-    Tumble,
 } from "@dylanebert/shallot";
 
 // breakable connections — a row of boxes hung from the ceiling by distance joints, each joint given a higher
 // force threshold than the last. a rising downward load drives the joint reactions up; when a joint's
-// reaction crosses its threshold, tumble reports a joint event and this recipe cuts the joint, dropping the
+// reaction crosses its threshold, physics reports a joint event and this recipe cuts the joint, dropping the
 // box. the joints break left to right as the load climbs. the boxes are substrate `Body` entities; the
-// joints, their break thresholds, and the joint-event stream all ride `Tumble.world` — the escape hatch for
-// tumble physics past the substrate's `Spring`/`Joint`.
+// joints, their break thresholds, and the joint-event stream all ride `Physics.world` — the escape hatch for
+// physics past the substrate's `Spring`/`Joint`.
 //
 // break-on-threshold + the joint-event stream have no published substrate-surface equivalent yet, so this
 // recipe rides the escape hatch; the gym twin `events-joint-break` is the oracle-gated gold.
@@ -23,7 +23,7 @@ const COUNT = 6;
 const REST = 3; // the joint's rest length; boxes hang taut so the static load loads it from step one
 const MAX_LOAD = 1900;
 
-type Joint = ReturnType<NonNullable<typeof Tumble.world>["createDistanceJoint"]>;
+type Joint = ReturnType<NonNullable<typeof Physics.world>["createDistanceJoint"]>;
 type Hung = { joint: Joint; eid: number; broken: boolean };
 
 const CEILING_Y = 11.5;
@@ -68,10 +68,10 @@ function build(state: State): void {
 // wire each box to the ceiling once the bodies have marshaled. `forceThreshold` is the reaction force at
 // which the joint reports a break event; `userData` tags the event so the driver knows which joint crossed.
 function wire(): void {
-    const world = Tumble.world;
+    const world = Physics.world;
     if (!world || wired) return;
-    const ceiling = Tumble.body(ceilingEid);
-    const bodies = boxes.map((e) => Tumble.body(e));
+    const ceiling = Physics.body(ceilingEid);
+    const bodies = boxes.map((e) => Physics.body(e));
     if (!ceiling || bodies.some((b) => !b)) return;
 
     hung = [];
@@ -101,12 +101,12 @@ const driver: System = {
             wire();
             return;
         }
-        const world = Tumble.world;
+        const world = Physics.world;
         if (!world) return;
         load = Math.min(MAX_LOAD, load + 16);
         for (const h of hung) {
             if (h.broken) continue;
-            Tumble.body(h.eid)?.applyForceToCenter({ x: 0, y: -load, z: 0 }, true);
+            Physics.body(h.eid)?.applyForceToCenter({ x: 0, y: -load, z: 0 }, true);
         }
         for (const e of world.getJointEvents()) {
             const h = hung[e.userData as number];

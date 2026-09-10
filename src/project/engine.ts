@@ -13,12 +13,10 @@ export const DEFAULT_PLUGIN_NAMES = [
     "Glaze",
 ] as const;
 
-// Engine plugins that ship on their own subpath rather than the main barrel (exports.md — a backend
-// plugin like `AvbdPlugin` is barrel-adjacent, not barrel-listed). Dep-free for the same reason as
+// Engine plugins that ship on their own subpath rather than the main barrel (exports.md — barrel-adjacent,
+// not barrel-listed). Dep-free for the same reason as
 // DEFAULT_PLUGIN_NAMES above; catalog.test.ts gates each entry against the real subpath export.
-export const SUBPATH_PLUGIN_MODULES: Record<string, string> = {
-    Avbd: "@dylanebert/shallot/avbd",
-};
+export const SUBPATH_PLUGIN_MODULES: Record<string, string> = {};
 
 // Engine plugins beyond the defaults + subpath backends, enabled by `name: true` and resolved from the
 // main barrel (`import { OrbitPlugin } from "@dylanebert/shallot"`). Dep-free like the lists above and
@@ -44,7 +42,7 @@ export const EXTRA_PLUGIN_NAMES = [
     "Sky",
     "Sprite",
     "Text",
-    "Tumble",
+    "Physics",
     "Animation",
 ] as const;
 

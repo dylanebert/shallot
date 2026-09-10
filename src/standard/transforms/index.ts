@@ -157,8 +157,8 @@ export const TransformsPlugin: Plugin = {
         if (!Compute.device) return;
 
         // COPY_DST (typegpu grants it, with COPY_SRC, on every buffer it creates): a CPU physics backend
-        // (tumble) writes a mover's interpolated pose straight in via `queue.writeBuffer` (standard/tumble
-        // ComposeSystem). The GPU-only AVBD backend's compose is a compute pass and needs no CPU write,
+        // (physics) writes a mover's interpolated pose straight in via `queue.writeBuffer` (standard/physics
+        // ComposeSystem).
         // but the buffer is shared, so the usage covers both.
         _typed = Compute.root
             .createBuffer(d.arrayOf(Xform, capacity))

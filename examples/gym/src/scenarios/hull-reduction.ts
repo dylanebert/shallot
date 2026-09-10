@@ -1,12 +1,12 @@
-// geometry-hull-reduction — stage-4 gym twin: the tumble.js `HullReduction`
+// geometry-hull-reduction — stage-4 gym twin: the upstream `HullReduction`
 // sample (`samples/src/samples/geometry.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer.
 
-import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/geometry-hull-reduction.json";
+import goldJson from "../../../../src/standard/physics/samples/geometry-hull-reduction.json";
 import { register } from "../gym";
-import { buildHullReduction } from "../tumble-hull-reduction";
-import type { SampleGold } from "../tumble-oracle";
-import { sampleScenario } from "../tumble-sample";
+import { buildHullReduction } from "../physics-hull-reduction";
+import type { SampleGold } from "../physics-oracle";
+import { sampleScenario } from "../physics-sample";
 
 register(
     sampleScenario({

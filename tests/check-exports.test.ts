@@ -107,12 +107,12 @@ describe("stripComments", () => {
  * export const config: Config = { plugins: [] };
  * \`\`\`
  */
-export const TumblePlugin: Plugin = { name: "Tumble" };
+export const PhysicsPlugin: Plugin = { name: "Physics" };
 `;
         const stripped = stripComments(content);
         const exports = extractDirectExports(stripped);
         const names = exports.map((e) => e.name);
-        expect(names).toContain("TumblePlugin");
+        expect(names).toContain("PhysicsPlugin");
         expect(names).not.toContain("config");
     });
 });

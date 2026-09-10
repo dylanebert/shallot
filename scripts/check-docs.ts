@@ -1317,7 +1317,7 @@ if (staleCitations.length > 0) {
 // citation, it's a test description or a path.
 //
 // False positives preserved (asserted by presence, not just spared):
-// - tumble's `// Stage N:` algorithm-step labels (body.ts ×6, tree.ts ×3) — they name
+// - physics's `// Stage N:` algorithm-step labels (body.ts ×6, tree.ts ×3) — they name
 //   the ported algorithm's own stages, not a workflow anchor (style.md:43). No *.md
 //   path → not matched.
 // - AASHTO derivation cites in flatten.ts (×2) — cite an external standard, not a

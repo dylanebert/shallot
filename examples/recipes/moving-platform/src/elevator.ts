@@ -17,7 +17,7 @@ import { StepSystem } from "@dylanebert/shallot/physics/core";
 // derived from `state.time.elapsed`, never a module-level accumulator (ecs.md "reload-safety").
 //
 // A motor on a prismatic joint (with hard translation limits and a live speed target) is the richer
-// version, past the substrate on the `Tumble.world` escape hatch — verified in the gym twin `joints-elevator`.
+// version, past the substrate on the `Physics.world` escape hatch — verified in the gym twin `joints-elevator`.
 
 const BASE_Y = 3; // the platform's mid-travel height
 const AMP = 1.5; // metres above/below mid — a 3 m peak-to-peak stroke
@@ -67,7 +67,7 @@ const driver: System = {
     group: "fixed",
     before: [StepSystem],
     update(state: State) {
-        const backend = Physics.backend;
+        const backend = Physics;
         if (!backend || platformEid < 0) return;
         const y = BASE_Y + AMP * Math.sin((2 * Math.PI * state.time.elapsed) / PERIOD);
         backend.setKinematic(platformEid, [0, y, 0], IDENT);

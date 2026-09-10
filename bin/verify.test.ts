@@ -1156,7 +1156,7 @@ describe("resolveFor", () => {
     });
 
     // red-proven: before the `covers` filter existed this returned every table key regardless of the
-    // path, which would have silently unioned a tumble path (below) into the whole roster.
+    // path, which would have silently unioned a physics path (below) into the whole roster.
     test("a path no glob covers resolves to an empty scenario list, not the whole table", () => {
         const [m] = resolveFor(["src/engine/ecs/state.ts"], table);
         expect(m.scenarios).toEqual([]);
@@ -1178,9 +1178,9 @@ describe("resolveFor", () => {
 });
 
 describe("forUnmatchedReason", () => {
-    test("a tumble path points at tumble.md's own standing gates, not this table", () => {
-        expect(forUnmatchedReason("src/standard/tumble/body.ts")).toContain(
-            "tumble.md",
+    test("a physics path points at physics.md's own standing gates, not this table", () => {
+        expect(forUnmatchedReason("src/standard/physics/body.ts")).toContain(
+            "physics.md",
         );
     });
 
@@ -1199,9 +1199,9 @@ describe("forExitCode", () => {
         expect(forExitCode([{ path: "examples/gym", scenarios: [] }])).toBe(1);
     });
 
-    test("a declared tumble exclusion stays green", () => {
+    test("a declared physics exclusion stays green", () => {
         expect(
-            forExitCode([{ path: "src/standard/tumble/body.ts", scenarios: [] }]),
+            forExitCode([{ path: "src/standard/physics/body.ts", scenarios: [] }]),
         ).toBe(0);
     });
 
@@ -1223,12 +1223,12 @@ describe("formatForResolution", () => {
     test("a matched path prints its scenarios; an unmatched one prints why, not an empty roster", () => {
         const out = formatForResolution([
             { path: "a.ts", scenarios: ["outline", "sprite"] },
-            { path: "src/standard/tumble/b.ts", scenarios: [] },
+            { path: "src/standard/physics/b.ts", scenarios: [] },
         ]);
         const lines = out.split("\n");
         expect(lines[0]).toBe("a.ts → outline, sprite");
-        expect(lines[1]).toContain("tumble.md");
-        expect(lines[1]).not.toBe("src/standard/tumble/b.ts → ");
+        expect(lines[1]).toContain("physics.md");
+        expect(lines[1]).not.toBe("src/standard/physics/b.ts → ");
     });
 });
 

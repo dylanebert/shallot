@@ -15,7 +15,7 @@ export {
 export { minimalDark, minimalLight, shallotDark, shallotLight } from "./loading";
 export { Mirror, MirrorPlugin, MirrorSystem, mirror } from "./mirror";
 export { Color, Part, PartPlugin } from "./part";
-export { Body, Joint, Physics, ShapeKind, Spring } from "./physics";
+export { Body, Joint, Physics, PhysicsPlugin, ShapeKind, Spring } from "./physics";
 export {
     Player,
     PlayerControlSystem,
@@ -52,6 +52,5 @@ export {
 } from "./sear";
 export { Slab, SlabPlugin, SlabSystem, slab } from "./slab";
 export { composeTransform, Transform, TransformsPlugin } from "./transforms";
-export { Tumble, TumblePlugin } from "./tumble";
 
 import "./defaults";

@@ -19,6 +19,7 @@ import {
     Part,
     PartPlugin,
     Physics,
+    PhysicsPlugin,
     type Plugin,
     RenderPlugin,
     run,
@@ -32,15 +33,12 @@ import {
     Time,
     Transform,
     TransformsPlugin,
-    TumblePlugin,
 } from "@dylanebert/shallot";
-import { AvbdPlugin } from "@dylanebert/shallot/avbd";
 import { grounded, move, pose } from "@dylanebert/shallot/character/core";
 import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
-import { bodyCandidates, raycast, StepSystem } from "@dylanebert/shallot/physics/core";
-// the tumble kernel's resolved thread count (read-only diagnostic on the extension subpath) — the
+// the physics kernel's resolved thread count (read-only diagnostic on the extension subpath) — the
 // isolation gate reads it to confirm the multithreaded boot engaged
-import { threads } from "@dylanebert/shallot/tumble/core";
+import { bodyCandidates, raycast, StepSystem, threads } from "@dylanebert/shallot/physics/core";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
 import {
     BACKEND_BOX_HALF as BOX_HALF,
@@ -53,8 +51,8 @@ import {
 
 // backend — the substrate swap gate: ONE scene, authored purely against
 // the `standard/physics` substrate (Body components, `Physics.backend`'s kinematic drive, the CPU raycast,
-// the `transforms` firehose), that runs unmodified under EITHER `TumblePlugin` (default) or `AvbdPlugin`
-// (`--param backend=tumble|avbd`) — the one-line manifest swap the substrate's typed `PhysicsBackend`
+// the `transforms` firehose), that runs unmodified under EITHER `PhysicsPlugin` (default) or `AvbdPlugin`
+// (`--param backend=physics|avbd`) — the one-line manifest swap the substrate's typed `PhysicsBackend`
 // handle exists to make possible (physics.md substrate rule, `standard/physics/index.ts`). Where the
 // sibling `pile`/`constraints`/`character` scenarios gate the AVBD SOLVER's math against the f64 oracle,
 // this scenario gates the SUBSTRATE's contract: the same behavioral assertions must hold under both
@@ -70,7 +68,7 @@ import {
 //     writeback `ComposeSystem` delegates to every backend) — the two atomic-core primitives past pose/step.
 //   • constraints — the authored `Spring`/`Joint` component path (`ConstraintSystem` → the backend's
 //     `setSprings`/`setJoints`): a hanging spring block settles at the mg/k equilibrium (the stiffness law is
-//     backend-neutral — tumble derives its hertz from it), a spherical pendulum holds its pin length, a fixed
+//     backend-neutral — physics derives its hertz from it), a spherical pendulum holds its pin length, a fixed
 //     joint holds its authored pose, and the stiffness-guard station exercises the authoring-layer guard
 //     (S1): a finite-positive stiffnessAng (1000) pins its body (grant arm), while negative and NaN defs are
 //     dropped so those bodies free-fall (skip arms) — under either backend. Cross-backend behavioral bands.
@@ -79,7 +77,7 @@ import {
 //     `readBody`/`setKinematic` seams the drive gate exercises directly.
 //   • measured — the per-tick CPU spans (`Profile.cpu`, the scheduler's automatic per-system timing) for the
 //     shared substrate systems (`step` / `constraints` / `compose` / `character`) plus each backend's own
-//     sync system (`tumble-sync` / `pack`), so a `count` sweep gives a comparable backend-vs-backend perf
+//     sync system (`physics-sync` / `pack`), so a `count` sweep gives a comparable backend-vs-backend perf
 //     snapshot.
 
 const FLOOR_MARGIN = 2; // clearance past the grid's outer edge / the platform's swept lane
@@ -108,7 +106,7 @@ const WELD_OFFSET: [number, number, number] = [0, -1, 0];
 // negative (-1, the skip arm), and a NaN (the skip arm). The authoring-layer guard (S1, physics/index.ts
 // jointDefs) drops the negative and NaN defs with a warn+skip, so those bodies free-fall; the
 // finite-positive 1000 passes through and pins its body. Cross-backend: the same def set reaches both
-// tumble (via stiffnessHertz) and avbd (via setJoints), so the guard's one behavior is asserted under
+// physics (via stiffnessHertz) and avbd (via setJoints), so the guard's one behavior is asserted under
 // either backend — the substrate contract this scenario exists to gate.
 const GUARD_ARM = 2;
 const GUARD_Z_INTERMEDIATE = -2;
@@ -125,7 +123,7 @@ const CHAR_SPEED = 2;
 // destroyed and a NEW body created at the recycled eid at a DISTINCT z. Both spawn high + isolated so they
 // only free-fall (horizontal pose preserved) — the recycled body must read at its OWN spawn z, never the
 // destroyed probe's. Without the substrate's realias fix the new body inherits the probe's seeded pose
-// (AVBD's `seeded` flag / tumble's stale handle), reading at the OLD z. The one gate covering both backends.
+// (AVBD's `seeded` flag / physics's stale handle), reading at the OLD z. The one gate covering both backends.
 const RECYCLE_X = 0;
 const RECYCLE_Y = 20; // far above everything — no contact in the short sim window, pure free-fall
 const RECYCLE_Z_OLD = -1.5;
@@ -144,9 +142,8 @@ let guardNegativeEid = -1;
 let guardNanEid = -1;
 let charEid = -1;
 let recycleEid = -1;
-// which backend the current build installed — the isolation gate runs only under tumble (avbd never boots
-// the tumble kernel, so threads() would stay 1)
-let backendName: "tumble" | "avbd" = "tumble";
+// which backend the current build installed — the isolation gate runs only under physics (avbd never boots
+// the physics kernel, so threads() would stay 1)
 let xformMirror: Mirror | null = null;
 
 // drives the platform each fixed tick via the substrate's OWN kinematic primitive (`Physics.backend`,
@@ -162,7 +159,7 @@ const DriverPlugin: Plugin = {
             group: "fixed",
             before: [StepSystem],
             update(state: State) {
-                const backend = Physics.backend;
+                const backend = Physics;
                 if (!backend || platformEid < 0) return;
                 const t = state.time.fixedTick * Time.FIXED_DT;
                 backend.setKinematic(platformEid, [platformX(t), PLATFORM_Y, 0], [0, 0, 0, 1]);
@@ -318,21 +315,12 @@ function recycleBox(state: State, z: number): number {
 const scenario: Scenario = {
     name: "backend",
     params: [
-        {
-            key: "backend",
-            type: "select",
-            options: ["tumble", "avbd"],
-            default: "tumble",
-            rebuild: true,
-        },
         // the body-count sweep the perf snapshot reads (`scripts/physics-bench.ts`-style, per-backend):
         // a grid of `count` dropped boxes, out of the drive/raycast stations' way.
         { key: "count", type: "number", default: 9, min: 1, max: 400, step: 1, rebuild: true },
     ],
 
     async build(_canvas, p: Params) {
-        const backend = (p.backend as string) === "avbd" ? "avbd" : "tumble";
-        backendName = backend;
         const { state, dispose } = await run({
             defaults: false,
             capacity: 64 + (p.count as number),
@@ -344,8 +332,8 @@ const scenario: Scenario = {
                 InputPlugin,
                 OrbitPlugin,
                 RenderPlugin,
-                backend === "avbd" ? AvbdPlugin : TumblePlugin,
-                CharacterPlugin, // backend-neutral: the SAME plugin under either backend
+                PhysicsPlugin,
+                CharacterPlugin,
                 DriverPlugin,
                 PartPlugin,
                 SearPlugin,
@@ -449,14 +437,13 @@ const scenario: Scenario = {
         checks.push(...constraintGates());
         checks.push(...(await characterGates(state)));
         checks.push(recycleGate());
-        if (backendName === "tumble") checks.push(isolationGate());
+        checks.push(isolationGate());
         checks.push(await measured());
         return checks;
     },
 
     live(): string {
-        const backend = Physics.backend;
-        if (!backend) return "backend — warming";
+        const backend = Physics;
         const p = backend.readBody(platformEid);
         const b0 = boxEids.length > 0 ? backend.readBody(boxEids[0]) : null;
         const c: [number, number, number] = [0, 0, 0];
@@ -471,8 +458,7 @@ const scenario: Scenario = {
 // ── settle + no-fall-through: every box rests on the floor, under either backend ──
 
 function settleGates(): Check[] {
-    const backend = Physics.backend;
-    if (!backend) return [{ name: "backend", pass: false, detail: "no physics backend" }];
+    const backend = Physics;
     const checks: Check[] = [];
     let maxErr = 0;
     let minY = Number.POSITIVE_INFINITY;
@@ -503,13 +489,12 @@ function settleGates(): Check[] {
 // ── raycast: the backend-neutral CPU cast (physics/core) hits the settled target box ──
 
 function raycastGate(state: State): Check {
-    const backend = Physics.backend;
-    if (!backend) return { name: "raycast", pass: false, detail: "no physics backend" };
-    const candidates = bodyCandidates(state, backend);
+    const _backend = Physics;
+    const candidates = bodyCandidates(state, Physics.readBody);
     const hit = raycast({ origin: [targetX, 10, targetZ], dir: [0, -1, 0] }, candidates);
     const pass = hit !== null && hit.eid === targetEid && hit.distance < 10;
     return {
-        name: "raycast hits the settled target box (bodyCandidates reads live pose through Physics.backend)",
+        name: "raycast hits the settled target box (bodyCandidates reads live pose through Physics.readBody)",
         pass,
         detail: hit
             ? `hit eid ${hit.eid} (target ${targetEid}) at distance ${hit.distance.toFixed(3)}`
@@ -521,8 +506,7 @@ function raycastGate(state: State): Check {
 // firehose (ComposeSystem, shared by both backends) reflects that pose ──
 
 async function driveWritebackGates(state: State): Promise<Check[]> {
-    const backend = Physics.backend;
-    if (!backend) return [{ name: "backend drive", pass: false, detail: "no physics backend" }];
+    const backend = Physics;
     const live = backend.readBody(platformEid);
     const checks: Check[] = [];
     if (!live) {
@@ -537,7 +521,7 @@ async function driveWritebackGates(state: State): Promise<Check[]> {
     const DriveTol = 0.15;
     const expectedX = platformX(state.time.fixedTick * Time.FIXED_DT);
     checks.push({
-        name: "drive (Physics.backend.setKinematic moves the platform along its commanded trajectory)",
+        name: "drive (Physics.setKinematic moves the platform along its commanded trajectory)",
         pass:
             Math.abs(live.pos[0] - expectedX) < DriveTol &&
             Number.isFinite(live.pos[1]) &&
@@ -566,13 +550,12 @@ async function driveWritebackGates(state: State): Promise<Check[]> {
 // ── constraints: the authored Spring/Joint path holds its behavioral bands under either backend ──
 
 function constraintGates(): Check[] {
-    const backend = Physics.backend;
-    if (!backend) return [{ name: "constraints", pass: false, detail: "no physics backend" }];
+    const backend = Physics;
     const checks: Check[] = [];
     const [ax, ay, az] = ANCHOR_POS;
 
     // the spring block hangs at extension mg/k past rest — the stiffness law both backends share
-    // (AVBD's elastic f = k·C; tumble's derived hertz reproduces the same k). ±0.1 is a behavioral
+    // (AVBD's elastic f = k·C; physics's derived hertz reproduces the same k). ±0.1 is a behavioral
     // band over two different solvers, not a solver tolerance.
     const restY = ay - SPRING_REST - (SPRING_MASS * Math.abs(backend.gravity)) / SPRING_STIFFNESS;
     const block = backend.readBody(springBlockEid);
@@ -600,7 +583,7 @@ function constraintGates(): Check[] {
         detail: bob ? `pin length ${pinLen.toFixed(3)} (rod ${PENDULUM_ARM})` : "no live pose",
     });
 
-    // the welded arm holds its authored pose (the fixed-joint mapping: AVBD ∞ stiffnessAng, tumble weld)
+    // the welded arm holds its authored pose (the fixed-joint mapping: AVBD ∞ stiffnessAng, physics weld)
     const arm = backend.readBody(armEid);
     const armHeld =
         arm !== null &&
@@ -631,7 +614,7 @@ function constraintGates(): Check[] {
     //
     // witnessed red by mutation (gym harness, both backends): deleting the guard branch from jointDefs
     // (the `if (Number.isNaN(stiffnessAng) || stiffnessAng < 0)` check) lets -1 and NaN pass through —
-    // tumble maps both to hertz 0 → rigid weld (body pinned at y ≈ 10), avbd maps NaN to RIGID_STIFFNESS
+    // physics maps both to hertz 0 → rigid weld (body pinned at y ≈ 10), avbd maps NaN to RIGID_STIFFNESS
     // (body pinned) and -1 to an inverted restoring force (body not in free-fall). Either way the skip
     // arms' free-fall assertion fails (expected y < 5, got y ≈ 10). The grant arm's red witness: inverting
     // the guard to reject finite-positive values (stiffnessAng < 0 → stiffnessAng >= 0, dropping NaN)
@@ -687,7 +670,7 @@ async function characterGates(state: State): Promise<Check[]> {
     const checks: Check[] = [];
     const has = pose(charEid, p);
     checks.push({
-        name: "character walks to its waypoint (shared sweep over Physics.backend)",
+        name: "character walks to its waypoint (shared sweep over Physics)",
         pass: has && Math.abs(p[0] - CHAR_TARGET_X) < 0.3,
         detail: has
             ? `char x ${p[0].toFixed(3)} (waypoint ${CHAR_TARGET_X})`
@@ -707,8 +690,7 @@ async function characterGates(state: State): Promise<Check[]> {
 // body's inherited pose — the one gate covering the substrate realias fix under BOTH backends ──
 
 function recycleGate(): Check {
-    const backend = Physics.backend;
-    if (!backend) return { name: "recycle", pass: false, detail: "no physics backend" };
+    const backend = Physics;
     if (recycleEid < 0) return { name: "recycle", pass: false, detail: "no recycle body" };
     const b = backend.readBody(recycleEid);
     if (!b) return { name: "recycle", pass: false, detail: "no live recycled pose" };
@@ -723,16 +705,16 @@ function recycleGate(): Check {
     };
 }
 
-// ── MT isolation (tumble only) — the served page IS cross-origin isolated AND the tumble kernel booted
+// ── MT isolation (physics only) — the served page IS cross-origin isolated AND the physics kernel booted
 // multithreaded. Guards the dev/preview COOP/COEP headers (bin devConfig / serveEjected / serveDist /
-// run preview) end to end in a real browser: a header regression silently degrades tumble to single
-// thread and every other gate still passes, so assert the positive. Runs only under TumblePlugin — avbd
-// never boots the tumble kernel, so threads() would stay 1 there ──
+// run preview) end to end in a real browser: a header regression silently degrades physics to single
+// thread and every other gate still passes, so assert the positive. Runs only under PhysicsPlugin — avbd
+// never boots the physics kernel, so threads() would stay 1 there ──
 function isolationGate(): Check {
     const isolated = (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
     const t = threads();
     return {
-        name: "MT isolation (page cross-origin isolated, tumble multithreaded)",
+        name: "MT isolation (page cross-origin isolated, physics multithreaded)",
         pass: isolated && t > 1,
         detail: `crossOriginIsolated ${isolated}, threads ${t}`,
     };
@@ -743,8 +725,8 @@ function isolationGate(): Check {
 // sweep gives a direct backend-vs-backend comparison at the `bun bench` tier ──
 
 async function measured(): Promise<Check> {
-    const names = ["step", "constraints", "compose", "character", "tumble-sync", "pack"];
-    // scheduler spans are plugin-namespaced (`Tumble/step`, `Avbd/pack` — scheduler.ts `_names`), so
+    const names = ["step", "constraints", "compose", "character", "physics-sync", "pack"];
+    // scheduler spans are plugin-namespaced (`Physics/step`, `Avbd/pack` — scheduler.ts `_names`), so
     // match by the name AFTER the slash; and `Profile.cpu` holds one frame's spans (cleared at frame
     // begin) while the fixed group runs ~0.5 ticks/frame, so a single-frame sample coin-flips to zero —
     // accumulate over a window and report ms/frame.

@@ -33,7 +33,7 @@ if (release) {
     }
 }
 
-const solver = await Bun.file(resolve(root, "packages/shallot-tumble/package.json")).json();
+const solver = await Bun.file(resolve(root, "packages/shallot-physics/package.json")).json();
 if (solver.version !== shallot.version || solver.private !== true)
     fail("private solver/distribution version mismatch");
 if (
@@ -58,7 +58,7 @@ for (const [name, range] of Object.entries(shallot.dependencies ?? {})) {
 // → native host binary), so each tracks the shallot version it builds alongside.
 // Their `Cargo.lock`s are build output, not version sites — cargo rewrites the
 // own-package entry from the manifest on the next build (`rust/audio`'s is gitignored;
-// `rust/window`'s is tracked for reproducible native builds). `rust/tumble` is `publish = false`
+// `rust/window`'s is tracked for reproducible native builds). `rust/physics` is `publish = false`
 // and versions independently of the release.
 for (const crate of ["rust/audio/Cargo.toml", "rust/window/Cargo.toml"]) {
     const text = await Bun.file(resolve(root, crate)).text();
@@ -75,7 +75,7 @@ for (const crate of ["rust/audio/Cargo.toml", "rust/window/Cargo.toml"]) {
 // before a closing brace).
 const lockText = await Bun.file(resolve(root, "bun.lock")).text();
 const lock = JSON.parse(lockText.replace(/,(\s*[}\]])/g, "$1"));
-for (const dir of ["packages/shallot-tumble", "packages/create-shallot"]) {
+for (const dir of ["packages/shallot-physics", "packages/create-shallot"]) {
     const version = lock.workspaces?.[dir]?.version;
     if (version !== shallot.version) {
         fail(

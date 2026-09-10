@@ -1,12 +1,12 @@
-// joints-pendulum — stage-4 gym twin: the tumble.js `Pendulum` sample
+// joints-pendulum — stage-4 gym twin: the upstream `Pendulum` sample
 // (`samples/src/samples/joints.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw layer.
 
-import goldJson from "../../../../packages/shallot-tumble/tests/tumble/samples/joints-pendulum.json";
+import goldJson from "../../../../src/standard/physics/samples/joints-pendulum.json";
 import { register } from "../gym";
-import type { SampleGold } from "../tumble-oracle";
-import { buildPendulum } from "../tumble-pendulum";
-import { sampleScenario } from "../tumble-sample";
+import type { SampleGold } from "../physics-oracle";
+import { buildPendulum } from "../physics-pendulum";
+import { sampleScenario } from "../physics-sample";
 
 register(
     sampleScenario({

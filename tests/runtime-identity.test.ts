@@ -1,47 +1,33 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { Physics, State } from "@dylanebert/shallot";
 import { installHarness } from "@dylanebert/shallot/harness";
-import {
-    installBackend,
-    type PhysicsBackend,
-    uninstallBackend,
-} from "@dylanebert/shallot/physics/core";
 import { linearToSrgb1 } from "@dylanebert/shallot/utils/core";
 import tgpu from "typegpu";
 import { State as CanonicalState } from "../src/engine";
 import { installHarness as canonicalHarness } from "../src/harness/runtime";
 import { Physics as CanonicalPhysics } from "../src/standard/physics";
 
-test("public development entries share canonical declarations, values and backend effects", () => {
+test("public development entries share canonical declarations, values and physics effects", () => {
     expect(State, "one executable State definition").toBe(CanonicalState);
     expect(Physics, "one mutable physics singleton").toBe(CanonicalPhysics);
     expect(installHarness).toBe(canonicalHarness);
     const state: CanonicalState = new State();
     const publicState: State = state;
     let y = 2;
-    const backend: PhysicsBackend = {
-        step() {
-            y += 3;
-        },
-        readBody: () => ({ pos: [1, y, 3], quat: [0, 0, 0, 1], vel: [0, 3, 0] }),
-        setKinematic() {},
-        setVelocity() {},
-        setSprings() {},
-        setJoints() {},
-        compose() {},
-        gravity: -9.81,
-        dt: 1 / 60,
-    };
+    const read = spyOn(CanonicalPhysics, "readBody").mockImplementation(() => ({
+        pos: [1, y, 3],
+        quat: [0, 0, 0, 1],
+        vel: [0, 3, 0],
+    }));
     try {
-        installBackend(backend);
         const harness = installHarness(publicState);
         expect(harness.read!(1)?.pos[1]).toBe(2);
-        CanonicalPhysics.backend!.step();
+        y = 5;
         expect(harness.read!(1)?.pos[1]).toBe(5);
         state.step();
         expect(harness.ready).toBe(true);
     } finally {
-        uninstallBackend();
+        read.mockRestore();
         state.dispose();
     }
 });

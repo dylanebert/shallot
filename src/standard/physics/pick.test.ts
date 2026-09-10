@@ -4,29 +4,15 @@ import { clear, register } from "../../engine/ecs/core";
 import { Camera } from "../render";
 import { Slab } from "../slab";
 import { Transform, TransformsPlugin } from "../transforms";
-import type { BodyState, PhysicsBackend } from "./index";
+import type { BodyState } from "./index";
 import { forwardRay, worldToLocal } from "./pick";
 
 // The live-state pick layer over the pose-agnostic raycast: forwardRay reads the camera Transform, and
 // worldToLocal converts a world hit into a held body's local anchor off the backend's live pose. Both must
 // honor their contracts — a normalized ray dir, and a null (not a silent snap-to-origin) on a vanished body.
 
-function backend(read: (eid: number) => BodyState | null): PhysicsBackend {
-    return {
-        step() {},
-        readBody: read,
-        setKinematic() {},
-        setVelocity() {},
-        setSprings() {},
-        setJoints() {},
-        get gravity() {
-            return -10;
-        },
-        get dt() {
-            return 1 / 60;
-        },
-        compose() {},
-    };
+function backend(read: (eid: number) => BodyState | null) {
+    return read;
 }
 
 describe("worldToLocal", () => {

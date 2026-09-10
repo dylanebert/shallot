@@ -3,3 +3,10 @@
 // `CharacterPlugin`, which registers every `[Character, Body]` with the solver) ships on the barrel.
 
 export { grounded, jump, move, pose, teleport } from "./drive";
+export {
+    type CharState,
+    MAX_CHAR_CANDIDATES,
+    type SweepBody,
+    type SweepDiag,
+    sweepCharacter,
+} from "./sweep";

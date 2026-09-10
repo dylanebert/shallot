@@ -25,7 +25,7 @@ export const Smoke: Plugin = {
             await wait(SETTLE_MS);
             let lowest = Number.POSITIVE_INFINITY;
             for (const e of dynamic(state)) {
-                const b = Physics.backend?.readBody(e);
+                const b = Physics.readBody(e);
                 if (b) lowest = Math.min(lowest, b.pos[1]);
             }
             const ok = lowest > 3;

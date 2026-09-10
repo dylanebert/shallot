@@ -1,6 +1,6 @@
 // Per-scenario gate metadata — plain data with no imports, so a driver reads it node-side WITHOUT
-// booting a page (the same committed-data shape bench-tumble.ts reads its twin list from
-// tests/tumble/samples/index.json). `bun bench --for src/standard/sear/pipelines.ts` has to resolve a
+// booting a page (the same committed-data shape bench-physics.ts reads its twin list from
+// tests/physics/samples/index.json). `bun bench --for src/standard/sear/pipelines.ts` has to resolve a
 // path to scenario names before any browser exists, which a `covers:` field inside a scenario's own
 // registration cannot do — so this stays a side table, not a field on the registered scenario objects, and it
 // deliberately touches none of the scenario files it describes.
@@ -160,7 +160,7 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
 
     // ── AVBD (GPU physics) — each imports AvbdPlugin and gates a slice of the solver end to end ──
     backend: {
-        // the substrate swap gate: `--param backend=tumble|avbd` runs the same scene under either
+        // the substrate swap gate: `--param backend=physics|avbd` runs the same scene under either
         // backend, so it is a real (if secondary) exerciser of the avbd path.
         covers: ["src/standard/avbd/**/*.ts"],
     },
@@ -186,14 +186,14 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
         covers: ["src/standard/avbd/**/*.ts"],
     },
 
-    // ── everything below is a tumble (CPU wasm) scenario: no `covers`, deliberately. Tumble physics is
-    // bit-exact-gated by `bun test` + the committed fixtures/gold corpus (`tumble.md`), not by this
-    // check's GPU-src population, which excludes `standard/tumble` for exactly that reason. Registered
+    // ── everything below is a physics (CPU wasm) scenario: no `covers`, deliberately. physics is
+    // bit-exact-gated by `bun test` + the committed fixtures/gold corpus (`physics.md`), not by this
+    // check's GPU-src population, which excludes `standard/physics` for exactly that reason. Registered
     // names are gold slugs / sample names, not filenames — resolved from the real roster
     // (`scenarioNames()`), not guessed, since a scenario name mismatch here would silently pass
     // `checkCompleteness` on the wrong key.
 
-    // tumble.js sample twins (`sampleScenario`, bit-exact vs a committed gold — no perf-threshold
+    // upstream sample twins (`sampleScenario`, bit-exact vs a committed gold — no perf-threshold
     // assert to isolate):
     "stacking-arch": {},
     "stacking-box-pyramid": {},
@@ -234,10 +234,10 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     "compound-tile-floor": {},
     "character-mover": {},
 
-    // hand-authored tumble/diagnostic scenarios, no GPU-src coverage claim:
-    queries: {}, // Tumble.world spatial-query surface (castRayClosest/castShape/overlapAABB)
+    // hand-authored physics/diagnostic scenarios, no GPU-src coverage claim:
+    queries: {}, // Physics.world spatial-query surface (castRayClosest/castShape/overlapAABB)
     rotation: {}, // Dzhanibekov flip via StepSystem — physics/core, not GPU-src
-    raining: {}, // tumble create/destroy marshal path under constant churn
+    raining: {}, // physics create/destroy marshal path under constant churn
     chain: {}, // synthetic compute-chain microbench; uses RenderPlugin only as a frame-boundary hook
     // gpu-diagnostic directly drives `validateGpu` (gpu.ts), `drainLog` (log.ts), and `probeBuffer`/
     // `probeTexture` (probe.ts) — verified by import, not guessed.

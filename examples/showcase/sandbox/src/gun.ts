@@ -1,12 +1,12 @@
 import { Inputs, play, type State } from "@dylanebert/shallot";
-import { type JointDef, type PhysicsStep, WORLD } from "@dylanebert/shallot/avbd/core";
 import { Outline } from "@dylanebert/shallot/extras";
+import { forwardRay, grabHit, worldToLocal } from "@dylanebert/shallot/physics/core";
 import {
-    forwardRay,
-    grabHit,
-    type PhysicsBackend,
-    worldToLocal,
-} from "@dylanebert/shallot/physics/core";
+    type Avbd,
+    type JointDef,
+    type PhysicsStep,
+    WORLD,
+} from "@dylanebert/shallot-avbd-physics/core";
 
 // The gravity gun — the legacy sandbox verb, rebuilt on the world-anchor grab (physics.md "the grab
 // dangles from a WORLD anchor"). Click a dynamic body within reach to grab it (a soft spherical joint
@@ -29,7 +29,7 @@ export interface Gun {
 
 export function gun(
     step: PhysicsStep,
-    backend: PhysicsBackend,
+    backend: typeof Avbd,
     baseJoints: readonly JointDef[],
     exclude?: (eid: number) => boolean, // drop the player's own capsule so it never occludes the crosshair
 ): Gun {
@@ -118,8 +118,8 @@ export function gun(
                     active = held;
                 }
             } else {
-                const hit = grabHit(state, backend, ray, MAX_RANGE, exclude);
-                const anchor = hit ? worldToLocal(backend, hit.eid, hit.point) : null;
+                const hit = grabHit(state, backend.readBody, ray, MAX_RANGE, exclude);
+                const anchor = hit ? worldToLocal(backend.readBody, hit.eid, hit.point) : null;
                 if (leftPressed && hit && anchor) {
                     held = hit.eid;
                     holdDist = Math.max(hit.distance, 0.1);

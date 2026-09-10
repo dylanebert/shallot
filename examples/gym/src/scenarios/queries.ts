@@ -11,6 +11,8 @@ import {
     OrbitPlugin,
     Part,
     PartPlugin,
+    Physics,
+    PhysicsPlugin,
     type Plugin,
     RenderPlugin,
     run,
@@ -22,13 +24,11 @@ import {
     type System,
     Transform,
     TransformsPlugin,
-    Tumble,
-    TumblePlugin,
 } from "@dylanebert/shallot";
 import { ProfilePlugin } from "@dylanebert/shallot/extras";
 import { type Check, frames, type Params, register, type Scenario } from "../gym";
 
-// queries — the tumble spatial-query surface (`castRayClosest`, `castShape`, `overlapAABB` on `Tumble.world`,
+// queries — the physics spatial-query surface (`castRayClosest`, `castShape`, `overlapAABB` on `Physics.world`,
 // the escape hatch past the substrate). One deterministic scene of fixed kinematic obstacles gates all three
 // in one run: a ray finds the closest hit on a sphere, a swept sphere resolves to its first contact fraction,
 // and a broad-phase box overlap counts a known grid. The obstacles are substrate `Body` entities so they
@@ -72,7 +72,7 @@ const spinner: System = {
     group: "simulation",
     update(state: State) {
         for (const eid of state.query([Body])) {
-            Tumble.body(eid)?.setAngularVelocity({ x: 0.4, y: 0.8, z: 0.3 });
+            Physics.body(eid)?.setAngularVelocity({ x: 0.4, y: 0.8, z: 0.3 });
         }
     },
 };
@@ -92,7 +92,7 @@ const scenario: Scenario = {
                 InputPlugin,
                 OrbitPlugin,
                 RenderPlugin,
-                TumblePlugin,
+                PhysicsPlugin,
                 PartPlugin,
                 SearPlugin,
                 GlazePlugin,
@@ -165,9 +165,9 @@ const scenario: Scenario = {
     },
 
     assert(): Promise<Check[]> {
-        const world = Tumble.world;
+        const world = Physics.world;
         if (!world)
-            return Promise.resolve([{ name: "queries", pass: false, detail: "no tumble world" }]);
+            return Promise.resolve([{ name: "queries", pass: false, detail: "no physics world" }]);
         const checks: Check[] = [];
 
         // ray: closest hit on the sphere, at its top (y 5), and it's the ray target body.
@@ -223,7 +223,7 @@ const scenario: Scenario = {
     },
 
     live(): string {
-        const world = Tumble.world;
+        const world = Physics.world;
         if (!world) return "queries — warming";
         const r = world.castRayClosest(
             { x: RAY_TARGET[0], y: 10, z: RAY_TARGET[2] },

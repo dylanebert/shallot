@@ -11,7 +11,7 @@ Grep first: `.claude/rules/examples.md`. Manifests: `bunx shallot dev examples/r
 - first-person — `recipes/first-person/` — controller/platform.
 - physics — `recipes/physics-playground/` — bodies/joints; gym pile/suspension.
 
-- ragdoll — `recipes/ragdoll/` — LiveSkin, Tumble hatch; gym ragdoll-ragdoll.
+- ragdoll — `recipes/ragdoll/` — LiveSkin, Physics hatch; gym ragdoll-ragdoll.
 - joints — `recipes/joints/` — Spring/Joint; gym joints-suspension/cantilever.
 - platform — `recipes/moving-platform/` — kinematic; gym joints-elevator motor.
 - drive a vehicle — `recipes/drive-a-vehicle/` — W/S/A/D, hatch; gym joints-driving.

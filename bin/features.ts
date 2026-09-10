@@ -69,6 +69,12 @@ export function verdict(target: string, portable: boolean, required: readonly st
             ? ["WebGPU base floor"]
             : (unsupported ?? []).filter((f) => required.includes(f));
     if (missing.length === 0) return [];
+    if (unsupported === null) {
+        return [
+            `Cannot build ${target} without --portable: its system webview has no usable WebGPU.`,
+            "Rebuild with --portable for the bundled Chromium runtime.",
+        ];
+    }
     return [
         `Cannot build ${target}: the system webview lacks required ${missing.join(", ")}.`,
         "Rebuild with --portable for the bundled Chromium runtime.",

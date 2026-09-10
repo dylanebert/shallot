@@ -7,21 +7,21 @@ import type { State } from "../../engine";
 import { Inputs } from "../input";
 import { Camera } from "../render";
 import { Transform } from "../transforms";
-import { Body, type PhysicsBackend } from "./index";
+import { Body, type BodyState } from "./index";
 import { qRotate, type Ray, type RayBody, type RayHit, raycast, screenToRay } from "./raycast";
 
-/** the raycast candidates: every Body at its live backend pose, minus `exclude`, occluders and
+/** the raycast candidates: every Body at its live pose (`read`, usually `Physics.readBody`), minus `exclude`, occluders and
  *  grabbables alike. Statics/kinematics (mass ≤ 0) are kept so the ray stops on a wall; {@link grabHit}
- *  filters the nearest hit down to a grabbable one. Empty until the backend has a live pose to report. */
+ *  filters the nearest hit down to a grabbable one. Empty until `read` has a live pose to report. */
 export function bodyCandidates(
     state: State,
-    backend: PhysicsBackend,
+    read: (eid: number) => BodyState | null,
     exclude?: (eid: number) => boolean,
 ): RayBody[] {
     const out: RayBody[] = [];
     for (const eid of state.query([Body])) {
         if (exclude?.(eid)) continue;
-        const live = backend.readBody(eid);
+        const live = read(eid);
         if (!live) continue;
         out.push({
             eid,
@@ -45,25 +45,25 @@ export function bodyCandidates(
  *  entirely (neither occludes nor grabs, e.g. the player's own capsule). */
 export function grabHit(
     state: State,
-    backend: PhysicsBackend,
+    read: (eid: number) => BodyState | null,
     ray: Ray | null,
     maxDist?: number,
     exclude?: (eid: number) => boolean,
 ): RayHit | null {
     if (!ray) return null;
-    const hit = raycast(ray, bodyCandidates(state, backend, exclude), maxDist);
+    const hit = raycast(ray, bodyCandidates(state, read, exclude), maxDist);
     return hit && Body.mass.get(hit.eid) > 0 ? hit : null;
 }
 
 /** a world point in the held body's local frame (rB for the grab joint): conj(quat) · (point − pos), or
- *  `null` when the backend has no live pose for `eid` (a body that despawned between the cast and the grab
+ *  `null` when `read` has no live pose for `eid` (a body that despawned between the cast and the grab
  *  — the caller drops the grab rather than pinning to a bogus local anchor). */
 export function worldToLocal(
-    backend: PhysicsBackend,
+    read: (eid: number) => BodyState | null,
     eid: number,
     point: readonly [number, number, number],
 ): [number, number, number] | null {
-    const live = backend.readBody(eid);
+    const live = read(eid);
     if (!live) return null;
     const [qx, qy, qz, qw] = live.quat;
     const [px, py, pz] = live.pos;
