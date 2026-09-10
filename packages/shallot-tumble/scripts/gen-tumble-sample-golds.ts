@@ -289,7 +289,7 @@ at the first divergent step. That is the oracle the earlier examples port lacked
 ## Mint recipe
 
 \`\`\`
-bun run scripts/gen-tumble-sample-golds.ts     # from packages/shallot
+bun run scripts/gen-tumble-sample-golds.ts     # from the repo root
 \`\`\`
 
 - **Defaults** (\`defaultContext()\`): 60 Hz (timeStep 1/60), 4 substeps, gravity (0, -10, 0), sleep on,

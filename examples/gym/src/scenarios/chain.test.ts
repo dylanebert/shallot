@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { body, flat, integerDiscipline, noDivision } from "../../../../packages/shallot/tests/wgsl";
+import { body, flat, integerDiscipline, noDivision } from "../../../../tests/wgsl";
 import { chainWgsl, runChainArms } from "./chain";
 
 const wgsl = chainWgsl();

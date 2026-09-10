@@ -17,7 +17,7 @@ import { COMPUTED_LOADERS, NON_WORKSPACE_PACKAGES, TOOLING_SEAMS } from "./bound
 // Both are violations. Cross-project access goes through the package name, into a published subpath only.
 //
 // The one narrow allowance: a relative import that escapes the project is permitted iff it resolves inside
-// `packages/shallot/tests/` — the CPU-oracle cross-check seam (the f64 avbd solver/joint + the bvh
+// `tests/` — the CPU-oracle cross-check seam (the f64 avbd solver/joint + the bvh
 // fixtures/oracle a gym scenario diffs the GPU against). Those f64 references are the executable spec,
 // load-bearing and unpublished by design; killing the share would force duplicating them. Engine *access*
 // still must use the published exports — the allowance is the tests/ oracle only, not `src/`.
@@ -36,9 +36,9 @@ import { COMPUTED_LOADERS, NON_WORKSPACE_PACKAGES, TOOLING_SEAMS } from "./bound
 // consumer and neither the tooling nor the completeness rule applies.
 
 const PKG = "@dylanebert/shallot";
-const ENGINE_PACKAGE = "packages/shallot";
-const TOOLING_PACKAGE = "packages/shallot";
-const RUNTIME_PACKAGE = "packages/shallot";
+const ENGINE_PACKAGE = ".";
+const TOOLING_PACKAGE = ".";
+const RUNTIME_PACKAGE = ".";
 const SOLVER_PACKAGE = "packages/shallot-tumble";
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".svelte"];
 

@@ -28,11 +28,11 @@ import { resolve } from "node:path";
 //     literals land in every built page. A change here changes every demo's output with no
 //     showcase file touched — the founding defect's own shape, since `bf1c25f` was a
 //     `build-site.ts` change.
-//   - the release version from `packages/shallot/package.json` — the pin `build-site.ts` writes
+//   - the release version from `package.json` — the pin `build-site.ts` writes
 //     into each ejected `package.json`, so a version bump means the artifact was built against
 //     a different published package.
 //
-// Not an input: `packages/shallot/**` source. Each demo is ejected and installed against the
+// Not an input: `**` source. Each demo is ejected and installed against the
 // *published* engine package, so in-repo engine edits do not reach the artifact until a release
 // changes the version. Tracked source under each workspace extension a demo declares is an input,
 // because build-site packs that extension and installs its tarball in both modes.
@@ -131,7 +131,7 @@ export function demoFingerprints(rootDir: string, slugs: string[]): Record<strin
 
     const shared = new Bun.CryptoHasher("sha256");
     shared.update(`recipe:${RECIPE}\0`);
-    const pkgPath = resolve(rootDir, "packages/shallot/package.json");
+    const pkgPath = resolve(rootDir, "package.json");
     const version = existsSync(pkgPath)
         ? ((JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: string }).version ?? "missing")
         : "missing";

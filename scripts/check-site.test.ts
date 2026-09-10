@@ -42,7 +42,7 @@ const checkSite = resolve(repoRoot, "scripts/check-site.ts");
 // mode-branched pin check (new in the staging build mode) reads a matching version rather than
 // failing ahead of the clause each fixture actually exercises.
 const releaseVersion = (
-    JSON.parse(readFileSync(resolve(repoRoot, "packages/shallot/package.json"), "utf8")) as {
+    JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8")) as {
         version: string;
     }
 ).version;
@@ -171,7 +171,7 @@ function fixtureRepo(): string {
     mkdirSync(resolve(dir, "examples/showcase/demo"), { recursive: true });
     mkdirSync(resolve(dir, "scripts"), { recursive: true });
     mkdirSync(resolve(dir, "site"), { recursive: true });
-    mkdirSync(resolve(dir, "packages/shallot"), { recursive: true });
+    mkdirSync(resolve(dir, "."), { recursive: true });
     mkdirSync(resolve(dir, "packages/shallot-wave/src"), { recursive: true });
     writeFileSync(resolve(dir, "examples/showcase/demo/index.html"), "<html></html>\n");
     writeFileSync(
@@ -181,7 +181,7 @@ function fixtureRepo(): string {
     writeFileSync(resolve(dir, "packages/shallot-wave/src/index.ts"), "export const wave = 1;\n");
     writeFileSync(resolve(dir, "scripts/build-site.ts"), "// builder\n");
     writeFileSync(resolve(dir, "site/rum-config.ts"), "// rum\n");
-    writeFileSync(resolve(dir, "packages/shallot/package.json"), `{"version":"0.1.0"}\n`);
+    writeFileSync(resolve(dir, "package.json"), `{"version":"0.1.0"}\n`);
     run("git", "add", "-A");
     return dir;
 }
@@ -218,9 +218,9 @@ test("site-stamp — the fingerprint moves on a demo source, a builder, and the 
         expect(fp()).toBe(base);
 
         // the release version the ejected package.json is pinned to
-        writeFileSync(resolve(dir, "packages/shallot/package.json"), `{"version":"0.2.0"}\n`);
+        writeFileSync(resolve(dir, "package.json"), `{"version":"0.2.0"}\n`);
         expect(fp()).not.toBe(base);
-        writeFileSync(resolve(dir, "packages/shallot/package.json"), `{"version":"0.1.0"}\n`);
+        writeFileSync(resolve(dir, "package.json"), `{"version":"0.1.0"}\n`);
         expect(fp()).toBe(base);
 
         // untracked residue is out of scope — a `dist/` build leftover must not move the

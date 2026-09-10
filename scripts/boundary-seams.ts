@@ -6,33 +6,33 @@
  *  does not publish. Keyed `<repo-relative file> <specifier>` — per call site, not per module, so moving
  *  one reader does not silently license the others. */
 export const TOOLING_SEAMS: Record<string, string> = {
-    'packages/shallot/bin/bench.test.ts "../../../scripts/bench"':
+    'bin/bench.test.ts "../../../scripts/bench"':
         "the CLI parser's production repository runner",
-    'packages/shallot/bin/recipe.test.ts "../../create-shallot/index"':
+    'bin/recipe.test.ts "../../create-shallot/index"':
         "compare recipe scaffolding against the sole scaffold source",
-    'packages/shallot/bin/create-shallot.test.ts "../../create-shallot/index"':
+    'bin/create-shallot.test.ts "../../create-shallot/index"':
         "exercise the sole scaffold source",
-    'packages/shallot/bin/verify.test.ts "../../../examples/gym/src/scenarios/timeouts"':
+    'bin/verify.test.ts "../../../examples/gym/src/scenarios/timeouts"':
         "assert the actual gym scenario budget bindings",
-    'packages/shallot/bin/verify.test.ts "../../../scripts/bench"':
+    'bin/verify.test.ts "../../../scripts/bench"':
         "exercise production batch/bench composition",
-    'packages/shallot/bin/verify.test.ts "../../../scripts/boot-cost"':
+    'bin/verify.test.ts "../../../scripts/boot-cost"':
         "exercise the diagnostic consumer's parser",
-    'packages/shallot/bin/verify.test.ts "../../../scripts/install-test"':
+    'bin/verify.test.ts "../../../scripts/install-test"':
         "exercise the packed-consumer diagnostic binding",
-    'packages/shallot/bin/verify.test.ts "../../../scripts/verify"':
+    'bin/verify.test.ts "../../../scripts/verify"':
         "the repository transport's result types",
-    'packages/shallot/bin/verify.test.ts "../../../site/rum-sampler"':
+    'bin/verify.test.ts "../../../site/rum-sampler"':
         "differential against the independently executed page sampler",
     // verify's node-side diagnostics. These are tool-facing readings with no author-facing contract, so
     // they stay unpublished rather than growing the surface.
-    'packages/shallot/bin/verify.ts "../src/engine/runtime/gpu"':
+    'bin/verify.ts "../src/engine/runtime/gpu"':
         "adapter identity for the run's hardware line",
-    'packages/shallot/bin/verify.ts "../src/engine/runtime/log"':
+    'bin/verify.ts "../src/engine/runtime/log"':
         "the log predicate the console reader shares",
-    'packages/shallot/bin/verify.ts "../src/extras/profile/benchmark"':
+    'bin/verify.ts "../src/extras/profile/benchmark"':
         "the benchmark measurement shape the --json envelope carries",
-    'packages/shallot/bin/verify.ts "../src/harness/degraded-boot"':
+    'bin/verify.ts "../src/harness/degraded-boot"':
         "the degraded-boot predicate, published only through ./harness's barrel",
 };
 
@@ -44,19 +44,19 @@ export const COMPUTED_LOADERS: Record<string, string> = {
         "Frozen mint recipe: four loads name the absent retired sample base/registry and this owner's body/index files; refuses before loading without that checkout. Never part of shipped solver source.",
     "packages/shallot-tumble/src/standard/tumble/engine/pool.ts":
         "the Node-only branch loads the fixed node:worker_threads specifier with vite-ignore; the browser branch creates an embedded Blob worker",
-    "packages/shallot/src/project/command.ts":
+    "src/project/command.ts":
         "eagerly resolves every enabled entry from the project root, then imports those resolved identities",
-    "packages/shallot/src/project/command.test.ts":
+    "src/project/command.test.ts":
         "the bare-process isolation fixture imports the named command entry under test",
     "examples/showcase/roads/test/edit-safety.playwright.ts":
         "browser-evaluated /src/ URLs into Roads' own src/, served by playwright.config.ts webServer shallot dev .; non-literal spelling leaves imports to the browser instead of Playwright's CJS transform",
     "examples/showcase/roads/test/touch-smoke.playwright.ts":
         "browser-evaluated /src/ URLs into Roads' own src/, served by playwright.config.ts webServer shallot dev .; non-literal spelling leaves imports to the browser instead of Playwright's CJS transform",
-    "packages/shallot/bin/features.ts":
+    "bin/features.ts":
         "preflights all enabled project-root entry identities before engine/local evaluation, then reads required features from those identities",
-    "packages/shallot/bin/bun-native.ts":
+    "bin/bun-native.ts":
         "loads the downloaded native projection, after its sha256 matches the pinned hash",
-    "packages/shallot/bin/verify.ts":
+    "bin/verify.ts":
         "loads the consumer project's own installed playwright, resolved from its package root",
 };
 

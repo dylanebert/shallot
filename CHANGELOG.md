@@ -1,6 +1,6 @@
 # Changelog
 
-Newest first. **Breaking:** marks a change that needs consumer action; [`packages/shallot/MIGRATION.md`](packages/shallot/MIGRATION.md) is the 0.8→0.9 port. Versions follow [semver](https://semver.org).
+Newest first. **Breaking:** marks a change that needs consumer action; [`MIGRATION.md`](MIGRATION.md) is the 0.8→0.9 port. Versions follow [semver](https://semver.org).
 
 ## Unreleased
 
@@ -103,7 +103,7 @@ The packaging patch, and the recommended target for a 0.8→0.9 port. The two No
 
 ## 0.9.0 — 2026-08-03
 
-The GPU substrate is now TypeGPU end to end: one schema defines each CPU↔GPU layout, engine-authored shaders are TGSL, and GPU logic can run on the CPU for exact unit tests. See [`packages/shallot/MIGRATION.md`](packages/shallot/MIGRATION.md) for the complete 0.8→0.9 consumer port.
+The GPU substrate is now TypeGPU end to end: one schema defines each CPU↔GPU layout, engine-authored shaders are TGSL, and GPU logic can run on the CPU for exact unit tests. See [`MIGRATION.md`](MIGRATION.md) for the complete 0.8→0.9 consumer port.
 
 **Breaking:** custom GPU consumers install `typegpu@~0.11.9` and run exactly one `unplugin-typegpu` transform. Handwritten binding structs, shader strings, and the old `Surface` / `Background` registration contract become schema-backed typed layouts and TGSL functions. Raw WebGPU interop remains available at integration boundaries.
 

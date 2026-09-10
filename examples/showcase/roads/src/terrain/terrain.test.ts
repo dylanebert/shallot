@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { body, flat } from "../../../../../packages/shallot/tests/wgsl";
+import { body, flat } from "../../../../../tests/wgsl";
 import { markingDistanceForSegment, type Segment } from "../overlay/document";
 import {
     COVERAGE_BAND_PX,

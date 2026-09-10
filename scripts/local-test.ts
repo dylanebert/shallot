@@ -22,7 +22,7 @@ if (scaffold.exitCode !== 0) {
     process.exit(1);
 }
 
-const pkgDir = resolve(projectDir, "packages/shallot");
+const pkgDir = resolve(projectDir);
 Bun.spawnSync(["bun", "pm", "pack", "--destination", dir, "--quiet"], {
     cwd: pkgDir,
     stdout: "pipe",

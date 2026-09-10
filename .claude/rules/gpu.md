@@ -1,6 +1,13 @@
 ---
 paths:
-  - "packages/{shallot/src/engine/runtime/**/*.ts,shallot/src/engine/utils/encode.ts,shallot/src/standard/render/**/*.ts,shallot/src/standard/sear/**/*.ts,shallot/src/standard/part/**/*.ts,shallot/src/standard/slab/**/*.ts,shallot/src/standard/bvh/**/*.ts,shallot/src/extras/{cells,gltf,lines,outline,profile,skin,sky,sprite,text}/**/*.ts}"
+  - "src/engine/runtime/**/*.ts"
+  - "src/engine/utils/encode.ts"
+  - "src/standard/render/**/*.ts"
+  - "src/standard/sear/**/*.ts"
+  - "src/standard/part/**/*.ts"
+  - "src/standard/slab/**/*.ts"
+  - "src/standard/bvh/**/*.ts"
+  - "src/extras/{cells,gltf,lines,outline,profile,skin,sky,sprite,text}/**/*.ts"
   - "examples/showcase/ocean/src/ocean/**"
 ---
 

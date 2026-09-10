@@ -3,7 +3,7 @@ import { resolve } from "path";
 // The published tarball must ship only what a consumer needs. Test files and glTF fixtures are
 // dev-only weight — this asserts against the real `bun pm pack`
 // output, not the `files` field in isolation, so a future files-field edit can't silently regress it.
-const pkgDir = resolve(import.meta.dir, "../packages/shallot");
+const pkgDir = resolve(import.meta.dir, "..");
 
 const proc = Bun.spawn(["bun", "pm", "pack", "--dry-run"], {
     cwd: pkgDir,
@@ -43,7 +43,7 @@ if (violations.length > 0) {
     for (const f of violations) console.error(`  ${f}`);
     console.error(
         "\nTest files and glTF fixtures are dev-only weight. Exclude them via the `files` field\n" +
-            "in packages/shallot/package.json.",
+            "in package.json.",
     );
     process.exit(1);
 }

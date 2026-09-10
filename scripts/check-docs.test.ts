@@ -114,15 +114,15 @@ beforeAll(async () => {
         );
         await run("unreachable documented path", {
             "AGENTS.md": (text) =>
-                text.replace("packages/shallot/bin/cli.ts", "packages/shallot/bin/gone.ts"),
+                text.replace("bin/cli.ts", "bin/gone.ts"),
         });
         await run("registry lookup is not tree resolution", {
             "AGENTS.md": (text) =>
-                text.replace("bun packages/shallot/bin/cli.ts", "bunx shallot"),
+                text.replace("bun bin/cli.ts", "bunx shallot"),
         });
         for (const kind of ["bin", "files"]) {
             await run(`unregistered ${kind} target`, {
-                "packages/shallot/package.json": (text) => {
+                "package.json": (text) => {
                     const pkg = JSON.parse(text);
                     if (kind === "bin") pkg.bin.shallot = "./bin/gone.ts";
                     else pkg.files.push("unregistered-pack-output");
@@ -229,7 +229,7 @@ beforeAll(async () => {
                 ),
         });
         const oldCone =
-            "bun run test       # unit tests over packages/shallot, scripts, evals, showcase/visualization/test (bun-webgpu)";
+            "bun run test       # unit tests over src, bin, tests, scripts, evals, showcase/visualization/test (bun-webgpu)";
         await run("old README cone", {
             "README.md": (text) => text.replace(/^bun run test\s+#.*$/m, oldCone),
         });

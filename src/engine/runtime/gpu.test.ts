@@ -1,0 +1,1748 @@
+import { describe, expect, test } from "bun:test";
+import tgpu from "typegpu";
+import { GltfPlugin } from "../../extras/gltf";
+import { ProfilePlugin } from "../../extras/profile";
+import {
+    BASE_FEATURES,
+    Compute,
+    checkStorageBinding,
+    checkTextureLimits,
+    checkTgsl,
+    deviceLimits,
+    deviceLost,
+    GpuDiagnosticError,
+    observeDevice,
+    PIPELINE_COMPILE_MEASURE_PREFIX,
+    precompile,
+    precompileAll,
+    precompileScope,
+    requestGPU,
+    resolveFeatures,
+    type ShaderArtifact,
+    shaderHash,
+    tgslCanary,
+    UnsupportedError,
+    validateGpu,
+} from "./gpu";
+
+describe("device failure listeners", () => {
+    test("an adopted device composes uncaptured errors and loss once without replacing the host", async () => {
+        const host = () => {};
+        let listener: ((event: GPUUncapturedErrorEvent) => void) | undefined;
+        let lose!: (info: GPUDeviceLostInfo) => void;
+        const device = {
+            lost: new Promise<GPUDeviceLostInfo>((resolve) => {
+                lose = resolve;
+            }),
+            onuncapturederror: host,
+            addEventListener(type: string, callback: (event: GPUUncapturedErrorEvent) => void) {
+                if (type === "uncapturederror") listener = callback;
+            },
+        } as unknown as GPUDevice;
+        const reported: string[] = [];
+
+        observeDevice(device, (message) => reported.push(message));
+        observeDevice(device, (message) => reported.push(`duplicate:${message}`));
+
+        const other = { lost: new Promise<GPUDeviceLostInfo>(() => {}) } as GPUDevice;
+        observeDevice(other, (message) => reported.push(message));
+        expect(deviceLost(device)).toBe(false);
+        expect(deviceLost(other)).toBe(false);
+        expect(device.onuncapturederror).toBe(host);
+        listener?.({ error: new Error("bad binding") } as unknown as GPUUncapturedErrorEvent);
+        expect(deviceLost(device)).toBe(false);
+        lose({ reason: "destroyed", message: "host closed" } as GPUDeviceLostInfo);
+        await Promise.resolve();
+        expect(deviceLost(device)).toBe(true);
+        expect(deviceLost(other)).toBe(false);
+        observeDevice(device, (message) => reported.push(`late:${message}`));
+        expect(deviceLost(device)).toBe(true);
+        listener?.({ error: new Error("unrelated failure") } as unknown as GPUUncapturedErrorEvent);
+        expect(reported).toEqual([
+            "GPU uncaptured Error: bad binding",
+            "GPU device lost destroyed: host closed",
+            "GPU uncaptured Error: unrelated failure",
+        ]);
+    });
+});
+
+describe("GPU validation scopes", () => {
+    test("a thrown or scoped validation failure pops the balanced scope and names one diagnostic", async () => {
+        const events: string[] = [];
+        let scoped: Error | null = null;
+        const device = {
+            pushErrorScope(filter: GPUErrorFilter) {
+                events.push(`push:${filter}`);
+            },
+            async popErrorScope() {
+                events.push("pop");
+                return scoped;
+            },
+        } as unknown as GPUDevice;
+
+        const rejected = validateGpu(device, "forward", async () => {
+            throw Object.assign(new Error("pipeline rejected"), { name: "OperationError" });
+        });
+        await expect(rejected).rejects.toMatchObject({
+            name: "GpuDiagnosticError",
+            label: "forward",
+            errorClass: "OperationError",
+            message: 'GPU "forward" OperationError: pipeline rejected',
+        });
+        expect(events).toEqual(["push:validation", "pop"]);
+
+        events.length = 0;
+        scoped = Object.assign(new Error("binding mismatch"), { name: "GPUValidationError" });
+        const invalid = validateGpu(device, "shadow", async () => true);
+        await expect(invalid).rejects.toBeInstanceOf(GpuDiagnosticError);
+        await expect(invalid).rejects.toMatchObject({
+            label: "shadow",
+            errorClass: "GPUValidationError",
+            message: 'GPU "shadow" GPUValidationError: binding mismatch',
+        });
+        expect(events).toEqual(["push:validation", "pop"]);
+    });
+
+    test("nested scopes stay balanced and preserve the inner diagnostic", async () => {
+        const events: string[] = [];
+        const results = [
+            Object.assign(new Error("bad inner pipeline"), { name: "GPUValidationError" }),
+            null,
+        ];
+        const device = {
+            pushErrorScope(filter: GPUErrorFilter) {
+                events.push(`push:${filter}`);
+            },
+            async popErrorScope() {
+                events.push("pop");
+                return results.shift() ?? null;
+            },
+        } as unknown as GPUDevice;
+
+        const nested = validateGpu(device, "outer", () =>
+            validateGpu(device, "inner", async () => true),
+        );
+        await expect(nested).rejects.toMatchObject({
+            name: "GpuDiagnosticError",
+            label: "inner",
+            errorClass: "GPUValidationError",
+        });
+        expect(events).toEqual(["push:validation", "push:validation", "pop", "pop"]);
+    });
+});
+
+describe("shader artifacts", () => {
+    test("source interception is opt-in, hashed, compilation-aware, and bounded", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: unknown[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const original = (() => ({
+            getCompilationInfo: async () => ({ messages: [] }),
+        })) as unknown as GPUDevice["createShaderModule"];
+        const offDevice = {
+            ...fakeDevice(),
+            createShaderModule: original,
+        } as unknown as GPUDevice;
+        try {
+            delete globals.__gpuDiagnostics;
+            await requestGPU(offDevice);
+            expect(offDevice.createShaderModule).toBe(original);
+
+            globals.__gpuDiagnostics = { artifacts: [] };
+            let compilationCalls = 0;
+            const device = {
+                ...fakeDevice(),
+                createShaderModule: (descriptor: GPUShaderModuleDescriptor) => ({
+                    label: descriptor.label,
+                    getCompilationInfo: async () => {
+                        compilationCalls++;
+                        return {
+                            messages:
+                                descriptor.label === "shader-0"
+                                    ? [
+                                          {
+                                              type: "error",
+                                              message: "invalid shader-0",
+                                              lineNum: 2,
+                                              linePos: 3,
+                                              offset: 4,
+                                              length: 5,
+                                          },
+                                      ]
+                                    : [],
+                        };
+                    },
+                }),
+            } as unknown as GPUDevice;
+            await requestGPU(device);
+            await requestGPU(device);
+            const source = "@compute @workgroup_size(1) fn main() {}";
+            await expect(
+                validateGpu(device, "seed-error", () => {
+                    device.createShaderModule({ label: "shader-0", code: source });
+                }),
+            ).rejects.toMatchObject({ label: "shader-0", errorClass: "GPUCompilationError" });
+            await validateGpu(device, "success-flood", () => {
+                for (let i = 1; i < 19; i++) {
+                    device.createShaderModule({ label: `shader-${i}`, code: source });
+                }
+            });
+
+            // Once compilation proves an error it is monotonic/pinned; a later pending/success flood
+            // stays bounded by evicting non-errors while preserving the exact failing source.
+            expect(compilationCalls).toBe(19);
+            const artifacts = globals.__gpuDiagnostics.artifacts as ShaderArtifact[];
+            expect(artifacts).toHaveLength(16);
+            expect(artifacts[0]).toMatchObject({
+                label: "shader-0",
+                source,
+                messages: [{ type: "error", message: "invalid shader-0" }],
+            });
+            expect(artifacts.some((artifact) => artifact.label === "shader-1")).toBe(false);
+            expect(artifacts.at(-1)).toEqual({
+                label: "shader-18",
+                stage: "compute",
+                source,
+                hash: shaderHash(source),
+                messages: [],
+            });
+            expect(shaderHash(source)).toBe("e372f38edd1acebc");
+            expect(shaderHash(`${source}\n`)).not.toBe(shaderHash(source));
+        } finally {
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+
+    test("a broad active scope admits and retains a failing module beyond the cap", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: ShaderArtifact[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const saved = { ...Compute };
+        const source = "@compute @workgroup_size(1) fn main() {}";
+        let resolveLast!: (info: GPUCompilationInfo) => void;
+        const lastInfo = new Promise<GPUCompilationInfo>((resolve) => {
+            resolveLast = resolve;
+        });
+        const device = {
+            ...fakeDevice(),
+            createShaderModule: (descriptor: GPUShaderModuleDescriptor) => ({
+                getCompilationInfo: () =>
+                    descriptor.label === "broad-19"
+                        ? lastInfo
+                        : Promise.resolve({ messages: [] } as unknown as GPUCompilationInfo),
+            }),
+        } as unknown as GPUDevice;
+        try {
+            globals.__gpuDiagnostics = { artifacts: [] };
+            await requestGPU(device);
+            const validation = validateGpu(device, "broad-warm", () => {
+                for (let i = 0; i < 20; i++) {
+                    device.createShaderModule({ label: `broad-${i}`, code: source });
+                }
+            });
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(globals.__gpuDiagnostics.artifacts).toHaveLength(16);
+            expect(
+                globals.__gpuDiagnostics.artifacts.some(
+                    (artifact) => artifact.label === "broad-19",
+                ),
+            ).toBe(false);
+            resolveLast({
+                messages: [
+                    {
+                        type: "error",
+                        message: "last module failed",
+                        lineNum: 1,
+                        linePos: 1,
+                        offset: 0,
+                        length: 1,
+                    },
+                ],
+            } as unknown as GPUCompilationInfo);
+
+            await expect(validation).rejects.toMatchObject({
+                name: "GpuDiagnosticError",
+                label: "broad-19",
+                errorClass: "GPUCompilationError",
+            });
+            expect(globals.__gpuDiagnostics.artifacts).toHaveLength(16);
+            expect(globals.__gpuDiagnostics.artifacts.at(-1)).toMatchObject({
+                label: "broad-19",
+                source,
+                messages: [{ type: "error", message: "last module failed" }],
+            });
+            expect(
+                globals.__gpuDiagnostics.artifacts.some((artifact) => artifact.label === "broad-0"),
+            ).toBe(false);
+        } finally {
+            Object.assign(Compute, saved);
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+
+    test("a failing pipeline retains its cross-scope module when all labels differ", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: ShaderArtifact[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const saved = { ...Compute };
+        const source = "@compute @workgroup_size(1) fn main() {}";
+        let popCount = 0;
+        const device = {
+            ...fakeDevice(),
+            createShaderModule: (descriptor: GPUShaderModuleDescriptor) => ({
+                label: descriptor.label,
+                getCompilationInfo: async () => ({ messages: [] }),
+            }),
+            createComputePipeline: (descriptor: GPUComputePipelineDescriptor) => descriptor,
+            popErrorScope: async () => {
+                popCount++;
+                return popCount === 1
+                    ? null
+                    : Object.assign(new Error("pipeline validation failed"), {
+                          name: "GPUValidationError",
+                      });
+            },
+        } as unknown as GPUDevice;
+        try {
+            globals.__gpuDiagnostics = { artifacts: [] };
+            await requestGPU(device);
+            let module!: GPUShaderModule;
+            await validateGpu(device, "module-scope", () => {
+                module = device.createShaderModule({
+                    label: "module-label",
+                    code: source,
+                });
+            });
+            await expect(
+                validateGpu(device, "precompile-label", () => {
+                    device.createComputePipeline({
+                        label: "pipeline-label",
+                        layout: "auto",
+                        compute: { module, entryPoint: "main" },
+                    });
+                    for (let i = 0; i < 20; i++) {
+                        device.createShaderModule({
+                            label: `unrelated-${i}`,
+                            code: source,
+                        });
+                    }
+                }),
+            ).rejects.toMatchObject({
+                label: "precompile-label",
+                errorClass: "GPUValidationError",
+            });
+
+            expect(globals.__gpuDiagnostics.artifacts).toHaveLength(16);
+            expect(
+                globals.__gpuDiagnostics.artifacts.find(
+                    (artifact) => artifact.label === "module-label",
+                ),
+            ).toMatchObject({ source, hash: shaderHash(source) });
+        } finally {
+            Object.assign(Compute, saved);
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+
+    test("an active scope pins its correlated artifact until a delayed pipeline failure arrives", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: ShaderArtifact[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const saved = { ...Compute };
+        const source = "@compute @workgroup_size(1) fn correlated() {}";
+        let resolvePop!: (error: GPUError | null) => void;
+        let popStarted = false;
+        const device = {
+            ...fakeDevice(),
+            createShaderModule: () => ({
+                getCompilationInfo: async () => ({ messages: [] }),
+            }),
+            popErrorScope: () => {
+                popStarted = true;
+                return new Promise<GPUError | null>((resolve) => {
+                    resolvePop = resolve;
+                });
+            },
+        } as unknown as GPUDevice;
+        try {
+            globals.__gpuDiagnostics = { artifacts: [] };
+            await requestGPU(device);
+            const validation = validateGpu(device, "correlated", () => {
+                device.createShaderModule({ label: "correlated", code: source });
+                for (let i = 0; i < 20; i++) {
+                    device.createShaderModule({ label: `ordinary-${i}`, code: source });
+                }
+            });
+            while (!popStarted) await Promise.resolve();
+
+            expect(globals.__gpuDiagnostics.artifacts).toHaveLength(16);
+            expect(globals.__gpuDiagnostics.artifacts[0]).toMatchObject({
+                label: "correlated",
+                source,
+                hash: shaderHash(source),
+            });
+
+            resolvePop(
+                Object.assign(new Error("delayed pipeline failure"), {
+                    name: "GPUValidationError",
+                }) as unknown as GPUError,
+            );
+            await expect(validation).rejects.toMatchObject({
+                label: "correlated",
+                errorClass: "GPUValidationError",
+            });
+            expect(globals.__gpuDiagnostics.artifacts[0]).toMatchObject({
+                label: "correlated",
+                source,
+                hash: shaderHash(source),
+            });
+        } finally {
+            Object.assign(Compute, saved);
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+
+    test("a delayed successful compilation result cannot unpin a scoped pipeline failure", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: ShaderArtifact[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const saved = { ...Compute };
+        let resolveInfo!: (info: GPUCompilationInfo) => void;
+        const delayed = new Promise<GPUCompilationInfo>((resolve) => {
+            resolveInfo = resolve;
+        });
+        const source = "@compute @workgroup_size(1) fn main() {}";
+        const device = {
+            ...fakeDevice(),
+            createShaderModule: (descriptor: GPUShaderModuleDescriptor) => ({
+                getCompilationInfo: () =>
+                    descriptor.label === "delayed"
+                        ? delayed
+                        : Promise.resolve({ messages: [] } as unknown as GPUCompilationInfo),
+            }),
+        } as unknown as GPUDevice;
+        try {
+            globals.__gpuDiagnostics = { artifacts: [] };
+            await requestGPU(device);
+            const validation = validateGpu(device, "delayed", () => {
+                device.createShaderModule({ label: "delayed", code: source });
+                throw Object.assign(new Error("pipeline rejected"), { name: "OperationError" });
+            });
+            resolveInfo({ messages: [] } as unknown as GPUCompilationInfo);
+            await expect(validation).rejects.toMatchObject({
+                label: "delayed",
+                errorClass: "OperationError",
+            });
+
+            await validateGpu(device, "later-context", () => {
+                for (let i = 0; i < 20; i++) {
+                    device.createShaderModule({ label: `later-${i}`, code: source });
+                }
+            });
+            expect(globals.__gpuDiagnostics.artifacts).toHaveLength(16);
+            expect(globals.__gpuDiagnostics.artifacts[0]).toMatchObject({
+                label: "delayed",
+                source,
+            });
+        } finally {
+            Object.assign(Compute, saved);
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+
+    test("a compilation-info rejection before settlement is retained by its raw scope", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: ShaderArtifact[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const saved = { ...Compute };
+        let rejectInfo!: (reason?: unknown) => void;
+        const info = new Promise<GPUCompilationInfo>((_, reject) => {
+            rejectInfo = reject;
+        });
+        const device = {
+            ...fakeDevice(),
+            createShaderModule: () => ({ getCompilationInfo: () => info }),
+        } as unknown as GPUDevice;
+        try {
+            globals.__gpuDiagnostics = { artifacts: [] };
+            await requestGPU(device);
+            const validation = validateGpu(device, "raw-before", async () => {
+                device.createShaderModule({
+                    label: "shader-info-before",
+                    code: "@compute fn main() {}",
+                });
+                rejectInfo(
+                    Object.assign(new Error("compiler unavailable"), { name: "OperationError" }),
+                );
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            await expect(validation).rejects.toMatchObject({
+                name: "GpuDiagnosticError",
+                label: "shader-info-before",
+                errorClass: "OperationError",
+            });
+            expect(globals.__gpuDiagnostics.artifacts[0].compilationError).toMatchObject({
+                errorClass: "OperationError",
+            });
+        } finally {
+            Object.assign(Compute, saved);
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+
+    test("a compilation-info rejection during settlement rejects its raw validation scope", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: ShaderArtifact[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const saved = { ...Compute };
+        let rejectInfo!: (reason?: unknown) => void;
+        const info = new Promise<GPUCompilationInfo>((_, reject) => {
+            rejectInfo = reject;
+        });
+        const device = {
+            ...fakeDevice(),
+            createShaderModule: () => ({ getCompilationInfo: () => info }),
+        } as unknown as GPUDevice;
+        try {
+            globals.__gpuDiagnostics = { artifacts: [] };
+            await requestGPU(device);
+            const validating = validateGpu(device, "raw-during", () => {
+                device.createShaderModule({
+                    label: "shader-info-during",
+                    code: "@compute fn main() {}",
+                });
+            });
+            const outcome = validating.then(
+                () => null,
+                (error: unknown) => error,
+            );
+            await Promise.resolve();
+            rejectInfo(
+                Object.assign(new Error("compiler disconnected"), { name: "OperationError" }),
+            );
+            expect(await outcome).toMatchObject({
+                name: "GpuDiagnosticError",
+                label: "shader-info-during",
+                errorClass: "OperationError",
+            });
+        } finally {
+            Object.assign(Compute, saved);
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+
+    test("a retired active scope cannot populate its replacement session", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: ShaderArtifact[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const saved = { ...Compute };
+        const oldCapture = { artifacts: [] as ShaderArtifact[] };
+        let resolveOld!: (info: GPUCompilationInfo) => void;
+        const oldInfo = new Promise<GPUCompilationInfo>((resolve) => {
+            resolveOld = resolve;
+        });
+        const oldDevice = {
+            ...fakeDevice(),
+            createShaderModule: () => ({
+                getCompilationInfo: () => oldInfo,
+            }),
+        } as unknown as GPUDevice;
+        try {
+            globals.__gpuDiagnostics = oldCapture;
+            await requestGPU(oldDevice);
+            const validation = validateGpu(oldDevice, "old", () => {
+                oldDevice.createShaderModule({ label: "old", code: "@compute fn old() {}" });
+            });
+
+            const replacement = { artifacts: [] as ShaderArtifact[] };
+            globals.__gpuDiagnostics = replacement;
+            await requestGPU({
+                ...fakeDevice(),
+                createShaderModule: () => ({
+                    getCompilationInfo: async () => ({ messages: [] }),
+                }),
+            } as unknown as GPUDevice);
+            resolveOld({
+                messages: [
+                    {
+                        type: "error",
+                        message: "stale compiler result",
+                    },
+                ],
+            } as unknown as GPUCompilationInfo);
+            await validation;
+
+            expect(oldCapture.artifacts).toEqual([]);
+            expect(replacement.artifacts).toEqual([]);
+        } finally {
+            Object.assign(Compute, saved);
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+});
+
+// a mobile-shaped adapter: the core WebGPU 1.0 limits are present, but the 2024 split-stage storage
+// limits are absent (undefined), as reported by older mobile WebGPU implementations.
+function limits(overrides: Record<string, number> = {}): GPUSupportedLimits {
+    return {
+        maxTextureDimension2D: 8192,
+        maxTextureArrayLayers: 256,
+        maxStorageBufferBindingSize: 134_217_728,
+        maxBufferSize: 268_435_456,
+        ...overrides,
+    } as unknown as GPUSupportedLimits;
+}
+
+describe("deviceLimits", () => {
+    test("drops absent split-stage limits instead of forwarding undefined as NaN", () => {
+        const result = deviceLimits(limits());
+        // forwarding an absent limit reaches requestDevice as NaN and rejects with
+        // "Value NaN is outside the range [0, 9007199254740991]". Every requested value must
+        // be a finite number.
+        for (const value of Object.values(result)) {
+            expect(Number.isFinite(value)).toBe(true);
+        }
+        expect("maxStorageBuffersInVertexStage" in result).toBe(false);
+        expect("maxStorageTexturesInFragmentStage" in result).toBe(false);
+        expect(result.maxStorageBufferBindingSize).toBe(134_217_728);
+        expect(result.maxStorageBuffersPerShaderStage).toBe(10);
+    });
+
+    test("forwards split-stage limits when the adapter reports them", () => {
+        const result = deviceLimits(
+            limits({
+                maxStorageBuffersInVertexStage: 8,
+                maxStorageBuffersInFragmentStage: 10,
+                maxStorageTexturesInVertexStage: 4,
+                maxStorageTexturesInFragmentStage: 8,
+            }),
+        );
+        expect(result.maxStorageBuffersInVertexStage).toBe(8);
+        expect(result.maxStorageTexturesInFragmentStage).toBe(8);
+    });
+});
+
+describe("BASE_FEATURES — the floor conformance oracle", () => {
+    // an adapter offering every WebGPU feature except one named absentee
+    const without = (absent: GPUFeatureName) => ({ has: (f: GPUFeatureName) => f !== absent });
+    // the device the whole audit is about, named independently of BASE_FEATURES so putting an entry
+    // back on the floor goes red here: it lacks everything the opt-in plugins moved off, nothing else.
+    const decommissioned = [
+        "timestamp-query",
+        "texture-compression-bc",
+        "texture-compression-etc2",
+        "texture-compression-astc",
+    ];
+    const modest = { has: (f: GPUFeatureName) => !decommissioned.includes(f) };
+    const profileFeatures = ProfilePlugin.features ?? [];
+    const gltfPreferred = GltfPlugin.preferredFeatures ?? [];
+
+    // The floor gates device acquisition for *every* app, before any plugin loads, so an entry only an
+    // opt-in plugin needs rejects hardware that would have run the scene fine. That's the governing
+    // rule: a floor entry earns its place only by being a `DEFAULT_PLUGINS` need. Neither `ProfilePlugin`
+    // nor `GltfPlugin` is in that set, so nothing either declares may sit on the floor.
+    test("no feature an opt-in plugin declares sits on the floor", () => {
+        expect(profileFeatures).toEqual(["timestamp-query"]);
+        expect(gltfPreferred.length).toBe(3);
+        for (const f of [...profileFeatures, ...gltfPreferred, ...(GltfPlugin.features ?? [])]) {
+            expect(BASE_FEATURES).not.toContain(f);
+        }
+    });
+
+    // `shader-f16` isn't a floor need either: sear's `material` mirror binds `vec2<u32>` +
+    // `unpack2x16float` (core WGSL), so nothing on the default path declares an `f16` type. The
+    // shader-side half is `standard/sear/surface.test.ts`.
+    test("a device lacking shader-f16 still meets the floor", () => {
+        expect(BASE_FEATURES).not.toContain("shader-f16");
+        expect(resolveFeatures(without("shader-f16"), BASE_FEATURES, []).missing).toEqual([]);
+    });
+
+    test("a device with no timestamp-query and no texture compression still meets the floor", () => {
+        expect(resolveFeatures(modest, BASE_FEATURES, []).missing).toEqual([]);
+    });
+
+    // the compression families are preferred, never required: that same device loads a glTF app, and
+    // the per-image gate in `gltf/assets.ts` is what fails, only on a KTX2 image.
+    test("GltfPlugin's compression families never gate the device", () => {
+        const required = [...BASE_FEATURES, ...(GltfPlugin.features ?? [])] as GPUFeatureName[];
+        expect(resolveFeatures(modest, required, gltfPreferred).missing).toEqual([]);
+        // and the trap they exist for: `target.ts` branches on `device.features.has`, false for a family
+        // the device never *requested* — so each family must be requested against an adapter that offers
+        // that one alone. Naming them here (not reading them off `gltfPreferred`) is what makes dropping
+        // one go red: against an all-true adapter `granted` is `preferred` for any list at all.
+        for (const f of [
+            "texture-compression-bc",
+            "texture-compression-etc2",
+            "texture-compression-astc",
+        ] as GPUFeatureName[]) {
+            const base: readonly string[] = BASE_FEATURES;
+            const only = { has: (x: GPUFeatureName) => x === f || base.includes(x) };
+            const { granted, missing } = resolveFeatures(only, BASE_FEATURES, gltfPreferred);
+            expect(granted).toEqual([f]);
+            expect(missing).toEqual([]);
+        }
+    });
+
+    // ProfilePlugin's is required, not preferred: an explicitly added debug plugin fails loud rather
+    // than silently reporting no GPU spans.
+    test("a ProfilePlugin app on that same device fails loud, naming timestamp-query", () => {
+        const required = [...BASE_FEATURES, ...profileFeatures] as GPUFeatureName[];
+        expect(resolveFeatures(modest, required, []).missing).toEqual(["timestamp-query"]);
+    });
+});
+
+describe("resolveFeatures", () => {
+    // an adapter exposing exactly `subgroups` + the base floor it cares about here.
+    const adapter = (...present: GPUFeatureName[]) => new Set<GPUFeatureName>(present);
+
+    test("a required feature the adapter has is granted nothing extra but never missing", () => {
+        const { granted, missing } = resolveFeatures(
+            adapter("float32-filterable"),
+            ["float32-filterable"],
+            [],
+        );
+        expect(missing).toEqual([]);
+        expect(granted).toEqual([]);
+    });
+
+    test("a required feature the adapter lacks is missing (the caller throws)", () => {
+        const { missing } = resolveFeatures(adapter(), ["subgroups"], []);
+        expect(missing).toEqual(["subgroups"]);
+    });
+
+    test("a preferred feature the adapter has is granted, and never missing", () => {
+        const { granted, missing } = resolveFeatures(adapter("subgroups"), [], ["subgroups"]);
+        expect(granted).toEqual(["subgroups"]);
+        expect(missing).toEqual([]);
+    });
+
+    test("a preferred feature the adapter lacks is silently dropped — never missing", () => {
+        // the whole point: a no-subgroup device (WebKit) loads a physics app, takes the LDS arm.
+        const { granted, missing } = resolveFeatures(adapter(), [], ["subgroups"]);
+        expect(granted).toEqual([]);
+        expect(missing).toEqual([]);
+    });
+
+    test("a feature both required and preferred isn't double-counted into granted", () => {
+        const { granted, missing } = resolveFeatures(
+            adapter("subgroups"),
+            ["subgroups"],
+            ["subgroups"],
+        );
+        expect(missing).toEqual([]);
+        expect(granted).toEqual([]); // already in required; the device-request set dedupes anyway
+    });
+});
+
+const MB = 1 << 20;
+
+describe("checkStorageBinding", () => {
+    test("a buffer past the per-binding limit throws a named, loud + clear UnsupportedError", () => {
+        let caught: unknown;
+        try {
+            checkStorageBinding("[bvh] the node buffer", 200 * MB, 128 * MB, "Lower maxPrims.");
+        } catch (e) {
+            caught = e;
+        }
+        // a named UnsupportedError, not a generic Error — the consumer's diagnostic boundary.
+        expect(caught).toBeInstanceOf(UnsupportedError);
+        const msg = (caught as Error).message;
+        expect(msg).toContain("[bvh] the node buffer"); // names the buffer
+        expect(msg).toContain("200 MB"); // needed
+        expect(msg).toContain("128 MB"); // available
+        expect(msg).toContain("maxStorageBufferBindingSize"); // the limit it tripped
+        expect(msg).toContain("Lower maxPrims"); // the remedy
+    });
+
+    test("a buffer under the limit does not throw", () => {
+        expect(() => checkStorageBinding("[bvh] x", 64 * MB, 128 * MB, "remedy")).not.toThrow();
+    });
+
+    test("the boundary is exclusive: exactly at the limit fits, one byte over throws", () => {
+        expect(() => checkStorageBinding("x", 128 * MB, 128 * MB, "r")).not.toThrow();
+        expect(() => checkStorageBinding("x", 128 * MB + 1, 128 * MB, "r")).toThrow(
+            UnsupportedError,
+        );
+    });
+});
+
+describe("checkTextureLimits", () => {
+    test("a width past maxTextureDimension2D throws a named UnsupportedError", () => {
+        let caught: unknown;
+        try {
+            checkTextureLimits(
+                "[gltf] a skinned mesh's VAT",
+                { width: 9000, height: 4 },
+                limits(),
+                "Reduce the vertex count.",
+            );
+        } catch (e) {
+            caught = e;
+        }
+        expect(caught).toBeInstanceOf(UnsupportedError);
+        const msg = (caught as Error).message;
+        expect(msg).toContain("[gltf] a skinned mesh's VAT");
+        expect(msg).toContain("9000×4"); // the extent
+        expect(msg).toContain("maxTextureDimension2D"); // the limit it tripped
+        expect(msg).toContain("Reduce the vertex count."); // the remedy
+    });
+
+    test("a height past maxTextureDimension2D throws (the dimension check is the larger axis)", () => {
+        expect(() => checkTextureLimits("vat", { width: 4, height: 9000 }, limits(), "r")).toThrow(
+            UnsupportedError,
+        );
+    });
+
+    test("layers past maxTextureArrayLayers throw a named UnsupportedError", () => {
+        let caught: unknown;
+        try {
+            checkTextureLimits(
+                "[render] an image array",
+                { width: 256, height: 256, layers: 300 },
+                limits(),
+                "Reduce the distinct textures.",
+            );
+        } catch (e) {
+            caught = e;
+        }
+        expect(caught).toBeInstanceOf(UnsupportedError);
+        const msg = (caught as Error).message;
+        expect(msg).toContain("[render] an image array");
+        expect(msg).toContain("300 array layers");
+        expect(msg).toContain("maxTextureArrayLayers");
+        expect(msg).toContain("Reduce the distinct textures.");
+    });
+
+    test("a texture within both limits does not throw; layers default to 1 (a plain 2D texture)", () => {
+        expect(() =>
+            checkTextureLimits("vat", { width: 8192, height: 8192 }, limits(), "r"),
+        ).not.toThrow();
+        expect(() =>
+            checkTextureLimits("array", { width: 256, height: 256, layers: 256 }, limits(), "r"),
+        ).not.toThrow();
+    });
+
+    test("the boundaries are exclusive: exactly at each limit fits, one over throws", () => {
+        expect(() => checkTextureLimits("x", { width: 8193, height: 1 }, limits(), "r")).toThrow(
+            UnsupportedError,
+        );
+        expect(() =>
+            checkTextureLimits("x", { width: 1, height: 1, layers: 257 }, limits(), "r"),
+        ).toThrow(UnsupportedError);
+    });
+
+    test("NaN byte count passes the single-sided > guard silently — must throw instead", () => {
+        expect(() => checkStorageBinding("x", NaN, 128 * MB, "r")).toThrow();
+    });
+
+    test("NaN width passes the single-sided > guard silently — must throw instead", () => {
+        expect(() => checkTextureLimits("x", { width: NaN, height: 4 }, limits(), "r")).toThrow();
+    });
+
+    test("NaN layers passes the single-sided > guard silently — must throw instead", () => {
+        expect(() =>
+            checkTextureLimits("x", { width: 256, height: 256, layers: NaN }, limits(), "r"),
+        ).toThrow();
+    });
+});
+
+describe("TGSL metadata", () => {
+    test("the canary resolves to its WGSL body when the build ran the typegpu transform", () => {
+        // the whole distribution contract in one assertion: a body the transform must have
+        // transpiled at build time. Delete the bunfig preload and this goes red.
+        const wgsl = tgpu.resolve([tgslCanary]);
+        expect(wgsl).toContain("(x + 1u)");
+        expect(wgsl).toContain("-> u32");
+    });
+
+    // the throwing arm can't be built here — the transform runs over this file too, so any fn
+    // declared in it carries metadata. Its red proof is the no-plugin arm of `bun run test:install`
+    test("checkTgsl passes under a transformed build", () => {
+        expect(() => checkTgsl()).not.toThrow();
+    });
+
+    // the other failure checkTgsl guards: a second typegpu copy loaded after the engine's. The key is
+    // redefined as a write-counting accessor (gpu.ts), so mutating it at check time exercises the real
+    // production path; the throw comes from the write counter, not the version value, so this arm pins
+    // the same mechanism as its same-version sibling below. Restore both the version and the counter
+    // in `finally` (the counter, not just the version, since a later test would otherwise inherit an
+    // elevated count from this one).
+    test("checkTgsl throws when a second typegpu copy writes a differing version (the write-count trips on any distinct evaluation, version-independent)", () => {
+        const globals = globalThis as unknown as Record<string, unknown>;
+        const priorVersion = globals.__TYPEGPU_VERSION__;
+        const priorWrites = globals.__SHALLOT_TYPEGPU_WRITES__;
+        globals.__TYPEGPU_VERSION__ = `${priorVersion ?? "0.11.9"}-other-copy`;
+        try {
+            expect(() => checkTgsl()).toThrow(/Two copies of typegpu are loaded/);
+        } finally {
+            globals.__TYPEGPU_VERSION__ = priorVersion;
+            globals.__SHALLOT_TYPEGPU_WRITES__ = priorWrites;
+        }
+    });
+
+    // the gap a value comparison structurally can't close: two copies of a minor-pinned typegpu stamp
+    // identical text, so `version !== snapshot` never trips. Write the *same* value back — typegpu's
+    // own module top level would do exactly this on a same-version duplicate — and the write-count
+    // still crosses 1, because the accessor counts writes, not distinct values.
+    test("checkTgsl throws on a same-version duplicate (the write-count, not value, is what trips)", () => {
+        const globals = globalThis as unknown as Record<string, unknown>;
+        const priorWrites = globals.__SHALLOT_TYPEGPU_WRITES__;
+        const sameVersion = globals.__TYPEGPU_VERSION__;
+        globals.__TYPEGPU_VERSION__ = sameVersion;
+        try {
+            expect(() => checkTgsl()).toThrow(/Two copies of typegpu are loaded/);
+        } finally {
+            globals.__SHALLOT_TYPEGPU_WRITES__ = priorWrites;
+        }
+    });
+});
+
+// a device stand-in: `initFromDevice` only stores the handle and nothing here submits work, so root
+// identity and the build boundary are testable with no device execution (testing.md — a default-suite
+// verdict must not depend on device execution). `Compute` is a process singleton every other test file also writes, so each test that
+// drives `requestGPU` restores what it found.
+const fakeDevice = () =>
+    ({
+        queue: { onSubmittedWorkDone: async () => {} },
+        features: new Set(),
+        limits: {},
+        lost: new Promise(() => {}),
+        pushErrorScope: () => {},
+        popErrorScope: async () => null,
+    }) as unknown as GPUDevice;
+
+describe("the TypeGPU root", () => {
+    test("is memoized per device; a rebuild keeps it, a new device mints a new one", async () => {
+        const saved = { ...Compute };
+        try {
+            const device = fakeDevice();
+            await requestGPU(device);
+            const root = Compute.root;
+            expect(root).toBeDefined();
+
+            // the rebuild case: a host reusing one device across builds (the cross-build memo law)
+            // must find its typed resources still alive, so the root has to survive the rebuild —
+            // while the publish maps wipe, typed beside raw
+            Compute.typed.set("transforms", {} as never);
+            await requestGPU(device);
+            expect(Compute.root).toBe(root);
+            expect(Compute.typed.size).toBe(0);
+
+            await requestGPU(fakeDevice());
+            expect(Compute.root).not.toBe(root);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+});
+
+// The queue is module state whose "before the drain" half exists only until `precompileAll`.
+// Each test opens a fresh build with `requestGPU`, the same boundary production uses.
+describe("precompile", () => {
+    test("the normal drain validates and fences each forcer without ProfilePlugin", async () => {
+        const saved = { ...Compute };
+        const events: string[] = [];
+        const device = fakeDevice();
+        device.pushErrorScope = (filter) => {
+            events.push(`push:${filter}`);
+        };
+        device.popErrorScope = async () => {
+            events.push("pop");
+            return null;
+        };
+        try {
+            await requestGPU(device);
+            precompile("forward", () => {
+                events.push("force");
+                return {
+                    initAsync: async () => {
+                        events.push("fence");
+                    },
+                };
+            });
+            await precompileAll();
+            expect(events).toEqual(["push:validation", "force", "fence", "pop"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("dependencies partition into levels, order is stable within a level, and invalid graphs reject", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const order: string[] = [];
+            precompile("first", () => {
+                order.push("first");
+                return [];
+            });
+            precompile(
+                "dependent-a",
+                () => {
+                    order.push("dependent-a");
+                    return [];
+                },
+                { after: ["publish"] },
+            );
+            precompile("independent", () => {
+                order.push("independent");
+                return [];
+            });
+            precompile(
+                "dependent-b",
+                () => {
+                    order.push("dependent-b");
+                    return [];
+                },
+                { after: ["publish"] },
+            );
+            precompile("publish", () => {
+                order.push("publish");
+                return [];
+            });
+            precompile(
+                "optional",
+                () => {
+                    order.push("optional");
+                    return [];
+                },
+                { after: ["missing"] },
+            );
+
+            await precompileAll();
+            // `ordered()`'s level partition (`gpu.ts`):
+            // `optional`'s only `after` names `"missing"`, an unknown label the drain documents as
+            // ignored, so it has no resolvable predecessor and sits in level 0 with `first`,
+            // `independent`, and `publish` — not last, which was an artifact of the old linear
+            // sort inserting by registration order. `dependent-a`/`dependent-b` (after `publish`)
+            // are level 1. Every other expectation here — the `after` contract itself, the relative
+            // order of `publish` before its dependents — is unmodified.
+            expect(order).toEqual([
+                "first",
+                "independent",
+                "publish",
+                "optional",
+                "dependent-a",
+                "dependent-b",
+            ]);
+
+            await requestGPU(fakeDevice());
+            precompile("duplicate", () => true);
+            expect(() => precompile("duplicate", () => true)).toThrow(
+                /duplicate precompile label "duplicate"/,
+            );
+
+            await requestGPU(fakeDevice());
+            precompile("cycle-a", () => true, { after: ["cycle-b"] });
+            precompile("cycle-b", () => true, { after: ["cycle-a"] });
+            await expect(precompileAll()).rejects.toThrow(/precompile cycle.*cycle-a.*cycle-b/);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("a scope numbers repeat instances, and resets with the label set it keeps unique", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            // the single-instance app is the common one — its labels (and profiler rows) stay bare
+            expect(precompileScope("radix")).toBe("radix");
+            expect(precompileScope("radix")).toBe("radix-2");
+            expect(precompileScope("bounds")).toBe("bounds");
+            // the counts belong to the label set, so a rebuild names its stages the same way again
+            await requestGPU(fakeDevice());
+            expect(precompileScope("radix")).toBe("radix");
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    // The Compute singleton was restored on a bare trailing line with no try/finally, so a
+    // mid-test throw skipped the restore. The finally restores it on any path, matching the
+    // fourteen restore-guarded arms around it. No witnessed red backs this: mutating the arm to
+    // throw reds it identically guarded or unguarded (42 pass / 1 fail both ways), and whether
+    // the unrestored fake device reaches a later file is unmeasured, so this is guard-by-symmetry
+    // with its siblings rather than a demonstrated leak.
+    test("the queue's lifecycle: held through warm, drained once, late arrivals run on the spot", async () => {
+        const saved = { ...Compute };
+        try {
+            // a build began: that, and only that, re-opens the queue
+            await requestGPU(fakeDevice());
+            const order: string[] = [];
+            precompile("a", () => {
+                order.push("a");
+                return [];
+            });
+            precompile("b", () => {
+                order.push("b");
+                return [];
+            });
+            // nothing runs during warm — a forcer here could bind against a group whose dependency another
+            // plugin's warm hasn't published yet
+            expect(order).toEqual([]);
+
+            precompile("broken", () => {
+                throw new Error("createComputePipeline failed");
+            });
+            precompile("c", () => {
+                order.push("c");
+                return [];
+            });
+
+            // Level batching (`ordered()`/`precompileAll` in `gpu.ts`): `a`, `b`, `broken`, `c`
+            // declare no `after` edges, so they land in one level and batch concurrently under a
+            // shared `validateGpu` scope — level batching's whole point. The throw still names the
+            // pipeline (batch-then-bisect's per-forcer re-drain), but the *cost* of a level failure
+            // is no longer "one pipeline, the rest untouched": every member of the failing level ran
+            // once in the batch attempt (`a`, `b`, `c` all force before `broken`'s rejection is even
+            // known — `Array.prototype.map`/an async body both run synchronously to their first
+            // `await`), then the serial re-drain re-runs the level from its start, through the
+            // thrower, a second time — `a` and `b` twice, `broken` twice, `c` once (it sits after
+            // `broken` in registration order, so the bisect never reaches it this call). That is
+            // batch-then-bisect's own priced trade ("at the cost of a recompile in the failure case
+            // only"), not a new one. What survives unmodified from the old contract: nothing is
+            // silently dropped — `c` stays queued and drains on a later call — and the throw still
+            // names `broken`, not the level.
+            //
+            // Mutation witnesses (both restored via `git show HEAD:<path>` after the read): (a) changing the serial re-drain's start index so it restarts a failing
+            // level from `ranThrough` (its own last-attempted member) instead of `0` reds this arm —
+            // `expect(order).toEqual(["a", "b", "c", "a", "b"])` becomes `["a", "b", "c", "b"]`, i.e.
+            // `a` is never re-run — `bun test` exit 1, this arm the sole failure. (b) making the batch
+            // swallow a member — dropping `broken` from `Promise.all`'s mapped array before the
+            // `validateGpu` call, so the level's rejection carries only `a`, `b`, `c` — reds this same
+            // arm: the level's `validateGpu` scope no longer pops non-null (no forcer threw), so
+            // `precompileAll()` resolves instead of rejecting and
+            // `await expect(precompileAll()).rejects.toThrow(...)` fails — `bun test` exit 1. Both
+            // mutations discriminate the widened failure cost this arm pins: (a) that the re-drain
+            // restarts the level from its first member, not from where the batch attempt gave up; (b)
+            // that every member of the batch is actually awaited, so a level failure can't silently
+            // lose one.
+            await expect(precompileAll()).rejects.toThrow(/precompile "broken" failed/);
+            expect(order).toEqual(["a", "b", "c", "a", "b"]);
+            await precompileAll();
+            expect(order).toEqual(["a", "b", "c", "a", "b", "c"]);
+            await precompileAll();
+            expect(order).toEqual(["a", "b", "c", "a", "b", "c"]);
+
+            // past the drain a lazily-built pipeline compiles on arrival: late beats silently dropped,
+            // which would surface as a multi-second first-frame stall with nothing pointing at it
+            await precompile("late", () => {
+                order.push("late");
+                return [];
+            });
+            expect(order).toEqual(["a", "b", "c", "a", "b", "c", "late"]);
+            await expect(
+                precompile("late-broken", () => {
+                    throw new Error("createComputePipeline failed");
+                }),
+            ).rejects.toThrow(/precompile "late-broken" failed/);
+
+            // a forcer that binds nothing has no pipeline to init, so its compile silently falls through to
+            // the first frame — the multi-second stall the queue exists to prevent. The drain refuses it
+            await expect(precompile("unbound", () => null)).rejects.toThrow(
+                /precompile "unbound" bound nothing/,
+            );
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("a forcer returning a truthy non-pipeline, non-array value throws with its label", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            precompile("wrong-shape", () => 42);
+            await expect(precompileAll()).rejects.toThrow(
+                /precompile "wrong-shape" returned a value that is neither a pipeline with initAsync nor an array of raw pipelines/,
+            );
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("an array of typegpu pipelines is awaited element-wise; [] and sear's raw-pipeline array stay skipped", async () => {
+        const saved = { ...Compute };
+        try {
+            // a forcer returning an array of typegpu pipelines (each exposing initAsync) — the natural
+            // generalization of sear's shape a reader of the drain's own JSDoc would write — must warm
+            // every element, not silently skip the whole array the way the sear case legitimately does
+            await requestGPU(fakeDevice());
+            let calls = 0;
+            precompile("multi-pipeline", () => [
+                {
+                    initAsync: async () => {
+                        calls++;
+                    },
+                },
+                {
+                    initAsync: async () => {
+                        calls++;
+                    },
+                },
+            ]);
+            await precompileAll();
+            expect(calls).toBe(2);
+
+            // [] stays legal — nothing to await, nothing throws
+            await requestGPU(fakeDevice());
+            precompile("none-specialized", () => []);
+            await expect(precompileAll()).resolves.toBeUndefined();
+
+            // sear's already-unwrapped raw pipelines expose no initAsync — still skipped, not thrown
+            await requestGPU(fakeDevice());
+            precompile("raw-pipelines", () => [{ label: "raw-a" }, { label: "raw-b" }]);
+            await expect(precompileAll()).resolves.toBeUndefined();
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("a forcer whose array never awaits a real initAsync reports no compile span; one that does is attributed", async () => {
+        const saved = { ...Compute };
+        try {
+            // sear's raw-pipeline array (and `[]`) still legitimately skip — but the skip must not
+            // read like a compile: `Compute.precompiled` is the one map a developer reads to diagnose
+            // a first-frame stall, and calling it unconditionally would report the still-unwarmed path
+            // as warm, exactly the failure this item exists to close.
+            const spans: Array<[string, number, number]> = [];
+            await requestGPU(fakeDevice());
+            Compute.precompiled = (label, start, end) => spans.push([label, start, end]);
+
+            precompile("raw-only", () => [{ label: "raw-a" }, { label: "raw-b" }]);
+            precompile("empty", () => []);
+            await precompileAll();
+            expect(spans).toEqual([]);
+
+            // a mixed array with at least one real initAsync IS attributed — the skip is per-forcer,
+            // not per-element, and a forcer that did real work must still show up in the profiler
+            await requestGPU(fakeDevice());
+            Compute.precompiled = (label, start, end) => spans.push([label, start, end]);
+            precompile("mixed", () => [{ label: "raw-a" }, { initAsync: async () => {} }]);
+            await precompileAll();
+            expect(spans.map(([label]) => label)).toEqual(["mixed"]);
+
+            // and a real single pipeline (branch a) is attributed exactly as before
+            await requestGPU(fakeDevice());
+            Compute.precompiled = (label, start, end) => spans.push([label, start, end]);
+            precompile("real", () => ({ initAsync: async () => {} }));
+            await precompileAll();
+            expect(spans.map(([label]) => label)).toEqual(["mixed", "real"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("a warmed compile leaves a performance.measure entry named prefix+label", async () => {
+        const saved = { ...Compute };
+        performance.clearMeasures();
+        try {
+            await requestGPU(fakeDevice());
+            precompile("warmed-label", () => ({ initAsync: async () => {} }));
+            await precompileAll();
+
+            const entries = performance.getEntriesByName(
+                `${PIPELINE_COMPILE_MEASURE_PREFIX}warmed-label`,
+            );
+            expect(entries.length).toBe(1);
+        } finally {
+            performance.clearMeasures();
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("the all-skip array path leaves no performance.measure entry", async () => {
+        const saved = { ...Compute };
+        performance.clearMeasures();
+        try {
+            await requestGPU(fakeDevice());
+            precompile("all-skip", () => [{ label: "raw-a" }, { label: "raw-b" }]);
+            await precompileAll();
+
+            const entries = performance
+                .getEntriesByType("measure")
+                .filter((entry) => entry.name.startsWith(PIPELINE_COMPILE_MEASURE_PREFIX));
+            expect(entries).toEqual([]);
+        } finally {
+            performance.clearMeasures();
+            Object.assign(Compute, saved);
+        }
+    });
+});
+
+// `ordered()`'s level partition and `precompileAll`'s batch-then-bisect drain over it (`gpu.ts`).
+// `ordered` itself is `@internal` and unexported, so these arms
+// drive it through the public `precompile`/`precompileAll` surface — the same boundary every other
+// arm in this file uses — and observe the level partition's one externally-visible effect: which
+// forcers are genuinely IN FLIGHT together. A deferred `initAsync` lets an arm hold a forcer mid-await
+// and read a shared log, so "two forcers started before either finished" is a directly observed fact,
+// not an inference from ordering alone.
+function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((res) => {
+        resolve = res;
+    });
+    return { promise, resolve };
+}
+
+describe("level partition — chain, fan, diamond, no-edge", () => {
+    test("no-edge: forcers with no `after` land in one level and are concurrently in flight", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const log: string[] = [];
+            const labels = ["a", "b", "c"];
+            const gates = labels.map(() => deferred<void>());
+            labels.forEach((label, i) => {
+                precompile(label, () => ({
+                    initAsync: async () => {
+                        log.push(`start:${label}`);
+                        await gates[i].promise;
+                        log.push(`end:${label}`);
+                    },
+                }));
+            });
+            const done = precompileAll();
+            // every forcer's own synchronous prelude (`compile()` through the first `await` inside
+            // `initAsync`) runs inside `Promise.all`'s synchronous mapping phase, before the first
+            // real suspend — so all three have already started by the time this line runs, with no
+            // extra microtask turn needed. A serial drain could never produce this: `b` would not
+            // start until `a`'s gate resolved.
+            expect(log).toEqual(["start:a", "start:b", "start:c"]);
+            for (const gate of gates) gate.resolve();
+            await done;
+            expect(log).toEqual(["start:a", "start:b", "start:c", "end:a", "end:b", "end:c"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("chain: A -> B -> C (each `after` the last) stays strictly serial, one level each", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const log: string[] = [];
+            const gates = { a: deferred<void>(), b: deferred<void>(), c: deferred<void>() };
+            precompile("a", () => ({
+                initAsync: async () => {
+                    log.push("start:a");
+                    await gates.a.promise;
+                    log.push("end:a");
+                },
+            }));
+            precompile(
+                "b",
+                () => ({
+                    initAsync: async () => {
+                        log.push("start:b");
+                        await gates.b.promise;
+                        log.push("end:b");
+                    },
+                }),
+                { after: ["a"] },
+            );
+            precompile(
+                "c",
+                () => ({
+                    initAsync: async () => {
+                        log.push("start:c");
+                        await gates.c.promise;
+                        log.push("end:c");
+                    },
+                }),
+                { after: ["b"] },
+            );
+            const done = precompileAll();
+            expect(log).toEqual(["start:a"]);
+            gates.a.resolve();
+            while (!log.includes("start:b")) await Promise.resolve();
+            expect(log).toEqual(["start:a", "end:a", "start:b"]);
+            gates.b.resolve();
+            while (!log.includes("start:c")) await Promise.resolve();
+            expect(log).toEqual(["start:a", "end:a", "start:b", "end:b", "start:c"]);
+            gates.c.resolve();
+            await done;
+            expect(log).toEqual(["start:a", "end:a", "start:b", "end:b", "start:c", "end:c"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("fan: a root plus two independent children run the children concurrently, only after the root", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const log: string[] = [];
+            const gates = {
+                root: deferred<void>(),
+                left: deferred<void>(),
+                right: deferred<void>(),
+            };
+            precompile("root", () => ({
+                initAsync: async () => {
+                    log.push("start:root");
+                    await gates.root.promise;
+                    log.push("end:root");
+                },
+            }));
+            precompile(
+                "left",
+                () => ({
+                    initAsync: async () => {
+                        log.push("start:left");
+                        await gates.left.promise;
+                        log.push("end:left");
+                    },
+                }),
+                { after: ["root"] },
+            );
+            precompile(
+                "right",
+                () => ({
+                    initAsync: async () => {
+                        log.push("start:right");
+                        await gates.right.promise;
+                        log.push("end:right");
+                    },
+                }),
+                { after: ["root"] },
+            );
+            const done = precompileAll();
+            expect(log).toEqual(["start:root"]);
+            gates.root.resolve();
+            while (!log.includes("start:right")) await Promise.resolve();
+            // level 1 is {left, right} — both started before either finished, i.e. genuinely
+            // concurrent, not two more serial steps.
+            expect(log).toEqual(["start:root", "end:root", "start:left", "start:right"]);
+            gates.left.resolve();
+            gates.right.resolve();
+            await done;
+            expect(log).toEqual([
+                "start:root",
+                "end:root",
+                "start:left",
+                "start:right",
+                "end:left",
+                "end:right",
+            ]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("diamond: A -> {B, C} -> D runs B and C concurrently between two serial steps", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const log: string[] = [];
+            const gates = {
+                a: deferred<void>(),
+                b: deferred<void>(),
+                c: deferred<void>(),
+                d: deferred<void>(),
+            };
+            precompile("a", () => ({
+                initAsync: async () => {
+                    log.push("start:a");
+                    await gates.a.promise;
+                    log.push("end:a");
+                },
+            }));
+            precompile(
+                "b",
+                () => ({
+                    initAsync: async () => {
+                        log.push("start:b");
+                        await gates.b.promise;
+                        log.push("end:b");
+                    },
+                }),
+                { after: ["a"] },
+            );
+            precompile(
+                "c",
+                () => ({
+                    initAsync: async () => {
+                        log.push("start:c");
+                        await gates.c.promise;
+                        log.push("end:c");
+                    },
+                }),
+                { after: ["a"] },
+            );
+            precompile(
+                "d",
+                () => ({
+                    initAsync: async () => {
+                        log.push("start:d");
+                        await gates.d.promise;
+                        log.push("end:d");
+                    },
+                }),
+                { after: ["b", "c"] },
+            );
+            const done = precompileAll();
+            expect(log).toEqual(["start:a"]);
+            gates.a.resolve();
+            while (!log.includes("start:c")) await Promise.resolve();
+            expect(log).toEqual(["start:a", "end:a", "start:b", "start:c"]);
+            gates.b.resolve();
+            gates.c.resolve();
+            while (!log.includes("start:d")) await Promise.resolve();
+            expect(log).toEqual([
+                "start:a",
+                "end:a",
+                "start:b",
+                "start:c",
+                "end:b",
+                "end:c",
+                "start:d",
+            ]);
+            gates.d.resolve();
+            await done;
+            expect(log).toEqual([
+                "start:a",
+                "end:a",
+                "start:b",
+                "start:c",
+                "end:b",
+                "end:c",
+                "start:d",
+                "end:d",
+            ]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+});
+
+describe("batch-then-bisect", () => {
+    test("a level with one throwing forcer names that forcer, not the level, on the serial re-drain", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            precompile("healthy", () => ({ initAsync: async () => {} }));
+            precompile("broken", () => {
+                throw new Error("createComputePipeline failed");
+            });
+            await expect(precompileAll()).rejects.toThrow(/precompile "broken" failed/);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("error-scope balance, fast path: one push/pop for a multi-member level that succeeds", async () => {
+        const saved = { ...Compute };
+        const events: string[] = [];
+        const device = fakeDevice();
+        device.pushErrorScope = (filter) => {
+            events.push(`push:${filter}`);
+        };
+        device.popErrorScope = async () => {
+            events.push("pop");
+            return null;
+        };
+        try {
+            await requestGPU(device);
+            precompile("a", () => ({ initAsync: async () => {} }));
+            precompile("b", () => ({ initAsync: async () => {} }));
+            precompile("c", () => ({ initAsync: async () => {} }));
+            await precompileAll();
+            // one shared scope for the whole level, not one per forcer — the fast path's whole point.
+            expect(events).toEqual(["push:validation", "pop"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("error-scope balance, bisect path: a JS throw mid-`Promise.all` still balances every push/pop", async () => {
+        const saved = { ...Compute };
+        const events: string[] = [];
+        const device = fakeDevice();
+        device.pushErrorScope = (filter) => {
+            events.push(`push:${filter}`);
+        };
+        device.popErrorScope = async () => {
+            events.push("pop");
+            return null;
+        };
+        try {
+            await requestGPU(device);
+            precompile("a", () => ({ initAsync: async () => {} }));
+            precompile("broken", () => {
+                throw new Error("createComputePipeline failed");
+            });
+            await expect(precompileAll()).rejects.toThrow(/precompile "broken" failed/);
+            // one push/pop for the failed batch attempt over the whole level, then one push/pop per
+            // forcer the serial re-drain actually reached (a, then broken — the throw stops it there).
+            expect(events).toEqual([
+                "push:validation",
+                "pop",
+                "push:validation",
+                "pop",
+                "push:validation",
+                "pop",
+            ]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("error-scope balance, scope-pop failure with no JS throw: the batch still bisects and balances, and the level recovers", async () => {
+        const saved = { ...Compute };
+        const events: string[] = [];
+        const device = fakeDevice();
+        // the batch's own scope pop reports a validation error even though nothing in the level threw
+        // in JS — the exact case the error-scope-is-a-stack problem describes: a genuine GPU-side
+        // validation failure loses per-forcer attribution under a shared scope. Every per-forcer pop
+        // during the serial re-drain stays clean, so the level recovers fully on the bisect.
+        let pops = 0;
+        device.pushErrorScope = (filter) => {
+            events.push(`push:${filter}`);
+        };
+        device.popErrorScope = async () => {
+            pops++;
+            events.push("pop");
+            return pops === 1
+                ? ({ message: "batch validation error" } as GPUValidationError)
+                : null;
+        };
+        try {
+            await requestGPU(device);
+            precompile("a", () => ({ initAsync: async () => {} }));
+            precompile("b", () => ({ initAsync: async () => {} }));
+            // no throw this time — the scope-pop failure is recoverable once bisected
+            await expect(precompileAll()).resolves.toBeUndefined();
+            // one push/pop for the failed batch attempt, then one push/pop per forcer in the serial
+            // re-drain (both run — neither one's own pop reports an error).
+            expect(events).toEqual([
+                "push:validation",
+                "pop",
+                "push:validation",
+                "pop",
+                "push:validation",
+                "pop",
+            ]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    // Repair-arm regression guard (level-batched drain, adversarial pass):
+    // witnessed RED before the fix, exit code 1, `bun test ./src/engine/runtime/
+    // gpu.test.ts -t "mid-batch-await"` — 2 fail — against the pre-fix `precompileAll`, which
+    // reconstructed `_precompile` from a `Forcer[][]` snapshot taken *before* the level's shared
+    // `await`. A `precompile()` call landing during that await pushed onto the live array and was
+    // then silently erased by the stale-snapshot splice; its own registration call had already
+    // resolved (the `!_drained` branch), so nothing retried it and it never drained, on that call or
+    // any later one. Green after the fix (`removeForcers`, identity-based), exit code 0.
+    test("a forcer registered mid-batch-await (from inside a level member's initAsync) survives to the next call — batch-success path", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const order: string[] = [];
+            precompile("a", () => ({
+                initAsync: async () => {
+                    order.push("a");
+                    // registered while this level's shared `Promise.all` is still in flight — the
+                    // exact window a stale `Forcer[][]` snapshot silently erases.
+                    precompile("mid-batch", () => {
+                        order.push("mid-batch");
+                        return [];
+                    });
+                },
+            }));
+            precompile("b", () => ({
+                initAsync: async () => {
+                    order.push("b");
+                },
+            }));
+            await precompileAll();
+            // the outer drain loop keeps going after a successful level, so "mid-batch" is picked
+            // up and drained within this SAME call — not dropped, and not even deferred to a later
+            // one (unlike the bisect path below, where the level's own throw ends the call early).
+            expect(order).toEqual(["a", "b", "mid-batch"]);
+            await precompileAll();
+            expect(order).toEqual(["a", "b", "mid-batch"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("a forcer registered mid-batch-await survives to the next call — bisect path", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const order: string[] = [];
+            // `healthy`'s own force() runs twice under batch-then-bisect (once in the failed batch
+            // attempt, once in the serial re-drain) — guard the registration so it fires only on the
+            // first call, matching a real forcer's own force() being idempotent-by-construction here
+            // (the point under test is the registration surviving, not re-registering).
+            let registered = false;
+            precompile("healthy", () => ({
+                initAsync: async () => {
+                    order.push("healthy");
+                    if (!registered) {
+                        registered = true;
+                        // registered from inside the batch attempt, before the level's failure is
+                        // even known — the bisect `finally`'s own stale-snapshot window.
+                        precompile("mid-bisect", () => {
+                            order.push("mid-bisect");
+                            return [];
+                        });
+                    }
+                },
+            }));
+            precompile("broken", () => {
+                throw new Error("createComputePipeline failed");
+            });
+            await expect(precompileAll()).rejects.toThrow(/precompile "broken" failed/);
+            expect(order).toEqual(["healthy", "healthy"]);
+            await precompileAll();
+            expect(order).toEqual(["healthy", "healthy", "mid-bisect"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+});
+
+// a rejected onSubmittedWorkDone (device loss) must decrement inFlight so the
+// pending() >= MAX_FRAMES_IN_FLIGHT backpressure gate cannot wedge
+describe("fence rejection", () => {
+    test("a rejected fence decrements inFlight so the backpressure gate cannot wedge", async () => {
+        const saved = { ...Compute };
+        try {
+            const fence = Promise.reject(new Error("device lost"));
+            const device = {
+                ...fakeDevice(),
+                queue: { onSubmittedWorkDone: () => fence },
+            } as unknown as GPUDevice;
+            await requestGPU(device);
+            expect(Compute.pending!()).toBe(0);
+            const f = Compute.sync!();
+            expect(Compute.pending!()).toBe(1);
+            await expect(f).rejects.toThrow("device lost");
+            expect(Compute.pending!()).toBe(0);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+});

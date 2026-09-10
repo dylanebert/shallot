@@ -15,17 +15,17 @@ export interface ExampleGate {
 /** A runtime module cone. A row claims a module only when its surviving assertion observes behavior from
  * that module; the row's own directory is added separately to every cone below. */
 const src = (...modules: string[]): string[] =>
-    modules.map((module) => `packages/shallot/src/${module}/**`);
+    modules.map((module) => `src/${module}/**`);
 
 /** The files crossed by a broad public `@dylanebert/shallot` import. Feature-specific recipe smokes use
  * narrower cones instead; whole showcases and flows that assert the public app surface retain these
  * actual barrel boundaries without claiming every implementation behind them. */
 const BARRELS = [
-    "packages/shallot/src/index.ts",
-    "packages/shallot/src/engine/index.ts",
-    "packages/shallot/src/extras/index.ts",
-    "packages/shallot/src/standard/index.ts",
-    "packages/shallot/src/standard/defaults.ts",
+    "src/index.ts",
+    "src/engine/index.ts",
+    "src/extras/index.ts",
+    "src/standard/index.ts",
+    "src/standard/defaults.ts",
 ];
 
 const HARNESS = src("harness");

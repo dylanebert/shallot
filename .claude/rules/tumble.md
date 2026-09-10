@@ -1,6 +1,6 @@
 ---
 paths:
-  - "packages/shallot/src/standard/tumble/**/*.ts"
+  - "src/standard/tumble/**/*.ts"
   - "packages/shallot-tumble/**"
   - "examples/gym/src/tumble-*.ts"
   - "examples/gym/src/scenarios/**"

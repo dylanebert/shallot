@@ -1,6 +1,6 @@
 import { join, resolve } from "node:path";
 import { Glob } from "bun";
-import { TEST_TIER_SUFFIXES } from "../packages/shallot/tests/test-tiers";
+import { TEST_TIER_SUFFIXES } from "../tests/test-tiers";
 import { isRegexLiteralStart, scanRegexLiteral } from "./source-mask";
 
 // The tumble engine's rule 1a (`.claude/rules/tumble.md` § "The contract: bit-exact f32

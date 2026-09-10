@@ -5,7 +5,7 @@
 // Playwright driver importing engine source, a `vite.config.ts` / `playwright.config.ts` reaching the
 // engine — died at load before running. Witnessed on node v26.7.0, 2026-08-25, through this very arm:
 //
-//   bare import                      → TypeError: Module ".../packages/shallot/package.json" needs an
+//   bare import                      → TypeError: Module ".../package.json" needs an
 //                                      import attribute of "type: json"
 //   attribute + named import         → SyntaxError: The requested module '../../../package.json' does
 //                                      not provide an export named 'version'
@@ -76,13 +76,13 @@ try {
     // The fixture lives outside `node_modules` (Playwright's transform excludes that tree, and node's own
     // stripping refuses `.ts` under it), with the repo's `node_modules` symlinked in so both
     // `@playwright/test` and `@dylanebert/shallot` resolve — the workspace link realpaths back into
-    // `packages/shallot`, i.e. the arm reads the same source the tarball ships.
+    // the repo root, i.e. the arm reads the same source the tarball ships.
     symlinkSync(NODE_MODULES, join(work, "node_modules"));
-    // The arm asserts its subject: the workspace link must realpath back into `packages/shallot` (the
+    // The arm asserts its subject: the workspace link must realpath back into the repo root (the
     // source the tarball ships). If root `node_modules/@dylanebert/shallot` ever resolves to an extracted
     // tarball or registry copy, the arm would green on a published artifact while the tree is broken —
     // fail instead of reading the wrong subject.
-    const shallotPkg = join(REPO_ROOT, "packages/shallot");
+    const shallotPkg = REPO_ROOT;
     const resolvedSubject = realpathSync(join(NODE_MODULES, "@dylanebert/shallot"));
     if (resolvedSubject !== shallotPkg && !resolvedSubject.startsWith(shallotPkg + sep)) {
         fail(
@@ -93,7 +93,7 @@ try {
     // `"type": "module"` is load-bearing, not boilerplate: without it Playwright compiles the spec (and the
     // engine source it pulls in) to **CJS**, so the JSON import becomes a `require` that Node is perfectly
     // happy with — measured 2026-08-25, the arm went green on the unfixed source. ESM is also what every
-    // real consumer of this package is (`packages/shallot/package.json` is `"type": "module"` itself).
+    // real consumer of this package is (`package.json` is `"type": "module"` itself).
     writeFileSync(
         join(work, "package.json"),
         `${JSON.stringify({ name: "shallot-node-import-arm", private: true, type: "module" }, null, 2)}\n`,

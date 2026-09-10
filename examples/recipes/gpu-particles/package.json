@@ -4,7 +4,7 @@
     "private": true,
     "type": "module",
     "dependencies": {
-        "@dylanebert/shallot": "workspace:*",
+        "@dylanebert/shallot": "file:../../..",
         "shallot-gpu-particles": "workspace:*",
         "typegpu": "~0.12.4"
     }

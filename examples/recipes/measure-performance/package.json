@@ -4,6 +4,6 @@
     "private": true,
     "type": "module",
     "dependencies": {
-        "@dylanebert/shallot": "workspace:*"
+        "@dylanebert/shallot": "file:../../.."
     }
 }

@@ -1,6 +1,6 @@
 // The frustum-coverage arm — Validation's "Camera frustum covers the world it can reach".
 //
-// The engine's Camera trait defaults `far: 1000` (`packages/shallot/src/standard/render/index.ts:369`).
+// The engine's Camera trait defaults `far: 1000` (`src/standard/render/index.ts:369`).
 // The scene's orbit can reach `max-distance` from the target, and the grid's far corner sits
 // `WORLD_HALF·√2` beyond the world origin — so the farthest reachable point is `max-distance + WORLD_HALF·√2`
 // from the camera. If `far` is below that, the far grid corner clips behind the far plane at some

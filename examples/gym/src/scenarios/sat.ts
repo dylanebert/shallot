@@ -49,17 +49,17 @@ import type {
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { boxHull, coneHull, tetHull } from "../../../../packages/shallot/tests/avbd/hull";
-import { add, type Quat, rotate, type Vec3 } from "../../../../packages/shallot/tests/avbd/math";
+import { boxHull, coneHull, tetHull } from "../../../../tests/avbd/hull";
+import { add, type Quat, rotate, type Vec3 } from "../../../../tests/avbd/math";
 import {
     body,
     capsule,
     hull,
     type Body as OracleBody,
     sphere,
-} from "../../../../packages/shallot/tests/avbd/rigid";
-import { narrowphase } from "../../../../packages/shallot/tests/avbd/rounded";
-import gold from "../../../../packages/shallot/tests/avbd/sat-gold-vectors.json";
+} from "../../../../tests/avbd/rigid";
+import { narrowphase } from "../../../../tests/avbd/rounded";
+import gold from "../../../../tests/avbd/sat-gold-vectors.json";
 import {
     collideBoxBox,
     collideHull,
@@ -67,7 +67,7 @@ import {
     collideRoundedPolytope,
     polyMake,
     SatResult,
-} from "../../../../packages/shallot/tests/avbd/tgsl";
+} from "../../../../tests/avbd/tgsl";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
 
 // sat — the SAT gate on the real GPU. Runs the production `collideWgsl()` over the 14 C++ gold configs

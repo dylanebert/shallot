@@ -12,7 +12,7 @@ test("declared realization grants physical and registered targets, refuses missi
     };
     try {
         write("package.json", { workspaces: ["packages/*"] });
-        write("packages/shallot/bin/cli.ts", "canonical CLI");
+        write("bin/cli.ts", "canonical CLI");
         const pkg = {
             bin: { shallot: "./bin/cli.ts" },
             files: [
@@ -23,12 +23,12 @@ test("declared realization grants physical and registered targets, refuses missi
                 "physical",
             ],
         };
-        write("packages/shallot/package.json", pkg);
-        write("packages/shallot/physical", "maintained");
+        write("package.json", pkg);
+        write("physical", "maintained");
         expect(await checkRealization(root)).toEqual([]);
-        write("packages/shallot/package.json", { ...pkg, bin: { shallot: "./bin" } });
+        write("package.json", { ...pkg, bin: { shallot: "./bin" } });
         expect((await checkRealization(root)).join("\n")).toContain("bin: ./bin is missing");
-        write("packages/shallot/package.json", {
+        write("package.json", {
             ...pkg,
             bin: { shallot: "./bin/gone.ts" },
             files: [...pkg.files, "absent", "dist/undeclared.js"],
@@ -43,7 +43,7 @@ test("declared realization grants physical and registered targets, refuses missi
         write("packages/consumer/missing.ts", "physical bin");
         write("packages/consumer/dist/index.js", "physical files");
         expect(await checkRealization(root)).toHaveLength(3);
-        write("packages/shallot/package.json", pkg);
+        write("package.json", pkg);
         expect(await checkRealization(root)).toEqual([]);
     } finally {
         rmSync(root, { recursive: true, force: true });

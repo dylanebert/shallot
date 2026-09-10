@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { body, flat, integerDiscipline } from "../../../../../packages/shallot/tests/wgsl";
+import { body, flat, integerDiscipline } from "../../../../../tests/wgsl";
 import { type Segment, segmentDistance } from "./document";
 import { encodeDistGpu, rasterizeWgsl, segmentDistanceGpu } from "./rasterize";
 import { DIST_RANGE, decodeDist, encodeDist, TEXEL_SIZE } from "./tiles";

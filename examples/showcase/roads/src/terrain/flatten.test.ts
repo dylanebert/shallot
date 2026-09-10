@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { body, flat, integerDiscipline } from "../../../../../packages/shallot/tests/wgsl";
+import { body, flat, integerDiscipline } from "../../../../../tests/wgsl";
 import { generateNetwork } from "../overlay/network";
 import {
     buildNetworkGeometry,

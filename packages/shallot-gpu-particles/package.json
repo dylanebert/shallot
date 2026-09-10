@@ -8,7 +8,7 @@
     },
     "files": ["src"],
     "peerDependencies": {
-        "@dylanebert/shallot": "*",
+        "@dylanebert/shallot": "file:../..",
         "typegpu": "~0.12.4"
     }
 }

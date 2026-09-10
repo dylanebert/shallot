@@ -68,7 +68,7 @@ export function template(name: string): Record<string, string> {
 // text file from a symlink. The trailing sentence is the cost of that choice: the import expands only
 // for a session rooted in this file's own directory, so opened from a parent the line is literal text
 // and the prose pointer is all the reader gets. Kept identical to the copy-out's stanza in
-// `packages/shallot/bin/scaffold.ts`.
+// `bin/scaffold.ts`.
 const CLAUDE_IMPORT = `@AGENTS.md
 
 If the import line above is showing as literal text, this file was loaded from a parent directory; read the AGENTS.md next to this file before working here.

@@ -303,7 +303,7 @@ export async function buildTokenIndex(trackedFiles: string[], root: string): Pro
 // ── Resolution ──────────────────────────────────────────────────────────────────────────────
 
 export function tsPathResolves(path: string, trackedSet: Set<string>): boolean {
-    const tries = [path, `packages/shallot/src/${path}`, `packages/shallot/${path}`];
+    const tries = [path, `src/${path}`, `${path}`];
     for (const t of tries) {
         if (trackedSet.has(t)) return true;
     }

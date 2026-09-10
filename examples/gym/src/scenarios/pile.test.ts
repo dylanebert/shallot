@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { body as rigidBody } from "../../../../packages/shallot/tests/avbd/rigid";
+import { body as rigidBody } from "../../../../tests/avbd/rigid";
 import {
     body,
     flat,
     integerDiscipline,
     noIntegerDivision,
     pointerDiscipline,
-} from "../../../../packages/shallot/tests/wgsl";
+} from "../../../../tests/wgsl";
 import { packRoundedConfigs, roundedCfgFloats, roundedMainWgsl } from "./pile";
 
 describe("pile rounded narrowphase production kernel", () => {

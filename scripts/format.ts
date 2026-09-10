@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { Glob } from "bun";
-import type { Node } from "../packages/shallot/src";
+import type { Node } from "../src";
 
 const {
     State,
@@ -11,9 +11,9 @@ const {
     TextPlugin,
     AnimationPlugin,
     AudioPlugin,
-} = await import("../packages/shallot/src");
-const { register } = await import("../packages/shallot/src/engine/ecs/core");
-const { normalizeAttr } = await import("../packages/shallot/src/engine/scene/core");
+} = await import("../src");
+const { register } = await import("../src/engine/ecs/core");
+const { normalizeAttr } = await import("../src/engine/scene/core");
 
 // the engine defaults plus the opt-in viz extras that add scene-authorable components,
 // so normalizeAttr knows every component schema a scene can reference

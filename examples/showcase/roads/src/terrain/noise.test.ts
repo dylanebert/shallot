@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { body, flat } from "../../../../../packages/shallot/tests/wgsl";
+import { body, flat } from "../../../../../tests/wgsl";
 import { GROUND_LEVEL, HFREQ, makePermutation, noiseWgsl, RELIEF } from "./noise";
 
 describe("makePermutation", () => {

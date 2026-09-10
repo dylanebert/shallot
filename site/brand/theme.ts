@@ -2,7 +2,7 @@ import {
     DARK,
     LIGHT,
     type Palette,
-} from "../../packages/shallot/src/standard/loading/mark";
+} from "../../src/standard/loading/mark";
 
 // Shared page chrome for the site's own pages (home, brand): tokens, the theme toggle, the outbound
 // links, and the half-block `pre` rules. Dark is the brand; light is the same assets on paper behind

@@ -8,7 +8,7 @@ import {
     type MatrixEntry,
     type Status,
     walkCorpus,
-} from "../packages/shallot/tests/gltf-corpus";
+} from "../tests/gltf-corpus";
 
 // gltf-conformance — the loud, human-facing surface of the glTF conformance suite (roadmap "glTF import —
 // conformance + regression suite"). Walks the Khronos corpus through the deviceless importer (no Playwright,
@@ -27,7 +27,7 @@ import {
 //
 // Run: bun run scripts/gltf-conformance.ts [--write]
 
-const MATRIX_PATH = join(import.meta.dir, "../packages/shallot/tests/gltf-matrix.json");
+const MATRIX_PATH = join(import.meta.dir, "../tests/gltf-matrix.json");
 
 // the matrix, deterministically ordered (models, variants, feature keys all sorted) so a regen is a clean diff
 function buildMatrix(entries: CorpusEntry[]): Matrix {

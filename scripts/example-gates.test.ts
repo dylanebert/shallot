@@ -5,7 +5,7 @@ import { Glob } from "bun";
 import { EXAMPLE_GATES } from "./example-gates";
 import { selectExampleGates } from "./test-changed";
 
-const RUNTIME_SRC = "packages/shallot/src";
+const RUNTIME_SRC = "src";
 const dirs = (paths: string[]) => selectExampleGates(paths).map((row) => row.dir);
 
 /** Measured against the current 306 tracked runtime files. This is a lower-only ratchet: a larger
@@ -365,7 +365,7 @@ test("static recipes own only their example directories", () => {
 });
 
 test("every row starts with its own directory and no row carries the incumbent blanket", () => {
-    const blanket = [`${RUNTIME_SRC}/**`, "packages/shallot/**"];
+    const blanket = [`${RUNTIME_SRC}/**`, "**"];
     for (const row of EXAMPLE_GATES) {
         expect(row.covers[0]).toBe(`${row.dir}/**`);
         for (const cover of row.covers) expect(blanket).not.toContain(cover);

@@ -209,8 +209,8 @@ export async function loadCorpus(rootDir: string): Promise<Map<string, string>> 
         "AGENTS.md",
         "README.md",
         "examples/AGENTS.md",
-        "packages/shallot/AGENTS.md",
-        "packages/shallot/README.md",
+        "AGENTS.md",
+        "README.md",
         "evals/README.md",
     ];
     for (const rel of docTargets) {
@@ -225,7 +225,7 @@ export async function loadCorpus(rootDir: string): Promise<Map<string, string>> 
             files.set(rel, await Bun.file(resolve(rulesDir, match)).text());
         }
     }
-    for (const dir of ["scripts", "packages/shallot", "examples", "evals"]) {
+    for (const dir of ["scripts", "src", "bin", "tests", "examples", "evals"]) {
         const base = resolve(rootDir, dir);
         if (!existsSync(base)) continue;
         const glob = new Glob("**/*.{ts,mjs}");

@@ -2,6 +2,9 @@
     "$schema": "https://biomejs.dev/schemas/2.5.10/schema.json",
     "files": {
         "includes": [
+            "src/**/*.ts",
+            "bin/**/*.ts",
+            "tests/**/*.ts",
             "packages/**/*.ts",
             "examples/**/*.ts",
             "evals/**/*.ts",
@@ -9,9 +12,9 @@
             "site/**/*.ts",
             "!examples/*/public",
             "!scripts/install-test/compat-0.9.5",
-            "!packages/shallot/bin",
-            "!packages/shallot/src/project",
-            "!packages/shallot/src/harness/browser.ts"
+            "!bin",
+            "!src/project",
+            "!src/harness/browser.ts"
         ]
     },
     "linter": {

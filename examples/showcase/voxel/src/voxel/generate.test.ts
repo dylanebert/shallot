@@ -4,7 +4,7 @@ import {
     flat,
     integerDiscipline,
     noDivision,
-} from "../../../../../packages/shallot/tests/wgsl";
+} from "../../../../../tests/wgsl";
 import { createDensityRunner, densityWgsl } from "./generate";
 
 describe("density kernel reference", () => {

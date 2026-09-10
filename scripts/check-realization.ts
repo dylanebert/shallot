@@ -21,7 +21,7 @@ export async function checkRealization(root: string): Promise<string[]> {
             typeof value.bin === "string" ? [value.bin] : Object.values(value.bin ?? {});
         const files: string[] = value.files ?? [];
         const projected = (target: string, kind: "bin" | "files"): boolean =>
-            dir === resolve(root, "packages/shallot") &&
+            dir === resolve(root) &&
             kind === "files" &&
             PRODUCED.includes(target);
         for (const [kind, targets] of [

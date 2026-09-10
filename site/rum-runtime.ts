@@ -27,7 +27,7 @@ declare global {
 }
 
 // Inlined at build time (`scripts/build-site.ts`'s `buildRumRuntimeBundle`, `Bun.build`'s
-// `define`) — never imported. `packages/shallot/src/engine/runtime/gpu.ts`'s
+// `define`) — never imported. `src/engine/runtime/gpu.ts`'s
 // `PIPELINE_COMPILE_MEASURE_PREFIX` can't be imported directly into this browser bundle: `gpu.ts`
 // has a top-level `tgpu.fn(...)` call, a real side effect no bundler can tree-shake, so any import
 // from it pulls TypeGPU's whole module graph in (measured 0.56 MB / 170 modules for a probe
@@ -94,7 +94,7 @@ let loafEntries: LoAFEntry[] = [];
 if (loafSupported) {
     try {
         // `long-animation-frame` entries (`scripts`, `blockingDuration`) aren't in lib.dom's
-        // `PerformanceEntry` yet — same shape as `packages/shallot/bin/verify.ts`'s own LoAF observer.
+        // `PerformanceEntry` yet — same shape as `bin/verify.ts`'s own LoAF observer.
         new PerformanceObserver((list) => {
             for (const e of list.getEntries() as any[]) {
                 loafEntries.push({

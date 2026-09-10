@@ -1,4 +1,4 @@
-import { lockup, toSvg } from "../packages/shallot/src/standard/loading/mark";
+import { lockup, toSvg } from "../src/standard/loading/mark";
 import { AGENTS_LINK, CSS_PALETTE, FONTS, STYLE, THEME_SCRIPT, TOGGLE, top } from "./brand/theme";
 import type { DemoEntry } from "./roster";
 
@@ -129,7 +129,7 @@ The source is the reference: every public export carries a JSDoc contract, and t
 
 ## Read
 
-- [Consumer contract](${raw("packages/shallot/AGENTS.md")}): commands, the ECS and plugin conventions, the GPU, render, physics and verify rules. Ships in the npm package as AGENTS.md.
+- [Consumer contract](${raw("AGENTS.md")}): commands, the ECS and plugin conventions, the GPU, render, physics and verify rules. Ships in the npm package as AGENTS.md.
 - [Examples index](${raw("examples/AGENTS.md")}): one line per recipe and showcase project, with the concept each teaches.
 - [README](${raw("README.md")}): quick start, live demos, building from source.
 

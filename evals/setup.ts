@@ -24,7 +24,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const EVALS = import.meta.dir;
-const ENGINE = resolve(EVALS, "../packages/shallot");
+const ENGINE = resolve(EVALS, "..");
 const CREATE_SHALLOT = resolve(EVALS, "../packages/create-shallot/index.ts");
 
 function run(cmd: string[], cwd: string): { ok: boolean; out: string } {

@@ -14,8 +14,8 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 // the BVH oracle + fixtures are test scaffolding (tests/, out of the published src/), so the
 // scenarios reach them by relative path.
-import { PRIM_F32, type Prims } from "../../../../packages/shallot/tests/bvh/fixtures";
-import type { Bvh2, Ray } from "../../../../packages/shallot/tests/bvh/oracle";
+import { PRIM_F32, type Prims } from "../../../../tests/bvh/fixtures";
+import type { Bvh2, Ray } from "../../../../tests/bvh/oracle";
 
 // Shared BVH gym scaffolding — the pure pieces the `accel` scenario's build + traverse layers lean
 // on. The GPU builder (bvh/core) and the CPU oracle (tests/bvh/oracle) are the validated

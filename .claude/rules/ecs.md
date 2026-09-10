@@ -1,6 +1,8 @@
 ---
 paths:
-  - "packages/{shallot/src/engine/**/*.ts,shallot/src/standard/**/*.ts,shallot/src/extras/**/*.ts}"
+  - "src/engine/**/*.ts"
+  - "src/standard/**/*.ts"
+  - "src/extras/**/*.ts"
   - "examples/**/*.scene"
   - "examples/**/*.ts"
 ---

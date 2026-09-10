@@ -10,7 +10,7 @@
         "gate": "playwright test"
     },
     "dependencies": {
-        "@dylanebert/shallot": "workspace:*",
+        "@dylanebert/shallot": "file:../..",
         "typegpu": "~0.12.4"
     },
     "devDependencies": {
