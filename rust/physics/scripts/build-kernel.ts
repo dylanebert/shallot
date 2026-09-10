@@ -1,5 +1,5 @@
 // Builds the Rust physics kernel to wasm-simd128 and inlines it as base64 into
-// src/standard/physics/engine/. Inlining (not a separate .wasm asset) keeps the engine pure JS — no
+// src/standard/physics/kernel/. Inlining (not a separate .wasm asset) keeps the engine pure JS — no
 // asset-path resolution for downstream bundlers, identical in browser / bun / node / deno. The
 // generated files are committed so `bun test` and `bun run build` work without a Rust toolchain;
 // regenerate here after any rust/physics/ change.
@@ -32,7 +32,7 @@ import { optimize, version } from "../../../scripts/wasm-opt";
 
 const pkgRoot = resolve(import.meta.dir, "../../..");
 const kernelDir = resolve(pkgRoot, "rust/physics");
-const engineDir = resolve(pkgRoot, "src/standard/physics/engine");
+const engineDir = resolve(pkgRoot, "src/standard/physics/kernel");
 
 /** The dated nightly for the shared build; needs rust-src for -Zbuild-std. */
 const NIGHTLY = "nightly-2026-09-10";

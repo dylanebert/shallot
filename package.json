@@ -78,7 +78,7 @@
         "!examples/recipes/*/tsconfig.json",
         "!src/extras/gltf/fixtures",
         "!src/standard/physics/samples",
-        "!src/standard/physics/engine/fixtures",
+        "!src/standard/physics/solver/fixtures",
         "!src/extras/cells/generate-ramp.ts",
         "!src/extras/gltf/gltf-conformance.ts",
         "!src/extras/gltf/gltf-corpus.ts",

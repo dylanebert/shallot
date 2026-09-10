@@ -6,6 +6,7 @@ Newest first. **Breaking:** marks a change that needs consumer action; [`MIGRATI
 
 User surface is unchanged apart from the migration notes; the changes below are maintainer layout and verification.
 
+- **physics** — Moved the solver out of the flat `engine/` dir into `common`, `world`, `solver`, `collision`, `shapes`, `kernel` and `api` (tag archive/physics-flat); the public surface is unchanged.
 - **repo** — Dropped the bun-webgpu patch; the Dawn bridge is the dylanebert/bun-webgpu fork pending upstream.
 - **repo** — Archived the pre-slice test surface (tag archive/test-surface-pre-slice): gym, tests/, recipe smoke plugins, roster selection.
 - **repo** — Archived the ocean, roads and voxel research showcases (tag archive/research-showcases).

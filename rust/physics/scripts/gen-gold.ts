@@ -1,10 +1,10 @@
 // Regenerates a committed bit-exact gold vector for the physics engine by building and running the Box3D
 // C reference (branch `harness`, scalar + force-overflow) `<name>_gold` target. Output lands in
-// src/standard/physics/engine/<name>.gold.json — COMMITTED (small), unlike the scene fixtures. These
+// src/standard/physics/<dir>/<name>.gold.json — COMMITTED (small), unlike the scene fixtures. These
 // vectors pin the kernel's per-phase math (`cargo test`) and the engine's `*.test.ts` gold comparisons.
 //
 // One parameterized script covers every gold target — they differ only in the cmake target name and the
-// output filename. The valid names are the committed engine/*.gold.json files.
+// output filename. The valid names are the committed src/standard/physics/*/*.gold.json files.
 //
 // The reference lives at ../reference/box3d beside this shallot checkout. Absent it, this errors
 // honestly. The committed gold is the frozen contract
@@ -46,7 +46,11 @@ const pkgRoot = resolve(import.meta.dir, "../../..");
 const shallotRoot = pkgRoot;
 const refDir = resolve(shallotRoot, "..", "reference", "box3d");
 const buildDir = resolve(refDir, "build-fixtures");
-const outPath = resolve(pkgRoot, "src", "standard", "physics", "engine", `${name}.gold.json`);
+const physicsDir = resolve(pkgRoot, "src", "standard", "physics");
+const outPath =
+    ["common", "collision", "shapes", "solver", "kernel"]
+        .map((dir) => resolve(physicsDir, dir, `${name}.gold.json`))
+        .find(existsSync) ?? resolve(physicsDir, "solver", `${name}.gold.json`);
 
 if (!existsSync(refDir)) {
     console.error(`box3d reference missing: ${refDir}`);

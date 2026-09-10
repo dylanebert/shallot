@@ -5,7 +5,7 @@ import {
     type Joint as SolverJoint,
     type World as SolverWorld,
     type Transform,
-} from "./engine";
+} from "./api";
 import type { JointDef, SpringDef } from "./index";
 
 // Spring/Joint def → physics joint marshaling — the constraint half of the ECS→physics path

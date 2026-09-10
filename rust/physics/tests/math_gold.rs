@@ -7,7 +7,7 @@
 use serde_json::Value;
 use physics_kernel::math::*;
 
-const GOLD: &str = include_str!("../../src/standard/physics/engine/math.gold.json");
+const GOLD: &str = include_str!("../../../src/standard/physics/common/math.gold.json");
 
 // Reconstruct an exact f32 from the raw hex bits the C generator emitted — no decimal round-trip.
 fn from_bits(hex: &str) -> f32 {
