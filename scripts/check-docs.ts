@@ -111,10 +111,10 @@ async function checkRealization(root: string): Promise<string[]> {
 
 const root = resolve(import.meta.dir, "..");
 const commandErrors = await checkRealization(root);
-const entry = (await Bun.file(resolve(root, "AGENTS.md")).text())
+const entry = (await Bun.file(resolve(root, "CONTRIBUTING.md")).text())
     .split("## Commands\n")[1]
     ?.split("\n## ")[0];
-if (!entry) commandErrors.push("AGENTS.md: missing Commands block");
+if (!entry) commandErrors.push("CONTRIBUTING.md: missing Commands block");
 const scripts = (await Bun.file(resolve(root, "package.json")).json()).scripts;
 let inCommandFence = false;
 let commandCount = 0;
@@ -144,10 +144,11 @@ for (const line of (entry ?? "").split("\n")) {
                 Object.hasOwn(scripts, token) ||
                 (token.includes("/") && existsSync(resolve(root, token)));
         }
-        if (!reachable) commandErrors.push(`AGENTS.md: unreachable repository command: ${command}`);
+        if (!reachable)
+            commandErrors.push(`CONTRIBUTING.md: unreachable repository command: ${command}`);
     }
 }
-if (!commandCount) commandErrors.push("AGENTS.md: empty command population");
+if (!commandCount) commandErrors.push("CONTRIBUTING.md: empty command population");
 commandErrors.push(
     ...(await checkExists([resolve(root, "package.json")])).map((error) => error.detail),
 );
