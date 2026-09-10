@@ -10,8 +10,8 @@
 // honestly. The committed gold is the frozen contract
 // (pin 29bf523); only run this at a deliberate upstream sync.
 //
-// Usage: bun run scripts/physics/gen-gold.ts <name>   (from the repo root)
-//        e.g. bun run scripts/physics/gen-gold.ts contact
+// Usage: bun run rust/physics/scripts/gen-gold.ts <name>   (from the repo root)
+//        e.g. bun run rust/physics/scripts/gen-gold.ts contact
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -37,12 +37,12 @@ const GOLD_NAMES = [
 const name = process.argv[2];
 if (!name || !GOLD_NAMES.includes(name)) {
     console.error(
-        `usage: bun run scripts/physics/gen-gold.ts <name>\n  name one of: ${GOLD_NAMES.join(", ")}`,
+        `usage: bun run rust/physics/scripts/gen-gold.ts <name>\n  name one of: ${GOLD_NAMES.join(", ")}`,
     );
     process.exit(1);
 }
 
-const pkgRoot = resolve(import.meta.dir, "../..");
+const pkgRoot = resolve(import.meta.dir, "../../..");
 const shallotRoot = pkgRoot;
 const refDir = resolve(shallotRoot, "..", "reference", "box3d");
 const buildDir = resolve(refDir, "build-fixtures");

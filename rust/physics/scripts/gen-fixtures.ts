@@ -13,13 +13,13 @@
 // run this at a deliberate upstream sync. Absent the reference (a plain shallot checkout), it errors
 // honestly.
 //
-// Usage: bun run scripts/physics/gen-fixtures.ts   (from the repo root)
+// Usage: bun run rust/physics/scripts/gen-fixtures.ts   (from the repo root)
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-const pkgRoot = resolve(import.meta.dir, "../..");
+const pkgRoot = resolve(import.meta.dir, "../../..");
 const shallotRoot = pkgRoot;
 const refDir = resolve(shallotRoot, "..", "reference", "box3d");
 const buildDir = resolve(refDir, "build-fixtures");

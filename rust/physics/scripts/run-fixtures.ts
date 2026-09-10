@@ -4,13 +4,13 @@
 // SHALLOT_PHYSICS_THREADS selects the thread count (unset/0 = single-thread, n = n threads, `auto` = the default
 // resolved path), so the same suite gates ST, t2, t8, and the auto path.
 //
-// Usage: bun run scripts/physics/run-fixtures.ts   (from the repo root)
+// Usage: bun run rust/physics/scripts/run-fixtures.ts   (from the repo root)
 
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { Glob } from "bun";
 
-const owner = resolve(import.meta.dir, "../..");
+const owner = resolve(import.meta.dir, "../../..");
 const files = [...new Glob("src/standard/physics/**/*.fixture.ts").scanSync(owner)].map(
     (f) => `./${f}`,
 );

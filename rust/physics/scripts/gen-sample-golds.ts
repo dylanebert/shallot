@@ -28,7 +28,7 @@
 // is deterministic — no timestamps — so a double mint is byte-identical. Absent the corpus (a plain
 // shallot checkout), it errors honestly, mirroring physics/gen-fixtures.
 //
-// Usage: bun run scripts/physics/gen-sample-golds.ts   (from the repo root)
+// Usage: bun run rust/physics/scripts/gen-sample-golds.ts   (from the repo root)
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -42,7 +42,7 @@ const STEPS = 600; // 10 s at 60 Hz — long enough to pin behavior phases that 
 // horizon exists for the dynamics-driven errors that surface only once the scene has run for a while.
 // 41 × 600 hex hashes still stay trivially committable.
 
-const pkgRoot = resolve(import.meta.dir, "../..");
+const pkgRoot = resolve(import.meta.dir, "../../..");
 const shallotRoot = pkgRoot;
 const physicsRoot = resolve(shallotRoot, "..", "upstream");
 const samplesDir = resolve(physicsRoot, "samples");
@@ -291,7 +291,7 @@ at the first divergent step. That is the oracle the earlier examples port lacked
 ## Mint recipe
 
 \`\`\`
-bun run scripts/physics/gen-sample-golds.ts     # from the repo root
+bun run rust/physics/scripts/gen-sample-golds.ts     # from the repo root
 \`\`\`
 
 - **Defaults** (\`defaultContext()\`): 60 Hz (timeStep 1/60), 4 substeps, gravity (0, -10, 0), sleep on,

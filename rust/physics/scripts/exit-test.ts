@@ -5,14 +5,14 @@
 // trivially and prove nothing) fails the gate. Run under both bun and node, since the worker-ref
 // behaviour is runtime-specific.
 //
-//   bun run scripts/physics/exit-test.ts   (from the repo root)
+//   bun run rust/physics/scripts/exit-test.ts   (from the repo root)
 
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
-const PKG_ROOT = resolve(import.meta.dir, "../..");
+const PKG_ROOT = resolve(import.meta.dir, "../../..");
 const ENGINE = resolve(PKG_ROOT, "src/standard/physics/engine/index.ts");
 
 // node can't run the .ts engine source, so bundle a self-contained consumer that inits the auto path,
