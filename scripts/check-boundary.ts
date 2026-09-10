@@ -575,6 +575,23 @@ export function checkBoundary(repoRoot: string, ledger: Ledger = REPO_LEDGER): B
             );
     }
 
+    // Members reach the engine through the root's `link:.` self-link, never a path of their own: a local
+    // engine spec in a member manifest ships in the tarball (recipes) and names a path outside any copy.
+    if (rootPkg.devDependencies?.[PKG] !== "link:.")
+        errors.push(`root package.json lacks the self-link devDependencies["${PKG}"]: "link:."`);
+    for (const dir of consumerDirs) {
+        const manifest = resolve(repoRoot, dir, "package.json");
+        if (!existsSync(manifest)) continue;
+        const pkg = JSON.parse(readFileSync(manifest, "utf8"));
+        for (const field of ["dependencies", "devDependencies", "optionalDependencies"]) {
+            const range = pkg[field]?.[PKG];
+            if (typeof range === "string" && local.test(range))
+                errors.push(
+                    `${dir}/package.json: ${field} links the engine locally (${range}); the root self-link supplies it`,
+                );
+        }
+    }
+
     for (const file of Object.keys(ledger.computedLoaders)) {
         if (!usedLoaders.has(file))
             errors.push(`declared computed loader names no live call site: ${file}`);

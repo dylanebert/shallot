@@ -16,7 +16,7 @@ function corpus(): { recipesDir: string; version: string } {
         writeFileSync(
             join(dir, "package.json"),
             `${JSON.stringify(
-                { name, private: true, dependencies: { "@dylanebert/shallot": "file:../../.." } },
+                { name, private: true, dependencies: { typegpu: "~0.12.5" } },
                 null,
                 4,
             )}\n`,
@@ -54,6 +54,20 @@ describe("pinEngine", () => {
             const out = pinEngine(`{"dependencies":{"@dylanebert/shallot":"${spec}"}}`, "0.8.0");
             expect(JSON.parse(out).dependencies["@dylanebert/shallot"]).toBe("0.8.0");
         }
+    });
+
+    test("an absent engine dep is inserted at the exact version, other deps kept", () => {
+        const out = JSON.parse(pinEngine('{"dependencies":{"typegpu":"~0.12.5"}}', "0.8.0"));
+        expect(out.dependencies).toEqual({ "@dylanebert/shallot": "0.8.0", typegpu: "~0.12.5" });
+        const bare = JSON.parse(pinEngine('{"name":"x"}', "0.8.0"));
+        expect(bare.dependencies).toEqual({ "@dylanebert/shallot": "0.8.0" });
+    });
+
+    test("an engine dep in another field is not duplicated", () => {
+        const out = JSON.parse(
+            pinEngine('{"devDependencies":{"@dylanebert/shallot":"^0.7.0"}}', "0.8.0"),
+        );
+        expect(out.dependencies).toBeUndefined();
     });
 
     test("leaves a registry dep untouched", () => {

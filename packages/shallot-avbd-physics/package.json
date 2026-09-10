@@ -12,8 +12,5 @@
     },
     "peerDependencies": {
         "@dylanebert/shallot": "0.10.0"
-    },
-    "devDependencies": {
-        "@dylanebert/shallot": "file:../.."
     }
 }

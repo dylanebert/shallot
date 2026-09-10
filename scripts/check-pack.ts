@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "path";
 import { TEST_TIER_SUFFIXES } from "../tests/test-tiers";
 
@@ -63,6 +64,18 @@ const required = [
     "examples/AGENTS.md",
     "shallot.schema.json",
 ];
+// A shipped manifest must not name the engine by a local path: copy-out pins the installed version,
+// and a `file:`/`link:`/`workspace:` spec in the tarball points at a directory no consumer has.
+const ENGINE = "@dylanebert/shallot";
+for (const f of files.filter((f) => f.endsWith("package.json") && f !== "package.json")) {
+    const pkg = JSON.parse(readFileSync(resolve(pkgDir, f), "utf8"));
+    for (const field of ["dependencies", "devDependencies", "optionalDependencies"]) {
+        const range = pkg[field]?.[ENGINE];
+        if (typeof range === "string" && /^(?:workspace:|file:|link:|portal:)/.test(range))
+            violations.push(`${f} (local engine dependency ${field}: ${range})`);
+    }
+}
+
 const missing = required.filter((f) => !files.includes(f));
 if (!files.some((f) => f.startsWith("rust/audio/pkg/"))) missing.push("rust/audio/pkg/");
 if (!files.some((f) => f.startsWith("examples/recipes/"))) missing.push("examples/recipes/");
