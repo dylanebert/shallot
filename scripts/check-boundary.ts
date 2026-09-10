@@ -16,10 +16,6 @@ const COMPUTED_LOADERS: Record<string, string> = {
         "eagerly resolves every enabled entry from the project root, then imports those resolved identities",
     "src/project/command.test.ts":
         "the bare-process isolation fixture imports the named command entry under test",
-    "examples/showcase/roads/test/edit-safety.playwright.ts":
-        "browser-evaluated /src/ URLs into Roads' own src/, served by playwright.config.ts webServer shallot dev .; non-literal spelling leaves imports to the browser instead of Playwright's CJS transform",
-    "examples/showcase/roads/test/touch-smoke.playwright.ts":
-        "browser-evaluated /src/ URLs into Roads' own src/, served by playwright.config.ts webServer shallot dev .; non-literal spelling leaves imports to the browser instead of Playwright's CJS transform",
     "bin/features.ts":
         "preflights all enabled project-root entry identities before engine/local evaluation, then reads required features from those identities",
     "bin/bun-native.ts":

@@ -8,13 +8,11 @@ webgpu game engine
 
 ## live demos
 
-Three demos are built and served at [dylanebert.com/shallot](https://dylanebert.com/shallot/) from [dylanebert/shallot-site](https://github.com/dylanebert/shallot-site). Each links to its source at the version it was built from, and a staging build against `main` runs at [shallot-staging.pages.dev](https://shallot-staging.pages.dev/).
+One demo is built and served at [dylanebert.com/shallot](https://dylanebert.com/shallot/) from [dylanebert/shallot-site](https://github.com/dylanebert/shallot-site). It links to its source at the version it was built from, and a staging build against `main` runs at [shallot-staging.pages.dev](https://shallot-staging.pages.dev/).
 
 | demo | play | code |
 |---|---|---|
-| Roads | [play](https://dylanebert.com/shallot/roads/) | [code](https://github.com/dylanebert/shallot/tree/v0.10.0/examples/showcase/roads) |
 | Visualization | [play](https://dylanebert.com/shallot/visualization/) | [code](https://github.com/dylanebert/shallot/tree/v0.10.0/examples/showcase/visualization) |
-| Voxel | [play](https://dylanebert.com/shallot/voxel/) | [code](https://github.com/dylanebert/shallot/tree/v0.10.0/examples/showcase/voxel) |
 
 ## quick start
 
@@ -58,7 +56,7 @@ Written for coding agents first, readable by hand. Both files move in the same c
 Examples live under `examples/`, indexed by [`examples/AGENTS.md`](examples/AGENTS.md):
 
 - `recipes/` — one minimal project per problem: first-person character, physics playground, import a model, day-night sky, and more.
-- `showcase/` — full projects rather than one concept each, several under real-device gates: `roads`, `visualization`, `voxel`. Retired units are Git tags indexed in [`ARCHIVE.md`](ARCHIVE.md).
+- `showcase/` — full projects rather than one concept each, under real-device gates: `ascii`, `visualization`. Retired units are Git tags indexed in [`ARCHIVE.md`](ARCHIVE.md).
 - `gym/` — machine-verdict scenarios: the real-device test and benchmark tier.
 
 Run a recipe standalone:

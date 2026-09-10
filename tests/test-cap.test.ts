@@ -109,7 +109,7 @@ describe("cap resolution and the derived exemption", () => {
     test("exemption is derived from the suffix, so no default-tier path can be exempt", () => {
         expect(isCapExempt("tests/avbd/oracle.oracle.ts")).toBe(true);
         expect(isCapExempt("bin/verify.probes.ts")).toBe(true);
-        expect(isCapExempt("examples/showcase/roads/src/editCorridor.tier.ts")).toBe(true);
+        expect(isCapExempt("examples/gym/src/editCorridor.tier.ts")).toBe(true);
         expect(isCapExempt("tests/foo.lab.ts")).toBe(true);
         expect(isCapExempt("tests/conformance.test.ts")).toBe(false);
         expect(isCapExempt(OVER_FIXTURE_REL)).toBe(false);
@@ -429,7 +429,7 @@ describe("the cap in a real bun test child", () => {
     /**
      * The bare-discovery safety arm. `bunfig.toml`'s `root = "."` scopes `bun test` discovery to
      * the repo root, so a bare `bun test` collects every `.test.ts`/`.spec.ts` file under the repo
-     * — including `examples/gym/src` and `examples/showcase/{roads,voxel}/src`, which the default
+     * — including `examples/gym/src`, which the default
      * gate (`bun run test`) excludes by passing explicit paths. The safety property: every
      * `.test.ts`/`.spec.ts` file bare `bun test` would discover — tracked **and** untracked — is
      * run by some declared gate (the default gate or a documented by-path tier). A file in neither
@@ -468,14 +468,6 @@ describe("the cap in a real bun test child", () => {
             // Declared in `.claude/rules/testing.md` line 37: "run `bun test ./examples/gym/src`".
             // Re-derive: `grep -n 'bun test ./examples/gym/src' .claude/rules/testing.md`
             "examples/gym/src",
-            // Declared in `examples/showcase/roads/package.json` `test` script:
-            //   "bun test --cwd ../../.. ./examples/showcase/roads/src"
-            // Re-derive: `node -e "console.log(JSON.parse(require('fs').readFileSync('examples/showcase/roads/package.json','utf8')).scripts.test)"`
-            "examples/showcase/roads/src",
-            // Declared in `examples/showcase/voxel/package.json` `test` script:
-            //   "bun test --cwd ../../.. ./examples/showcase/voxel/src"
-            // Re-derive: `node -e "console.log(JSON.parse(require('fs').readFileSync('examples/showcase/voxel/package.json','utf8')).scripts.test)"`
-            "examples/showcase/voxel/src",
         ];
 
         const declaredCone = [...defaultGatePaths, ...byPathTierPaths];

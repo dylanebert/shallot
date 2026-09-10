@@ -238,39 +238,6 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         motion: true,
     },
     {
-        dir: "examples/showcase/ocean",
-        tier: "showcase",
-        covers: [
-            "examples/showcase/ocean/**",
-            ...BARRELS,
-            ...HARNESS,
-            ...BOOT,
-            ...src("standard/render", "standard/sear", "engine/utils"),
-        ],
-        gate: "bun run --cwd examples/showcase/ocean gate",
-    },
-    {
-        dir: "examples/showcase/roads",
-        tier: "showcase",
-        covers: [
-            "examples/showcase/roads/**",
-            ...BARRELS,
-            ...HARNESS,
-            ...BOOT,
-            ...ORBIT,
-            ...INPUT,
-            ...src(
-                "standard/physics",
-                "standard/render",
-                "standard/sear",
-                "engine/runtime",
-                "engine/utils",
-            ),
-        ],
-        gate: "bun run --cwd examples/showcase/roads gate",
-        motion: true,
-    },
-    {
         dir: "examples/showcase/visualization",
         tier: "showcase",
         covers: [
@@ -284,28 +251,6 @@ export const EXAMPLE_GATES: ExampleGate[] = [
             ...src("extras/animation", "extras/text", "standard/render"),
         ],
         gate: "bun run --cwd examples/showcase/visualization gate",
-        motion: true,
-    },
-    {
-        dir: "examples/showcase/voxel",
-        tier: "showcase",
-        covers: [
-            "examples/showcase/voxel/**",
-            ...BARRELS,
-            ...HARNESS,
-            ...BOOT,
-            ...ORBIT,
-            ...INPUT,
-            ...src(
-                "extras/lines",
-                "engine/runtime",
-                "engine/utils",
-                "standard/physics",
-                "standard/render",
-                "standard/sear",
-            ),
-        ],
-        gate: "bun run --cwd examples/showcase/voxel gate",
         motion: true,
     },
     {

@@ -82,10 +82,7 @@ export async function findZeroDispatches(root: string): Promise<ZeroDispatchViol
 }
 
 describe("no zero-workgroup dispatch or zero-count draw survives in the shipped tree", () => {
-    // THE gate: the actual repo, scanned for real. Green today because S6 converted the four
-    // `examples/showcase/**` forcers close's architectural pass found still dispatching
-    // (`voxel/mesher.ts`, `voxel/generate.ts`, `roads/posts.ts`, `roads/terrain/generate.ts`) — a
-    // fifth site anywhere under `SCAN_DIRS` reds this the moment it's written, source-tree wide.
+    // THE gate: the actual repo, scanned for real. A site anywhere under `SCAN_DIRS` reds this the moment it's written, source-tree wide.
     test("src, examples/**, scripts/, bin/, and evals/ carry none", async () => {
         const violations = await findZeroDispatches(REPO_ROOT);
         expect(violations).toEqual([]);

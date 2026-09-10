@@ -8,7 +8,7 @@ import { selectExampleGates } from "./test-changed";
 const RUNTIME_SRC = "src";
 const dirs = (paths: string[]) => selectExampleGates(paths).map((row) => row.dir);
 
-/** Measured against the current 306 tracked runtime files. This is a lower-only ratchet: a larger
+/** Measured against the current 407 tracked runtime files. This is a lower-only ratchet: a larger
  * population is fine, but a higher selected-row ceiling is a re-widened cone; when the cones narrow,
  * the measured maximum may fall without forcing a pointless equality pin. */
 const INCUMBENT_MAX_ROWS_PER_RUNTIME_FILE = 14;
@@ -43,20 +43,14 @@ const EXPECTED_DIRS = [
     "examples/recipes/stylize-the-look",
     "examples/recipes/surface-friction",
     "examples/showcase/ascii",
-    "examples/showcase/ocean",
-    "examples/showcase/roads",
     "examples/showcase/visualization",
-    "examples/showcase/voxel",
     "examples/gym",
 ];
 
 const STANDARD_RENDER_ROWS = [
     "examples/recipes/day-night-sky",
     "examples/recipes/gpu-particles",
-    "examples/showcase/ocean",
-    "examples/showcase/roads",
     "examples/showcase/visualization",
-    "examples/showcase/voxel",
     "examples/gym",
 ];
 
@@ -69,20 +63,11 @@ const INPUT_ROWS = [
     "examples/recipes/respond-to-input",
     "examples/recipes/save-and-restore",
     "examples/showcase/ascii",
-    "examples/showcase/roads",
     "examples/showcase/visualization",
-    "examples/showcase/voxel",
     "examples/gym",
 ];
 
-const BOOT_ROWS = [
-    "examples/showcase/ascii",
-    "examples/showcase/ocean",
-    "examples/showcase/roads",
-    "examples/showcase/visualization",
-    "examples/showcase/voxel",
-    "examples/gym",
-];
+const BOOT_ROWS = ["examples/showcase/ascii", "examples/showcase/visualization", "examples/gym"];
 
 const EXPECTED_RUNTIME_MODULES = [
     "engine/app",
@@ -133,27 +118,18 @@ const EXPECTED_RUNTIME_MODULE_ROWS: Record<string, string[]> = {
     "engine/runtime": [
         "examples/recipes/compute-and-readback",
         "examples/recipes/gpu-particles",
-        "examples/showcase/roads",
-        "examples/showcase/voxel",
         "examples/gym",
     ],
     "engine/scene": ["examples/recipes/save-and-restore"],
-    "engine/utils": [
-        "examples/showcase/ocean",
-        "examples/showcase/roads",
-        "examples/showcase/voxel",
-        "examples/gym",
-    ],
+    "engine/utils": ["examples/gym"],
     "extras/animation": ["examples/recipes/animate-with-clips", "examples/showcase/visualization"],
     "extras/cells": ["examples/showcase/ascii", "examples/gym"],
     "extras/gltf": ["examples/gym"],
-    "extras/lines": ["examples/showcase/voxel", "examples/gym"],
+    "extras/lines": ["examples/gym"],
     "extras/orbit": [
         "examples/recipes/render-to-a-terminal",
         "examples/showcase/ascii",
-        "examples/showcase/roads",
         "examples/showcase/visualization",
-        "examples/showcase/voxel",
         "examples/gym",
     ],
     "extras/outline": ["examples/recipes/stylize-the-look", "examples/gym"],
@@ -183,19 +159,11 @@ const EXPECTED_RUNTIME_MODULE_ROWS: Record<string, string[]> = {
         "examples/recipes/moving-platform",
         "examples/recipes/physics-playground",
         "examples/recipes/surface-friction",
-        "examples/showcase/roads",
-        "examples/showcase/voxel",
         "examples/gym",
     ],
     "standard/player": ["examples/gym"],
     "standard/render": STANDARD_RENDER_ROWS,
-    "standard/sear": [
-        "examples/recipes/gpu-particles",
-        "examples/showcase/ocean",
-        "examples/showcase/roads",
-        "examples/showcase/voxel",
-        "examples/gym",
-    ],
+    "standard/sear": ["examples/recipes/gpu-particles", "examples/gym"],
     "standard/slab": ["examples/recipes/compute-and-readback", "examples/gym"],
     "standard/transforms": [
         "examples/recipes/animate-with-clips",
@@ -252,10 +220,10 @@ function trackedFiles(): string[] {
     return result.stdout.toString().split("\n").filter(Boolean);
 }
 
-test("the current 27/4/5/gym roster is pinned by identity", () => {
+test("the current 27/2/gym roster is pinned by identity", () => {
     expect(EXAMPLE_GATES.map((row) => row.dir)).toEqual(EXPECTED_DIRS);
     expect(EXAMPLE_GATES.filter((row) => row.tier === "recipes")).toHaveLength(27);
-    expect(EXAMPLE_GATES.filter((row) => row.tier === "showcase")).toHaveLength(5);
+    expect(EXAMPLE_GATES.filter((row) => row.tier === "showcase")).toHaveLength(2);
     expect(EXAMPLE_GATES.filter((row) => row.tier === "gym")).toHaveLength(1);
 });
 
@@ -337,7 +305,7 @@ test("live runtime modules select a row or name their explicit exemption", () =>
 
 test("the tracked runtime population has a lower-than-incumbent, lower-only selection ceiling", () => {
     const files = runtimeFiles();
-    expect(files).toHaveLength(324);
+    expect(files).toHaveLength(407);
     const worst = files
         .map((file) => ({ file, rows: selectExampleGates([file]).length }))
         .sort((a, b) => b.rows - a.rows || a.file.localeCompare(b.file));

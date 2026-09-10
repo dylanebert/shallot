@@ -8,6 +8,12 @@ Runtime exports remain raw TypeScript. Keep the exact-once TGSL transform and ej
 
 The original 0.9.5 scaffold's TypeScript configuration selects only WebGPU globals. Its `tsc --noEmit` reports missing `ImportMeta.env` and Node worker types in 0.9.5; the Node type-context errors also occur in 0.10. For that project, install `bun add -d @types/node@^26.0.0`, then use `bunx tsc --noEmit --types @webgpu/types,node,vite/client`, or add those same entries to `compilerOptions.types`. This supplies the Vite configuration and runtime host-adapter type contexts; it does not add them to your browser bundle.
 
+## 0.10 user-facing changes
+
+- `shallot tui` is removed.
+- `Tumble`, `TumblePlugin` and `tumble/core` are renamed to `Physics`, `PhysicsPlugin` and `physics/core`. Same solver, same behaviour.
+- The `avbd` subpaths moved to the `@dylanebert/shallot-avbd-physics` extension.
+
 ## Other 0.10 API changes
 
 These changes predate the internal package move but affect a project coming from 0.9.5:

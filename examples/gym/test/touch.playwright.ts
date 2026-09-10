@@ -22,8 +22,8 @@ import { oneFingerDrag, pinch, twoFingerDrag, twoToOneFingerDrag } from "./touch
 // Run by path — `cd examples/gym && bunx playwright test` (or `bun run gate` in that dir), display-gated
 // (`../playwright.global-setup.ts`) — never part of the default `bun run test` sweep.
 
-// Software rasterizers by the name they report in `GPUAdapterInfo` — the same display-gate pattern
-// `examples/showcase/roads/test/roads.playwright.ts` uses (that file's header has the full rationale).
+// Software rasterizers by the name they report in `GPUAdapterInfo` — the display-gate pattern the
+// Playwright gates share.
 const SOFTWARE = /swiftshader|llvmpipe|lavapipe|warp|basic render/i;
 
 const adapterName = (page: Page): Promise<string> =>

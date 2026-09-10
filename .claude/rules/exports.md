@@ -3,7 +3,6 @@ paths:
   - "src/**/*.ts"
   - "package.json"
   - "src/harness/*.ts"
-  - "examples/showcase/ocean/src/ocean/**"
 ---
 
 # Exports

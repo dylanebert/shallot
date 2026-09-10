@@ -90,8 +90,7 @@ export function forwardRay(state: State, cam: number): Ray | null {
     };
 }
 
-/** the screen-cursor ray for an orbit camera: `null` when the cursor is off the canvas. The god pick + the
- *  voxel carve both aim with it. The pick aspect derives from the canvas CSS box (`Inputs.mouse.canvas*`),
+/** the screen-cursor ray for an orbit camera: `null` when the cursor is off the canvas. The god pick aims with it. The pick aspect derives from the canvas CSS box (`Inputs.mouse.canvas*`),
  *  so it can diverge from the render aspect under an aspect-distorting `Resolution` override. */
 export function cursorRay(state: State, cam: number): Ray | null {
     if (cam < 0 || !state.has(cam, Camera) || !state.has(cam, Transform)) return null;
