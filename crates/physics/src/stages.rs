@@ -51,7 +51,7 @@ pub const ITERATIONS: usize = 1;
 /// Relax iterations per sub-step (box3d `RELAX_ITERATIONS`).
 pub const RELAX_ITERATIONS: usize = 1;
 
-/// Graph colors (`GRAPH_COLOR_COUNT` in `src/core.ts`); the last is the serial overflow color, so at
+/// Graph colors (`GRAPH_COLOR_COUNT` in `src/standard/physics/common/constants.ts`); the last is the serial overflow color, so at
 /// most `MAX_COLORS - 1` colors can be active.
 pub const MAX_COLORS: usize = 24;
 

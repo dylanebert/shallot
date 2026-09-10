@@ -1,7 +1,7 @@
 // Bit-exact fixture gate — the stage-8 regression contract. Each scene is rebuilt through the
 // public API, stepped, and its FNV-1a world-state hash asserted equal to the C reference's, per
-// step. The fixtures come from reference/box3d (branch `harness`) built scalar + force-overflow;
-// regenerate with `bun run gen-fixtures`. On divergence the first mismatched step is reported with
+// step. The fixtures come from the Box3D C reference (branch `harness`) built scalar + force-overflow;
+// regenerate with `bun run crates/physics/scripts/gen-fixtures.ts`. On divergence the first mismatched step is reported with
 // the port's body states so the drift can be localized against the fixture's periodic dumps.
 //
 // The scene builders mirror fixtures/gen.c exactly (same creation order, same params). Sleep is

@@ -1956,7 +1956,7 @@ pub fn collide_hulls(
 // S3 — cross-language constant parity table (reference mechanism).
 //
 // Every non-exact float literal in `crates/physics/src/**` that reaches f32 arithmetic, checked against its
-// C reference twin in `reference/box3d/`. A row carries an assertion exactly when its subject is
+// C reference twin in the Box3D source. A row carries an assertion exactly when its subject is
 // a readable source item (a module-level `const`/`static`); function-local `let`s and inline
 // literals cannot be read from a test module and are marked "not assertable" in the table with
 // the value verified by hand against C. Exactness (k/2^n) is an annotation on the row, never an
@@ -2007,15 +2007,15 @@ pub fn collide_hulls(
 // │ Constant                   │ TS (value, f32 bits)           │ Rust (value, f32 bits)        │ C reference (value, file:line symbol)         │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
 // │ LINEAR_SLOP                │ 0.005, 0x3BA3D70A             │ 0.005, 0x3BA3D70A             │ 0.005f * b3GetLengthUnitsPerMeter()          │
-// │ manifold.rs:18             │ core.ts (LINEAR_SLOP),        │ manifold.rs:18               │ constants.h:53 (B3_LINEAR_SLOP)              │
+// │ manifold.rs:18             │ constants.ts (LINEAR_SLOP),   │ manifold.rs:18               │ constants.h:53 (B3_LINEAR_SLOP)              │
 // │                            │ manifold.ts (LINEAR_SLOP)     │                              │ core.c:39 (b3_lengthUnitsPerMeter = 1.0f)    │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
 // │ SPECULATIVE_DISTANCE       │ 0.02, 0x3CA3D70A              │ 0.02, 0x3CA3D70A              │ 4.0f * B3_LINEAR_SLOP                        │
-// │ manifold.rs:19             │ core.ts (SPECULATIVE_DISTANCE),│ manifold.rs:19               │ constants.h:73 (B3_SPECULATIVE_DISTANCE)      │
+// │ manifold.rs:19             │ constants.ts (SPECULATIVE_DISTANCE),│ manifold.rs:19               │ constants.h:73 (B3_SPECULATIVE_DISTANCE)      │
 // │                            │ manifold.ts (SPECULATIVE_DISTANCE)│                           │                                              │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
 // │ SPECULATIVE_DISTANCE       │ 0.02, 0x3CA3D70A              │ 0.02, 0x3CA3D70A              │ 4.0f * B3_LINEAR_SLOP                        │
-// │ finalize.rs:47             │ core.ts (SPECULATIVE_DISTANCE) │ finalize.rs:47               │ constants.h:73 (B3_SPECULATIVE_DISTANCE)      │
+// │ finalize.rs:47             │ constants.ts (SPECULATIVE_DISTANCE)│ finalize.rs:47               │ constants.h:73 (B3_SPECULATIVE_DISTANCE)      │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
 // │ MIN_CAPSULE_LENGTH         │ 0.005, 0x3BA3D70A             │ 0.005, 0x3BA3D70A             │ B3_LINEAR_SLOP                               │
 // │ manifold.rs:20             │ manifold.ts (MIN_CAPSULE_LENGTH)│ manifold.rs:20               │ constants.h:55 (B3_MIN_CAPSULE_LENGTH)       │
@@ -2075,7 +2075,7 @@ pub fn collide_hulls(
 // │ integrate.rs:19            │ absent (kernel-only phase)    │ integrate.rs:19              │ constants.h:70 (B3_MAX_ROTATION)              │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
 // │ RECYCLE_ANGULAR_DISTANCE   │ 0.99240386, 0x3F7E0E2E      │ 0.99240386, 0x3F7E0E2E        │ 0.99240388f                                   │
-// │ recycle.rs:24              │ core.ts (CONTACT_RECYCLE_ANGULAR_DISTANCE)│ recycle.rs:24                │ constants.h:86 (B3_CONTACT_RECYCLE_ANG_DIST)  │
+// │ recycle.rs:24              │ constants.ts (CONTACT_RECYCLE_ANGULAR_DISTANCE)│ recycle.rs:24                │ constants.h:86 (B3_CONTACT_RECYCLE_ANG_DIST)  │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
 // │ POSITION_SLEEP_FACTOR      │ 0.5, 0x3F000000             │ 0.5, 0x3F000000              │ 0.5f (exact k/2^n)                            │
 // │ finalize.rs:25             │ absent (kernel-only phase)    │ finalize.rs:25               │ solver.c:715 (positionSleepFactor)            │
@@ -2084,7 +2084,7 @@ pub fn collide_hulls(
 // │ finalize.rs:30             │ solver.ts (safetyFactor)      │ finalize.rs:30               │ solver.c:747 (safetyFactor)                   │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
 // │ OVERLAP_SLOP               │ 0.00050000002, 0x3A03126F   │ *absent*                      │ 0.1f * B3_LINEAR_SLOP                         │
-// │ (TS core.ts:23)            │ core.ts (OVERLAP_SLOP)        │ (see below)                  │ constants.h:60 (B3_OVERLAP_SLOP)              │
+// │ (TS constants.ts:23)       │ constants.ts (OVERLAP_SLOP)   │ (see below)                  │ constants.h:60 (B3_OVERLAP_SLOP)              │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
 // │ kToleranceSquared (0.05²)  │ 0.0025000002, 0x3B23D70B    │ *absent*                      │ 0.05f * 0.05f                                 │
 // │ (TS distance.ts:1154)      │ distance.ts (kToleranceSquared)│ (see below)                  │ distance.c:1307 (kToleranceSquared)           │

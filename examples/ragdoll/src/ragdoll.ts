@@ -22,7 +22,7 @@ import { qRotate } from "@dylanebert/shallot/physics";
 // substrate's `Spring`/`Joint` mapping, for the cone/twist/hinge limits a ragdoll needs. The rig itself is
 // imported in code below, because a live-skinned import is a programmatic call, not a scene mesh reference.
 // The cone/twist joints have no published substrate-surface equivalent yet, so the joints ride the escape
-// hatch; the `LiveSkin` palette is the published half. The gym twin `ragdoll-ragdoll` is the oracle-gated gold.
+// hatch; the `LiveSkin` palette is the published half.
 
 type V3 = [number, number, number];
 type Q4 = [number, number, number, number];

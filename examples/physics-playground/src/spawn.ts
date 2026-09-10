@@ -3,7 +3,7 @@ import { Body, Part, type Plugin, ShapeKind, type State, type System } from "@dy
 // build a body at runtime: create an entity, add `Body`, set its shape, pose, and mass, then add `Part`
 // to render it. This rains a cube onto the pile on a timer while the scene is playing. The scene itself
 // (scenes/physics-playground.scene) shows the rest of the substrate surface declaratively — a static
-// ground, a `Spring`, and a `Joint`. The settling behavior is oracle-gated in the gym `pile` gold.
+// ground, a `Spring`, and a `Joint`.
 const MAX = 12;
 let count = 0;
 let next = 0;

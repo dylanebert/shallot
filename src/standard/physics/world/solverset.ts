@@ -1,5 +1,5 @@
 // Solver sets: the SoA storage that gives bodies/contacts/islands high memory locality. Ported
-// from Box3D's solver_set.c (Erin Catto, MIT). Four fixed roles (core.ts SetType): static,
+// from Box3D's solver_set.c (Erin Catto, MIT). Four fixed roles (constants.ts SetType): static,
 // disabled, awake, and one set per sleeping island group. A body's sim lives in its set's bodySims
 // column; the awake set additionally holds a bodyStates column and the live islands.
 //

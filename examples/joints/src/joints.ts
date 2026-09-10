@@ -8,8 +8,7 @@ import { Body, Color, Joint, Part, type Plugin, Spring, type State } from "@dyla
 // out and holds level. Both connect ordinary `Body` entities, so the bodies render and collide for free.
 //
 // This is the substrate's own joint surface. Motors, limits, and physics's richer joint types (prismatic,
-// wheel, cone/twist) live past it on the `Physics.world` escape hatch — verified in the gym twins
-// `joints-suspension` (the hertz/damping-tuned suspension) and `joints-cantilever` (the multi-link weld).
+// wheel, cone/twist) live past it on the `Physics.world` escape hatch.
 
 const FIXED = Number.POSITIVE_INFINITY; // `Joint.stiffnessAng`: ∞ locks orientation (a rigid weld)
 
