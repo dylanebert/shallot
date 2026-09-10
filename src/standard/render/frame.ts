@@ -1,7 +1,7 @@
 import * as d from "typegpu/data";
 import type { State } from "../../engine";
 import { Compute } from "../../engine";
-import { chunk, spliceNs } from "../../engine/utils/core";
+import { chunk, spliceNs } from "../../engine/utils";
 
 /** the per-frame `Frame` UBO schema — the single source of truth for both sides of the layout (the
  * `View`/`Step` precedent): the emitted WGSL struct ({@link frameWgsl}) and the CPU staging write

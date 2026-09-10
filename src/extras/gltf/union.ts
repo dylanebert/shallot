@@ -1,4 +1,4 @@
-import { allocArray, commonSize, mipLevels, uploadLayer } from "../../standard/render/core";
+import { allocArray, commonSize, mipLevels, uploadLayer } from "../../standard/render";
 import type { Ktx2Image } from "./basis";
 import type { GltfMaterial } from "./gltf";
 import {
@@ -22,7 +22,7 @@ import {
 // textured sources can't each publish arrays under the global binding names without clobbering — the firehose
 // answer is ONE shared set of size-bucketed albedo arrays + ONE material palette accumulating every active
 // asset's layers/materials, with the per-instance index carrying the asset's palette base + local material id
-// (flat draws preserved — the archived render rules "glTF texture binding"). This file owns that union: the pure plan (bucket
+// (flat draws preserved). This file owns that union: the pure plan (bucket
 // assignment + per-material layer rebase, testable without a device) + the device assembly. The caller
 // (index.ts) memoizes the result per active-set, so a State rebuild re-publishes the same union with no
 // re-upload.

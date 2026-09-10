@@ -13,12 +13,7 @@ export const DEFAULT_PLUGIN_NAMES = [
     "Glaze",
 ] as const;
 
-// Engine plugins that ship on their own subpath rather than the main barrel (the archived exports rules — barrel-adjacent,
-// not barrel-listed). Dep-free for the same reason as
-// DEFAULT_PLUGIN_NAMES above; catalog.test.ts gates each entry against the real subpath export.
-export const SUBPATH_PLUGIN_MODULES: Record<string, string> = {};
-
-// Engine plugins beyond the defaults + subpath backends, enabled by `name: true` and resolved from the
+// Engine plugins beyond the defaults, enabled by `name: true` and resolved from the
 // main barrel (`import { OrbitPlugin } from "@dylanebert/shallot"`). Dep-free like the lists above and
 // gated by catalog.test.ts against the barrel's real `*Plugin` exports so it can't drift. The toolchain
 // warns on a `name: true` outside the union below (an unknown engine plugin, otherwise a cryptic esbuild
@@ -43,12 +38,10 @@ export const EXTRA_PLUGIN_NAMES = [
     "Sprite",
     "Text",
     "Physics",
-    "Animation",
 ] as const;
 
 /** every engine plugin name a manifest may enable with a bool — the union the toolchain validates against. */
 export const KNOWN_ENGINE_PLUGINS: ReadonlySet<string> = new Set<string>([
     ...DEFAULT_PLUGIN_NAMES,
     ...EXTRA_PLUGIN_NAMES,
-    ...Object.keys(SUBPATH_PLUGIN_MODULES),
 ]);

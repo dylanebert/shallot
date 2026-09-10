@@ -7,7 +7,7 @@
 
 import * as d from "typegpu/data";
 import { f32, type State, sparse, u32, vec2 } from "../../engine";
-import { packColor } from "../../engine/utils/core";
+import { packColor } from "../../engine/utils";
 import { Transform } from "../../standard/transforms";
 import { SpriteData } from "./surface";
 
@@ -81,7 +81,7 @@ export const Sprite = {
 
 // one sprite instance = the quad-local offset (-size·anchor) + size, the owning eid, the array
 // layer, a packed sRGBA tint, and the packed fill (unorm16 amount | mode << 16). 32 bytes / two
-// vec4 reads. Stride derived from the schema (the archived GPU rules: a second hand-authored stride is layout drift
+// vec4 reads. Stride derived from the schema (a second hand-authored stride is layout drift
 // waiting to happen).
 export const SPRITE_BYTES = d.sizeOf(SpriteData);
 const SPRITE_FLOATS = SPRITE_BYTES / 4;

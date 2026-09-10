@@ -1,10 +1,9 @@
 import { f32, type Plugin, type State, type System, sparse } from "../../engine";
-import { Body, Physics, ShapeKind } from "../physics";
-import { type Hull, Hulls, StepSystem } from "../physics/core";
+import { Body, type Hull, Hulls, Physics, ShapeKind, StepSystem } from "../physics";
 import { jumped, moves, resetDrive, states } from "./drive";
 import { type CharState, type SweepBody, sweepCharacter } from "./sweep";
 
-// Character — the kinematic capsule controller (Phase 6.4), the base a higher-level controller (the
+// Character — the kinematic capsule controller, the base a higher-level controller (the
 // first-person Player) composes. The Character entity IS a capsule Body (mass <= 0) whose pose the CPU
 // SWEEP owns: each fixed tick `CharacterSweepSystem` runs the collide-and-slide (`sweep.ts`, the f32-tier
 // twin of an f64 controller oracle) on the CPU, BEFORE the physics solve, then uploads the
@@ -18,8 +17,8 @@ import { type CharState, type SweepBody, sweepCharacter } from "./sweep";
 // This module is the authoring + driving surface: the tuning component, the per-tick sweep system, the
 // eid-keyed drive (move/jump) + the swept-pose / grounded readback a follower (a camera) reads from the
 // CPU controller state. The CPU sweep is the SOLE runtime controller — there is no GPU character pass (it
-// was deleted with the camera-follow rewire); the f64 controller oracle is the spec, and the
-// sweep is validated against it by `character-sweep.oracle.ts`. `Player` composes this controller (look +
+// was deleted with the camera-follow rewire); the f64 controller oracle is the spec the
+// sweep is validated against. `Player` composes this controller (look +
 // a camera) on top, snapshotting `pose` off this CPU state `after: [CharacterSweepSystem]`.
 
 const DEG = Math.PI / 180;
@@ -172,8 +171,7 @@ const hullById = (id: number): Hull | undefined => Hulls.get(Hulls.name(id) ?? "
 // through the installed backend's pose-read seam — the static world is unchanged by the possible one-tick
 // lag, a dynamic / platform pose is fine one tick old), run the collide-and-slide, upload the swept pose as
 // a kinematic body, and apply the full-speed push to shoved dynamics (variant A — the full-CPU apply: the
-// swept body's stale-velocity + shove is written straight through `setVelocity`, no GPU character work; see
-// the push-apply A/B in the gym).
+// swept body's stale-velocity + shove is written straight through `setVelocity`, no GPU character work).
 function sweepEid(eid: number, st: CharState, state: State): void {
     _statics.length = 0;
     _push.length = 0;
@@ -307,3 +305,16 @@ export const CharacterPlugin: Plugin = {
         charSig = FNV_BASIS;
     },
 };
+
+// Character extension surface — the eid-keyed drive (`move` / `jump`) + readback (`pose` / `grounded`), for
+// custom controllers. The happy path (the `Character` component +
+// `CharacterPlugin`, which registers every `[Character, Body]` with the solver) ships on the barrel.
+
+export { grounded, jump, move, pose, teleport } from "./drive";
+export {
+    type CharState,
+    MAX_CHAR_CANDIDATES,
+    type SweepBody,
+    type SweepDiag,
+    sweepCharacter,
+} from "./sweep";

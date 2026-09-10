@@ -43,7 +43,7 @@ export function packColor(hex: number, opacity: number): number {
  * color work (hue/lightness perturbation around a base color); pair with
  * {@link oklabToLinearWgsl} to come back. One source so every shader
  * agrees on the matrices. Lazily resolved so the string isn't built until
- * first call (the `*Wgsl()` chunk pattern, the archived exports rules).
+ * first call (the `*Wgsl()` chunk pattern).
  */
 export function linearToOklabWgsl(): string {
     return tgpu.resolve({

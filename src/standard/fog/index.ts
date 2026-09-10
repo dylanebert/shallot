@@ -2,30 +2,39 @@
 // **extinction** (uniform haze + exponential height fog, fading the scene toward the haze color) with
 // **in-scatter** — the light shafts a `Volumetric` light opts into: the clustered point/spot cones
 // shadowed by sear's point atlas, plus the directional sun shaft shadowed by sear's sun map (the same
-// froxel grid + shadow service sear's lit path uses, bound through `render/core` + `sear/core`), so
+// froxel grid + shadow service sear's lit path uses, bound through `render` + `sear`), so
 // occluders cast dark shafts. It runs through the `sceneTransform` seam (after sear's color pass, before
 // glaze's tonemap), so the result is part of the HDR scene the tonemap rolls off. A scene opts in with one `Fog` singleton; a camera opts in with sear's `Depth` lane
 // (the march needs scene depth). Both absent → the pass no-ops, no auto-add. The march primitives + the Fog
 // uniform schema live in `./march`; the typed pipeline (the two bind-group layouts + the compute kernel
-// calling them) lives in `./pipeline`. Both the kernel and the CPU-side oracle the gym fog probe diffs
-// against are the same TGSL source (extinction + clustered + sun in-scatter) — this file is the ECS/system/
+// calling them) lives in `./pipeline`. Both the kernel and the CPU-side oracle
+// are the same TGSL source (extinction + clustered + sun in-scatter) — this file is the ECS/system/
 // plugin half: the component, the per-frame uniform pack, and the per-camera dispatch.
 import type { TgpuBindGroup, TgpuBuffer, TgpuComputePipeline, UniformFlag } from "typegpu";
 import type { Plugin, System } from "../../engine";
 import { Compute, f32, formatHex, sparse, u32 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import { GlazeSystem } from "../glaze";
-import { Camera, RenderPlugin } from "../render";
-import { LightCull, Lighting, OverlaySystem, Render, sceneTransform, Views } from "../render/core";
-import { Sear, SearPlugin } from "../sear";
+import {
+    Camera,
+    LightCull,
+    Lighting,
+    OverlaySystem,
+    Render,
+    RenderPlugin,
+    sceneTransform,
+    Views,
+} from "../render";
 import {
     ColorSystem,
     DEPTH_FORMAT,
     pointAtlasView,
+    Sear,
+    SearPlugin,
     shadowSampler,
     sunShadowParams,
     sunShadowView,
-} from "../sear/core";
+} from "../sear";
 import { FOG_FLOATS, FogGpu, WORKGROUP } from "./march";
 import { packFog } from "./pack";
 import { fogKernel, fogLayout0, fogLayout1 } from "./pipeline";
@@ -286,3 +295,33 @@ export const FogPlugin: Plugin = {
         _views.clear();
     },
 };
+
+// fog's extension + diagnostics surface. The march WGSL chunks (so a custom pass — or the fog probe —
+// splices the same integration the production `FogSystem` runs), the `Fog` uniform layout + `packFog`, and
+// the CPU-side march oracles the GPU readback is diffed against. Every march primitive is one TGSL function
+// that resolves to the spliced WGSL and runs on the CPU, so the chunks and the oracle are the same source.
+// The extinction half (`fogMarchWgsl` / `fogTransmittance`), the clustered in-scatter half (light
+// shafts — `fogInScatterWgsl` / `henyeyGreenstein` / `fogInScatter`), and the sun half (the directional
+// shaft — `sunInScatter` / `fogSunInScatter`). The happy path (`Fog`, `FogPlugin`) is on the index barrel.
+export type { FogScatter, FogSun } from "./march";
+export {
+    FOG_BYTES,
+    FOG_FLOATS,
+    FOG_MAX_STEPS,
+    FogGpu,
+    fogComposite,
+    fogDensity,
+    fogInScatter,
+    fogInScatterWgsl,
+    fogMarchWgsl,
+    fogStructWgsl,
+    fogSunInScatter,
+    fogTransmittance,
+    heightOpticalDepth,
+    henyeyGreenstein,
+    inScatterContribution,
+    reconstructWorld,
+    sunInScatter,
+    WORKGROUP,
+} from "./march";
+export { packFog } from "./pack";

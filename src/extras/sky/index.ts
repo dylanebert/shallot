@@ -6,10 +6,8 @@
 // in with sear's `Backdrop` component (`backdrop="name: sky"`). Not in `DEFAULT_PLUGINS`.
 import type { Plugin, System } from "../../engine";
 import { Compute, f32, formatHex, sparse } from "../../engine";
-import { RenderPlugin } from "../../standard/render";
-import { BeginFrameSystem } from "../../standard/render/core";
-import { SearPlugin } from "../../standard/sear";
-import { ColorSystem, registerBackground } from "../../standard/sear/core";
+import { BeginFrameSystem, RenderPlugin, registerBackground } from "../../standard/render";
+import { ColorSystem, SearPlugin } from "../../standard/sear";
 import { packSky } from "./pack";
 import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
 

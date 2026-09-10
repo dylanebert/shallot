@@ -13,9 +13,9 @@ import tgpu, { isTgpuFn } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import { Registry, type State } from "../../engine";
-import { Xform } from "../../engine/utils/core";
+import { Xform } from "../../engine/utils";
 
-// Free functions (barrel-named — `layout`/`register` are too generic for a barrel, the archived exports rules), not `Surfaces.layout`/`Surfaces.register` methods (the spec's literal wording):
+// Free functions (barrel-named — `layout`/`register` are too generic for a barrel), not `Surfaces.layout`/`Surfaces.register` methods (the spec's literal wording):
 // `Registry<T>` (`engine/utils/registry.ts`) is generic infra shared by `Draws`/`Meshes`, so it must stay
 // free of typegpu types and sear's group scheme — a method on it would leak both into every registry
 // consumer. `surfaceLayout`/`registerSurface` live here instead, against the plain surface registry.
@@ -106,7 +106,7 @@ function layoutEntry<B extends Binding>(b: B): EntryFor<B> {
 /** the sear-injected `vertices` slot's two pass variants — the color pass's 16 B main stream
  *  (`array<vec4u>`: pos + meshId / oct normal / uv) and the prepass/shadow passes' 8 B position-only
  *  stream (`array<vec2u>`: pos + meshId). Same physical binding slot, distinct element type per pass —
- *  the archived render rules' `uniformWgsl(pass)` split, moved from the engine group into the surface group here. */
+ *  the `uniformWgsl(pass)` split, moved from the engine group into the surface group here. */
 const verticesColor = {
     storage: d.arrayOf(d.vec4u),
     access: "readonly" as const,

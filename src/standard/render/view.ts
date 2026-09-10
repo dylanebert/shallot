@@ -2,7 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute, pixelRatio, type State } from "../../engine";
-import { chunk, spliceNs } from "../../engine/utils/core";
+import { chunk, spliceNs } from "../../engine/utils";
 import { Camera, Resolution } from "./camera";
 import { Render } from "./render";
 
@@ -74,7 +74,7 @@ export const viewWgsl = chunk("viewWgsl", [View], spliceNs);
  * base-format storage view (a storage view can't be sRGB), so the composite encodes the transfer the
  * hardware would apply on a render-attachment write. One source of truth so every composite (glaze +
  * consumer-fused) agrees, and the present gamma can't drift between them. The per-channel scalar twin is
- * `linearToSrgb1` (`utils/core`), which the LDR color codec packs through.
+ * `linearToSrgb1` (`utils`), which the LDR color codec packs through.
  *
  * @example let encoded = linearToSrgb(max(color, vec3f()));
  */
@@ -153,7 +153,7 @@ const _canvasOwners: WeakMap<HTMLCanvasElement, State> = new WeakMap();
 // read `import.meta.env.DEV` typeof-safely: the engine is bundled by arbitrary consumer bundlers, and a
 // bare `import.meta.env.DEV` throws where `import.meta.env` is undefined (non-vite). Optional-chained,
 // wrapped so an exotic `import.meta` shape can't take down attachCanvas. Exported as a test seam (pins the
-// false-not-throw contract off a vite build) — not on the `render/core` barrel.
+// false-not-throw contract off a vite build) — not on the `render` barrel.
 export function devEnabled(): boolean {
     try {
         const env = import.meta.env as Record<string, unknown> | undefined;
@@ -167,7 +167,7 @@ export function devEnabled(): boolean {
  * dev-only rebuild guard, canvas-keyed: warn when `canvas` is still held by a live, undisposed *different*
  * State — an app rebuilt without disposing the prior one (the leak class `State.onDispose` closes), then
  * record the new owner. Two apps on distinct canvases stay silent; a proper dispose flips the prior owner's
- * `disposed`, so a later rebind is silent too. Internal + a test seam — not on the `render/core` barrel.
+ * `disposed`, so a later rebind is silent too. Internal + a test seam — not on the `render` barrel.
  */
 export function trackCanvasOwner(canvas: HTMLCanvasElement, state: State): void {
     const prior = _canvasOwners.get(canvas);

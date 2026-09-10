@@ -25,7 +25,7 @@ import {
 } from "../collision/distance";
 import type { PlaneResult } from "../collision/mover";
 import * as tree from "../collision/tree";
-import { ALL_BITS_HI, ALL_BITS_LO, MAX_SHAPE_CAST_POINTS } from "../common/core";
+import { ALL_BITS_HI, ALL_BITS_LO, MAX_SHAPE_CAST_POINTS } from "../common/constants";
 import {
     type AABB,
     aabb,

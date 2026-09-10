@@ -18,7 +18,7 @@
 //      the seed's color/width, blends the band over the scene in linear, and writes the rgba16float scratch.
 //
 // Runs in the post-color seam, ordered `after: [ColorSystem, OverlaySystem]` (an overlay — on top of any
-// scene-transform effect like fog, see the archived render rules "the post-color seam") `before: [GlazeSystem]`. The
+// scene-transform effect like fog) `before: [GlazeSystem]`. The
 // composite goes through `sceneTransform` (a compute pass, like glaze) rather than a render pass into
 // `view.framebuffer`, so it never assumes the framebuffer's format/usage — a fog scratch is rgba16float
 // storage, not a render attachment — which is what let the two effects collide. Both anchor refs drop
@@ -37,16 +37,18 @@ import { Compute, f32, sparse, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import { GlazeSystem } from "../../standard/glaze";
 import { Part, PartPlugin } from "../../standard/part";
-import { Camera, type Mesh, RenderPlugin } from "../../standard/render";
 import {
+    Camera,
+    type Mesh,
     Meshes,
     OverlaySystem,
     Render,
+    RenderPlugin,
     sceneTransform,
     type View,
     Views,
-} from "../../standard/render/core";
-import { ColorSystem, DEPTH_FORMAT } from "../../standard/sear/core";
+} from "../../standard/render";
+import { ColorSystem, DEPTH_FORMAT } from "../../standard/sear";
 import { Transform, TransformsPlugin } from "../../standard/transforms";
 import {
     compositeKernel,

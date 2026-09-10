@@ -23,11 +23,21 @@ import * as std from "typegpu/std";
 import type { Plugin, State, System } from "../../engine";
 import { Compute, capacity, f16x4, laneAlias, sparse, u32, unpackColor } from "../../engine";
 import { precompile } from "../../engine/runtime";
-import { unpackLdrColor, Xform } from "../../engine/utils/core";
+import { unpackLdrColor, Xform } from "../../engine/utils";
 import { GlazeSystem } from "../glaze";
-import { Camera, RenderPlugin } from "../render";
-import type { Draw, MeshBinding, MeshIndex, View } from "../render/core";
-import { BeginFrameSystem, Draws, Meshes, Render, Views } from "../render/core";
+import type { Draw, MeshBinding, MeshIndex, View } from "../render";
+import { BeginFrameSystem, Camera, Draws, Meshes, Render, RenderPlugin, Views } from "../render";
+import {
+    type Background,
+    Backgrounds,
+    fsCtxSchema,
+    type Surface,
+    Surfaces,
+    surfaceLayout as typedLayout,
+    registerSurface as typedRegister,
+    VsIn,
+    vsPatchSchema,
+} from "../render/contract";
 import { SlabPlugin, slab } from "../slab";
 import {
     cascadeRegather,
@@ -42,17 +52,6 @@ import {
     shadowReady,
 } from "./atlas";
 import { COLOR_LANES, type ColorLane, DEPTH_FORMAT, laneKey, SAMPLE_COUNT, Tag } from "./codegen";
-import {
-    type Background,
-    Backgrounds,
-    fsCtxSchema,
-    type Surface,
-    Surfaces,
-    surfaceLayout as typedLayout,
-    registerSurface as typedRegister,
-    VsIn,
-    vsPatchSchema,
-} from "./contract";
 import { engineLayout, litPbr } from "./engine";
 import {
     type BindResource,
@@ -95,7 +94,7 @@ export { DEPTH_FORMAT, TAG_FORMAT, TAG_NONE, Tag } from "./codegen";
  * marker selecting Sear as the active renderer on a Camera entity. A camera carrying it renders through
  * sear's color pass, plus the opt-in prepass lanes its {@link Tag} / {@link Depth} markers request.
  * Lives in the renderer impl with the systems that query it; the thin `sear` barrel re-exports it to the
- * game author, `sear/core` re-exports the systems to an extender.
+ * game author, the `sear` barrel exports the systems to an extender.
  *
  * @example
  * ```
@@ -160,8 +159,6 @@ function initMaterial(): void {
  * frame resources. Modeled on {@link Surface}, but backdrop-only: no mesh, instancing, interpolators, or
  * blend modes; the engine names no sky concept, a plugin owns its own sky math.
  */
-export type { Background } from "./contract";
-export { Backgrounds, registerBackground } from "./contract";
 
 /**
  * select a Sear camera's backdrop: the {@link Backgrounds} recipe drawn behind the scene as a fullscreen
@@ -1066,7 +1063,7 @@ export const SearPlugin: Plugin = {
     // Material sets metallic > 0 (dielectric 0), so a bare Part shades exactly like the pre-PBR diffuse.
     initialize(state) {
         // a fresh State recreates its own off-screen shadow cameras lazily — drop any eids cached by
-        // a prior build so this re-run never aliases recycled entities (the archived ECS rules module-scope contract)
+        // a prior build so this re-run never aliases recycled entities (the module-scope contract)
         resetPointShadows();
         resetCascades();
         initMaterial();

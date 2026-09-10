@@ -12,8 +12,8 @@ import {
     vec4,
 } from "../../engine";
 import { eulerAlias } from "../../engine/utils";
-import { BeginFrameSystem, Render } from "../render/core";
-import { PrepassSystem } from "../sear/core";
+import { BeginFrameSystem, Render } from "../render";
+import { PrepassSystem } from "../sear";
 import { SlabPlugin, slab } from "../slab";
 import { Transform } from "../transforms";
 import { init, type Body as SolverBody, World } from "./api";
@@ -27,7 +27,7 @@ import { marshalBody } from "./marshal";
 // into the `transforms` firehose, movers only. Storage is an eid↔solver-body map plus a capacity-sized
 // prev/curr pose double buffer; no slab or mirror, since the solver serves this tick's state directly.
 // Body marshaling is `marshal.ts`, Spring/Joint marshaling `joints.ts`. An outside solver plugs in through
-// `physics/core` (traits, defs, signatures, system anchors) and never through this module's state.
+// the physics barrel (traits, defs, signatures, system anchors) and never through this module's state.
 
 /** collision-shape tag for {@link Body}. Box collides as an OBB; sphere/capsule as a core + radius; hull as a convex polytope (geometry registered in `Hulls`, referenced by `halfExtents.w` = the hull id). */
 export const ShapeKind = { Box: 0, Sphere: 1, Capsule: 2, Hull: 3 } as const;
@@ -662,3 +662,25 @@ export const PhysicsPlugin: Plugin = {
         Physics.world = null;
     },
 };
+
+export { nlerpShortest } from "./compose";
+export { type Hull, type HullFace, Hulls, UNIT_CUBE_ID } from "./hull";
+export { bodyCandidates, cursorRay, forwardRay, grabHit, worldToLocal } from "./pick";
+export {
+    generateRay,
+    qRotate,
+    type Ray,
+    type RayBody,
+    type RayHit,
+    rayCapsule,
+    raycast,
+    rayOBB,
+    raySphere,
+    screenToRay,
+} from "./raycast";
+// Physics extension surface: what an outside solver or custom tooling needs past the author happy path.
+// An outside solver registers the shared components with these traits, derives the authored constraint
+// set from the defs/signatures, reads hull geometry from `Hulls`, and orders its systems against these
+// anchors. Tooling driving `Physics.world` (or its own `World`) past the atomic core needs the solver's
+// free functions: shape builders, `BodyType`/joint configs, debug draw, `hashWorldState`.
+export * as solver from "./solver";

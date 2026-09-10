@@ -1,5 +1,5 @@
 // The web sink: an instanced draw of `cols * rows` monospace quads against the shared SDF glyph atlas
-// (`text/core`), no readback — the same pipeline with the expensive tail deleted. A simplification of `extras/text`'s own instanced glyph draw: no world
+// (`extras/text`), no readback — the same pipeline with the expensive tail deleted. A simplification of `extras/text`'s own instanced glyph draw: no world
 // transform, no per-entity eid lookup, no per-string layout pass — every cell is a fixed monospace box
 // whose position derives purely from its instance index. The quad's *geometry* always covers the whole
 // box ("the grid is the frame" property lives in every pixel of every cell getting a real write, so
@@ -26,8 +26,8 @@ import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuRenderPipeline } from
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute } from "../../engine";
-import { Render } from "../../standard/render/core";
-import { sdfToSignedDistance, textSrgbToLinear } from "../text/core";
+import { Render } from "../../standard/render";
+import { sdfToSignedDistance, textSrgbToLinear } from "../text";
 import { Cell } from "./cell";
 import type { GlyphSizeBuffer, GlyphUvBuffer } from "./glyphs";
 
@@ -72,7 +72,7 @@ const MIN_GLYPH_EM = 0.001;
  * *narrower* of the cell's two dimensions on both axes, so a footprint never overflows into a neighboring
  * cell. A per-axis factor (`cellW` on x, `cellH` on y, independently) was the s3r item 9 defect: it
  * re-stretches every glyph by the cell's own aspect ratio on top of the glyph's true shape, invisible on
- * a square test fixture (`cellW === cellH`, every `examples/gym/src/scenarios/cells.ts` cell — the two
+ * a square test fixture (`cellW === cellH` — the two
  * factors collapse to the same number there, `draw.test.ts`'s own regression pins that collapse) and
  * highly visible on the real 80×24 grid's narrow-by-tall cells, where `min(cellW, cellH)` and
  * `max(cellW, cellH)` differ by roughly 2×. One shared scalar keeps a glyph's own aspect (both axes move
@@ -259,7 +259,7 @@ export function drawPipeline(): TgpuRenderPipeline<d.Vec4f> {
     return _pipeline;
 }
 
-/** drop the memoized draw pipeline + params buffer (`grid.ts`'s `resetPipeline` shape). @internal */
+/** drop the memoized draw pipeline + params buffer. @internal */
 export function resetDrawPipeline(): void {
     _pipeline = null;
     _paramsBuffer?.destroy();

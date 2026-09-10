@@ -1,5 +1,5 @@
 // Convex-hull authoring geometry — the registry of convex hull shapes a `Body` references by id. A solver
-// builds its own colliders from it (marshal.ts; an outside solver through physics/core). No GJK/EPA; no
+// builds its own colliders from it (marshal.ts; an outside solver through the physics barrel). No GJK/EPA; no
 // quickhull build here — authored hulls come from explicit geometry until a mesh→hull path lands.
 
 import { Registry } from "../../engine";

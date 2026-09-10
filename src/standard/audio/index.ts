@@ -5,27 +5,24 @@ import {
     addSpatial,
     alloc,
     assign,
-    byId,
     disposeAudio,
     flushSpatial,
     free,
     gate,
-    getSample,
-    Instruments,
     initAudio,
-    instrument,
     noteFreq,
     oneShot,
     polar,
     running,
-    Samples,
     setParam,
     spatialize,
     started,
     tickAudio,
     watchIdle,
-} from "./core";
+} from "./device";
+import { byId, Instruments, instrument } from "./instrument";
 import { markCooldown, policyFor, type SfxPolicy, withinCooldown } from "./policy";
+import { getSample, Samples } from "./sample";
 
 /**
  * a playing sound, mirroring Bevy's `AudioPlayer` + `PlaybackSettings`: add it
@@ -337,8 +334,10 @@ export function play(
     return eid;
 }
 
+export type { InstrumentDef, ModulationDef, NodeDef, NodeType } from "./instrument";
 export { type SfxPolicy, sfx } from "./policy";
 export { sample } from "./sample";
+export { Instruments, instrument };
 
 /**
  * procedural audio: the `Sound` + `Listener` components and the voice allocator over the WASM synth

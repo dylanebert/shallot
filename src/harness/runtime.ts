@@ -3,8 +3,6 @@ import { Physics } from "../standard/physics";
 import { Transform } from "../standard/transforms";
 import type { PixelProbe } from "./pixels";
 
-export { isDegradedBootMessage } from "./degraded-boot";
-export { assertMotion, frameDifference } from "./motion";
 export { type PixelProbe, type PixelProbeResult, pixelProbePass, probePixels } from "./pixels";
 
 // The published verification protocol. A project installs `window.__harness` so a driver can run it
@@ -88,7 +86,7 @@ export interface HarnessTarget {
 }
 
 // the `window.__harness` slot the driver reads — the one global the published protocol names, so a
-// project (or the gym) can install its target with a plain `window.__harness = target` and have it typed.
+// project can install its target with a plain `window.__harness = target` and have it typed.
 declare global {
     interface Window {
         __harness?: HarnessTarget;

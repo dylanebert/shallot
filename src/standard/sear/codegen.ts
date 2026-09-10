@@ -1,8 +1,8 @@
 // Sear's shared render constants and relocatable clustered-light WGSL.
 
-import { chunk, octEncodeWgsl, spliceNs } from "../../engine/utils/core";
-import type { View } from "../render/core";
-import { clusterCell, distanceAttenuation, pointLightsWgsl, spotFactor } from "../render/core";
+import { chunk, octEncodeWgsl, spliceNs } from "../../engine/utils";
+import type { View } from "../render";
+import { clusterCell, distanceAttenuation, pointLightsWgsl, spotFactor } from "../render";
 
 // the depth format shared by the color pass's own 4× MSAA depth, the 1× prepass depth, and the shadow
 // map. depth32float is sampleable and the reverse-Z precision win needs a float buffer (an integer depth

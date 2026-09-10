@@ -13,7 +13,7 @@ import {
     Transform,
 } from "@dylanebert/shallot";
 import { LiveSkin, skinMatrix } from "@dylanebert/shallot/extras";
-import { qRotate } from "@dylanebert/shallot/physics/core";
+import { qRotate } from "@dylanebert/shallot/physics";
 
 // a ragdoll is a physics skeleton wearing a skinned mesh: capsule bodies fall and tangle under the
 // solver, and a live joint palette copies their poses onto the character's vertices every frame, so the
@@ -27,7 +27,7 @@ import { qRotate } from "@dylanebert/shallot/physics/core";
 type V3 = [number, number, number];
 type Q4 = [number, number, number, number];
 
-// quaternions are [x, y, z, w]; rotation reuses physics/core's `qRotate`
+// quaternions are [x, y, z, w]; rotation reuses the physics barrel's `qRotate`
 const qMul = (a: Q4, b: Q4): Q4 => [
     a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
     a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],

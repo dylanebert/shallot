@@ -12,7 +12,7 @@ import {
     readFields,
     refs,
     type Traits,
-} from "../ecs/core";
+} from "../ecs";
 import type { Attr, Node, ParseError } from "./xml";
 
 interface Registered {

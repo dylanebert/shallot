@@ -23,7 +23,7 @@ import {
 import { shouldBodiesCollide, shouldShapesCollide } from "../collision/pairs";
 import * as tree from "../collision/tree";
 import { NULL_INDEX } from "../common/array";
-import { ALL_BITS_HI, ALL_BITS_LO, LINEAR_SLOP, SPECULATIVE_DISTANCE } from "../common/core";
+import { ALL_BITS_HI, ALL_BITS_LO, LINEAR_SLOP, SPECULATIVE_DISTANCE } from "../common/constants";
 import {
     type AABB,
     aabb,

@@ -6,9 +6,7 @@ export {
     type Easing,
     Fill,
     getEasing,
-    getEasingIndex,
     getEasingName,
-    owns,
     sample,
 } from "./timing";
 

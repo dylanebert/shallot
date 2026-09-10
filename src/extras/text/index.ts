@@ -23,17 +23,21 @@ import {
     u32,
     vec2,
 } from "../../engine";
-import { packColor, Xform, xformPoint } from "../../engine/utils/core";
-import { mesh, RenderPlugin } from "../../standard/render";
-import { BeginFrameSystem, DrawIndexedIndirect, Draws, Meshes } from "../../standard/render/core";
+import { packColor, Xform, xformPoint } from "../../engine/utils";
 import {
+    BeginFrameSystem,
+    DrawIndexedIndirect,
+    Draws,
     fsCtxSchema,
-    PrepassSystem,
+    Meshes,
+    mesh,
+    RenderPlugin,
     registerSurface,
     surfaceLayout,
     VsIn,
     vsPatchSchema,
-} from "../../standard/sear/core";
+} from "../../standard/render";
+import { PrepassSystem } from "../../standard/sear";
 import { Transform, TransformsPlugin } from "../../standard/transforms";
 import {
     createGlyphAtlas,
@@ -122,7 +126,7 @@ export const Text = {
 const surfaceName = (id: number) => `text${id}`;
 const atlasName = (id: number) => `textAtlas${id}`;
 
-// the two custom interstage slots (archived GPU rule 9's 4-slot budget): `uvSize` folds the mixed atlas uv
+// the two custom interstage slots (within the 4-slot custom budget): `uvSize` folds the mixed atlas uv
 // (`.xy`) and the world quad size (`.zw`, what the fs's AA math scales `fwidth(localPos)` by) into one
 // vec4 — `vsPatchSchema` has no `uv` field to override (only `world`/`worldNormal`/`clip` + varyings), so
 // the atlas uv can't ride the built-in. `gcolor` unpacks `unpack4x8unorm` in the vs (a per-instance
@@ -534,3 +538,23 @@ export const TextPlugin: Plugin = {
         _count = 0;
     },
 };
+
+// Text's extension surface — the shared SDF glyph atlas substrate for a producer that needs it
+// without the retained `Text` component + its layout/anchor machinery: atlas creation/warming, plus the
+// SDF decode (`sdfToSignedDistance`) and packed-color decode (`textSrgbToLinear`) a consuming fragment
+// stage evaluates the same way this module's own `fs` does. First consumer: `extras/cells`, the ASCII
+// cell renderer's glyph atlas, which renders directly on the GPU through the existing instanced SDF
+// glyph atlas — a simplification of this system, monospace and anchor-free, reusing the same atlas
+// rather than building a second one. A sibling module imports these through this barrel, never
+// `./atlas` / `./font` / `./glyph` directly: this is the sanctioned reuse seam, the same shape as the skin
+// module's extension surface existing for glTF's PBR trio to compose against.
+export {
+    computeGlyphMetrics,
+    createGlyphAtlas,
+    disposeAtlases,
+    ensureString,
+    type GlyphAtlas,
+    type GlyphMetrics,
+} from "./atlas";
+export { type Font, loadFont } from "./font";
+export { sdfToSignedDistance, textSrgbToLinear } from "./glyph";

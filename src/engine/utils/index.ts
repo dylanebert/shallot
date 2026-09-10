@@ -1,5 +1,55 @@
 export { type Alias, eulerAlias, laneAlias } from "./alias";
-export { formatHex, linearToSrgb, srgbToLinear, unpackColor } from "./color";
+// engine/utils extension surface: the GPU storage codecs — each a TGSL function callable on the CPU and
+// resolvable into a shader — plus the pre-resolved WGSL chunks a raw-WGSL producer or surface splices,
+// and the escape vocabulary for the WGSL constructs TGSL has no binding for. The author math + color +
+// trait-authoring helpers ride the main barrel; this is what an extender building a pipeline reaches for.
+export {
+    formatHex,
+    linearToOklabWgsl,
+    linearToSrgb,
+    oklabToLinearWgsl,
+    packColor,
+    srgbToLinear,
+    unpackColor,
+} from "./color";
+export {
+    decodePos,
+    decodeUv,
+    encodePos,
+    encodeUv,
+    hdrColorPackWgsl,
+    hdrColorUnpackWgsl,
+    ldrColorPackWgsl,
+    ldrColorUnpackWgsl,
+    linearToSrgb1,
+    MeshQuant,
+    meshIdOf,
+    octDecodeNormal,
+    octEncode,
+    octEncodeNormal,
+    octEncodeWgsl,
+    packColor4,
+    packHdrColor,
+    packLdrColor,
+    packQuatSmallest3,
+    packQuatSnorm16x4,
+    packUnorm2,
+    posQuantPackWgsl,
+    posQuantWgsl,
+    quatSnorm16x4Wgsl,
+    smallest3Wgsl,
+    srgbToLinear1,
+    unpackHdrColor,
+    unpackLdrColor,
+    unpackQuatSmallest3,
+    unpackQuatSnorm16x4,
+    Xform,
+    xformMat,
+    xformNormal,
+    xformPoint,
+    xformQuat,
+    xformWgsl,
+} from "./encode";
 export { angle, degrees, type Input, radians, type Unit, units } from "./input";
 export {
     aim,
@@ -18,3 +68,16 @@ export {
     slerp,
 } from "./math";
 export { Registry } from "./registry";
+export {
+    bitcastF32toU32,
+    chunk,
+    idiv,
+    packSnorm2x16,
+    packUnorm2x16,
+    packUnorm4x8,
+    spliceNs,
+    subgroupUniformityOff,
+    uniformLoad,
+    unpackSnorm2x16,
+    unpackUnorm2x16,
+} from "./tgsl";

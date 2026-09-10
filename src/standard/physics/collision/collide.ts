@@ -9,7 +9,11 @@
 // unlinks it. Every op is fround-wrapped; see the README.
 
 import { NULL_INDEX, swapRemove } from "../common/array";
-import { CONTACT_RECYCLE_ANGULAR_DISTANCE, SetType, SPECULATIVE_DISTANCE } from "../common/core";
+import {
+    CONTACT_RECYCLE_ANGULAR_DISTANCE,
+    SetType,
+    SPECULATIVE_DISTANCE,
+} from "../common/constants";
 import {
     aabb,
     f32,

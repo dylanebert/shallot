@@ -27,7 +27,7 @@ import {
 } from "../collision/distance";
 import type { PlaneResult } from "../collision/mover";
 import { NULL_INDEX } from "../common/array";
-import { OVERLAP_SLOP } from "../common/core";
+import { OVERLAP_SLOP } from "../common/constants";
 import {
     type AABB,
     aabb,

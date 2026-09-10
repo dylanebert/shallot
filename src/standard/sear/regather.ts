@@ -4,18 +4,18 @@
 // point/spot tiles, the CSM cascade tiles) instantiates its own `Regather`; the two A/B compute pipelines
 // are geometry-blind (they read slot-major counts + the eid pool alone, with no projection or mesh
 // knowledge), so they're module-scope singletons shared across every instance — one shader module, two
-// buffer sets. The re-gather is a *consumer* of the cull spine's output (`render/core` owns the spine that
+// buffer sets. The re-gather is a *consumer* of the cull spine's output (`render` owns the spine that
 // feeds it); it knows sear-private concepts (the packing convention below, the atlas record shape, the
-// `eids`-lane swap), so it lives here, not in render/core (the agnosticism inversion the archived render rules forbids).
+// `eids`-lane swap), so it lives here, not in render (render stays renderer-agnostic).
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { Compute, capacity } from "../../engine";
-import { DrawIndexedIndirect } from "../render/core";
+import { DrawIndexedIndirect } from "../render";
 
 // the re-gather packs each instance's (eid, dense combo index) into one u32 in the re-gathered list — eid in
 // the low COMBO_SHIFT bits, the combo above. The list rides the surface's `eids` binding lane (the heaviest
-// surfaces sit at the 10-storage ceiling — the archived GPU rules — so the combo can't get its own binding). COMBO_SHIFT
+// surfaces sit at the 10-storage ceiling, so the combo can't get its own binding). COMBO_SHIFT
 // holds the whole eid range (`capacity`), leaving 32 − COMBO_SHIFT bits for the combo (≫ the combo caps).
 // The packer (Pass B below) and the atlas VS that unpacks it (sear's point/cascade pipelines) share these.
 export const COMBO_SHIFT = Math.ceil(Math.log2(capacity));
@@ -23,7 +23,7 @@ export const EID_MASK = (1 << COMBO_SHIFT) - 1;
 
 // one DrawIndexedIndirect record per casting mesh, written by Pass A: instanceCount = Σ combo
 // survivors, firstInstance = the mesh's base into the re-gathered list. Stride derived from the schema
-// (the archived GPU rules: a second hand-authored stride is layout drift waiting to happen).
+// (a second hand-authored stride is layout drift waiting to happen).
 export const SHADOW_ARG_STRIDE = d.sizeOf(DrawIndexedIndirect);
 
 // the two A/B compute pipelines — module-scope singletons, compiled once by prepareRegather. The WGSL is

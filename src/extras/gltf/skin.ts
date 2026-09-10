@@ -3,14 +3,14 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State, System } from "../../engine";
 import { Compute, checkTextureLimits } from "../../engine";
-import { unpackLdrColor, Xform, xformNormal, xformPoint } from "../../engine/utils/core";
+import { unpackLdrColor, Xform, xformNormal, xformPoint } from "../../engine/utils";
 import {
     fsCtxSchema,
     registerSurface,
     surfaceLayout,
     VsIn,
     vsPatchSchema,
-} from "../../standard/sear/core";
+} from "../../standard/render";
 import { Skin } from "../skin";
 import { MaterialData } from "./palette";
 import { materialFns } from "./shade";
@@ -193,7 +193,7 @@ function publishVat(vat: AssembledVat): void {
  * encode a baked clip into the two filterable VAT textures + the params uniform, returning the assembled set
  * the asset cache holds + {@link publishVat} binds. Positions → `rgba16float` remapped to the per-mesh AABB
  * `[0,1]` (where f16 holds the most precision), normals → `rgba16float` plain xyz (renormalized in the VS,
- * **not** oct, so the hardware frame-lerp can't cross the octahedral seam; archived GPU rule 9). Both are core
+ * **not** oct, so the hardware frame-lerp can't cross the octahedral seam). Both are core
  * filterable formats (the 16-bit *norm* formats need the non-floor `texture-formats-tier1` feature), so the
  * linear clamp sampler gives the VS free hardware frame-lerp on every floor device. The remap keeps f16
  * sub-0.1-unit on a model-scale mesh, far inside the rgba8 banding the survey rejected.

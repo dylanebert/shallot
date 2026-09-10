@@ -5,7 +5,8 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { type Background, BgCtx, backgroundLayout, engineLayout } from "../../standard/sear/core";
+import { type Background, BgCtx, backgroundLayout } from "../../standard/render";
+import { engineLayout } from "../../standard/sear";
 
 /** the procedural sky uniform. Explicit pad fields preserve the shipped 144-byte contract: the two
  * leading scalars fill one vec4-aligned row, followed by eight vec4 rows. */

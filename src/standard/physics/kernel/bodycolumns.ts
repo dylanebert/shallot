@@ -19,7 +19,7 @@
 // when a world steps after another has taken the region over; sequential worlds keep working.
 
 import { NULL_INDEX } from "../common/array";
-import { SetType } from "../common/core";
+import { SetType } from "../common/constants";
 import type { Mat3, Quat, Vec3, WorldTransform } from "../common/math";
 import type { Body, BodySim, BodyState } from "../world/body";
 import type { WorldState } from "../world/world";

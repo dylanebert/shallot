@@ -1,5 +1,5 @@
 import * as d from "typegpu/data";
-import { chunk, spliceNs } from "../../engine/utils/core";
+import { chunk, spliceNs } from "../../engine/utils";
 import type { GltfMaterial } from "./gltf";
 
 // the per-material PBR palette boundary: the `MaterialData` schema + its CPU packer in one file, so the

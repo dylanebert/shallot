@@ -10,7 +10,7 @@
 import { shouldShapesCollide } from "../collision/pairs";
 import * as tree from "../collision/tree";
 import { NULL_INDEX } from "../common/array";
-import { MAX_SHAPE_CAST_POINTS, SetType } from "../common/core";
+import { MAX_SHAPE_CAST_POINTS, SetType } from "../common/constants";
 import type { EntityId } from "../common/ids";
 import { minInt, type Transform, toRelativeTransform, type Vec3, xf } from "../common/math";
 import { BodyType, ShapeType } from "../common/types";

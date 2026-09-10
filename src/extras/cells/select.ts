@@ -1,6 +1,6 @@
-// The real content producer `grid.ts`'s module doc names as the thing S3 ships: two compute passes that
+// The real content producer: two compute passes that
 // fill a cell grid from a rendered scene, structure-first rather than `grid.ts`'s deterministic test pattern, which stays untouched —
-// the shape-proving headless producer the `cells` gym scenario and its own tests pin, not the content
+// the shape-proving headless producer its own tests pin, not the content
 // path a real scene drives. `CellsPlugin` (`./index.ts`) dispatches both passes each frame, in order.
 //
 // Pass 1 (`avgKernel`) block-samples `source` (the camera's offscreen scene color) into one tonemapped,
@@ -124,7 +124,7 @@ export const FACE_BOUNDARY_MAGNITUDE_THRESHOLD = 0.5 / (CELL_FILL_GLYPHS.length 
  */
 export const BG_MATCH_EPSILON = 0.004;
 
-/** the sentinel background reference {@link recordSelect} / {@link dispatchSelect} default to when the
+/** the sentinel background reference {@link recordSelect} defaults to when the
  *  caller has no known background color (e.g. a synthetic test texture with no camera behind it):
  *  tonemapped by the same `reinhard()` the kernel applies to a real reference, `reinhard(-1e6)` lands at
  *  `≈1.000001`, outside every luma a real scene sample's own reinhard-compressed average can reach
@@ -281,7 +281,7 @@ export const localBoundaryMagnitude = tgpu.fn(
  * densest-glyph ends are not a facade and were never the reference's own quantity. `select.test.ts`'s
  * flat-neighborhood fixture for the shared-face-boundary gate (`localBoundaryMagnitude`) independently
  * uses 0.517/0.529 from this same region, for the same reason — it's where a real facade sits. Exported
- * so the real-device measurement (`examples/gym/src/scenarios/cells.ts`'s `assertFacadeInk`) reads the
+ * so a real-device measurement reads the
  * same band this docblock names rather than a re-typed copy that could drift from it.
  */
 export const FACADE_BAND_LUMAS: readonly number[] = [0.52, 0.56, 0.6];
@@ -298,7 +298,7 @@ export const FACADE_PIXEL_LUMA_THRESHOLD = 0.18;
 /**
  * the facade-ink band's floor and ceiling (rule 3: "the target is the number").
  * Ratios of the densest-glyph control's own reading, not copied from the reference's crops unread:
- * {@link fillIndexForLuma}'s device caller (`examples/gym/src/scenarios/cells.ts`'s `assertFacadeInk`)
+ * {@link fillIndexForLuma}'s device caller
  * renders a blank-glyph control (0% of pixels above {@link FACADE_PIXEL_LUMA_THRESHOLD}, by construction —
  * the blank glyph paints nothing) and a densest-glyph control (this cells face's `@`/`W` entries,
  * `RAMP_TABLE`'s own coverage ceiling, ~19.7% at that arm's cell pixel size); `FACADE_INK_FLOOR` and
@@ -489,7 +489,7 @@ function pipelines(): { avg: TgpuComputePipeline; select: TgpuComputePipeline } 
 }
 
 /** drop the memoized select pipelines + the intermediate average and params buffers — a re-adopted device
- *  needs fresh ones (`grid.ts`'s `resetPipeline` shape). @internal */
+ *  needs fresh ones. @internal */
 export function resetSelectPipelines(): void {
     _avgBuffer?.destroy();
     _avgBuffer = null;
@@ -506,8 +506,7 @@ export function resetSelectPipelines(): void {
  * differential arm), writing every cell of `cells` (a `Cell` storage buffer sized `cols * rows`,
  * `grid.ts`'s `CellGrid.buffer` shape). Allocates/reuses its own intermediate average buffer, sized to
  * `cols * rows`. Records only — the caller submits (`CellsPlugin` shares one per-frame `Render.encoder`
- * with the draw pass that reads this dispatch's output; {@link dispatchSelect} is the standalone,
- * submit-its-own-encoder convenience wrapper for a test or gym scenario with no frame encoder of its own).
+ * with the draw pass that reads this dispatch's output).
  *
  * `bg` is the raw linear (un-tonemapped) color of the source's own empty background — a camera's
  * unpacked-to-linear `Camera.clearColor` in production — so a cell whose source region is untouched
@@ -557,29 +556,6 @@ export function recordSelect(
         .with(selectPass)
         .dispatchWorkgroups(...dispatchDims);
     selectPass.end();
-}
-
-/**
- * standalone convenience: record + submit both passes in their own command buffer. For a test or gym
- * scenario with no per-frame `Render.encoder` to share (`grid.ts`'s `fillCellGrid` shape) — production
- * (`CellsPlugin`) calls {@link recordSelect} directly against the shared frame encoder instead. `bg` is
- * {@link recordSelect}'s own background-reference parameter, same default.
- *
- * @example dispatchSelect(cellsBuffer, cols, rows, framebufferView, srcW, srcH, [0.02, 0.02, 0.02]);
- */
-export function dispatchSelect(
-    cells: CellBuffer,
-    cols: number,
-    rows: number,
-    source: GPUTextureView,
-    srcW: number,
-    srcH: number,
-    bg: readonly [number, number, number] = NO_BACKGROUND,
-): void {
-    const device = Compute.device;
-    const encoder = device.createCommandEncoder({ label: "cells-select" });
-    recordSelect(encoder, cells, cols, rows, source, srcW, srcH, bg);
-    device.queue.submit([encoder.finish()]);
 }
 
 /** the emitted select-pass WGSL (both kernels) — the device-free structural seam its test resolves.

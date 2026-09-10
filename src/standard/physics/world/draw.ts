@@ -13,7 +13,7 @@ import type { BroadPhase } from "../collision/broadphase";
 import * as tree from "../collision/tree";
 import { NULL_INDEX } from "../common/array";
 import { hi32, lo32 } from "../common/bits";
-import { SetType } from "../common/core";
+import { SetType } from "../common/constants";
 import {
     type AABB,
     type Pos,

@@ -5,7 +5,7 @@
 // The whole query runs in shape A's frame using the relative pose of B in A, keeping the math
 // near the local origin. Results stay in frame A.
 
-import { MAX_SHAPE_CAST_POINTS } from "../common/core";
+import { MAX_SHAPE_CAST_POINTS } from "../common/constants";
 import {
     type AABB,
     absf,

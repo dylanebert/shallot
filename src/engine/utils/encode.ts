@@ -47,7 +47,7 @@ const quantNs = tgpu["~unstable"].namespace({ names: "strict" });
 
 /** the decomposed per-entity world transform the `transforms` firehose stores (48 B AoS: pos, quat,
  *  scale), reconstructed on read rather than stored as a matrix — the VS reads it scattered per
- *  instance, so AoS is one cache line per instance (archived GPU rule 1 / "Instance transforms"). */
+ *  instance, so AoS is one cache line per instance. */
 export const Xform = d.struct({
     pos: d.vec3f,
     quat: d.vec4f,
@@ -69,7 +69,7 @@ export const MeshQuant = d.struct({
 // z-bias produced a non-cancelling residual torque on the four corner contacts and a steady-state
 // quaternion drift on settled boxes (validated 2026-05-08). snorm16 makes ±1 and 0 round-trip exactly.
 
-/** octahedral-encode a unit normal to an snorm16x2 `u32` (the storage normal, 12 B → 4 B; archived GPU rule 6,
+/** octahedral-encode a unit normal to an snorm16x2 `u32` (the storage normal, 12 B → 4 B;
  *  Cigolle et al. 2014). **Never for an interpolated or filtered normal** — the octahedral seam breaks
  *  under interpolation; cross those as a plain `vec3` and renormalize.
  *  @example const w2 = octEncodeNormal(vec3f(0, 1, 0)); */
@@ -141,7 +141,7 @@ const quatChunk = chunk("quatSnorm16x4Wgsl", [packQuatSnorm16x4, unpackQuatSnorm
 
 /** WGSL `packQuatSnorm16x4(q) -> vec2<u32>` + `unpackQuatSnorm16x4(p) -> vec4<f32>`: the quaternion
  *  storage codec for a field whose precision feeds a finite-difference downstream (a body quat read
- *  back as angular velocity — archived GPU rule 6's iter-mutated-state case). Worst-case angular error
+ *  back as angular velocity, an iter-mutated-state case). Worst-case angular error
  *  ≤ ~0.01° per round-trip. Splice **after** {@link octEncodeWgsl} — the two share the snorm pack/unpack
  *  leaves, and that chunk defines them. */
 export function quatSnorm16x4Wgsl(): string {
@@ -408,7 +408,7 @@ export const packHdrColor = tgpu.fn(
     return ((rg >>> 4) & 0x7ff) | (((rg >>> 20) & 0x7ff) << 11) | (((bb >>> 5) & 0x3ff) << 22);
 });
 
-/** WGSL `unpackHdrColor(p: u32) -> vec3<f32>`: the HDR color read side (archived GPU rule 6 — `rgb9e5ufloat`
+/** WGSL `unpackHdrColor(p: u32) -> vec3<f32>`: the HDR color read side (`rgb9e5ufloat`
  *  is read-only in WebGPU, so the pack is manual). */
 export const hdrColorUnpackWgsl = chunk("hdrColorUnpackWgsl", [unpackHdrColor]);
 
@@ -498,7 +498,7 @@ export function octEncode(x: number, y: number, z: number): number {
     const nz = Math.fround(z);
     const denom = Math.abs(nx) + Math.abs(ny) + Math.abs(nz);
     // `denom <= 0`, not `denom > 0`: the two differ on a NaN component, and the TGSL source's `select`
-    // takes the reciprocal there (the archived GPU rules' NaN policy — compute through, don't wallpaper). Untestable
+    // takes the reciprocal there (the NaN policy: compute through, don't wallpaper). Untestable
     // through the differential: a typegpu schema refuses a non-finite value, so only a shader (or this
     // mirror) ever sees one.
     const inv = denom <= 0 ? 0 : 1 / denom;

@@ -204,7 +204,7 @@ export function runtimeArms(project: string): void {
     }
     writeFileSync(
         resolve(project, "runtime-types.ts"),
-        'import {State} from "@dylanebert/shallot";import {installHarness} from "@dylanebert/shallot/harness";import {StepSystem} from "@dylanebert/shallot/physics/core";const state=new State();const extension:Parameters<NonNullable<typeof StepSystem.update>>[0]=state;installHarness(extension);state.dispose();\n',
+        'import {State} from "@dylanebert/shallot";import {installHarness} from "@dylanebert/shallot/harness";import {StepSystem} from "@dylanebert/shallot/physics";const state=new State();const extension:Parameters<NonNullable<typeof StepSystem.update>>[0]=state;installHarness(extension);state.dispose();\n',
     );
     const check = (name: string, pass: boolean) => {
         const command = [

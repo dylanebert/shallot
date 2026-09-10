@@ -1,8 +1,8 @@
-// CPU raycast (roadmap §6.5) — analytic ray-vs-shape tests + a nearest-hit query over a body list, plus a
+// CPU raycast — analytic ray-vs-shape tests + a nearest-hit query over a body list, plus a
 // screen-cursor → world ray for picking (`screenToRay`/`generateRay`). The shared pick primitive for player
 // grab + god-mode pick/drag + acoustics. CPU over poses the caller passes in (Mirror'd from
 // the GPU `bodies` for live bodies, the authored slab for statics) — the right call for grab's low volume
-// + latency tolerance, vs a GPU LBVH traverse (roadmap §6.5 experiment). Gold-tested closed-form
+// + latency tolerance, vs a GPU LBVH traverse. Gold-tested closed-form
 // (`raycast.test.ts`). No GJK — each shape is a closed-form solve.
 
 import { ShapeKind } from "./index";

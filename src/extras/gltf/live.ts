@@ -2,15 +2,15 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State } from "../../engine";
-import { unpackLdrColor, Xform, xformNormal, xformPoint } from "../../engine/utils/core";
+import { unpackLdrColor, Xform, xformNormal, xformPoint } from "../../engine/utils";
 import {
     fsCtxSchema,
     registerSurface,
     surfaceLayout,
     VsIn,
     vsPatchSchema,
-} from "../../standard/sear/core";
-import { LIVE_SKIN_VS, SkinParams } from "../skin/core";
+} from "../../standard/render";
+import { LIVE_SKIN_VS, SkinParams } from "../skin";
 import { MaterialData } from "./palette";
 import { materialFns } from "./shade";
 
@@ -25,7 +25,7 @@ import { materialFns } from "./shade";
 // `SkinPlugin` alone; it needs this file only for glTF-material shading.
 
 // the bindings every live-skin surface declares: the instancing convention (eids + transforms) + the
-// substrate's three (`skin` / `skinData` / `skinParams`, skin/core) + the shared material palette + the
+// substrate's three (`skin` / `skinData` / `skinParams`, extras/skin) + the shared material palette + the
 // material's texture arrays/sampler (shared with the textured + VAT paths). Storage count is 5
 // (eids/transforms/skin/materialData/skinData) + sear's shared 5 = 10, the ceiling, zero headroom:
 // folding `color` into the palette header (`liveTintWgsl`) is what buys the room for `skinData` versus the

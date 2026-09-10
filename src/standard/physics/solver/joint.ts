@@ -12,7 +12,7 @@
 import { bufferMove } from "../collision/broadphase";
 import { destroyContact } from "../collision/contact";
 import { NULL_INDEX } from "../common/array";
-import { OVERFLOW_INDEX, SetType } from "../common/core";
+import { OVERFLOW_INDEX, SetType } from "../common/constants";
 import { allocId, freeId } from "../common/ids";
 import {
     absf,

@@ -5,7 +5,7 @@
 // min/max). See the README.
 
 import { NULL_INDEX } from "../common/array";
-import { SetType } from "../common/core";
+import { SetType } from "../common/constants";
 import {
     clampf,
     FLT_MIN,

@@ -4,7 +4,7 @@
 // in software. This is the unopinionated query: it knows only AABBs (the builder's input
 // is an AABB array), names no leaf geometry and no consumer. The physics broadphase splices
 // `bvhRootWgsl` and hand-writes its own descent (its per-body nearest-K prune is not a ray
-// query); the gym tracer is the traversal chunk's consumer. Consumer-specific layers —
+// query). Consumer-specific layers —
 // ray-triangle leaf tests, two-level BLAS/TLAS instancing — live with the consumer, not here.
 //
 // The chunk reads a `nodes: array<vec4<f32>>` binding the consumer declares — node `n`
@@ -16,7 +16,7 @@
 // `bvhClosestHit` is the nearest-hit query (primary rays, the debug trace); `bvhAnyHit`
 // is the occlusion query — it returns at the first hit inside the ray interval, so it
 // traverses far less. Both prune a subtree whose node AABB the ray enters beyond the
-// current limit, matching the CPU oracle's `nearestHitBvh` (tests/bvh/oracle.ts), the
+// current limit, matching the CPU oracle's `nearestHitBvh`, the
 // spec the GPU traverser is gated against.
 //
 // TGSL, with the four node accessors WGSL-bodied: they read `nodes` as a module-scope
@@ -29,7 +29,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { chunk, spliceNs } from "../../engine/utils/core";
+import { chunk, spliceNs } from "../../engine/utils";
 
 /** bytes per BVH2 node (2 × vec4<f32>) */
 export const BVH_NODE_BYTES = 32;

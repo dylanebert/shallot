@@ -17,7 +17,7 @@ import {
     overlapShapeQuery,
 } from "../collision/query";
 import type { TreeStats } from "../collision/tree";
-import { DEFAULT_MASK_BITS } from "../common/core";
+import { DEFAULT_MASK_BITS } from "../common/constants";
 import type { EntityId } from "../common/ids";
 import { type AABB, f32, froundConfig, type Pos, type Vec3 } from "../common/math";
 import {

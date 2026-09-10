@@ -12,14 +12,9 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { unpackLdrColor } from "../../engine/utils/core";
-import {
-    engineLayout,
-    fsCtxSchema,
-    surfaceLayout,
-    VsIn,
-    vsPatchSchema,
-} from "../../standard/sear/core";
+import { unpackLdrColor } from "../../engine/utils";
+import { fsCtxSchema, surfaceLayout, VsIn, vsPatchSchema } from "../../standard/render";
+import { engineLayout } from "../../standard/sear";
 
 /** one debug segment: two world endpoints + a pixel width + a packed sRGBA color. 32 B, the layout
  *  `segments.ts` stages (`a.xyz` shares its 16-byte slot with `width`, `b.xyz` with `color`). */
@@ -34,7 +29,7 @@ export const lineLayout = surfaceLayout({
 });
 
 /**
- * the two custom interpolators the quad crosses (locations 5–6, archived GPU rule 9's 4-slot budget). `edge`
+ * the two custom interpolators the quad crosses (locations 5–6, within the 4-slot custom budget). `edge`
  * packs the AA pair (`x` = signed distance from the segment centreline in pixels, `y` = the half-width the
  * fs compares it against). Two, not one: rgb + alpha + one AA shape parameter is five independent floats —
  * straight-alpha blending can't fold alpha into rgb, and `min(w,1)` / `max(w,1)*0.5` aren't mutually

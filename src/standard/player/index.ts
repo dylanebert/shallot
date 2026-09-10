@@ -1,7 +1,6 @@
 import { entity, f32, not, type Plugin, type State, type System, sparse } from "../../engine";
 import { clamp, lerp } from "../../engine/utils";
-import { Character, CharacterPlugin, CharacterSweepSystem } from "../character";
-import { jump, move, pose } from "../character/core";
+import { Character, CharacterPlugin, CharacterSweepSystem, jump, move, pose } from "../character";
 import { InputPlugin, Inputs, inputEnabled, requirePointerLock } from "../input";
 import { Body } from "../physics";
 import { Camera, RenderPlugin } from "../render";

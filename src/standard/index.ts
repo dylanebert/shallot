@@ -1,4 +1,18 @@
-export { AudioPlugin, Listener, play, type SfxPolicy, Sound, sample, sfx } from "./audio";
+export {
+    AudioPlugin,
+    type InstrumentDef,
+    Instruments,
+    instrument,
+    Listener,
+    type ModulationDef,
+    type NodeDef,
+    type NodeType,
+    play,
+    type SfxPolicy,
+    Sound,
+    sample,
+    sfx,
+} from "./audio";
 export { Character, CharacterPlugin, CharacterSweepSystem } from "./character";
 export * from "./defaults";
 export { Fog, FogPlugin } from "./fog";

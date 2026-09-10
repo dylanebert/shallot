@@ -4,7 +4,7 @@
 // op is fround-wrapped, mirroring the C scalar expression tree exactly. See the README.
 
 import { NULL_INDEX } from "../common/array";
-import { SetType } from "../common/core";
+import { SetType } from "../common/constants";
 import {
     clampf,
     FLT_MIN,

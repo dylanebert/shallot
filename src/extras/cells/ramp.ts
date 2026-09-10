@@ -1,11 +1,11 @@
 import { RAMP_TABLE } from "./ramp-table";
 
 // The cell glyph ramp: the stable index → character mapping `Cell.glyph` indexes into, shared by every
-// glyph-index consumer — the fill kernel's own test pattern (`grid.ts`'s `glyphCount` wrap), S3's
+// glyph-index consumer — the fill kernel's own test pattern (`grid.ts`'s `glyphCount` wrap), the web
 // instanced draw (a GPU-side uv-rect table indexed the same way, contract below — not built here), and
-// S4's terminal encoder (glyph index → the literal character it writes to the pipe).
+// the terminal encoder (glyph index → the literal character it writes to the pipe).
 //
-// Glyph selection is structure-first (grounded against Xu/Zhang/Wong SIGGRAPH/TOG 2010): S3's detector picks a directional glyph
+// Glyph selection is structure-first (grounded against Xu/Zhang/Wong SIGGRAPH/TOG 2010): the detector picks a directional glyph
 // where a strong edge exists and falls back to a coverage-ordered fill ramp elsewhere. That splits this
 // module's index space into two differently-selected halves, each ordered by the rule that selects it:
 //
@@ -23,9 +23,9 @@ import { RAMP_TABLE } from "./ramp-table";
 //     buckets: Canny's four buckets are *gradient* angles, and a gradient is perpendicular to the edge
 //     it belongs to, so indexing this array by a raw gradient bucket rotates every glyph 90° from the
 //     edge it's meant to draw (gradient 0° ↔ tangent 90°, gradient 45° ↔ tangent 135°, and the reverse
-//     pairs) — S3's detector must convert a computed gradient bucket to its perpendicular tangent bucket
+//     pairs) — the detector must convert a computed gradient bucket to its perpendicular tangent bucket
 //     before indexing here. The four-bucket *count* and *spacing* (0°/45°/90°/135°) are still standard
-//     practice inherited from Canny's non-max suppression; only the angle each bucket names differs. S3's
+//     practice inherited from Canny's non-max suppression; only the angle each bucket names differs. The
 //     detector is what runs the Sobel/DoG selection; this file only names the set, its tangent-angle
 //     convention, and where it lives in the index space.
 //
@@ -34,7 +34,7 @@ import { RAMP_TABLE } from "./ramp-table";
 // table is exactly as stable as a code-point one, only its *ordering rule* differs.
 
 /** the small curated directional set — one glyph per quantized
- *  edge-*tangent* angle bucket, 0°(`-`)/45°(`/`)/90°(`|`)/135°(`\`), the shape S3's structure-based
+ *  edge-*tangent* angle bucket, 0°(`-`)/45°(`/`)/90°(`|`)/135°(`\`), the shape the structure-based
  *  selector consumes. This is the angle the glyph visually runs along, **not** the gradient angle Canny
  *  non-max suppression buckets (a gradient is perpendicular to its edge's tangent — module doc above has
  *  the derivation) — a caller indexing by a raw gradient bucket must rotate it 90° to the perpendicular
@@ -70,7 +70,7 @@ export const CELL_FILL_GLYPHS: readonly string[] = RAMP_TABLE.map((entry) => ent
 export const CELL_GLYPH_COUNT = CELL_FILL_GLYPHS.length + CELL_DIRECTIONAL_GLYPHS.length;
 
 /** the character at glyph index `i` (`0 <= i < CELL_GLYPH_COUNT`) — the ramp's CPU-side inverse, what a
- *  terminal encoder (S4) writes for a decoded {@link Cell.glyph}, and how S3 keys its uv-rect table into
+ *  terminal encoder writes for a decoded {@link Cell.glyph}, and how the web draw keys its uv-rect table into
  *  the shared text atlas (`atlas.glyphs.get(cellGlyphChar(i))`, see the contract below). Indices
  *  `< CELL_FILL_GLYPHS.length` read the coverage-ordered fill ramp; the remainder read
  *  {@link CELL_DIRECTIONAL_GLYPHS}, in bucket order.
@@ -92,7 +92,7 @@ export function cellGlyphString(): string {
 
 // The GPU-side half of this contract — the uv-rect + size tables the instanced draw reads per glyph
 // index — is `glyphs.ts`'s `buildGlyphUvTable` / `buildGlyphSizeTable`, against a live `GlyphAtlas`
-// (`text/core`'s `createGlyphAtlas` + `ensureString`, the same shelf-packed atlas `extras/text`'s own
+// (`extras/text`'s `createGlyphAtlas` + `ensureString`, the same shelf-packed atlas `extras/text`'s own
 // instanced glyph quads use — reused rather than re-derived) that `CellsPlugin` (`./index.ts`) owns the
 // lifecycle of. The contract:
 //

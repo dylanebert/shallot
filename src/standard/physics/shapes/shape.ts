@@ -25,7 +25,7 @@ import {
     MAX_SHAPE_CAST_POINTS,
     SetType,
     SPECULATIVE_DISTANCE,
-} from "../common/core";
+} from "../common/constants";
 import { allocId, freeId } from "../common/ids";
 import {
     type AABB,

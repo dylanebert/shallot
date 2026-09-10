@@ -1,5 +1,5 @@
 import { NULL_INDEX } from "../common/array";
-import { HUGE, LINEAR_SLOP } from "../common/core";
+import { HUGE, LINEAR_SLOP } from "../common/constants";
 import type { EntityId } from "../common/ids";
 import { clampf, f32, froundConfig, PI, type Transform, type Vec3 } from "../common/math";
 import {

@@ -175,8 +175,9 @@ export function projectPhysics(work: string, publicTar: string): string {
 const consumer = `
 import assert from "node:assert/strict";
 import { Physics, PhysicsPlugin, State } from "@dylanebert/shallot";
-import { BodyType, World, init, threads, makeBoxHull } from "@dylanebert/shallot/physics/core";
+import { solver } from "@dylanebert/shallot/physics";
 import { kernel, workers } from "./node_modules/@dylanebert/shallot/src/standard/physics/kernel/kernel.ts";
+const { BodyType, World, init, threads, makeBoxHull } = solver;
 const mode = process.argv[2];
 const instantiate = WebAssembly.instantiate;
 let instances = 0;
@@ -206,7 +207,14 @@ console.log("PHYSICS_REALIZED threads=" + threads());
 
 const types = `
 import { Physics, PhysicsPlugin } from "@dylanebert/shallot";
-import { World, Body, defaultWorldDef, defaultBodyDef, type WorldDef, type BodyDef, type InitOptions, init, type Vec3 } from "@dylanebert/shallot/physics/core";
+import { solver } from "@dylanebert/shallot/physics";
+const { World, defaultWorldDef, defaultBodyDef, init } = solver;
+type World = solver.World;
+type Body = solver.Body;
+type WorldDef = solver.WorldDef;
+type BodyDef = solver.BodyDef;
+type InitOptions = solver.InitOptions;
+type Vec3 = solver.Vec3;
 const options: InitOptions = { threads: 2 };
 const definition: WorldDef = defaultWorldDef();
 const bodyDefinition: BodyDef = defaultBodyDef();
@@ -353,7 +361,8 @@ export function physicsArms(project: string): void {
     writeFileSync(
         join(project, "physics-exit.ts"),
         `
-import { init, threads, World, BodyType, makeBoxHull } from "@dylanebert/shallot/physics/core";
+import { solver } from "@dylanebert/shallot/physics";
+const { init, threads, World, BodyType, makeBoxHull } = solver;
 await init();
 const world = new World({ gravity: { x: 0, y: -10, z: 0 } });
 const body = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 5, z: 0 } });

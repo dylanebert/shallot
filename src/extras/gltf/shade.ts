@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { litPbr, Pbr } from "../../standard/sear/core";
+import { litPbr, Pbr } from "../../standard/sear";
 import type { GltfMaterial } from "./gltf";
 import { MaterialData } from "./palette";
 

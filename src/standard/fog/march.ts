@@ -1,6 +1,6 @@
 // The fog raymarch. Each primitive is ONE TGSL function: the same source resolves to the WGSL the
-// production `FogSystem` and the gym `render` fog probe splice, and runs on the CPU as the oracle the unit
-// tests + the probe-readback assert pin the GPU to. There is no twin to keep in step.
+// production `FogSystem` splices, and runs on the CPU as the oracle the unit
+// tests pin the GPU to. There is no twin to keep in step.
 //
 // S1 integrates **extinction** only (uniform haze + exponential height fog, Beer-Lambert per step); S2 adds
 // **in-scatter** — the clustered point/spot shafts and the directional sun — on the same march loop.
@@ -13,16 +13,16 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { chunk, octEncodeWgsl, spliceNs } from "../../engine/utils/core";
-import { distanceAttenuation, PointLightGpu, pointLightsWgsl, spotFactor } from "../render/core";
-import { lightEvalWgsl } from "../sear/core";
+import { chunk, octEncodeWgsl, spliceNs } from "../../engine/utils";
+import { distanceAttenuation, PointLightGpu, pointLightsWgsl, spotFactor } from "../render";
+import { lightEvalWgsl } from "../sear";
 
 /** compute workgroup tile: 8×8 = 64 threads, matching glaze's screen-space composite. */
 export const WORKGROUP = 8;
 
 /** the march's constant loop cap. DXC chokes on a fully-dynamic loop bound, so the marched loop runs to this
- * compile-time constant and `break`s at the runtime `steps` (the archived GPU rules "DXC: constant upper bound + dynamic
- * break"); a captured JS constant folds to a literal in the emitted WGSL. `packFog` clamps `Fog.steps` to it,
+ * compile-time constant and `break`s at the runtime `steps`;
+ * a captured JS constant folds to a literal in the emitted WGSL. `packFog` clamps `Fog.steps` to it,
  * so a clamped step count integrates the full ray at the cap resolution, never a silent under-integration. */
 export const FOG_MAX_STEPS = 256;
 
@@ -71,7 +71,7 @@ export const FOG_PARAMS = {
  *  {@link packFog} packs. Splice **before** that declaration. */
 export const fogStructWgsl = chunk("fogStructWgsl", [FogGpu], spliceNs);
 
-// ---- extinction (S1): the midpoint march + the haze composite + the per-pixel ray setup ----
+// ---- extinction: the midpoint march + the haze composite + the per-pixel ray setup ----
 
 /** exponential height fog's density at a world point: `density · exp(-falloff · (p.y - base))`. Height-only,
  *  so the x/z lanes are unread — the point is the parameter because the in-scatter loop already has one.
@@ -160,7 +160,7 @@ export const fogMarchWgsl = chunk(
     spliceNs,
 );
 
-// ---- in-scatter (S2 clustered lights + S3 sun) ----
+// ---- in-scatter (clustered lights + sun) ----
 
 /** the Henyey-Greenstein single-scatter phase function. `g` in [-1,1]: 0 isotropic (1/4π), →1 forward-peaked
  *  (a bright halo toward a light), →-1 back-scatter. `cosTheta` is the cosine between the view ray and the
@@ -218,7 +218,7 @@ export const sunInScatter = tgpu.fn(
  * the in-scatter primitives, spliced by the production fog shader and the fog probe:
  * {@link henyeyGreenstein}, the clustered {@link inScatterContribution}, and the directional
  * {@link sunInScatter}. Splice **after** `pointLightsWgsl()` + `octEncodeWgsl()` + `lightEvalWgsl()`
- * (`sear/core`) — the contribution calls their `distanceAttenuation` / `spotFactor`.
+ * (`sear`) — the contribution calls their `distanceAttenuation` / `spotFactor`.
  */
 export function fogInScatterWgsl(): string {
     // force the base chunks first, so `PointLightGpu` and the light-eval primitives land in the chunks that

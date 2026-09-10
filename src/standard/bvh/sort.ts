@@ -5,8 +5,8 @@
 // One global histogram + one seed scan are computed ONCE for all four 8-bit passes — per-byte
 // digit counts are order-invariant under the stable reorder — then one binning pass per digit
 // recovers its per-partition prefix by a chained scan: 7 dispatches, vs the 16 a per-pass
-// reduce-then-scan (DeviceRadixSort) needs, for all N with no count branch (the archived GPU rules "Dispatch
-// count is a first-class cost" — the dispatch floor is the dominant per-frame cost for the small,
+// reduce-then-scan (DeviceRadixSort) needs, for all N with no count branch (dispatch count is a first-class
+// cost: the dispatch floor is the dominant per-frame cost for the small,
 // GPU-count producers the builder serves: caster TLAS, physics broadphase, terrain chunks).
 //
 // Decoupled-Fallback, not plain decoupled-lookback: lookback spins on a forward-progress
@@ -26,15 +26,15 @@
 // gated by `workgroupUniformLoad(&wgDone)` — a control barrier whose result the uniformity
 // analysis treats as uniform, so the in-loop barriers are legal. A plain atomicLoad gate is
 // rejected by Tint; a fixed-count loop runs every block to full length (a large-N cliff). Thread
-// 0 sets the non-atomic wgDone once the completed-subgroup count reaches numSub. See the archived GPU rules
-// "decoupled-scan exception".
+// 0 sets the non-atomic wgDone once the completed-subgroup count reaches numSub (the decoupled-scan
+// exception).
 
 import tgpu, { type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute } from "../../engine";
 import { precompile, precompileScope } from "../../engine/runtime";
-import { idiv, subgroupUniformityOff, uniformLoad } from "../../engine/utils/core";
+import { idiv, subgroupUniformityOff, uniformLoad } from "../../engine/utils";
 import { createRadixSortLds } from "./sort-lds";
 
 const RADIX = 256;
@@ -292,8 +292,8 @@ const scanKernel = tgpu
 
 // The lookback's `subgroupAny` / `subgroupAll` run inside a `workgroupUniformLoad`-gated loop, which
 // WGSL's uniformity analysis rejects on principle: it treats every subgroup-reduction result as
-// non-uniform for control flow, and the gate is uniform only at runtime (the archived GPU rules "Subgroup ops in
-// data-dependent loops"). The sanctioned opt-out is a module-scope diagnostic, and it can only ride a
+// non-uniform for control flow, and the gate is uniform only at runtime.
+// The sanctioned opt-out is a module-scope diagnostic, and it can only ride a
 // WGSL-bodied function's `$uses` — `$uses` throws on a body the transform produced. So these two
 // wrappers exist to carry it, and the loop below is capped by construction (it walks strictly
 // decreasing partition indices from `part` down to the seeded partition 0).

@@ -1,5 +1,4 @@
-import { type Component, State, type System } from "../ecs";
-import { entries, fields, register, type Traits } from "../ecs/core";
+import { type Component, entries, fields, register, State, type System, type Traits } from "../ecs";
 import {
     Compute,
     deviceLost,
@@ -11,8 +10,7 @@ import {
     requestGPU,
     validateGpu,
 } from "../runtime";
-import { diagnose, load, parse } from "../scene";
-import { preload } from "../scene/core";
+import { diagnose, load, parse, preload } from "../scene";
 import { coalesce, frameDelta, median } from "./coalesce";
 import { resolvePlugins } from "./compose";
 

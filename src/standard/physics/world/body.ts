@@ -19,7 +19,7 @@ import {
 } from "../collision/distance";
 import type { PlaneResult } from "../collision/mover";
 import { NULL_INDEX, swapRemove } from "../common/array";
-import { BODY_NAME_LENGTH, HUGE, SetType, SPECULATIVE_DISTANCE } from "../common/core";
+import { BODY_NAME_LENGTH, HUGE, SetType, SPECULATIVE_DISTANCE } from "../common/constants";
 import { allocId, type EntityId, freeId } from "../common/ids";
 import {
     type AABB,

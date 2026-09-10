@@ -1,8 +1,8 @@
 // the executable spec for the sprite surface's billboard math (Godot material.cpp formulas — full
 // screen-aligned = inverse-view columns substituted for the model rotation with scale re-applied;
 // Y-locked = the cross(up, toViewer) orthonormal form), authored as pure TGSL fns so the same source
-// the shader runs is callable here (the archived testing rules' CPU-kernel tier — the draw itself is gated by the
-// sprite gym scenario's framebuffer probe). `world` is the reconstructed instance matrix (`xformMat`);
+// the shader runs is callable here.
+// `world` is the reconstructed instance matrix (`xformMat`);
 // `right`/`up` are the camera's normalized world-space basis from the View uniform.
 
 import tgpu from "typegpu";

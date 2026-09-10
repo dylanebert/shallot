@@ -9,7 +9,7 @@
 
 import { ContactFlags, reclassifyBodyContacts, writeBodySimIndex } from "../collision/contact";
 import { NULL_INDEX, swapRemove } from "../common/array";
-import { SetType } from "../common/core";
+import { SetType } from "../common/constants";
 import { allocId, freeId } from "../common/ids";
 import { residentPush, residentRemove } from "../kernel/bodycolumns";
 import {

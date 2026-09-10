@@ -1,6 +1,6 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import { Xform } from "../../engine/utils/core";
+import { Xform } from "../../engine/utils";
 
 // The compose kernel: gather the pos/rot/scale slabs into the decomposed `Xform` firehose. No matrix
 // math — readers reconstruct on demand (`xformWgsl()`); the gather just lays the three SoA slabs into one

@@ -389,7 +389,3 @@ export function noteFreq(base: number, octave = 0, semitone = 0, fine = 0): numb
     const freq = base > 0 ? base : C5;
     return freq * 2 ** (octave + semitone / 12 + fine / 1200);
 }
-
-export type { Instrument, InstrumentDef, ModulationDef, NodeDef, NodeType } from "./instrument";
-export { byId, getParamPairs, Instruments, instrument, MAX_INSTRUMENTS } from "./instrument";
-export { getSample, MAX_SAMPLES, Samples, sample, whenLoaded } from "./sample";
