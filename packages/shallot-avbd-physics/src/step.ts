@@ -48,16 +48,16 @@
 // quantization deferred per gpu.md rule 8). The body + contact buffers are SoA cols-buffers (gpu.md
 // consolidation #1). Per-body CSR adjacency feeds the primal: each body reads only its own contacts.
 
-import tgpu, { type TgpuComputePipeline } from "typegpu";
-import * as d from "typegpu/data";
-import * as std from "typegpu/std";
-import { Compute, checkStorageBinding } from "../../engine";
-import { precompile, precompileScope } from "../../engine/runtime";
-import { bitcastF32toU32, chunk, idiv, uniformLoad, Xform } from "../../engine/utils/core";
+import { Compute, checkStorageBinding } from "@dylanebert/shallot";
 // the shared LBVH builder (roadmap "Subgroup-first algorithms": physics is a consumer of the same
 // rendering-unaware builder a native-RT path would use). standard → extras is the documented exception
 // for this shared GPU primitive (exports.md `bvh/core`), not the onion default.
-import { BVH_INVALID, type Bvh, bvhRoot, createBvh } from "../bvh/core";
+import { BVH_INVALID, type Bvh, bvhRoot, createBvh } from "@dylanebert/shallot/bvh/core";
+import { precompile, precompileScope } from "@dylanebert/shallot/runtime";
+import { bitcastF32toU32, chunk, idiv, uniformLoad, Xform } from "@dylanebert/shallot/utils/core";
+import tgpu, { type TgpuComputePipeline } from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import {
     collideBoxBox,
     collideHull,

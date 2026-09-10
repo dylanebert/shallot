@@ -17,7 +17,7 @@ import { resolve } from "path";
 const frames = Number(Bun.argv[2] ?? 600);
 const repoRoot = resolve(import.meta.dir, "..", "..");
 const refDir = resolve(repoRoot, "reference", "avbd-demo3d");
-const fixtureRoot = resolve(import.meta.dir, "..", "fixtures", "avbd");
+const fixtureRoot = resolve(import.meta.dir, "fixtures");
 
 if (!existsSync(refDir)) {
     console.error(`reference dir missing: ${refDir}`);

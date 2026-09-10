@@ -12,7 +12,7 @@ Pull requests are by invitation only. Shallot is a single-author engine at this 
 
 The gate before pushing is `bun check` and `bun run test`. The slow suites are separate: run the one covering what you changed, by path.
 
-- `bun test ./tests/avbd/*.oracle.ts` — AVBD/physics
+- `bun test ./packages/shallot-avbd-physics/tests/*.oracle.ts` — AVBD extension
 - `bun test ./examples/gym/src` — the engine or host layer
 - `bun run scripts/physics/run-fixtures.ts` — physics kernel changes
 - `cargo test` in `rust/audio` — rust audio changes

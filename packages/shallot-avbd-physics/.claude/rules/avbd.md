@@ -1,16 +1,15 @@
 ---
 paths:
-  - "src/standard/avbd/**/*.ts"
-  - "tests/avbd/**/*.ts"
+  - "packages/shallot-avbd-physics/**/*.ts"
 ---
 
-# AVBD Backend
+# AVBD Solver
 
-GPU backend: `AvbdPlugin`; escape: `Avbd.step`. `physics.md` owns the substrate, `physics.md` the default. The committed f64 `tests/avbd/` oracle ports C++ operation-for-operation; golds need no external checkout. Build the augmented-Lagrangian ladder without skipping layers.
+Outside GPU solver: `AvbdPlugin`; escape: `Avbd.step`. It reaches shallot only through published subpaths, physics through `physics/core`; shallot never imports it. The committed f64 `tests/` oracle ports C++ operation-for-operation; golds need no external checkout. Build the augmented-Lagrangian ladder without skipping layers.
 
 ## The oracle is the spec
 
-GPU is wrong until ruled out: the oracle is not the suspect. Never lower it to f32. Physics changes run `bun test ./tests/avbd/*.oracle.ts`; real-device correctness/compile/perf use gym `pile`, hull kernels use `sat`. `headless.tier.ts` is by-path build/lifecycle evidence, never solver parity; `testing.md` owns device-execution exceptions.
+GPU is wrong until ruled out: the oracle is not the suspect. Never lower it to f32. Physics changes run `bun test ./packages/shallot-avbd-physics/tests/*.oracle.ts`; real-device correctness/compile/perf use gym `pile`, hull kernels use `sat`. `headless.tier.ts` is by-path build/lifecycle evidence, never solver parity; `testing.md` owns device-execution exceptions.
 
 Gate closed forms, then identical-start single-step GPU/oracle equality at derived tolerance; statistical energy/penetration/finite bands only for chaotic long horizons. Test hard topologies isolated near origin; diagnose coordinate cancellation by translation. Iterations tune performance, never relax parity: all six corpus topologies and gym gates stay at 10 independently of shipping iterations; per-step math must agree at any count.
 

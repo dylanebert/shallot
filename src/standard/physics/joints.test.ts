@@ -3,7 +3,7 @@ import { attach, stepFor } from "../../../tests/helpers";
 import { State, Time } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
 import { Body, bodyTraits, Joint, jointTraits, Physics, Spring, springTraits } from "../physics";
-import { shutdown, type Joint as SolverJoint } from "../physics/engine";
+import { type Joint as SolverJoint, shutdown } from "../physics/engine";
 import { Slab } from "../slab";
 import { PhysicsPlugin } from "./index";
 import { stiffnessHertz, syncJoints, syncSet } from "./joints";

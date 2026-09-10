@@ -8,7 +8,7 @@ Owners: the root package (`src`, `bin`, `rust`, `tests`), `packages/create-shall
 
 Read `.claude/rules/style.md` always; matching rules below via authoritative `paths:` frontmatter. Repo-root globs govern delivery, not authority. Claude Code loads on matching reads; others read manually. Edit frontmatter, not duplicate globs.
 
-In `.claude/rules/`: `audio.md`, `avbd.md`, `ecs.md`, `examples.md`, `exports.md`, `gpu.md`, `physics.md`, `render.md`, `testing.md`, `visual-identity.md`. Testing includes `site/rum-*.ts` and its frontmatter paths.
+In `.claude/rules/`: `audio.md`, `ecs.md`, `examples.md`, `exports.md`, `gpu.md`, `physics.md`, `render.md`, `testing.md`, `visual-identity.md`. Testing includes `site/rum-*.ts` and its frontmatter paths.
 
 ## Architecture
 
@@ -47,7 +47,7 @@ OS: windows/mac/linux; web emits dist; native uses platform tools. Verify owns V
 
 ### Verification
 
-Before completion: format, check, test above. Release order: `testing.md`. After AVBD/physics: `bun test ./tests/avbd/*.oracle.ts`; engine/host/twin: `bun test ./examples/gym/src`; physics fixtures from package per `physics.md`; Rust audio: `cargo test` from `rust/audio`.
+Before completion: format, check, test above. Release order: `testing.md`. After AVBD changes: `bun test ./packages/shallot-avbd-physics/tests/*.oracle.ts`; engine/host/twin: `bun test ./examples/gym/src`; physics fixtures per `physics.md`; Rust audio: `cargo test` from `rust/audio`.
 
 GPU/serialize/restore/config.ui/dev-server/physics changes owe bench/flow/recipe gates. Verify is headless; hardware refusal is nonzero; display callers use `--headed`. Reachability repairs owe source + physical public-build proof via build.probes.ts; other CLI/manifest/dependency/launch/runtime/scaffold/native-package changes owe test:install; links don’t prove it.
 

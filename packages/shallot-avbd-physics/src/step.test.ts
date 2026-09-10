@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { Compute, precompile, precompileAll, requestGPU } from "@dylanebert/shallot/runtime";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import * as m from "../../../tests/avbd/math";
 import {
     body,
     flat,
@@ -9,7 +9,7 @@ import {
     noIntegerDivision,
     pointerDiscipline,
 } from "../../../tests/wgsl";
-import { Compute, precompile, precompileAll, requestGPU } from "../../engine/runtime";
+import * as m from "../tests/math";
 import {
     JOINT_GROUP,
     LDS_IO_GROUP,

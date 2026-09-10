@@ -9,8 +9,8 @@ import {
     Transform,
     Volumetric,
 } from "@dylanebert/shallot";
-import type { JointDef } from "@dylanebert/shallot/avbd/core";
 import { Meshes, Surfaces } from "@dylanebert/shallot/render/core";
+import type { JointDef } from "@dylanebert/shallot-avbd-physics/core";
 
 // Spawn helpers + the prop builders (ropes, bridge, pyramid, brick stack). Joints are authored
 // imperatively as JointDefs — the gravity gun appends its grab joint after them on the same

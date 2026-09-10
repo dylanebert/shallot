@@ -34,7 +34,6 @@ import {
     Transform,
     TransformsPlugin,
 } from "@dylanebert/shallot";
-import { AvbdPlugin } from "@dylanebert/shallot/avbd";
 import { grounded, move, pose } from "@dylanebert/shallot/character/core";
 import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
 // the physics kernel's resolved thread count (read-only diagnostic on the extension subpath) — the
@@ -145,7 +144,6 @@ let charEid = -1;
 let recycleEid = -1;
 // which backend the current build installed — the isolation gate runs only under physics (avbd never boots
 // the physics kernel, so threads() would stay 1)
-let backendName: "physics" | "avbd" = "physics";
 let xformMirror: Mirror | null = null;
 
 // drives the platform each fixed tick via the substrate's OWN kinematic primitive (`Physics.backend`,
@@ -317,21 +315,12 @@ function recycleBox(state: State, z: number): number {
 const scenario: Scenario = {
     name: "backend",
     params: [
-        {
-            key: "backend",
-            type: "select",
-            options: ["physics", "avbd"],
-            default: "physics",
-            rebuild: true,
-        },
         // the body-count sweep the perf snapshot reads (`scripts/physics-bench.ts`-style, per-backend):
         // a grid of `count` dropped boxes, out of the drive/raycast stations' way.
         { key: "count", type: "number", default: 9, min: 1, max: 400, step: 1, rebuild: true },
     ],
 
     async build(_canvas, p: Params) {
-        const backend = (p.backend as string) === "avbd" ? "avbd" : "physics";
-        backendName = backend;
         const { state, dispose } = await run({
             defaults: false,
             capacity: 64 + (p.count as number),
@@ -343,8 +332,8 @@ const scenario: Scenario = {
                 InputPlugin,
                 OrbitPlugin,
                 RenderPlugin,
-                backend === "avbd" ? AvbdPlugin : PhysicsPlugin,
-                CharacterPlugin, // backend-neutral: the SAME plugin under either backend
+                PhysicsPlugin,
+                CharacterPlugin,
                 DriverPlugin,
                 PartPlugin,
                 SearPlugin,
@@ -448,7 +437,7 @@ const scenario: Scenario = {
         checks.push(...constraintGates());
         checks.push(...(await characterGates(state)));
         checks.push(recycleGate());
-        if (backendName === "physics") checks.push(isolationGate());
+        checks.push(isolationGate());
         checks.push(await measured());
         return checks;
     },

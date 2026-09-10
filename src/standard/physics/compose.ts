@@ -1,7 +1,6 @@
 import { ShapeKind } from "./index";
 
-// Pure render-interpolation math for the physics backend's `compose` — the CPU twin of AVBD's
-// `COMPOSE_PASS_WGSL` (avbd/step.ts). Factored out so the shortest-arc nlerp + per-shape render scale are
+// Pure render-interpolation math for the physics backend's `compose` . Factored out so the shortest-arc nlerp + per-shape render scale are
 // unit-testable without a GPU device or a live physics World.
 
 /** shortest-arc nlerp from `prev` to `curr` at `t`: flip `prev` into `curr`'s hemisphere, lerp,
@@ -21,8 +20,7 @@ export function nlerpShortest(
     return len > 1e-12 ? [x / len, y / len, z / len, w / len] : [0, 0, 0, 1];
 }
 
-/** the render scale mapping a `Body`'s collider to its unit render mesh (avbd/step.ts `COMPOSE_PASS_WGSL`,
- *  avbd.md "Storage + the Body / Transform contract"): box/hull → `2·halfExtents`, sphere → uniform
+/** the render scale mapping a `Body`'s collider to its unit render mesh : box/hull → `2·halfExtents`, sphere → uniform
  *  `2·radius`, capsule → `(2·radius, halfExtents.y + radius, 2·radius)` (the caps distort under a
  *  non-proportional ratio — render-only; the collider stays exact). */
 export function renderScale(

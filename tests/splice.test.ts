@@ -13,14 +13,6 @@ import {
 } from "../src/engine/utils/core";
 import { materialDataWgsl } from "../src/extras/gltf/palette";
 import { liveTintWgsl, skinParamsWgsl } from "../src/extras/skin/core";
-import {
-    boxBoxWgsl,
-    helpersWgsl,
-    hullCoreWgsl,
-    hullSatWgsl,
-    roundedPolyWgsl,
-    roundedWgsl,
-} from "../src/standard/avbd/collide";
 import { bvhRootWgsl, bvhTraverseWgsl } from "../src/standard/bvh/core";
 import { fogInScatterWgsl, fogMarchWgsl, fogStructWgsl } from "../src/standard/fog/core";
 import { tonemapWgsl } from "../src/standard/glaze/tonemap";
@@ -83,12 +75,6 @@ const chunks: [string, () => string][] = [
     ["materialDataWgsl", materialDataWgsl],
     ["bvhRootWgsl", bvhRootWgsl],
     ["bvhTraverseWgsl", bvhTraverseWgsl],
-    ["helpersWgsl", helpersWgsl],
-    ["boxBoxWgsl", boxBoxWgsl],
-    ["roundedWgsl", roundedWgsl],
-    ["hullCoreWgsl", hullCoreWgsl],
-    ["hullSatWgsl", hullSatWgsl],
-    ["roundedPolyWgsl", roundedPolyWgsl],
 ];
 
 const defs = (wgsl: string): string[] =>

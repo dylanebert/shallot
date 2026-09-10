@@ -23,8 +23,8 @@ import {
     type HullData,
     hashWorldState,
     makeBoxHull,
-    shutdown,
     type Body as SolverBody,
+    shutdown,
     World,
 } from "../physics/engine";
 import { Slab } from "../slab";
@@ -689,7 +689,7 @@ describe("kinematic sleep + teleport", () => {
         // a kinematic body that sleeps (parked, v=0) then teleports via setKinematic: setTransform never
         // wakes and setLinearVelocity wakes only on a nonzero velocity, so a zero-velocity teleport left the
         // body asleep — it emits no move event, so the compose firehose slot (movedThisTick) held the stale
-        // pose while readBody saw the new one (an AVBD swap-parity divergence: AVBD composes every live eid).
+        // pose while readBody saw the new one.
         clear();
         const state = new State();
         liveState = state;

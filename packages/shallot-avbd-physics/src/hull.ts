@@ -2,7 +2,7 @@
 // `collide.ts`'s `hullWgsl()` chunk reads. The registry + geometry types are backend-neutral; this format (the
 // header table + concatenated verts/faces/edges) is specific to this backend's narrowphase layout.
 
-import { type Hull, Hulls } from "../physics/core";
+import { type Hull, Hulls } from "@dylanebert/shallot/physics/core";
 
 // ── GPU packing ──────────────────────────────────────────────────────
 // One flat u32 buffer (`hullData`, bound `array<u32>`; floats bitcast). A header table indexed by hullId,

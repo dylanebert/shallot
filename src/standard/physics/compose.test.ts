@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { ShapeKind } from "../physics";
 import { nlerpShortest, renderScale } from "./compose";
 
-// pure render-interpolation math (the CPU twin of AVBD's COMPOSE_PASS_WGSL) — no GPU, no physics World.
+// pure render-interpolation math — no GPU, no physics World.
 
 describe("nlerpShortest", () => {
     test("returns curr exactly at t=1 and prev exactly at t=0", () => {

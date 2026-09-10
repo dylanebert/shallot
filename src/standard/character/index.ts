@@ -7,7 +7,7 @@ import { type CharState, type SweepBody, sweepCharacter } from "./sweep";
 // Character — the kinematic capsule controller (Phase 6.4), the base a higher-level controller (the
 // first-person Player) composes. The Character entity IS a capsule Body (mass <= 0) whose pose the CPU
 // SWEEP owns: each fixed tick `CharacterSweepSystem` runs the collide-and-slide (`sweep.ts`, the f32-tier
-// twin of the f64 oracle `tests/avbd/character.ts`) on the CPU, BEFORE the physics solve, then uploads the
+// twin of an f64 controller oracle) on the CPU, BEFORE the physics solve, then uploads the
 // swept pose as a kinematic body (`Physics.backend.setKinematic`). So the player's input → pose → camera is
 // a same-frame CPU path with no GPU readback, and the backend's dynamics collide against the CURRENT-tick
 // player. The coupling is one-way: the CPU writes the player's fresh pose (the backend reads it to push
@@ -18,7 +18,7 @@ import { type CharState, type SweepBody, sweepCharacter } from "./sweep";
 // This module is the authoring + driving surface: the tuning component, the per-tick sweep system, the
 // eid-keyed drive (move/jump) + the swept-pose / grounded readback a follower (a camera) reads from the
 // CPU controller state. The CPU sweep is the SOLE runtime controller — there is no GPU character pass (it
-// was deleted with the camera-follow rewire); the f64 oracle `tests/avbd/character.ts` is the spec, and the
+// was deleted with the camera-follow rewire); the f64 controller oracle is the spec, and the
 // sweep is validated against it by `character-sweep.oracle.ts`. `Player` composes this controller (look +
 // a camera) on top, snapshotting `pose` off this CPU state `after: [CharacterSweepSystem]`.
 

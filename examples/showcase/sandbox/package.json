@@ -7,7 +7,8 @@
         "gate": "playwright test"
     },
     "dependencies": {
-        "@dylanebert/shallot": "file:../../.."
+        "@dylanebert/shallot": "file:../../..",
+        "@dylanebert/shallot-avbd-physics": "file:../../../packages/shallot-avbd-physics"
     },
     "devDependencies": {
         "@playwright/test": "^1.58.2"

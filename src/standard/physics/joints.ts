@@ -1,27 +1,25 @@
 import {
     BodyType,
     type Quat,
-    type Transform,
     type Body as SolverBody,
     type Joint as SolverJoint,
     type World as SolverWorld,
+    type Transform,
 } from "./engine";
 import type { JointDef, SpringDef } from "./index";
 
 // Spring/Joint def → physics joint marshaling — the constraint half of the ECS→physics path
 // (marshal.ts is the body half). The substrate's ConstraintSystem uploads the full authored set on
 // change; this module diffs it against the live set by def CONTENT, so an unchanged constraint keeps
-// its live physics joint and its warm-started impulses survive a re-author (the AVBD setJoints
-// kept-slot contract, physics.md "Re-upload only on change"). The mapping (physics.md
+// its live physics joint and its warm-started impulses survive a re-author (physics.md "Re-upload only when the authored signature changes"). The mapping (physics.md
 // "Constraint mapping"): Spring → DistanceJoint-with-spring (stiffness N/m → hertz via the pair's
 // reduced mass), Joint → Spherical (stiffnessAng 0) / Weld (rigid past the ∞ sentinel; intermediate
-// is the documented hertz-based approximation). Both backends reject a constraint no dynamic body
-// can satisfy — AVBD deactivates + counts (its GPU can't throw), this path warns + skips. This module
+// is the documented hertz-based approximation). A constraint no dynamic body can satisfy warns + skips. This module
 // also retains the last authored def sets and lets `SyncSystem` re-invoke `syncJoints`/`syncSprings` over
 // them on any body-set change, so a constraint whose endpoint was merely deferred at authored time retries
 // instead of being dropped permanently.
 
-/** AVBD's ∞-stiffness sentinel (physics.md): past this, `stiffnessAng` reads rigid. */
+/** the ∞-stiffness sentinel: past this, `stiffnessAng` reads rigid. */
 const RIGID_THRESHOLD = 1e29;
 
 /**
@@ -86,8 +84,7 @@ const jointKey = (d: JointDef): string => `${d.a}|${d.b}|${d.rA}|${d.rB}|${d.sti
 const liveSprings = new Map<string, SolverJoint[]>();
 const liveJoints = new Map<string, SolverJoint[]>();
 // the last authored def sets — retained so `SyncSystem` can re-invoke `syncJoints`/`syncSprings` over them
-// when a deferred body marshals (the pump half of the late-marshal fix). AVBD's `setJoints` already retains
-// the authored set (avbd/step.ts); this mirrors that contract. A ledger without a pump is inert: nothing
+// when a deferred body marshals (the pump half of the late-marshal fix).  A ledger without a pump is inert: nothing
 // calls back into `joints.ts` between signature changes, so the retained set + the re-invoke are both needed.
 let retainedSprings: readonly SpringDef[] = [];
 let retainedJoints: readonly JointDef[] = [];
@@ -213,10 +210,10 @@ function createSpring(
         length: def.rest,
         enableSpring: true,
         hertz,
-        // critically damped, NOT the literal undamped elastic law: AVBD's BDF1 integration heavily
+        // critically damped, NOT the literal undamped elastic law: an implicit (BDF1) integrator heavily
         // damps its f = k·C spring, so both backends settling to the same mg/k equilibrium (which is
         // damping-independent) is the parity behavior the swap contract asserts; an undamped physics
-        // spring would ring forever where the AVBD one settles.
+        // spring would ring forever where an implicit one settles.
         dampingRatio: 1,
     });
 }
@@ -273,7 +270,7 @@ function createJoint(
         angularHertz,
         // critically damped, matching the spring path (joints.ts createSpring) and the swap-parity rule
         // this file states above (dampingRatio: 1 because settle-to-equilibrium is the behavior that
-        // matches across the swap); an undamped angular spring would ring where the AVBD one settles.
+        // matches across the swap); an undamped angular spring would ring where an implicit one settles.
         angularDampingRatio: 1,
     });
 }

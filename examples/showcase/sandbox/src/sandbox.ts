@@ -23,9 +23,9 @@ import {
     type System,
     Transform,
 } from "@dylanebert/shallot";
-import { Avbd, type JointDef } from "@dylanebert/shallot/avbd/core";
 import { fsCtxSchema, lit, registerSurface, surfaceLayout } from "@dylanebert/shallot/sear/core";
 import { unpackLdrColor, Xform } from "@dylanebert/shallot/utils/core";
+import { Avbd, type JointDef } from "@dylanebert/shallot-avbd-physics/core";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";

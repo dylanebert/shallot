@@ -24,12 +24,12 @@ import { LinesPlugin } from "../src/extras/lines";
 import { OrbitPlugin } from "../src/extras/orbit";
 import { LiveSkin, Skin, SkinPlugin } from "../src/extras/skin";
 import { SpritePlugin } from "../src/extras/sprite";
-import { Avbd, AvbdPlugin } from "../src/standard/avbd";
 import { CharacterPlugin } from "../src/standard/character";
 import { GlazePlugin } from "../src/standard/glaze";
 import { InputPlugin } from "../src/standard/input";
 import { MirrorPlugin } from "../src/standard/mirror";
 import { PartPlugin } from "../src/standard/part";
+import { Physics, PhysicsPlugin } from "../src/standard/physics";
 import { PlayerPlugin } from "../src/standard/player";
 import { RenderPlugin } from "../src/standard/render";
 import { Draws, Surfaces } from "../src/standard/render/core";
@@ -279,22 +279,22 @@ export const roster: Record<string, Conformance> = {
     // rebuild that leaked or doubled the solver handle diverges here. Solver math parity stays CPU
     // (`avbd/*.oracle.ts`) + real-GPU (gym `pile`); these are lifecycle arms only.
     Physics: {
-        plugins: [SlabPlugin, MirrorPlugin, AvbdPlugin],
+        plugins: [SlabPlugin, PhysicsPlugin],
         capacity: 8192,
         scene: `<scene>
             <a body="pos: 0 0 0; half-extents: 10 0.5 10; mass: 0" />
             <a body="pos: 0 6 0; half-extents: 0.6 0.6 0.6; mass: 1" />
         </scene>`,
-        probe: () => ({ backend: Avbd.step !== null, eidCap: Avbd.step?.eidCap ?? 0 }),
+        probe: () => ({ world: Physics.world !== null }),
     },
     Character: {
-        plugins: [SlabPlugin, MirrorPlugin, AvbdPlugin, CharacterPlugin],
+        plugins: [SlabPlugin, PhysicsPlugin, CharacterPlugin],
         capacity: 8192,
         scene: `<scene>
             <a body="pos: 0 0 0; half-extents: 10 0.5 10; mass: 0" />
             <a id="char" body="pos: 0 3 0; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0" character />
         </scene>`,
-        probe: () => ({ backend: Avbd.step !== null, eidCap: Avbd.step?.eidCap ?? 0 }),
+        probe: () => ({ world: Physics.world !== null }),
     },
     Player: {
         plugins: [
@@ -302,8 +302,7 @@ export const roster: Record<string, Conformance> = {
             TransformsPlugin,
             RenderPlugin,
             InputPlugin,
-            MirrorPlugin,
-            AvbdPlugin,
+            PhysicsPlugin,
             CharacterPlugin,
             PlayerPlugin,
         ],
@@ -313,7 +312,7 @@ export const roster: Record<string, Conformance> = {
             <a id="player" body="pos: 0 1 0; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0" character player="camera: @eye" />
             <a body="pos: 0 0 0; half-extents: 10 0.5 10; mass: 0" />
         </scene>`,
-        probe: () => ({ backend: Avbd.step !== null, eidCap: Avbd.step?.eidCap ?? 0 }),
+        probe: () => ({ world: Physics.world !== null }),
     },
     Animation: {
         plugins: [SlabPlugin, TransformsPlugin, AnimationPlugin],
@@ -348,13 +347,10 @@ export const roster: Record<string, Conformance> = {
 
 /**
  * The declared predicate splitting the roster: true when an entry's plugins include `RenderPlugin`
- * or `AvbdPlugin` — the plugins whose presence triggers GPU pipeline compilation, the cost being
- * promoted to the by-path tier. `RenderPlugin` compiles render pipelines; `AvbdPlugin` compiles the
- * AVBD solver's compute pipeline set and binds the device at the entry's threaded capacity (its
- * headless build cost is measured in `tests/avbd/headless.tier.ts`'s header — Physics/Character would
- * blow the 5000 ms per-file cap on a cold adapter, the same straddle that split this tier).
+ — the plugin whose presence triggers GPU pipeline compilation, the cost being promoted to the
+ * by-path tier.
  * Entries with neither (Project, Mirror, Input, Slab+Transforms, Orbit, Animation) are cheap and stay
  * in the default-tier sentinel.
  */
 export const isPipelineCompiling = (entry: Conformance): boolean =>
-    entry.plugins.includes(RenderPlugin) || entry.plugins.includes(AvbdPlugin);
+    entry.plugins.includes(RenderPlugin);

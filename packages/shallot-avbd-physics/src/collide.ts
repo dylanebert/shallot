@@ -32,11 +32,11 @@
 // while the scoped CPU arm reads the exact packed `Uint32Array`. Neither CPU arm can see f32
 // reassociation (it runs on f64 JS numbers), so the emitted-WGSL differential stays the guard for op order.
 
+import { UNIT_CUBE_ID } from "@dylanebert/shallot/physics/core";
+import { chunk, spliceNs } from "@dylanebert/shallot/utils/core";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { chunk, spliceNs } from "../../engine/utils/core";
-import { UNIT_CUBE_ID } from "../physics/core";
 import { HULL_FACE_STRIDE, HULL_HEADER } from "./hull";
 
 /** output manifold cap: the reduced spread set (= CONTACTS_PER_PAIR); was 8, halved by 4.8.1 */

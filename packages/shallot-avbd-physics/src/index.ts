@@ -1,7 +1,19 @@
-import { Compute, capacity, type Plugin, type State, type System, Time } from "../../engine";
-import { BVH_FEATURES } from "../bvh/core";
-import { type Mirror, MirrorPlugin, mirror } from "../mirror";
-import { Body, Joint, Spring } from "../physics";
+import {
+    Body,
+    Compute,
+    capacity,
+    Joint,
+    type Mirror,
+    MirrorPlugin,
+    mirror,
+    type Plugin,
+    SlabPlugin,
+    Spring,
+    type State,
+    type System,
+    Time,
+} from "@dylanebert/shallot";
+import { BVH_FEATURES } from "@dylanebert/shallot/bvh/core";
 import {
     type BodyState,
     bodyTraits,
@@ -12,10 +24,9 @@ import {
     springDefs,
     springSignature,
     springTraits,
-} from "../physics/core";
-import { BeginFrameSystem, Render } from "../render/core";
-import { PrepassSystem } from "../sear/core";
-import { SlabPlugin } from "../slab";
+} from "@dylanebert/shallot/physics/core";
+import { BeginFrameSystem, Render } from "@dylanebert/shallot/render/core";
+import { PrepassSystem } from "@dylanebert/shallot/sear/core";
 import { packHulls } from "./hull";
 import { diffStamps } from "./recycle";
 import { B_POS, B_QUAT, B_VELL, type Inputs, PENALTY_MIN, PhysicsStep } from "./step";
@@ -340,3 +351,5 @@ export const AvbdPlugin: Plugin = {
         Avbd.step = null;
     },
 };
+
+export default AvbdPlugin;

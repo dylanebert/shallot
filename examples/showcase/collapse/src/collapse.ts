@@ -9,8 +9,8 @@ import {
     type State,
     type System,
 } from "@dylanebert/shallot";
-import { Avbd } from "@dylanebert/shallot/avbd/core";
 import { Meshes } from "@dylanebert/shallot/render/core";
+import { Avbd } from "@dylanebert/shallot-avbd-physics/core";
 
 // Large collapsing AVBD structure — the spectacle proof of the rigid-body solver (roadmap "Showcases").
 // A manifest project: scenes/collapse.scene authors the environment (lights, ground, orbit camera),

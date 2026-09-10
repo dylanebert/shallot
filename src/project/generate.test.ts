@@ -15,16 +15,6 @@ describe("generateModule", () => {
         expect(src).not.toContain(`@dylanebert/shallot/orbit`); // not a subpath specifier
     });
 
-    test("routes a subpath-only engine plugin (e.g. Avbd) to its own import, not the barrel", () => {
-        // AvbdPlugin isn't on the main barrel (exports.md) — the generator must import it from
-        // @dylanebert/shallot/avbd or `shallot dev`/`build` throws "does not provide an export named
-        // AvbdPlugin" at runtime (the bug this test pins).
-        const src = generateModule({ plugins: { Avbd: true } }, DIR, []);
-        expect(src).toContain(`import { AvbdPlugin } from "@dylanebert/shallot/avbd";`);
-        expect(src).not.toContain(`AvbdPlugin } from "@dylanebert/shallot";`);
-        expect(src).toContain(`const engine = [`);
-        expect(src).toContain(`AvbdPlugin`);
-    });
 
     test("emits a default import + a loud guard for a local plugin, and no HMR self-accept", () => {
         const manifest: Manifest = { scene: "scenes/s.scene", plugins: { Spin: "./src/spin" } };

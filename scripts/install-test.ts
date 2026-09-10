@@ -26,9 +26,9 @@ import { dirname, join, resolve } from "node:path";
 import { compatibilityFlow } from "./install-test/compatibility";
 import { harnessArms, harnessContract } from "./install-test/harness";
 import { outputFlow } from "./install-test/output";
+import { physicsArms, projectPhysics } from "./install-test/physics";
 import { projectFlow } from "./install-test/project";
 import { runtimeArms } from "./install-test/runtime";
-import { projectPhysics, physicsArms } from "./install-test/physics";
 import { type ShaderArtifactSummary, type VerifyResult, verify } from "./verify";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");

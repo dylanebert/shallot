@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { Compute, requestGPU } from "../../src/engine/runtime/gpu";
-import { probeBuffer } from "../../src/engine/runtime/probe";
+import { Compute, probeBuffer, requestGPU } from "@dylanebert/shallot/runtime";
 import {
     B_POS,
     BODY_VEC4,
@@ -8,7 +7,7 @@ import {
     CONTACT_META,
     CONTACT_VEC4,
     PhysicsStep,
-} from "../../src/standard/avbd/step";
+} from "../src/step";
 import { type Body, body } from "./rigid";
 
 // Trigger cone: `src/standard/avbd/**/*.ts` and this tier's direct fixtures. Run from

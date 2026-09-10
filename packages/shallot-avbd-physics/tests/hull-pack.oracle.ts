@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { HULL_FACE_STRIDE, HULL_HEADER, packHulls } from "../../src/standard/avbd/hull";
-import { type Hull, Hulls, UNIT_CUBE_ID } from "../../src/standard/physics/hull";
+import { type Hull, Hulls, UNIT_CUBE_ID } from "@dylanebert/shallot/physics/core";
+import { HULL_FACE_STRIDE, HULL_HEADER, packHulls } from "../src/hull";
 import { boxHull, tetHull } from "./hull";
 
 // The flat `hullData` layout the GPU collide pass (collide.ts's `hullWgsl()` chunk) reads — a serialization boundary,

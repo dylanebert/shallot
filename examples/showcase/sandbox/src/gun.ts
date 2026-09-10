@@ -1,7 +1,12 @@
 import { Inputs, play, type State } from "@dylanebert/shallot";
-import { type Avbd, type JointDef, type PhysicsStep, WORLD } from "@dylanebert/shallot/avbd/core";
 import { Outline } from "@dylanebert/shallot/extras";
 import { forwardRay, grabHit, worldToLocal } from "@dylanebert/shallot/physics/core";
+import {
+    type Avbd,
+    type JointDef,
+    type PhysicsStep,
+    WORLD,
+} from "@dylanebert/shallot-avbd-physics/core";
 
 // The gravity gun — the legacy sandbox verb, rebuilt on the world-anchor grab (physics.md "the grab
 // dangles from a WORLD anchor"). Click a dynamic body within reach to grab it (a soft spherical joint
