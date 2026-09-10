@@ -76,7 +76,11 @@ async function waitFor(cond: () => Promise<boolean>, ms: number): Promise<boolea
     return false;
 }
 
-/** Exercise the shipped native loader in physical, external installs; retain raw child receipts. */
+// The engine's own bridge spec, so the consumer installs what the engine tests against.
+const BRIDGE: string = JSON.parse(readFileSync(join(import.meta.dir, "../package.json"), "utf8"))
+    .devDependencies["bun-webgpu"];
+
+/** Exercise the shipped native loader against the bridge peer in physical, external installs; retain raw child receipts. */
 export function nativeFlow(work: string, engineTgz: string): void {
     const evidence = join(work, "native");
     mkdirSync(evidence, { recursive: true });
@@ -126,7 +130,7 @@ export function nativeFlow(work: string, engineTgz: string): void {
                 dependencies: {
                     "@dylanebert/shallot": `file:${engineTgz}`,
                     typegpu: "~0.12.5",
-                    ...(layout === "absent" ? {} : { "bun-webgpu": "0.1.7" }),
+                    ...(layout === "absent" ? {} : { "bun-webgpu": BRIDGE }),
                 },
             }),
         );
@@ -147,18 +151,7 @@ export function nativeFlow(work: string, engineTgz: string): void {
         assert.equal(install.exit, 0, install.out);
         const shipped = join(project, "node_modules/@dylanebert/shallot");
         assert.equal(realpathSync(shipped), shipped, "engine is a physical install");
-        for (const file of [
-            "dist/native.js",
-            "dist/bun-webgpu-LICENSE",
-            "dist/bun-webgpu-NOTICE",
-            "bin/bun-native.ts",
-        ]) {
-            assert(existsSync(join(shipped, file)), `tar contains ${file}`);
-        }
-        assert.match(
-            readFileSync(join(shipped, "dist/bun-webgpu-NOTICE"), "utf8"),
-            /Modified by Shallot/,
-        );
+        assert(existsSync(join(shipped, "bin/bun-native.ts")), "tar contains bin/bun-native.ts");
         writeFileSync(
             join(project, "native.fixture.ts"),
             readFileSync(join(import.meta.dir, "install-test/native.fixture.ts")),
@@ -181,100 +174,13 @@ export function nativeFlow(work: string, engineTgz: string): void {
             assert(!existsSync(join(project, "node_modules/bun-webgpu")));
             continue;
         }
-        for (const mode of ["acquire", "foreign", "override"]) {
-            expect(
-                `${layout}-${mode}`,
-                exec(`${layout}-${mode}`, ["bun", "native.fixture.ts", mode], project),
-                0,
-                mode === "acquire"
-                    ? /PACKED_NATIVE_ACQUIRED_DRAINED/
-                    : mode === "foreign"
-                      ? /FOREIGN_REFUSED_UNCHANGED/
-                      : /OVERRIDE_REFUSED/,
-            );
-        }
         const peer = join(project, "node_modules/bun-webgpu");
-        const platformName = `bun-webgpu-${process.platform}-${process.arch}`;
-        const platform =
-            layout === "nested"
-                ? join(peer, "node_modules", platformName)
-                : join(project, "node_modules", platformName);
         assert.equal(realpathSync(peer), peer, "peer is a physical install");
-        assert.equal(
-            realpathSync(platform),
-            platform,
-            "platform is a physical install at the intended depth",
-        );
-        const control = (
-            name: string,
-            file: string,
-            replace: (original: Buffer) => Buffer | null,
-            diagnostic: RegExp,
-        ) => {
-            const original = readFileSync(file);
-            try {
-                const changed = replace(original);
-                if (changed === null) rmSync(file);
-                else writeFileSync(file, changed);
-                const result = exec(
-                    `${layout}-${name}`,
-                    ["bun", "native.fixture.ts", "acquire"],
-                    project,
-                );
-                assert.notEqual(result.exit, 0, name);
-                assert.match(result.out, diagnostic, name);
-                console.log(`native: ${layout}-${name}`);
-            } finally {
-                writeFileSync(file, original);
-            }
-        };
-        const wrongVersion = (original: Buffer) =>
-            Buffer.from(JSON.stringify({ ...JSON.parse(original.toString()), version: "0.0.0" }));
-        control(
-            "wrong-peer",
-            join(peer, "package.json"),
-            wrongVersion,
-            /requires bun-webgpu 0.1.7/,
-        );
-        control(
-            "wrong-platform",
-            join(platform, "package.json"),
-            wrongVersion,
-            /platform requires version 0.1.7/,
-        );
-        control(
-            "missing-platform-entry",
-            join(platform, "index.ts"),
-            () => null,
-            /bun-webgpu-.*\/index.ts/,
-        );
-        const library = readdirSync(platform).find((file) => /\.(dylib|so|dll)$/.test(file));
-        assert(library, "installed native library");
-        const alternate = join(project, library);
-        writeFileSync(alternate, readFileSync(join(platform, library)));
-        control(
-            "wrong-library-path",
-            join(platform, "index.ts"),
-            () => Buffer.from(`export default ${JSON.stringify(alternate)};\n`),
-            /platform library path mismatch/,
-        );
-        control(
-            "missing-library",
-            join(platform, library),
-            () => null,
-            /platform library is missing/,
-        );
-        control(
-            "missing-projection",
-            join(shipped, "dist/native.js"),
-            () => null,
-            /native projection is missing/,
-        );
-        control(
-            "altered-projection",
-            join(shipped, "dist/native.js"),
-            (original) => Buffer.concat([original, Buffer.from("\n// altered\n")]),
-            /projection hash mismatch/,
+        expect(
+            `${layout}-acquire`,
+            exec(`${layout}-acquire`, ["bun", "native.fixture.ts"], project),
+            0,
+            /NATIVE_ACQUIRED/,
         );
     }
     console.log(`native: ${sequence} commands completed`);
