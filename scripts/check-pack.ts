@@ -1,10 +1,10 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { Glob } from "bun";
 import { resolve } from "path";
-import { TEST_TIER_SUFFIXES } from "./test-tiers";
 
 // The published tarball ships source, the CLI, the compiled tooling leaves, the Rust audio WASM and
-// native-window crate, the icon and recipes; never tests, oracles, tiers, probes,
-// fixtures, goldens or build output. Asserted against the real `bun pm pack` output, not the `files`
+// native-window crate, the icon and recipes; never a path the `files` negations name, nor build
+// output. Asserted against the real `bun pm pack` output, not the `files`
 // allowlist in isolation, so a negation the packer ignores still reds.
 const pkgDir = resolve(import.meta.dir, "..");
 
@@ -35,11 +35,15 @@ if (files.length === 0) {
     process.exit(1);
 }
 
+// The `**/` negations in `files`, read back from package.json so the pack gate and the allowlist can't disagree.
+const negated = (
+    JSON.parse(readFileSync(resolve(pkgDir, "package.json"), "utf8")).files as string[]
+)
+    .filter((entry) => entry.startsWith("!**/"))
+    .map((entry) => new Glob(entry.slice(1)));
 const forbidden: [string, (f: string) => boolean][] = [
-    ["test tiers", (f) => TEST_TIER_SUFFIXES.test(f) || f.endsWith(".fixture.ts")],
-    ["goldens", (f) => f.endsWith(".gold.json")],
-    ["fixtures", (f) => f.includes("/fixtures/")],
-    ["build output", (f) => f.includes("/target/") || f.includes("/node_modules/")],
+    ["files negation", (f) => negated.some((glob) => glob.match(f))],
+    ["build output", (f) => f.includes("/node_modules/")],
     ["site assets", (f) => f.startsWith("assets/") && f !== "assets/icon-1024.png"],
     ["repo docs", (f) => f.endsWith(".md") && f !== "README.md" && !f.startsWith("examples/")],
 ];

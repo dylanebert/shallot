@@ -28,8 +28,7 @@ bun run build          # audio WASM, dist/vite.js, physics kernel
 bun run check          # tsc, biome, every scripts/check-*.ts, examples index, scene format, cargo fmt
 bun run test           # cargo test over the workspace, then bun test over src and scripts
 bun run format         # biome and the scene formatter, writing
-bun run test:install   # pack, install into fresh projects, build/dev/add
-bun run assets         # fetch assets.json entries
+bun run assets         # fetch assets.json entries, linking each into the examples that declare it
 bun run prepack        # compile the Node-reachable tooling
 ```
 
@@ -54,7 +53,7 @@ A bump touches every doc and fixture site in one commit; `check-docs` reds on dr
 
 - The root links itself (`"@dylanebert/shallot": "link:."`), so examples import the package by name.
 - Examples declare no engine dependency; `add` writes the version into the copy.
-- An outside project on a local engine uses `bun link`. That doesn't prove the published shape: `bun pm pack` and `bun run test:install` do, and CLI, manifest, dependency, runtime and native changes owe them.
+- An outside project on a local engine uses `bun link`. That doesn't prove the published shape: a `bun pm pack` installed into a scratch project does, and CLI, manifest, dependency, runtime and native changes owe one.
 - `@types/node` and `@webgpu/types` are runtime dependencies, because `types` points at source.
 
 ## Archive

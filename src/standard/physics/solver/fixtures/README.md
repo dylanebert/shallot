@@ -17,7 +17,7 @@ the npm package.
   coloring + the wide 4-lane convex path + serial mesh/overflow spill), which the engine mirrors per-lane.
   DISABLE_SIMD's scalar `FloatW` is bit-identical per lane to the SIMD build, so these fixtures pin the shipping
   wide-simd wasm path too.
-- **Generator source:** `reference/box3d/fixtures/gen.c` (the `fixture_gen` target).
+- **Generator source:** `fixtures/gen.c` on the Box3D reference's `harness` branch (the `fixture_gen` target).
 
 ## Minting new fixtures (deliberate upstream sync only)
 

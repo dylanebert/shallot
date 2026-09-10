@@ -3,7 +3,7 @@ import { basename, resolve } from "node:path";
 import { CLAUDE_IMPORT, RECIPE_TSCONFIG, recipeDoc } from "./add-fragments";
 
 // `shallot add [name] [dir]` — copy a recipe out of the installed package into a runnable project.
-// The recipes ship in the tarball under this package's `examples/recipes/`; running
+// The recipes ship in the tarball under this package's `examples/`; running
 // one in place breaks its own dep resolution and users shouldn't edit inside node_modules, so copy-out is
 // the path. The copy gains (or has its local dep rewritten to) the installed engine version so a plain
 // `bun install && bunx shallot dev` runs green. Paths resolve relative to this package, never cwd — the

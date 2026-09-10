@@ -4,6 +4,7 @@ import {
     existsSync,
     lstatSync,
     mkdirSync,
+    readdirSync,
     readFileSync,
     renameSync,
     rmSync,
@@ -12,8 +13,13 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { normalize } from "../src/project/manifest";
 import { compose, DARK, fromBlocks, MARK, toSvg } from "../src/standard/loading/mark";
 import { toPng } from "./png";
+
+// Each asset links under the `public/` of every example whose `shallot.json` names it in `assets`, so
+// a recipe copied out by `shallot add` carries both its files and the declaration that fetches them.
+// An asset no example declares is fetched into the cache only, for the generators.
 
 /** one pinned asset in `assets.json`: a single file (`sha256`/`bytes`, `url` and `dest` name the file)
  *  or a directory (`files`, `url` and `dest` name the directory each `path` joins). `dest` is relative to
@@ -38,7 +44,15 @@ export interface Pin {
 
 export interface Paths {
     cache: string;
+    /** one subdirectory per example, each declaring its assets in `shallot.json`. */
+    examples: string;
+}
+
+/** one example that loads fetched assets: its `public/` and the `assets.json` names it declares. */
+export interface Consumer {
+    name: string;
     publicDir: string;
+    assets: string[];
 }
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -47,11 +61,25 @@ export const MANIFEST = join(ROOT, "assets.json");
 
 export const PATHS: Paths = {
     cache: join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "shallot", "assets"),
-    publicDir: join(ROOT, "examples", "gym", "public"),
+    examples: join(ROOT, "examples"),
 };
 
 export function load(path = MANIFEST): Asset[] {
     return JSON.parse(readFileSync(path, "utf8"));
+}
+
+/** every example that declares at least one asset, by directory name. */
+export function consumers(paths: Paths = PATHS): Consumer[] {
+    if (!existsSync(paths.examples)) return [];
+    return readdirSync(paths.examples)
+        .sort()
+        .flatMap((name) => {
+            const manifest = join(paths.examples, name, "shallot.json");
+            if (!existsSync(manifest)) return [];
+            const assets = normalize(readFileSync(manifest, "utf8")).assets ?? [];
+            if (assets.length === 0) return [];
+            return [{ name, publicDir: join(paths.examples, name, "public"), assets }];
+        });
 }
 
 /** the files an asset pins, flattened to one shape. */
@@ -88,18 +116,40 @@ export function cached(name: string, paths: Paths = PATHS): string {
     return path;
 }
 
+/** the verified cache path of each file of directory asset `name`, keyed by its path within the
+ *  asset. Throws the fetch remedy when any file is absent or fails its hash. */
+export function cachedFiles(name: string, paths: Paths = PATHS): Map<string, string> {
+    const asset = load().find((a) => a.name === name);
+    if (!asset?.files) throw new Error(`no directory asset ${name} in assets.json`);
+    const out = new Map<string, string>();
+    for (const file of asset.files) {
+        const path = join(paths.cache, file.sha256);
+        if (!existsSync(path) || sha256(path) !== file.sha256) throw new Error(remedy(name));
+        out.set(file.path, path);
+    }
+    return out;
+}
+
 function sha256(path: string): string {
     return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-function present(pin: Pin, paths: Paths): boolean {
-    const dest = join(paths.publicDir, pin.dest);
+function present(pin: Pin, publicDir: string): boolean {
+    const dest = join(publicDir, pin.dest);
     return existsSync(dest) && sha256(dest) === pin.sha256;
 }
 
-/** the names of `assets` whose files are absent or fail their hash under `paths.publicDir`. */
-export function missing(assets: Asset[], paths: Paths = PATHS): string[] {
-    return assets.filter((a) => !pins(a).every((p) => present(p, paths))).map((a) => a.name);
+/** each declared placement of `assets` whose files are absent or fail their hash. */
+export function missing(
+    assets: Asset[],
+    paths: Paths = PATHS,
+): { consumer: string; name: string }[] {
+    return consumers(paths).flatMap((c) =>
+        assets
+            .filter((a) => c.assets.includes(a.name))
+            .filter((a) => !pins(a).every((p) => present(p, c.publicDir)))
+            .map((a) => ({ consumer: c.name, name: a.name })),
+    );
 }
 
 /** symlink `dest` to `src`, copying when the filesystem refuses links. Returns how it placed it. */
@@ -143,24 +193,26 @@ async function download(pin: Pin, cached: string): Promise<void> {
     renameSync(tmp, cached);
 }
 
-/** fetch each absent file of `asset` into the content-addressed cache, verify it, and place it under
- *  `paths.publicDir`. Returns the bytes fetched; 0 means the asset was already present. A cache entry
- *  that fails its hash is deleted and refetched; a download that fails its hash throws. */
+/** fetch each file of `asset` into the content-addressed cache, verify it, and place it under each of
+ *  `publicDirs`. Returns the bytes fetched; 0 means the cache already held it. A cache entry that fails
+ *  its hash is deleted and refetched; a download that fails its hash throws. */
 export async function fetchAsset(
     asset: Asset,
+    publicDirs: string[],
     paths: Paths = PATHS,
     link: typeof symlinkSync = symlinkSync,
 ): Promise<number> {
     let fetched = 0;
     for (const pin of pins(asset)) {
-        if (present(pin, paths)) continue;
         const cached = join(paths.cache, pin.sha256);
         if (existsSync(cached) && sha256(cached) !== pin.sha256) rmSync(cached);
         if (!existsSync(cached)) {
             await download(pin, cached);
             fetched += pin.bytes;
         }
-        place(cached, join(paths.publicDir, pin.dest), link);
+        for (const dir of publicDirs) {
+            if (!present(pin, dir)) place(cached, join(dir, pin.dest), link);
+        }
     }
     return fetched;
 }
@@ -214,25 +266,43 @@ async function main(argv: string[]): Promise<number> {
         return 0;
     }
     const check = argv.includes("--check");
+    const all = load();
     const assets = select(
-        load(),
+        all,
         argv.filter((a) => a !== "--check"),
     );
+    const users = consumers();
+    const unknown = users.flatMap((c) =>
+        c.assets
+            .filter((n) => !all.some((a) => a.name === n))
+            .map((n) => `examples/${c.name}/shallot.json: unknown asset ${n}`),
+    );
+    for (const line of unknown) console.error(line);
+    if (unknown.length > 0) return 1;
     if (check) {
+        const placements = users.reduce(
+            (n, c) => n + assets.filter((a) => c.assets.includes(a.name)).length,
+            0,
+        );
         const absent = missing(assets);
-        for (const name of absent) console.error(remedy(name));
-        if (absent.length === 0) console.log(`assets: ${assets.length} present and verified`);
+        for (const { consumer, name } of absent)
+            console.error(`examples/${consumer}: ${remedy(name)}`);
+        if (absent.length === 0)
+            console.log(
+                `assets: ${placements} placement(s) across ${users.length} example(s) present and verified`,
+            );
         return absent.length > 0 ? 1 : 0;
     }
     let total = 0;
     for (const asset of assets) {
-        const bytes = await fetchAsset(asset);
+        const dirs = users.filter((c) => c.assets.includes(asset.name)).map((c) => c.publicDir);
+        const bytes = await fetchAsset(asset, dirs);
         total += bytes;
         if (bytes > 0) console.log(`fetched ${asset.name} (${mb(bytes)})`);
     }
     console.log(
         total === 0
-            ? `assets: nothing to fetch, ${assets.length} present and verified`
+            ? `assets: nothing to fetch, ${assets.length} cached and placed`
             : `assets: fetched ${mb(total)}`,
     );
     return 0;

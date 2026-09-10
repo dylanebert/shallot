@@ -42,7 +42,7 @@ pub const TY_CAPSULE: u32 = 0;
 pub const TY_HULL: u32 = 3;
 pub const TY_SPHERE: u32 = 5;
 
-/// The speculative margin the fat AABB inflates a shape by (`B3_SPECULATIVE_DISTANCE`, `src/core.ts`).
+/// The speculative margin the fat AABB inflates a shape by (`B3_SPECULATIVE_DISTANCE`, `src/standard/physics/common/constants.ts`).
 /// `4.0 * 0.005` const-evaluates to the same f32 as the TS `f32(4.0 * f32(0.005))`.
 const SPECULATIVE_DISTANCE: f32 = 4.0 * 0.005;
 

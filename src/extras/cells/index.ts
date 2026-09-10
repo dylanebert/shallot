@@ -52,10 +52,10 @@ function gridFor(eid: number, cols: number, rows: number): CellGrid {
 }
 
 /** the live cell grid `CellsSystem` selected and drew for camera `eid` this frame, or `undefined` before
- *  its first frame — a diagnostic/tooling seam (`scripts/dump-cells-ascii.ts`'s tier-0 text dump, which
- *  needs the real plugin-driven grid rather than reimplementing `recordSelect`'s own call against a
- *  camera it drives by hand) rather than a game-author API; not re-exported on the main `extras` barrel,
- *  same as everything else module-private to this directory (`core.ts`'s own docblock). */
+ *  its first frame — a diagnostic/tooling seam (a text dump needs the real plugin-driven grid rather
+ *  than reimplementing `recordSelect`'s own call against a camera it drives by hand) rather than a
+ *  game-author API; not re-exported on the main `extras` barrel, same as everything else
+ *  module-private to this directory. */
 export function cellsGridFor(eid: number): CellGrid | undefined {
     return _grids.get(eid);
 }

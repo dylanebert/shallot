@@ -1,7 +1,7 @@
 // Public data types for world / body / shape creation, ported from Box3D's types.h + the
 // b3Default* factories in types.c (Erin Catto, MIT). Pure data — the def structs bundle creation
 // parameters and are safe to reuse. Default values are bit-exact with the C reference (length unit
-// fixed at 1.0, see core.ts). Single-threaded port: the threading and debug-draw fields of the C
+// fixed at 1.0, see common/constants.ts). Single-threaded port: the threading and debug-draw fields of the C
 // defs (workerCount, enqueueTask, createDebugShape, ...) and the internalValue cookie are dropped.
 
 import { hi32, lo32 } from "./bits";

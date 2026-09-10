@@ -3979,7 +3979,7 @@ mod tests {
         let mut e = new_engine(sr);
         setup_kick_instrument(&mut e, 0);
 
-        // Two voices alternating, like the gym scenario
+        // Two voices alternating on one instrument
         for v in 0..2u32 {
             e.set_voice_instrument(v, 0);
             set_kick_params(&mut e, v);
