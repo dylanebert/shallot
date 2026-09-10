@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 // `scripts/format.ts --root <dir>` scans that tree for `**/*.scene`, so each test creates a temp
 // fixture tree outside the repo. The script's own imports resolve relative to the script file, not cwd.
 
-const SCRIPT = join(import.meta.dir, "../scripts/format.ts");
+const SCRIPT = join(import.meta.dir, "format.ts");
 const REPO_ROOT = resolve(import.meta.dir, "..");
 // Fixtures live in an OS temp tree passed as `--root`, so a killed run cannot leave dirs in the repo.
 const FIXTURE_ROOT = mkdtempSync(join(tmpdir(), "shallot-format-gate-"));

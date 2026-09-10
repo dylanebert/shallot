@@ -39,10 +39,8 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .DS_Store
 Thumbs.db
 
-# IDE (personal settings, not workspace config)
-.vscode/launch.json
-.vscode/tasks.json
-.vscode/extensions/
+# IDE
+.vscode
 
 # Claude
 .claude/settings.local.json
@@ -50,20 +48,12 @@ Thumbs.db
 # Debug/testing artifacts
 .debug/
 
-# format-gate test fixtures — must live under repo root because format.ts anchors its
-# scan on import.meta.dir/..; relocating to tmpdir() would break the anchor proof.
-
 # WASM build artifacts (wasm-pack output)
 **/rust/*/pkg/
 
 # Playwright
 test-results/
 playwright-report/
-
-# Gym assets fetched by `bun run assets` (pinned in assets.json)
-examples/gym/public/sponza
-examples/gym/public/gltf-samples
-scripts/install-test/compat-0.9.5/tarballs/
 
 # Recordings
 recordings/
