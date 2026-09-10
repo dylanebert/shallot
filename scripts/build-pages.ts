@@ -10,7 +10,7 @@ import {
     toSvg,
     toText,
     word,
-} from "../packages/shallot-runtime/src/standard/loading/mark";
+} from "../packages/shallot/src/standard/loading/mark";
 import { brandPage } from "../site/brand/page";
 import { toPng } from "../site/brand/png";
 import { llmsTxt, siteIndex } from "../site/home";
@@ -79,7 +79,7 @@ export async function buildBrand(
     write(
         "mark.ts",
         readFileSync(
-            resolve(root, "packages/shallot-runtime/src/standard/loading/mark.ts"),
+            resolve(root, "packages/shallot/src/standard/loading/mark.ts"),
             "utf8",
         ),
     );

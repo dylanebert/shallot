@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { $ } from "bun";
-import { resolvePlugins } from "../../shallot-runtime/src/engine/app/compose";
-import { DEFAULT_PLUGINS } from "../../shallot-runtime/src/standard/defaults";
+import { resolvePlugins } from "../src/engine/app/compose";
+import { DEFAULT_PLUGINS } from "../src/standard/defaults";
 import { roster } from "./conformance-roster";
 
 const root = resolve(import.meta.dir, "../../..");
@@ -16,7 +16,7 @@ type Gate = readonly [RegExp, string];
 const COMPOSITION_SURFACES: readonly RegExp[] = [
     /^examples\/(?:flows|recipes|showcase|gym)\//,
     /^evals\/tasks\//,
-    /^packages\/shallot-cli\/src\/project\/command\.ts$/,
+    /^packages\/shallot\/src\/project\/command\.ts$/,
     /^packages\/shallot\/scripts\/dump-cells-ascii\.ts$/,
 ];
 
@@ -28,8 +28,8 @@ const PROJECT_GATES: readonly Gate[] = [
     [/^examples\/gym\//, "bun bench"],
     [/^evals\/tasks\/[^/]+\/gate\.ts$/, "bun run test"],
     [
-        /^packages\/shallot-cli\/src\/project\/command\.ts$/,
-        "bun test ./packages/shallot-cli/src/project",
+        /^packages\/shallot\/src\/project\/command\.ts$/,
+        "bun test ./packages/shallot/src/project",
     ],
     [
         /^packages\/shallot\/scripts\/dump-cells-ascii\.ts$/,

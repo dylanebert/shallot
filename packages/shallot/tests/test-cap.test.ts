@@ -108,7 +108,7 @@ describe("cap resolution and the derived exemption", () => {
      */
     test("exemption is derived from the suffix, so no default-tier path can be exempt", () => {
         expect(isCapExempt("packages/shallot/tests/avbd/oracle.oracle.ts")).toBe(true);
-        expect(isCapExempt("packages/shallot-cli/bin/verify.probes.ts")).toBe(true);
+        expect(isCapExempt("packages/shallot/bin/verify.probes.ts")).toBe(true);
         expect(isCapExempt("examples/showcase/roads/src/editCorridor.tier.ts")).toBe(true);
         expect(isCapExempt("packages/shallot/tests/foo.lab.ts")).toBe(true);
         expect(isCapExempt("packages/shallot/tests/conformance.test.ts")).toBe(false);

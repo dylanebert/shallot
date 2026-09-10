@@ -30,11 +30,10 @@ import {
     writeFileSync,
 } from "node:fs";
 import { basename, resolve } from "node:path";
-import { recipeRoot } from "./projections";
 
 const ROOT = resolve(import.meta.dir, "../../.."); // packages/shallot/scripts → repo root
 const SRC = resolve(ROOT, "examples");
-const DEST = resolve(import.meta.dir, "..", recipeRoot); // packages/shallot/examples (gitignored projection)
+const DEST = resolve(import.meta.dir, "../examples"); // packages/shallot/examples (gitignored projection)
 
 // repo-only plumbing that can't resolve outside the workspace (package.json is kept — it's what makes a
 // copied-out recipe a runnable project), plus the smoke-test plugin the copy-out must not carry

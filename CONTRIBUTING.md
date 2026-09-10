@@ -15,7 +15,7 @@ The gate before pushing is `bun check` and `bun run test`. The slow suites are s
 - `bun test ./packages/shallot/tests/avbd/*.oracle.ts` — AVBD/physics
 - `bun test ./examples/gym/src` — the engine or host layer
 - `bun run --cwd packages/shallot-tumble test:fixture` — tumble kernel changes
-- `cargo test` in `packages/shallot-runtime/rust/audio` — rust audio changes
+- `cargo test` in `packages/shallot/rust/audio` — rust audio changes
 - `bun run test:install` — packaging, CLI, manifest, or scaffold changes
 - `bun run flows` / `bun run recipes` — serialize-restore, overlay UI, physics recipes
 - `bun bench --for <the files you changed>` — after GPU changes; it names the gating scenarios, and `--sweep` runs them

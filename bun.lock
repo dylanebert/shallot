@@ -389,47 +389,6 @@
         "typegpu": "~0.12.4",
       },
     },
-    "packages/shallot-runtime": {
-      "name": "shallot-runtime",
-      "version": "0.10.0",
-      "dependencies": {
-        "@types/node": "^26.0.0",
-        "@webgpu/types": "^0.1.70",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "fast-check": "^4.6.0",
-        "typegpu": "~0.12.4",
-        "wgpu-matrix": "^3.4.0",
-      },
-      "peerDependencies": {
-        "typegpu": "~0.12.4",
-      },
-    },
-    "packages/shallot-cli": {
-      "name": "shallot-cli",
-      "version": "0.10.0",
-      "dependencies": {
-        "@types/node": "^26.0.0",
-        "unplugin-typegpu": "~0.12.3",
-        "vite": "^8.0.16",
-      },
-      "devDependencies": {
-        "@dylanebert/shallot": "workspace:*",
-      },
-      "optionalDependencies": {
-        "pngjs": "^7.0.0",
-      },
-      "peerDependencies": {
-        "bun-webgpu": "0.1.7",
-        "playwright": "^1.0.0",
-        "typegpu": "~0.12.4",
-      },
-      "optionalPeers": [
-        "bun-webgpu",
-        "playwright",
-      ],
-    },
     "packages/shallot-tumble": {
       "name": "shallot-tumble",
       "version": "0.10.0",
@@ -936,10 +895,6 @@
     "semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
     "shallot-gpu-particles": ["shallot-gpu-particles@workspace:packages/shallot-gpu-particles"],
-
-    "shallot-runtime": ["shallot-runtime@workspace:packages/shallot-runtime"],
-
-    "shallot-cli": ["shallot-cli@workspace:packages/shallot-cli"],
 
     "shallot-tumble": ["shallot-tumble@workspace:packages/shallot-tumble"],
 

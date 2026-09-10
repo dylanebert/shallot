@@ -114,11 +114,11 @@ beforeAll(async () => {
         );
         await run("unreachable documented path", {
             "AGENTS.md": (text) =>
-                text.replace("packages/shallot-cli/bin/cli.ts", "packages/shallot-cli/bin/gone.ts"),
+                text.replace("packages/shallot/bin/cli.ts", "packages/shallot/bin/gone.ts"),
         });
         await run("registry lookup is not tree resolution", {
             "AGENTS.md": (text) =>
-                text.replace("bun packages/shallot-cli/bin/cli.ts", "bunx shallot"),
+                text.replace("bun packages/shallot/bin/cli.ts", "bunx shallot"),
         });
         for (const kind of ["bin", "files"]) {
             await run(`unregistered ${kind} target`, {

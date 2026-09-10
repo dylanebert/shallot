@@ -17,10 +17,10 @@
  * sibling included above, not with a fallback this gate can see.
  */
 import { describe, expect, test } from "bun:test";
-import { stepWgsl } from "../../shallot-runtime/src/standard/avbd/step";
-import { radixWgsl } from "../../shallot-runtime/src/standard/bvh/sort";
-import { radixLdsWgsl } from "../../shallot-runtime/src/standard/bvh/sort-lds";
-import { gridWgsl, lightCullWgsl } from "../../shallot-runtime/src/standard/render/cluster";
+import { stepWgsl } from "../src/standard/avbd/step";
+import { radixWgsl } from "../src/standard/bvh/sort";
+import { radixLdsWgsl } from "../src/standard/bvh/sort-lds";
+import { gridWgsl, lightCullWgsl } from "../src/standard/render/cluster";
 import { portablePointers } from "./wgsl";
 
 const membership = { base: 0, mask: 1 };

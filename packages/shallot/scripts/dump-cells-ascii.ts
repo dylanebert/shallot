@@ -27,12 +27,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { plugin } from "bun";
 import typegpuBunPlugin from "unplugin-typegpu/bun";
-import { loadNative } from "../../shallot-cli/bin/bun-native";
+import { loadNative } from "../bin/bun-native";
 
 // TGSL function bodies are transpiled at load time (`tests/tgsl.ts`'s own docblock: without this
 // transform every kernel resolves with no metadata and CPU-called kernels return NaN). `bunfig.toml`'s
 // `[test]` preload only reaches `bun test`, never a plain `bun run`, so this script registers the same
-// loader itself — first, before any import below pulls in a TGSL-bearing module (`../../shallot-runtime/src`).
+// loader itself — first, before any import below pulls in a TGSL-bearing module (`../src`).
 plugin(typegpuBunPlugin({ include: /\.tsx?$/ }));
 
 import {
@@ -49,9 +49,9 @@ import {
     SearPlugin,
     SlabPlugin,
     TransformsPlugin,
-} from "../../shallot-runtime/src";
-import { cellGlyphChar, unpackCell } from "../../shallot-runtime/src/extras/cells/core";
-import { attachCanvas } from "../../shallot-runtime/src/standard/render/core";
+} from "../src";
+import { cellGlyphChar, unpackCell } from "../src/extras/cells/core";
+import { attachCanvas } from "../src/standard/render/core";
 
 const SCENE_URL = new URL(
     "../../../examples/recipes/render-to-a-terminal/public/scenes/render-to-a-terminal.scene",

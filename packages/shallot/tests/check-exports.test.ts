@@ -43,14 +43,11 @@ describe("canonical runtime public closure", () => {
     const make = () =>
         fixture({
             "packages/shallot/package.json": JSON.stringify({ exports: entries }),
-            "packages/shallot-cli/package.json": "{}",
-            "packages/shallot-runtime/package.json": "{}",
-            "packages/shallot/src/index.ts": 'export * from "../../shallot-runtime/src/index";',
-            "packages/shallot-runtime/src/index.ts": "export const publicValue = 1;",
+            "packages/shallot/src/index.ts": "export const publicValue = 1;",
         });
     test("canonical definition is public through the executable projection", async () => {
         const root = make();
-        expect(computeEntryFiles(root, entries)).toEqual(["packages/shallot-runtime/src/index.ts"]);
+        expect(computeEntryFiles(root, entries)).toEqual(["packages/shallot/src/index.ts"]);
         expect(await findDeadExports(root)).toEqual([]);
     });
     test("missing public projection refuses despite a surviving canonical definition", () => {
@@ -60,14 +57,14 @@ describe("canonical runtime public closure", () => {
     });
     test("missing canonical definition refuses despite a surviving projection", () => {
         const root = make();
-        rmSync(join(root, "packages/shallot-runtime/src/index.ts"));
+        rmSync(join(root, "packages/shallot/src/index.ts"));
         expect(() => computeEntryFiles(root, entries)).toThrow("missing canonical runtime source");
     });
     for (const target of ["./absent", "@dylanebert/shallot/absent"]) {
         test(`unresolved public re-export refuses: ${target}`, async () => {
             const root = make();
             writeFileSync(
-                join(root, "packages/shallot-runtime/src/index.ts"),
+                join(root, "packages/shallot/src/index.ts"),
                 `export * from ${JSON.stringify(target)};`,
             );
             await expect(findDeadExports(root)).rejects.toThrow("unresolved source re-export");

@@ -156,10 +156,10 @@ describe("checkCliCoverage (fixtures)", () => {
 
 describe("globToRegExp", () => {
     test("* matches within one path segment, not across /", () => {
-        const re = globToRegExp("packages/shallot-cli/bin/*.ts");
-        expect(re.test("packages/shallot-cli/bin/cli.ts")).toBe(true);
-        expect(re.test("packages/shallot-cli/bin/nested/cli.ts")).toBe(false);
-        expect(re.test("packages/shallot-cli/bin/cli.test.ts")).toBe(true); // filtered by cliPopulation, not the glob itself
+        const re = globToRegExp("packages/shallot/bin/*.ts");
+        expect(re.test("packages/shallot/bin/cli.ts")).toBe(true);
+        expect(re.test("packages/shallot/bin/nested/cli.ts")).toBe(false);
+        expect(re.test("packages/shallot/bin/cli.test.ts")).toBe(true); // filtered by cliPopulation, not the glob itself
     });
 });
 
@@ -167,7 +167,7 @@ describe("cliPopulation suffix exclusion", () => {
     test("excludes every test-tier suffix the shared roster names, not just .test.ts", async () => {
         const root = resolve(import.meta.dir, "../../.."); // packages/shallot/tests -> repo root
         const population = await cliPopulation(root);
-        expect(population).not.toContain("packages/shallot-cli/bin/verify.probes.ts");
+        expect(population).not.toContain("packages/shallot/bin/verify.probes.ts");
         for (const path of population) {
             expect(path).not.toMatch(TEST_TIER_SUFFIXES);
         }
@@ -204,10 +204,10 @@ describe("CLI_COVERAGE against the real repo (both directions)", () => {
 
     test("the population globs cover the three CLI/toolchain paths plus stage 6's outline straggler", () => {
         expect(CLI_POPULATION_GLOBS).toEqual([
-            "packages/shallot-cli/bin/*.ts",
-            "packages/shallot-cli/src/project/*.ts",
+            "packages/shallot/bin/*.ts",
+            "packages/shallot/src/project/*.ts",
             "packages/create-shallot/index.ts",
-            "packages/shallot-runtime/src/extras/outline/*.ts",
+            "packages/shallot/src/extras/outline/*.ts",
         ]);
     });
 

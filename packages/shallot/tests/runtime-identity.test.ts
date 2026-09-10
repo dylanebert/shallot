@@ -8,9 +8,9 @@ import {
 } from "@dylanebert/shallot/physics/core";
 import { linearToSrgb1 } from "@dylanebert/shallot/utils/core";
 import tgpu from "typegpu";
-import { State as CanonicalState } from "../../shallot-runtime/src/engine";
-import { installHarness as canonicalHarness } from "../../shallot-runtime/src/harness/runtime";
-import { Physics as CanonicalPhysics } from "../../shallot-runtime/src/standard/physics";
+import { State as CanonicalState } from "../src/engine";
+import { installHarness as canonicalHarness } from "../src/harness/runtime";
+import { Physics as CanonicalPhysics } from "../src/standard/physics";
 
 test("public development entries share canonical declarations, values and backend effects", () => {
     expect(State, "one executable State definition").toBe(CanonicalState);

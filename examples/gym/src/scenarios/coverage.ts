@@ -18,25 +18,25 @@ import { GATE_EXEMPTIONS, SCENARIO_GATES, type ScenarioGate } from "./timeouts";
  *  so its truth already lives in a tier this check isn't responsible for; it excludes ECS/scene
  *  core for the same reason (`bun test` unit coverage). */
 export const GPU_MODULE_GLOBS: readonly string[] = [
-    "packages/shallot-runtime/src/engine/runtime/**/*.ts",
-    "packages/shallot-runtime/src/engine/utils/encode.ts",
-    "packages/shallot-runtime/src/standard/render/**/*.ts",
-    "packages/shallot-runtime/src/standard/sear/**/*.ts",
-    "packages/shallot-runtime/src/standard/part/**/*.ts",
-    "packages/shallot-runtime/src/standard/slab/**/*.ts",
-    "packages/shallot-runtime/src/standard/bvh/**/*.ts",
-    "packages/shallot-runtime/src/standard/avbd/**/*.ts",
+    "packages/shallot/src/engine/runtime/**/*.ts",
+    "packages/shallot/src/engine/utils/encode.ts",
+    "packages/shallot/src/standard/render/**/*.ts",
+    "packages/shallot/src/standard/sear/**/*.ts",
+    "packages/shallot/src/standard/part/**/*.ts",
+    "packages/shallot/src/standard/slab/**/*.ts",
+    "packages/shallot/src/standard/bvh/**/*.ts",
+    "packages/shallot/src/standard/avbd/**/*.ts",
     // `gpu.md` writes these nine as one brace glob; `globToRegExp` has no brace support, so they
     // enumerate here. Same set — `checkExtrasClassification` is what holds the two together.
-    "packages/shallot-runtime/src/extras/cells/**/*.ts",
-    "packages/shallot-runtime/src/extras/gltf/**/*.ts",
-    "packages/shallot-runtime/src/extras/lines/**/*.ts",
-    "packages/shallot-runtime/src/extras/outline/**/*.ts",
-    "packages/shallot-runtime/src/extras/profile/**/*.ts",
-    "packages/shallot-runtime/src/extras/skin/**/*.ts",
-    "packages/shallot-runtime/src/extras/sky/**/*.ts",
-    "packages/shallot-runtime/src/extras/sprite/**/*.ts",
-    "packages/shallot-runtime/src/extras/text/**/*.ts",
+    "packages/shallot/src/extras/cells/**/*.ts",
+    "packages/shallot/src/extras/gltf/**/*.ts",
+    "packages/shallot/src/extras/lines/**/*.ts",
+    "packages/shallot/src/extras/outline/**/*.ts",
+    "packages/shallot/src/extras/profile/**/*.ts",
+    "packages/shallot/src/extras/skin/**/*.ts",
+    "packages/shallot/src/extras/sky/**/*.ts",
+    "packages/shallot/src/extras/sprite/**/*.ts",
+    "packages/shallot/src/extras/text/**/*.ts",
 ];
 
 /** the `extras/` modules deliberately outside the GPU population, declared with the property that puts them
@@ -178,7 +178,7 @@ export function checkCompleteness(
 export async function gpuModulePopulation(root: string): Promise<string[]> {
     const globs = GPU_MODULE_GLOBS.map(globToRegExp);
     const out: string[] = [];
-    for await (const path of new Bun.Glob("packages/shallot-runtime/src/**/*.ts").scan({
+    for await (const path of new Bun.Glob("packages/shallot/src/**/*.ts").scan({
         cwd: root,
     })) {
         if (/\.(test|fixture|lab)\.ts$/.test(path)) continue;
@@ -198,7 +198,7 @@ export function checkExtrasClassification(
 ): Finding[] {
     const findings: Finding[] = [];
     for (const dir of dirs) {
-        const prefix = `packages/shallot-runtime/src/extras/${dir}/`;
+        const prefix = `packages/shallot/src/extras/${dir}/`;
         const gpu = modulePopulation.some((m) => m.startsWith(prefix));
         const declared = (nonGpu[dir] ?? "").trim() !== "";
         if (gpu === declared) findings.push({ kind: "extras-unclassified", detail: dir });
@@ -209,7 +209,7 @@ export function checkExtrasClassification(
 /** the second real-filesystem seam: the immediate subdirectory names under `src/extras/`. */
 export async function extrasDirs(root: string): Promise<string[]> {
     const dirs = new Set<string>();
-    for await (const path of new Bun.Glob("packages/shallot-runtime/src/extras/*/**").scan({
+    for await (const path of new Bun.Glob("packages/shallot/src/extras/*/**").scan({
         cwd: root,
     })) {
         const dir = path.split("/")[4];

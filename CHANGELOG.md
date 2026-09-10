@@ -5,6 +5,7 @@ Newest first. **Breaking:** marks a change that needs consumer action; [`package
 ## Unreleased
 
 - Removed the `shallot tui` command.
+- Collapsed shallot-runtime and shallot-cli into the package.
 
 ## 0.10.0 — 2026-09-03
 

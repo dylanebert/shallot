@@ -156,7 +156,7 @@ export function inspectRuntime(shipped: string): void {
     assert(imports > 300, "installed runtime: nonempty resolved import population");
     const record = JSON.parse(readFileSync(resolve(shipped, "runtime-inputs.json"), "utf8"));
     assert.equal(record.mode, "pack");
-    const owner = resolve(root, "packages/shallot-runtime");
+    const owner = resolve(root, "packages/shallot");
     const solver = resolve(root, "packages/shallot-tumble");
     const engine = "src/standard/tumble/engine/";
     const canonical = (file: string) => resolve(file.startsWith(engine) ? solver : owner, file);

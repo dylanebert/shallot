@@ -12,13 +12,12 @@ test("declared realization grants physical and registered targets, refuses missi
     };
     try {
         write("package.json", { workspaces: ["packages/*"] });
-        write("packages/shallot-cli/bin/cli.ts", "canonical CLI");
+        write("packages/shallot/bin/cli.ts", "canonical CLI");
         const pkg = {
             bin: { shallot: "./bin/cli.ts" },
             files: [
                 "dist",
                 "examples",
-                "runtime-inputs.json",
                 "rust/audio/pkg",
                 "!absent-exclusion",
                 "physical",

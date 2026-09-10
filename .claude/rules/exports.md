@@ -1,6 +1,6 @@
 ---
 paths:
-  - "packages/{shallot-runtime/src/**/*.ts,shallot-runtime/package.json,shallot-tumble/**/*.ts,shallot-tumble/package.json,shallot/src/harness/*.ts,shallot/package.json,shallot-cli/src/**/*.ts,shallot-cli/package.json}"
+  - "packages/{shallot/src/**/*.ts,shallot/package.json,shallot-tumble/**/*.ts,shallot-tumble/package.json,shallot/src/harness/*.ts,shallot/package.json,shallot/src/**/*.ts,shallot/package.json}"
   - "examples/showcase/ocean/src/ocean/**"
 ---
 

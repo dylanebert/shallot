@@ -40,10 +40,10 @@ export interface CoverageRow {
  *  content this registry was scoped to the CLI/toolchain layer, never to carry — they get a direct test
  *  with no row, same as every other `.test.ts` addition this unit made without touching the registry. */
 export const CLI_POPULATION_GLOBS: readonly string[] = [
-    "packages/shallot-cli/bin/*.ts",
-    "packages/shallot-cli/src/project/*.ts",
+    "packages/shallot/bin/*.ts",
+    "packages/shallot/src/project/*.ts",
     "packages/create-shallot/index.ts",
-    "packages/shallot-runtime/src/extras/outline/*.ts",
+    "packages/shallot/src/extras/outline/*.ts",
 ];
 
 /** converts a `dir/*.ts`-style glob to a RegExp, re-housed from `coverage.ts` rather than imported —
@@ -271,7 +271,7 @@ export function checkCliCoverage(
  */
 export const CLI_COVERAGE: readonly CoverageRow[] = [
     {
-        file: "packages/shallot-cli/bin/bun-native.ts",
+        file: "packages/shallot/bin/bun-native.ts",
         arm: "tier",
         reason:
             "native-abi.test.ts drives loadNative's non-Bun refusal in real Node. " +
@@ -282,7 +282,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "the installed loader checks that projection again before importing it.",
     },
     {
-        file: "packages/shallot-cli/bin/build.ts",
+        file: "packages/shallot/bin/build.ts",
         arm: "gap",
         reason:
             'synthIndex is directly asserted by dev.test.ts\'s `describe("synthIndex")` block, and ' +
@@ -301,7 +301,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "buildProject's native-target dispatch.",
     },
     {
-        file: "packages/shallot-cli/bin/cli.ts",
+        file: "packages/shallot/bin/cli.ts",
         arm: "gap",
         reason:
             "stage 2 factored the flag-parse loop + subcommand routing into a pure parseCliArgs(raw), " +
@@ -319,7 +319,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "print paths.",
     },
     {
-        file: "packages/shallot-cli/bin/dev.ts",
+        file: "packages/shallot/bin/dev.ts",
         arm: "tier",
         reason:
             "devConfig is directly unit-tested by dev.test.ts (plugin order, fs.allow set, the open " +
@@ -329,7 +329,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "part of this file is reached by nothing, so no stage owns further work here.",
     },
     {
-        file: "packages/shallot-cli/bin/features.ts",
+        file: "packages/shallot/bin/features.ts",
         arm: "unit",
         reason:
             "verdict's four target/portable branches and requiredFeatures' plugin-to-feature resolution " +
@@ -337,7 +337,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "asserted by features.test.ts — every exported function, every branch.",
     },
     {
-        file: "packages/shallot-cli/bin/gpu-globals.ts",
+        file: "packages/shallot/bin/gpu-globals.ts",
         arm: "gap",
         reason:
             "installGpuGlobals is called incidentally — it's the first line of requiredFeatures, which " +
@@ -351,7 +351,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "stage in the spec's Approach names gpu-globals.ts; occupant: installGpuGlobals.",
     },
     {
-        file: "packages/shallot-cli/bin/native.ts",
+        file: "packages/shallot/bin/native.ts",
         arm: "gap",
         reason:
             "stage 5 discharged the extraction: nativeOutDir, cargoTarget, resolveCargoInvocation (the " +
@@ -376,7 +376,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "posix_spawn instead).",
     },
     {
-        file: "packages/shallot-cli/bin/recipe.ts",
+        file: "packages/shallot/bin/recipe.ts",
         arm: "unit",
         reason:
             "listRecipes, occupied, pinEngine's every workspace-marker form, and runRecipe's every branch " +
@@ -384,7 +384,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "are all directly asserted by recipe.test.ts against a temp-dir recipe corpus.",
     },
     {
-        file: "packages/shallot-cli/bin/run.ts",
+        file: "packages/shallot/bin/run.ts",
         arm: "gap",
         reason:
             "stage 2 yielded the target dispatch selection (resolveRunTarget) and each branch's env/" +
@@ -399,7 +399,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "(the web/mac/linux/windows spawn arms).",
     },
     {
-        file: "packages/shallot-cli/bin/scaffold.ts",
+        file: "packages/shallot/bin/scaffold.ts",
         arm: "unit",
         reason:
             'every export is directly asserted by recipe.test.ts\'s "scaffold pointer is one source" ' +
@@ -410,7 +410,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             'file back and asserts `compilerOptions.types` contains "@webgpu/types".',
     },
     {
-        file: "packages/shallot-cli/bin/toolchain.ts",
+        file: "packages/shallot/bin/toolchain.ts",
         arm: "gap",
         reason:
             "flattenPlugins' array/promise/falsy-entry walk and composeViteConfig's merge + name-based " +
@@ -422,7 +422,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "spy that would reach it. It runs for real on `bun run test:install`'s dev/build rungs.",
     },
     {
-        file: "packages/shallot-cli/bin/verify.ts",
+        file: "packages/shallot/bin/verify.ts",
         arm: "gap",
         reason:
             "the majority of this file's exported surface is directly asserted by verify.test.ts: " +
@@ -458,7 +458,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "decodeRgba wherever pixelProbes are declared), not only bench/flows/recipes.",
     },
     {
-        file: "packages/shallot-runtime/src/extras/outline/index.ts",
+        file: "packages/shallot/src/extras/outline/index.ts",
         arm: "tier",
         reason:
             "the component, OutlineSystem's per-camera mask→JFA→composite dispatch, and OutlinePlugin's " +
@@ -472,7 +472,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "registers a plugin.",
     },
     {
-        file: "packages/shallot-runtime/src/extras/outline/passes.ts",
+        file: "packages/shallot/src/extras/outline/passes.ts",
         arm: "unit",
         reason:
             "jfaSteps' clamp/power-of-two ladder and groupByMesh's batching are directly asserted by " +
@@ -486,7 +486,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "math). No export is reached by nothing.",
     },
     {
-        file: "packages/shallot-cli/src/project/engine.ts",
+        file: "packages/shallot/src/project/engine.ts",
         arm: "unit",
         reason:
             "DEFAULT_PLUGIN_NAMES, SUBPATH_PLUGIN_MODULES, and KNOWN_ENGINE_PLUGINS are each gated by " +
@@ -496,7 +496,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "wrong entry there would break that equality).",
     },
     {
-        file: "packages/shallot-cli/src/project/host.ts",
+        file: "packages/shallot/src/project/host.ts",
         arm: "unit",
         reason:
             "the A1 project host: plan/discovery/resolution as pure data. Every export is directly " +
@@ -510,7 +510,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "no-project fallback vite.test.ts drives through projectPlugin()'s load hook.",
     },
     {
-        file: "packages/shallot-cli/src/project/command.ts",
+        file: "packages/shallot/src/project/command.ts",
         arm: "unit",
         reason:
             "the command entry `bin/toolchain.ts` reaches a project through. planProject's exit codes " +
@@ -522,7 +522,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "asserted by command.test.ts.",
     },
     {
-        file: "packages/shallot-cli/src/project/generate.ts",
+        file: "packages/shallot/src/project/generate.ts",
         arm: "unit",
         reason:
             "generateModule/generateModuleFromPlan's emitted import lines (engine-barrel grouping by source, local " +
@@ -530,7 +530,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "guard, capacity threading) are directly asserted by generate.test.ts.",
     },
     {
-        file: "packages/shallot-cli/src/project/manifest.ts",
+        file: "packages/shallot/src/project/manifest.ts",
         arm: "unit",
         reason:
             "normalize's tolerant-parse (absent/corrupt/non-object storage, $schema/capacity, each " +
@@ -541,7 +541,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "non-true manifest entry.",
     },
     {
-        file: "packages/shallot-cli/src/project/assets.ts",
+        file: "packages/shallot/src/project/assets.ts",
         arm: "unit",
         reason:
             "the internal sibling holding the `./vite` entry's pure readers (`exports.md` \"Barrel " +
@@ -557,7 +557,7 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "manifestPath through it).",
     },
     {
-        file: "packages/shallot-cli/src/project/vite.ts",
+        file: "packages/shallot/src/project/vite.ts",
         arm: "gap",
         reason:
             "assetSrc, orphanedAssets, discoverScenes, and findPublicDirs are all directly asserted by " +

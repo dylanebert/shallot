@@ -1,12 +1,12 @@
 import { ptr, toArrayBuffer } from "bun:ffi";
 import { expect, test } from "bun:test";
-import { loadNative } from "../../shallot-cli/bin/bun-native";
-import { BASE_FEATURES, deviceLimits } from "../../shallot-runtime/src/engine/runtime/gpu";
+import { loadNative } from "../bin/bun-native";
+import { BASE_FEATURES, deviceLimits } from "../src/engine/runtime/gpu";
 
 const { createGPUInstance } = await loadNative();
 
 test("native loader refuses real Node before attempting the Bun FFI import", () => {
-    const loader = new URL("../../shallot-cli/bin/bun-native.ts", import.meta.url).href;
+    const loader = new URL("../bin/bun-native.ts", import.meta.url).href;
     const child = Bun.spawnSync([
         "node",
         "--input-type=module",

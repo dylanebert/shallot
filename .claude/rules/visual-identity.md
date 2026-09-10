@@ -9,7 +9,7 @@ Shipped UI: examples, overlays, profiler HUD.
 
 ## Palette
 
-Source: `DARK`/`LIGHT` in `packages/shallot-runtime/src/standard/loading/mark.ts`. Dark: gold `#d49560`, dim `#7a5a3a`, ink `#f0e6d6`, ground `#141210`. Light: same gold, dim `#e6c6a4`, ink `#2a231e`, ground `#f7f3ec`. Tints are `color-mix(in srgb, <base> N%, transparent)`, not raw rgba.
+Source: `DARK`/`LIGHT` in `packages/shallot/src/standard/loading/mark.ts`. Dark: gold `#d49560`, dim `#7a5a3a`, ink `#f0e6d6`, ground `#141210`. Light: same gold, dim `#e6c6a4`, ink `#2a231e`, ground `#f7f3ec`. Tints are `color-mix(in srgb, <base> N%, transparent)`, not raw rgba.
 
 ## Typography
 

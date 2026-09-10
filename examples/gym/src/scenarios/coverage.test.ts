@@ -81,7 +81,7 @@ describe("gate coverage checker (fixtures)", () => {
     test("an extras directory in neither the population nor the non-GPU table is a finding", () => {
         const findings = checkExtrasClassification(
             ["sky", "particles"],
-            ["packages/shallot-runtime/src/extras/sky/index.ts"],
+            ["packages/shallot/src/extras/sky/index.ts"],
             {},
         );
         expect(findings).toEqual([{ kind: "extras-unclassified", detail: "particles" }]);
@@ -90,7 +90,7 @@ describe("gate coverage checker (fixtures)", () => {
     test("an extras directory in both is a finding", () => {
         const findings = checkExtrasClassification(
             ["sky"],
-            ["packages/shallot-runtime/src/extras/sky/index.ts"],
+            ["packages/shallot/src/extras/sky/index.ts"],
             { sky: "used to be CPU-only" },
         );
         expect(findings).toEqual([{ kind: "extras-unclassified", detail: "sky" }]);

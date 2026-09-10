@@ -16,7 +16,7 @@ describe("changed-path selector", () => {
         expect(dirs(["examples/recipes/moving-platform/src/plugin.ts"])).toEqual([
             "examples/recipes/moving-platform",
         ]);
-        expect(dirs(["packages/shallot-runtime/src/standard/render/plugin.ts"])).toEqual([
+        expect(dirs(["packages/shallot/src/standard/render/plugin.ts"])).toEqual([
             "examples/recipes/day-night-sky",
             "examples/recipes/gpu-particles",
             "examples/flows/no-walls",
@@ -28,7 +28,7 @@ describe("changed-path selector", () => {
             "examples/showcase/voxel",
             "examples/gym",
         ]);
-        expect(dirs(["packages/shallot-runtime/src/standard/fog/index.ts"])).toEqual([
+        expect(dirs(["packages/shallot/src/standard/fog/index.ts"])).toEqual([
             "examples/gym",
         ]);
         expect(dirs(["bun.lock"])).toEqual(EXAMPLE_GATES.map((row) => row.dir));

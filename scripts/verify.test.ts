@@ -130,8 +130,8 @@ test("batch subprocess preserves page verdicts and refuses incomplete transport"
                     new URL("./bench.ts", import.meta.url).pathname,
                     "--sweep",
                     "--for",
-                    "packages/shallot-runtime/src/extras/outline/index.ts",
-                    "packages/shallot-runtime/src/extras/cells/grid.ts",
+                    "packages/shallot/src/extras/outline/index.ts",
+                    "packages/shallot/src/extras/cells/grid.ts",
                 ],
                 {
                     cwd: new URL("..", import.meta.url).pathname,
@@ -169,7 +169,7 @@ mock.module("node:fs", () => ({ ...fs, existsSync: (path) => String(path).endsWi
         );
         for (const flags of [
             ["--scenario", "gltf"],
-            ["--sweep", "--for", "packages/shallot-runtime/src/extras/gltf/index.ts"],
+            ["--sweep", "--for", "packages/shallot/src/extras/gltf/index.ts"],
         ]) {
             const proc = Bun.spawn(
                 [

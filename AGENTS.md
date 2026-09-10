@@ -44,7 +44,7 @@ bun run recipes [--recipe <name>]
 ```
 
 ```bash
-bun packages/shallot-cli/bin/cli.ts <dev|build|run|verify> [dir]
+bun packages/shallot/bin/cli.ts <dev|build|run|verify> [dir]
 # build/run: [--target <os>] [--portable]; build: [--release]
 ```
 
@@ -52,7 +52,7 @@ OS: windows/mac/linux; web emits dist; native uses platform tools. Verify owns V
 
 ### Verification
 
-Before completion: format, check, test above. Release order: `testing.md` (all-roster AND separate demos). After AVBD/physics: `bun test ./packages/shallot/tests/avbd/*.oracle.ts`; engine/host/twin: `bun test ./examples/gym/src`; tumble fixtures from package per `tumble.md`; Rust audio: `cargo test` from `packages/shallot-runtime/rust/audio`.
+Before completion: format, check, test above. Release order: `testing.md` (all-roster AND separate demos). After AVBD/physics: `bun test ./packages/shallot/tests/avbd/*.oracle.ts`; engine/host/twin: `bun test ./examples/gym/src`; tumble fixtures from package per `tumble.md`; Rust audio: `cargo test` from `packages/shallot/rust/audio`.
 
 GPU/serialize/restore/config.ui/dev-server/physics changes owe bench/flow/recipe gates. Verify is headless; hardware refusal is nonzero; display callers use `--headed`. Reachability repairs owe source + physical public-build proof via build.probes.ts; other CLI/manifest/dependency/launch/runtime/scaffold/native-package changes owe test:install; links don’t prove it.
 

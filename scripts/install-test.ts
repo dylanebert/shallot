@@ -67,9 +67,9 @@ function pkgJson(fields: Record<string, unknown>, indent = 2): string {
 
 /** Packing runs the engine's postpack cleanup, so restore the public projection before root wrappers invoke it. */
 function restorePublicProjection(): void {
-    const runtime = run(["bun", "packages/shallot-runtime/scripts/project.ts"], REPO_ROOT);
+    const runtime = run(["bun", "packages/shallot/scripts/project.ts"], REPO_ROOT);
     if (!runtime.ok) throw new Error(`runtime projection failed:\n${runtime.out}`);
-    const cli = run(["bun", "packages/shallot-cli/scripts/build.ts"], REPO_ROOT);
+    const cli = run(["bun", "packages/shallot/scripts/tooling.ts"], REPO_ROOT);
     if (!cli.ok) throw new Error(`public CLI projection failed:\n${cli.out}`);
     assert(existsSync(join(REPO_ROOT, "packages/shallot/bin/cli.ts")));
 }

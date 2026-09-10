@@ -356,7 +356,7 @@ export function extractImports(content: string): ImportEntry[] {
 // --- Specifier resolution ---------------------------------------------------
 
 function sourceOwner(root: string, path: string): string {
-    if (!existsSync(resolve(root, "packages/shallot-cli/package.json"))) return path;
+    if (!existsSync(resolve(root, "packages/shallot/package.json"))) return path;
     if (
         existsSync(resolve(root, "packages/shallot-tumble/package.json")) &&
         /^packages\/shallot(?:-runtime)?\/src\/standard\/tumble\/engine\//.test(path)
@@ -370,20 +370,20 @@ function sourceOwner(root: string, path: string): string {
         path.startsWith("packages/shallot/src/project/") ||
         path === "packages/shallot/src/harness/browser.ts"
     ) {
-        const owner = path.replace("packages/shallot/", "packages/shallot-cli/");
+        const owner = path.replace("packages/shallot/", "packages/shallot/");
         if (!existsSync(resolve(root, owner)))
             throw new Error(`missing canonical tooling source: ${owner}`);
         return owner;
     }
     if (
-        existsSync(resolve(root, "packages/shallot-runtime/package.json")) &&
+        existsSync(resolve(root, "packages/shallot/package.json")) &&
         path.startsWith("packages/shallot/src/") &&
         ![
             "packages/shallot/src/harness/index.ts",
             "packages/shallot/src/harness/index.test.ts",
         ].includes(path)
     ) {
-        const owner = path.replace("packages/shallot/", "packages/shallot-runtime/");
+        const owner = path.replace("packages/shallot/", "packages/shallot/");
         if (!existsSync(resolve(root, owner)))
             throw new Error(`missing canonical runtime source: ${owner}`);
         return owner;
@@ -481,7 +481,7 @@ export function computeEntryFiles(
         const target = typeof value === "string" ? value : (value as { types?: string })?.types;
         if (typeof target !== "string") continue;
         if (
-            existsSync(resolve(rootDir, "packages/shallot-runtime/package.json")) &&
+            existsSync(resolve(rootDir, "packages/shallot/package.json")) &&
             target.startsWith("./src/") &&
             !target.startsWith("./src/project/") &&
             target !== "./src/harness/browser.ts" &&
@@ -496,7 +496,7 @@ export function computeEntryFiles(
         );
         if (existsSync(resolved)) {
             entryFiles.push(sourceOwner(rootDir, relative(rootDir, resolved).replace(/\\/g, "/")));
-        } else if (existsSync(resolve(rootDir, "packages/shallot-cli/package.json"))) {
+        } else if (existsSync(resolve(rootDir, "packages/shallot/package.json"))) {
             throw new Error(`missing public export target: ${key} → ${resolved}`);
         }
     }
@@ -628,9 +628,7 @@ export async function findDeadExports(
     const sources = new Set<string>();
     for (const dir of [
         srcDir,
-        resolve(rootDir, "packages/shallot-runtime/src"),
         resolve(rootDir, "packages/shallot-tumble/src"),
-        resolve(rootDir, "packages/shallot-cli/src"),
     ]) {
         if (!existsSync(dir)) continue;
         for await (const path of srcGlob.scan({ cwd: dir })) {
@@ -675,13 +673,13 @@ export async function findDeadExports(
 
     const consumerDirs = [
         "packages/shallot/src",
-        "packages/shallot-runtime/src",
+        "packages/shallot/src",
         "packages/shallot-tumble/src",
         "packages/shallot-tumble/scripts",
         "packages/shallot-tumble/tests",
         "packages/shallot/tests",
-        "packages/shallot-cli/bin",
-        "packages/shallot-cli/src",
+        "packages/shallot/bin",
+        "packages/shallot/src",
         "packages/shallot/scripts",
         "scripts",
         "examples",

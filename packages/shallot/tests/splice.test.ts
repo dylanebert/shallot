@@ -10,9 +10,9 @@ import {
     quatSnorm16x4Wgsl,
     smallest3Wgsl,
     xformWgsl,
-} from "../../shallot-runtime/src/engine/utils/core";
-import { materialDataWgsl } from "../../shallot-runtime/src/extras/gltf/palette";
-import { liveTintWgsl, skinParamsWgsl } from "../../shallot-runtime/src/extras/skin/core";
+} from "../src/engine/utils/core";
+import { materialDataWgsl } from "../src/extras/gltf/palette";
+import { liveTintWgsl, skinParamsWgsl } from "../src/extras/skin/core";
 import {
     boxBoxWgsl,
     helpersWgsl,
@@ -20,30 +20,30 @@ import {
     hullSatWgsl,
     roundedPolyWgsl,
     roundedWgsl,
-} from "../../shallot-runtime/src/standard/avbd/collide";
-import { bvhRootWgsl, bvhTraverseWgsl } from "../../shallot-runtime/src/standard/bvh/core";
+} from "../src/standard/avbd/collide";
+import { bvhRootWgsl, bvhTraverseWgsl } from "../src/standard/bvh/core";
 import {
     fogInScatterWgsl,
     fogMarchWgsl,
     fogStructWgsl,
-} from "../../shallot-runtime/src/standard/fog/core";
-import { tonemapWgsl } from "../../shallot-runtime/src/standard/glaze/tonemap";
+} from "../src/standard/fog/core";
+import { tonemapWgsl } from "../src/standard/glaze/tonemap";
 import {
     frameWgsl,
     lightingWgsl,
     linearToSrgbWgsl,
     pointLightsWgsl,
-} from "../../shallot-runtime/src/standard/render/core";
+} from "../src/standard/render/core";
 import {
     casterWgsl,
     lightEvalWgsl,
     pointShadowWgsl,
     sunShadowWgsl,
     sunStructWgsl,
-} from "../../shallot-runtime/src/standard/sear/core";
+} from "../src/standard/sear/core";
 // the PBR lobe is spliced by sear itself, not by a relocatable consumer, so it stays internal — the
 // structural tests reach it directly, like `surfaceCode`
-import { pbrWgsl } from "../../shallot-runtime/src/standard/sear/shade";
+import { pbrWgsl } from "../src/standard/sear/shade";
 
 // Every relocatable WGSL chunk shares one dedup namespace (`spliceNs`, engine/utils/tgsl.ts), so a
 // dependency two chunks both need is emitted into whichever resolves FIRST — and a consumer splices

@@ -425,7 +425,7 @@ describe("importsSymbol", () => {
 
     test("an aliased import satisfies it only under the declared alias", () => {
         const text =
-            'import { collideRounded as tgslCollideRounded } from "../../shallot-runtime/src";\ntgslCollideRounded(a, b);';
+            'import { collideRounded as tgslCollideRounded } from "../src";\ntgslCollideRounded(a, b);';
         expect(importsSymbol(text, "collideRounded", "tgslCollideRounded")).toBe(true);
         expect(importsSymbol(text, "collideRounded", "collideRounded")).toBe(false);
     });
@@ -448,7 +448,7 @@ describe("importsSymbol", () => {
 
     test("a same-named local function definition does not satisfy it", () => {
         const text =
-            'import { collideRounded as tgslCollideRounded } from "../../shallot-runtime/src";\n' +
+            'import { collideRounded as tgslCollideRounded } from "../src";\n' +
             "function collideRounded(a, b) { return a; }\n" +
             "collideRounded(a, b);";
         expect(importsSymbol(text, "collideRounded", "collideRounded")).toBe(false);

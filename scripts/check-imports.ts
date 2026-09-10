@@ -1,7 +1,7 @@
 import { Glob } from "bun";
 import { dirname, join, relative, resolve } from "path";
 
-const src = resolve(import.meta.dir, "../packages/shallot-runtime/src");
+const src = resolve(import.meta.dir, "../packages/shallot/src");
 const pkg = await Bun.file(resolve(import.meta.dir, "../packages/shallot/package.json")).json();
 
 // Extract allowed subpath targets from package.json exports

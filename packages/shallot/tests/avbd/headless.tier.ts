@@ -43,16 +43,16 @@
 // probe offsets cannot drift from the solver's own layout.
 
 import { describe, expect, test } from "bun:test";
-import { Body, build, Compute, probeBuffer } from "../../../shallot-runtime/src";
-import { Avbd, AvbdPlugin } from "../../../shallot-runtime/src/standard/avbd";
-import { B_POS, B_QUAT, B_VELL } from "../../../shallot-runtime/src/standard/avbd/step";
-import { Character, CharacterPlugin } from "../../../shallot-runtime/src/standard/character";
-import { InputPlugin } from "../../../shallot-runtime/src/standard/input";
-import { MirrorPlugin } from "../../../shallot-runtime/src/standard/mirror";
-import { PlayerPlugin } from "../../../shallot-runtime/src/standard/player";
-import { RenderPlugin } from "../../../shallot-runtime/src/standard/render";
-import { SlabPlugin } from "../../../shallot-runtime/src/standard/slab";
-import { TransformsPlugin } from "../../../shallot-runtime/src/standard/transforms";
+import { Body, build, Compute, probeBuffer } from "../../src";
+import { Avbd, AvbdPlugin } from "../../src/standard/avbd";
+import { B_POS, B_QUAT, B_VELL } from "../../src/standard/avbd/step";
+import { Character, CharacterPlugin } from "../../src/standard/character";
+import { InputPlugin } from "../../src/standard/input";
+import { MirrorPlugin } from "../../src/standard/mirror";
+import { PlayerPlugin } from "../../src/standard/player";
+import { RenderPlugin } from "../../src/standard/render";
+import { SlabPlugin } from "../../src/standard/slab";
+import { TransformsPlugin } from "../../src/standard/transforms";
 
 /** the headless entity capacity — the contact store fits under lavapipe's 128 MiB binding ceiling. */
 const CAPACITY = 8192;

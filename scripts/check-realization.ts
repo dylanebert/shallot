@@ -1,14 +1,10 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { Glob } from "bun";
-import {
-    recipeRoot,
-    runtimeRecord,
-    runtimeRoots,
-    toolingDist,
-    toolingRoots,
-} from "../packages/shallot/scripts/projections";
 import { workspacePkgPaths } from "./check-scripts";
+
+/** Engine `files` entries written at build or pack time: recipes by prepack, tooling bundles, audio wasm. */
+const PRODUCED = ["examples", "dist", "rust/audio/pkg"];
 
 /** Every declared bin and positive files entry must exist or have a pack producer. */
 export async function checkRealization(root: string): Promise<string[]> {
@@ -24,27 +20,10 @@ export async function checkRealization(root: string): Promise<string[]> {
         const bins: string[] =
             typeof value.bin === "string" ? [value.bin] : Object.values(value.bin ?? {});
         const files: string[] = value.files ?? [];
-        const projected = (target: string, kind: "bin" | "files"): boolean => {
-            if (dir !== resolve(root, "packages/shallot")) return false;
-            if (target === runtimeRecord) return true;
-            if (kind === "files" && [recipeRoot, toolingDist].includes(target)) return true;
-            for (const [owner, roots] of [
-                ["shallot-runtime", runtimeRoots],
-                ["shallot-cli", toolingRoots],
-            ] as const) {
-                for (const entry of roots) {
-                    if (kind === "files" && target === entry) return true;
-                    if (target !== entry && !target.startsWith(`${entry}/`)) continue;
-                    const source = target.startsWith("src/standard/tumble/engine/")
-                        ? "shallot-tumble"
-                        : owner;
-                    const canonical = resolve(root, "packages", source, target);
-                    if (existsSync(canonical) && (kind === "files" || statSync(canonical).isFile()))
-                        return true;
-                }
-            }
-            return false;
-        };
+        const projected = (target: string, kind: "bin" | "files"): boolean =>
+            dir === resolve(root, "packages/shallot") &&
+            kind === "files" &&
+            PRODUCED.includes(target);
         for (const [kind, targets] of [
             ["bin", bins],
             ["files", files.filter((file) => !file.startsWith("!"))],

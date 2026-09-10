@@ -32,11 +32,11 @@ import { fileURLToPath } from "node:url";
 import {
     CELL_DIRECTIONAL_GLYPHS,
     CELL_FILL_EXCLUDED_GLYPHS,
-} from "../../shallot-runtime/src/extras/cells/ramp";
-import { type Font, parseFont } from "../../shallot-runtime/src/extras/text/font";
+} from "../src/extras/cells/ramp";
+import { type Font, parseFont } from "../src/extras/text/font";
 
 const FONT_URL = new URL("../../../assets/jetbrains-mono.ttf", import.meta.url);
-const OUTPUT_URL = new URL("../../shallot-runtime/src/extras/cells/ramp-table.ts", import.meta.url);
+const OUTPUT_URL = new URL("../src/extras/cells/ramp-table.ts", import.meta.url);
 
 /** one point in a flattened glyph contour, font units. */
 interface Point {

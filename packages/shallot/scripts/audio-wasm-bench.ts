@@ -24,7 +24,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { $ } from "bun";
 
-const audioDir = resolve(import.meta.dir, "../../shallot-runtime/rust/audio");
+const audioDir = resolve(import.meta.dir, "../rust/audio");
 const rawWasm = resolve(audioDir, "target/wasm32-unknown-unknown/release/shallot_audio.wasm");
 const OUT = "/tmp/shallot-audio-wasm";
 if (!existsSync(OUT)) mkdirSync(OUT);

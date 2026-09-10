@@ -1,6 +1,6 @@
 ---
 paths:
-  - "packages/{shallot-runtime/src/standard/avbd/**/*.ts,shallot/tests/avbd/**/*.ts}"
+  - "packages/{shallot/src/standard/avbd/**/*.ts,shallot/tests/avbd/**/*.ts}"
 ---
 
 # AVBD Backend

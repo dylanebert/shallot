@@ -1,6 +1,6 @@
 ---
 paths:
-  - "packages/{shallot-runtime/src/standard/physics/**/*.ts,shallot-runtime/src/standard/character/**/*.ts,shallot-runtime/src/standard/player/**/*.ts}"
+  - "packages/{shallot/src/standard/physics/**/*.ts,shallot/src/standard/character/**/*.ts,shallot/src/standard/player/**/*.ts}"
 ---
 
 # Physics Substrate

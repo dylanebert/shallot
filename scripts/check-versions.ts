@@ -15,7 +15,7 @@ if (shallot.version !== create.version) {
     );
 }
 
-const tooling = await Bun.file(resolve(root, "packages/shallot-cli/package.json")).json();
+const tooling = await Bun.file(resolve(root, "packages/shallot/package.json")).json();
 if (tooling.version !== shallot.version) fail("tooling/distribution version mismatch");
 for (const field of [
     "dependencies",
@@ -38,7 +38,7 @@ if (
     Object.keys(solver.peerDependencies ?? {}).length
 )
     fail("solver must remain dependency-free");
-const runtime = await Bun.file(resolve(root, "packages/shallot-runtime/package.json")).json();
+const runtime = await Bun.file(resolve(root, "packages/shallot/package.json")).json();
 if (runtime.version !== shallot.version) fail("runtime/distribution version mismatch");
 for (const field of [
     "dependencies",
@@ -71,8 +71,8 @@ for (const [name, range] of Object.entries(shallot.dependencies ?? {})) {
 // `rust/window`'s is tracked for reproducible native builds). `rust/tumble` is `publish = false`
 // and versions independently of the release.
 for (const crate of [
-    "packages/shallot-runtime/rust/audio/Cargo.toml",
-    "packages/shallot-cli/rust/window/Cargo.toml",
+    "packages/shallot/rust/audio/Cargo.toml",
+    "packages/shallot/rust/window/Cargo.toml",
 ]) {
     const text = await Bun.file(resolve(root, crate)).text();
     const version = text.match(/^version = "(.+)"/m)?.[1];
@@ -89,9 +89,7 @@ const lockText = await Bun.file(resolve(root, "bun.lock")).text();
 const lock = JSON.parse(lockText.replace(/,(\s*[}\]])/g, "$1"));
 for (const dir of [
     "packages/shallot",
-    "packages/shallot-runtime",
     "packages/shallot-tumble",
-    "packages/shallot-cli",
     "packages/create-shallot",
 ]) {
     const version = lock.workspaces?.[dir]?.version;

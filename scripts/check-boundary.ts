@@ -37,8 +37,8 @@ import { COMPUTED_LOADERS, NON_WORKSPACE_PACKAGES, TOOLING_SEAMS } from "./bound
 
 const PKG = "@dylanebert/shallot";
 const ENGINE_PACKAGE = "packages/shallot";
-const TOOLING_PACKAGE = "packages/shallot-cli";
-const RUNTIME_PACKAGE = "packages/shallot-runtime";
+const TOOLING_PACKAGE = "packages/shallot";
+const RUNTIME_PACKAGE = "packages/shallot";
 const SOLVER_PACKAGE = "packages/shallot-tumble";
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".svelte"];
 

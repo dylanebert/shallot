@@ -1,6 +1,6 @@
 ---
 paths:
-  - "packages/{shallot-runtime/src/**/*.test.ts,shallot-runtime/scripts/*.ts,shallot-tumble/**/*.ts,shallot/tests/**/*.ts,shallot-cli/**/*.{test,probes}.ts,shallot-cli/scripts/build.ts}"
+  - "packages/{shallot/src/**/*.test.ts,shallot/scripts/*.ts,shallot-tumble/**/*.ts,shallot/tests/**/*.ts,shallot/**/*.{test,probes}.ts,shallot/scripts/build.ts}"
   - "scripts/{install-test.ts,install-test/**/*.ts,stall-attribution.ts,compile-concurrency.ts,loaf-attribution.ts}"
   - "examples/showcase/ocean/test/**/*.{test,oracle}.ts"
   - "site/rum-*.ts"
@@ -70,7 +70,7 @@ Bump all pins together, resolve lock, confirm one TypeGPU identity before gates.
 
 Evals tools: `bun run evals/setup.ts`, `bun run evals/grade.ts`.
 
-`bun run test:install`: pack not link; browser/build; plain-Node export/brand/realpath/docs/imports, fail-closed; no selector. Reachability repairs owe `bun test --timeout 120000 ./packages/shallot-cli/bin/build.probes.ts`: source + physical public-build proof, retain/prune. Other CLI/manifest/deps/prebundle/launch/runtime/scaffold/native-package changes retain full install.
+`bun run test:install`: pack not link; browser/build; plain-Node export/brand/realpath/docs/imports, fail-closed; no selector. Reachability repairs owe `bun test --timeout 120000 ./packages/shallot/bin/build.probes.ts`: source + physical public-build proof, retain/prune. Other CLI/manifest/deps/prebundle/launch/runtime/scaffold/native-package changes retain full install.
 
 ## Release gate
 

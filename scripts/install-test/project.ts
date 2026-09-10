@@ -351,7 +351,7 @@ export function projectFlow(tarball: string, evidence: string) {
     const cli = JSON.parse(readFileSync(join(shipped, "dist/cli-inputs.json"), "utf8"));
     for (const [file, expected] of Object.entries(cli.inputs))
         assert.equal(
-            hash(readFileSync(resolve(root, "packages/shallot-cli", file))),
+            hash(readFileSync(resolve(root, "packages/shallot", file))),
             expected,
             `canonical CLI input ${file}`,
         );

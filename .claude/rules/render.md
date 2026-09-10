@@ -1,6 +1,6 @@
 ---
 paths:
-  - "packages/{shallot-runtime/src/standard/render/**/*.ts,shallot-runtime/src/standard/sear/**/*.ts,shallot-runtime/src/standard/glaze/**/*.ts,shallot-runtime/src/standard/part/**/*.ts}"
+  - "packages/{shallot/src/standard/render/**/*.ts,shallot/src/standard/sear/**/*.ts,shallot/src/standard/glaze/**/*.ts,shallot/src/standard/part/**/*.ts}"
 ---
 
 # Render Contract

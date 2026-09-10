@@ -6,7 +6,7 @@ import {
     fromBlocks,
     MARK,
     toSvg,
-} from "../packages/shallot-runtime/src/standard/loading/mark";
+} from "../packages/shallot/src/standard/loading/mark";
 import { toPng } from "../site/brand/png";
 
 // Every default icon a shallot project ships is a render of the one bitmap mark, so the shape
@@ -64,7 +64,7 @@ export function iconTargets(): string[] {
 }
 
 export const SCAFFOLD = "packages/create-shallot/index.ts";
-export const NATIVE_ICON = "packages/shallot-cli/assets/icon-1024.png";
+export const NATIVE_ICON = "packages/shallot/assets/icon-1024.png";
 
 /** The scaffold's inline `ICON`, rewritten around the render. */
 export function scaffoldSource(source: string): string {

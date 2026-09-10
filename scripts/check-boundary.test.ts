@@ -86,12 +86,12 @@ describe("runtime direction with a private tooling owner", () => {
         const root = make();
         write(
             root,
-            "packages/shallot-cli/package.json",
+            "packages/shallot/package.json",
             JSON.stringify({ name: "shallot-cli", private: true }),
         );
         write(
             root,
-            "packages/shallot-cli/src/escape.ts",
+            "packages/shallot/src/escape.ts",
             'import "../../../examples/recipes/demo/src/main";',
         );
         const result = checkBoundary(root, EMPTY);
@@ -112,12 +112,12 @@ describe("runtime direction with a private tooling owner", () => {
             const root = make();
             write(
                 root,
-                "packages/shallot-cli/package.json",
+                "packages/shallot/package.json",
                 JSON.stringify({ name: "shallot-cli", private: true }),
             );
             write(
                 root,
-                "packages/shallot-cli/src/harness/browser.ts",
+                "packages/shallot/src/harness/browser.ts",
                 "export const launch = 1;\n",
             );
             write(
@@ -150,7 +150,7 @@ describe("runtime direction with a private tooling owner", () => {
                 "tsconfig.json",
                 JSON.stringify({
                     compilerOptions: {
-                        paths: { "@launch": ["packages/shallot-cli/src/harness/browser.ts"] },
+                        paths: { "@launch": ["packages/shallot/src/harness/browser.ts"] },
                     },
                 }),
             );
@@ -167,14 +167,14 @@ describe("runtime direction with a private tooling owner", () => {
 });
 
 describe("private solver ownership", () => {
-    const bridge = "packages/shallot-runtime/src/standard/tumble/engine/index.ts";
+    const bridge = "packages/shallot/src/standard/tumble/engine/index.ts";
     const entry = "packages/shallot-tumble/src/standard/tumble/engine/index.ts";
     const forward =
         'export * from "../../../../../shallot-tumble/src/standard/tumble/engine/index";';
     for (const [file, source, refusal] of [
         [bridge, forward, ""],
         [
-            "packages/shallot-runtime/src/escape.ts",
+            "packages/shallot/src/escape.ts",
             'export * from "../../shallot-tumble/src/standard/tumble/engine/index";',
             "runtime leaves its canonical owner",
         ],
@@ -195,7 +195,7 @@ describe("private solver ownership", () => {
             "private solver is not a consumer installation surface",
         ],
         [
-            "packages/shallot-cli/bin/cli.ts",
+            "packages/shallot/bin/cli.ts",
             'import "shallot-tumble";',
             "tooling reaches the private solver",
         ],
@@ -219,7 +219,7 @@ describe("private solver ownership", () => {
                     `packages/${name}/package.json`,
                     JSON.stringify({ name, private: true }),
                 );
-            write(root, "packages/shallot-runtime/src/index.ts", "export const engine = 1;");
+            write(root, "packages/shallot/src/index.ts", "export const engine = 1;");
             write(root, entry, "export class World {}");
             write(root, bridge, forward);
             write(root, "packages/shallot-tumble/tests/oracle.ts", "export const truth = 1;");
@@ -254,10 +254,10 @@ describe("canonical runtime ownership", () => {
                     `packages/${owner}/package.json`,
                     JSON.stringify({ name: owner, private: true }),
                 );
-            write(root, "packages/shallot-runtime/src/index.ts", "export const engine = 1;");
+            write(root, "packages/shallot/src/index.ts", "export const engine = 1;");
             write(
                 root,
-                "packages/shallot-runtime/src/standard/render/core.ts",
+                "packages/shallot/src/standard/render/core.ts",
                 "export const core = 1;",
             );
             write(
@@ -270,7 +270,7 @@ describe("canonical runtime ownership", () => {
                 }),
             );
             expect(checkBoundary(root, EMPTY).violations).toEqual([]);
-            write(root, "packages/shallot-runtime/src/consumer.ts", source);
+            write(root, "packages/shallot/src/consumer.ts", source);
             const result = checkBoundary(root, EMPTY);
             expect(result.errors).toEqual([]);
             expect(result.violations.map((v) => v.reason)).toEqual(
@@ -297,7 +297,7 @@ describe("runtime unresolved and aliased exits", () => {
                     `packages/${owner}/package.json`,
                     JSON.stringify({ name: owner, private: true }),
                 );
-            write(root, "packages/shallot-runtime/src/index.ts", "export const engine = 1;");
+            write(root, "packages/shallot/src/index.ts", "export const engine = 1;");
             if (alias)
                 write(
                     root,
@@ -311,11 +311,11 @@ describe("runtime unresolved and aliased exits", () => {
                     }),
                 );
             expect(checkBoundary(root, EMPTY).violations).toEqual([]);
-            write(root, "packages/shallot-runtime/src/consumer.ts", source);
+            write(root, "packages/shallot/src/consumer.ts", source);
             const result = checkBoundary(root, EMPTY);
             expect(result.errors).toEqual([]);
             expect(
-                result.violations.filter((v) => v.file.startsWith("packages/shallot-runtime/")),
+                result.violations.filter((v) => v.file.startsWith("packages/shallot/")),
             ).toHaveLength(1);
         });
     }
@@ -327,7 +327,7 @@ describe("runtime unresolved and aliased exits", () => {
                 `packages/${owner}/package.json`,
                 JSON.stringify({ name: owner, private: true }),
             );
-        const file = "packages/shallot-runtime/src/pool.ts";
+        const file = "packages/shallot/src/pool.ts";
         write(root, file, 'const spec = "node:worker_threads"; void import(spec);');
         const ledger = { ...EMPTY, computedLoaders: { [file]: "bounded Node host adapter" } };
         expect(checkBoundary(root, ledger).violations).toEqual([]);
