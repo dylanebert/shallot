@@ -17,10 +17,8 @@ describe("changed-path selector", () => {
         expect(dirs(["src/standard/render/plugin.ts"])).toEqual([
             "examples/recipes/day-night-sky",
             "examples/recipes/gpu-particles",
-            "examples/showcase/collapse",
             "examples/showcase/ocean",
             "examples/showcase/roads",
-            "examples/showcase/sandbox",
             "examples/showcase/visualization",
             "examples/showcase/voxel",
             "examples/gym",

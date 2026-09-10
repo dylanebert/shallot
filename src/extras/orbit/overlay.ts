@@ -24,7 +24,7 @@ function createOverlay(canvas: HTMLElement | null, state: State): Overlay {
     // overlay's removal to `state.onDispose` (auto-registers `overlay.remove()`), so a direct
     // `state.dispose()` — which never fires the plugin `dispose` hook — still cleans up the DOM node.
     // The module-scope cleanup cleared at top-of-warm (below) is the fallback for a host that re-warms
-    // without disposing (`swap()`), which `onDispose` doesn't fire for (collapse exemplar's shape).
+    // without disposing (`swap()`), which `onDispose` doesn't fire for.
     const parent = mountOverlay(canvas, state);
     const root = document.createElement("div");
     Object.assign(root.style, {
@@ -136,7 +136,7 @@ export const OrbitOverlayPlugin: Plugin = {
     name: "OrbitOverlay",
     systems: [OrbitOverlaySystem],
     // swap fallback: a host that re-warms without disposing never fires onDispose, so clear the
-    // module-scope overlay here before update re-creates it (collapse's panelCleanup-at-top-of-warm)
+    // module-scope overlay here before update re-creates it
     warm() {
         _overlay?.destroy();
         _overlay = null;

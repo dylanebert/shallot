@@ -1036,8 +1036,8 @@ describe("OrbitSystem orthographic zoom and middle-button pan", () => {
 });
 
 // The fly-speed overlay's module-scope runtime state (`_overlay`, `_lastSpeed`, `_shownUntil`) must be
-// keyed to State/canvas lifetime per the ecs reload-safety rule. The collapse exemplar's shape is the
-// contract: `mountOverlay(canvas, state)` for the disposing path, a module-scope cleanup cleared at
+// keyed to State/canvas lifetime per the ecs reload-safety rule. The contract is
+// `mountOverlay(canvas, state)` for the disposing path, a module-scope cleanup cleared at
 // top-of-warm for the re-warm/swap path, and State-derived time (no module-level accumulator). These arms
 // cover the gate roster: rebuild-against-new-canvas, visibility window, fade-hold text, flying-camera
 // selection, the negative-last-speed sentinel, and destroy(). DOM-mocked with the same `globalThis.document`
