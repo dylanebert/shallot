@@ -20,9 +20,14 @@ function projectDir(): string {
     return mkdtempSync(join(tmpdir(), "shallot-vite-test-"));
 }
 
-// minimal bundle builders — the pure prune reads only type / fileName / code|source
-const chunk = (fileName: string, code: string) =>
-    ({ type: "chunk", fileName, code }) as Rollup.OutputChunk;
+// minimal bundle builders — include Vite's CSS metadata when a chunk represents an imported stylesheet
+const chunk = (fileName: string, code: string, importedCss?: string[]) =>
+    ({
+        type: "chunk",
+        fileName,
+        code,
+        ...(importedCss ? { viteMetadata: { importedCss: new Set(importedCss) } } : {}),
+    }) as Rollup.OutputChunk;
 const asset = (fileName: string, source: string | Uint8Array) =>
     ({ type: "asset", fileName, source }) as Rollup.OutputAsset;
 const bundle = (...files: (Rollup.OutputChunk | Rollup.OutputAsset)[]) =>
@@ -635,6 +640,31 @@ describe("projectPlugin", () => {
 
             expect(outputBundle).toEqual(before);
             expect(infoMsgs).toEqual([]);
+        });
+
+        test("retains metadata-imported CSS and its binary child before HTML exists", () => {
+            const plugin = projectPlugin();
+            const css = "body{background:url(./font-BBB.woff2)}";
+            const font = new Uint8Array([3, 1, 4, 1, 5]);
+            const outputBundle = bundle(
+                chunk("assets/index-AAA.js", 'console.log("no CSS text edge")', [
+                    "assets/style-CCC.css",
+                ]),
+                asset("assets/style-CCC.css", css),
+                asset("assets/font-BBB.woff2", font),
+                asset("assets/dead-DDD.wasm", new Uint8Array([9, 2, 6])),
+            );
+            const infoMsgs: string[] = [];
+            generateBundleHook(plugin).call({ info: (m) => infoMsgs.push(m) }, {}, outputBundle);
+
+            const style = outputBundle["assets/style-CCC.css"] as Rollup.OutputAsset | undefined;
+            const fontOutput = outputBundle["assets/font-BBB.woff2"] as
+                | Rollup.OutputAsset
+                | undefined;
+            expect(style?.source).toBe(css);
+            expect(fontOutput?.source).toEqual(font);
+            expect(outputBundle["assets/dead-DDD.wasm"]).toBeUndefined();
+            expect(infoMsgs).toEqual(["pruned 1 orphaned asset(s), 0KB"]);
         });
     });
 });

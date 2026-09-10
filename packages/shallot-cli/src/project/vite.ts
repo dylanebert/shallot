@@ -122,8 +122,20 @@ export function orphanedAssets(bundle: Rollup.OutputBundle): string[] {
     const files = Object.values(bundle);
     const text = (f: Rollup.OutputAsset | Rollup.OutputChunk) =>
         f.type === "chunk" ? f.code : typeof f.source === "string" ? f.source : "";
-    // never prune a chunk (tree-shaking already pruned JS) or an html entry — seed them as kept roots
+    // never prune a chunk (tree-shaking already pruned JS) or an html entry — seed them as kept roots.
+    // Vite records chunk→CSS edges in metadata because the CSS import is not part of chunk.code; read
+    // that edge before the textual asset fixpoint so a manifest build can retain CSS before HTML exists.
     const kept = new Set(files.filter((f) => f.type === "chunk" || f.fileName.endsWith(".html")));
+    for (const file of files) {
+        if (file.type !== "chunk") continue;
+        const metadata = file as Rollup.OutputChunk & {
+            viteMetadata?: { importedCss?: ReadonlySet<string> };
+        };
+        for (const css of metadata.viteMetadata?.importedCss ?? []) {
+            const imported = bundle[css];
+            if (imported?.type === "asset") kept.add(imported);
+        }
+    }
     const assets = files.filter(
         (f): f is Rollup.OutputAsset => f.type === "asset" && !f.fileName.endsWith(".html"),
     );
