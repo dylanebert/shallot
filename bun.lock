@@ -904,77 +904,11 @@
 
     "@typescript-eslint/visitor-keys/eslint-visitor-keys": ["eslint-visitor-keys@5.0.1", "", {}, "sha512-tD40eHxA35h0PEIZNeIjkHoDR4YjjJp34biM0mDvplBe//mB+IHCqHDGV7pxF+7MklTvighcCPPZC7ynWyjdTA=="],
 
-    "animate-with-clips/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "annotate-the-world/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "ascii/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "billboards-and-sprites/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "breakable-joints/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "build-a-scene/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "compute-and-readback/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "custom-material/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "day-night-sky/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "drive-a-vehicle/@dylanebert/shallot": ["shallot@root:", {}],
-
     "eslint/eslint-visitor-keys": ["eslint-visitor-keys@4.2.1", "", {}, "sha512-Uhdk5sfqcee/9H/rCOJikYz67o0a2Tw2hGRPOG2Y1R2dg7brRe1uG0yaNQDHu+TO/uQPF/5eCapvYSmHUjt7JQ=="],
 
     "espree/eslint-visitor-keys": ["eslint-visitor-keys@4.2.1", "", {}, "sha512-Uhdk5sfqcee/9H/rCOJikYz67o0a2Tw2hGRPOG2Y1R2dg7brRe1uG0yaNQDHu+TO/uQPF/5eCapvYSmHUjt7JQ=="],
 
-    "first-person/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "fog-and-light-shafts/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "game-loop/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "gpu-particles/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "gym/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "import-a-model/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "joints/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "measure-performance/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "moving-platform/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "ocean/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "orbit-camera/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "overlay-ui/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "physics-playground/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "play-sound/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "ragdoll/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "render-to-a-terminal/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "respond-to-input/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "roads/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "save-and-restore/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "stylize-the-look/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "surface-friction/@dylanebert/shallot": ["shallot@root:", {}],
-
-    "visualization/@dylanebert/shallot": ["shallot@root:", {}],
-
     "vite/fsevents": ["fsevents@2.3.3", "", { "os": "darwin" }, "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw=="],
-
-    "voxel/@dylanebert/shallot": ["shallot@root:", {}],
 
     "@nicolo-ribaudo/eslint-scope-5-internals/eslint-scope/estraverse": ["estraverse@4.3.0", "", {}, "sha512-39nnKffWz8xN1BU/2c79n9nB9HDzo0niYUqx6xyqUnyoAnQyyWpOTdZEeiCch8BBu515t4wp9ZmgVfVhn9EBpw=="],
 

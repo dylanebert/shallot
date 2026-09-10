@@ -23,7 +23,7 @@ Targets: desktop Chrome/Edge, recent Android Chrome, Safari26+ Apple Silicon, St
 ## Commands
 
 ```bash
-bun run build                             # After bun install: audio WASM, dist/ tooling, native window
+bun run build                             # After bun install: audio WASM, dist/ tooling, physics kernel
 bun run test                              # Unit gate; needs build and a native adapter
 bun run test:changed -- --base <ref> --diff <ref>
 bun check                                 # Read-only tsc/Biome/checks; pack test is check-pack
@@ -43,7 +43,7 @@ bun bin/cli.ts <dev|build|run|verify> [dir]
 # build/run: [--target <os>] [--portable]; build: [--release]
 ```
 
-OS: windows/mac/linux; web emits dist; native uses platform tools. Verify owns Verdict/exit, full-Chromium headless; `--headed` for display, `--connect` remote. Published `/harness`; bench/recipes wrap it. Gym defaults render; slugs select atoms. Screenshots never gate. Laws: `examples.md`.
+OS: windows/mac/linux; web emits dist; native uses platform tools and builds `rust/window` per project. A non-portable Linux shell needs webkit2gtk-4.1 dev headers; the CLI refuses it for WebGPU anyway, so use `--portable`. Verify owns Verdict/exit, full-Chromium headless; `--headed` for display, `--connect` remote. Published `/harness`; bench/recipes wrap it. Gym defaults render; slugs select atoms. Screenshots never gate. Laws: `examples.md`.
 
 ### Verification
 
