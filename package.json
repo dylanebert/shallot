@@ -69,7 +69,6 @@
         "!examples/*/node_modules",
         "!examples/*/tsconfig.json",
         "!src/extras/gltf/fixtures",
-        "!src/standard/physics/samples",
         "!src/standard/physics/solver/fixtures",
         "shallot.schema.json",
         "!**/*.test.ts",

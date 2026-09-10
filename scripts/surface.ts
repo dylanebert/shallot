@@ -331,6 +331,7 @@ function runtimeRegistrationCount(root: string): { count: number | null; error?:
                 "--pass-with-no-tests",
                 "src",
                 "scripts",
+                "examples",
             ],
             { cwd: root, encoding: "utf8", stdio: ["ignore", "ignore", "pipe"] },
         );
@@ -446,7 +447,7 @@ function runTests(root: string, population: Population): number {
             `verdict claim=${JSON.stringify(row.claim)} file=${row.file} result=refused reason=${JSON.stringify(entry?.reason ?? "quarantined")}`,
         );
     }
-    const args = ["test", "--pass-with-no-tests", "src", "scripts"];
+    const args = ["test", "--pass-with-no-tests", "src", "scripts", "examples"];
     if (marked.length > 0) {
         const excluded = marked.map((row) => escapeRegex(row.name)).join("|");
         args.push("--test-name-pattern", `^(?!(${excluded})$).*$`);
