@@ -2,8 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 
 // S4's touch verification gate (spec: `shallot-mobile-controls`) — a driver-level Playwright gate over
 // gym's own `orbit-touch` scenario (`src/scenarios/orbit-touch.ts`), real CDP touch dispatch
-// (`test/touch-dispatch.ts`) reading the orbit pose back through `window.__orbitPose()`. Same shape as
-// `examples/showcase/roads/playwright.config.ts`: `shallot-mobile-controls` spec's Locked decision
+// (`test/touch-dispatch.ts`) reading the orbit pose back through `window.__orbitPose()`. The
+// `shallot-mobile-controls` spec's Locked decision
 // picked CDP `Input.dispatchTouchEvent` over `page.touchscreen`/synthetic `dispatchEvent` as the
 // integration-honest instrument, Chromium-only by construction (`touch-dispatch.ts`'s header). The
 // launch is local and headed on the session's display — `playwright.global-setup.ts` refuses to start

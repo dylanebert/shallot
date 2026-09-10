@@ -33,7 +33,7 @@ export const EXIT_NO_DISPLAY = 4; // no usable real-GPU adapter, or an explicitl
 // and D3D's WARP. Deliberately a name list rather than a capability probe — a software adapter clears
 // shallot's whole base floor (every feature + limit check), so nothing about the floor distinguishes it;
 // only *execution* dies (`GPU device lost`, oversized `mappedAtCreation` allocations that read as engine
-// bugs). Mirrors the showcase drivers' proven shape (voxel.playwright.ts/roads.playwright.ts), biased narrow: an
+// bugs). Mirrors the Playwright display drivers' proven shape, biased narrow: an
 // unlisted software adapter still fails loudly rather than silently pass having tested nothing.
 const SOFTWARE_ADAPTER = /swiftshader|llvmpipe|lavapipe|warp|basic render/i;
 

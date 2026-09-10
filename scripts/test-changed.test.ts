@@ -17,10 +17,7 @@ describe("changed-path selector", () => {
         expect(dirs(["src/standard/render/plugin.ts"])).toEqual([
             "examples/recipes/day-night-sky",
             "examples/recipes/gpu-particles",
-            "examples/showcase/ocean",
-            "examples/showcase/roads",
             "examples/showcase/visualization",
-            "examples/showcase/voxel",
             "examples/gym",
         ]);
         expect(dirs(["src/standard/fog/index.ts"])).toEqual(["examples/gym"]);
@@ -140,10 +137,13 @@ describe("manifest-owned verify transport", () => {
         }
     });
 
-    test("warning headings survive the real selector and manifest transport composition", async () => {
+    test("warning headings survive the manifest verify transport", async () => {
         const project = realpathSync(mkdtempSync(resolve(tmpdir(), "shallot-warning-count-")));
         const cli = resolve(project, "driver.mjs");
-        const reader = resolve(import.meta.dir, "test-changed.ts");
+        writeFileSync(
+            resolve(project, "package.json"),
+            JSON.stringify({ scripts: { gate: "bunx shallot verify . --screenshot shot.png" } }),
+        );
         // Match the CLI and wrapper emitters, including chatter that is not a heading.
         const cases = [
             { stdout: "  warnings (18):\n    deprecated\n", stderr: "", count: 18, exit: 0 },
@@ -172,34 +172,10 @@ describe("manifest-owned verify transport", () => {
                     cli,
                     `process.stdout.write(${JSON.stringify(row.stdout)}); process.stderr.write(${JSON.stringify(row.stderr)}); process.exit(${row.exit});`,
                 );
-                const child = Bun.spawn(
-                    [
-                        process.execPath,
-                        "--eval",
-                        `
-                    import {main,runCommand} from ${JSON.stringify(reader)};
-                    process.exit(await main(['--base','HEAD','--diff','HEAD'], {
-                        paths: async () => ['examples/showcase/ocean/shallot.json'],
-                        displaySkip: () => null,
-                        displayRequired: true,
-                        run: command => runCommand(command, {cli:${JSON.stringify(cli)}})
-                    }));`,
-                    ],
-                    { stdout: "pipe", stderr: "pipe" },
-                );
-                const [stdout, stderr, code] = await Promise.all([
-                    new Response(child.stdout).text(),
-                    new Response(child.stderr).text(),
-                    child.exited,
-                ]);
-                expect(code, stderr).toBe(row.exit === 0 ? 0 : 1);
-                expect(stdout).toContain("manifest gate:");
-                expect(stdout).toContain(
-                    `argv=["bun",${JSON.stringify(cli)},"verify",".","--screenshot","ocean.png"]`,
-                );
-                expect(stdout).toContain(
-                    `${row.exit === 0 ? "PASS" : "FAIL"}: display examples/showcase/ocean (${row.count} warnings)`,
-                );
+                expect(await runCommand(`bun run --cwd ${project} gate`, { cli })).toEqual({
+                    ok: row.exit === 0,
+                    warnings: row.count,
+                });
             }
         } finally {
             rmSync(project, { recursive: true, force: true });
@@ -216,7 +192,7 @@ describe("changed-path execution tiers", () => {
         try {
             expect(
                 await main(args, {
-                    paths: async () => ["examples/showcase/ocean/src/ocean/fft.ts"],
+                    paths: async () => ["examples/showcase/visualization/src/text.ts"],
                     run: async () => ({ ok: true, warnings: 0 }),
                     displaySkip: () => "fixture seat",
                     displayRequired: true,
@@ -238,7 +214,7 @@ describe("changed-path execution tiers", () => {
         const source = `
             import { main } from ${JSON.stringify(reader)};
             process.exitCode = await main(["--base", "base", "--diff", "head"], {
-                paths: async () => ["examples/showcase/ocean/src/ocean/fft.ts"],
+                paths: async () => ["examples/showcase/visualization/src/text.ts"],
                 run: async () => ({ ok: true, warnings: 0 }),
                 displaySkip: () => "fixture seat",
             });
@@ -276,7 +252,7 @@ describe("changed-path execution tiers", () => {
         const commands: string[] = [];
         expect(
             await main(args, {
-                paths: async () => ["examples/showcase/ocean/src/ocean/fft.ts"],
+                paths: async () => ["examples/showcase/visualization/src/text.ts"],
                 run: async (command) => {
                     commands.push(command);
                     return { ok: true, warnings: 0 };
@@ -284,7 +260,7 @@ describe("changed-path execution tiers", () => {
                 displaySkip: () => null,
             }),
         ).toBe(0);
-        expect(commands).toEqual(["bun run --cwd examples/showcase/ocean gate"]);
+        expect(commands).toEqual(["bun run --cwd examples/showcase/visualization gate"]);
     });
 
     test("display rows still accumulate a later failure after an earlier pass", async () => {

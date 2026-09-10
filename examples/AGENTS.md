@@ -43,8 +43,4 @@ Grep first: `.claude/rules/examples.md`. Manifests: `bunx shallot dev examples/r
 https://dylanebert.com/shallot/; version-pinned code links, project-owned gates.
 
 - **ascii** — `showcase/ascii/` — the cell-grid cube seeded on the web sink.
-- **ocean** — `showcase/ocean/` — a full-screen multi-cascade FFT ocean at pinned camera, sun, time, and capture conditions.
-
-- **roads** — `showcase/roads/` — a road network editor across terrain (capture, edit, re-drive corridors) that owns its own Playwright gate.
 - **visualization** — `showcase/visualization/` — a multi-canvas gallery of the debug-draw primitives (lines, text, written animations, wireframe).
-- **voxel** — `showcase/voxel/` — a voxel editor (carve tools + a greedy mesher) that owns its own Playwright gate.

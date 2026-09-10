@@ -97,7 +97,7 @@
         "icons": "bun run scripts/brand-assets.ts --write",
         "check": "tsc && biome check && eslint . --max-warnings=0 && bun run scripts/check-versions.ts && bun run scripts/check-imports.ts && bun run scripts/check-boundary.ts && bun run scripts/check-docs.ts && bun run scripts/check-pack.ts && bun run scripts/check-scripts.ts && bun run scripts/check-exports.ts && bun run scripts/check-node-import.ts && bun run scripts/check-examples.ts && bun run scripts/format.ts --check",
         "format": "biome check --write && bun run scripts/format.ts",
-        "test": "bun test src bin tests scripts evals examples/showcase/visualization/test examples/showcase/ocean/test",
+        "test": "bun test src bin tests scripts evals examples/showcase/visualization/test",
         "test:install": "bun run scripts/install-test.ts",
         "test:changed": "bun run scripts/test-changed.ts",
         "assets": "bun run scripts/assets.ts",

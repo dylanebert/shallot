@@ -69,7 +69,7 @@ test("only the previous label attaches to a browser server, at any verified dire
     }
 });
 
-test("the 4 legacy caller constructions are explicitly headed and Ocean stays ordinary headless", () => {
+test("the 4 legacy caller constructions are explicitly headed", () => {
     const callers: Array<{ file: string; headed: number }> = [
         { file: "bench.ts", headed: 3 },
         { file: "recipes.ts", headed: 1 },
@@ -93,11 +93,6 @@ test("the 4 legacy caller constructions are explicitly headed and Ocean stays or
     expect(install).not.toContain('"--headed"');
     expect(install).not.toContain('"--connect"');
     expect(CONNECT_LAUNCH.headless).toBe(true);
-
-    const ocean = JSON.parse(
-        readFileSync(resolve(import.meta.dir, "../examples/showcase/ocean/package.json"), "utf8"),
-    ) as { scripts?: { gate?: string } };
-    expect(ocean.scripts?.gate).toBe("bunx shallot verify . --screenshot ocean.png");
 
     expect(missingCrateDiagnosticPass({ ok: false, out: "corrupt install: reinstall" })).toBe(true);
     expect(missingCrateDiagnosticPass({ ok: false, out: "cargo failed" })).toBe(false);

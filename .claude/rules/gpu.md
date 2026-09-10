@@ -8,7 +8,6 @@ paths:
   - "src/standard/slab/**/*.ts"
   - "src/standard/bvh/**/*.ts"
   - "src/extras/{cells,gltf,lines,outline,profile,skin,sky,sprite,text}/**/*.ts"
-  - "examples/showcase/ocean/src/ocean/**"
 ---
 
 # GPU

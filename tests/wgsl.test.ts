@@ -24,9 +24,8 @@ describe("body", () => {
      * i.e. an **empty string** — instead of throwing. An empty slice satisfies every
      * `not.toMatch` in `noIntegerDivision`, so a discipline gate fed that slice passes by
      * extracting nothing — and that composition is live, not hypothetical:
-     * `noIntegerDivision(body(…))` and its siblings are 23 invocations in 6 files, of the 20 that
-     * import this helper (`sear/pipelines.test.ts`, `extras/outline`, `extras/sky`,
-     * `showcase/roads`) — counts are invocations and files, re-derive with
+     * `noIntegerDivision(body(…))` and its siblings are 14 invocations in 2 files
+     * (`sear/pipelines.test.ts`, `extras/outline`) — counts are invocations and files, re-derive with
      * `grep -rn 'Division(body(\|Discipline(body(' --include=*.ts --exclude=wgsl.test.ts`. The
      * exclusion is load-bearing: without it this docblock is in the population it counts — the
      * pattern appears twice above (the prose example and the command itself), so the unexcluded

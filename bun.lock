@@ -179,25 +179,6 @@
         "pngjs": "^7.0.0",
       },
     },
-    "examples/showcase/ocean": {
-      "name": "ocean",
-      "version": "0.0.0",
-      "dependencies": {
-        "typegpu": "~0.12.5",
-      },
-    },
-    "examples/showcase/roads": {
-      "name": "roads",
-      "version": "0.0.0",
-      "dependencies": {
-        "typegpu": "~0.12.5",
-      },
-      "devDependencies": {
-        "@playwright/test": "^1.63.0",
-        "@types/pngjs": "^6.0.5",
-        "pngjs": "^7.0.0",
-      },
-    },
     "examples/showcase/visualization": {
       "name": "visualization",
       "version": "0.0.0",
@@ -208,16 +189,6 @@
         "@playwright/test": "^1.63.0",
         "unplugin-typegpu": "~0.12.3",
         "vite": "^8.3.0",
-      },
-    },
-    "examples/showcase/voxel": {
-      "name": "voxel",
-      "version": "0.0.0",
-      "dependencies": {
-        "typegpu": "~0.12.5",
-      },
-      "devDependencies": {
-        "@playwright/test": "^1.63.0",
       },
     },
   },
@@ -642,8 +613,6 @@
 
     "obug": ["obug@2.2.1", "", {}, "sha512-XrsrhT5sybtKI6wakr2SPOlGZWWYbUXZ7a0jT8/QOeAPau+1X/bSegNe5YR75oJmEZQbKningirmGOEJCIk61Q=="],
 
-    "ocean": ["ocean@workspace:examples/showcase/ocean"],
-
     "optionator": ["optionator@0.9.4", "", { "dependencies": { "deep-is": "^0.1.3", "fast-levenshtein": "^2.0.6", "levn": "^0.4.1", "prelude-ls": "^1.2.1", "type-check": "^0.4.0", "word-wrap": "^1.2.5" } }, "sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g=="],
 
     "orbit-camera": ["orbit-camera@workspace:examples/recipes/orbit-camera"],
@@ -689,8 +658,6 @@
     "render-to-a-terminal": ["render-to-a-terminal@workspace:examples/recipes/render-to-a-terminal"],
 
     "respond-to-input": ["respond-to-input@workspace:examples/recipes/respond-to-input"],
-
-    "roads": ["roads@workspace:examples/showcase/roads"],
 
     "rolldown": ["rolldown@1.2.8", "", { "dependencies": { "@oxc-project/types": "=0.149.0", "@rolldown/pluginutils": "^1.0.0" }, "optionalDependencies": { "@rolldown/binding-android-arm-eabi": "1.2.8", "@rolldown/binding-android-arm64": "1.2.8", "@rolldown/binding-darwin-arm64": "1.2.8", "@rolldown/binding-darwin-x64": "1.2.8", "@rolldown/binding-freebsd-x64": "1.2.8", "@rolldown/binding-linux-arm-gnueabihf": "1.2.8", "@rolldown/binding-linux-arm64-gnu": "1.2.8", "@rolldown/binding-linux-arm64-musl": "1.2.8", "@rolldown/binding-linux-ppc64-gnu": "1.2.8", "@rolldown/binding-linux-s390x-gnu": "1.2.8", "@rolldown/binding-linux-x64-gnu": "1.2.8", "@rolldown/binding-linux-x64-musl": "1.2.8", "@rolldown/binding-openharmony-arm64": "1.2.8", "@rolldown/binding-win32-arm64-msvc": "1.2.8", "@rolldown/binding-win32-x64-msvc": "1.2.8" }, "bin": { "rolldown": "./bin/cli.mjs" } }, "sha512-Z67nTmhZe7anqnM/EjI392w5i/ANUinjip7QYsOyN37oayduxt3ksdX0hf5OOamkAd53BiIHfbfSzfUmzKFQqQ=="],
 
@@ -739,8 +706,6 @@
     "visualization": ["visualization@workspace:examples/showcase/visualization"],
 
     "vite": ["vite@8.3.0", "", { "dependencies": { "lightningcss": "^1.33.0", "picomatch": "^4.0.7", "postcss": "^8.5.28", "rolldown": "~1.2.6", "tinyglobby": "^0.2.17" }, "optionalDependencies": { "fsevents": "~2.3.3" }, "peerDependencies": { "@types/node": "^20.19.0 || >=22.12.0", "@vitejs/devtools": "^0.7.1", "esbuild": "^0.27.0 || ^0.28.0", "jiti": ">=1.21.0", "less": "^4.0.0", "sass": "^1.70.0", "sass-embedded": "^1.70.0", "stylus": ">=0.54.8", "sugarss": "^5.0.0", "terser": "^5.16.0", "tsx": "^4.8.1", "yaml": "^2.4.2" }, "optionalPeers": ["@types/node", "@vitejs/devtools", "esbuild", "jiti", "less", "sass", "sass-embedded", "stylus", "sugarss", "terser", "tsx", "yaml"], "bin": { "vite": "bin/vite.js" } }, "sha512-lhZBVvEHefgE+HQZC9O7EBJgCU/nVzFNl7vkS4RE0APtWLP02/8QVIkQtzBxPquh7lq5/78NHipTj7ODQ6XuyQ=="],
-
-    "voxel": ["voxel@workspace:examples/showcase/voxel"],
 
     "webpack-virtual-modules": ["webpack-virtual-modules@0.6.2", "", {}, "sha512-66/V2i5hQanC51vBQKPH4aI8NMAcBW59FVBs+rC7eGHupMyfn34q7rZIE+ETlJ+XTevqfUhVVBgSUNSW2flEUQ=="],
 

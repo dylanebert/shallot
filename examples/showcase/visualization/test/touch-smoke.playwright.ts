@@ -13,7 +13,7 @@ import { classifyRendered } from "./rendered";
 // `cd examples/showcase/visualization && bunx playwright test test/touch-smoke.playwright.ts` —
 // display-gated by `playwright.global-setup.ts`, which refuses without a display, plus
 // this file's own adapter-name skip below for a seat where neither the bridge nor a native real GPU is
-// available (mirrors `roads/test/touch-smoke.playwright.ts`); never part of `bun run test`.
+// available; never part of `bun run test`.
 
 test.use({
     hasTouch: true,
@@ -21,8 +21,8 @@ test.use({
     viewport: { width: 390, height: 844 },
 });
 
-// Software rasterizers by the name they report in `GPUAdapterInfo` — the same display-gate pattern
-// `roads/test/touch-smoke.playwright.ts` uses (that file's header has the full rationale).
+// Software rasterizers by the name they report in `GPUAdapterInfo` — the display-gate pattern
+// `examples/gym/test/touch.playwright.ts` uses.
 const SOFTWARE = /swiftshader|llvmpipe|lavapipe|warp|basic render/i;
 
 const adapterName = (page: Page): Promise<string> =>

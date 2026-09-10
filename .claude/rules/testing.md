@@ -6,7 +6,6 @@ paths:
   - "{src,bin,tests,scripts}/**/*.{test,probes}.ts"
   - "scripts/build.ts"
   - "scripts/{install-test.ts,install-test/**/*.ts}"
-  - "examples/showcase/ocean/test/**/*.{test,oracle}.ts"
 ---
 
 # Testing
@@ -16,8 +15,6 @@ Gates never write. Root commands: AGENTS.md; budgets: style.md; test paths: mani
 ## What a change class owes
 
 Keep AGENTS.md's Verification triggers; price selected page boots. Narrow bench/flow/recipe selectors, not coverage; install has none. Close: `bun run test:changed -- --base <ref> --diff <ref>`. CPU precedes display; deleted covers select. Zero/unavailable/success differ; `SHALLOT_DISPLAY_REQUIRED=1` refuses unavailable.
-
-Ocean oracle headers own bounds/controls. Reduced fold isn't production proof; mesh flips aren't fidelity; device parity excludes composition.
 
 ## GPU testing
 

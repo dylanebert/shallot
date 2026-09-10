@@ -379,7 +379,7 @@ describe("bootArm", () => {
 
 // The CLI's own hardware gate: on a software adapter the run clears every feature/limit check and then
 // dies mid-execution (`GPU device lost`, oversized `mappedAtCreation`) — measured 2026-08-18 running this
-// exact CLI against `examples/showcase/voxel` and `roads` on the retired WSL seat's SwiftShader fallback, hardware
+// exact CLI against the showcase projects on the retired WSL seat's SwiftShader fallback, hardware
 // read as "google / swiftshader". `isSoftwareAdapter` is the pure classification that refuses it before
 // any check runs; `displayGateExit` is the refusal-path seam reduced to its exit code, with no device
 // execution (`testing.md`: a default-suite verdict must not depend on device execution).

@@ -4,6 +4,9 @@ Newest first. **Breaking:** marks a change that needs consumer action; [`MIGRATI
 
 ## Unreleased
 
+User surface is unchanged apart from the migration notes; the changes below are maintainer layout and verification.
+
+- **repo** — Archived the ocean, roads and voxel research showcases (tag archive/research-showcases).
 - **repo** — Moved create-shallot and the AVBD solver to their own repositories.
 - **repo** — Archived the sandbox showcase (tag archive/sandbox-avbd).
 - **repo** — Gym glTF assets (Sponza and the Khronos samples) are pinned by URL and sha256 in `assets.json` and fetched with `bun run assets`; `bun run build` ends with `assets --check`, and `bun bench` reds a scenario whose declared asset is missing instead of skipping it.
