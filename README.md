@@ -1,22 +1,10 @@
 # Shallot
 
-webgpu game engine
+Shallot is a WebGPU game engine for TypeScript. You describe a game as data, a `shallot.json` manifest and a `.scene` file, and its behavior as plugins: components hold data, systems do the work, and each plugin declares where its systems run. It runs in any browser with WebGPU, and the same project builds into a native desktop app.
 
-- fast by default
-- instant iteration
-- runs in any WebGPU browser, or native
+## Install
 
-## live demos
-
-One demo is built and served at [dylanebert.com/shallot](https://dylanebert.com/shallot/) from [dylanebert/shallot-site](https://github.com/dylanebert/shallot-site). It links to its source at the version it was built from, and a staging build against `main` runs at [shallot-staging.pages.dev](https://shallot-staging.pages.dev/).
-
-| demo | play | code |
-|---|---|---|
-| Visualization | [play](https://dylanebert.com/shallot/visualization/) | [code](https://github.com/dylanebert/shallot/tree/v0.10.0/examples/showcase/visualization) |
-
-## quick start
-
-All you need is [bun](https://bun.sh):
+Start a new project with the scaffold. All you need is [Bun](https://bun.sh):
 
 ```bash
 bun create shallot my-game
@@ -25,20 +13,14 @@ bun install
 bunx shallot dev
 ```
 
-`bunx shallot dev` runs the project with hot reload, and `bunx shallot build` ships it as a web bundle. `bunx shallot build --target windows|mac|linux --release` downloads a prebuilt shell for that version from GitHub Releases, so no Rust toolchain is needed on a hit. A debug build, or any miss (404, offline, checksum mismatch, a source checkout), silently falls back to compiling the Rust native host from source, which needs the Rust toolchain plus that target's system dependencies (see [from source](#from-source)).
-
-A project is plain data plus code: a `shallot.json` manifest, a `.scene` file, and TypeScript plugins you edit in your IDE.
-
-`shallot verify` is gone in this version, and `shallot check` will replace it. Until then, `bunx shallot check` says it isn't available and exits 2. Any other verb runs `shallot-<verb>` from your PATH or your project's installed bins, the way Cargo and git do it. The packed-install probe is `bun test --timeout 120000 ./scripts/install-test.probes.ts`.
-
-## add to an existing project
+Or add it to an existing project. TypeGPU is a required peer, and your bundler needs exactly one TypeGPU transform:
 
 ```bash
 bun add @dylanebert/shallot typegpu@~0.12.5
 bun add -d unplugin-typegpu@~0.12.3
 ```
 
-TypeGPU is a required peer, and TGSL needs exactly one TypeGPU transform in your bundler. A `shallot.json` project gets that from the CLI. An ejected Vite app adds `typegpu()` from `unplugin-typegpu/vite` plus `optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] }`:
+A `shallot.json` project gets the transform from the CLI. An ejected Vite app wires it by hand:
 
 ```ts
 // vite.config.ts
@@ -52,88 +34,68 @@ export default defineConfig({
 });
 ```
 
-`bunx shallot add <name> [dir]` copies a recipe out as a runnable, version-matched project.
+## The CLI
 
-## the repo is the docs
+Six verbs, run as `bunx shallot <verb> [dir]`:
 
-The source is the reference: every public export carries a JSDoc contract. There's no docs site to drift from it, and two files carry the agent surface:
+- `create` starts a project. It's `bun create shallot <name>`, served by the scaffold.
+- `dev` runs the project with hot reload.
+- `build` ships a web bundle, or a desktop app with `--target windows|mac|linux`.
+- `run` builds and runs.
+- `add` copies a recipe out as a runnable, version-matched project. Bare `add` lists them.
+- `check` is arriving in a later version. Today it says so and exits 2.
 
-- [`AGENTS.md`](AGENTS.md) — the repo's agent contract: commands, pins, the ECS and plugin conventions, the GPU, render, physics, and testing rules.
-- [`examples/AGENTS.md`](examples/AGENTS.md) — the examples index: one line per entry, so you grep for the problem you have. The recipes themselves ship in the npm package.
+Any other verb runs `shallot-<verb>` from your PATH or your project's installed bins, the way Cargo and Git do it. `bunx shallot --help` lists every option.
 
-Written for coding agents first, readable by hand. Both files move in the same commit as the code they describe, so there's no generated layer to fall behind.
+### Desktop builds
 
-## examples
+`bunx shallot build --target <platform> --release` downloads a prebuilt shell for your installed version from GitHub Releases, so a hit needs no Rust toolchain. A debug build, or any miss (404, offline, checksum mismatch, a source checkout), compiles the Rust window host from the crate source shipped in the package. That needs [Rust](https://rustup.rs) plus the target's system dependencies:
 
-Examples live under `examples/`, indexed by [`examples/AGENTS.md`](examples/AGENTS.md):
+| target | system webview | portable (CEF) |
+|---|---|---|
+| mac | Xcode Command Line Tools | same, plus a CEF download on first build |
+| linux | not supported: WebKitGTK has no usable WebGPU | `libx11-dev`, plus a CEF download on first build |
+| windows | cross-compiled with cargo-xwin (`cargo install cargo-xwin`) | a Windows host with Visual Studio, the C++ workload and ATL |
 
-- recipes: one minimal project per problem, such as a first-person character, a physics playground, importing a model or a day-night sky.
-- showcases: full projects rather than one concept each, under real-device gates: `ascii`, `visualization`. Retired units are Git tags indexed in [`ARCHIVE.md`](ARCHIVE.md).
+`--portable` bundles the Chromium runtime (CEF) instead of the system webview. It's larger but runs anywhere, and Linux needs it. Set `CEF_PATH` to skip the download.
 
-Each example is one flat `examples/<name>/` directory; its `shallot.json` declares `kind` and `description`, and the index is generated from those.
+## Recipes
 
-Run a recipe standalone:
+A recipe is one small project per problem: a first-person character, a physics playground, importing a model, a day-night sky. [`examples/AGENTS.md`](examples/AGENTS.md) indexes every example in one line each, generated from their manifests, so grep it for the problem you have. Then copy one out:
 
 ```bash
-bunx shallot dev examples/orbit-camera
+bunx shallot add first-person
 ```
 
-A new project starts from `bun create shallot <name>` — the scaffold is the single source, so there's no in-repo starter copy.
+Recipes ship in the npm package. Showcases, full projects like `ascii` and `visualization`, stay in the repo.
 
-## links
+## Extensions
 
-- [discord](https://discord.gg/eEY75Nqk3C)
-- [npm](https://www.npmjs.com/package/@dylanebert/shallot)
+Anything that isn't the engine lives in its own repository and consumes the published package:
 
-## from source
+- [shallot-avbd-physics](https://github.com/dylanebert/shallot-avbd-physics): an AVBD solver that plugs into the physics seam.
+- [shallot-site](https://github.com/dylanebert/shallot-site): the demos at [dylanebert.com/shallot](https://dylanebert.com/shallot/), each built from a release tag and linked to its source.
+- [shallot-bench](https://github.com/dylanebert/shallot-bench): an agent benchmark that installs the engine at a pinned tag.
+- [create-shallot](https://github.com/dylanebert/create-shallot): the scaffold behind `bun create shallot`.
 
-Working on the engine itself needs the full toolchain:
+## Reference
 
-- [bun](https://bun.sh)
-- [rust](https://rustup.rs) with the `wasm32-unknown-unknown` target (`rustup target add wasm32-unknown-unknown`)
-- `wasm-opt` from [binaryen](https://github.com/WebAssembly/binaryen), optional: the build falls back to copying the unoptimized wasm
+The source is the reference. Every public export carries a JSDoc contract, and there's no separate docs site to drift from it. Questions go to [Discord](https://discord.gg/eEY75Nqk3C), bugs to [issues](https://github.com/dylanebert/shallot/issues), releases to [npm](https://www.npmjs.com/package/@dylanebert/shallot).
+
+## Working on the engine
+
+The engine pins Bun 1.4.2, Rust 1.98.1 with the `wasm32-unknown-unknown` target, and TypeScript 7; `wasm-opt` from binaryen is optional.
 
 ```bash
 git clone https://github.com/dylanebert/shallot
 cd shallot
 bun install
 bun run build
+bun run check
 ```
 
-`build` compiles the audio wasm kernel (`crates/audio`), the `dist/` tooling and the physics kernel (`crates/physics`, inlined into committed `.wasm.ts` files; the multithreaded artifact needs a nightly toolchain and is kept as committed without one). The native window host (`crates/native`) is built per project by `shallot build --target`.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) covers the layout, commands, tests and conventions. Retired units live in Git tags rather than the tree, and [`ARCHIVE.md`](ARCHIVE.md) lists each one with its tag.
 
-### native build prerequisites
+## License
 
-`shallot build --target <platform>` compiles the Rust window host from the crate source shipped in the npm package. You need [Rust](https://rustup.rs) plus per-target system dependencies:
-
-| target | system webview | portable (CEF) |
-|---|---|---|
-| mac | Xcode Command Line Tools | same, plus a CEF runtime download on first build (or set `CEF_PATH`) |
-| linux | WebKitGTK dev headers (no usable WebGPU; use `--portable`) | `libx11-dev` (X11 dev headers to link the CEF shell), plus CEF runtime download on first build (or `CEF_PATH`) |
-| windows | cross-compiled via cargo-xwin (`cargo install cargo-xwin`; no local Windows toolchain needed) | a Windows host with Visual Studio and the C++ workload incl. ATL — cargo-xwin's clang-cl cannot build CEF's `libcef_dll_wrapper`, so the portable target needs the real MSVC toolchain |
-
-Portable builds bundle the Chromium runtime (CEF) instead of the system webview. The CEF runtime auto-downloads on first build unless `CEF_PATH` points to a local copy. Release builds download a prebuilt shell when one exists for the installed version; debug builds and any release miss always compile from source.
-
-### layout
-
-- `` — public engine-and-tools distribution, `@dylanebert/shallot`
-- `examples/` — example projects against the engine
-
-### commands
-
-run from the repo root. The `test` script in [`package.json`](package.json) defines the default test paths.
-
-```bash
-bun run check      # read-only: tsc, biome, every scripts/check-*.ts, scene format
-bun run test       # empty until tests are re-admitted by declaration
-bun run format     # biome + scene formatter
-bun run build      # rust artifacts
-```
-
-The full command table, the toolchain pins and the conventions are in [`AGENTS.md`](AGENTS.md).
-
-`bun run check` is the gate before pushing. The old tests live at the `archive/tests-pre-slice` tag (see [ARCHIVE.md](ARCHIVE.md)) and come back one declared check at a time. File issues at <https://github.com/dylanebert/shallot/issues>.
-
-## license
-
-MIT
+MIT, see [`LICENSE`](LICENSE).
