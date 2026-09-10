@@ -1,6 +1,6 @@
 # Examples
 
-Grep first: `.claude/rules/examples.md`. Manifests: `bunx shallot dev examples/recipes/<name>/` (showcase likewise); gym/visualization: cd there, bun dev.
+Grep first: `.claude/rules/examples.md`. Manifests: `bunx shallot dev examples/recipes/<name>/` (showcase likewise); visualization: cd there, bun dev.
 
 ## Recipes
 
@@ -9,14 +9,14 @@ Grep first: `.claude/rules/examples.md`. Manifests: `bunx shallot dev examples/r
 - input — `recipes/respond-to-input/` — held/edge/mouse.
 - orbit — `recipes/orbit-camera/` — framing.
 - first-person — `recipes/first-person/` — controller/platform.
-- physics — `recipes/physics-playground/` — bodies/joints; gym pile/suspension.
+- physics — `recipes/physics-playground/` — bodies/joints.
 
-- ragdoll — `recipes/ragdoll/` — LiveSkin, Physics hatch; gym ragdoll-ragdoll.
-- joints — `recipes/joints/` — Spring/Joint; gym joints-suspension/cantilever.
-- platform — `recipes/moving-platform/` — kinematic; gym joints-elevator motor.
-- drive a vehicle — `recipes/drive-a-vehicle/` — W/S/A/D, hatch; gym joints-driving.
-- breakable joints — `recipes/breakable-joints/` — hatch events; gym events-joint-break.
-- friction — `recipes/surface-friction/` — Body.friction; gym shapes-inclined-plane.
+- ragdoll — `recipes/ragdoll/` — LiveSkin, Physics hatch.
+- joints — `recipes/joints/` — Spring/Joint.
+- platform — `recipes/moving-platform/` — kinematic.
+- drive a vehicle — `recipes/drive-a-vehicle/` — W/S/A/D, hatch.
+- breakable joints — `recipes/breakable-joints/` — hatch events.
+- friction — `recipes/surface-friction/` — Body.friction.
 
 - import glTF — `recipes/import-a-model/` — mesh refs/load/place.
 - day-night sky — `recipes/day-night-sky/` — procedural sun/time.
@@ -33,10 +33,6 @@ Grep first: `.claude/rules/examples.md`. Manifests: `bunx shallot dev examples/r
 - overlay/embed UI — `recipes/overlay-ui/` — mountOverlay/run.
 - save/restore — `recipes/save-and-restore/` — XML/storage.
 - perf — `recipes/measure-performance/` — profiler.
-
-## Gym
-
-`gym/`: `bun bench --scenario <name>`; gates/bench/demo. Roster: `gym/src/scenarios/index.ts`; teaching: recipes. Touch: `gym/test/touch.playwright.ts`.
 
 ## Showcase
 
