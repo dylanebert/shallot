@@ -363,8 +363,40 @@ function seatSummary(rows: readonly SurfaceRow[]): string[] {
     ]);
 }
 
-/** Emit the hosted cadence from the discovered population, never from a hand-maintained list. */
+interface BuildPins {
+    stable: string;
+    nightly: string;
+    target: string;
+    hasBinaryen: boolean;
+}
+
+function readBuildPins(root: string): BuildPins {
+    const toolchain = readFileSync(resolve(root, "rust-toolchain.toml"), "utf8");
+    const stable = toolchain.match(/^channel\s*=\s*["']([^"']+)["']/m)?.[1];
+    const target = toolchain.match(/^targets\s*=\s*\[\s*["']([^"']+)["']/m)?.[1];
+    const kernel = readFileSync(resolve(root, "crates/physics/scripts/build-kernel.ts"), "utf8");
+    const nightly = kernel.match(/const NIGHTLY = ["']([^"']+)["']/)?.[1];
+    const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as {
+        dependencies?: Record<string, unknown>;
+        devDependencies?: Record<string, unknown>;
+        optionalDependencies?: Record<string, unknown>;
+    };
+    const hasBinaryen = [
+        packageJson.dependencies,
+        packageJson.devDependencies,
+        packageJson.optionalDependencies,
+    ].some((group) => group?.binaryen !== undefined);
+    if (!stable || !target || !nightly) {
+        throw new Error(
+            "hosted workflow pins missing: rust-toolchain.toml needs channel and target, and build-kernel.ts needs NIGHTLY",
+        );
+    }
+    return { stable, nightly, target, hasBinaryen };
+}
+
+/** Emit the hosted cadence from the discovered population and project build pins. */
 export function renderWorkflow(population: Population): string {
+    const pins = readBuildPins(population.root);
     const nonStepTiers = [
         ...new Set(
             population.rows
@@ -380,6 +412,9 @@ export function renderWorkflow(population: Population): string {
         "      - uses: actions/checkout@v4",
         "      - uses: oven-sh/setup-bun@v2",
         "      - run: bun install --frozen-lockfile",
+        `      - run: rustup toolchain install ${pins.stable} --target ${pins.target}`,
+        `      - run: rustup toolchain install ${pins.nightly} --component rust-src --target ${pins.target}`,
+        ...(pins.hasBinaryen ? [] : ["      - run: bun add --global binaryen"]),
         "      - run: bun run build",
         "      - run: bun run check",
         "      - run: bun run test",
