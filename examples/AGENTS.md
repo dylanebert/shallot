@@ -1,6 +1,6 @@
 # Examples
 
-Grep first: `.claude/rules/examples.md`. Manifests: `bunx shallot dev examples/recipes/<name>/` (showcase likewise); visualization: cd there, bun dev.
+Manifests: `bunx shallot dev examples/recipes/<name>/` (showcase likewise); visualization: cd there, bun dev.
 
 ## Recipes
 

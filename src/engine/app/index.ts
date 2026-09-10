@@ -296,7 +296,7 @@ export async function build(config: Config): Promise<App> {
         const warmBase = sorted.length + scenes.length;
         // freeze the membership generation count before any plugin's `warm` runs:
         // `allocMembership` (SlabPlugin.warm) sizes the GPU mirror from it, and the
-        // fixed-generation-count invariant (ecs.md) must hold before a device-bound
+        // fixed-generation-count invariant must hold before a device-bound
         // plugin can build against it. Owned here, not in a standard plugin, so it
         // holds for every State regardless of which plugins are loaded.
         state.membership.freeze();

@@ -1,6 +1,6 @@
 // The glyph instance buffer's CPU↔GPU boundary: the `Glyph` layout the staging writer fills and the
 // surface's vs reads, plus the two pure decode helpers its fs calls. A sibling of the producer (index.ts)
-// rather than one of its exports — a WGSL chunk and a codegen schema are not author surface (exports.md
+// rather than one of its exports — a WGSL chunk and a codegen schema are not author surface (the archived exports rules
 // "Barrel rules"), and the test imports this file directly.
 
 import tgpu from "typegpu";

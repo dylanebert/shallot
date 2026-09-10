@@ -87,7 +87,7 @@ const _paramsF32 = new Float32Array(_paramsBuf);
 // `_pointAtlasView` doubles as the seam: non-null once the atlas exists.
 //
 // The atlas renders in one pass, one indirect draw per casting mesh (the re-gather concatenates each mesh's
-// per-combo culled members into one run — gpu.md "WebGPU-specific traps"). `_faceVP` is the combo-major
+// per-combo culled members into one run — the archived GPU rules "WebGPU-specific traps"). `_faceVP` is the combo-major
 // face viewProj uniform the VS projects by; the re-gather state (`pointRegather` etc) is below
 let _pointAtlas: GPUTexture | null = null;
 let _pointAtlasView: GPUTextureView | null = null;
@@ -240,7 +240,7 @@ const _castDraws: { draw: Draw; r: Recorded }[] = [];
 // warn-once (per episode — resets once every point caster shares one indirect buffer again) for a caster
 // dropped because its producer owns a second indirect buffer: renderPointShadows re-gathers only the
 // FIRST-seen buffer (the cascade twin's `_cascadeBatches` batches every distinct source instead — batching
-// the point atlas the same way is unbuilt; this is the loud floor `gpu.md`'s "when you hit the limit" asks
+// the point atlas the same way is unbuilt; this is the loud floor the archived GPU rules' "when you hit the limit" asks
 // for on every drop path in this file, until a real second-indirect-buffer caster earns the batching rewrite)
 let _batchDropWarned = false;
 // per-frame re-gather meta scratch (no per-frame alloc): the view slot each dense combo culled into, and the
@@ -779,7 +779,7 @@ export function renderPointShadows(frameDraws: { draw: Draw; r: Recorded }[]): v
             .drawIndexedIndirect(pointRegather.args()!, i * SHADOW_ARG_STRIDE);
     }
     pass.end();
-    // one indirect draw per casting mesh — the Dawn indirect-validation floor (gpu.md); the per-combo
+    // one indirect draw per casting mesh — the Dawn indirect-validation floor; the per-combo
     // fan-out is collapsed by the re-gather, not amplified
     Compute.indirect?.("sear:pointshadow", D);
 }

@@ -28,7 +28,7 @@ export interface BenchmarkPass {
  *  total and the per-step simulation cost. */
 export interface BenchmarkGpuStats {
     /** predicted Dawn indirect-draw validation floor in µs/frame, summed over every pass: the
-     *  deterministic *untimed* cost (`#drawIndexedIndirect × INDIRECT_FLOOR_US`, gpu.md), invisible to
+     *  deterministic *untimed* cost (`#drawIndexedIndirect × INDIRECT_FLOOR_US`, the archived GPU rules), invisible to
      *  the per-pass timers because it runs before each pass. Read it against the fence-wait delta under a
      *  draw-count ablation, not summed into a single frame's fence: it only surfaces in fence when the
      *  frame is GPU-bound. */
@@ -52,7 +52,7 @@ export interface BenchmarkGpuStats {
 /** per-system CPU timing for one measurement window: mean and p99 per system, plus the frame total. */
 export interface BenchmarkCpuStats {
     /** per-system mean CPU time over the window, in ms (avg is the primary stat for CPU-mixed rows;
-     *  `testing.md`, the 100µs `performance.now` quantization makes min biased) */
+     *  the archived testing rules, the 100µs `performance.now` quantization makes min biased) */
     systems: Record<string, number>;
     /** per-system p99 CPU time: the spike tail the {@link systems} mean hides, so the submission /
      *  GC-pause hunt can attribute a frame-time outlier to the system that churned (a slab-write burst,
@@ -101,7 +101,7 @@ export interface BenchmarkFrameStats {
     /** `device.queue.submit` calls per frame over the window: render + slab flush + any mirror
      *  readback + the profiler's own resolve. Each is an IPC round-trip + a GPU serialization point,
      *  untimed by the per-pass timers (it surfaces in {@link fenceMs}); window-diffed from
-     *  `Profile.submitCount`. The before/after number for the submit-collapse lever (gpu.md "Single
+     *  `Profile.submitCount`. The before/after number for the submit-collapse lever (the archived GPU rules "Single
      *  queue"). Reads ~1 higher under the profiler than in production (the resolve submit). */
     submitsPerFrame: number;
     /** mean fixed steps per frame: the bridge between per-step sim cost and per-frame budget */
@@ -185,7 +185,7 @@ function quantile(sorted: number[], q: number): number {
 
 /** Dawn's injected indirect-draw validation floor, µs per `drawIndexedIndirect` command. Chrome/D3D12
  *  runs this validation *before* the render pass, so it's untimed by `timestampWrites` and surfaces as
- *  fence wait, not a pass time (gpu.md "WebGPU-specific traps"). Calibrated 2026-06-14 via a gym
+ *  fence wait, not a pass time. Calibrated 2026-06-14 via a gym
  *  indirect-draw calibration sweep (redundant instanceCount-0 indirect draws, pure validation, zero raster): measured
  *  ~1.0–1.3 µs/draw fence-mean slope on lovelace *in the GPU-bound regime*. Kept at 1 as the round,
  *  cross-device gauge; it's an order-of-magnitude predictor, not a budget-precise number: the cost only
@@ -432,7 +432,7 @@ export function createMeasure(state: State, profile: Profile) {
                         else renderPerFrameMs += pass.perFrameMs;
                     }
                     // the indirect-validation floor, window-diffed like the pass timers above: per pass,
-                    // draws/frame = Δcount / Δframes, floor µs = draws × INDIRECT_FLOOR_US (gpu.md)
+                    // draws/frame = Δcount / Δframes, floor µs = draws × INDIRECT_FLOOR_US
                     const indirect: Record<string, { drawsPerFrame: number; floorUs: number }> = {};
                     let indirectFloorUsPerFrame = 0;
                     if (indirectCountStart !== null && dFrames > 0) {

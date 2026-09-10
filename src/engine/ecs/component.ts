@@ -33,7 +33,7 @@ export interface Type<TArray extends TypedArray = TypedArray> {
      * a packed GPU mirror: the CPU storage stays the full `ctor`×`lanes` (so `.set` / lane accessors /
      * `read` / serialize see lossless floats), but the slab's `.gpu` buffer holds the `pack(...)` form:
      * what the per-lane {@link encode} can't express, since it folds across lanes (4 lanes → an `srgb8x4`
-     * u32, or → an `f16x4` `vec2<u32>` pair). Quantization is a storage-boundary concern (`gpu.md` rule 6): the
+     * u32, or → an `f16x4` `vec2<u32>` pair). Quantization is a storage-boundary concern: the
      * pack runs once at the per-frame flush, the CPU side never sees it. The reader shader binds `wgsl`.
      */
     readonly gpu?: {

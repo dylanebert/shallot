@@ -23,7 +23,7 @@
 //!
 //! The lifetime is real — a `Col<'a, T>` borrows its storage for `'a`, so the native harnesses get
 //! use-after-free protection for free. The wasm arena's `'static` columns are the exception, and they
-//! rest on the no-`memory.grow`-while-workers-are-active invariant (the Multithreading contract in `.claude/rules/physics.md`): a region
+//! rest on the no-`memory.grow`-while-workers-are-active invariant (the multithreading contract): a region
 //! grow relocates the columns above it, so a `Col` held across one dangles. Every arena shim
 //! re-derives its columns from `LAYOUT` per call, and reserves run pre-solve on the main thread.
 

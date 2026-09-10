@@ -32,7 +32,7 @@ import {
     scatterLayout,
 } from "./pack";
 
-// stride derived from the schema (gpu.md: a second hand-authored stride is layout drift waiting to
+// stride derived from the schema (the archived GPU rules: a second hand-authored stride is layout drift waiting to
 // happen).
 const DRAW_ARG_STRIDE = d.sizeOf(DrawIndexedIndirect);
 type U32Buffer = TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag;
@@ -151,7 +151,7 @@ export const PartSystem: System = {
         // it lands before the pack executes
         const views = Math.max(1, Render.viewCount);
         // a two-word uniform written once a frame: the typed write is the idiomatic path here. The
-        // "CPU truth stays typed arrays" law (gpu.md) governs the per-entity firehoses, where the
+        // "CPU truth stays typed arrays" law governs the per-entity firehoses, where the
         // schema serializer is orders slower than a bulk `Float32Array.set`; two scalars are not that
         _cullParams!.write({ viewCount: Render.viewCount, pairCount: _pairCount });
 
@@ -274,7 +274,7 @@ function syncBuffers(): void {
     const records = _viewDim * _pairCount;
 
     // drawArgs + counts span every (view, pair) — realloc when either dimension
-    // grows. COPY_SRC for GPU-debug readback (gpu.md) + the pack tests
+    // grows. COPY_SRC for GPU-debug readback + the pack tests
     const staleArgs = [Parts.drawArgs, _counts];
     Parts.drawArgs = Compute.root
         .createBuffer(d.arrayOf(DrawIndexedIndirect, records))
@@ -441,7 +441,7 @@ export function warmPart(state: State): void {
     unbind();
 
     // one capacity-sized region (slot 0); syncBuffers grows it as cameras attach.
-    // COPY_SRC for GPU-debug readback (gpu.md) + the pack tests
+    // COPY_SRC for GPU-debug readback + the pack tests
     Parts.packedEids = root
         .createBuffer(d.arrayOf(d.u32, capacity))
         .$usage("storage")

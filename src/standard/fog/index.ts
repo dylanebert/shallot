@@ -145,7 +145,7 @@ export const FogSystem: System = {
     group: "draw",
     after: [ColorSystem],
     // a scene-transform effect runs before the overlay anchor, so a screen-space overlay (outline)
-    // composites on top of the haze rather than getting marched over by it (render.md "the post-color seam")
+    // composites on top of the haze rather than getting marched over by it
     before: [GlazeSystem, OverlaySystem],
     update(state) {
         const encoder = Render.encoder;

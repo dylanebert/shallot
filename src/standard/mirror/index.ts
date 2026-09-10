@@ -131,7 +131,7 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
 
         if (pending.length === 0) return;
         // bare copyBufferToBuffer — WebGPU has no timestampWrites for a copy, so this submit is untimed by
-        // design; its GPU cost surfaces as fence wait, not a pass span (gpu.md "GPU profiling"). Don't try
+        // design; its GPU cost surfaces as fence wait, not a pass span. Don't try
         // to wrap it in a span — measure it via fence wait instead.
         device.queue.submit([encoder.finish()]);
 

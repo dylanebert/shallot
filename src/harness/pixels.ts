@@ -1,6 +1,6 @@
 // The final-compositor pixel classifier: a masked color-tagged region check over a captured frame.
 // Distinct from every upstream rung (mesh/draw counts, timings, error absence) in the GPU evidence ladder
-// (testing.md) — none of those prove the tagged content actually reached the composited output, and a
+// — none of those prove the tagged content actually reached the composited output, and a
 // product gate that stops one rung short can pass over a genuinely blank result (the taste ledger entry
 // this closes: green vertex/draw/perf evidence, zero rendered ropes). Pure and capture-source-agnostic:
 // feed it bytes from a Playwright canvas screenshot, an in-page `getImageData`, or any other tightly-packed

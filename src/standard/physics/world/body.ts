@@ -4,7 +4,7 @@
 // solver velocity/delta state (b3BodyState, only in the awake set's bodyStates column). Static and
 // sleeping bodies have a sim but no state.
 //
-// fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity". This file holds the types + accessors; the
+// fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity). This file holds the types + accessors; the
 // create/destroy/setType/mass machinery is appended below.
 
 import { moveProxy as bpMoveProxy } from "../collision/broadphase";

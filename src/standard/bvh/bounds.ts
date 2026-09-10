@@ -2,7 +2,7 @@
 // LBVH builder. The build's first pass: Morton
 // normalization (Phase 3) needs the scene extent before any code is computed.
 //
-// Subgroup-first, the gpu.md "reduce in workgroup, then one atomic" rule in its
+// Subgroup-first, the the archived GPU rules "reduce in workgroup, then one atomic" rule in its
 // subgroup form: each lane folds its grid-stride slice, `subgroupMin`/`subgroupMax`
 // reduces across the subgroup, a second subgroup op folds the per-subgroup partials,
 // and one lane does a single atomicMin/Max per axis to the global slot — no LDS tree
@@ -125,7 +125,7 @@ const fold = tgpu
     })
     .$name("foldSlice");
 
-// one global atomic per axis per workgroup — the gpu.md "reduce in the workgroup, then ONE atomic"
+// one global atomic per axis per workgroup — the the archived GPU rules "reduce in the workgroup, then ONE atomic"
 // rule's publish step. Six ordered-u32 slots: [min.xyz, max.xyz].
 const publish = tgpu
     .fn([Extremes])((t) => {
@@ -206,7 +206,7 @@ const ldsReduce = tgpu
         const t = fold(input.gid.x, input.nwg.x * WG);
 
         // LDS tree reduce over the WG lanes: each lane seeds its slot, then a halving tree folds to
-        // slot 0. The canonical no-subgroup reduce (the gpu.md rule's pre-subgroup form).
+        // slot 0. The canonical no-subgroup reduce (the the archived GPU rules rule's pre-subgroup form).
         ldsMin.$[tid] = d.vec3f(t.mn);
         ldsMax.$[tid] = d.vec3f(t.mx);
         std.workgroupBarrier();

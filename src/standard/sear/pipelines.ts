@@ -243,10 +243,10 @@ const identityXform = tgpu
     .$name("identityXform");
 
 // the first interstage location a custom varying pins to — after the five fixed non-builtin fields
-// (worldNormal/eid/world/uv/localPos at 0–4); gpu.md's 4-slot custom budget keeps 5+ within the 16 cap
+// (worldNormal/eid/world/uv/localPos at 0–4); the archived GPU rules' 4-slot custom budget keeps 5+ within the 16 cap
 const VARYING_BASE = 5;
 
-// gpu.md rule 9's hard budget: 4 custom interpolator slots per surface. The vs side is N-general (the
+// archived GPU rule 9's hard budget: 4 custom interpolator slots per surface. The vs side is N-general (the
 // copier templates over `Object.keys`), so this bound is the fragment entry's — its transpiled body must
 // statically name `input.v0`…`input.v3`, one arm per count (`typedVaryingFs`)
 const MAX_VARYINGS = 4;
@@ -973,7 +973,7 @@ const shadowForce = tgpu
  *
  * The entry body is transpiled TGSL, so it must *statically* name each `input.v<i>` — hence the bounded
  * per-count dispatch below: one explicit arm per count, 1 through {@link MAX_VARYINGS}, and a loud throw
- * past it (gpu.md rule 9's hard 4-slot custom interpolator budget). Everything else — the copier's
+ * past it (archived GPU rule 9's hard 4-slot custom interpolator budget). Everything else — the copier's
  * signature, the interstage locations, the vs side — is already N-general.
  *
  * The `Ctx` the copier constructs must be the exact schema instance `surface.fs` was declared against —
@@ -2135,7 +2135,7 @@ const typedBgVs = tgpu
 /**
  * a typed background's fragment entry: reconstructs the normalized world-space view ray `dir` from
  * `@builtin(position)` + `engineLayout`'s `view.invViewProj` — operand-for-operand the former string
- * background pipeline's raw reconstruct, not an interstage varying (gpu.md rule 9) — forces
+ * background pipeline's raw reconstruct, not an interstage varying — forces
  * `shadowLayout`'s group-1 bindings into scope via the `forcedZero` fold (`typedColorFs`'s precedent, same
  * reason: `sampleSunShadow`/`pointShadowOf`'s free names are invisible to `tgpu.resolve`'s call-graph walk
  * otherwise), then calls the background's own `fs` chunk and wraps its `vec3f` result opaque (`vec4f(col, 1)`).

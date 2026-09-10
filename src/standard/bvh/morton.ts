@@ -11,7 +11,7 @@
 // the divisor is guarded as well as the result, so a coplanar axis (ext = 0) codes as 0
 // and a NaN extent no longer reaches the quantizer at all. That matches the oracle's
 // `if (ext <= 0) return 0` branch (tests/bvh/oracle.ts mortonCodes), and it is the
-// deterministic-consumer exception gpu.md's NaN policy names for the BVH centroid — every
+// deterministic-consumer exception the archived GPU rules' NaN policy names for the BVH centroid — every
 // other path here computes through.
 //
 // Embarrassingly parallel — no subgroup ops, no shared memory, one grid-stride loop.

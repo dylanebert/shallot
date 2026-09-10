@@ -3,7 +3,7 @@
 // body through a doubly-linked shape list and to the broad-phase through a proxy key.
 //
 // Sphere/capsule/hull/mesh/height-field/compound shapes are ported: create/destroy, mass/AABB/extent/
-// centroid, the proxy, and materials. fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
+// centroid, the proxy, and materials. fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
 import * as bp from "../collision/broadphase";
 import { destroyContact } from "../collision/contact";

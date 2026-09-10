@@ -1,6 +1,6 @@
 // the pure readers behind the `./vite` plugin entry: a project's manifest, and the two functions its dev
 // server's static-asset middleware is built from. Internal to `src/project/` — imported by `vite.ts` and
-// by this file's own test, never re-exported from the published subpath (`exports.md` "Barrel rules": a
+// by this file's own test, never re-exported from the published subpath (the archived exports rules "Barrel rules": a
 // module-internal export shared across sibling files lives in a sibling imported directly, the shape
 // `sear/codegen.ts` already uses). `manifestPath` and `manifestWarnings` are the exception, re-exported by
 // `vite.ts` because the CLI and consumers already resolve them through `@dylanebert/shallot/vite`.

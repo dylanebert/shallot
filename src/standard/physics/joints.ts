@@ -11,7 +11,7 @@ import type { JointDef, SpringDef } from "./index";
 // Spring/Joint def → physics joint marshaling — the constraint half of the ECS→physics path
 // (marshal.ts is the body half). The substrate's ConstraintSystem uploads the full authored set on
 // change; this module diffs it against the live set by def CONTENT, so an unchanged constraint keeps
-// its live physics joint and its warm-started impulses survive a re-author (physics.md "Re-upload only when the authored signature changes"). The mapping (physics.md
+// its live physics joint and its warm-started impulses survive a re-author. The mapping (the archived physics rules
 // "Constraint mapping"): Spring → DistanceJoint-with-spring (stiffness N/m → hertz via the pair's
 // reduced mass), Joint → Spherical (stiffnessAng 0) / Weld (rigid past the ∞ sentinel; intermediate
 // is the documented hertz-based approximation). A constraint no dynamic body can satisfy warns + skips. This module
@@ -260,7 +260,7 @@ function createJoint(
     }
     // angularHertz 0 is box3d's RIGID angular constraint; an intermediate stiffnessAng maps to a soft
     // angular spring via the same reduced-mass conversion (a unit-arm approximation, I_eff ≈ m_eff —
-    // the documented backend-approximate seam, physics.md "Constraint mapping")
+    // the documented backend-approximate seam, the archived physics rules "Constraint mapping")
     const angularHertz =
         def.stiffnessAng > RIGID_THRESHOLD ? 0 : stiffnessHertz(def.stiffnessAng, mA, mB);
     return world.createWeldJoint(ta, tb, {

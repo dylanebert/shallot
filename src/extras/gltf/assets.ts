@@ -71,7 +71,7 @@ import { bakeVat, type GltfVat } from "./vat";
 // palette (materialData) + the baseColor size-bucket arrays + the three data maps + emissive + one shared
 // sampler. `materialData[materialIndex[eid]]` resolves the bucket + layer per primitive entirely on the GPU,
 // so the pack stays one drawIndirect per (surface, mesh). The arrays cost no storage buffers (textures are a
-// separate limit), so the surface stays at its 10-storage ceiling (gpu.md). The bindings are
+// separate limit), so the surface stays at its 10-storage ceiling. The bindings are
 // variant-invariant — every map-set variant binds the same arrays (an unused one is a 1×1 fallback, never
 // skipped); the `specialize` codegen, not a missing binding, is what drops a sparse-map material's samples.
 const texturedLayout = surfaceLayout({

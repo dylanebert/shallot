@@ -13,7 +13,7 @@ import { Body, ShapeKind } from "./index";
 
 // ECS → physics marshaling — the ONLY place a Body's authored fields become a physics rigid body, so the
 // dual-run hash gate (physics.test.ts) and PhysicsPlugin's sync system read this one path. The Spring/Joint
-// half of the seam is joints.ts (physics.md "Constraint mapping"); this module is shape + mass + pose.
+// half of the seam is joints.ts; this module is shape + mass + pose.
 
 /** a `mass <= 0` `Body` marshals as `Kinematic` (velocity set via `PhysicsBackend.setKinematic`), never
  *  `Static` (which the engine never moves) — the substrate's mass<=0 contract covers both "never moves" and
@@ -70,7 +70,7 @@ function attachShape(
         return true;
     }
     if (kind === ShapeKind.Capsule) {
-        // the capsule core is local-Y (physics.md): a segment of length 2·hy capped by radius w.
+        // the capsule core is local-Y: a segment of length 2·hy capped by radius w.
         const volume = Math.PI * w * w * (2 * hy) + (4 / 3) * Math.PI * w ** 3;
         tb.createCapsule(
             { baseMaterial, density: density(volume) },

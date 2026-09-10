@@ -5,7 +5,7 @@ import type { CharState } from "./sweep";
 // or a custom one — writes intent through `move` / `jump` and reads the swept result through `pose` /
 // `grounded`. The maps are the shared seam between the drive API and the sweep: module state, cleared by
 // `resetDrive` on dispose (reload-safety). Living in a sibling keeps the drive off the main barrel — it's the
-// `character/core` extension surface (exports.md barrel rules), not the `Character`-component happy path.
+// `character/core` extension surface (the archived exports rules barrel rules), not the `Character`-component happy path.
 
 // the CPU controller state per character eid — the sweep owns it across fixed ticks (pose, velocity, jump
 // timers, grounded). Built from the Body authored fields when a character is first registered; the swept pose

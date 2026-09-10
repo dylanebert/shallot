@@ -59,7 +59,7 @@ const sigBits = (x: number): number => {
     return _sigU32[0];
 };
 let charSig = FNV_BASIS;
-// the create-stamp each `states` entry was built at (ecs.md "An eid is a borrow"). A same-update
+// the create-stamp each `states` entry was built at. A same-update
 // destroy+create recycling a character's eid with identical tuning hashes to the SAME signature, so folding
 // the stamp into the signature is what makes the realias visible; the per-eid compare in `syncStates` then
 // rebuilds the controller state (a stale pose/velocity kept across the recycle is the bug this closes).

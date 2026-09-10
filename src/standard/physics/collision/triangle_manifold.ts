@@ -1,7 +1,7 @@
 // Triangle narrowphase — ports triangle_manifold.c from Box3D (Erin Catto, MIT). Sphere/capsule/
 // hull versus a single triangle, producing a manifold in the primary shape's local frame. These
 // feed the mesh/height-field multi-manifold driver (mesh_contact). The hull path reuses the SAT
-// cache and the shared clip/query helpers from manifold.ts. fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
+// cache and the shared clip/query helpers from manifold.ts. fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
 import {
     absf,

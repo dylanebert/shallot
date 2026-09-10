@@ -5,12 +5,12 @@
 // One global histogram + one seed scan are computed ONCE for all four 8-bit passes — per-byte
 // digit counts are order-invariant under the stable reorder — then one binning pass per digit
 // recovers its per-partition prefix by a chained scan: 7 dispatches, vs the 16 a per-pass
-// reduce-then-scan (DeviceRadixSort) needs, for all N with no count branch (gpu.md "Dispatch
+// reduce-then-scan (DeviceRadixSort) needs, for all N with no count branch (the archived GPU rules "Dispatch
 // count is a first-class cost" — the dispatch floor is the dominant per-frame cost for the small,
 // GPU-count producers the builder serves: caster TLAS, physics broadphase, terrain chunks).
 //
 // Decoupled-Fallback, not plain decoupled-lookback: lookback spins on a forward-progress
-// guarantee WebGPU withholds for Metal/ARM at the spec level (gpu.md "Cross-workgroup ordering").
+// guarantee WebGPU withholds for Metal/ARM at the spec level.
 // The fallback is the work-stealing fix — a partition that would stall on an unpublished
 // predecessor recomputes that predecessor's histogram itself from the (stable, prior-dispatch)
 // input keys. The cross-workgroup channel is one atomic word packing value<<2 | flag, so the
@@ -26,7 +26,7 @@
 // gated by `workgroupUniformLoad(&wgDone)` — a control barrier whose result the uniformity
 // analysis treats as uniform, so the in-loop barriers are legal. A plain atomicLoad gate is
 // rejected by Tint; a fixed-count loop runs every block to full length (a large-N cliff). Thread
-// 0 sets the non-atomic wgDone once the completed-subgroup count reaches numSub. See gpu.md
+// 0 sets the non-atomic wgDone once the completed-subgroup count reaches numSub. See the archived GPU rules
 // "decoupled-scan exception".
 
 import tgpu, { type TgpuComputePipeline } from "typegpu";
@@ -292,7 +292,7 @@ const scanKernel = tgpu
 
 // The lookback's `subgroupAny` / `subgroupAll` run inside a `workgroupUniformLoad`-gated loop, which
 // WGSL's uniformity analysis rejects on principle: it treats every subgroup-reduction result as
-// non-uniform for control flow, and the gate is uniform only at runtime (gpu.md "Subgroup ops in
+// non-uniform for control flow, and the gate is uniform only at runtime (the archived GPU rules "Subgroup ops in
 // data-dependent loops"). The sanctioned opt-out is a module-scope diagnostic, and it can only ride a
 // WGSL-bodied function's `$uses` — `$uses` throws on a body the transform produced. So these two
 // wrappers exist to carry it, and the loop below is capped by construction (it walks strictly

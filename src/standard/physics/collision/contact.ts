@@ -4,7 +4,7 @@
 // the step, which links islands and moves the contact into the constraint graph.
 //
 // Deterministic shape ordering. Contacts are created during pair finding, and the manifold + graph paths
-// integrate with the solver stage. fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
+// integrate with the solver stage. fround discipline (every f32 result rounds through Math.fround, keeping bit-exact f32 parity).
 
 import { NULL_INDEX, swapRemove } from "../common/array";
 import { SetType } from "../common/core";

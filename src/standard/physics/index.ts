@@ -112,7 +112,7 @@ export const Joint = {
 };
 
 // Authoring metadata for the three components above, shared with any extension solver that registers
-// them. `Body`/`Spring`/`Joint` are the same objects across plugins (idempotent registration, ecs.md
+// them. `Body`/`Spring`/`Joint` are the same objects across plugins (idempotent registration, the archived ECS rules
 // "Stable component ids"), so their traits live here once.
 
 /** {@link Body}'s traits: defaults, its exclusion of {@link Transform}, and the euler-degree `quat` alias. Shared by every plugin that registers `Body`. */
@@ -221,7 +221,7 @@ export function springSignature(state: State): number {
         h = fold(h, b);
         // fold the referenced bodies' create-stamps: a same-update realias of an endpoint (destroy+create
         // recycling its eid) leaves a/b unchanged, so without the stamp the re-upload is suppressed and the
-        // solver joint pins the NEW occupant at the old anchors (ecs.md "An eid is a borrow").
+        // solver joint pins the NEW occupant at the old anchors.
         h = fold(h, state.stamp(a));
         h = fold(h, state.stamp(b));
         h = fold(h, sigBits(Spring.rA.x.get(eid)));
@@ -331,7 +331,7 @@ const SUBSTEPS = 4; // the solver's own recommended sub-step count (World.step's
 
 let world: World | null = null;
 const bodies = new Map<number, SolverBody>();
-// the create-stamp each body was marshaled at (ecs.md "An eid is a borrow"). Presence in `bodies` catches a
+// the create-stamp each body was marshaled at. Presence in `bodies` catches a
 // plain spawn/despawn; a same-update destroy+create recycling an eid keeps Body membership AND the map entry,
 // so the stamp is the only signal that the slot now holds a new body, and a mismatch re-marshals it.
 const stamps = new Map<number, number>();
@@ -571,7 +571,7 @@ const SyncSystem: System = {
 // one reused Xform-shaped record (48 B / 12 f32: pos.xyz+pad, quat.xyzw, scale.xyz+pad — the `Xform` schema).
 const _record = new Float32Array(12);
 
-/** write the movers' interpolated pose into the `transforms` firehose at `alpha` (render.md's fixedAlpha blend). */
+/** write the movers' interpolated pose into the `transforms` firehose at `alpha` (the archived render rules' fixedAlpha blend). */
 export function composePose(transforms: GPUBuffer, alpha: number): void {
     if (!Compute.device) return;
     for (const eid of movedThisTick) {

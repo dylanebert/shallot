@@ -14,7 +14,7 @@ import { StepSystem } from "@dylanebert/shallot/physics/core";
 // derives its velocity from the pose delta — so dynamic bodies resting on it get carried, pushed up as it
 // rises and riding it back down. This is the same mechanism the character controller's moving-platform
 // carry is built on. The lift oscillates on a sine so the motion is smooth and reload-safe: the height is
-// derived from `state.time.elapsed`, never a module-level accumulator (ecs.md "reload-safety").
+// derived from `state.time.elapsed`, never a module-level accumulator.
 //
 // A motor on a prismatic joint (with hard translation limits and a live speed target) is the richer
 // version, past the substrate on the `Physics.world` escape hatch — verified in the gym twin `joints-elevator`.
@@ -23,7 +23,7 @@ const BASE_Y = 3; // the platform's mid-travel height
 const AMP = 1.5; // metres above/below mid — a 3 m peak-to-peak stroke
 const PERIOD = 4; // seconds per full up-and-down cycle
 
-// runtime identity is re-created each build (a State is rebuilt on scene switch / play-stop — ecs.md), so
+// runtime identity is re-created each build (a State is rebuilt on scene switch / play-stop), so
 // hold the platform eid in module scope and reset it in `warm`, never across a reload.
 let platformEid = -1;
 
