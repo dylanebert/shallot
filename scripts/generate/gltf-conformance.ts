@@ -2,16 +2,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
     type CorpusEntry,
-    corpusPresent,
     entryOf,
     type Matrix,
     type MatrixEntry,
     type Status,
+    uncached,
     walkCorpus,
 } from "./gltf-corpus";
 
 // gltf-conformance — the loud, human-facing surface of the glTF conformance suite (roadmap "glTF import —
-// conformance + regression suite"). Walks the Khronos corpus through the deviceless importer (no Playwright,
+// conformance + regression suite"). Walks the Khronos models pinned in `assets.json` through the deviceless importer (no Playwright,
 // no GPU — `parse` is CPU-only) and prints three things:
 //
 //   • the STATUS table — supported / partial / unsupported totals, the headline of how much of the corpus the
@@ -22,12 +22,12 @@ import {
 //     so a reviewer reads a diff and decides "regression" vs "newly handled". A parse error is always drift.
 //
 // Bare run = a dry-run staleness gate (nonzero exit on drift or error). `--write` regenerates the matrix after
-// the breakdown has been reviewed against the corpus's `model-index.json` tags + the glTF 2.0 spec — the
+// the breakdown has been reviewed against the glTF 2.0 spec — the
 // matrix is a reviewed pin, not an unexamined snapshot.
 //
 // Run: bun run scripts/generate/gltf-conformance.ts [--write]
 
-const MATRIX_PATH = join(import.meta.dir, "../../src/testing/gltf-matrix.json");
+const MATRIX_PATH = join(import.meta.dir, "gltf-matrix.json");
 
 // the matrix, deterministically ordered (models, variants, feature keys all sorted) so a regen is a clean diff
 function buildMatrix(entries: CorpusEntry[]): Matrix {
@@ -141,10 +141,10 @@ function driftReport(entries: CorpusEntry[], pinned: Matrix | null): number {
 }
 
 async function main(): Promise<void> {
-    if (!corpusPresent()) {
+    const absent = uncached();
+    if (absent.length > 0) {
         console.error(
-            "\n[gltf-conformance] corpus absent — init the gltf-sample-assets submodule:\n" +
-                "  git submodule update --init reference/gltf-sample-assets\n",
+            `\n[gltf-conformance] corpus not cached; run: bun run assets ${absent.join(" ")}\n`,
         );
         process.exit(1);
     }

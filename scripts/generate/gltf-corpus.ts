@@ -1,35 +1,21 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { decodeDraco, loadDraco } from "../../src/extras/gltf/draco";
 import { isGlb, parseGlb } from "../../src/extras/gltf/glb";
 import { type GltfJson, type GltfScene, parse } from "../../src/extras/gltf/gltf";
 import { decodeMeshopt, loadMeshopt } from "../../src/extras/gltf/meshopt";
+import { cachedFiles, load } from "../assets";
 
-// the shared corpus walk for the glTF conformance suite (roadmap "glTF import — conformance + regression
-// suite"). The CPU half of `loadGltf` — fetch → glb-split → resolve buffers → inject the Draco codec → `parse`
-// — run over the Khronos glTF-Sample-Assets corpus. `parse` is deviceless (no GPU, no State; KTX2 transcode
-// is GPU-side, so a KTX variant parses on the CPU like any other), so the walk rides `bun test` and the
-// matrix generator alike — both import THIS, so the test and the report can't drift. The corpus is a git
-// submodule in the author's workspace layout (kex's `.gitmodules`), outside the distributed package, so
-// everything here is presence-gated; nothing reaches into `src/extras/gltf` beyond its public parse surface.
+// the shared corpus walk for the glTF conformance generator. The CPU half of `loadGltf` — glb-split → resolve
+// buffers → inject the Draco/meshopt codecs → `parse` — run over the Khronos glTF-Sample-Assets models pinned
+// in `assets.json`, read from the assets cache by hash. `parse` is deviceless (no GPU, no State; KTX2
+// transcode is GPU-side, so a KTX variant parses on the CPU like any other); nothing here reaches into
+// `src/extras/gltf` beyond its public parse surface.
 
-/** the corpus, symlinked nowhere — read straight from the `reference/gltf-sample-assets` submodule (the
- *  author's workspace layout, not the consumer's). Absent on a fresh clone that didn't clone the corpus;
- *  {@link corpusPresent} gates every consumer. */
-export const CORPUS = join(import.meta.dir, "../../../../../reference/gltf-sample-assets/Models");
+const KHRONOS = "KhronosGroup/glTF-Sample-Assets/";
 
-/** true when the corpus is checked out — the loud-skip gate for the test + the generator. */
-export function corpusPresent(): boolean {
-    return existsSync(join(CORPUS, "model-index.json"));
-}
-
-/** one `model-index.json` entry — the corpus's own catalog of each model + its packed-asset variants. */
+/** one pinned Khronos model: each variant's `assets.json` entry and the `.gltf`/`.glb` file it opens. */
 export interface CorpusModel {
-    label: string;
     name: string;
-    tags?: string[];
-    /** variant name (also the subdirectory) → the entry file within it (`Foo.gltf` / `Foo.glb`). */
-    variants: Record<string, string>;
+    variants: Record<string, { asset: string; entry: string }>;
 }
 
 export type Status = "supported" | "partial" | "unsupported";
@@ -53,31 +39,43 @@ export interface CorpusEntry {
     error?: string;
 }
 
-export async function corpusModels(): Promise<CorpusModel[]> {
-    return JSON.parse(await Bun.file(join(CORPUS, "model-index.json")).text());
+/** the pinned Khronos models, grouped from each entry's `dest` (`gltf-samples/<Model>/<variant>`). */
+export function corpusModels(): CorpusModel[] {
+    const models = new Map<string, CorpusModel>();
+    for (const asset of load()) {
+        if (!asset.url.includes(KHRONOS) || !asset.files) continue;
+        const [, model, variant] = asset.dest.split("/");
+        const entry = asset.files.find((f) => /\.(gltf|glb)$/.test(f.path))?.path;
+        if (!model || !variant || !entry)
+            throw new Error(
+                `assets.json ${asset.name}: expected gltf-samples/<Model>/<variant> with a .gltf/.glb`,
+            );
+        let found = models.get(model);
+        if (!found) models.set(model, (found = { name: model, variants: {} }));
+        found.variants[variant] = { asset: asset.name, entry };
+    }
+    return [...models.values()].sort((x, y) => x.name.localeCompare(y.name));
 }
 
-// the variants worth parsing: the base geometry path plus every codec the importer claims to handle (Draco,
-// KTX, Meshopt — meshopt rides KHR_mesh_quantization, dequantized in readFloats). WEBP / JPG paths stay out of
-// scope (the importer doesn't decode them and they'd parse as garbage geometry, not a clean skip), so the
-// matrix stays focused on what the importer actually contracts.
-export function pickVariants(model: CorpusModel): string[] {
-    const keys = Object.keys(model.variants);
-    const picked = new Set<string>();
-    // both base paths when present (external .bin AND the .glb container — the most-shipped format), else the
-    // self-contained embedded fallback
-    for (const k of ["glTF", "glTF-Binary"]) if (keys.includes(k)) picked.add(k);
-    if (picked.size === 0 && keys.includes("glTF-Embedded")) picked.add("glTF-Embedded");
-    for (const k of keys)
-        if (k.includes("Draco") || k.includes("KTX") || k.includes("Meshopt")) picked.add(k);
-    return [...picked];
+/** the corpus entries absent from the assets cache; the walk refuses until this is empty. */
+export function uncached(): string[] {
+    return corpusModels()
+        .flatMap((m) => Object.values(m.variants).map((v) => v.asset))
+        .filter((name) => {
+            try {
+                cachedFiles(name);
+                return false;
+            } catch {
+                return true;
+            }
+        });
 }
 
 // resolve one glTF buffer to its bytes — the .glb BIN chunk (no uri), a base64 data-URI, or a file next to the
-// .gltf. Mirrors index.ts `resolveBuffer`; reads from disk so the walk stays deviceless (no fetch, no GPU).
+// .gltf. Mirrors index.ts `resolveBuffer`; reads the cache so the walk stays deviceless (no fetch, no GPU).
 async function resolveBuffer(
     buffer: { uri?: string; byteLength: number; extensions?: Record<string, unknown> },
-    dir: string,
+    files: Map<string, string>,
     bin?: ArrayBuffer,
 ): Promise<ArrayBuffer> {
     const uri = buffer.uri;
@@ -96,18 +94,23 @@ async function resolveBuffer(
         const buf = Buffer.from(uri.slice(uri.indexOf(",") + 1), "base64");
         return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
     }
-    return Bun.file(join(dir, decodeURIComponent(uri))).arrayBuffer();
+    const path = files.get(decodeURIComponent(uri));
+    if (!path) throw new Error(`[gltf] buffer ${uri} is not a file of the pinned asset`);
+    return Bun.file(path).arrayBuffer();
 }
 
 /** parse one (model, variant) through the importer's deviceless path. Mirrors `loadGltf`'s CPU half exactly —
  *  glb-split, buffer resolve, and the Draco / meshopt codecs injected only when the asset carries them. */
 export async function parseVariant(model: CorpusModel, variant: string): Promise<GltfScene> {
-    const dir = join(CORPUS, model.name, variant);
-    const bytes = await Bun.file(join(dir, model.variants[variant])).arrayBuffer();
+    const { asset, entry } = model.variants[variant];
+    const files = cachedFiles(asset);
+    const bytes = await Bun.file(files.get(entry)!).arrayBuffer();
     const { json, bin } = isGlb(bytes)
         ? parseGlb(bytes)
         : { json: JSON.parse(new TextDecoder().decode(bytes)) as GltfJson, bin: undefined };
-    const buffers = await Promise.all((json.buffers ?? []).map((b) => resolveBuffer(b, dir, bin)));
+    const buffers = await Promise.all(
+        (json.buffers ?? []).map((b) => resolveBuffer(b, files, bin)),
+    );
     const needsDraco = (json.meshes ?? []).some((m) =>
         m.primitives.some((p) => p.extensions?.KHR_draco_mesh_compression),
     );
@@ -130,10 +133,9 @@ export async function parseVariant(model: CorpusModel, variant: string): Promise
 /** walk every (model, representative-variant) in the corpus, isolating a parse failure to its own entry so one
  *  bad model surfaces as a red row rather than aborting the sweep. */
 export async function walkCorpus(): Promise<CorpusEntry[]> {
-    const models = await corpusModels();
     const out: CorpusEntry[] = [];
-    for (const model of models) {
-        for (const variant of pickVariants(model)) {
+    for (const model of corpusModels()) {
+        for (const variant of Object.keys(model.variants)) {
             try {
                 out.push({ model: model.name, variant, scene: await parseVariant(model, variant) });
             } catch (e) {
