@@ -1,5 +1,5 @@
 {
-    "total": 67765,
+    "total": 65668,
     "files": {
         ".claude/rules/audio.md": {
             "bytes": 3677,
@@ -14,7 +14,7 @@
             "paragraph": 515
         },
         ".claude/rules/examples.md": {
-            "bytes": 2981,
+            "bytes": 2955,
             "paragraph": 432
         },
         ".claude/rules/exports.md": {
@@ -38,15 +38,15 @@
             "paragraph": 473
         },
         ".claude/rules/testing.md": {
-            "bytes": 7709,
+            "bytes": 7180,
             "paragraph": 464
         },
         ".claude/rules/tumble.md": {
-            "bytes": 4688,
+            "bytes": 4351,
             "paragraph": 696
         },
         ".claude/rules/visual-identity.md": {
-            "bytes": 1197,
+            "bytes": 1043,
             "paragraph": 263
         },
         "AGENTS.md": {
@@ -58,11 +58,11 @@
             "paragraph": 94
         },
         "MAINTAINERS.md": {
-            "bytes": 4563,
-            "paragraph": 767
+            "bytes": 3846,
+            "paragraph": 492
         },
         "examples/AGENTS.md": {
-            "bytes": 3444,
+            "bytes": 3110,
             "paragraph": 514
         }
     }

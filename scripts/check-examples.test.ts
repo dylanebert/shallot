@@ -42,7 +42,7 @@ const registry = (motion = false): ExampleGate[] => [
     },
     {
         dir: "examples/flows/flow",
-        tier: "flows",
+        tier: "showcase",
         covers: ["examples/flows/flow/**"],
         gate: "bun run flows --flow flow",
     },

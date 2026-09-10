@@ -29,11 +29,11 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { CELL_DIRECTIONAL_GLYPHS, CELL_FILL_EXCLUDED_GLYPHS } from "../src/extras/cells/ramp";
-import { type Font, parseFont } from "../src/extras/text/font";
+import { type Font, parseFont } from "../text/font";
+import { CELL_DIRECTIONAL_GLYPHS, CELL_FILL_EXCLUDED_GLYPHS } from "./ramp";
 
-const FONT_URL = new URL("../assets/jetbrains-mono.ttf", import.meta.url);
-const OUTPUT_URL = new URL("../src/extras/cells/ramp-table.ts", import.meta.url);
+const FONT_URL = new URL("../../../assets/jetbrains-mono.ttf", import.meta.url);
+const OUTPUT_URL = new URL("./ramp-table.ts", import.meta.url);
 
 /** one point in a flattened glyph contour, font units. */
 interface Point {

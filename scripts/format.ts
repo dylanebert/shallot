@@ -80,7 +80,8 @@ let errors = 0;
 
 // anchor on the script location, not process.cwd(), so --check is not vacuously green
 // when run from a subdirectory (siblings use import.meta.dir for the same reason)
-const root = resolve(import.meta.dir, "..");
+const rootArg = process.argv.indexOf("--root");
+const root = rootArg >= 0 ? resolve(process.argv[rootArg + 1]) : resolve(import.meta.dir, "..");
 
 for await (const path of glob.scan({ cwd: root })) {
     // segment match so an ignore entry "dist" does not also match "distortion/"

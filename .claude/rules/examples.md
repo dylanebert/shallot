@@ -31,4 +31,4 @@ Showcase perf: ProfilePlugin frame percentiles/GPU spans, real input for interac
 
 ## Conventions
 
-CLI runs manifests. Gym/visualization: HTML/Vite + bun dev; flows: HTML, verify-only. All ship public/icon.svg; HTML owners link it, CLI supplies manifest favicon. Native icon.png overrides. Dispose State on HMR/unmount. Package AGENTS UI rules apply; only ejected never-embedded gym/visualization may use fixed viewport. Complex UI: own-package svelte/@sveltejs/vite-plugin-svelte, svelte.config.js, mount/unmount.
+CLI runs manifests. Gym/visualization: HTML/Vite + bun dev. All ship public/icon.svg; HTML owners link it, CLI supplies manifest favicon. Native icon.png overrides. Dispose State on HMR/unmount. Package AGENTS UI rules apply; only ejected never-embedded gym/visualization may use fixed viewport. Complex UI: own-package svelte/@sveltejs/vite-plugin-svelte, svelte.config.js, mount/unmount.

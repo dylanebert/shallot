@@ -1,7 +1,6 @@
 import { resolve } from "node:path";
 import { Glob } from "bun";
 import { EXAMPLE_GATES, type ExampleGate } from "./example-gates";
-import { type CpuGate, OCEAN_CPU_GATES } from "./ocean-oracle-gates";
 import { REPO_ROOT, skipReason, type VerifyCommandDeps, verifyCommand } from "./verify";
 
 const WHOLE_ROSTER = new Set(["bun.lock"]);
@@ -14,13 +13,6 @@ function wholeRoster(paths: string[]): boolean {
 export function selectExampleGates(paths: string[]): ExampleGate[] {
     if (wholeRoster(paths)) return [...EXAMPLE_GATES];
     return EXAMPLE_GATES.filter((row) =>
-        paths.some((path) => row.covers.some((cover) => new Glob(cover).match(path))),
-    );
-}
-
-export function selectCpuGates(paths: string[]): CpuGate[] {
-    if (wholeRoster(paths)) return [...OCEAN_CPU_GATES];
-    return OCEAN_CPU_GATES.filter((row) =>
         paths.some((path) => row.covers.some((cover) => new Glob(cover).match(path))),
     );
 }
@@ -70,12 +62,11 @@ export async function changedPaths(base: string, diff: string): Promise<string[]
     return stdout.split("\n").filter(Boolean);
 }
 
-function printPlan(paths: string[], cpu: CpuGate[], display: ExampleGate[]): void {
+function printPlan(paths: string[], display: ExampleGate[]): void {
     console.log("Changed-path gate plan:");
     for (const path of paths) console.log(`  changed: ${path}`);
-    for (const row of cpu) console.log(`  CPU: ${row.name} -> bun run ${row.script}`);
     for (const row of display) console.log(`  display: ${row.dir} -> ${row.gate}`);
-    if (cpu.length + display.length === 0) console.log("  selected: nothing");
+    if (display.length === 0) console.log("  selected: nothing");
 }
 
 export async function runCommand(
@@ -128,33 +119,23 @@ export interface MainDeps {
 export async function main(argv = process.argv.slice(2), deps: MainDeps = {}): Promise<number> {
     const args = parseArgs(argv);
     const paths = args.all ? [] : await (deps.paths ?? changedPaths)(args.base!, args.diff!);
-    const cpu = args.all ? [...OCEAN_CPU_GATES] : selectCpuGates(paths);
     const display = args.all ? [...EXAMPLE_GATES] : selectExampleGates(paths);
-    printPlan(paths, cpu, display);
+    printPlan(paths, display);
     if (args.dryRun) return 0;
-    if (cpu.length + display.length === 0) {
+    if (display.length === 0) {
         console.log("PASS: no changed-path rows selected.");
         return 0;
     }
 
     const run = deps.run ?? runCommand;
     let allPass = true;
-    for (const row of cpu) {
-        const result = await run(`bun run ${row.script}`);
-        console.log(`${result.ok ? "PASS" : "FAIL"}: CPU ${row.name}`);
-        allPass = result.ok && allPass;
-    }
-
-    if (display.length === 0) return allPass ? 0 : 1;
     const skip = (deps.displaySkip ?? skipReason)();
     if (skip) {
         const required = deps.displayRequired ?? process.env[DISPLAY_REQUIRED_ENV] === "1";
         console.log(
             `${required ? "FAIL" : "UNAVAILABLE"}: selected display gates need native hardware (${skip}); no display gate was run.`,
         );
-        if (!required && cpu.length > 0 && allPass)
-            console.log("PASS: selected CPU rows passed; display rows were unavailable.");
-        return required || !allPass ? 1 : 0;
+        return required ? 1 : 0;
     }
 
     try {

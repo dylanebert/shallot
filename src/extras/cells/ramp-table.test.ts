@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeRampTable, glyphCoverage, loadBrandFont } from "../../../scripts/generate-ramp";
+import { computeRampTable, glyphCoverage, loadBrandFont } from "./generate-ramp";
 import { CELL_DIRECTIONAL_GLYPHS, CELL_FILL_EXCLUDED_GLYPHS } from "./ramp";
 import { RAMP_TABLE } from "./ramp-table";
 

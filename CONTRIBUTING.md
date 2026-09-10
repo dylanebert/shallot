@@ -17,7 +17,7 @@ The gate before pushing is `bun check` and `bun run test`. The slow suites are s
 - `bun run --cwd packages/shallot-tumble test:fixture` — tumble kernel changes
 - `cargo test` in `rust/audio` — rust audio changes
 - `bun run test:install` — packaging, CLI, manifest, or scaffold changes
-- `bun run flows` / `bun run recipes` — serialize-restore, overlay UI, physics recipes
+- `bun run recipes` — serialize-restore, overlay UI, physics recipes
 - `bun bench --for <the files you changed>` — after GPU changes; it names the gating scenarios, and `--sweep` runs them
 
 The GPU suites are display-gated: without a display they skip, and a skip is not a pass.

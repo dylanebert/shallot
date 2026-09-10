@@ -42,10 +42,6 @@ const EXPECTED_DIRS = [
     "examples/recipes/save-and-restore",
     "examples/recipes/stylize-the-look",
     "examples/recipes/surface-friction",
-    "examples/flows/blank",
-    "examples/flows/no-walls",
-    "examples/flows/survive-reload",
-    "examples/flows/ui-containment",
     "examples/showcase/ascii",
     "examples/showcase/collapse",
     "examples/showcase/ocean",
@@ -59,7 +55,6 @@ const EXPECTED_DIRS = [
 const STANDARD_RENDER_ROWS = [
     "examples/recipes/day-night-sky",
     "examples/recipes/gpu-particles",
-    "examples/flows/no-walls",
     "examples/showcase/collapse",
     "examples/showcase/ocean",
     "examples/showcase/roads",
@@ -87,10 +82,6 @@ const INPUT_ROWS = [
 ];
 
 const BOOT_ROWS = [
-    "examples/flows/blank",
-    "examples/flows/no-walls",
-    "examples/flows/survive-reload",
-    "examples/flows/ui-containment",
     "examples/showcase/ascii",
     "examples/showcase/collapse",
     "examples/showcase/ocean",
@@ -147,23 +138,16 @@ const RUNTIME_MODULE_EXEMPTIONS: Record<string, string> = {
 /** Exact witnesses for every runtime module appearing in a selection cone. A cone mutation must
  * change this table's measured membership, rather than hiding behind another row's incidental cone. */
 const EXPECTED_RUNTIME_MODULE_ROWS: Record<string, string[]> = {
-    "engine/app": [
-        "examples/recipes/overlay-ui",
-        "examples/flows/blank",
-        "examples/flows/no-walls",
-        "examples/flows/survive-reload",
-        "examples/flows/ui-containment",
-    ],
+    "engine/app": ["examples/recipes/overlay-ui"],
     "engine/ecs": BOOT_ROWS,
     "engine/runtime": [
         "examples/recipes/compute-and-readback",
         "examples/recipes/gpu-particles",
-        "examples/flows/no-walls",
         "examples/showcase/roads",
         "examples/showcase/voxel",
         "examples/gym",
     ],
-    "engine/scene": ["examples/recipes/save-and-restore", "examples/flows/survive-reload"],
+    "engine/scene": ["examples/recipes/save-and-restore"],
     "engine/utils": [
         "examples/showcase/ocean",
         "examples/showcase/roads",
@@ -211,11 +195,7 @@ const EXPECTED_RUNTIME_MODULE_ROWS: Record<string, string[]> = {
     "standard/glaze": BOOT_ROWS,
     "standard/input": INPUT_ROWS,
     "standard/loading": BOOT_ROWS,
-    "standard/mirror": [
-        "examples/recipes/compute-and-readback",
-        "examples/flows/no-walls",
-        "examples/gym",
-    ],
+    "standard/mirror": ["examples/recipes/compute-and-readback", "examples/gym"],
     "standard/part": ["examples/gym"],
     "standard/physics": [
         "examples/recipes/breakable-joints",
@@ -232,7 +212,6 @@ const EXPECTED_RUNTIME_MODULE_ROWS: Record<string, string[]> = {
     "standard/render": STANDARD_RENDER_ROWS,
     "standard/sear": [
         "examples/recipes/gpu-particles",
-        "examples/flows/no-walls",
         "examples/showcase/ocean",
         "examples/showcase/roads",
         "examples/showcase/voxel",
@@ -306,7 +285,6 @@ function trackedFiles(): string[] {
 test("the current 27/4/7/gym roster is pinned by identity", () => {
     expect(EXAMPLE_GATES.map((row) => row.dir)).toEqual(EXPECTED_DIRS);
     expect(EXAMPLE_GATES.filter((row) => row.tier === "recipes")).toHaveLength(27);
-    expect(EXAMPLE_GATES.filter((row) => row.tier === "flows")).toHaveLength(4);
     expect(EXAMPLE_GATES.filter((row) => row.tier === "showcase")).toHaveLength(7);
     expect(EXAMPLE_GATES.filter((row) => row.tier === "gym")).toHaveLength(1);
 });
@@ -338,7 +316,6 @@ test("a runtime file selects the rows with the corresponding assertion subject",
     expect(dirs([`${RUNTIME_SRC}/standard/character/index.ts`])).toEqual(["examples/gym"]);
     expect(dirs([`${RUNTIME_SRC}/standard/mirror/index.ts`])).toEqual([
         "examples/recipes/compute-and-readback",
-        "examples/flows/no-walls",
         "examples/gym",
     ]);
     expect(dirs([`${RUNTIME_SRC}/standard/player/index.ts`])).toEqual([

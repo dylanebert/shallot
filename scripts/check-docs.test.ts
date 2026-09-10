@@ -12,7 +12,6 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { EXAMPLE_GATES } from "./example-gates";
-import { OCEAN_CPU_GATES } from "./ocean-oracle-gates";
 
 const root = resolve(import.meta.dir, "..");
 type Reading = { exitCode: number; output: string };
@@ -147,7 +146,7 @@ beforeAll(async () => {
             ["array", JSON.stringify(suffixes.map((suffix) => `.${suffix}.ts`))],
         ]) {
             await run(`tier ${name} restatement`, {
-                "scripts/rosters.ts": (text) => `${text}\n// ${roster}\n`,
+                "scripts/check-scripts.ts": (text) => `${text}\n// ${roster}\n`,
             });
         }
         const visual = ".claude/rules/visual-identity.md";
@@ -216,14 +215,14 @@ beforeAll(async () => {
         await run("closed vocabulary", {}, [], addMember("nested/INSTRUCTIONS.md"));
         await run("ignored member", {}, [], addMember("dist/AGENTS.md"));
         await run("pointers", {
-            "scripts/rosters.ts": (text) =>
+            "scripts/check-scripts.ts": (text) =>
                 text + "\n// see zzz-vacuity-dead-seed.md\n// see README.md\n// see checks.md\n",
         });
         await run("old release clause", {
             ".claude/rules/testing.md": (text) =>
                 text.replace(
                     /then `SHALLOT_DISPLAY_REQUIRED=1 bun run test:changed --all`.*?then merge/,
-                    "then `bun run test:changed --all` (the whole-roster release gate, subsuming `bun run demos`, recipes, flows, and every showcase gate; a skip is not green), then merge",
+                    "then `bun run test:changed --all` (the whole-roster release gate, subsuming `bun run bench`, recipes, and every showcase gate; a skip is not green), then merge",
                 ),
         });
         const oldCone =
@@ -236,10 +235,7 @@ beforeAll(async () => {
         expect(command).not.toBeNull();
         const paths = command![1].trim().split(/\s+/);
         const cone = `bun run test # unit tests over ${paths.join(", ")} (bun-webgpu)`;
-        const commands = [
-            ...OCEAN_CPU_GATES.map((row) => `bun run ${row.script}`),
-            ...EXAMPLE_GATES.map((row) => row.gate),
-        ];
+        const commands = [...EXAMPLE_GATES.map((row) => row.gate)];
         await run("all legitimate rows and exact cone", {
             "README.md": (text) =>
                 text.replace(/^bun run test\s+#.*$/m, cone) +
@@ -271,23 +267,17 @@ beforeAll(async () => {
             "scripts/example-gates.ts": (text) =>
                 text.replace(
                     `gate: ${JSON.stringify(EXAMPLE_GATES[0].gate)}`,
-                    'gate: "bun run demos"',
+                    'gate: "bun run bench"',
                 ),
         });
         await run("unclassified command claims", {
             "README.md": (text) =>
-                text +
-                "\n\n`bun run test:changed --all` subsumes `bun run test:ocean-slope` and demos.",
+                text + "\n\n`bun run test:changed --all` subsumes `bun run bench` and demos.",
         });
         await run("unselected commands", {
             "README.md": (text) =>
                 text +
-                [
-                    "bun run demos",
-                    "bun run site",
-                    "bun run rum-intake",
-                    "bun run recipes --recipe nonexistent",
-                ]
+                ["bun run bench", "bun run test:install", "bun run recipes --recipe nonexistent"]
                     .map((command) => `\n\n\`bun run test:changed --all\` subsumes \`${command}\`.`)
                     .join(""),
         });
@@ -368,7 +358,7 @@ for (const shape of ["regex", "array"]) {
         const reading = readings.get(`tier ${shape} restatement`)!;
         expect(reading.exitCode).toBe(1);
         expect(reading.output).toContain("✗ tier-suffix roster arm:");
-        expect(reading.output).toContain("scripts/rosters.ts:");
+        expect(reading.output).toContain("scripts/check-scripts.ts:");
         expect(reading.output).toContain("carries a literal tier-suffix roster");
     });
 }
@@ -376,17 +366,17 @@ for (const shape of ["regex", "array"]) {
 test("pointer validity refuses dead and private-only basenames, grants a live basename", () => {
     const reading = readings.get("pointers")!;
     expect(reading.exitCode).toBe(1);
-    expect(reading.output).toMatch(/rosters\.ts:\d+: zzz-vacuity-dead-seed\.md/);
-    expect(reading.output).toMatch(/rosters\.ts:\d+: checks\.md/);
-    expect(reading.output).not.toMatch(/rosters\.ts:\d+: README\.md/);
+    expect(reading.output).toMatch(/check-scripts\.ts:\d+: zzz-vacuity-dead-seed\.md/);
+    expect(reading.output).toMatch(/check-scripts\.ts:\d+: checks\.md/);
+    expect(reading.output).not.toMatch(/check-scripts\.ts:\d+: README\.md/);
 });
 
 for (const [name, diagnostic] of [
-    ["old release clause", "false subsumption: bun run demos"],
+    ["old release clause", "false subsumption: bun run bench"],
     ["old README cone", "stale root test cone"],
     ["extra cone member", "extra [examples/gym/src]"],
     ["manifest moves independently", "missing [examples/gym/src]"],
-    ["unselected commands", "false subsumption: bun run site"],
+    ["unselected commands", "false subsumption: bun run bench"],
     ["registry moves independently", `false subsumption: ${EXAMPLE_GATES[0].gate}`],
     ["unclassified command claims", "subsumption needs explicit row commands"],
 ]) {

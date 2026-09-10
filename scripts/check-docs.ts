@@ -1,13 +1,54 @@
-import { existsSync, lstatSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { Glob } from "bun";
-import { resolve } from "path";
+import { dirname, relative, resolve } from "path";
 import { template } from "../packages/create-shallot/index";
 import { TEST_TIER_SUFFIX_NAMES } from "../tests/test-tiers";
-import { FIXTURE_DIR as COMPAT_FIXTURE_DIR } from "./check-compat-pin";
-import { checkRealization } from "./check-realization";
-import { checkExists } from "./check-scripts";
+import { checkExists, workspacePkgPaths } from "./check-scripts";
 import { EXAMPLE_GATES } from "./example-gates";
-import { OCEAN_CPU_GATES } from "./ocean-oracle-gates";
+
+/** Engine `files` entries written at build or pack time: tooling bundles and audio wasm. */
+const PRODUCED = ["dist", "rust/audio/pkg"];
+
+/** Every declared bin and positive files entry must exist or have a pack producer. */
+async function checkRealization(root: string): Promise<string[]> {
+    const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+    const manifests = [
+        resolve(root, "package.json"),
+        ...(await workspacePkgPaths(root, pkg.workspaces ?? [])),
+    ];
+    const errors: string[] = [];
+    for (const manifest of manifests) {
+        const dir = dirname(manifest);
+        const value = JSON.parse(readFileSync(manifest, "utf8"));
+        const bins: string[] =
+            typeof value.bin === "string" ? [value.bin] : Object.values(value.bin ?? {});
+        const files: string[] = value.files ?? [];
+        const projected = (target: string, kind: "bin" | "files"): boolean =>
+            dir === resolve(root) && kind === "files" && PRODUCED.includes(target);
+        for (const [kind, targets] of [
+            ["bin", bins],
+            ["files", files.filter((file) => !file.startsWith("!"))],
+        ] as const) {
+            for (const declared of targets) {
+                const target = declared.replace(/^\.\//, "");
+                const path = resolve(dir, target);
+                const present =
+                    kind === "bin"
+                        ? existsSync(path) && statSync(path).isFile()
+                        : existsSync(path) ||
+                          [...new Glob(target).scanSync({ cwd: dir })].length > 0;
+                if (
+                    (path !== dir && !path.startsWith(`${dir}/`)) ||
+                    (!present && !projected(target, kind))
+                )
+                    errors.push(
+                        `${relative(root, manifest)} ${kind}: ${declared} is missing and has no pack-time projection`,
+                    );
+            }
+        }
+    }
+    return errors;
+}
 
 // Consumer commands use the installed bin; repository commands must resolve in this tree,
 // without a global link or bunx downloading an unrelated registry version.
@@ -337,7 +378,7 @@ if (!manifestTracked.success) {
 // The frozen previous-release baseline pins the versions that release shipped with. Comparing it
 // against today's manifests would refuse the fixture for being what it is — a snapshot of the past —
 // so it is outside this arm, the same way it is outside the instruction corpus.
-const COMPAT_FIXTURE_PREFIX = `${COMPAT_FIXTURE_DIR}/`;
+const COMPAT_FIXTURE_PREFIX = "scripts/install-test/compat-0.9.5/";
 const manifestFiles = manifestTracked.stdout
     .toString()
     .split("\0")
@@ -674,11 +715,7 @@ const rosterFindings: string[] = [];
 //    suffix names (it is where the constant lives).
 // 2. `scripts/check-docs.ts` — this arm's own text; a self-referential gate matches its own
 //    description of what it checks (per `.claude/rules/specs.md`'s self-reference principle).
-const ROSTER_EXCLUSIONS = new Set([
-    "tests/test-tiers.ts",
-    "scripts/check-docs.ts",
-    "scripts/stale-claim-predicates.ts",
-]);
+const ROSTER_EXCLUSIONS = new Set(["tests/test-tiers.ts", "scripts/check-docs.ts"]);
 const allTrackedFiles = Bun.spawnSync(["git", "ls-files", "-z"], { cwd: root });
 if (!allTrackedFiles.success) {
     console.error(
@@ -735,15 +772,14 @@ if (rosterFindings.length > 0) {
 // arm's population.
 //
 // Resolution is a one-pass token index over `*.ts`/`*.rs`/`*.wgsl` (excluding `node_modules`,
-// `scripts/check-docs.ts`, `scripts/rosters.ts`, `scripts/stale-claim-predicates.ts`), NOT
-// `git grep --fixed-strings`:
+// `scripts/check-docs.ts`), NOT `git grep --fixed-strings`:
 // substring matching reads 8 sites green off longer tokens (e.g. `spotInner` matches
 // `spotInnerF`, `hullSat` matches `hullSatWgsl`, `InFragmentStage` matches
 // `maxStorageBuffersInFragmentStage`). The token index tokenizes source files into individual
 // identifier words and does exact set-membership — `spotInner` only resolves if `spotInner`
 // appears as a standalone token, not as a substring of `spotInnerF`.
 //
-// Foreign-namespace roster classes live in the committed `scripts/rosters.ts`. The
+// Foreign-namespace roster classes live in `FOREIGN_NAMESPACES` below. The
 // per-entry allowlist is retired — the arm carries no per-site residue. Each roster entry
 // is asserted THREE WAYS: (1) the entry is genuinely cited by at least one rule file,
 // (2) the symbol/path is genuinely absent from the tree (disjointness law, round 7),
@@ -758,8 +794,291 @@ if (rosterFindings.length > 0) {
 // ``), so the glob does not reach them; a reader can verify with
 // `git ls-files '**/AGENTS.md' '**/CLAUDE.md'` that no hit starts with `.claude/rules/`.
 
-import { FOREIGN_NAMESPACES } from "./rosters";
-import { buildTokenIndex, extractCandidates, resolvesAnywhere } from "./stale-claim-predicates";
+// Foreign symbols cited by rules but absent from the source token index.
+// Every class is asserted nonempty, every entry cited and absent from
+// the tree, and the total pinned. No uncited slots can launder dead citations.
+const FOREIGN_NAMESPACES: Record<string, ReadonlySet<string>> = {
+    TypeGPU: new Set(["sideEffects"]),
+    SteamAudio: new Set(["gain_effect", "direct_effect"]),
+};
+
+// ── Shape predicates ───────────────────────────────────────────────────────────────────────
+
+function isCamelCase(w: string): boolean {
+    return /^[a-z]/.test(w) && /[A-Z]/.test(w) && !w.includes("_");
+}
+function isPascalCase(w: string): boolean {
+    return /^[A-Z]/.test(w) && /[a-z][A-Z]/.test(w) && !w.includes("_");
+}
+function isSnakeOrScreaming(w: string): boolean {
+    return (
+        w.includes("_") &&
+        /^[A-Za-z_][A-Za-z0-9_]*$/.test(w) &&
+        /[A-Za-z0-9]/.test(w) &&
+        w.length >= 2
+    );
+}
+
+/** SCREAMING_SNAKE — all uppercase letters, digits, and underscores. */
+function isScreamingSnake(w: string): boolean {
+    return w.includes("_") && /^[A-Z0-9_]+$/.test(w) && /[A-Z]/.test(w) && w.length >= 2;
+}
+
+/** snake_case — underscored but not all-uppercase (excludes SCREAMING_SNAKE). */
+function isSnakeCase(w: string): boolean {
+    return isSnakeOrScreaming(w) && !isScreamingSnake(w);
+}
+function isLowercaseWithDigits(w: string): boolean {
+    return /^[a-z][a-z0-9]*$/.test(w) && /[0-9]/.test(w) && !w.includes("_");
+}
+function isHex(w: string): boolean {
+    return /^[0-9a-f]+$/.test(w) && /[0-9]/.test(w) && /[a-f]/.test(w);
+}
+
+/** Strong shapes (camelCase, PascalCase) — caught bare or backticked. */
+function matchesStrongShape(w: string): boolean {
+    if (w.length < 2) return false;
+    if (isHex(w)) return false;
+    return isCamelCase(w) || isPascalCase(w);
+}
+
+/** Weak shapes (snake_case, lowercase-with-digits) — caught bare or backticked. */
+function matchesWeakShape(w: string): boolean {
+    if (w.length < 2) return false;
+    if (isHex(w)) return false;
+    return isSnakeCase(w) || isLowercaseWithDigits(w);
+}
+
+/** SCREAMING_SNAKE — caught bare or backticked. */
+function matchesScreamingSnake(w: string): boolean {
+    if (w.length < 2) return false;
+    if (isHex(w)) return false;
+    return isScreamingSnake(w);
+}
+
+/**
+ * Full shape match — all identifier shapes (camelCase, PascalCase, SCREAMING_SNAKE,
+ * snake_case, lowercase-with-digits) are caught bare or backticked. The population
+ * is formatting-invariant: a token is caught whether it's in backticks or bare in
+ * prose. Shape false positives (prose terms that match an identifier shape but
+ * are not code citations) are excluded by predicate or fixed in the prose, never by
+ * a per-entry allowlist.
+ */
+function matchesShape(w: string): boolean {
+    if (matchesStrongShape(w)) return true;
+    if (matchesScreamingSnake(w)) return true;
+    if (matchesWeakShape(w)) return true;
+    return false;
+}
+
+// ── Candidate types ─────────────────────────────────────────────────────────────────────────
+
+type CitationCandidate = {
+    file: string;
+    line: number;
+    ref: string;
+    kind: "ts-path" | "identifier";
+};
+
+// ── Candidate extraction ───────────────────────────────────────────────────────────────────
+
+const TS_PATH_RE = /`([^`]*\.ts)`/g;
+const IDENTIFIER_RE = /`([A-Za-z_][A-Za-z0-9_]*(?:\(\))?)`/g;
+const BARE_TOKEN_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
+// A multi-token backtick span: backtick content that is not a single identifier or .ts path
+const MULTI_TOKEN_SPAN_RE = /`([^`]+)`/g;
+// Arithmetic context: preceded or followed by +, -, *, /, =, ^, ·, ×, ÷, ≤, ≥
+// (comparison operators ≤/≥ only — not </> which are TypeScript angle brackets in spans)
+const ARITH_RE = /[-+*/=^·×÷−≤≥]/;
+
+/**
+ * Extract citation candidates from rule files.
+ *
+ * Returns candidates keyed by {file, line, ref} — deduplicated.
+ *
+ * Predicate fixes applied:
+ *  1. Bare tokens preceded by `*` are glob fragments → skipped.
+ *  2. `.ts` path interiors are not re-tokenized → stripped before bare extraction.
+ *  3. All identifier shapes (including weak shapes) are caught bare or backticked.
+ *  4. In-span tokens: a token followed by `(` is a call citation (must resolve);
+ *     one in arithmetic context is a formula variable (excluded).
+ */
+async function extractCandidates(
+    ruleFiles: string[],
+    root: string,
+): Promise<{ candidates: CitationCandidate[] }> {
+    const candidates: CitationCandidate[] = [];
+    const seen = new Set<string>();
+
+    function addCandidate(file: string, line: number, ref: string, kind: "ts-path" | "identifier") {
+        const key = `${file}:${line}:${ref}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        candidates.push({ file, line, ref, kind });
+    }
+
+    for (const file of ruleFiles) {
+        const fullPath = resolve(root, file);
+        const text = await Bun.file(fullPath).text();
+        const lines = text.split("\n");
+        let inFence = false;
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (line.trim().startsWith("```")) {
+                inFence = !inFence;
+                continue;
+            }
+            if (inFence) continue;
+
+            // 1. Backtick-cited .ts paths
+            const tsPathSpans: string[] = [];
+            for (const m of line.matchAll(TS_PATH_RE)) {
+                const ref = m[1];
+                if (
+                    ref.startsWith(".") ||
+                    ref.includes("*") ||
+                    ref.includes(" ") ||
+                    ref.includes("{")
+                )
+                    continue;
+                addCandidate(file, i + 1, ref, "ts-path");
+                tsPathSpans.push(m[0]);
+            }
+
+            // 2. Backtick-cited identifiers (solo-backtick spans)
+            for (const m of line.matchAll(IDENTIFIER_RE)) {
+                const ref = m[1].replace(/\(\)$/, "");
+                if (ref.endsWith(".ts")) continue;
+                if (matchesShape(ref)) {
+                    addCandidate(file, i + 1, ref, "identifier");
+                }
+            }
+
+            // 3. Bare identifier-shaped tokens
+            // Strip URLs (tokens inside URLs are not citations)
+            let stripped = line.replace(/https?:\/\/[^\s)]*/g, " ");
+            // Strip ALL backtick spans — in-span tokens are handled by the in-span logic below,
+            // which applies the arithmetic-context and call-citation predicates. The bare
+            // extraction catches only tokens outside any backtick span.
+            stripped = stripped.replace(/`[^`]+`/g, " ");
+
+            for (const m of stripped.matchAll(BARE_TOKEN_RE)) {
+                const ref = m[0];
+                const index = m.index ?? 0;
+                // A bare token preceded by `*` and starting with `_` is a glob suffix
+                // (e.g. `*_WGSL`, `*_REQUIRED`). A bare `*`-prefix drop is inadmissible —
+                // `*foo` also spells a mis-bulleted dead symbol — so `*`-prefixed tokens
+                // starting with a letter are caught.
+                if (index > 0 && stripped[index - 1] === "*" && ref.startsWith("_")) continue;
+                // All identifier shapes are caught bare (re-admitted, round 6b): camelCase,
+                // PascalCase, SCREAMING_SNAKE, snake_case, and lowercase-with-digits.
+                if (matchesShape(ref)) {
+                    addCandidate(file, i + 1, ref, "identifier");
+                }
+            }
+
+            // 4. In-span tokens from multi-token backtick spans
+            // Re-scan the original line for multi-token backtick spans
+            for (const m of line.matchAll(MULTI_TOKEN_SPAN_RE)) {
+                const spanContent = m[1];
+                // Skip if this is a .ts path (already extracted) or a solo identifier (already extracted)
+                if (spanContent.endsWith(".ts")) continue;
+                if (/^[A-Za-z_][A-Za-z0-9_]*(?:\(\))?$/.test(spanContent)) continue;
+
+                // Tokenize the span content and apply in-span predicate
+                for (const tm of spanContent.matchAll(BARE_TOKEN_RE)) {
+                    const ref = tm[0];
+                    const tIndex = tm.index ?? 0;
+                    // Find the next non-whitespace char after the token
+                    let afterIdx = tIndex + ref.length;
+                    while (afterIdx < spanContent.length && spanContent[afterIdx] === " ")
+                        afterIdx++;
+                    const afterChar = afterIdx < spanContent.length ? spanContent[afterIdx] : "";
+                    // Find the previous non-whitespace char before the token
+                    let beforeIdx = tIndex - 1;
+                    while (beforeIdx >= 0 && spanContent[beforeIdx] === " ") beforeIdx--;
+                    const beforeChar = beforeIdx >= 0 ? spanContent[beforeIdx] : "";
+
+                    // Fix 4a: a token followed by `(` is a call citation — must resolve
+                    if (afterChar === "(") {
+                        if (matchesShape(ref)) {
+                            addCandidate(file, i + 1, ref, "identifier");
+                        }
+                        continue;
+                    }
+                    // Fix 4b: a token in arithmetic context is a formula variable — excluded
+                    if (ARITH_RE.test(beforeChar) || ARITH_RE.test(afterChar)) {
+                        continue;
+                    }
+                    // Otherwise: a token inside a multi-token span — all identifier
+                    // shapes (weak shapes admitted in-span, round 7). Formula variables
+                    // in arithmetic context (including comparison operators) are excluded
+                    // above.
+                    if (matchesShape(ref)) {
+                        addCandidate(file, i + 1, ref, "identifier");
+                    }
+                }
+            }
+        }
+    }
+
+    return { candidates };
+}
+
+// ── Token index ────────────────────────────────────────────────────────────────────────────
+
+const INDEX_TOKEN_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
+
+/**
+ * Build a one-pass token index over `*.ts`/`*.rs`/`*.wgsl` files.
+ * Excludes `node_modules` and `scripts/check-docs.ts` (its comments mention the
+ * symbols it checks, which would false-resolve dead citations).
+ */
+async function buildTokenIndex(trackedFiles: string[], root: string): Promise<Set<string>> {
+    const index = new Set<string>();
+    const sourceFiles = trackedFiles.filter(
+        (f) =>
+            (f.endsWith(".ts") || f.endsWith(".rs") || f.endsWith(".wgsl")) &&
+            !f.includes("node_modules") &&
+            f !== "scripts/check-docs.ts",
+    );
+    for (const f of sourceFiles) {
+        const text = await Bun.file(resolve(root, f)).text();
+        for (const m of text.matchAll(INDEX_TOKEN_RE)) {
+            index.add(m[0]);
+        }
+    }
+    return index;
+}
+
+// ── Resolution ──────────────────────────────────────────────────────────────────────────────
+
+function tsPathResolves(path: string, trackedSet: Set<string>): boolean {
+    const tries = [path, `src/${path}`, `${path}`];
+    for (const t of tries) {
+        if (trackedSet.has(t)) return true;
+    }
+    const suffix = `/${path}`;
+    for (const f of trackedSet) {
+        if (f.endsWith(suffix)) return true;
+    }
+    return false;
+}
+
+function resolvesAnywhere(
+    ref: string,
+    kind: string,
+    tokenIndex: Set<string>,
+    trackedSet: Set<string>,
+    combinedRoster: Set<string>,
+): boolean {
+    if (kind === "ts-path") {
+        if (tsPathResolves(ref, trackedSet)) return true;
+        return combinedRoster.has(ref);
+    }
+    if (tokenIndex.has(ref)) return true;
+    return combinedRoster.has(ref);
+}
 
 // ── Population: scan .claude/rules/**/*.md for identifier-shaped tokens ────────────────────
 //
@@ -792,9 +1111,8 @@ if (ruleFiles.length === 0) {
 //
 // Build a Set<string> of every identifier token in every tracked source file. Resolution is
 // exact set-membership, not `git grep --fixed-strings` (substring matching). Excludes
-// `node_modules`, `scripts/check-docs.ts`, `scripts/rosters.ts`, and
-// `scripts/stale-claim-predicates.ts` (their comments mention the symbols they check, which
-// would false-resolve dead citations).
+// `node_modules` and `scripts/check-docs.ts` (its comments mention the symbols it checks,
+// which would false-resolve dead citations).
 
 const tokenIndex = await buildTokenIndex(trackedFiles, root);
 if (tokenIndex.size === 0) {
@@ -831,8 +1149,7 @@ for (const { roster } of allRosters) {
 
 // ── Identifier shape predicates ────────────────────────────────────────────────────────────
 //
-// Shape predicates and candidate extraction are in the shared module
-// `stale-claim-predicates.ts`.
+// Shape predicates and candidate extraction are defined above.
 // The predicate is formatting-invariant: all identifier shapes (camelCase,
 // PascalCase, SCREAMING_SNAKE, snake_case, lowercase-with-digits) are caught
 // bare or backticked. A bare `*`-prefix drop is inadmissible — only `*`-prefixed
@@ -857,7 +1174,6 @@ if (citationCandidates.length === 0) {
 // match against the tracked set.
 // For identifiers: exact set-membership in the token index (NOT substring matching).
 // For both: if unresolved against the tree, check against the combined roster.
-// Resolution functions are in the shared module.
 
 // ── Pinned cardinalities ───────────────────────────────────────────────────────────────
 //
@@ -888,7 +1204,7 @@ if (totalRosterEntries !== PINNED_ROSTER_ENTRY_COUNT) {
         `✗ roster entry count mismatch: pinned ${PINNED_ROSTER_ENTRY_COUNT}, actual ${totalRosterEntries}.
 ` +
             `  Update PINNED_ROSTER_ENTRY_COUNT in scripts/check-docs.ts to match, ` +
-            `or prune the uncited entries from scripts/rosters.ts.`,
+            `or prune the uncited entries from FOREIGN_NAMESPACES.`,
     );
     process.exit(1);
 }
@@ -913,7 +1229,7 @@ if (uncitedRosterEntries.length > 0) {
             uncitedRosterEntries.map((e) => `    ${e}`).join("\n") +
             `
   Every roster entry must be cited by at least one rule file (both ways: a real ` +
-            `member, genuinely needed). Prune uncited entries from scripts/rosters.ts.`,
+            `member, genuinely needed). Prune uncited entries from FOREIGN_NAMESPACES.`,
     );
     process.exit(1);
 }
@@ -940,7 +1256,7 @@ if (rosterInTree.length > 0) {
             `
   Every roster entry must be absent from the tree token index (disjointness law: ` +
             `each disjunct's member set is disjoint from every other's, so each surviving ` +
-            `member is load-bearing). Prune the redundant entries from scripts/rosters.ts.`,
+            `member is load-bearing). Prune the redundant entries from FOREIGN_NAMESPACES.`,
     );
     process.exit(1);
 }
@@ -1011,10 +1327,6 @@ if (staleCitations.length > 0) {
 // Witnessed red (pre-sweep tree, 2026-08-26): 46 dead *.md path citations in comments
 // (43 `roads-interactive.md`, 1 `shallot-boot-noise.md`, 2
 // `shallot-demo-slow-frame-attribution.md`) → exit 1.
-// Mutation proof: adding `// see zzz-dead-pointer-mutation-proof.md` to a comment in
-// `scripts/rosters.ts` reds this arm (witnessed 2026-08-26, exit 1 —
-// `scripts/rosters.ts:100: zzz-dead-pointer-mutation-proof.md` moves the count from 46
-// to 47).
 
 // A citation resolves only if its basename is tracked in this repo, so the gate
 // holds for a standalone reader without access to a private containing repository.
@@ -1101,14 +1413,9 @@ function expandCommand(command: string): string {
     if (!script) throw new Error(`command composition: unknown root script ${match[1]}`);
     return `${script}${match[2] ?? ""}`.trim().replace(/\s+/g, " ");
 }
-const rosterCommands = new Set(
-    [
-        ...OCEAN_CPU_GATES.map((row) => `bun run ${row.script}`),
-        ...EXAMPLE_GATES.map((row) => row.gate),
-    ].map(expandCommand),
-);
+const rosterCommands = new Set([...EXAMPLE_GATES.map((row) => row.gate)].map(expandCommand));
 const testCommand = /(?:^| && )bun test\s+([^&]+)$/.exec(rootScripts.test ?? "");
-if (!testCommand || !OCEAN_CPU_GATES.length || !EXAMPLE_GATES.length) {
+if (!testCommand || !EXAMPLE_GATES.length) {
     console.error("✗ command composition: missing test arguments or empty gate registry");
     process.exit(1);
 }

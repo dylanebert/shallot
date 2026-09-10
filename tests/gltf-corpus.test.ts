@@ -16,7 +16,7 @@ import matrixJson from "./gltf-matrix.json";
 // deviceless importer over the Khronos corpus and pins each (model, variant) to `gltf-matrix.json`: the
 // skipped-feature set, the decoded geometry count, and the derived status. A regression (a feature we silently
 // stop decoding) or a new capability (a feature we start handling) reads as a red row here, then as a
-// reviewable diff through `scripts/gltf-conformance.ts`. The corpus is a submodule in the author's workspace
+// reviewable diff through `src/extras/gltf/gltf-conformance.ts`. The corpus is a submodule in the author's workspace
 // layout (kex's `.gitmodules`), outside the package, so the walk is presence-gated with a loud, announced
 // skip — never a hidden green.
 
@@ -86,7 +86,7 @@ if (!corpusPresent()) {
                 const pinned = matrix[e.model]?.[e.variant];
                 if (!pinned)
                     throw new Error(
-                        `${e.model}/${e.variant} not in gltf-matrix.json — a new corpus model/variant; run: bun run scripts/gltf-conformance.ts --write`,
+                        `${e.model}/${e.variant} not in gltf-matrix.json — a new corpus model/variant; run: bun run src/extras/gltf/gltf-conformance.ts --write`,
                     );
                 const got = entryOf(e.scene!);
                 expect(got.unsupported).toEqual(pinned.unsupported);
