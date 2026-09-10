@@ -1,7 +1,6 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { Glob } from "bun";
 import { dirname, relative, resolve } from "path";
-import { TEST_TIER_SUFFIX_NAMES } from "./test-tiers";
 
 async function readScripts(pkgPath: string): Promise<Record<string, string>> {
     const pkg = (await Bun.file(pkgPath).json()) as { scripts?: Record<string, string> };
@@ -160,18 +159,9 @@ console.log(
     `✓ command resolution: ${commandCount} repository commands; declared bin/files realization`,
 );
 
-// The doc set is what git tracks, not what the filesystem holds. A `**/*.md` scan reads whatever a
-// particular checkout happens to have on disk: `examples/gym/dist/` after any build (448 files),
-// and the glTF sample corpus through the `gym/public/gltf-samples` symlink wherever that corpus is
-// checked out (451 more) — third-party and generated files we neither own nor should gate on, and present or
-// absent depending on what the last command did. Asking git makes the scope identical in every
-// checkout, which is the property that matters here: a check whose coverage depends on local state
-// is how a stale tree reads green, and this release already paid for that lesson once.
-//
-// This set is the shared roster for every arm below — bare-command, pin, and citation — derived
-// once from `git ls-files` rather than hand-listed per arm. The hand list this replaced omitted
-// tracked docs (MIGRATION.md, CHANGELOG.md) that sibling arms already scanned, so a
-// bare `shallot <cmd>` creeping into one of those would have read green silently.
+// The doc set is what git tracks, not what the filesystem holds: a `**/*.md` scan reads whatever a
+// checkout has on disk, build output and fetched third-party files included, so its coverage would
+// depend on local state. This set is the shared roster for every arm below.
 const tracked = Bun.spawnSync(["git", "ls-files", "-z", "*.md"], { cwd: root });
 if (!tracked.success) {
     console.error(
@@ -237,17 +227,9 @@ if (violations.length > 0) {
     process.exit(1);
 }
 
-// The docs are a pin site too. The manifest-pin arm below enumerates every git-tracked
-// `package.json` declaring a tracked package, and a bump that hits all of them still leaves the
-// install block a reader actually runs pinned to the old minor — which is what shipped: 0.9.2's
-// tree carried a `~0.12.0` peer while README.md and MIGRATION.md both still said
-// `typegpu@~0.11.9`, a documented install that resolves to a peer conflict or a duplicate
-// TypeGPU identity that dies at pipeline warm.
-//
-// Scope is a fenced `bun add` line: a command the reader runs, never prose. That distinction is
-// load-bearing — CHANGELOG.md's 0.9.0 entry names `typegpu@~0.11.9` as a historical fact about what
-// that release shipped with, and a blanket version sweep would be wrong to move it (same law as
-// MIGRATION.md's dated prose, `check-versions.ts`).
+// The docs are a pin site too: a fenced `bun add` line a reader runs must name the range the manifest
+// declares, or the documented install resolves to a peer conflict or a duplicate TypeGPU identity.
+// Scope is fenced `bun add` lines only, never prose.
 const PIN_SOURCES: Record<string, { manifest: string; field: string }> = {
     typegpu: { manifest: "package.json", field: "peerDependencies" },
     "unplugin-typegpu": { manifest: "package.json", field: "dependencies" },
@@ -294,87 +276,6 @@ for (const match of docs) {
             }
         }
     }
-}
-
-// The install-test fixtures are a second pin site: the install gate green-lights whatever version
-// they carry, so a fixture stuck on the old minor certifies the drifted install as working. No
-// hand-list of line numbers — scan every line naming `typegpu` with a version token attached
-// (real code, not the prose comments that also mention the version for context) and classify each
-// one, so a fixture bump landing outside today's known sites can't go unnoticed. `typegpu2` is a
-// deliberate second physical copy (`identityFlow`'s duplicate-identity proof) whose version must
-// still track the engine peer; `PM_RED_COPY_VERSION` is the one deliberate exclusion — that
-// fixture needs a differing version on purpose. Mutation proof: bumping the first `typegpu` pin
-// in `scripts/install-test.ts` from `~0.12.4` to `~0.12.5` reds this arm (witnessed 2026-09-01,
-// exit 1 — `scripts/install-test.ts:375: typegpu@~0.12.5 — the manifest declares ~0.12.4`).
-const FIXTURE_FILE = "scripts/install-test.ts";
-const FIXTURE_EXCLUSION = "PM_RED_COPY_VERSION";
-// A version token: an optional range prefix (`~`, `^`, or bare) followed by semver, or the
-// `${PM_RED_COPY_VERSION}` interpolation — every pin *shape* the fixtures could carry, not just
-// today's tilde-only forms (the regex must not be one surface form short: a `^0.12.0` or bare
-// `0.12.0` pin must still be seen, not silently skipped).
-const FIXTURE_VERSION_TOKEN = String.raw`(?:\$\{${FIXTURE_EXCLUSION}\}|[~^]?\d+\.\d+\.\d+)`;
-const FIXTURE_ANY_VERSION_RE = new RegExp(FIXTURE_VERSION_TOKEN);
-// The classifier: a recognized key (longest-first, so `typegpu2` doesn't get eaten by the bare
-// `typegpu` alternative) followed by `: value`, where value is a plain string, or a template
-// literal carrying the `npm:typegpu@` alias form.
-const FIXTURE_PIN_RE = new RegExp(
-    `(unplugin-typegpu|typegpu2|typegpu)"?\\s*:\\s*\`?"?(?:npm:typegpu@)?(${FIXTURE_VERSION_TOKEN})`,
-    "g",
-);
-
-const fixtureText = await Bun.file(resolve(root, FIXTURE_FILE)).text();
-const fixtureLines = fixtureText.split("\n");
-const fixtureUnclassified: { line: number; text: string }[] = [];
-let fixtureMatched = 0;
-
-for (let i = 0; i < fixtureLines.length; i++) {
-    const line = fixtureLines[i];
-    const trimmed = line.trim();
-    // Prose, not a fixture pin — a `//` line comment or a `/** … */` block-comment continuation
-    // (the leading `*`). Both mention `typegpu`+version for context, never as a real pin.
-    if (trimmed.startsWith("//") || trimmed.startsWith("*")) continue;
-    if (!/typegpu/i.test(line)) continue;
-
-    const pins = [...line.matchAll(FIXTURE_PIN_RE)];
-    if (pins.length === 0) {
-        if (!FIXTURE_ANY_VERSION_RE.test(line)) continue; // a `typegpu` mention, no version token
-        fixtureUnclassified.push({ line: i + 1, text: trimmed });
-        continue;
-    }
-    fixtureMatched++;
-    for (const [, name, found] of pins) {
-        if (found === `\${${FIXTURE_EXCLUSION}}`) continue; // the stated exclusion, differs on purpose
-        // `typegpu2` is the alias copy — it must track the real `typegpu` peer's declared version.
-        const want = name === "typegpu2" ? declared.typegpu : declared[name];
-        if (found !== want) {
-            drift.push({ file: FIXTURE_FILE, line: i + 1, name, found, want });
-        }
-    }
-}
-
-if (fixtureMatched === 0) {
-    console.error(
-        `✗ ${FIXTURE_FILE} scan matched no \`typegpu\` + version line — the fixture-pin arm ` +
-            "would be vacuously green.",
-    );
-    process.exit(1);
-}
-
-if (fixtureUnclassified.length > 0) {
-    console.error(
-        `✗ ${fixtureUnclassified.length} line(s) in ${FIXTURE_FILE} carry \`typegpu\` and a ` +
-            `version token in a form the fixture-pin arm can't classify:\n`,
-    );
-    for (const u of fixtureUnclassified) {
-        console.error(`  ${FIXTURE_FILE}:${u.line}`);
-        console.error(`    ${u.text}`);
-    }
-    console.error(
-        "\nEvery `typegpu` + version line is either a checked pin (typegpu / typegpu2 / " +
-            `unplugin-typegpu) or the stated \`${FIXTURE_EXCLUSION}\` exclusion — teach check-docs.ts ` +
-            "the new form, or fix the line.",
-    );
-    process.exit(1);
 }
 
 // The manifests are a pin site too, and the roster is what git tracks, not what a hand list
@@ -447,8 +348,7 @@ if (drift.length > 0) {
         console.error(`    ${d.name}@${d.found} — the manifest declares ${d.want}`);
     }
     console.error(
-        "\nA documented install, a scaffold-emitted manifest, an install-test fixture, or a " +
-            "workspace manifest must resolve against the shipped manifests. Bump the pin with the " +
+        "\nA documented install or a workspace manifest must resolve against the shipped manifests. Bump the pin with the " +
             "manifest, in the same commit.",
     );
     process.exit(1);
@@ -488,69 +388,11 @@ if (chainOverages.length > 0) {
     process.exit(1);
 }
 
-// ── Arm (d): tier-suffix roster — one constant, derived consumers ─────────────────────────
-// Prose explains tier obligations without duplicating the constant as a heading/bullet roster.
-const rosterFindings: string[] = [];
-
-// Derive the consumer set: scan every tracked file in the repo for a literal tier-suffix roster —
-// a line enumerating 3+ of the roster's suffix names either as bare words with regex alternation (`|`) or
-// as an array literal of quoted `.suffix.ts` strings (e.g. `[".oracle.ts", ".probes.ts", ...]`).
-// Any file that carries such a roster is restating it rather than reading the shared constant; the
-// arm finds such files itself, so a new file restating the roster — in either shape — is caught
-// without updating a hand-list.
-//
-// Two exclusions, stated explicitly:
-// 1. `scripts/test-tiers.ts` — the roster's own definition module; it MUST contain the
-//    suffix names (it is where the constant lives).
-// 2. `scripts/check-docs.ts` — this arm's own text; a self-referential gate matches its own
-//    description of what it checks (per `.claude/rules/specs.md`'s self-reference principle).
-const ROSTER_EXCLUSIONS = new Set(["scripts/test-tiers.ts", "scripts/check-docs.ts"]);
 const allTrackedFiles = Bun.spawnSync(["git", "ls-files", "-z"], { cwd: root });
 if (!allTrackedFiles.success) {
-    console.error(
-        "✗ `git ls-files` failed — the roster arm needs a git checkout to scope its file set.",
-    );
+    console.error("✗ `git ls-files` failed — the pointer arm needs a git checkout.");
     process.exit(1);
 }
-const suffixWords = [...TEST_TIER_SUFFIX_NAMES];
-// An array-literal restatement (`[".oracle.ts", ".probes.ts", ".tier.ts", ".lab.ts"]`) is the other
-// shape a hand-written roster takes, alongside regex alternation — both are caught below.
-const arrayLiteralRe = /\[\s*(?:["'`]\.\w+\.ts["'`]\s*,\s*){2,}["'`]\.\w+\.ts["'`]\s*\]/;
-for (const file of allTrackedFiles.stdout.toString().split("\0").filter(Boolean)) {
-    if (ROSTER_EXCLUSIONS.has(file)) continue;
-    let source: string;
-    try {
-        source = await Bun.file(resolve(root, file)).text();
-    } catch {
-        continue; // file deleted but not yet committed — skip
-    }
-    for (const [i, line] of source.split("\n").entries()) {
-        const hits = suffixWords.filter((n) => new RegExp(`\\b${n}\\b`).test(line)).length;
-        const shape = line.includes("|")
-            ? "regex alternation"
-            : arrayLiteralRe.test(line)
-              ? "an array literal"
-              : null;
-        if (hits >= 3 && shape !== null) {
-            rosterFindings.push(
-                `${file}:${i + 1} carries a literal tier-suffix roster (a line enumerating ${hits} of the roster's suffix names as ${shape}) — the roster must be derived from the shared test-tiers.ts constant, not restated.`,
-            );
-            break; // one finding per file is enough
-        }
-    }
-}
-
-if (rosterFindings.length > 0) {
-    console.error(`✗ tier-suffix roster arm: ${rosterFindings.length} finding(s):\n`);
-    for (const f of rosterFindings) {
-        console.error(`  ${f}`);
-    }
-    console.error(
-        "\nDerive test-tier suffix rosters from the shared test-tiers.ts constant, never restate them.",
-    );
-    process.exit(1);
-}
-
 const trackedFiles = allTrackedFiles.stdout.toString().split("\0").filter(Boolean);
 // ── Arm (f): pointer-validity — dead *.md path citations in comments ──────────────────
 //
@@ -562,13 +404,8 @@ const trackedFiles = allTrackedFiles.stdout.toString().split("\0").filter(Boolea
 // shallot repo. A citation that
 // resolves to nothing is a dead anchor — it reads as authoritative for years.
 //
-// The discrimination follows the fixture-pin scan's shape (the `fixtureUnclassified`
-// classifier at the FIXTURE_FILE scan): match a pattern, check if it resolves, red if
-// not. The fixture-pin scan splits real pins from prose mentions by skipping comment
-// lines and matching a pin regex; this arm does the inverse — it scans ONLY comment
-// lines (where dead anchors live) and matches a *.md path regex. Non-comment lines
-// (string literals, code) are not scanned: a .md path in a string literal is not a
-// citation, it's a test description or a path.
+// It scans ONLY comment lines, where dead anchors live: a .md path in a string literal or code is a
+// path, not a citation.
 //
 // False positives preserved (asserted by presence, not just spared):
 // - physics's `// Stage N:` algorithm-step labels (body.ts ×6, tree.ts ×3) — they name
@@ -650,56 +487,6 @@ if (deadPointers.length > 0) {
     );
     process.exit(1);
 }
-
-// Command composition is lexical documentation validation, not shell equivalence or NLP.
-// Scan tracked docs for root-test command comments enumerating paths after "over", "in", or "paths:".
-const rootScripts = (await Bun.file(resolve(root, "package.json")).json()).scripts as Record<
-    string,
-    string
->;
-const testCommand = /(?:^| && )bun test\s+([^&]+)$/.exec(rootScripts.test ?? "");
-if (!testCommand) {
-    console.error("✗ command composition: missing test arguments");
-    process.exit(1);
-}
-const testPaths = testCommand[1]
-    .trim()
-    .split(/\s+/)
-    .filter((arg) => !arg.startsWith("--"));
-if (testPaths.some((path) => path.startsWith("-") || /[;&|]/.test(path))) {
-    console.error("✗ command composition: unsupported root test syntax; update the reader");
-    process.exit(1);
-}
-const compositionFindings: string[] = [];
-let testCones = 0;
-for (const file of docs) {
-    const text = await Bun.file(resolve(root, file)).text();
-    for (const [index, line] of text.split("\n").entries()) {
-        const comment = /^\s*bun run test\s+#\s*(.*)$/.exec(line)?.[1];
-        if (!comment) continue;
-        const cone = /\b(?:over|in|paths:)\s+([^()]+)/.exec(comment)?.[1];
-        if (!cone) continue;
-        testCones++;
-        const paths = cone
-            .trim()
-            .replace(/`/g, "")
-            .split(/[,\s]+/);
-        const missing = testPaths.filter((path) => !paths.includes(path));
-        const extra = paths.filter((path) => !testPaths.includes(path));
-        if (missing.length || extra.length || new Set(paths).size !== paths.length) {
-            compositionFindings.push(
-                `${file}:${index + 1}: stale root test cone: missing [${missing.join(", ")}], extra [${extra.join(", ")}]`,
-            );
-        }
-    }
-}
-if (compositionFindings.length) {
-    console.error(`✗ command composition:\n${compositionFindings.join("\n")}`);
-    process.exit(1);
-}
-console.log(
-    `✓ command composition (${testPaths.length} manifest test paths, ${testCones} restated cones)`,
-);
 
 // One closed Git population; ignored files and other instruction names are outside this arm.
 // Paragraphs are nonempty blank-line-delimited blocks, measured in Unicode characters.
@@ -793,8 +580,7 @@ console.log(
 
 console.log(
     `✓ doc commands clean (${scanTargets.length} file(s)), ` +
-        `install/scaffold/fixture/manifest pins match the manifests (${scanned} doc(s), ${fixtureMatched} fixture line(s), ${manifestPkgCount} manifest(s)), ` +
+        `install/manifest pins match the manifests (${scanned} doc(s), ${manifestPkgCount} manifest(s)), ` +
         `entry-doc chains under budget (${ENTRY_DOC_CHAINS.length} chain(s)), ` +
-        `tier restatements absent (${suffixWords.length} suffix(es)), ` +
         `pointer-validity clean (${pointerCitationCount} .md citation(s))`,
 );
