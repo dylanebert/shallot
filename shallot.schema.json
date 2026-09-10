@@ -34,6 +34,12 @@
             ],
             "description": "Render pixel ratio. Use a positive number or \"auto\"; omit for the engine default."
         },
+        "assets": {
+            "type": "array",
+            "items": { "type": "string" },
+            "uniqueItems": true,
+            "description": "Examples only: names of assets.json entries this project loads; `bun run assets` links each under this project's public/ directory. Ignored by dev, build and run."
+        },
         "identifier": {
             "type": "string",
             "description": "The bundle identifier for native builds (mac CFBundleIdentifier). Omit for the default com.shallot.<basename>."

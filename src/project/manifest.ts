@@ -29,6 +29,9 @@ export interface Manifest {
     /** the bundle identifier for native builds (mac `CFBundleIdentifier`). Omit for the default
      *  `com.shallot.<basename>`. */
     identifier?: string;
+    /** examples only: the `assets.json` entries this project loads, linked under its `public/` by the
+     *  repository's `bun run assets`. Ignored by dev, build and run. */
+    assets?: string[];
 }
 
 /** parse persisted manifest JSON, tolerating absent or corrupt storage (a first run, a hand-edit) */
@@ -52,6 +55,9 @@ export function normalize(raw: string | null): Manifest {
         manifest.pixelRatio = obj.pixelRatio;
     }
     if (typeof obj.identifier === "string") manifest.identifier = obj.identifier;
+    if (Array.isArray(obj.assets) && obj.assets.every((a) => typeof a === "string")) {
+        manifest.assets = obj.assets as string[];
+    }
     return manifest;
 }
 
