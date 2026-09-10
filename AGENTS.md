@@ -31,7 +31,7 @@ Components are data, systems behavior, not methods/managers. Scenes author compo
 
 ## Imports
 
-`@dylanebert/shallot`: author APIs/defaults; `/extras`: opt-in convenience, also bare. Audio/mirror are bare-only. `/runtime`: platform/device; `/ecs`, `/utils`, `/render`, `/sear`, `/glaze`, `/physics`, `/character`, `/bvh`: extensions. Never deep-import src; file issues for missing seams. Plugins register components/traits.
+`@dylanebert/shallot`: author APIs/defaults; `/extras`: opt-in convenience, also bare. Audio/mirror are bare-only. `/runtime`: platform/device; `/<module>`: extensions. Never deep-import src; file issues for missing seams. Plugins register components/traits.
 
 ## ECS & Plugins
 
