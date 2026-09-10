@@ -372,7 +372,7 @@ async function ejectedFlow(work: string, engineTgz: string) {
     writeFileSync(
         join(proj, "node-resolve-check.mjs"),
         `import { projectPlugin } from "@dylanebert/shallot/vite";\n` +
-            `import { REAL_GPU_LAUNCH } from "@dylanebert/shallot/harness/browser";\n` +
+            `import REAL_GPU_LAUNCH from "@dylanebert/shallot/harness/browser" with { type: "json" };\n` +
             `if (typeof projectPlugin !== "function") throw new Error("projectPlugin: not a function");\n` +
             `if (JSON.stringify(REAL_GPU_LAUNCH) !== '${JSON.stringify({ channel: "chromium", args: ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures", "--class=kex-gate"] })}') throw new Error("REAL_GPU_LAUNCH: wrong options");\n` +
             `console.log("NODE_RESOLVE_OK " + REAL_GPU_LAUNCH.channel);\n`,

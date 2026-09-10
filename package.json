@@ -36,8 +36,8 @@
         "./harness": "./src/harness/index.ts",
         "./harness/pixels": "./src/harness/pixels.ts",
         "./harness/browser": {
-            "types": "./src/harness/browser.ts",
-            "default": "./dist/harness-browser.js"
+            "types": "./src/harness/browser.d.ts",
+            "default": "./src/harness/browser.json"
         },
         "./vite": {
             "types": "./src/project/vite.ts",

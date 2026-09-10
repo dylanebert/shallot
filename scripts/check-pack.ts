@@ -53,7 +53,7 @@ const required = [
     "bin/shallot.ts",
     "src/cli/index.ts",
     "dist/vite.js",
-    "dist/harness-browser.js",
+    "src/harness/browser.json",
     "rust/native/Cargo.toml",
     "rust/native/Cargo.lock",
     "assets/icon-1024.png",

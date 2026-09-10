@@ -1,0 +1,4 @@
+{
+    "channel": "chromium",
+    "args": ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures", "--class=kex-gate"]
+}

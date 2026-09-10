@@ -11,7 +11,7 @@
             "!examples/*/public",
             "!bin",
             "!src/project",
-            "!src/harness/browser.ts"
+            "!src/harness/browser.d.ts"
         ]
     },
     "linter": {

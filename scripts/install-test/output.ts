@@ -42,7 +42,7 @@ export function inspectOutput(dist: string) {
     const modules = graph.flatMap((chunk) => chunk.modules);
     assert(modules.length > 10, "built output: empty retained module population");
     const forbidden =
-        /(?:\/node_modules\/(?:vite|unplugin-typegpu|playwright|@playwright)\/|\/@dylanebert\/shallot\/(?:bin\/|src\/project\/|dist\/(?:vite|native|harness-browser)\.js))/;
+        /(?:\/node_modules\/(?:vite|unplugin-typegpu|playwright|@playwright)\/|\/@dylanebert\/shallot\/(?:bin\/|src\/cli\/|src\/native\/|src\/project\/|src\/harness\/browser\.json|dist\/vite\.js))/;
     for (const module of modules)
         assert(!forbidden.test(module.id), `built output: tooling module ${module.id}`);
     for (const chunk of graph)
@@ -247,7 +247,7 @@ export async function outputFlow(work: string, candidate: string): Promise<void>
                     writeFileSync(
                         mainPath,
                         mainSource +
-                            '\nimport {REAL_GPU_LAUNCH} from "@dylanebert/shallot/harness/browser"; (window as any).__toolingLeak=REAL_GPU_LAUNCH;\n',
+                            '\nimport REAL_GPU_LAUNCH from "@dylanebert/shallot/harness/browser" with {type:"json"}; (window as any).__toolingLeak=REAL_GPU_LAUNCH;\n',
                     );
                     exec(
                         `${label}-${kind}-tool-leak-build`,
