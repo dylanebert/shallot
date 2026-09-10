@@ -8,7 +8,7 @@ use serde_json::Value;
 use physics_kernel::distance::{shape_distance, DistanceInput, ShapeProxy, SimplexCache};
 use physics_kernel::math::{Quat, Transform, Vec3};
 
-const GOLD: &str = include_str!("../../src/standard/physics/engine/distance.gold.json");
+const GOLD: &str = include_str!("../../../src/standard/physics/collision/distance.gold.json");
 
 fn from_bits(hex: &str) -> f32 {
     let bits = u32::from_str_radix(hex.trim_start_matches("0x"), 16).expect("hex");

@@ -23,7 +23,7 @@ const pkgRoot = resolve(import.meta.dir, "../../..");
 const shallotRoot = pkgRoot;
 const refDir = resolve(shallotRoot, "..", "reference", "box3d");
 const buildDir = resolve(refDir, "build-fixtures");
-const outDir = resolve(pkgRoot, "src/standard/physics/engine/fixtures");
+const outDir = resolve(pkgRoot, "src/standard/physics/solver/fixtures");
 
 if (!existsSync(refDir)) {
     console.error(`box3d reference missing: ${refDir}`);

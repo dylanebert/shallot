@@ -11,7 +11,7 @@
 //   - metadata: camera pose (framed AABB → orbit pose) and the declarative knob schema.
 //
 // The sample SOURCE comes from upstream, but the hashes are produced by SHALLOT's inlined engine
-// (`src/standard/physics/engine`, not upstream's own copy): a Bun resolver aliases the samples'
+// (`src/standard/physics/api`, not upstream's own copy): a Bun resolver aliases the samples'
 // `import ... from "upstream"` to the shipping engine barrel. A gym scenario (spec stage 3+) that
 // reproduces build() through `Physics.world` runs the same engine, so it reproduces these hashes
 // bit-exact — any authoring divergence (wrong axis, wrong joint, wrong shape) mismatches at the first
@@ -48,8 +48,8 @@ const physicsRoot = resolve(shallotRoot, "..", "upstream");
 const samplesDir = resolve(physicsRoot, "samples");
 const sampleBase = resolve(samplesDir, "src", "sample.ts");
 const sampleIndex = resolve(samplesDir, "src", "samples", "index.ts");
-const enginePath = resolve(pkgRoot, "src", "standard", "physics", "engine", "index.ts");
-const bodyPath = resolve(pkgRoot, "src", "standard", "physics", "engine", "body.ts");
+const enginePath = resolve(pkgRoot, "src", "standard", "physics", "api", "index.ts");
+const bodyPath = resolve(pkgRoot, "src", "standard", "physics", "world", "body.ts");
 const outDir = resolve(pkgRoot, "src/standard/physics/samples");
 
 if (!existsSync(sampleIndex)) {

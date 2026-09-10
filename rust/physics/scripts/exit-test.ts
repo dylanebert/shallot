@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 const PKG_ROOT = resolve(import.meta.dir, "../../..");
-const ENGINE = resolve(PKG_ROOT, "src/standard/physics/engine/index.ts");
+const ENGINE = resolve(PKG_ROOT, "src/standard/physics/api/index.ts");
 
 // node can't run the .ts engine source, so bundle a self-contained consumer that inits the auto path,
 // steps a small pyramid, prints the resolved thread count, then falls off the end with no shutdown. The

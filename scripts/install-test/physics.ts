@@ -14,7 +14,7 @@ import {
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "../..");
-const enginePath = "src/standard/physics/engine";
+const enginePath = "src/standard/physics";
 const canonical = resolve(root, "packages/shallot-physics", enginePath);
 const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
 
@@ -176,7 +176,7 @@ const consumer = `
 import assert from "node:assert/strict";
 import { Physics, PhysicsPlugin, State } from "@dylanebert/shallot";
 import { BodyType, World, init, threads, makeBoxHull } from "@dylanebert/shallot/physics/core";
-import { kernel, workers } from "./node_modules/@dylanebert/shallot/src/standard/physics/engine/kernel.ts";
+import { kernel, workers } from "./node_modules/@dylanebert/shallot/src/standard/physics/kernel/kernel.ts";
 const mode = process.argv[2];
 const instantiate = WebAssembly.instantiate;
 let instances = 0;
@@ -272,21 +272,21 @@ export function physicsArms(project: string): void {
             writeFileSync(file, original);
         }
     };
-    missing(join(engine, "kernel.wasm.ts"), () =>
+    missing(join(engine, "kernel/kernel.wasm.ts"), () =>
         exec(project, "physics-missing-st", command("st"), false, /kernel\.wasm/),
     );
-    missing(join(engine, "kernel.shared.wasm.ts"), () => {
+    missing(join(engine, "kernel/kernel.shared.wasm.ts"), () => {
         exec(project, "physics-lazy-st", command("st"), true, /PHYSICS_REALIZED threads=1/);
         exec(project, "physics-missing-mt", command("mt"), false, /kernel\.shared\.wasm/);
     });
-    const copy = join(shipped, "src/standard/physics/engine-copy");
+    const copy = join(shipped, "src/standard/physics-copy");
     assert(!existsSync(copy));
     cpSync(engine, copy, { recursive: true });
     try {
         mutate(
             join(shipped, "src/standard/physics/index.ts"),
-            'from "./engine"',
-            'from "./engine-copy"',
+            'from "./api"',
+            'from "../physics-copy/api"',
             () =>
                 exec(
                     project,
@@ -298,8 +298,8 @@ export function physicsArms(project: string): void {
         );
         mutate(
             join(shipped, "src/standard/physics/index.ts"),
-            'import { init, type Body as SolverBody, World as SolverWorld } from "./engine";',
-            'import { type Body as SolverBody, World as SolverWorld } from "./engine";\nimport { init } from "./engine-copy/kernel";',
+            'import { init, type Body as SolverBody, World as SolverWorld } from "./api";',
+            'import { type Body as SolverBody, World as SolverWorld } from "./api";\nimport { init } from "../physics-copy/kernel/kernel";',
             () =>
                 exec(
                     project,
@@ -312,28 +312,28 @@ export function physicsArms(project: string): void {
     } finally {
         rmSync(copy, { recursive: true });
     }
-    missing(join(engine, "world.ts"), () =>
+    missing(join(engine, "world/world.ts"), () =>
         exec(project, "physics-missing-types", typecheck, false, /world/),
     );
     exec(project, "physics-types", typecheck);
     const fixtures = join(shipped, "tests/physics/fixtures");
-    const reader = join(engine, "step.fixture.ts");
+    const reader = join(engine, "solver/step.fixture.ts");
     assert(!existsSync(fixtures) && !existsSync(reader), "fixtures are not public package payload");
-    const truth = join(root, "src/standard/physics/engine/fixtures");
+    const truth = join(root, "src/standard/physics/solver/fixtures");
     const population = readdirSync(truth)
         .filter((file) => file.endsWith(".json"))
         .sort();
     assert.equal(population.length, 53);
     mkdirSync(fixtures, { recursive: true });
     for (const file of population) cpSync(join(truth, file), join(fixtures, file));
-    cpSync(join(canonical, "step.fixture.ts"), reader);
+    cpSync(join(canonical, "solver/step.fixture.ts"), reader);
     try {
         const fixtureCommand = (threads: string) => [
             "env",
             `SHALLOT_PHYSICS_THREADS=${threads}`,
             "bun",
             "test",
-            "./node_modules/@dylanebert/shallot/src/standard/physics/engine/step.fixture.ts",
+            "./node_modules/@dylanebert/shallot/src/standard/physics/solver/step.fixture.ts",
         ];
         missing(join(fixtures, population[0]), () =>
             exec(project, "physics-missing-fixture", fixtureCommand("0"), false, /ENOENT/),

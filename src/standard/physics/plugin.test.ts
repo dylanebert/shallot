@@ -4,17 +4,8 @@ import { clear, register } from "../../engine/ecs/core";
 import { attach, stepFor } from "../../testing/helpers";
 import { Character, CharacterPlugin } from "../character";
 import { grounded, move, pose } from "../character/core";
-import {
-    Body,
-    bodyTraits,
-    Joint,
-    jointTraits,
-    Physics,
-    ShapeKind,
-    Spring,
-    springTraits,
-} from "../physics";
-import { Hulls } from "../physics/core";
+import { Slab } from "../slab";
+import { Body, bodyTraits, Joint, jointTraits, Physics, ShapeKind, Spring, springTraits } from "./";
 import {
     BodyType,
     createHull,
@@ -26,8 +17,8 @@ import {
     type Body as SolverBody,
     shutdown,
     World,
-} from "../physics/engine";
-import { Slab } from "../slab";
+} from "./api";
+import { Hulls } from "./core";
 import { composePose, PhysicsPlugin } from "./index";
 
 // a small tetrahedron, registered under `ShapeKind.Hull`'s id lookup (`Body.halfExtents.w`) — exercises
@@ -877,7 +868,7 @@ describe("compose covers static bodies", () => {
 
 describe("physics/core mirror", () => {
     test("core re-exports the engine barrel minus shutdown, plus physics's own seam", async () => {
-        const engine = await import("./engine");
+        const engine = await import("./api");
         const core = await import("./core");
         const engineKeys = new Set(Object.keys(engine));
         const coreKeys = new Set(Object.keys(core));

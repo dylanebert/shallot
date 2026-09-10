@@ -8,6 +8,7 @@ Apart from the CLI lines and the migration notes, the changes below are maintain
 
 - **cli** — **Breaking:** `shallot recipe` is renamed to `shallot add`. `shallot verify` is removed pending `shallot check`, which exits 2 as not yet available; an unknown verb runs `shallot-<verb>` from PATH or the project's bins.
 - **harness** — **Breaking:** `@dylanebert/shallot/harness/browser` ships as JSON: `import launch from "@dylanebert/shallot/harness/browser" with { type: "json" }` replaces the named `REAL_GPU_LAUNCH` import there (`/harness` still exports it by name).
+- **physics** — Moved the solver out of the flat `engine/` dir into `common`, `world`, `solver`, `collision`, `shapes`, `kernel` and `api` (tag archive/physics-flat); the public surface is unchanged.
 - **repo** — Dropped the bun-webgpu patch; the Dawn bridge is the dylanebert/bun-webgpu fork pending upstream.
 - **repo** — Archived the pre-slice test surface (tag archive/test-surface-pre-slice): gym, tests/, recipe smoke plugins, roster selection.
 - **repo** — Archived the ocean, roads and voxel research showcases (tag archive/research-showcases).

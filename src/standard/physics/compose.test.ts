@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ShapeKind } from "../physics";
+import { ShapeKind } from "./";
 import { nlerpShortest, renderScale } from "./compose";
 
 // pure render-interpolation math — no GPU, no physics World.
