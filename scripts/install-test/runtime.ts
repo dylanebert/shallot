@@ -154,8 +154,6 @@ export function inspectRuntime(shipped: string): void {
         visit(tree);
     }
     assert(imports > 300, "installed runtime: nonempty resolved import population");
-    const record = JSON.parse(readFileSync(resolve(shipped, "runtime-inputs.json"), "utf8"));
-    assert.equal(record.mode, "pack");
     const owner = resolve(root);
     const solver = resolve(root, "packages/shallot-tumble");
     const engine = "src/standard/tumble/engine/";
@@ -187,41 +185,14 @@ export function inspectRuntime(shipped: string): void {
         "rust/audio/pkg/shallot_audio.wasm",
     ].sort();
     assert(outputs.includes("src/types/env.d.ts"));
-    assert.deepEqual(
-        Object.keys(record.outputs).sort(),
-        outputs,
-        "installed runtime: independently enumerated raw projection",
-    );
-    assert.deepEqual(
-        Object.keys(record.inputs).sort(),
-        [
-            ...outputs.map((file) =>
-                file.startsWith(engine) ? `../shallot-tumble/${file}` : file,
-            ),
-            "../shallot-tumble/package.json",
-            "package.json",
-            "scripts/project.ts",
-            "scripts/build.ts",
-            "../shallot/package.json",
-            "../shallot/scripts/projections.ts",
-        ].sort(),
-    );
     for (const file of outputs)
         assert.equal(
             hash(resolve(shipped, file)),
             hash(canonical(file)),
             `installed runtime: canonical bytes ${file}`,
         );
-    for (const [file, expected] of Object.entries(record.inputs))
-        assert.equal(hash(resolve(owner, file)), expected, `installed runtime: input hash ${file}`);
-    for (const [file, expected] of Object.entries(record.outputs))
-        assert.equal(
-            hash(resolve(shipped, file)),
-            expected,
-            `installed runtime: output hash ${file}`,
-        );
     console.log(
-        `runtime: ${files.length} physical files, ${imports} literal imports, ${outputs.length} canonical projections`,
+        `runtime: ${files.length} physical files, ${imports} literal imports, ${outputs.length} canonical files`,
     );
 }
 

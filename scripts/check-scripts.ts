@@ -9,10 +9,10 @@ import { Glob } from "bun";
 //   1. every declared script (root + every workspace package.json) resolves to an existing
 //      file/directory, or delegates (`bun run --cwd <dir> <name>` / `bun run <name>`) to a
 //      script actually declared at that target;
-//   2. every root script name is cited as `bun <name>` / `bun run <name>` in AGENTS.md or
-//      .claude/rules/*.md — an undocumented script is the next accretion. Root-scoped only:
-//      workspace scripts (gym's vite trio, the showcase test/gate pairs, packages/shallot's
-//      eleven) don't ride the entry doc's Commands block, so they take direction 1 alone;
+//   2. every root script name is cited as `bun <name>` / `bun run <name>` in AGENTS.md,
+//      MAINTAINERS.md or .claude/rules/*.md — an undocumented script is the next accretion.
+//      Root-scoped only: workspace scripts (gym's vite trio, the showcase test/gate pairs, the tumble
+//      fixtures) don't ride the entry doc's Commands block, so they take direction 1 alone;
 //   3. every root `scripts/*` entry file is reachable — a script target itself, or cited by
 //      path (an import specifier, a `resolve()` string, a doc reference) anywhere outside
 //      itself. A file nothing reaches is an orphan and deletes outright.
@@ -31,7 +31,7 @@ export type Violation = { file: string; script: string; detail: string };
 // `evals/` (not in a subdir like `harness/` or `tasks/`) that isn't a `.test.ts` file is a
 // path-invoked entry point. Asking git makes the scope identical in every checkout (same law as
 // check-docs' doc scan). Mutation proof: adding a tracked `evals/<new>.ts` reds this arm (not
-// cited in AGENTS.md or .claude/rules/*.md), witnessed 2026-08-25, exit 1; removing it greens.
+// cited in AGENTS.md, MAINTAINERS.md or .claude/rules/*.md), witnessed 2026-08-25, exit 1; removing it greens.
 //
 //
 // Empty-population guard: a tree with no `evals/` dir (a fixture root) yields no entry points,
@@ -144,7 +144,7 @@ export async function checkExists(pkgPaths: string[]): Promise<Violation[]> {
     return violations;
 }
 
-// Direction 2 — every root script name is cited in AGENTS.md or .claude/rules/*.md, plus any
+// Direction 2 — every root script name is cited in AGENTS.md, MAINTAINERS.md or .claude/rules/*.md, plus any
 // path-invoked entry point named in `pathEntryPoints` (defaults to none — callers that want the
 // `evals/*.ts` coverage pass the derived set explicitly, `run()` below does).
 export async function checkDocs(
@@ -152,7 +152,7 @@ export async function checkDocs(
     rootScripts: Record<string, string>,
     pathEntryPoints: string[] = [],
 ): Promise<Violation[]> {
-    const docPaths = [resolve(rootDir, "AGENTS.md")];
+    const docPaths = [resolve(rootDir, "AGENTS.md"), resolve(rootDir, "MAINTAINERS.md")];
     const rulesDir = resolve(rootDir, ".claude/rules");
     if (existsSync(rulesDir)) {
         const glob = new Glob("*.md");
@@ -179,7 +179,7 @@ export async function checkDocs(
             violations.push({
                 file: "package.json",
                 script: name,
-                detail: `not cited as \`bun ${name}\` / \`bun run ${name}\` in AGENTS.md or .claude/rules/*.md`,
+                detail: `not cited as \`bun ${name}\` / \`bun run ${name}\` in AGENTS.md, MAINTAINERS.md or .claude/rules/*.md`,
             });
         }
     }
@@ -191,7 +191,7 @@ export async function checkDocs(
             violations.push({
                 file: entry,
                 script: entry,
-                detail: `not cited as \`bun ${entry}\` / \`bun run ${entry}\` in AGENTS.md or .claude/rules/*.md`,
+                detail: `not cited as \`bun ${entry}\` / \`bun run ${entry}\` in AGENTS.md, MAINTAINERS.md or .claude/rules/*.md`,
             });
         }
     }
@@ -207,10 +207,9 @@ export async function loadCorpus(rootDir: string): Promise<Map<string, string>> 
     const files = new Map<string, string>();
     const docTargets = [
         "AGENTS.md",
+        "MAINTAINERS.md",
         "README.md",
         "examples/AGENTS.md",
-        "AGENTS.md",
-        "README.md",
         "evals/README.md",
     ];
     for (const rel of docTargets) {
@@ -341,7 +340,7 @@ if (import.meta.main) {
         }
         if (docViolations.length > 0) {
             console.error(
-                `\n✗ ${docViolations.length} root script(s) not cited in AGENTS.md or .claude/rules/*.md:\n`,
+                `\n✗ ${docViolations.length} root script(s) not cited in AGENTS.md, MAINTAINERS.md or .claude/rules/*.md:\n`,
             );
             for (const v of docViolations) console.error(`  "${v.script}": ${v.detail}`);
         }

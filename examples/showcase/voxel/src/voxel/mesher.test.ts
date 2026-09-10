@@ -1,12 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import type { State } from "@dylanebert/shallot";
-import {
-    body,
-    flat,
-    integerDiscipline,
-    noDivision,
-} from "../../../../../tests/wgsl";
+import { body, flat, integerDiscipline, noDivision } from "../../../../../tests/wgsl";
 import { TOTAL_CELLS } from "./grid";
 import {
     cleanupWarmOwner,

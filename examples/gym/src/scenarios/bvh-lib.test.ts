@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-    body,
-    flat,
-    integerDiscipline,
-    noIntegerDivision,
-} from "../../../../tests/wgsl";
+import { body, flat, integerDiscipline, noIntegerDivision } from "../../../../tests/wgsl";
 import { createPipelineCache, packRays, traceEntryWgsl } from "./bvh-lib";
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {

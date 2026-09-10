@@ -1,13 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import {
-    compose,
-    DARK,
-    fromBlocks,
-    MARK,
-    toSvg,
-} from "../src/standard/loading/mark";
 import { toPng } from "../site/brand/png";
+import { compose, DARK, fromBlocks, MARK, toSvg } from "../src/standard/loading/mark";
 
 // Every default icon a shallot project ships is a render of the one bitmap mark, so the shape
 // can't drift between the boot splash, the brand page and a scaffolded project's favicon.

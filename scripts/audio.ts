@@ -28,4 +28,3 @@ await Bun.write(
     resolve(audioPkg, "shallot_audio.d.ts"),
     `export default function loadAudioWasm(): Promise<ArrayBuffer>;\n`,
 );
-

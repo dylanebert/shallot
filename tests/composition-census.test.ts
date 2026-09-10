@@ -16,8 +16,8 @@ type Gate = readonly [RegExp, string];
 const COMPOSITION_SURFACES: readonly RegExp[] = [
     /^examples\/(?:flows|recipes|showcase|gym)\//,
     /^evals\/tasks\//,
-    /^packages\/shallot\/src\/project\/command\.ts$/,
-    /^packages\/shallot\/scripts\/dump-cells-ascii\.ts$/,
+    /^src\/project\/command\.ts$/,
+    /^scripts\/dump-cells-ascii\.ts$/,
 ];
 
 /** Existing project gates which execute compositions that cannot be imported in bun. */
@@ -27,14 +27,8 @@ const PROJECT_GATES: readonly Gate[] = [
     [/^examples\/showcase\//, "bun run test:changed --all"],
     [/^examples\/gym\//, "bun bench"],
     [/^evals\/tasks\/[^/]+\/gate\.ts$/, "bun run test"],
-    [
-        /^packages\/shallot\/src\/project\/command\.ts$/,
-        "bun test ./src/project",
-    ],
-    [
-        /^packages\/shallot\/scripts\/dump-cells-ascii\.ts$/,
-        "bun run dump-cells-ascii",
-    ],
+    [/^src\/project\/command\.ts$/, "bun test ./src/project"],
+    [/^scripts\/dump-cells-ascii\.ts$/, "bun run dump-cells-ascii"],
 ];
 
 async function tracked(): Promise<string[]> {

@@ -14,10 +14,7 @@ import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const SCRIPT = resolve(import.meta.dir, "check-imports.ts");
-const SEED = resolve(
-    import.meta.dir,
-    "../src/engine/_s3_arm_violation.ts",
-);
+const SEED = resolve(import.meta.dir, "../src/engine/_s3_arm_violation.ts");
 
 test("check-imports — violations exit nonzero (exit 1)", async () => {
     // Seed a cross-module import violation: a file in engine/ that imports from standard/render/

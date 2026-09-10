@@ -212,7 +212,7 @@ export async function extrasDirs(root: string): Promise<string[]> {
     for await (const path of new Bun.Glob("src/extras/*/**").scan({
         cwd: root,
     })) {
-        const dir = path.split("/")[4];
+        const dir = path.split("/")[2];
         if (dir) dirs.add(dir);
     }
     return [...dirs].sort();

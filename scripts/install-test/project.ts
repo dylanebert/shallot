@@ -347,16 +347,6 @@ export function projectFlow(tarball: string, evidence: string) {
     }
     assert.deepEqual(installed, archive, "archive/install exact file hashes");
     inspectRuntime(shipped);
-    const runtime = JSON.parse(readFileSync(join(shipped, "runtime-inputs.json"), "utf8"));
-    const cli = JSON.parse(readFileSync(join(shipped, "dist/cli-inputs.json"), "utf8"));
-    for (const [file, expected] of Object.entries(cli.inputs))
-        assert.equal(
-            hash(readFileSync(resolve(root, file))),
-            expected,
-            `canonical CLI input ${file}`,
-        );
-    for (const [file, expected] of Object.entries(cli.outputs))
-        assert.equal(installed[file], expected, `installed CLI output ${file}`);
     const command = join(shipped, "src/project/command.ts");
     projectArms(command, join(shipped, "bin/features.ts"), parent, evidence, true);
     browserArm(command, Bun.resolveSync("@dylanebert/shallot/vite", parent), parent, evidence);
@@ -395,8 +385,6 @@ export function projectFlow(tarball: string, evidence: string) {
         pax,
         archive,
         installed,
-        runtime,
-        cli,
         arms: 13,
     });
     console.log(

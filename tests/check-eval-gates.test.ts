@@ -28,7 +28,7 @@
 // this tree is the native port, whose npm package ships only `lib/tsc.js` —
 // no compiler API, `ts.ScriptTarget` is `undefined` under bun.
 // `@babel/parser` is a devDependency of the private workspace root, beside
-// the existing `@babel/core`; the published package is `packages/shallot`,
+// the existing `@babel/core`; the published package is the repo root,
 // which ships no `tests/` entry.
 //
 // ── Pins (green pre-fix, red on fix) ──

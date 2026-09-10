@@ -4,11 +4,14 @@ import { Glob } from "bun";
 import { EXAMPLE_GATES, type ExampleGate } from "./example-gates";
 
 const text = (path: string): string => readFileSync(path, "utf8");
+// A workspace's `node_modules` links back to the root, which a recursive read loops on.
 const files = (dir: string, suffix: string): string[] => {
     if (!existsSync(dir)) return [];
-    return readdirSync(dir, { recursive: true, withFileTypes: true })
-        .filter((entry) => entry.isFile() && entry.name.endsWith(suffix))
-        .map((entry) => resolve(entry.parentPath, entry.name));
+    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const path = resolve(dir, entry.name);
+        if (entry.isDirectory()) return entry.name === "node_modules" ? [] : files(path, suffix);
+        return entry.isFile() && entry.name.endsWith(suffix) ? [path] : [];
+    });
 };
 const childDirs = (dir: string): string[] =>
     existsSync(dir)
@@ -29,12 +32,7 @@ export function globHasSubject(root: string, cover: string): boolean {
     const base = resolve(root, literal.join("/") || ".");
     if (!existsSync(base)) return false;
     const glob = new Glob(cover);
-    for (const entry of readdirSync(base, { recursive: true, withFileTypes: true })) {
-        if (!entry.isFile()) continue;
-        const rel = relative(root, resolve(entry.parentPath, entry.name)).split(sep).join("/");
-        if (glob.match(rel)) return true;
-    }
-    return false;
+    return files(base, "").some((path) => glob.match(relative(root, path).split(sep).join("/")));
 }
 
 /** Returns every corpus-shape violation. Keeping this pure result seam makes each clause fixture-testable. */

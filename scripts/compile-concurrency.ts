@@ -1,5 +1,5 @@
-import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../src/engine/runtime/gpu";
 import { compileConcurrencyRatio } from "../site/rum-compile-vitals";
+import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../src/engine/runtime/gpu";
 import { queryFlags, skipReason, verify } from "./verify";
 
 // The permanent capture of the boot pipeline-compile chain's own concurrency: nothing else in the

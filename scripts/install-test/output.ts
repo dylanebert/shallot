@@ -65,7 +65,7 @@ export function inspectOutput(dist: string) {
     const modules = graph.flatMap((chunk) => chunk.modules);
     assert(modules.length > 10, "built output: empty retained module population");
     const forbidden =
-        /(?:\/node_modules\/(?:vite|unplugin-typegpu|playwright|@playwright)\/|\/shallot-cli\/|\/@dylanebert\/shallot\/(?:bin\/|src\/project\/|dist\/(?:vite|native|harness-browser)\.js))/;
+        /(?:\/node_modules\/(?:vite|unplugin-typegpu|playwright|@playwright)\/|\/@dylanebert\/shallot\/(?:bin\/|src\/project\/|dist\/(?:vite|native|harness-browser)\.js))/;
     for (const module of modules)
         assert(!forbidden.test(module.id), `built output: tooling module ${module.id}`);
     for (const chunk of graph)

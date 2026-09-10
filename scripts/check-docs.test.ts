@@ -106,19 +106,17 @@ beforeAll(async () => {
         };
         await run("baseline", {});
         await run("prototype is not a declared script", {
-            "AGENTS.md": (text) => text.replace("bun run build", "bun toString"),
+            "MAINTAINERS.md": (text) => text.replace("bun run build", "bun toString"),
         });
         expect(readings.get("prototype is not a declared script")?.exitCode).toBe(1);
         expect(readings.get("prototype is not a declared script")?.output).toContain(
             "unreachable repository command: bun toString",
         );
         await run("unreachable documented path", {
-            "AGENTS.md": (text) =>
-                text.replace("bin/cli.ts", "bin/gone.ts"),
+            "MAINTAINERS.md": (text) => text.replace("bin/cli.ts", "bin/gone.ts"),
         });
         await run("registry lookup is not tree resolution", {
-            "AGENTS.md": (text) =>
-                text.replace("bun bin/cli.ts", "bunx shallot"),
+            "MAINTAINERS.md": (text) => text.replace("bun bin/cli.ts", "bunx shallot"),
         });
         for (const kind of ["bin", "files"]) {
             await run(`unregistered ${kind} target`, {

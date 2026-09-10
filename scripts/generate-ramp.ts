@@ -29,10 +29,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import {
-    CELL_DIRECTIONAL_GLYPHS,
-    CELL_FILL_EXCLUDED_GLYPHS,
-} from "../src/extras/cells/ramp";
+import { CELL_DIRECTIONAL_GLYPHS, CELL_FILL_EXCLUDED_GLYPHS } from "../src/extras/cells/ramp";
 import { type Font, parseFont } from "../src/extras/text/font";
 
 const FONT_URL = new URL("../assets/jetbrains-mono.ttf", import.meta.url);

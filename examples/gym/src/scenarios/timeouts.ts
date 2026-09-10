@@ -75,10 +75,7 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     // surface's real rendered output (the ray overlay) — a verified real GPU exerciser of `extras/lines`,
     // not an incidental import.
     accel: {
-        covers: [
-            "src/standard/bvh/**/*.ts",
-            "src/extras/lines/**/*.ts",
-        ],
+        covers: ["src/standard/bvh/**/*.ts", "src/extras/lines/**/*.ts"],
     },
     // `render` is one registered scenario carrying many `mode`-selected rows (barrel header,
     // examples/gym/src/scenarios/index.ts) — skin-live and background/sky are rows of it, not their own

@@ -46,9 +46,7 @@ mock.module("bun:ffi", () => ({
     }),
 }));
 const { loadNative } = await import("../bin/bun-native");
-const { BASE_FEATURES, deviceLimits } = await import(
-    "../src/engine/runtime/gpu"
-);
+const { BASE_FEATURES, deviceLimits } = await import("../src/engine/runtime/gpu");
 const native = await loadNative();
 const gpu = native.createGPUInstance() as any;
 const turn = async () => {

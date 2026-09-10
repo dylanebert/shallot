@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-    HULL_FACE_STRIDE,
-    HULL_HEADER,
-    packHulls,
-} from "../../src/standard/avbd/hull";
+import { HULL_FACE_STRIDE, HULL_HEADER, packHulls } from "../../src/standard/avbd/hull";
 import { type Hull, Hulls, UNIT_CUBE_ID } from "../../src/standard/physics/hull";
 import { boxHull, tetHull } from "./hull";
 

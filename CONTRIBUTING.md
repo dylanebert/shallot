@@ -22,6 +22,6 @@ The gate before pushing is `bun check` and `bun run test`. The slow suites are s
 
 The GPU suites are display-gated: without a display they skip, and a skip is not a pass.
 
-Engine-internal layout, the command table, and the rules index are in [AGENTS.md](AGENTS.md); the conventions themselves (ECS shape, GPU patterns, testing tiers) are path-scoped under [`.claude/rules/`](.claude/rules/), so read the ones matching files you touch. The consumer-facing contract, how a game uses the engine, is [AGENTS.md](AGENTS.md).
+Engine-internal layout, the command table, and the rules index are in [MAINTAINERS.md](MAINTAINERS.md); the conventions themselves (ECS shape, GPU patterns, testing tiers) are path-scoped under [`.claude/rules/`](.claude/rules/), so read the ones matching files you touch. The consumer-facing contract, how a game uses the engine, is [AGENTS.md](AGENTS.md).
 
 Build-from-source instructions are in the [README](README.md#from-source).

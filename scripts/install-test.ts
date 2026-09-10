@@ -65,15 +65,6 @@ function pkgJson(fields: Record<string, unknown>, indent = 2): string {
     return JSON.stringify(pkg, null, indent);
 }
 
-/** Packing runs the engine's postpack cleanup, so restore the public projection before root wrappers invoke it. */
-function restorePublicProjection(): void {
-    const runtime = run(["bun", "scripts/project.ts"], REPO_ROOT);
-    if (!runtime.ok) throw new Error(`runtime projection failed:\n${runtime.out}`);
-    const cli = run(["bun", "scripts/tooling.ts"], REPO_ROOT);
-    if (!cli.ok) throw new Error(`public CLI projection failed:\n${cli.out}`);
-    assert(existsSync(join(REPO_ROOT, "bin/cli.ts")));
-}
-
 /** vite colors its banner and its errors; match against the plain text so a TTY can't change a verdict. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ESC is the SGR introducer — matching it is the point.
 const strip = (s: string) => s.replaceAll(/\x1b\[[0-9;]*m/g, "");
@@ -581,47 +572,6 @@ async function recipeFlow(work: string, engineTgz: string, sandbox: string, name
         existsSync(join(dest, "tsconfig.json")),
     );
 
-    // the vendored-plugin projection: `gpu-particles`'s producer is owned by a private workspace the
-    // registry does not carry, so the copy-out is self-contained only if prepack inlined that source,
-    // rewrote the manifest entry and dropped the dependency. A copy still naming the package would
-    // install broken, which is exactly what a second maintained source copy used to prevent.
-    if (name === "gpu-particles") {
-        const manifest = readFileSync(join(dest, "shallot.json"), "utf8");
-        check(
-            "the copied recipe's producer is a local module, not an unpublished package",
-            /\.\/src\/particles\/index/.test(manifest) &&
-                !/shallot-gpu-particles/.test(manifest) &&
-                pkg.dependencies?.["shallot-gpu-particles"] === undefined,
-            manifest.replace(/\s+/g, " "),
-        );
-        check(
-            "the copied recipe carries the projected producer source",
-            existsSync(join(dest, "src/particles/index.ts")) &&
-                existsSync(join(dest, "src/particles/particles.ts")) &&
-                existsSync(join(dest, "src/particles/kernel.ts")),
-        );
-        // no *resolvable* reference may survive: an import specifier or a dependency range naming the
-        // unpublished package would break `bun install`/`vite`. A provenance comment naming its owner
-        // is not a reference and stays — the copy should say where its implementation is maintained.
-        const named = [...new Bun.Glob("**/*.{ts,json}").scanSync({ cwd: dest })].filter((file) => {
-            if (file.startsWith("node_modules/")) return false;
-            const text = readFileSync(join(dest, file), "utf8");
-            return file.endsWith(".json")
-                ? /"shallot-gpu-particles"\s*:/.test(text) ||
-                      /:\s*"shallot-gpu-particles"/.test(text)
-                : /(?:from|import|require)\s*\(?\s*["']shallot-gpu-particles["']/.test(text);
-        });
-        check(
-            "no import or dependency in the copied recipe names the unpublished package",
-            named.length === 0,
-            named.join(", "),
-        );
-        check(
-            "the smoke plugin did not ship with the copy-out",
-            !existsSync(join(dest, "src/smoke.ts")) && !/smoke/.test(manifest),
-        );
-    }
-
     const built = run(["bun", CLI, "build", "."], dest);
     check("the copied recipe builds", built.ok, built.ok ? "" : built.out.slice(-600));
     check(
@@ -629,8 +579,8 @@ async function recipeFlow(work: string, engineTgz: string, sandbox: string, name
         existsSync(join(dest, "dist", "index.html")),
     );
 
-    // the copy-out of the maintained plugin recipe earns a real boot: the projection is what a user
-    // actually runs, and a broken inline would build fine and render nothing. A hardware refusal is a
+    // the copy-out of the local-plugin recipe earns a real boot: a broken plugin would build fine and
+    // render nothing. A hardware refusal is a
     // failed check, never a green skip.
     if (name === "gpu-particles") {
         const result = await verify(dest, ["--timeout", "60000"], true);
@@ -1438,7 +1388,6 @@ if (import.meta.main) {
         console.log("packing engine + widget…");
         const engineTgz = projectTumble(work, pack(ENGINE_DIR, join(work, "engine-pack")));
         const widgetTgz = pack(WIDGET_DIR, join(work, "widget-pack"));
-        restorePublicProjection();
 
         // display-independent, so it runs first: no GPU and no browser refusal anywhere above it
         projectFlow(engineTgz, join(work, "project-seam"));
@@ -1536,7 +1485,7 @@ if (import.meta.main) {
             "the schema shipped in the tarball",
             existsSync(join(sandbox, "node_modules/@dylanebert/shallot/shallot.schema.json")),
         );
-        // the version-matched agent context: the prepack projection must ship (engine AGENTS.md + the
+        // the version-matched agent context must ship (engine AGENTS.md + the
         // examples index + the recipes corpus), and the shipped index must not dangle at tiers the tarball
         // omits (gym/showcase live in the repo only).
         const shipped = join(sandbox, "node_modules/@dylanebert/shallot");
@@ -1549,7 +1498,7 @@ if (import.meta.main) {
             existsSync(join(shipped, "MIGRATION.md")),
         );
         check(
-            "the recipes corpus shipped in the tarball (prepack projection)",
+            "the recipes corpus shipped in the tarball",
             existsSync(join(shipped, "examples/AGENTS.md")) &&
                 existsSync(join(shipped, "examples/recipes/build-a-scene/src/build.ts")) &&
                 existsSync(join(shipped, "examples/recipes/save-and-restore/shallot.json")),

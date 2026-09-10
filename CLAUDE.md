@@ -1,3 +1,4 @@
 @AGENTS.md
+@MAINTAINERS.md
 
-If the import line above is showing as literal text, this file was loaded from a parent directory; read the AGENTS.md next to this file before working here.
+If these imports show as literal text, read the AGENTS.md and MAINTAINERS.md beside this file.

@@ -2,40 +2,6 @@
  *  reads this table both ways: an undeclared escape refuses, and a declaration naming a specifier no
  *  live file imports refuses too, so the ledger cannot outlive what it excuses. */
 
-/** One declared reach from the package's own tooling (`bin/**`) into engine source that the export map
- *  does not publish. Keyed `<repo-relative file> <specifier>` — per call site, not per module, so moving
- *  one reader does not silently license the others. */
-export const TOOLING_SEAMS: Record<string, string> = {
-    'bin/bench.test.ts "../../../scripts/bench"':
-        "the CLI parser's production repository runner",
-    'bin/recipe.test.ts "../../create-shallot/index"':
-        "compare recipe scaffolding against the sole scaffold source",
-    'bin/create-shallot.test.ts "../../create-shallot/index"':
-        "exercise the sole scaffold source",
-    'bin/verify.test.ts "../../../examples/gym/src/scenarios/timeouts"':
-        "assert the actual gym scenario budget bindings",
-    'bin/verify.test.ts "../../../scripts/bench"':
-        "exercise production batch/bench composition",
-    'bin/verify.test.ts "../../../scripts/boot-cost"':
-        "exercise the diagnostic consumer's parser",
-    'bin/verify.test.ts "../../../scripts/install-test"':
-        "exercise the packed-consumer diagnostic binding",
-    'bin/verify.test.ts "../../../scripts/verify"':
-        "the repository transport's result types",
-    'bin/verify.test.ts "../../../site/rum-sampler"':
-        "differential against the independently executed page sampler",
-    // verify's node-side diagnostics. These are tool-facing readings with no author-facing contract, so
-    // they stay unpublished rather than growing the surface.
-    'bin/verify.ts "../src/engine/runtime/gpu"':
-        "adapter identity for the run's hardware line",
-    'bin/verify.ts "../src/engine/runtime/log"':
-        "the log predicate the console reader shares",
-    'bin/verify.ts "../src/extras/profile/benchmark"':
-        "the benchmark measurement shape the --json envelope carries",
-    'bin/verify.ts "../src/harness/degraded-boot"':
-        "the degraded-boot predicate, published only through ./harness's barrel",
-};
-
 /** Files allowed to build a module specifier at runtime rather than name it literally, each with the
  *  bound that keeps it readable. Every other computed `import()`/`require()` refuses: a specifier this
  *  reader cannot resolve is a hole in the source cone, not a detail. */

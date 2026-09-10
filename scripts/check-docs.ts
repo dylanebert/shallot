@@ -14,10 +14,10 @@ import { OCEAN_CPU_GATES } from "./ocean-oracle-gates";
 
 const root = resolve(import.meta.dir, "..");
 const commandErrors = await checkRealization(root);
-const entry = (await Bun.file(resolve(root, "AGENTS.md")).text())
+const entry = (await Bun.file(resolve(root, "MAINTAINERS.md")).text())
     .split("## Commands\n")[1]
     ?.split("### Verification")[0];
-if (!entry) commandErrors.push("AGENTS.md: missing Commands block");
+if (!entry) commandErrors.push("MAINTAINERS.md: missing Commands block");
 const scripts = (await Bun.file(resolve(root, "package.json")).json()).scripts;
 let inCommandFence = false;
 let commandCount = 0;
@@ -47,10 +47,11 @@ for (const line of (entry ?? "").split("\n")) {
                 Object.hasOwn(scripts, token) ||
                 (token.includes("/") && existsSync(resolve(root, token)));
         }
-        if (!reachable) commandErrors.push(`AGENTS.md: unreachable repository command: ${command}`);
+        if (!reachable)
+            commandErrors.push(`MAINTAINERS.md: unreachable repository command: ${command}`);
     }
 }
-if (!commandCount) commandErrors.push("AGENTS.md: empty command population");
+if (!commandCount) commandErrors.push("MAINTAINERS.md: empty command population");
 commandErrors.push(
     ...(await checkExists([resolve(root, "package.json")])).map((error) => error.detail),
 );
@@ -393,14 +394,15 @@ if (drift.length > 0) {
 }
 
 // The entry-doc chain a reader (or an agent's context loader) actually walks is root-to-leaf, not
-// a single file: `AGENTS.md` plus whichever leaf directory's own `AGENTS.md` it's working under.
+// a single file: `AGENTS.md` and `MAINTAINERS.md` (which `CLAUDE.md` imports) plus whichever leaf
+// directory's own `AGENTS.md` it's working under.
 // `style.md`'s budget was a remembered manual `wc -c` — enforced here per chain, since a bump that
 // keeps every individual file under budget can still blow the chain a reader loads (measured
-// 2026-08-16: the packages/shallot chain sat 3 B under 32768).
+// 2026-08-16: the published-package chain sat 3 B under 32768).
 const ENTRY_DOC_BUDGET = 32768;
 const ENTRY_DOC_CHAINS: string[][] = [
-    ["AGENTS.md", "AGENTS.md"],
-    ["AGENTS.md", "examples/AGENTS.md"],
+    ["AGENTS.md", "MAINTAINERS.md"],
+    ["AGENTS.md", "MAINTAINERS.md", "examples/AGENTS.md"],
 ];
 
 const chainOverages: { chain: string[]; bytes: number }[] = [];
@@ -1191,8 +1193,9 @@ const INSTRUCTION_FIXTURE_PREFIX = COMPAT_FIXTURE_PREFIX;
 const instructionFiles = [...new Set(instructionListing.stdout.toString().split("\0"))]
     .filter(
         (file) =>
-            /(?:^|\/)(?:AGENTS|CLAUDE)\.md$|(?:^|\/)\.claude\/rules\/[^/]+\.md$/.test(file) &&
-            !file.startsWith(INSTRUCTION_FIXTURE_PREFIX),
+            /(?:^|\/)(?:AGENTS|CLAUDE)\.md$|^MAINTAINERS\.md$|(?:^|\/)\.claude\/rules\/[^/]+\.md$/.test(
+                file,
+            ) && !file.startsWith(INSTRUCTION_FIXTURE_PREFIX),
     )
     .sort();
 const symlinkFiles = new Set(

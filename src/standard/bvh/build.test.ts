@@ -1,11 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-    body,
-    flat,
-    IDIV_LEAF,
-    integerDiscipline,
-    noDivision,
-} from "../../../tests/wgsl";
+import { body, flat, IDIV_LEAF, integerDiscipline, noDivision } from "../../../tests/wgsl";
 import { buildWgsl, sweepCount } from "./build";
 
 // The build's real gate is the `accel` gym scenario on the device: per fixture it reads the nodes back

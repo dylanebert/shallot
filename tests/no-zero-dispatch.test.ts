@@ -21,17 +21,7 @@ const REPO_ROOT = resolve(import.meta.dir, "..");
 // Mirrors `check-exports.ts`'s `consumerDirs`: every tree a shipped or example forcer can live in.
 // `tests` is included too — a fixture accidentally left in real source under here
 // would still be caught.
-const SCAN_DIRS = [
-    "src",
-    "src",
-    "src",
-    "bin",
-    "scripts",
-    "tests",
-    "scripts",
-    "examples",
-    "evals",
-];
+const SCAN_DIRS = ["src", "bin", "scripts", "tests", "examples", "evals"];
 
 // Built by concatenation, never as a literal, so this file itself is never a false positive when the
 // scan root is the real repo (this file lives under `tests`, one of `SCAN_DIRS`).
@@ -123,7 +113,7 @@ describe("no zero-workgroup dispatch or zero-count draw survives in the shipped 
     });
 
     // Non-vacuous witness (b): same proof for the render-side sibling — a zero-count draw call — in a
-    // directory outside `packages/shallot` (`examples/`) — the scan is tree-wide, not `gpu.ts`-only.
+    // directory outside `src/` (`examples/`) — the scan is tree-wide, not `gpu.ts`-only.
     test("a fixture zero-count draw is caught, anywhere under the scanned tree", async () => {
         const root = mkdtempSync(join(tmpdir(), "no-zero-draw-"));
         try {
@@ -156,9 +146,7 @@ describe("no zero-workgroup dispatch or zero-count draw survives in the shipped 
             );
             const violations = await findZeroDispatches(root);
             expect(violations).toHaveLength(1);
-            expect(violations[0].file).toBe(
-                "src/standard/float-zero/float-zero.ts",
-            );
+            expect(violations[0].file).toBe("src/standard/float-zero/float-zero.ts");
             expect(violations[0].match).toBe(ZERO_DISPATCH_FLOAT);
         } finally {
             rmSync(root, { recursive: true, force: true });
@@ -178,9 +166,7 @@ describe("no zero-workgroup dispatch or zero-count draw survives in the shipped 
             );
             const violations = await findZeroDispatches(root);
             expect(violations).toHaveLength(1);
-            expect(violations[0].file).toBe(
-                "src/standard/multiarg-zero/multiarg-zero.ts",
-            );
+            expect(violations[0].file).toBe("src/standard/multiarg-zero/multiarg-zero.ts");
             expect(violations[0].match).toBe(ZERO_DISPATCH_MULTI_MATCH);
         } finally {
             rmSync(root, { recursive: true, force: true });

@@ -14,8 +14,7 @@ export interface ExampleGate {
 
 /** A runtime module cone. A row claims a module only when its surviving assertion observes behavior from
  * that module; the row's own directory is added separately to every cone below. */
-const src = (...modules: string[]): string[] =>
-    modules.map((module) => `src/${module}/**`);
+const src = (...modules: string[]): string[] => modules.map((module) => `src/${module}/**`);
 
 /** The files crossed by a broad public `@dylanebert/shallot` import. Feature-specific recipe smokes use
  * narrower cones instead; whole showcases and flows that assert the public app surface retain these
@@ -131,11 +130,8 @@ export const EXAMPLE_GATES: ExampleGate[] = [
     {
         dir: "examples/recipes/gpu-particles",
         tier: "recipes",
-        // The producer implementation is owned by the private `shallot-gpu-particles` workspace, so a
-        // change there selects this recipe — its only in-repo consumer.
         covers: [
             "examples/recipes/gpu-particles/**",
-            "packages/shallot-gpu-particles/**",
             ...src("engine/runtime", "standard/render", "standard/sear"),
         ],
         gate: "bun run recipes --recipe gpu-particles",

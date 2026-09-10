@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-    body,
-    flat,
-    integerDiscipline,
-    noIntegerDivision,
-} from "../../../../../tests/wgsl";
+import { body, flat, integerDiscipline, noIntegerDivision } from "../../../../../tests/wgsl";
 import { heightKernelWgsl } from "./generate";
 import { HALF, SPACING, VERTS } from "./grid";
 

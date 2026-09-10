@@ -11,17 +11,12 @@ test("declared realization grants physical and registered targets, refuses missi
         writeFileSync(join(root, file), JSON.stringify(value));
     };
     try {
-        write("package.json", { workspaces: ["packages/*"] });
+        mkdirSync(join(root, "packages"));
         write("bin/cli.ts", "canonical CLI");
         const pkg = {
+            workspaces: ["packages/*"],
             bin: { shallot: "./bin/cli.ts" },
-            files: [
-                "dist",
-                "examples",
-                "rust/audio/pkg",
-                "!absent-exclusion",
-                "physical",
-            ],
+            files: ["dist", "rust/audio/pkg", "!absent-exclusion", "physical"],
         };
         write("package.json", pkg);
         write("physical", "maintained");

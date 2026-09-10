@@ -4,10 +4,10 @@ Newest first. **Breaking:** marks a change that needs consumer action; [`MIGRATI
 
 ## Unreleased
 
-- Removed the `shallot tui` command.
-- Collapsed shallot-runtime and shallot-cli into the package.
-
-## 0.10.0 — 2026-09-03
+- **cli (breaking)** — the `shallot tui` command is removed.
+- **packaging** — shallot-runtime and shallot-cli collapse into the one published package, which now lives at the repository root and ships its real source through the `files` allowlist instead of a pack-time projection. Import paths and the `shallot` bin are unchanged.
+- **packaging** — the tarball no longer ships the glTF test fixtures, and its `AGENTS.md` is the consumer contract alone; repo-maintainer content moved to an unshipped `MAINTAINERS.md`.
+- **recipes** — `gpu-particles` carries its particle plugin as local source enabled by path in `shallot.json`, so a copied-out recipe installs with no unpublished dependency.
 
 - **brand** — every shipped surface carries the pixel mark instead of the old bézier clove. The runtime loading overlay boots the splash animation from the bitmap over a progress bar, both its themes retoken to the dark/light palette, and its font stacks name IBM Plex Sans and JetBrains Mono without fetching a webfont, so a native window and an offline boot look the same as the site. The example, scaffold and native-window icons regenerate from the mark through `scripts/brand-assets.ts`, whose test asserts byte equality so drift reds; the HUD and example colour tokens follow the same palette; and the old icon generator under `assets/` is deleted, its downloads served by the brand page.
 - **app** — `Loading` gains one optional member, `complete?(): Promise<void> | void`, awaited by `build()` after `update(1)` and before the existing frame-then-cleanup. A screen that omits it dismisses exactly as before, so every `{ show, update }` stays valid; the default shallot screen now uses it to hold for the splash's outro after 100%, and the minimal screens dismiss at once.

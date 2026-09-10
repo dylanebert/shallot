@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, resolve, sep } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import { Glob } from "bun";
 import { ROSTER } from "../site/roster";
 import {
@@ -122,16 +122,17 @@ for (const { slug } of ROSTER) {
         badVersion.push(`${slug}: no @dylanebert/shallot dependency`);
     }
     for (const [name, pin] of nonWorkspaceShallotDependencies(demoPkg)) {
-        badVersion.push(`${slug}: ${name} is "${pin}", not "workspace:*"`);
+        if (name === "@dylanebert/shallot" && pin === `file:${relative(dir, root)}`) continue;
+        badVersion.push(`${slug}: ${name} is "${pin}", not an in-repo pin`);
     }
 }
 
 if (badVersion.length > 0) {
-    console.error(`✗ showcase package.json Shallot dependency pin(s) not in workspace form:\n`);
+    console.error(`✗ showcase package.json Shallot dependency pin(s) not in in-repo form:\n`);
     for (const s of badVersion) console.error(`  ${s}`);
     console.error(
-        "\nThe in-repo form must be `workspace:*`; the build script rewrites it to the release" +
-            ` version (${version}) at ejection time.`,
+        "\nThe in-repo engine pin is `file:` to the repo root; an extension is `workspace:*`. The build script" +
+            ` rewrites both to the release version (${version}) at ejection time.`,
     );
     process.exit(1);
 }
