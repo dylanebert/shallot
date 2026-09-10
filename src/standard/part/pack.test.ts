@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { body, flat, integerDiscipline } from "../../../tests/wgsl";
 import { capacity } from "../../engine";
+import { body, flat, integerDiscipline } from "../../testing/wgsl";
 import { Meshes, Surfaces } from "../render/core";
 import { packWgsl } from "./pack";
 import { PartTraits } from "./part";

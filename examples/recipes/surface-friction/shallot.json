@@ -3,7 +3,6 @@
     "plugins": {
         "Orbit": true,
         "Physics": true,
-        "Ramp": "./src/ramp",
-        "FrictionSmoke": "./src/smoke"
+        "Ramp": "./src/ramp"
     }
 }

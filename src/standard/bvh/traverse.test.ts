@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { body, flat, integerDiscipline, noDivision } from "../../../tests/wgsl";
+import { body, flat, integerDiscipline, noDivision } from "../../testing/wgsl";
 import { BVH_INVALID, BVH_TRAIL_LEVELS, bvhRoot, bvhRootWgsl, bvhTraverseWgsl } from "./traverse";
 
 // The traverser is not CPU-callable — every entry point reads either the consumer's `nodes` global or a

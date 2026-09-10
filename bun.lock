@@ -47,18 +47,6 @@
         "playwright",
       ],
     },
-    "examples/gym": {
-      "name": "gym",
-      "version": "0.0.0",
-      "dependencies": {
-        "typegpu": "~0.12.5",
-      },
-      "devDependencies": {
-        "@playwright/test": "^1.63.0",
-        "unplugin-typegpu": "~0.12.3",
-        "vite": "^8.3.0",
-      },
-    },
     "examples/recipes/animate-with-clips": {
       "name": "animate-with-clips",
       "version": "0.0.0",
@@ -524,8 +512,6 @@
     "glob-parent": ["glob-parent@6.0.2", "", { "dependencies": { "is-glob": "^4.0.3" } }, "sha512-XxwI8EOhVQgWp6iDL+3b0r86f4d6AX6zSU55HfB4ydCEuXLXc5FcYeOu+nnGftS4TEju/11rt4KJPTMgbfmv4A=="],
 
     "gpu-particles": ["gpu-particles@workspace:examples/recipes/gpu-particles"],
-
-    "gym": ["gym@workspace:examples/gym"],
 
     "hashery": ["hashery@1.5.1", "", { "dependencies": { "hookified": "^1.15.0" } }, "sha512-iZyKG96/JwPz1N55vj2Ie2vXbhu440zfUfJvSwEqEbeLluk7NnapfGqa7LH0mOsnDxTF85Mx8/dyR6HfqcbmbQ=="],
 

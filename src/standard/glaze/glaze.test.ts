@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as d from "typegpu/data";
-import { body, integerDiscipline } from "../../../tests/wgsl";
+import { body, integerDiscipline } from "../../testing/wgsl";
 import { linearToSrgbWgsl } from "../render/core";
 import {
     applyGrade,

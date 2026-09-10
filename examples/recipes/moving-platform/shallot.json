@@ -3,7 +3,6 @@
     "plugins": {
         "Orbit": true,
         "Physics": true,
-        "Elevator": "./src/elevator",
-        "PlatformSmoke": "./src/smoke"
+        "Elevator": "./src/elevator"
     }
 }

@@ -1,7 +1,7 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { attach, stepFor } from "../../../tests/helpers";
 import { Compute, State, Time } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
+import { attach, stepFor } from "../../testing/helpers";
 import { Character, CharacterPlugin } from "../character";
 import { grounded, move, pose } from "../character/core";
 import {

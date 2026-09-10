@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { body } from "../../../tests/wgsl";
 import { State } from "../../engine";
 import { Surfaces } from "../../standard/sear/core";
 import { engineLayout } from "../../standard/sear/engine";
 import { prepassWgsl, shadowWgsl, surfaceWgsl } from "../../standard/sear/pipelines";
+import { body } from "../../testing/wgsl";
 import { registerTexturedSurfaces } from "./assets";
 import { liveSkinSurface, registerLiveSkinSurfaces } from "./live";
 import { MAP_ALL, MAP_EMIS, MAP_MR, MAP_NORMAL, MAP_OCC } from "./shade";

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { attach } from "../../../tests/helpers";
 import { State } from "../..";
 import { clear, register } from "../../engine/ecs/core";
+import { attach } from "../../testing/helpers";
 import { Transform } from "../transforms";
 import { AudioPlugin, play, Sound, sfx } from "./";
 import {

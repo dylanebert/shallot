@@ -140,9 +140,6 @@ export function inspectOutput(dist: string) {
 export async function outputFlow(work: string, candidate: string): Promise<void> {
     const evidence = join(work, "built-output");
     mkdirSync(evidence, { recursive: true });
-    const oldDir = join(root, "scripts/install-test/compat-0.9.5/tarballs");
-    const old = files(oldDir).find((file) => /\/shallot-0\.9\.5\.tgz$/.test(file));
-    assert(old, "frozen previous engine tarball is required");
     let sequence = 0;
     const exec = (
         name: string,
@@ -175,10 +172,7 @@ export async function outputFlow(work: string, candidate: string): Promise<void>
         return output;
     };
     const compare: Record<string, unknown> = {};
-    for (const [label, tar] of [
-        ["previous", old],
-        ["candidate", candidate],
-    ] as const) {
+    for (const [label, tar] of [["candidate", candidate]] as const) {
         // one server per label, serving every `kind`: the frozen previous CLI can only reach real
         // hardware over `--connect`. The instrument above wraps `connect` as it wraps `launch`, so the
         // network receipt is the same evidence either way.

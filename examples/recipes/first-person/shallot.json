@@ -1,11 +1,10 @@
 {
-  "scene": "scenes/first-person.scene",
-  "plugins": {
-    "Physics": true,
-    "Character": true,
-    "Player": true,
-    "Text": true,
-    "Demo": "./src/demo",
-    "Smoke": "./src/smoke"
-  }
+    "scene": "scenes/first-person.scene",
+    "plugins": {
+        "Physics": true,
+        "Character": true,
+        "Player": true,
+        "Text": true,
+        "Demo": "./src/demo"
+    }
 }

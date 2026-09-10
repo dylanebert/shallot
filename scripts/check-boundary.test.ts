@@ -55,7 +55,6 @@ const make = (): string => {
     write(root, "src/index.ts", "export const engine = 1;\n");
     write(root, "src/standard/render/core.ts", "export const core = 1;\n");
     write(root, "src/project/generate.ts", "export const plan = 1;\n");
-    write(root, "tests/oracle.ts", "export const oracle = 1;\n");
     write(root, "bin/cli.ts", 'import { core } from "../src/standard/render/core";\nvoid core;\n');
     write(
         root,
@@ -162,17 +161,6 @@ describe("consumer escapes", () => {
             root,
             "examples/recipes/demo/src/main.ts",
             'import { core } from "@dylanebert/shallot/render/core";\nvoid core;\n',
-        );
-        expect(checkBoundary(root, EMPTY).violations).toEqual([]);
-    });
-
-    // the narrow development-only allowance: the f64 CPU-oracle cross-check seam.
-    test("the tests/ oracle seam stays allowed", () => {
-        const root = make();
-        write(
-            root,
-            "examples/recipes/demo/src/main.ts",
-            'import { oracle } from "../../../../tests/oracle";\nvoid oracle;\n',
         );
         expect(checkBoundary(root, EMPTY).violations).toEqual([]);
     });

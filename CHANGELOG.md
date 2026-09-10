@@ -6,6 +6,7 @@ Newest first. **Breaking:** marks a change that needs consumer action; [`MIGRATI
 
 User surface is unchanged apart from the migration notes; the changes below are maintainer layout and verification.
 
+- **repo** — Archived the pre-slice test surface (tag archive/test-surface-pre-slice): gym, tests/, recipe smoke plugins, roster selection.
 - **repo** — Archived the ocean, roads and voxel research showcases (tag archive/research-showcases).
 - **repo** — Moved create-shallot and the AVBD solver to their own repositories.
 - **repo** — Archived the sandbox showcase (tag archive/sandbox-avbd).

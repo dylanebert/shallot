@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { flat, noIntegerDivision } from "../../../tests/wgsl";
+import { flat, noIntegerDivision } from "../../testing/wgsl";
 import { fogLayout0, fogLayout1, fogWgsl } from "./pipeline";
 
 // The fog march's typed layouts + kernel, resolved device-free — the `outlineWgsl`/`glazeWgsl` shape. These

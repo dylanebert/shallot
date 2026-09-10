@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { body, flat, integerDiscipline, noDivision } from "../../../tests/wgsl";
+import { body, flat, integerDiscipline, noDivision } from "../../testing/wgsl";
 import { radixLdsWgsl } from "./sort-lds";
 
 // The subgroup-free arm's real gate is the `accel` gym scenario's `lds sort` rows on the device (sorted

@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { attach } from "../../../tests/helpers";
 import {
     AnimationPlugin,
     AudioPlugin,
@@ -30,6 +29,7 @@ import {
     vec2,
     vec4,
 } from "../..";
+import { attach } from "../../testing/helpers";
 import { clear, getComponent, register, snapshot } from "../ecs/core";
 import { formatFields, normalizeAttr, parseFields } from "./core";
 

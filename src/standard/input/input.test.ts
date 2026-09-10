@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { attach } from "../../../tests/helpers";
 import {
     InputPlugin,
     Inputs,
@@ -9,6 +8,7 @@ import {
     setInputEnabled,
 } from "../..";
 import { clear, register } from "../../engine/ecs/core";
+import { attach } from "../../testing/helpers";
 
 // biome-ignore lint/complexity/noBannedTypes: test mock tracks arbitrary DOM listeners
 type Fn = Function;

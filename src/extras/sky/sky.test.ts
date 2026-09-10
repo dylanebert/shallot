@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { body, flat, noIntegerDivision } from "../../../tests/wgsl";
 import { State } from "../..";
 import { clear, register } from "../../engine/ecs/core";
 import { srgbToLinear } from "../../engine/utils/color";
 import { Backgrounds } from "../../standard/sear/contract";
 import { backgroundWgsl } from "../../standard/sear/pipelines";
+import { body, flat, noIntegerDivision } from "../../testing/wgsl";
 import { Sky, SkyPlugin } from ".";
 import { packSky } from "./pack";
 import { SKY_AT, SKY_BYTES, SKY_FLOATS, SkyGpu, sampleSky, skyBackground } from "./shader";

@@ -1,9 +1,8 @@
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { Glob } from "bun";
 import { dirname, relative, resolve } from "path";
-import { TEST_TIER_SUFFIX_NAMES } from "../tests/test-tiers";
 import { checkExists, workspacePkgPaths } from "./check-scripts";
-import { EXAMPLE_GATES } from "./example-gates";
+import { TEST_TIER_SUFFIX_NAMES } from "./test-tiers";
 
 /** Engine `files` entries written at build or pack time: tooling bundles and audio wasm. */
 const PRODUCED = ["dist", "rust/audio/pkg"];
@@ -347,15 +346,7 @@ if (!manifestTracked.success) {
     );
     process.exit(1);
 }
-// The frozen previous-release baseline pins the versions that release shipped with. Comparing it
-// against today's manifests would refuse the fixture for being what it is — a snapshot of the past —
-// so it is outside this arm, the same way it is outside the instruction corpus.
-const COMPAT_FIXTURE_PREFIX = "scripts/install-test/compat-0.9.5/";
-const manifestFiles = manifestTracked.stdout
-    .toString()
-    .split("\0")
-    .filter(Boolean)
-    .filter((file) => !file.startsWith(COMPAT_FIXTURE_PREFIX));
+const manifestFiles = manifestTracked.stdout.toString().split("\0").filter(Boolean);
 if (manifestFiles.length === 0) {
     console.error(
         "✗ `git ls-files 'package.json' '**/package.json'` matched nothing — the manifest-pin arm would be vacuously green.",
@@ -679,11 +670,11 @@ const rosterFindings: string[] = [];
 // without updating a hand-list.
 //
 // Two exclusions, stated explicitly:
-// 1. `tests/test-tiers.ts` — the roster's own definition module; it MUST contain the
+// 1. `scripts/test-tiers.ts` — the roster's own definition module; it MUST contain the
 //    suffix names (it is where the constant lives).
 // 2. `scripts/check-docs.ts` — this arm's own text; a self-referential gate matches its own
 //    description of what it checks (per `.claude/rules/specs.md`'s self-reference principle).
-const ROSTER_EXCLUSIONS = new Set(["tests/test-tiers.ts", "scripts/check-docs.ts"]);
+const ROSTER_EXCLUSIONS = new Set(["scripts/test-tiers.ts", "scripts/check-docs.ts"]);
 const allTrackedFiles = Bun.spawnSync(["git", "ls-files", "-z"], { cwd: root });
 if (!allTrackedFiles.success) {
     console.error(
@@ -1151,7 +1142,7 @@ if (citationCandidates.length === 0) {
 // Disjunct 2: the citation population floor. A predicate narrowing shrinks the population
 // below the floor and reds; legitimate prose growth passes and re-pins the floor
 // opportunistically upward.
-const PINNED_CITATION_COUNT = 119;
+const PINNED_CITATION_COUNT = 116;
 if (citationCandidates.length < PINNED_CITATION_COUNT) {
     console.error(
         `✗ citation count below floor: floor ${PINNED_CITATION_COUNT}, actual ${citationCandidates.length}.
@@ -1366,25 +1357,14 @@ if (deadPointers.length > 0) {
 }
 
 // Command composition is lexical documentation validation, not shell equivalence or NLP.
-// Scan tracked docs for affirmative "subsumes/subsuming" clauses attached to the all-roster
-// command, and root-test command comments enumerating paths after "over", "in", or "paths:".
-// Exact row commands are grants; a broader command is not proved by a selected invocation.
+// Scan tracked docs for root-test command comments enumerating paths after "over", "in", or "paths:".
 const rootScripts = (await Bun.file(resolve(root, "package.json")).json()).scripts as Record<
     string,
     string
 >;
-function expandCommand(command: string): string {
-    const normalized = command.trim().replace(/\s+/g, " ");
-    const match = /^bun run ([a-zA-Z][\w:-]*)(\s.*)?$/.exec(normalized);
-    if (!match) return normalized;
-    const script = rootScripts[match[1]];
-    if (!script) throw new Error(`command composition: unknown root script ${match[1]}`);
-    return `${script}${match[2] ?? ""}`.trim().replace(/\s+/g, " ");
-}
-const rosterCommands = new Set([...EXAMPLE_GATES.map((row) => row.gate)].map(expandCommand));
 const testCommand = /(?:^| && )bun test\s+([^&]+)$/.exec(rootScripts.test ?? "");
-if (!testCommand || !EXAMPLE_GATES.length) {
-    console.error("✗ command composition: missing test arguments or empty gate registry");
+if (!testCommand) {
+    console.error("✗ command composition: missing test arguments");
     process.exit(1);
 }
 const testPaths = testCommand[1].trim().split(/\s+/);
@@ -1393,31 +1373,9 @@ if (testPaths.some((path) => path.startsWith("-") || /[;&|]/.test(path))) {
     process.exit(1);
 }
 const compositionFindings: string[] = [];
-let subsumedCommands = 0;
 let testCones = 0;
 for (const file of docs) {
     const text = await Bun.file(resolve(root, file)).text();
-    for (const paragraph of text.split(/\n\s*\n/)) {
-        if (!/\btest:changed\s+(?:--\s+)?--all\b/.test(paragraph)) continue;
-        for (const clause of paragraph.matchAll(/\bsubsum(?:es|ing)\s+([^;)\n]+)/g)) {
-            const commands = [...clause[1].matchAll(/`((?:bun|bunx) [^`]+)`/g)];
-            const remainder = clause[1]
-                .replace(/`((?:bun|bunx) [^`]+)`/g, "")
-                .replace(/\band\b/g, "")
-                .replace(/[\s,.]/g, "");
-            if (!commands.length || remainder) {
-                compositionFindings.push(`${file}: subsumption needs explicit row commands`);
-            }
-            for (const [, command] of commands) {
-                subsumedCommands++;
-                if (!rosterCommands.has(expandCommand(command))) {
-                    compositionFindings.push(
-                        `${file}: false subsumption: ${command} is absent from the all-roster commands`,
-                    );
-                }
-            }
-        }
-    }
     for (const [index, line] of text.split("\n").entries()) {
         const comment = /^\s*bun run test\s+#\s*(.*)$/.exec(line)?.[1];
         if (!comment) continue;
@@ -1442,7 +1400,7 @@ if (compositionFindings.length) {
     process.exit(1);
 }
 console.log(
-    `✓ command composition (${rosterCommands.size} derived commands, ${testPaths.length} manifest test paths, ${subsumedCommands} subsumed commands, ${testCones} restated cones)`,
+    `✓ command composition (${testPaths.length} manifest test paths, ${testCones} restated cones)`,
 );
 
 // One closed Git population; ignored files and other instruction names are outside this arm.
@@ -1460,17 +1418,11 @@ if (!instructionListing.success || !instructionModes.success) {
     console.error("✗ instruction ratchet: Git population unavailable");
     process.exit(1);
 }
-// A frozen published artifact carries its own emitted AGENTS/CLAUDE files. Those are fixture bytes, not
-// instructions any agent working in this repo loads, so they are outside the corpus the ratchet governs —
-// and the exclusion is one literal prefix, checked below to still name a real directory, so it cannot
-// quietly widen into a place real instructions could hide.
-const INSTRUCTION_FIXTURE_PREFIX = COMPAT_FIXTURE_PREFIX;
 const instructionFiles = [...new Set(instructionListing.stdout.toString().split("\0"))]
-    .filter(
-        (file) =>
-            /(?:^|\/)(?:AGENTS|CLAUDE)\.md$|^MAINTAINERS\.md$|(?:^|\/)\.claude\/rules\/[^/]+\.md$/.test(
-                file,
-            ) && !file.startsWith(INSTRUCTION_FIXTURE_PREFIX),
+    .filter((file) =>
+        /(?:^|\/)(?:AGENTS|CLAUDE)\.md$|^MAINTAINERS\.md$|(?:^|\/)\.claude\/rules\/[^/]+\.md$/.test(
+            file,
+        ),
     )
     .sort();
 const symlinkFiles = new Set(

@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { attach } from "../../../tests/helpers";
 import {
     diagnose,
     f32,
@@ -14,6 +13,7 @@ import {
     vec2,
     vec4,
 } from "../..";
+import { attach } from "../../testing/helpers";
 import { clear, readFields, register, schema } from "../ecs/core";
 import { formatFields, normalizeAttr, parseFields } from "./core";
 

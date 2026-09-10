@@ -1,9 +1,8 @@
 {
-  "scene": "scenes/physics-playground.scene",
-  "plugins": {
-    "Orbit": true,
-    "Physics": true,
-    "Spawn": "./src/spawn",
-    "Smoke": "./src/smoke"
-  }
+    "scene": "scenes/physics-playground.scene",
+    "plugins": {
+        "Orbit": true,
+        "Physics": true,
+        "Spawn": "./src/spawn"
+    }
 }

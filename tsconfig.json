@@ -21,6 +21,6 @@
         "noPropertyAccessFromIndexSignature": false,
         "types": ["@webgpu/types"]
     },
-    "include": ["src", "bin", "tests", "examples", "scripts", "evals"],
-    "exclude": ["**/dist", "**/build", "scripts/install-test/compat-0.9.5"]
+    "include": ["src", "bin", "examples", "scripts", "evals", "rust/physics/scripts"],
+    "exclude": ["**/dist", "**/build"]
 }

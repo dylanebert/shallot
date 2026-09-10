@@ -122,7 +122,7 @@ let dispatches = 0;
 
 /** The particle buffer is only ever *encoded* into the frame's shared encoder; the render plugin
  *  submits it at end of frame. So a readback taken on the same frame as the first dispatch copies a
- *  still-zeroed buffer — the smoke waits for this, which is true only once a dispatch from an earlier
+ *  still-zeroed buffer; readers wait for this, which is true only once a dispatch from an earlier
  *  frame has been submitted. */
 export function particlesStepped(): boolean {
     return particlesRaw !== null && dispatches > 1;

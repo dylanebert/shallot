@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { attach } from "../../../tests/helpers";
 import {
     Camera,
     CameraMode,
@@ -15,6 +14,7 @@ import {
 } from "../..";
 import { clear, register } from "../../engine/ecs/core";
 import { Slab } from "../../standard/slab";
+import { attach } from "../../testing/helpers";
 import { OrbitSmooth } from "./smooth";
 
 // Orbit's reload-safety (the lazy OrbitSmooth add/remove not doubling across a rebuild) is covered by

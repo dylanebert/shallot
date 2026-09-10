@@ -11,7 +11,6 @@ import {
 import { builtinModules } from "node:module";
 import { dirname, relative, resolve } from "node:path";
 import { parse } from "@babel/parser";
-import { SUBPATH_MIGRATIONS } from "./compatibility";
 
 const root = resolve(import.meta.dir, "../..");
 const hash = (file: string) => createHash("sha256").update(readFileSync(file)).digest("hex");
@@ -26,26 +25,9 @@ const carried = (file: string) =>
 export function inspectRuntime(shipped: string): void {
     const pkg = JSON.parse(readFileSync(resolve(shipped, "package.json"), "utf8"));
     assert(!pkg.exports["./src/*"], "installed runtime: source wildcard removed");
-    const old = JSON.parse(
-        readFileSync(
-            resolve(root, "scripts/install-test/compat-0.9.5/engine-package.json"),
-            "utf8",
-        ),
-    );
-    for (const key of Object.keys(old.exports).filter((key) => key !== "./src/*")) {
-        if (Object.hasOwn(SUBPATH_MIGRATIONS, key)) {
-            const replacement = SUBPATH_MIGRATIONS[key];
-            assert(
-                !pkg.exports[key],
-                `installed runtime: retired entry unexpectedly restored ${key}`,
-            );
-            if (replacement)
-                assert(
-                    pkg.exports[replacement],
-                    `installed runtime: missing migration target ${replacement}`,
-                );
-        } else assert(pkg.exports[key], `installed runtime: missing public entry ${key}`);
-    }
+    const source = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+    for (const key of Object.keys(source.exports))
+        assert(pkg.exports[key], `installed runtime: missing public entry ${key}`);
     const dependencies = new Set(
         Object.keys({ ...pkg.dependencies, ...pkg.peerDependencies, ...pkg.optionalDependencies }),
     );

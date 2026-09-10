@@ -1,10 +1,9 @@
 {
-  "scene": "scenes/annotate-the-world.scene",
-  "plugins": {
-    "Text": true,
-    "Lines": true,
-    "Orbit": true,
-    "Annotate": "./src/annotate",
-    "Smoke": "./src/smoke"
-  }
+    "scene": "scenes/annotate-the-world.scene",
+    "plugins": {
+        "Text": true,
+        "Lines": true,
+        "Orbit": true,
+        "Annotate": "./src/annotate"
+    }
 }

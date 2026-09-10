@@ -1,14 +1,11 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "path";
-import { TEST_TIER_SUFFIXES } from "../tests/test-tiers";
+import { TEST_TIER_SUFFIXES } from "./test-tiers";
 
 // The published tarball ships source, the CLI, the compiled tooling leaves, the Rust audio WASM and
 // native-window crate, the icon, recipes and consumer docs; never tests, oracles, tiers, probes,
 // fixtures, goldens or build output. Asserted against the real `bun pm pack` output, not the `files`
 // allowlist in isolation, so a negation the packer ignores still reds.
-//
-// Recipes ship with their `src/smoke.ts`: each recipe's `shallot.json` names it, so a copied-out
-// recipe needs it.
 const pkgDir = resolve(import.meta.dir, "..");
 
 const proc = Bun.spawn(["bun", "pm", "pack", "--dry-run"], {
@@ -42,7 +39,7 @@ const forbidden: [string, (f: string) => boolean][] = [
     ["test tiers", (f) => TEST_TIER_SUFFIXES.test(f) || f.endsWith(".fixture.ts")],
     ["goldens", (f) => f.endsWith(".gold.json")],
     ["fixtures", (f) => f.includes("/fixtures/")],
-    ["tests/", (f) => f.startsWith("tests/")],
+    ["test support", (f) => f.startsWith("src/testing/")],
     ["build output", (f) => f.includes("/target/") || f.includes("/node_modules/")],
     ["site assets", (f) => f.startsWith("assets/") && f !== "assets/icon-1024.png"],
     ["maintainer docs", (f) => f === "MAINTAINERS.md" || f === "CONTRIBUTING.md"],
