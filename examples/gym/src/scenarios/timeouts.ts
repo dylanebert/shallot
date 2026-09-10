@@ -36,10 +36,9 @@ export interface ScenarioGate {
     timeoutMs?: number;
     isolate?: boolean;
     covers?: string[];
-    /** the public asset paths (relative to `examples/gym/public/`) this scenario needs, resolved
-     *  against the run's params so per-mode selection is exact. `bun bench` checks these on the
-     *  filesystem before booting a page; a missing path skips the scenario with a clear message
-     *  instead of failing through the glTF loader. Return `[]` when the params need no mount. */
+    /** the pinned assets (names in the repo's `assets.json`) this scenario needs for the run's params.
+     *  `bun bench` reds a scenario whose declared asset is absent, naming `bun run assets <name>`.
+     *  Return `[]` when the params need none. */
     assets?: (params: Record<string, string | number | boolean>) => string[];
 }
 
@@ -63,13 +62,8 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     },
     gltf: {
         covers: ["src/extras/gltf/**/*.ts"],
-        // keyed to gltf.ts's SOURCES — the same paths loadGltf fetches
-        assets: (p) => {
-            const source = (p.source as string) ?? "sponza";
-            return source === "fox"
-                ? ["gltf-samples/Fox/glTF/Fox.gltf"]
-                : ["sponza/Sponza-KTX-Draco.glb"];
-        },
+        // keyed to gltf.ts's SOURCES
+        assets: (p) => [(p.source as string) === "fox" ? "fox" : "sponza"],
     },
     // `accel`'s framebuffer probe (`assertLineDraw`) reads the restored live scene through the lines
     // surface's real rendered output (the ray overlay) — a verified real GPU exerciser of `extras/lines`,
@@ -100,50 +94,21 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
             "src/extras/skin/**/*.ts",
             "src/engine/utils/encode.ts",
         ],
-        // keyed to render.ts's GLTF_VARIANTS / FOX / SPILL_ASSETS / MULTI / WORKER_* — the same paths
-        // loadGltf and the scene preloader fetch. Only the gltf modes need mounts; cull/shaded/fog
-        // etc. author their scenes in code.
+        // keyed to render.ts's GLTF_VARIANTS / FOX / SPILL_ASSETS / MULTI / WORKER_*; only the gltf
+        // modes load files, the rest author their scenes in code.
         assets: (p) => {
             const mode = (p.mode as string) ?? "cull";
-            const gltfModes = [
-                "gltf-model",
-                "gltf-animated",
-                "gltf-spill",
-                "gltf-multi",
-                "gltf-worker",
-            ];
-            if (!gltfModes.includes(mode)) return [];
             if (mode === "gltf-model") {
                 const variant = (p.variant as string) ?? "gltf";
-                const variants: Record<string, string> = {
-                    gltf: "sponza/Sponza.gltf",
-                    draco: "sponza/Sponza-Draco.glb",
-                    ktx: "sponza/Sponza-KTX.glb",
-                    "ktx-draco": "sponza/Sponza-KTX-Draco.glb",
-                };
-                return [variants[variant] ?? variants.gltf];
+                return [variant === "ktx-draco" ? "sponza" : `sponza-${variant}`];
             }
-            if (mode === "gltf-animated") return ["gltf-samples/Fox/glTF/Fox.gltf"];
-            if (mode === "gltf-spill")
-                return [
-                    "gltf-samples/StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp.gltf",
-                    "gltf-samples/ChronographWatch/glTF-KTX-BasisU/ChronographWatch.gltf",
-                ];
+            if (mode === "gltf-animated") return ["fox"];
+            if (mode === "gltf-spill") return ["stained-glass-lamp", "chronograph-watch"];
             if (mode === "gltf-multi")
-                return [
-                    "gltf-samples/DamagedHelmet/glTF/DamagedHelmet.gltf",
-                    "gltf-samples/WaterBottle/glTF/WaterBottle.gltf",
-                    "gltf-samples/Fox/glTF/Fox.gltf",
-                    "gltf-samples/CesiumMan/glTF/CesiumMan.gltf",
-                ];
-            // gltf-worker: the scene authors Box/Draco + BoxTextured by name (preloader), and the
-            // assert decodes KTX + Corrupt directly — all under gltf-samples/
-            return [
-                "gltf-samples/Box/glTF-Draco/Box.gltf",
-                "gltf-samples/BoxTextured/glTF-Binary/BoxTextured.glb",
-                "gltf-samples/AnisotropyBarnLamp/glTF-KTX-BasisU/AnisotropyBarnLamp.gltf",
-                "gltf-samples/Box/glTF-Draco/Box.bin",
-            ];
+                return ["damaged-helmet", "water-bottle", "fox", "cesium-man"];
+            if (mode === "gltf-worker")
+                return ["box-draco", "box-textured", "anisotropy-barn-lamp"];
+            return [];
         },
     },
 

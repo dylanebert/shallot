@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { isDegradedBootMessage } from "@dylanebert/shallot/harness";
 import { SCENARIO_GATES } from "../examples/gym/src/scenarios/timeouts";
@@ -16,6 +17,7 @@ import {
     partitionSweep,
     resolveFor,
 } from "../scripts/bench";
+import { load } from "../scripts/assets";
 import { verifyDiagnostic } from "../scripts/install-test";
 import type { ShaderArtifactSummary, VerifyResult } from "../scripts/verify";
 import {
@@ -1060,75 +1062,38 @@ describe("formatRoster", () => {
     });
 });
 
-// `missingAssets` drives both the sweep's and the single-scenario run's skip path: it reads the
-// filesystem under examples/gym/public/ before booting a page, so a missing mount skips instantly with
-// a named announcement instead of a 60s ready timeout. The `assets` declarations in timeouts.ts are a
-// side table nothing else polices — a declared path drifting from the path the scenario actually fetches
-// would surface only at runtime, so these tests pin the declared paths to what the loader expects.
-//
-// Local mounts may be present or absent. Control filesystem availability without changing them;
-// the production bench subprocess controls in scripts/verify.test.ts exercise the default reader.
+// `missingAssets` resolves a scenario's declared asset names (timeouts.ts) against `assets.json` and the
+// public directory; bench reds on any name it returns. An empty public directory makes every declared
+// asset missing, so these pin each declaration to a real manifest entry.
 describe("missingAssets", () => {
+    const empty = () => {
+        const dir = mkdtempSync(join(tmpdir(), "shallot-missing-"));
+        return { cache: join(dir, "cache"), publicDir: join(dir, "public") };
+    };
+
     test("a scenario with no assets declaration returns null", () => {
-        expect(missingAssets("stress", [])).toBeNull();
-        expect(missingAssets("outline", [])).toBeNull();
+        expect(missingAssets("stress", [], empty())).toBeNull();
+        expect(missingAssets("render", ["mode=fog"], empty())).toBeNull();
     });
 
-    test("gltf with default params reports the sponza path", () => {
-        expect(missingAssets("gltf", [], () => false)).toEqual(["sponza/Sponza-KTX-Draco.glb"]);
-        expect(missingAssets("gltf", [], () => true)).toBeNull();
+    test("gltf declares sponza by default and fox on source=fox", () => {
+        expect(missingAssets("gltf", [], empty())).toEqual(["sponza"]);
+        expect(missingAssets("gltf", ["source=fox"], empty())).toEqual(["fox"]);
     });
 
-    test("gltf with source=fox reports the Fox path", () => {
-        expect(missingAssets("gltf", ["source=fox"], () => false)).toEqual([
-            "gltf-samples/Fox/glTF/Fox.gltf",
-        ]);
-    });
-
-    test("render with mode=gltf-animated reports the Fox path", () => {
-        expect(missingAssets("render", ["mode=gltf-animated"], () => false)).toEqual([
-            "gltf-samples/Fox/glTF/Fox.gltf",
-        ]);
-    });
-
-    test("render with a non-gltf mode returns null (no mount needed)", () => {
-        expect(missingAssets("render", [])).toBeNull();
-        expect(missingAssets("render", ["mode=cull"])).toBeNull();
-        expect(missingAssets("render", ["mode=fog"])).toBeNull();
-    });
-
-    // the drift rung that matters: the asset check resolves against REPO_ROOT, not process.cwd(), so a
-    // bench run from a non-root cwd still finds (or misses) the same mounts. Before the fix, resolving
-    // the relative GYM against a foreign cwd made the check cwd-dependent — a false skip from /tmp, or a
-    // false pass from a subdir that happened to shadow examples/gym/public/. This holds the fix: a temp
-    // cwd that shadows the mount path with a real file must NOT make `missingAssets` report the asset as
-    // present, because the check never reads that cwd.
-    test("the result is independent of process.cwd() (a shadowing cwd does not false-pass)", () => {
-        const original = process.cwd();
-        const shadow = mkdtempSync(join(import.meta.dir, "shadow-cwd-"));
-        try {
-            // plant a file at <shadow>/examples/gym/public/sponza/Sponza-KTX-Draco.glb — the relative
-            // path the pre-fix resolve(GYM, "public", p) would have read from process.cwd().
-            mkdirSync(join(shadow, "examples/gym/public/sponza"), { recursive: true });
-            writeFileSync(
-                join(shadow, "examples/gym/public/sponza/Sponza-KTX-Draco.glb"),
-                "shadow",
-            );
-
-            const rootAsset = resolve(
-                import.meta.dir,
-                "../../../examples/gym/public/sponza/Sponza-KTX-Draco.glb",
-            );
-            const exists = (path: string) => path !== rootAsset && existsSync(path);
-            const fromRoot = missingAssets("gltf", [], exists);
-            process.chdir(shadow);
-            const fromShadow = missingAssets("gltf", [], exists);
-            // Only the root mount is controlled absent; the real shadow remains present.
-            expect(fromShadow).toEqual(fromRoot);
-            expect(fromShadow).toEqual(["sponza/Sponza-KTX-Draco.glb"]);
-        } finally {
-            process.chdir(original);
-            rmSync(shadow, { recursive: true, force: true });
+    test("every render gltf mode names only pinned assets", () => {
+        const pinned = new Set(load().map((a) => a.name));
+        for (const params of [
+            ["mode=gltf-model"],
+            ...["gltf", "draco", "ktx", "ktx-draco"].map((v) => ["mode=gltf-model", `variant=${v}`]),
+            ["mode=gltf-animated"],
+            ["mode=gltf-spill"],
+            ["mode=gltf-multi"],
+            ["mode=gltf-worker"],
+        ]) {
+            const absent = missingAssets("render", params, empty()) ?? [];
+            expect(absent.length).toBeGreaterThan(0);
+            for (const name of absent) expect(pinned.has(name)).toBe(true);
         }
     });
 });

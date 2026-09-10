@@ -4,3 +4,4 @@ import { $ } from "bun";
 await $`bun scripts/audio.ts`.cwd(resolve(import.meta.dir, ".."));
 await $`bun scripts/tooling.ts`.cwd(resolve(import.meta.dir, ".."));
 await $`bun scripts/physics/build-kernel.ts`.cwd(resolve(import.meta.dir, ".."));
+await $`bun scripts/assets.ts --check`.cwd(resolve(import.meta.dir, ".."));

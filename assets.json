@@ -1,0 +1,723 @@
+[
+    {
+        "name": "sponza",
+        "url": "https://raw.githubusercontent.com/toji/sponza-optimized/6a0658fc8d49c332d61261579b455a6b8d962346/Sponza-KTX-Draco.glb",
+        "sha256": "b91c09e228cae38ca7fb05045acac85787e3ac05d98da417c0b0aed2e2a8bb51",
+        "bytes": 9714680,
+        "dest": "sponza/Sponza-KTX-Draco.glb"
+    },
+    {
+        "name": "sponza-ktx",
+        "url": "https://raw.githubusercontent.com/toji/sponza-optimized/6a0658fc8d49c332d61261579b455a6b8d962346/Sponza-KTX.glb",
+        "sha256": "d5af3ce05d1c3e3f8a184f34c3893e92d62f2f185db54194c6b3c1c325576094",
+        "bytes": 15541848,
+        "dest": "sponza/Sponza-KTX.glb"
+    },
+    {
+        "name": "sponza-draco",
+        "url": "https://raw.githubusercontent.com/toji/sponza-optimized/6a0658fc8d49c332d61261579b455a6b8d962346/Sponza-Draco.glb",
+        "sha256": "994d28236efe8f2a2447bda9e79f3a6cc70264be3a07e9fa1c42d07bebbc8154",
+        "bytes": 40322460,
+        "dest": "sponza/Sponza-Draco.glb"
+    },
+    {
+        "name": "sponza-gltf",
+        "url": "https://raw.githubusercontent.com/toji/sponza-optimized/6a0658fc8d49c332d61261579b455a6b8d962346",
+        "dest": "sponza",
+        "files": [
+            {
+                "path": "Sponza.bin",
+                "sha256": "9038f906353352f12dfe69c81d5297bd4b55d45432467d1a4454b78b60ccb34c",
+                "bytes": 6883708
+            },
+            {
+                "path": "Sponza.gltf",
+                "sha256": "fc610b395c286156158ae570da587343616a0136e92b7de0ccd152e657d7bbd9",
+                "bytes": 106006
+            },
+            {
+                "path": "Textures/10381718147657362067.jpg",
+                "sha256": "c119be5aae2419a8120fd17691033ca28e0b5546cef7e31d40f6dec1543affee",
+                "bytes": 881980
+            },
+            {
+                "path": "Textures/10388182081421875623.jpg",
+                "sha256": "c915c9cc8be8f198ab1cc3bc68c2f6c694b88432f381a8f27935d480141ae8f5",
+                "bytes": 917202
+            },
+            {
+                "path": "Textures/11474523244911310074.jpg",
+                "sha256": "23c32277c33d8eac091cd73daf81561ebe3640eede49b037546ed5c244a01347",
+                "bytes": 1079152
+            },
+            {
+                "path": "Textures/11490520546946913238.jpg",
+                "sha256": "98e4c4a091fea684cd693f3ae7ebe83e491969b501b4cd6e1fdd6a3cc1fa5cab",
+                "bytes": 321375
+            },
+            {
+                "path": "Textures/11872827283454512094.jpg",
+                "sha256": "da2a0b308b4d6d57ffbcf4bb7509d4afe91156d5d86d0396e83d7cac883a4857",
+                "bytes": 668962
+            },
+            {
+                "path": "Textures/11968150294050148237.jpg",
+                "sha256": "bee42826d56d3ff719c4908c11ef65584fbe19e08273862fde7ec1408e44ba25",
+                "bytes": 530384
+            },
+            {
+                "path": "Textures/1219024358953944284.jpg",
+                "sha256": "9cbd61fcb8047f1c21450eff05207b29d71824edd75483267b5fbc2f7b21378c",
+                "bytes": 329124
+            },
+            {
+                "path": "Textures/12501374198249454378.jpg",
+                "sha256": "fe640b8875c8ff04f4ec427274d2e799b703cff384b9c2dafef63b61d05f34fa",
+                "bytes": 418235
+            },
+            {
+                "path": "Textures/13196865903111448057.jpg",
+                "sha256": "8c26ae9523cfae7a062fd074f74e0ddbb61630772f9a2130489e1d6e4724c38b",
+                "bytes": 281980
+            },
+            {
+                "path": "Textures/13824894030729245199.jpg",
+                "sha256": "9158388312a76ba25a40d3b57978e1ace224882e53198a766494d98f9118aeba",
+                "bytes": 313460
+            },
+            {
+                "path": "Textures/13982482287905699490.jpg",
+                "sha256": "b91209e6ede0b905565bd719d6e27533abc7a5930d031a454f9aae65771fc4b0",
+                "bytes": 347538
+            },
+            {
+                "path": "Textures/14118779221266351425.jpg",
+                "sha256": "994ba4e063564d75350ceec1381347a620baef75f9ca689e28718a88c3e3bd88",
+                "bytes": 1611314
+            },
+            {
+                "path": "Textures/14170708867020035030.jpg",
+                "sha256": "55cbda42c13377a71cb8ee78406309e888f56bc85af9473ca84a6097f2252166",
+                "bytes": 140738
+            },
+            {
+                "path": "Textures/14267839433702832875.jpg",
+                "sha256": "d14f693c5cf7d1e506865488fdb68daadd42bbdcb0c534e2f96ccfd747e46a60",
+                "bytes": 711217
+            },
+            {
+                "path": "Textures/14650633544276105767.jpg",
+                "sha256": "e8b68080eb4c5709536dfb7858d595d51d4bb725003e11b0f383acf76a7e05a3",
+                "bytes": 521947
+            },
+            {
+                "path": "Textures/15295713303328085182.jpg",
+                "sha256": "5bbd0cbf2da7416d5620514ebb0c4837b0ccc841b649cf4070281aa333ff8520",
+                "bytes": 520162
+            },
+            {
+                "path": "Textures/15722799267630235092.jpg",
+                "sha256": "8511ada3c77ed171a21d58362d996b20cfa6c632fe4c95c3a8614e410e623a31",
+                "bytes": 560258
+            },
+            {
+                "path": "Textures/16275776544635328252.png",
+                "sha256": "d6df943a0dcf535d9dfb009c2833e0c7dc21939cfe3a2c10316c552b3dc3441b",
+                "bytes": 1077432
+            },
+            {
+                "path": "Textures/16299174074766089871.jpg",
+                "sha256": "21d5f7ab6a7d05200b76165771fb3c5f14d006236a9dd27fff9eb92b69de4fa6",
+                "bytes": 322693
+            },
+            {
+                "path": "Textures/16885566240357350108.jpg",
+                "sha256": "5562f0e76ca213d72295e48b8a14a59ee1971f58a47f95e5c022a4e78371c5aa",
+                "bytes": 12575
+            },
+            {
+                "path": "Textures/17556969131407844942.jpg",
+                "sha256": "cb09708202859d08764601acc9c9ea3b5254b2c4fd39dcc6b6055768c77aee9b",
+                "bytes": 370061
+            },
+            {
+                "path": "Textures/17876391417123941155.jpg",
+                "sha256": "005b774a968c1f6af00e4bf97afd668a6a045126a94f524df722ba19edc77d61",
+                "bytes": 1151448
+            },
+            {
+                "path": "Textures/2051777328469649772.jpg",
+                "sha256": "0f25b73991003300bd5e2c8fcbc46ec4e2788a8deb42321f575d5187aee21b85",
+                "bytes": 206618
+            },
+            {
+                "path": "Textures/2185409758123873465.jpg",
+                "sha256": "88861c8c7f10517c1d7942f316aae3b74dc5b8ae2faa2021d9dfe9d2c09fb24f",
+                "bytes": 780166
+            },
+            {
+                "path": "Textures/2299742237651021498.jpg",
+                "sha256": "da92fd0303571290c36b0f655f357fda77015b788613c65b18346480e1bd8324",
+                "bytes": 772672
+            },
+            {
+                "path": "Textures/2374361008830720677.jpg",
+                "sha256": "782c48410db52360083719a48f8d15d29aa5cd4beeb817f1fd195083b2feb60a",
+                "bytes": 852079
+            },
+            {
+                "path": "Textures/2411100444841994089.jpg",
+                "sha256": "12e1f2ea3c2714a6ec455fa8e623a702e33ef95765ebd09f7874a68fa55fd104",
+                "bytes": 399963
+            },
+            {
+                "path": "Textures/2775690330959970771.jpg",
+                "sha256": "751606c94a5fe5bda3bf6709e7f6a74363bd7902bf2353d54e55ef3b50007487",
+                "bytes": 785678
+            },
+            {
+                "path": "Textures/2969916736137545357.jpg",
+                "sha256": "dfa17f2dee2cd2d850585673d19d5cda477a63e21659b346d8730e80edd3b347",
+                "bytes": 822373
+            },
+            {
+                "path": "Textures/3371964815757888145.jpg",
+                "sha256": "d939d2e8bf11c2cf375154129f861b982c786b83db79cb9fde1a2b94b46caf62",
+                "bytes": 682743
+            },
+            {
+                "path": "Textures/3455394979645218238.jpg",
+                "sha256": "967005ccfbf4d38f674df41aebb3e58ac1fdcd91f554ead7acfcc132372f8ec6",
+                "bytes": 551432
+            },
+            {
+                "path": "Textures/3628158980083700836.jpg",
+                "sha256": "5a05dc004bbff7e6f89cffab57ae4f4fe2cf04dfbd22b52ec85cf17bf92c8855",
+                "bytes": 527788
+            },
+            {
+                "path": "Textures/3827035219084910048.jpg",
+                "sha256": "1c2fc5ddaefc59763823f58d0450c00d114d89ab3d0ac395fd1316b664a8a56d",
+                "bytes": 608394
+            },
+            {
+                "path": "Textures/4477655471536070370.jpg",
+                "sha256": "f0592537da8edc8476d9903f4ab1839d1a7ab0efa2507d303e8720b57bedf848",
+                "bytes": 211322
+            },
+            {
+                "path": "Textures/466164707995436622.jpg",
+                "sha256": "21bb124f5b5d4d5e9c8d9773cd31dedfc41b30eb302af36e7257cf930152908e",
+                "bytes": 486634
+            },
+            {
+                "path": "Textures/4675343432951571524.jpg",
+                "sha256": "9d5fd79619a52db0232edb2287f5f05c0124c304355e3b035a4e48c0871090bf",
+                "bytes": 764529
+            },
+            {
+                "path": "Textures/4871783166746854860.jpg",
+                "sha256": "259b6659cb2681e06ef04becd49298d379f2f25b2cc468acf0c2ade4d190637c",
+                "bytes": 570081
+            },
+            {
+                "path": "Textures/4975155472559461469.jpg",
+                "sha256": "fbdb7bcced57a005b84b4c3bbf744bae6309804cca51dabd9237e03a72fbc505",
+                "bytes": 399027
+            },
+            {
+                "path": "Textures/5061699253647017043.png",
+                "sha256": "6fbdbf67d3501831ad3a4e2adbf3d27e4c3d13ba1d655e5861c3f39b5f899f65",
+                "bytes": 2427921
+            },
+            {
+                "path": "Textures/5792855332885324923.jpg",
+                "sha256": "9330cf1d51c8f6924b6c9ce09f2dedb21a82e1c7406c37d49ce95beca40bb3be",
+                "bytes": 564801
+            },
+            {
+                "path": "Textures/5823059166183034438.jpg",
+                "sha256": "34b464edddbd2295b0ee23fa7a7a440a19456888c586acdc47032f841b302abd",
+                "bytes": 573157
+            },
+            {
+                "path": "Textures/6047387724914829168.jpg",
+                "sha256": "c39c9f304c2605be791b4c0a58cd0f8eb20de2dd6a4a4af893c4eb112d158353",
+                "bytes": 518310
+            },
+            {
+                "path": "Textures/6151467286084645207.jpg",
+                "sha256": "170f6c637ebd71a101244eb4d80c3dcf7063caf89e42053d3114d8aeca755cdf",
+                "bytes": 643517
+            },
+            {
+                "path": "Textures/6593109234861095314.jpg",
+                "sha256": "70eaa9efca842696271d2e4e04b1c77c087f8b5350d8d90940b800cc654b269a",
+                "bytes": 1043152
+            },
+            {
+                "path": "Textures/6667038893015345571.jpg",
+                "sha256": "34f6408c6b8e8dc3c89d528e014ee3b254c7208c41339cfd15c4ae5151ad7cbe",
+                "bytes": 703420
+            },
+            {
+                "path": "Textures/6772804448157695701.jpg",
+                "sha256": "1ea4f9bc86354d363ea8153df9b7593c3bd3da153c53b9624c1fd8a960cb3ebc",
+                "bytes": 599959
+            },
+            {
+                "path": "Textures/715093869573992647.jpg",
+                "sha256": "d81efcb42b3a044595ca984cb46d941b159064bddae9a43ed8d9582db68d6b47",
+                "bytes": 280745
+            },
+            {
+                "path": "Textures/7268504077753552595.jpg",
+                "sha256": "430758549ba2189d94f06abeaae092bfc0a1d8c22afc56f5caf3f99c5ee7407c",
+                "bytes": 572245
+            },
+            {
+                "path": "Textures/7441062115984513793.jpg",
+                "sha256": "9edc7c1c73661658cd8ed7733728002d45fecd17cb37a962fb654ff1d8c1933d",
+                "bytes": 665796
+            },
+            {
+                "path": "Textures/755318871556304029.jpg",
+                "sha256": "9f849f0510ca0df66ba1cba2380a6a1b481444d9e64b68da6b2ce202b54d9cec",
+                "bytes": 302363
+            },
+            {
+                "path": "Textures/759203620573749278.jpg",
+                "sha256": "c76e66915ce3abaf2ce365b314cf1e1a95f77bd4791adebdad01ab5c93658d0a",
+                "bytes": 509411
+            },
+            {
+                "path": "Textures/7645212358685992005.jpg",
+                "sha256": "da33886bb34e236f0ed9616ff40e87d87c4ab5ed458858e0d96839fa717978af",
+                "bytes": 656995
+            },
+            {
+                "path": "Textures/7815564343179553343.jpg",
+                "sha256": "8ad0e8a9ca6de602225a527361bc718881de8741bc48927e27259a8803e7fed7",
+                "bytes": 623144
+            },
+            {
+                "path": "Textures/8006627369776289000.png",
+                "sha256": "75328d1aac87f8539be2456e6a5392cef7c6d08476d75585eafcd334dbeee0c5",
+                "bytes": 1225157
+            },
+            {
+                "path": "Textures/8051790464816141987.jpg",
+                "sha256": "4f06c93f8e9f90be44a2e78847e57acec82bd793f58f7be7f86b088150730b88",
+                "bytes": 260119
+            },
+            {
+                "path": "Textures/8114461559286000061.jpg",
+                "sha256": "06c6480e207ce64f9e7c08df3f7f21638da7da43f77682657f4c823acd8c81a5",
+                "bytes": 193077
+            },
+            {
+                "path": "Textures/8481240838833932244.jpg",
+                "sha256": "1da7664b7b88ae58386a6e6b5eca2829537818061d704f002356d8fc483c1a28",
+                "bytes": 531156
+            },
+            {
+                "path": "Textures/8503262930880235456.jpg",
+                "sha256": "c288a37ed8373d1132644873624b096a72ba81d03cda601e050a5de24ba13c39",
+                "bytes": 104626
+            },
+            {
+                "path": "Textures/8747919177698443163.jpg",
+                "sha256": "8e90e94cadf80528a3df3496035d3c77900eba24d88b1c1d31c9dce77990fc44",
+                "bytes": 872255
+            },
+            {
+                "path": "Textures/8750083169368950601.jpg",
+                "sha256": "73a94a12fb0a9ab4c75e40996c9a2d49ac45ac18a8c8ae81d5ceb1c8ae52d6dc",
+                "bytes": 362437
+            },
+            {
+                "path": "Textures/8773302468495022225.jpg",
+                "sha256": "dc5bf5f3091b548f1dfe40410b1aa1e2e55d82e2d77ba57dbd1f92955a0d8ff8",
+                "bytes": 413837
+            },
+            {
+                "path": "Textures/8783994986360286082.jpg",
+                "sha256": "93d495e33d754c5723c910e322ac94108fc753b65af082a19be5252905aa741b",
+                "bytes": 388462
+            },
+            {
+                "path": "Textures/9288698199695299068.jpg",
+                "sha256": "7f55814430f289e89c7d675c3db925eee904fbc566ff83f4b49904de53138e98",
+                "bytes": 1044330
+            },
+            {
+                "path": "Textures/9916269861720640319.jpg",
+                "sha256": "81b21b9352f1fb9ccfeaf237f8547b985ddbf0cfd7ade7a4a8670b73a72b2cb5",
+                "bytes": 608687
+            },
+            {
+                "path": "Textures/white.png",
+                "sha256": "e2ab2939dda535ad28779e41c20c98368f630f29c5824a0a5a430f47b3b6da12",
+                "bytes": 951
+            }
+        ]
+    },
+    {
+        "name": "fox",
+        "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/Fox/glTF",
+        "dest": "gltf-samples/Fox/glTF",
+        "files": [
+            {
+                "path": "Fox.bin",
+                "sha256": "c7d0d8de28a84d5b25623037f88e063e1502495a2ee6c55f182c61161ad12f80",
+                "bytes": 119904
+            },
+            {
+                "path": "Fox.gltf",
+                "sha256": "6ddcabf511c0257b87dedf6ac51f1bdb6f21e570eee5fa7c4fa6162d055cb002",
+                "bytes": 45064
+            },
+            {
+                "path": "Texture.png",
+                "sha256": "61c8b109ee7f8bf262791933380fafb1465f7b51cbe6472c2d21eff0b31f83a1",
+                "bytes": 26764
+            }
+        ]
+    },
+    {
+        "name": "cesium-man",
+        "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/CesiumMan/glTF",
+        "dest": "gltf-samples/CesiumMan/glTF",
+        "files": [
+            {
+                "path": "CesiumMan.gltf",
+                "sha256": "bbb66a129c906e015620197b683edbc6e7a27510169ffa5adec2114046f14919",
+                "bytes": 51950
+            },
+            {
+                "path": "CesiumMan_data.bin",
+                "sha256": "2115d3c8df0519cea62f7def76d66d2346c5ac2216319859d3c79e3784dafd3f",
+                "bytes": 252664
+            },
+            {
+                "path": "CesiumMan_img0.jpg",
+                "sha256": "35d278c7b7b0b9e22881b2c435e41ce8659f230c776ef8780b4a5087abbefaa1",
+                "bytes": 157013
+            }
+        ]
+    },
+    {
+        "name": "damaged-helmet",
+        "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/DamagedHelmet/glTF",
+        "dest": "gltf-samples/DamagedHelmet/glTF",
+        "files": [
+            {
+                "path": "DamagedHelmet.bin",
+                "sha256": "61b33ead6aa3de23f39f02aaf0965bc3988575716a768f45b15d5ea3fb783fdf",
+                "bytes": 558504
+            },
+            {
+                "path": "DamagedHelmet.gltf",
+                "sha256": "efe99dfac198094a30c71dc02a4d3421f0eef6bf335aeb695daa4d62134cd93f",
+                "bytes": 4537
+            },
+            {
+                "path": "Default_AO.jpg",
+                "sha256": "7024051b65ed2ead8d24ebc9bd5ea61d4c21639a57b15dab29870668bcc6b90f",
+                "bytes": 361678
+            },
+            {
+                "path": "Default_albedo.jpg",
+                "sha256": "2dc95e87aeb0cd7c8a65ef0eb8b23212388da0534ca379811427a9a8780511f5",
+                "bytes": 935629
+            },
+            {
+                "path": "Default_emissive.jpg",
+                "sha256": "dd0057989f22f93a4ab796d06ebf85a7c12fbfae1d59a86ae8b0c54770dc1159",
+                "bytes": 97499
+            },
+            {
+                "path": "Default_metalRoughness.jpg",
+                "sha256": "0f05e7ffbeaa974f7d2c83436b04109969966d64ab188cbc3a19a265a0a69ae0",
+                "bytes": 1300661
+            },
+            {
+                "path": "Default_normal.jpg",
+                "sha256": "f253ba09a90a86ffd8a807dc45d7953111f8b3421e15d7a21d1e915b01dd33c1",
+                "bytes": 517757
+            }
+        ]
+    },
+    {
+        "name": "water-bottle",
+        "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/WaterBottle/glTF",
+        "dest": "gltf-samples/WaterBottle/glTF",
+        "files": [
+            {
+                "path": "WaterBottle.bin",
+                "sha256": "e4921f2d0c0a03cf65286bd195f3688d4f99d7b6a58f25935e70d516d744156e",
+                "bytes": 149412
+            },
+            {
+                "path": "WaterBottle.gltf",
+                "sha256": "0596f4e61dc781439d254fdfb5e3462daf1762c18715e3e3ac13001aa8f3f547",
+                "bytes": 2727
+            },
+            {
+                "path": "WaterBottle_baseColor.png",
+                "sha256": "62d0ad9b4e2c75e9bc7d67644a50d697563000ffa586d2e185ea38f5000e0a63",
+                "bytes": 2165850
+            },
+            {
+                "path": "WaterBottle_emissive.png",
+                "sha256": "e9b03ea395b0182917f876befda2d31639ce46058c832dd64e5ad02cde5bddb9",
+                "bytes": 59102
+            },
+            {
+                "path": "WaterBottle_normal.png",
+                "sha256": "284883ce27cc22351557616bad247ef88de4ad42c7a74b493205c92dbd23e536",
+                "bytes": 3012733
+            },
+            {
+                "path": "WaterBottle_occlusionRoughnessMetallic.png",
+                "sha256": "10cc809d9762e8c671f1ae73618dd5fdd07792d2c6ec9c4691cdb991617c9369",
+                "bytes": 3577832
+            }
+        ]
+    },
+    {
+        "name": "stained-glass-lamp",
+        "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/StainedGlassLamp/glTF-KTX-BasisU",
+        "dest": "gltf-samples/StainedGlassLamp/glTF-KTX-BasisU",
+        "files": [
+            {
+                "path": "StainedGlassLamp.bin",
+                "sha256": "7873a6f30835589b3b6fc3b0d749b8fe80f1ea29f4f170fba6d8ac11083d9397",
+                "bytes": 1847592
+            },
+            {
+                "path": "StainedGlassLamp.gltf",
+                "sha256": "4157e692bb4b7fb9bc5ac59d972d2f77700955b141464642b43b13a4ac726fb8",
+                "bytes": 31509
+            },
+            {
+                "path": "StainedGlassLamp_base_basecolor.ktx2",
+                "sha256": "0b8d3376f0f1dc58b804756256a3b38ae6279b6aeb22ba24475ee9eaeb867daa",
+                "bytes": 303936
+            },
+            {
+                "path": "StainedGlassLamp_base_emissive.ktx2",
+                "sha256": "a354583d8f7e6605a57797d3d70a1b6032b416380f5782654f8fcaad4ec59658",
+                "bytes": 174821
+            },
+            {
+                "path": "StainedGlassLamp_base_normal.ktx2",
+                "sha256": "ed9e50d14137ee380095ec108050ad828025abd68521bae9ff8598752c0ec8b2",
+                "bytes": 282290
+            },
+            {
+                "path": "StainedGlassLamp_base_occlusion-rough-metal.ktx2",
+                "sha256": "b5d9e7021a9f2c7a0403000e8a8c7e4e806a97647f409c76441b7395f638382f",
+                "bytes": 919576
+            },
+            {
+                "path": "StainedGlassLamp_bulbs_occlusion.ktx2",
+                "sha256": "54c646ddc5bcdbe5bcdeed17c22e47bfde61fba43739c395e656a9defd3807ee",
+                "bytes": 26976
+            },
+            {
+                "path": "StainedGlassLamp_glass_basecolor-alpha.ktx2",
+                "sha256": "c29e86278b417f34d9221f509cb21b30348364905f875db7914fed102f64cdc8",
+                "bytes": 1779325
+            },
+            {
+                "path": "StainedGlassLamp_glass_emissive.ktx2",
+                "sha256": "dcf80976e11ac51b2bac8f34a697e9f6392c2b4065e9c053d2dbc024b4a97976",
+                "bytes": 541399
+            },
+            {
+                "path": "StainedGlassLamp_glass_normal.ktx2",
+                "sha256": "1444cc1ae65d2b3a8b84c7d82dc0d179de7deef8608a7a4e32dc837546392f1d",
+                "bytes": 1563379
+            },
+            {
+                "path": "StainedGlassLamp_glass_occlusion-rough-metal.ktx2",
+                "sha256": "7d7f1aa17aff14d025320eb6062964bc59764e42f2218e42ec0d4feacd223ced",
+                "bytes": 503612
+            },
+            {
+                "path": "StainedGlassLamp_glass_transmission-clearcoat.ktx2",
+                "sha256": "ea3fff36824c0d4715a87d84fc7e4caaee74381e5b19b69e031bfb94f831a9da",
+                "bytes": 439778
+            },
+            {
+                "path": "StainedGlassLamp_grill_basecolor-alpha.ktx2",
+                "sha256": "1ad2e5f610b99ea673ea332818d4a43413808253966266436cbfba810c62dd42",
+                "bytes": 217120
+            },
+            {
+                "path": "StainedGlassLamp_grill_emissive.ktx2",
+                "sha256": "bb90c9fa9ae0666666e18e91155e3c812b25509d54f7f05c28bd3572de1eef86",
+                "bytes": 29183
+            },
+            {
+                "path": "StainedGlassLamp_grill_normal.ktx2",
+                "sha256": "9123bdcb18e8bc04be404dc6cb72b90b33f715306b58035084d22e1b066c4c26",
+                "bytes": 780467
+            },
+            {
+                "path": "StainedGlassLamp_grill_occlusion-rough-metal.ktx2",
+                "sha256": "99c46448580ad86a5cf503437bb530f90391abdb3a736d18dd789f24efc0d8ab",
+                "bytes": 590811
+            },
+            {
+                "path": "StainedGlassLamp_hardware_basecolor.ktx2",
+                "sha256": "f96c1526e96abd9c19bba3667cc08aeec529f73e0fccfb9d5cb37be41c791c2f",
+                "bytes": 17224
+            },
+            {
+                "path": "StainedGlassLamp_hardware_emissive.ktx2",
+                "sha256": "a3e32214faaddc3de6c747e466c279e72b308c8c2618918d28a9e443b78414c5",
+                "bytes": 59008
+            },
+            {
+                "path": "StainedGlassLamp_hardware_normal.ktx2",
+                "sha256": "b89f5e1e15949442af898f0af5670ac993d903ee8a99aee3cb3bd4792525fa7e",
+                "bytes": 112123
+            },
+            {
+                "path": "StainedGlassLamp_hardware_occlusion-rough-metal.ktx2",
+                "sha256": "c296f1794f96c79dbfa05211dd0a77d962d02e05277c0adee0fadc0d6948d045",
+                "bytes": 210306
+            },
+            {
+                "path": "StainedGlassLamp_steel_occlusion.ktx2",
+                "sha256": "a391ac6160d7d07a7922e16541a5d6eb4aab39282e3e7c96a01a66a1d203af26",
+                "bytes": 44947
+            }
+        ]
+    },
+    {
+        "name": "chronograph-watch",
+        "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/ChronographWatch/glTF-KTX-BasisU",
+        "dest": "gltf-samples/ChronographWatch/glTF-KTX-BasisU",
+        "files": [
+            {
+                "path": "ChronographWatch.data.bin",
+                "sha256": "518a3ad15cfc08df386bfb75ae6d496a5fd158c49ebcac139c1347e94af5706d",
+                "bytes": 4114564
+            },
+            {
+                "path": "ChronographWatch.gltf",
+                "sha256": "7ac17787f0c7691cf65df73bb8ee1415acbb9006a2a0403c995085dab080b4a6",
+                "bytes": 50069
+            },
+            {
+                "path": "band_occlusion.ktx2",
+                "sha256": "21729c684624e002bb4fa604bd308d4f530053bf1574a7a801efaac3725fff55",
+                "bytes": 516379
+            },
+            {
+                "path": "carbonfiber_normal.ktx2",
+                "sha256": "d9a8c9c8fc23d9518273f2d42ea9169e510593137612c0c197f8cd1ba8a1f2b3",
+                "bytes": 74711
+            },
+            {
+                "path": "dgg_basecolor.ktx2",
+                "sha256": "11cbb4edef34160722f9bceec09e3199c7f2b7ed02ebffd0a88f74859180b4a4",
+                "bytes": 8890
+            },
+            {
+                "path": "dgg_rm.ktx2",
+                "sha256": "819c40da00cd13b89f4d2b31d46e02531036169dfc5c4bbc6e6abd5a50565fc1",
+                "bytes": 8670
+            },
+            {
+                "path": "khronos_basecolor.ktx2",
+                "sha256": "594f750d1e3d7db0e39d9732bec1a3c842961ae44940aca7b32ee334f027b57f",
+                "bytes": 12443
+            },
+            {
+                "path": "khronos_rm.ktx2",
+                "sha256": "57aedd59644bc5703a4bb26f0e19e82847eb5269358178205e6a011c2f19a439",
+                "bytes": 11554
+            },
+            {
+                "path": "watchface_basecolor.ktx2",
+                "sha256": "2bc14a3c0fa411f6cc82c2ab03b31cb7a49a9543d2afff4bbd3a33b0a0eb5c5c",
+                "bytes": 276966
+            },
+            {
+                "path": "watchface_orm.ktx2",
+                "sha256": "12c30a364a63220b76c048f7fde60be5989126b13a9197ef098f5b8d7df45188",
+                "bytes": 543690
+            }
+        ]
+    },
+    {
+        "name": "anisotropy-barn-lamp",
+        "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/AnisotropyBarnLamp/glTF-KTX-BasisU",
+        "dest": "gltf-samples/AnisotropyBarnLamp/glTF-KTX-BasisU",
+        "files": [
+            {
+                "path": "AnisotropyBarnLamp.bin",
+                "sha256": "50f196f7613c3cf40886c0058c8f4a51f6118d5654879f41bb2fcdb5ba989871",
+                "bytes": 409580
+            },
+            {
+                "path": "AnisotropyBarnLamp.gltf",
+                "sha256": "71a528dfc329c6df9f3651d2fdbaf4ea5ee5e8dab668596f126bc7c2425c4543",
+                "bytes": 6979
+            },
+            {
+                "path": "AnisotropyBarnLamp_anisotropy.ktx2",
+                "sha256": "4f2ee6ad27b50eb1497c73369d42154234c23d06292d4163cb61c0e65a02c68a",
+                "bytes": 1017986
+            },
+            {
+                "path": "AnisotropyBarnLamp_basecolor.ktx2",
+                "sha256": "9887c98d487f2415f9221f37c14f185edfded7c9438e83ce75a753ae27a4ae53",
+                "bytes": 2127072
+            },
+            {
+                "path": "AnisotropyBarnLamp_normalbump.ktx2",
+                "sha256": "c04db9be21ca5f2d57c86854b9608c240e13b47e7d7329b696b62a79b262f839",
+                "bytes": 91214
+            },
+            {
+                "path": "AnisotropyBarnLamp_occlusionroughnessmetal.ktx2",
+                "sha256": "73a1ba6dfa0fbf1b1edc158b119623acbff894d62ce5ac3edaa20bedfe812383",
+                "bytes": 1572895
+            }
+        ]
+    },
+    {
+        "name": "box-draco",
+        "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/Box/glTF-Draco",
+        "dest": "gltf-samples/Box/glTF-Draco",
+        "files": [
+            {
+                "path": "Box.bin",
+                "sha256": "610dc6e08aba7c2720c8e4ec0578efd91cf2d88a5e638dab7811a22f0235bf2e",
+                "bytes": 120
+            },
+            {
+                "path": "Box.gltf",
+                "sha256": "3c46acecdfa90b012ec9052d8a1dfa61358e6d56a9e333504189cc78a2de4d1b",
+                "bytes": 2427
+            }
+        ]
+    },
+    {
+        "name": "box-textured",
+        "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/2bac6f8c57bf471df0d2a1e8a8ec023c7801dddf/Models/BoxTextured/glTF-Binary",
+        "dest": "gltf-samples/BoxTextured/glTF-Binary",
+        "files": [
+            {
+                "path": "BoxTextured.glb",
+                "sha256": "b510eca2e2ef33f62f9ed57d6e7ce2d10ebb2bdebc4a8e59d347719ba81abdf4",
+                "bytes": 5956
+            }
+        ]
+    }
+]
