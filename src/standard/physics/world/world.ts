@@ -5,27 +5,27 @@
 //
 // fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
-import type { Body } from "./body";
-import { type BodyStore, createBodyStore, releaseResident } from "../kernel/bodycolumns";
 import { type BroadPhase, createBroadPhase } from "../collision/broadphase";
 import { type Contact, initializeContactRegisters } from "../collision/contact";
-import type { StepContext } from "../solver/contactsolver";
-import { CONTACT_RECYCLE_DISTANCE } from "../common/core";
-import { createFatAabbStore, type FatAabbStore } from "../kernel/fataabbcolumns";
-import { type ConstraintGraph, createGraph } from "../solver/graph";
-import type { HullData } from "../shapes/hull";
-import { allocId, createIdPool, type EntityId, type IdPool, idCount } from "../common/ids";
-import type { Island } from "./island";
-import type { Joint } from "../solver/joint";
 import { createManifoldStore, type ManifoldStore } from "../collision/manifoldstore";
+import { CONTACT_RECYCLE_DISTANCE } from "../common/core";
+import { allocId, createIdPool, type EntityId, type IdPool, idCount } from "../common/ids";
 import { f32, froundConfig, maxf, type Vec3, type WorldTransform } from "../common/math";
-import { newProfile, type Profile } from "./profile";
-import type { Sensor, SensorBeginTouchEvent } from "./sensor";
+import type { Capacity, MixCallback, WorldDef } from "../common/types";
+import { type BodyStore, createBodyStore, releaseResident } from "../kernel/bodycolumns";
+import { createFatAabbStore, type FatAabbStore } from "../kernel/fataabbcolumns";
+import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
+import type { HullData } from "../shapes/hull";
 import type { Shape } from "../shapes/shape";
 import { destroyShapeAllocations } from "../shapes/shape";
-import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
+import type { StepContext } from "../solver/contactsolver";
+import { type ConstraintGraph, createGraph } from "../solver/graph";
+import type { Joint } from "../solver/joint";
+import type { Body } from "./body";
+import type { Island } from "./island";
+import { newProfile, type Profile } from "./profile";
+import type { Sensor, SensorBeginTouchEvent } from "./sensor";
 import { destroySolverSet, emptySolverSet, type SolverSet } from "./solverset";
-import type { Capacity, MixCallback, WorldDef } from "../common/types";
 
 /** Maximum concurrent worlds (B3_MAX_WORLDS). */
 export const MAX_WORLDS = 128;

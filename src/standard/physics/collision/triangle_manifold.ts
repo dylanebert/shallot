@@ -3,10 +3,26 @@
 // feed the mesh/height-field multi-manifold driver (mesh_contact). The hull path reuses the SAT
 // cache and the shared clip/query helpers from manifold.ts. fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
-import { type DistanceInput, emptyCache, type SimplexCache, shapeDistance } from "./distance";
+import {
+    absf,
+    FLT_EPSILON,
+    FLT_MAX,
+    FLT_MIN,
+    f32,
+    lineDistance,
+    maxf,
+    minf,
+    minInt,
+    type Plane,
+    plane,
+    type Vec3,
+    vec3,
+    xf,
+} from "../common/math";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HullData } from "../shapes/hull";
 import { findHullSupportVertex } from "../shapes/hull";
+import { type DistanceInput, emptyCache, type SimplexCache, shapeDistance } from "./distance";
 import {
     type ClipVertex,
     clipPolygon,
@@ -25,22 +41,6 @@ import {
     singlePair,
     TriangleFeature,
 } from "./manifold";
-import {
-    absf,
-    FLT_EPSILON,
-    FLT_MAX,
-    FLT_MIN,
-    f32,
-    lineDistance,
-    maxf,
-    minf,
-    minInt,
-    type Plane,
-    plane,
-    type Vec3,
-    vec3,
-    xf,
-} from "../common/math";
 
 // B3_LINEAR_SLOP with the default unit length of 1 (mirrors manifold.ts — the narrowphase frame).
 const LINEAR_SLOP = f32(0.005);

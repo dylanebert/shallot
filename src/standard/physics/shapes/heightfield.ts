@@ -9,7 +9,6 @@
 // state is), so the representation is free — the compression, the flag bits, and the query's triangle-
 // visit order are what must stay bit-exact. fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
-import { LINEAR_SLOP, MAX_AABB_MARGIN, OVERLAP_SLOP } from "../common/core";
 import {
     type CastOutput,
     computeProxyAABB,
@@ -24,7 +23,8 @@ import {
     shapeCast,
     shapeDistance,
 } from "../collision/distance";
-import type { Capsule } from "./geometry";
+import type { PlaneResult } from "../collision/mover";
+import { LINEAR_SLOP, MAX_AABB_MARGIN, OVERLAP_SLOP } from "../common/core";
 import {
     type AABB,
     aabb,
@@ -42,8 +42,8 @@ import {
     vec3,
     xf,
 } from "../common/math";
+import type { Capsule } from "./geometry";
 import { MeshEdgeFlags, type Triangle, testBoundsTriangleOverlap } from "./mesh";
-import type { PlaneResult } from "../collision/mover";
 
 const f32 = Math.fround;
 const UINT16_MAX = 65535;

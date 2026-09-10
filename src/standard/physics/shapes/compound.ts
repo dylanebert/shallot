@@ -15,7 +15,6 @@
 // this port dropped the mesh's serialization hash). The shared counts are diagnostics the create tests
 // assert; the child instances keep their own geometry references either way.
 
-import { ALL_BITS_HI, ALL_BITS_LO, MAX_SHAPE_CAST_POINTS } from "../common/core";
 import {
     type CastOutput,
     computeProxyAABB,
@@ -24,6 +23,21 @@ import {
     type ShapeCastInput,
     type ShapeProxy,
 } from "../collision/distance";
+import type { PlaneResult } from "../collision/mover";
+import * as tree from "../collision/tree";
+import { ALL_BITS_HI, ALL_BITS_LO, MAX_SHAPE_CAST_POINTS } from "../common/core";
+import {
+    type AABB,
+    aabb,
+    mat3,
+    minInt,
+    quat,
+    type Transform,
+    type Vec3,
+    vec3,
+    xf,
+} from "../common/math";
+import { cloneMaterial, ShapeType, type SurfaceMaterial } from "../common/types";
 import {
     type Capsule,
     collideMoverAndCapsule,
@@ -48,7 +62,6 @@ import {
     rayCastHull,
     shapeCastHull,
 } from "./hull";
-import { type AABB, aabb, mat3, minInt, quat, type Transform, type Vec3, vec3, xf } from "../common/math";
 import {
     collideMoverAndMesh,
     computeMeshAABB,
@@ -59,9 +72,6 @@ import {
     safeScale,
     shapeCastMesh,
 } from "./mesh";
-import type { PlaneResult } from "../collision/mover";
-import * as tree from "../collision/tree";
-import { cloneMaterial, ShapeType, type SurfaceMaterial } from "../common/types";
 
 // A compound mesh child has a fixed number of material slots (B3_MAX_COMPOUND_MESH_MATERIALS); a
 // triangle's material index is clamped into this range, then remapped through the child's slots.

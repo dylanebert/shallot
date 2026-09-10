@@ -12,15 +12,18 @@
 // target sweeps per-child through its inner tree (b3CompoundTimeOfImpactFcn), each child dispatched by
 // type (the mesh child reuses the per-triangle path).
 
-import { NULL_INDEX } from "../common/array";
-import { type Body, BodyFlags, type BodySim, getBodySim } from "../world/body";
 import * as bp from "../collision/broadphase";
-import { type CompoundData, getCompoundChild, queryCompound } from "../shapes/compound";
+import {
+    type Sweep,
+    type TOIInput,
+    type TOIOutput,
+    TOIState,
+    timeOfImpact,
+} from "../collision/distance";
+import { shouldBodiesCollide, shouldShapesCollide } from "../collision/pairs";
+import * as tree from "../collision/tree";
+import { NULL_INDEX } from "../common/array";
 import { ALL_BITS_HI, ALL_BITS_LO, LINEAR_SLOP, SPECULATIVE_DISTANCE } from "../common/core";
-import { type Sweep, type TOIInput, type TOIOutput, TOIState, timeOfImpact } from "../collision/distance";
-import type { Capsule, Sphere } from "../shapes/geometry";
-import { type HeightFieldData, queryHeightField } from "../shapes/heightfield";
-import type { HullData } from "../shapes/hull";
 import {
     type AABB,
     aabb,
@@ -33,9 +36,12 @@ import {
     type WorldTransform,
     xf,
 } from "../common/math";
+import { BodyType, ShapeType } from "../common/types";
+import { type CompoundData, getCompoundChild, queryCompound } from "../shapes/compound";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import { type HeightFieldData, queryHeightField } from "../shapes/heightfield";
+import type { HullData } from "../shapes/hull";
 import { type Mesh, queryMesh } from "../shapes/mesh";
-import { shouldBodiesCollide, shouldShapesCollide } from "../collision/pairs";
-import { recordSensorHit } from "../world/sensor";
 import {
     computeFatShapeAABB,
     computeShapeAABB,
@@ -45,8 +51,8 @@ import {
     makeShapeProxy,
     type Shape,
 } from "../shapes/shape";
-import * as tree from "../collision/tree";
-import { BodyType, ShapeType } from "../common/types";
+import { type Body, BodyFlags, type BodySim, getBodySim } from "../world/body";
+import { recordSensorHit } from "../world/sensor";
 import { setMoveTransform, type WorldState } from "../world/world";
 
 /** Max continuous sensor hits recorded per fast body (B2_MAX_CONTINUOUS_SENSOR_HITS). */

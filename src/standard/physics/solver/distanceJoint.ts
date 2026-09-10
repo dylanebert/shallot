@@ -4,13 +4,13 @@
 // expression tree exactly. See the README.
 
 import { NULL_INDEX } from "../common/array";
-import { BodyFlags, getBodyTransformQuick, identityBodyState } from "../world/body";
-import type { StepContext } from "./contactsolver";
 import { HUGE, LINEAR_SLOP, SetType } from "../common/core";
-import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
 import { clampf, FLT_MAX, f32, mat3, maxf, quat, type Vec3, vec3 } from "../common/math";
-import { makeSoft, type Softness } from "./softness";
+import { BodyFlags, getBodyTransformQuick, identityBodyState } from "../world/body";
 import type { WorldState } from "../world/world";
+import type { StepContext } from "./contactsolver";
+import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
+import { makeSoft, type Softness } from "./softness";
 
 /** Distance joint payload (b3DistanceJoint). Impulses persist across steps for warm starting. */
 export type DistanceJoint = {

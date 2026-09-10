@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import gold from "./geometry.gold.json";
 import type { Vec3 } from "../common/math";
+import gold from "./geometry.gold.json";
 import {
     createBoxMesh,
     createGridMesh,

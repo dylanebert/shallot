@@ -14,12 +14,12 @@
 // regions after a grow (the same discipline reserveBodies/reserveFatAabb follow).
 
 import { NULL_INDEX } from "../common/array";
+import { ShapeType } from "../common/types";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HullData } from "../shapes/hull";
-import { kernel } from "./kernel";
 import type { Shape } from "../shapes/shape";
-import { ShapeType } from "../common/types";
 import type { WorldState } from "../world/world";
+import { kernel } from "./kernel";
 
 /** 4-byte stride of one shape record, mirroring `shapes.rs`: type(1) next(1) geometry(7) refit(7). */
 export const SHAPE_STRIDE = 16;

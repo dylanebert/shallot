@@ -5,8 +5,8 @@
 // step. The strides + record layout MIRROR kernel/src/geo.rs — the wasm side is the contract.
 
 import type { HullData } from "../shapes/hull";
-import { kernel } from "./kernel";
 import type { WorldState } from "../world/world";
+import { kernel } from "./kernel";
 
 /** u32 words per hull record (RECORD_STRIDE in geo.rs): center.xyz + v/e/f counts + 5 pool offsets. */
 const RECORD_STRIDE = 12;

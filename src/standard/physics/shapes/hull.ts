@@ -13,8 +13,6 @@
 // NOT byte-identical to the C struct hash — the world-state hash never consumes it (it hashes only
 // body transforms + velocities), so hull geometry is what must stay bit-exact, not this field.
 
-import { NULL_INDEX } from "../common/array";
-import { OVERLAP_SLOP } from "../common/core";
 import {
     type CastOutput,
     type DistanceInput,
@@ -27,7 +25,9 @@ import {
     shapeCast,
     shapeDistance,
 } from "../collision/distance";
-import type { Capsule, MassData } from "./geometry";
+import type { PlaneResult } from "../collision/mover";
+import { NULL_INDEX } from "../common/array";
+import { OVERLAP_SLOP } from "../common/core";
 import {
     type AABB,
     aabb,
@@ -57,7 +57,7 @@ import {
     vec3,
     xf,
 } from "../common/math";
-import type { PlaneResult } from "../collision/mover";
+import type { Capsule, MassData } from "./geometry";
 
 // Final hull indices are uint8, so vertex/edge/face counts cap at 255.
 const HULL_LIMIT = 255;

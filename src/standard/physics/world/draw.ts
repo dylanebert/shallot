@@ -9,21 +9,33 @@
 // (limit arcs, motor/steering indicators) and the contact/island/graph-color diagnostics are the
 // heavier diagnostic tier, out of the minimal renderer's fidelity floor.
 
+import type { BroadPhase } from "../collision/broadphase";
+import * as tree from "../collision/tree";
 import { NULL_INDEX } from "../common/array";
 import { hi32, lo32 } from "../common/bits";
-import { type Body, BodyFlags, getBodySim, getBodyTransformQuick } from "./body";
-import type { BroadPhase } from "../collision/broadphase";
-import { getCompoundChild } from "../shapes/compound";
 import { SetType } from "../common/core";
+import {
+    type AABB,
+    type Pos,
+    transformWorldPoint,
+    vec3,
+    type WorldTransform,
+    xf,
+} from "../common/math";
+import { BodyType, ShapeType, type SurfaceMaterial } from "../common/types";
+import { getCompoundChild } from "../shapes/compound";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HeightFieldData } from "../shapes/heightfield";
 import type { HullData } from "../shapes/hull";
-import { getJointConstraintForce, getJointConstraintTorque, getJointSim, JointType } from "../solver/joint";
-import { type AABB, type Pos, transformWorldPoint, vec3, type WorldTransform, xf } from "../common/math";
 import type { Mesh } from "../shapes/mesh";
 import type { Shape } from "../shapes/shape";
-import * as tree from "../collision/tree";
-import { BodyType, ShapeType, type SurfaceMaterial } from "../common/types";
+import {
+    getJointConstraintForce,
+    getJointConstraintTorque,
+    getJointSim,
+    JointType,
+} from "../solver/joint";
+import { type Body, BodyFlags, getBodySim, getBodyTransformQuick } from "./body";
 import type { WorldState } from "./world";
 
 const BODY_TYPE_COUNT = 3;

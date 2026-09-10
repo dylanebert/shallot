@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { createManifoldStore, DIR_STRIDE, MANIFOLD_STRIDE } from "../collision/manifoldstore";
 import { createBodyStore } from "./bodycolumns";
 import {
     D_CONTACT,
@@ -16,7 +17,6 @@ import {
 import { type UploadHull, uploadGeometry } from "./geocolumns";
 import { AUTO_THREADS, announce, COOP_COEP_HINT, type Host, init, kernel, resolve } from "./kernel";
 import { SHARED_STACK_SIZE } from "./kernel.shared.wasm";
-import { createManifoldStore, DIR_STRIDE, MANIFOLD_STRIDE } from "../collision/manifoldstore";
 import { maxWorkers } from "./pool";
 
 // `init({ threads: 0 })` throughout: `init()` now multithreads by default (bun/node have SAB), which

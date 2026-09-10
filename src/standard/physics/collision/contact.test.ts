@@ -4,13 +4,13 @@
 
 import { describe, expect, test } from "bun:test";
 import { NULL_INDEX } from "../common/array";
-import { createBody } from "../world/body";
-import { createContact, destroyContact } from "./contact";
 import { SetType } from "../common/core";
-import { createSphereShape } from "../shapes/shape";
-import { containsKey } from "./table";
 import { BodyType, defaultBodyDef, defaultShapeDef, defaultWorldDef } from "../common/types";
+import { createSphereShape } from "../shapes/shape";
+import { createBody } from "../world/body";
 import { createWorld, getWorld, type WorldState } from "../world/world";
+import { createContact, destroyContact } from "./contact";
+import { containsKey } from "./table";
 
 function dynamicSphere(world: WorldState, radius: number) {
     const bodyId = createBody(world, { ...defaultBodyDef(), type: BodyType.Dynamic });

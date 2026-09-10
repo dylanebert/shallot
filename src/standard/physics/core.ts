@@ -9,7 +9,6 @@
 // consumer calling it would silently degrade every physics scene to single-thread. `init` and `threads`
 // stay. Mirror the engine barrel here whenever it gains a public symbol.
 
-export { nlerpShortest } from "./compose";
 export {
     type AABB,
     type BaseJointConfig,
@@ -129,6 +128,7 @@ export {
     type WorldState,
     type WorldTransform,
 } from "./api";
+export { nlerpShortest } from "./compose";
 export { type Hull, type HullFace, Hulls, UNIT_CUBE_ID } from "./hull";
 export {
     type BodyState,

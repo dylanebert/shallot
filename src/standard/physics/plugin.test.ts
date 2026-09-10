@@ -4,17 +4,8 @@ import { clear, register } from "../../engine/ecs/core";
 import { attach, stepFor } from "../../testing/helpers";
 import { Character, CharacterPlugin } from "../character";
 import { grounded, move, pose } from "../character/core";
-import {
-    Body,
-    bodyTraits,
-    Joint,
-    jointTraits,
-    Physics,
-    ShapeKind,
-    Spring,
-    springTraits,
-} from "./";
-import { Hulls } from "./core";
+import { Slab } from "../slab";
+import { Body, bodyTraits, Joint, jointTraits, Physics, ShapeKind, Spring, springTraits } from "./";
 import {
     BodyType,
     createHull,
@@ -27,7 +18,7 @@ import {
     shutdown,
     World,
 } from "./api";
-import { Slab } from "../slab";
+import { Hulls } from "./core";
 import { composePose, PhysicsPlugin } from "./index";
 
 // a small tetrahedron, registered under `ShapeKind.Hull`'s id lookup (`Body.halfExtents.w`) — exercises

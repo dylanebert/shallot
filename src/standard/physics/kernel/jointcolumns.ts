@@ -9,6 +9,19 @@
 // `writeRecord`'s throw is unreachable for an awake joint.
 
 import { NULL_INDEX } from "../common/array";
+import { OVERFLOW_INDEX, SetType } from "../common/core";
+import type { Mat3, Quat, Transform, Vec3 } from "../common/math";
+import type { SolveLayout } from "../solver/contactsolver";
+import type { DistanceJoint } from "../solver/distanceJoint";
+import { type JointSim, JointType } from "../solver/joint";
+import type { MotorJoint } from "../solver/motorJoint";
+import type { ParallelJoint } from "../solver/parallelJoint";
+import type { PrismaticJoint } from "../solver/prismaticJoint";
+import type { RevoluteJoint } from "../solver/revoluteJoint";
+import type { SphericalJoint } from "../solver/sphericalJoint";
+import type { WeldJoint } from "../solver/weldJoint";
+import type { WheelJoint } from "../solver/wheelJoint";
+import type { WorldState } from "../world/world";
 import {
     type Columns,
     DJ_DAMPING_RATIO,
@@ -151,19 +164,6 @@ import {
     WJ_LINEAR_HERTZ,
     WJ_LINEAR_IMPULSE,
 } from "./columns";
-import type { SolveLayout } from "../solver/contactsolver";
-import { OVERFLOW_INDEX, SetType } from "../common/core";
-import type { DistanceJoint } from "../solver/distanceJoint";
-import { type JointSim, JointType } from "../solver/joint";
-import type { Mat3, Quat, Transform, Vec3 } from "../common/math";
-import type { MotorJoint } from "../solver/motorJoint";
-import type { ParallelJoint } from "../solver/parallelJoint";
-import type { PrismaticJoint } from "../solver/prismaticJoint";
-import type { RevoluteJoint } from "../solver/revoluteJoint";
-import type { SphericalJoint } from "../solver/sphericalJoint";
-import type { WeldJoint } from "../solver/weldJoint";
-import type { WheelJoint } from "../solver/wheelJoint";
-import type { WorldState } from "../world/world";
 
 /** The joint spans the staged solve needs: the colored total (the `PrepareJoints` sweep) and the
  * overflow span (run serially). Colored joints occupy `[0, jointTotal)`, overflow the tail. */

@@ -10,10 +10,10 @@
 // current view. `refreshViews` is called at the top of the pair-finding pass and after every grow —
 // never per-iteration (that would reintroduce churn).
 
-import { kernel } from "./kernel";
 import type { HashSet } from "../collision/table";
 import type { DynamicTree } from "../collision/tree";
 import type { WorldState } from "../world/world";
+import { kernel } from "./kernel";
 
 /** u32/f32 slots per dynamic-tree node — mirrors `STRIDE` in `src/tree.ts` + `TREE_STRIDE` in broad.rs. */
 const TREE_STRIDE = 12;

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { clearBit, getBit } from "../common/bitset";
+import type { AABB } from "../common/math";
 import {
     BodyType,
     type BroadPhase,
@@ -14,7 +15,6 @@ import {
     proxyType,
     testOverlap,
 } from "./broadphase";
-import type { AABB } from "../common/math";
 
 const box = (c: number, h: number): AABB => ({
     lowerBound: { x: c - h, y: c - h, z: c - h },

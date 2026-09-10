@@ -5,10 +5,7 @@
 // scalar expression tree exactly. See the README.
 
 import { NULL_INDEX } from "../common/array";
-import { BodyFlags, getBodyState, getBodyTransformQuick, identityBodyState } from "../world/body";
-import type { StepContext } from "./contactsolver";
 import { SetType } from "../common/core";
-import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
 import {
     atan2,
     clampf,
@@ -25,8 +22,11 @@ import {
     type Vec3,
     vec3,
 } from "../common/math";
-import { makeSoft, type Softness } from "./softness";
+import { BodyFlags, getBodyState, getBodyTransformQuick, identityBodyState } from "../world/body";
 import type { WorldState } from "../world/world";
+import type { StepContext } from "./contactsolver";
+import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
+import { makeSoft, type Softness } from "./softness";
 
 /** Wheel joint payload (b3WheelJoint). Impulses persist across steps for warm starting. */
 export type WheelJoint = {

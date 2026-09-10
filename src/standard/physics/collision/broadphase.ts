@@ -4,9 +4,9 @@
 
 import { GrowVec } from "../common/array";
 import { type BitSet, clearBit, createBitSet, getBit, setBitGrow } from "../common/bitset";
-import { type BroadStore, createBroadStore } from "../kernel/broadcolumns";
 import type { AABB } from "../common/math";
 import { aabb } from "../common/math";
+import { type BroadStore, createBroadStore } from "../kernel/broadcolumns";
 import { createSet, type HashSet } from "./table";
 import type { DynamicTree } from "./tree";
 import * as tree from "./tree";

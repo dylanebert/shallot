@@ -7,10 +7,6 @@
 // single-precision port this collapses to plain float math, but the subtract/add ordering is kept
 // so the result is bit-exact with the C build (and a later large-world build has one set of seams).
 
-import { getBodyTransformQuick } from "../world/body";
-import type { BroadPhase } from "./broadphase";
-import type { RayCastInput, ShapeCastInput, ShapeProxy } from "./distance";
-import type { Capsule } from "../shapes/geometry";
 import type { EntityId } from "../common/ids";
 import {
     aabb,
@@ -21,7 +17,13 @@ import {
     toVec3,
     type Vec3,
 } from "../common/math";
-import type { PlaneResult } from "./mover";
+import {
+    type QueryFilter,
+    type QueryFilterBits,
+    shouldQueryCollide,
+    toQueryFilterBits,
+} from "../common/types";
+import type { Capsule } from "../shapes/geometry";
 import {
     collideMover as collideMoverShape,
     getShapeMaterials,
@@ -30,15 +32,13 @@ import {
     type Shape,
     shapeCastShape,
 } from "../shapes/shape";
+import { getBodyTransformQuick } from "../world/body";
+import type { WorldState } from "../world/world";
+import type { BroadPhase } from "./broadphase";
+import type { RayCastInput, ShapeCastInput, ShapeProxy } from "./distance";
+import type { PlaneResult } from "./mover";
 import type { TreeStats } from "./tree";
 import * as tree from "./tree";
-import {
-    type QueryFilter,
-    type QueryFilterBits,
-    shouldQueryCollide,
-    toQueryFilterBits,
-} from "../common/types";
-import type { WorldState } from "../world/world";
 
 const BODY_TYPE_COUNT = 3;
 

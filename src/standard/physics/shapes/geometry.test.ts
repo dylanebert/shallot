@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { f32, type Transform, type Vec3, xf } from "../common/math";
 import {
     type Capsule,
     computeCapsuleAABB,
@@ -11,7 +12,6 @@ import {
     type Sphere,
 } from "./geometry";
 import gold from "./geometry.gold.json";
-import { f32, type Transform, type Vec3, xf } from "../common/math";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {

@@ -7,21 +7,12 @@
 // targets the scalar force-overflow build; every op is fround-wrapped (see the README).
 
 import { NULL_INDEX, qsort } from "../common/array";
-import type { Contact, ConvexContactCache } from "./contact";
-import { LINEAR_SLOP, MAX_AABB_MARGIN, MESH_REST_OFFSET, SPECULATIVE_DISTANCE } from "../common/core";
-import { emptyCache } from "./distance";
-import type { Capsule, Sphere } from "../shapes/geometry";
-import { getHeightFieldTriangle, type HeightFieldData, queryHeightField } from "../shapes/heightfield";
-import type { HullData } from "../shapes/hull";
 import {
-    emptySATCache,
-    type LocalManifold,
-    type LocalManifoldPoint,
-    makeFeatureId,
-    makeLocalManifold,
-    SeparatingFeature,
-    TriangleFeature,
-} from "./manifold";
+    LINEAR_SLOP,
+    MAX_AABB_MARGIN,
+    MESH_REST_OFFSET,
+    SPECULATIVE_DISTANCE,
+} from "../common/core";
 import {
     type AABB,
     aabb,
@@ -41,15 +32,33 @@ import {
     type WorldTransform,
     xf,
 } from "../common/math";
+import { ShapeType } from "../common/types";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import {
+    getHeightFieldTriangle,
+    type HeightFieldData,
+    queryHeightField,
+} from "../shapes/heightfield";
+import type { HullData } from "../shapes/hull";
 import { getMeshTriangle, type Mesh, MeshEdgeFlags, queryMesh } from "../shapes/mesh";
 import { getShapeMaterials, type Shape } from "../shapes/shape";
+import type { WorldState } from "../world/world";
+import type { Contact, ConvexContactCache } from "./contact";
+import { emptyCache } from "./distance";
+import {
+    emptySATCache,
+    type LocalManifold,
+    type LocalManifoldPoint,
+    makeFeatureId,
+    makeLocalManifold,
+    SeparatingFeature,
+    TriangleFeature,
+} from "./manifold";
 import {
     collideCapsuleAndTriangle,
     collideHullAndTriangle,
     collideSphereAndTriangle,
 } from "./triangle_manifold";
-import { ShapeType } from "../common/types";
-import type { WorldState } from "../world/world";
 
 // This guards against excessive memory usage and complex collision.
 const MAX_MESH_CONTACT_TRIANGLES = 256;

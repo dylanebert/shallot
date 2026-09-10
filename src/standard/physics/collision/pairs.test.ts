@@ -4,8 +4,8 @@
 
 import { expect, test } from "bun:test";
 import { BodyType, makeBoxHull, World } from "../api/index";
-import { shouldShapesCollide } from "./pairs";
 import { defaultFilter, type FilterBits, toFilterBits } from "../common/types";
+import { shouldShapesCollide } from "./pairs";
 
 function filter(categoryBits: bigint, maskBits: bigint, groupIndex: number): FilterBits {
     return toFilterBits({ categoryBits, maskBits, groupIndex });

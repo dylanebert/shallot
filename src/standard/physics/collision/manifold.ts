@@ -4,11 +4,6 @@
 // the C API. Frame convention: results are in shape A's local frame; `transformBtoA` places shape
 // B in shape A's frame. See the README for the fround discipline.
 
-import type { DistanceInput, SimplexCache } from "./distance";
-import { getPointSupport, shapeDistance } from "./distance";
-import type { Capsule, Sphere } from "../shapes/geometry";
-import type { HullData } from "../shapes/hull";
-import { findHullSupportFace, findHullSupportVertex } from "../shapes/hull";
 import {
     absf,
     arbitraryPerp,
@@ -33,6 +28,11 @@ import {
     vec3,
     xf,
 } from "../common/math";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import type { HullData } from "../shapes/hull";
+import { findHullSupportFace, findHullSupportVertex } from "../shapes/hull";
+import type { DistanceInput, SimplexCache } from "./distance";
+import { getPointSupport, shapeDistance } from "./distance";
 
 const NULL_INDEX = -1;
 // B3_LINEAR_SLOP = 0.005 * lengthUnitsPerMeter; length units default to 1 (no world here).

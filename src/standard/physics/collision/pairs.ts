@@ -13,16 +13,16 @@
 // tree, each overlapping child a candidate with its child index. fround per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
 import { intVec, NULL_INDEX } from "../common/array";
-import { type Body, getBodyTransformQuick } from "../world/body";
-import * as bp from "./broadphase";
-import { type CompoundData, queryCompound } from "../shapes/compound";
-import { createContact } from "./contact";
-import { kernel } from "../kernel/kernel";
 import { type AABB, aabb, vec3, xf } from "../common/math";
+import { BodyType, type FilterBits } from "../common/types";
+import { kernel } from "../kernel/kernel";
+import { type CompoundData, queryCompound } from "../shapes/compound";
+import { type Body, getBodyTransformQuick } from "../world/body";
+import type { WorldState } from "../world/world";
+import * as bp from "./broadphase";
+import { createContact } from "./contact";
 import { containsKey, ensureResident } from "./table";
 import * as tree from "./tree";
-import { BodyType, type FilterBits } from "../common/types";
-import type { WorldState } from "../world/world";
 
 /** @returns whether two shapes' filters allow a collision (b3ShouldShapesCollide). */
 export function shouldShapesCollide(a: FilterBits, b: FilterBits): boolean {

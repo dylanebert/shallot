@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { type Quat, segmentDistance, type Transform, type Vec3 } from "../common/math";
 import {
     type CastOutput,
     type DistanceOutput,
@@ -12,7 +13,6 @@ import {
     timeOfImpact,
 } from "./distance";
 import gold from "./distance.gold.json";
-import { type Quat, segmentDistance, type Transform, type Vec3 } from "../common/math";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {

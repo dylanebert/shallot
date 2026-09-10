@@ -9,7 +9,24 @@
 // unlinks it. Every op is fround-wrapped; see the README.
 
 import { NULL_INDEX, swapRemove } from "../common/array";
-import { BodyFlags, getBodySim } from "../world/body";
+import { CONTACT_RECYCLE_ANGULAR_DISTANCE, SetType, SPECULATIVE_DISTANCE } from "../common/core";
+import {
+    aabb,
+    f32,
+    invMulWorldTransforms,
+    invMulWorldTransformsOut,
+    mat3,
+    minf,
+    mulWorldTransforms,
+    type Quat,
+    quat,
+    subPos,
+    type Transform,
+    type Vec3,
+    vec3,
+    type WorldTransform,
+} from "../common/math";
+import { BodyType, ShapeType } from "../common/types";
 import {
     D_CONTACT,
     D_GEOM_A,
@@ -29,16 +46,18 @@ import {
     R_WAS_TOUCHING,
     RECYCLE_STRIDE,
 } from "../kernel/columns";
-import { type ChildShape, type CompoundData, getCompoundChild } from "../shapes/compound";
-import { type Contact, ContactFlags, destroyContact, type Manifold } from "./contact";
-import type { StepContext } from "../solver/contactsolver";
-import { CONTACT_RECYCLE_ANGULAR_DISTANCE, SetType, SPECULATIVE_DISTANCE } from "../common/core";
 import { rebuildGeometry } from "../kernel/geocolumns";
-import type { Capsule, Sphere } from "../shapes/geometry";
-import { addContactToGraph, removeContactFromGraph } from "../solver/graph";
-import type { HullData } from "../shapes/hull";
-import { linkContact, unlinkContact } from "../world/island";
 import { kernel, ParKind, runPar } from "../kernel/kernel";
+import { type ChildShape, type CompoundData, getCompoundChild } from "../shapes/compound";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import type { HullData } from "../shapes/hull";
+import { getShapeMaterial, type Shape } from "../shapes/shape";
+import type { StepContext } from "../solver/contactsolver";
+import { addContactToGraph, removeContactFromGraph } from "../solver/graph";
+import { BodyFlags, getBodySim } from "../world/body";
+import { linkContact, unlinkContact } from "../world/island";
+import type { WorldState } from "../world/world";
+import { type Contact, ContactFlags, destroyContact, type Manifold } from "./contact";
 import {
     collideCapsuleAndSphere,
     collideCapsules,
@@ -50,26 +69,7 @@ import {
     makeLocalManifold,
 } from "./manifold";
 import type { ManifoldStore } from "./manifoldstore";
-import {
-    aabb,
-    f32,
-    invMulWorldTransforms,
-    invMulWorldTransformsOut,
-    mat3,
-    minf,
-    mulWorldTransforms,
-    type Quat,
-    quat,
-    subPos,
-    type Transform,
-    type Vec3,
-    vec3,
-    type WorldTransform,
-} from "../common/math";
 import { computeMeshManifolds } from "./mesh_contact";
-import { getShapeMaterial, type Shape } from "../shapes/shape";
-import { BodyType, ShapeType } from "../common/types";
-import type { WorldState } from "../world/world";
 
 const UINT32_MAX = 0xffffffff;
 

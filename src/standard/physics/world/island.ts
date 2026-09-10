@@ -5,8 +5,8 @@
 //
 // Contacts and joints are linked/unlinked as they form and break. Validation is compiled out in the fixture build, so b3ValidateIsland is a no-op.
 
-import { NULL_INDEX, swapRemove } from "../common/array";
 import type { Contact } from "../collision/contact";
+import { NULL_INDEX, swapRemove } from "../common/array";
 import { SetType } from "../common/core";
 import { allocId, freeId } from "../common/ids";
 import type { Joint } from "../solver/joint";

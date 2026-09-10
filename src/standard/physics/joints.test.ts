@@ -2,9 +2,9 @@ import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test";
 import { State, Time } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
 import { attach, stepFor } from "../../testing/helpers";
+import { Slab } from "../slab";
 import { Body, bodyTraits, Joint, jointTraits, Physics, Spring, springTraits } from "./";
 import { type Joint as SolverJoint, shutdown } from "./api";
-import { Slab } from "../slab";
 import { PhysicsPlugin } from "./index";
 import { stiffnessHertz, syncJoints, syncSet } from "./joints";
 

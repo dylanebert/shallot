@@ -4,8 +4,8 @@
 // culls, flags gate categories, and the walk mutates nothing (a second draw repeats identically).
 
 import { describe, expect, test } from "bun:test";
-import { type DebugDraw, defaultDebugDraw } from "./draw";
 import { BodyType, makeBoxHull, type Vec3, World } from "../api/index";
+import { type DebugDraw, defaultDebugDraw } from "./draw";
 
 /** A debug draw that tallies each callback and records the last string, over the defaults + flags. */
 function counting(flags: Partial<DebugDraw> = {}): DebugDraw & { counts: Record<string, number> } {

@@ -1,4 +1,18 @@
 import { describe, expect, test } from "bun:test";
+import type { ShapeProxy } from "../collision/distance";
+import { readNode } from "../collision/tree";
+import {
+    aabb,
+    f32,
+    PI,
+    type Quat,
+    quat,
+    type Transform,
+    type Vec3,
+    vec3,
+    xf,
+} from "../common/math";
+import { defaultSurfaceMaterial, ShapeType, type SurfaceMaterial } from "../common/types";
 import {
     type CompoundData,
     type CompoundDef,
@@ -12,14 +26,10 @@ import {
     rayCastCompound,
     shapeCastCompound,
 } from "./compound";
-import type { ShapeProxy } from "../collision/distance";
 import { type Capsule, computeCapsuleAABB, computeSphereAABB, type Sphere } from "./geometry";
 import gold from "./geometry.gold.json";
 import { computeHullAABB, type HullData, makeBoxHull } from "./hull";
-import { aabb, f32, PI, type Quat, quat, type Transform, type Vec3, vec3, xf } from "../common/math";
 import { computeMeshAABB, createBoxMesh, type MeshData } from "./mesh";
-import { readNode } from "../collision/tree";
-import { defaultSurfaceMaterial, ShapeType, type SurfaceMaterial } from "../common/types";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {

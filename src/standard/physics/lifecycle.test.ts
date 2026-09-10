@@ -2,19 +2,10 @@ import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test";
 import { State, Time } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
 import { attach } from "../../testing/helpers";
-import {
-    Body,
-    bodyTraits,
-    Joint,
-    jointTraits,
-    Physics,
-    ShapeKind,
-    Spring,
-    springTraits,
-} from "./";
-import { Hulls } from "./core";
-import { shutdown } from "./api";
 import { Slab } from "../slab";
+import { Body, bodyTraits, Joint, jointTraits, Physics, ShapeKind, Spring, springTraits } from "./";
+import { shutdown } from "./api";
+import { Hulls } from "./core";
 import { PhysicsPlugin } from "./index";
 
 // World lifecycle conformance: the wasm kernel is a singleton with ONE resident region, so a leaked world on a rebuild is a

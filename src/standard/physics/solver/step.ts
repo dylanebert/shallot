@@ -5,18 +5,18 @@
 // No recording. Single-threaded and serial, so the parallel task orchestration collapses to
 // straight-line calls. fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
-import { claimResident, reserveBodies } from "../kernel/bodycolumns";
 import { collide } from "../collision/collide";
-import type { StepContext } from "./contactsolver";
-import { SetType } from "../common/core";
-import { rebuildGeometry } from "../kernel/geocolumns";
-import { f32, maxInt, minf } from "../common/math";
 import { updateBroadPhasePairs } from "../collision/pairs";
+import { SetType } from "../common/core";
+import { f32, maxInt, minf } from "../common/math";
+import { claimResident, reserveBodies } from "../kernel/bodycolumns";
+import { rebuildGeometry } from "../kernel/geocolumns";
 import { elapsed, resetProfile, ticks } from "../world/profile";
 import { overlapSensors } from "../world/sensor";
+import type { WorldState } from "../world/world";
+import type { StepContext } from "./contactsolver";
 import { writeSoft } from "./softness";
 import { solve } from "./solver";
-import type { WorldState } from "../world/world";
 
 /** Build the reusable per-step solver context shell. Its scalar fields are rewritten and its collections
  * cleared at the top of every `step`; one context lives per world (`world.stepContext`) and dies with it. */

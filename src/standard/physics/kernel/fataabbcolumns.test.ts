@@ -5,8 +5,8 @@
 // while falling, all landing bit-for-bit in the column.
 
 import { describe, expect, test } from "bun:test";
-import { makeBoxHull } from "../shapes/hull";
 import { BodyType, World } from "../api/index";
+import { makeBoxHull } from "../shapes/hull";
 
 describe("fat-AABB column residency", () => {
     test("column mirrors shape.fatAABB across create + refits", () => {

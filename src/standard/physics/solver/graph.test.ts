@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { getBit } from "../common/bitset";
 import { DYNAMIC_COLOR_COUNT, OVERFLOW_INDEX } from "../common/core";
-import { createGraph, greedyColor } from "./graph";
 import { BodyType } from "../common/types";
+import { createGraph, greedyColor } from "./graph";
 
 // The greedy graph coloring (constraint_graph.c), tested independent of the FORCE_OVERFLOW flag the
 // live path gates it behind. Assignment is the load-bearing, order-sensitive part; the full colored

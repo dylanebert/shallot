@@ -19,7 +19,10 @@
 // when a world steps after another has taken the region over; sequential worlds keep working.
 
 import { NULL_INDEX } from "../common/array";
+import { SetType } from "../common/core";
+import type { Mat3, Quat, Vec3, WorldTransform } from "../common/math";
 import type { Body, BodySim, BodyState } from "../world/body";
+import type { WorldState } from "../world/world";
 import {
     FIN_STRIDE,
     S2_BODY_ID,
@@ -36,10 +39,7 @@ import {
     STATE_STRIDE,
     writeMat3,
 } from "./columns";
-import { SetType } from "../common/core";
 import { kernel, sharedBytes } from "./kernel";
-import type { Mat3, Quat, Vec3, WorldTransform } from "../common/math";
-import type { WorldState } from "../world/world";
 
 // BODY_LAYOUT header indices (bodies.rs), in memory order: state, sim, fin, finOut, flags, sim2.
 export const B_STATE = 0;

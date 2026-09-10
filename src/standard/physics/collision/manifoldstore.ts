@@ -13,9 +13,9 @@
 //
 // The strides MIRROR kernel/src/manifolds.rs; the wasm layout is the contract.
 
-import type { Manifold, ManifoldPoint } from "./contact";
-import { kernel } from "../kernel/kernel";
 import { f32, type Mat3, mat3, type Quat, type Transform, type Vec3, vec3 } from "../common/math";
+import { kernel } from "../kernel/kernel";
+import type { Manifold, ManifoldPoint } from "./contact";
 
 /** f32/u32 slots per directory record (DIR_STRIDE in manifold_abi.rs): the solver's per-step row —
  * friction, restitution, rollingResistance, tangentVelocity(3), flags, manifoldCount, manifoldBase,

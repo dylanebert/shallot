@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { f32, quat, type Vec3, vec3, xf } from "../common/math";
 import gold from "./geometry.gold.json";
 import {
     cloneHull,
@@ -14,7 +15,6 @@ import {
     makeBoxHull,
     makeTransformedBoxHull,
 } from "./hull";
-import { f32, quat, type Vec3, vec3, xf } from "../common/math";
 
 // Reconstruct an exact f32 from the raw hex bits the C generator emitted.
 const dv = new DataView(new ArrayBuffer(4));

@@ -11,10 +11,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { BodyFlags, getBodySim, getBodyState } from "../world/body";
-import { B_FLAGS, B_STATE, IDENT_RECORDS, N_BODY } from "../kernel/bodycolumns";
-import { STATE_LIVE, STATE_STRIDE } from "../kernel/columns";
-import { hashWorldState } from "../world/hash";
 import {
     type Body,
     BodyType,
@@ -35,8 +31,12 @@ import {
     type Vec3,
     World,
 } from "../api/index";
-import { init, kernel, sharedBytes, shutdown, threads } from "../kernel/kernel";
 import { computeCosSin, DEG_TO_RAD, offsetPos, quat, vec3 } from "../common/math";
+import { B_FLAGS, B_STATE, IDENT_RECORDS, N_BODY } from "../kernel/bodycolumns";
+import { STATE_LIVE, STATE_STRIDE } from "../kernel/columns";
+import { init, kernel, sharedBytes, shutdown, threads } from "../kernel/kernel";
+import { BodyFlags, getBodySim, getBodyState } from "../world/body";
+import { hashWorldState } from "../world/hash";
 
 const QUAT_ID = { v: { x: 0, y: 0, z: 0 }, s: 1 };
 

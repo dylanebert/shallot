@@ -4,10 +4,7 @@
 // is fround-wrapped, mirroring the C scalar expression tree exactly. See the README.
 
 import { NULL_INDEX } from "../common/array";
-import { BodyFlags, identityBodyState } from "../world/body";
-import type { StepContext } from "./contactsolver";
 import { SetType } from "../common/core";
-import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
 import {
     FLT_MAX,
     FLT_MIN,
@@ -22,8 +19,11 @@ import {
     vec2,
     vec3,
 } from "../common/math";
-import { makeSoft, type Softness } from "./softness";
+import { BodyFlags, identityBodyState } from "../world/body";
 import type { WorldState } from "../world/world";
+import type { StepContext } from "./contactsolver";
+import { createJoint, type Joint, type JointDef, type JointSim, JointType } from "./joint";
+import { makeSoft, type Softness } from "./softness";
 
 /** Parallel joint payload (b3ParallelJoint). Impulse persists across steps for warm starting. */
 export type ParallelJoint = {

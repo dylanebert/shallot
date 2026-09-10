@@ -7,21 +7,21 @@
 // integrate with the solver stage. fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
 import { NULL_INDEX, swapRemove } from "../common/array";
-import { type Body, BodyFlags, wakeBody } from "../world/body";
-import { type CompoundData, getCompoundChild } from "../shapes/compound";
 import { SetType } from "../common/core";
-import { emptyCache, type SimplexCache } from "./distance";
-import type { Capsule, Sphere } from "../shapes/geometry";
-import { removeContactFromGraph } from "../solver/graph";
 import { allocId, freeId } from "../common/ids";
-import { unlinkContact } from "../world/island";
-import { emptySATCache, type SATCache } from "./manifold";
 import type { AABB } from "../common/math";
 import { maxf, type Quat, quat, type Transform, type Vec3 } from "../common/math";
-import { getShapeMaterials, type Shape } from "../shapes/shape";
-import { addKey, removeKey } from "./table";
 import { BodyType, ShapeType } from "../common/types";
+import { type CompoundData, getCompoundChild } from "../shapes/compound";
+import type { Capsule, Sphere } from "../shapes/geometry";
+import { getShapeMaterials, type Shape } from "../shapes/shape";
+import { removeContactFromGraph } from "../solver/graph";
+import { type Body, BodyFlags, wakeBody } from "../world/body";
+import { unlinkContact } from "../world/island";
 import type { WorldState } from "../world/world";
+import { emptyCache, type SimplexCache } from "./distance";
+import { emptySATCache, type SATCache } from "./manifold";
+import { addKey, removeKey } from "./table";
 
 /** Which per-step collide list an awake contact belongs to (incremental partition, maintained here +
  * in solverset.ts against the create/destroy/wake/sleep event set; consumed by collide.ts). A contact

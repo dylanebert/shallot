@@ -9,9 +9,21 @@
 // sets. Fast non-bullet bodies are swept inline during finalize (continuous.ts). Every op is
 // fround-wrapped; see the README.
 
-import { NULL_INDEX } from "../common/array";
-import { BODY_TRANSIENT_FLAGS, BodyFlags, type BodyState, getBodySim } from "../world/body";
 import * as bp from "../collision/broadphase";
+import { NULL_INDEX } from "../common/array";
+import { OVERFLOW_INDEX, SetType, SPECULATIVE_DISTANCE, TIME_TO_SLEEP } from "../common/core";
+import {
+    type AABB,
+    aabb,
+    f32,
+    type Mat3,
+    mat3,
+    type Quat,
+    type Vec3,
+    vec3,
+    type WorldTransform,
+} from "../common/math";
+import { BodyType } from "../common/types";
 import {
     type Columns,
     FIN_OUT_STRIDE,
@@ -23,6 +35,15 @@ import {
     SIM2_STRIDE,
     writeMat3,
 } from "../kernel/columns";
+import { countJoints, marshalJoints, readbackJointImpulses } from "../kernel/jointcolumns";
+import { kernel, runPool, workers } from "../kernel/kernel";
+import { isConvexRefit, S_CAND, S_ESCAPED, SHAPE_STRIDE } from "../kernel/shapecolumns";
+import { computeFatShapeAABBOut, getShapeUserMaterialId, type Shape } from "../shapes/shape";
+import { BODY_TRANSIENT_FLAGS, BodyFlags, type BodyState, getBodySim } from "../world/body";
+import { splitIsland } from "../world/island";
+import { elapsed, makeTimer, reset, ticks } from "../world/profile";
+import { trySleepIsland } from "../world/solverset";
+import { setMoveTransform, type WorldState } from "../world/world";
 import {
     computeLayout,
     readbackHitEvents,
@@ -37,8 +58,6 @@ import {
     solveBullets,
     solveContinuous,
 } from "./continuous";
-import { OVERFLOW_INDEX, SetType, SPECULATIVE_DISTANCE, TIME_TO_SLEEP } from "../common/core";
-import { splitIsland } from "../world/island";
 import {
     flagJointEvent,
     prepareColorJoints,
@@ -48,25 +67,6 @@ import {
     warmStartColorJoints,
     warmStartOverflowJoints,
 } from "./joint";
-import { countJoints, marshalJoints, readbackJointImpulses } from "../kernel/jointcolumns";
-import { kernel, runPool, workers } from "../kernel/kernel";
-import {
-    type AABB,
-    aabb,
-    f32,
-    type Mat3,
-    mat3,
-    type Quat,
-    type Vec3,
-    vec3,
-    type WorldTransform,
-} from "../common/math";
-import { elapsed, makeTimer, reset, ticks } from "../world/profile";
-import { computeFatShapeAABBOut, getShapeUserMaterialId, type Shape } from "../shapes/shape";
-import { isConvexRefit, S_CAND, S_ESCAPED, SHAPE_STRIDE } from "../kernel/shapecolumns";
-import { trySleepIsland } from "../world/solverset";
-import { BodyType } from "../common/types";
-import { setMoveTransform, type WorldState } from "../world/world";
 
 const SPEED_CAPPED = BodyFlags.isSpeedCapped;
 const TOI = BodyFlags.hadTimeOfImpact;

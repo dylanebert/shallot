@@ -12,6 +12,7 @@
 //
 // Coloring is integer-only, so no fround discipline applies here.
 
+import { type Contact, ContactFlags } from "../collision/contact";
 import { NULL_INDEX, swapRemove } from "../common/array";
 import {
     type BitSet,
@@ -21,12 +22,11 @@ import {
     setBitCountAndClear,
     setBitGrow,
 } from "../common/bitset";
-import { type Contact, ContactFlags } from "../collision/contact";
 import { DYNAMIC_COLOR_COUNT, GRAPH_COLOR_COUNT, OVERFLOW_INDEX, SetType } from "../common/core";
-import { emptyJointSim, type Joint, type JointSim } from "./joint";
-import type { SolverSet } from "../world/solverset";
 import { BodyType } from "../common/types";
+import type { SolverSet } from "../world/solverset";
 import type { WorldState } from "../world/world";
+import { emptyJointSim, type Joint, type JointSim } from "./joint";
 
 // Route every constraint to the serial overflow color, mirroring C's `#if B3_FORCE_OVERFLOW`. The
 // default is the colored wide solve (graph coloring + the 4-lane convex path); set true only to fall

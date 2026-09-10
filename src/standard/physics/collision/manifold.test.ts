@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { emptyCache } from "./distance";
+import {
+    isWithinSegments,
+    lineDistance,
+    pointToSegmentDistance,
+    type Transform,
+    type Vec3,
+} from "../common/math";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import { createCylinder, type HullData, makeBoxHull } from "../shapes/hull";
+import { emptyCache } from "./distance";
 import {
     collideCapsuleAndSphere,
     collideCapsules,
@@ -16,13 +23,6 @@ import {
     type SATCache,
 } from "./manifold";
 import gold from "./manifold.gold.json";
-import {
-    isWithinSegments,
-    lineDistance,
-    pointToSegmentDistance,
-    type Transform,
-    type Vec3,
-} from "../common/math";
 import {
     collideCapsuleAndTriangle,
     collideHullAndTriangle,

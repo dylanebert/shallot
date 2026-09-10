@@ -5,6 +5,8 @@
 // GJK-backed shape-cast/overlap wrappers. Equality, not tolerance (the README).
 
 import { describe, expect, test } from "bun:test";
+import { type Transform, type Vec3, xf } from "../common/math";
+import { defaultSurfaceMaterial } from "../common/types";
 import {
     type CompoundData,
     createCompound,
@@ -12,7 +14,6 @@ import {
     rayCastCompound,
     shapeCastCompound,
 } from "../shapes/compound";
-import type { CastOutput, ShapeProxy } from "./distance";
 import {
     type Capsule,
     overlapSphere,
@@ -35,10 +36,9 @@ import {
     rayCastHull,
     shapeCastHull,
 } from "../shapes/hull";
-import { type Transform, type Vec3, xf } from "../common/math";
 import { createGridMesh, type Mesh, overlapMesh, rayCastMesh, shapeCastMesh } from "../shapes/mesh";
+import type { CastOutput, ShapeProxy } from "./distance";
 import gold from "./query.gold.json";
-import { defaultSurfaceMaterial } from "../common/types";
 
 const dv = new DataView(new ArrayBuffer(4));
 function fromBits(hex: string): number {

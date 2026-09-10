@@ -5,10 +5,60 @@
 // Sphere/capsule/hull/mesh/height-field/compound shapes are ported: create/destroy, mass/AABB/extent/
 // centroid, the proxy, and materials. fround discipline per .claude/rules/physics.md § "The contract: bit-exact f32 parity".
 
-import { NULL_INDEX } from "../common/array";
-import { type Body, getBodyTransformQuick, updateBodyMassData } from "../world/body";
-import { syncHeadShape } from "../kernel/bodycolumns";
 import * as bp from "../collision/broadphase";
+import { destroyContact } from "../collision/contact";
+import {
+    type CastOutput,
+    emptyCastOutput,
+    getSweepTransform,
+    type RayCastInput,
+    type ShapeCastInput,
+    type ShapeProxy,
+    type Sweep,
+} from "../collision/distance";
+import type { PlaneResult } from "../collision/mover";
+import { NULL_INDEX } from "../common/array";
+import {
+    AABB_MARGIN_FRACTION,
+    LINEAR_SLOP,
+    MAX_AABB_MARGIN,
+    MAX_SHAPE_CAST_POINTS,
+    SetType,
+    SPECULATIVE_DISTANCE,
+} from "../common/core";
+import { allocId, freeId } from "../common/ids";
+import {
+    type AABB,
+    aabb,
+    clampInt,
+    f32,
+    froundConfig,
+    mat3,
+    maxf,
+    minf,
+    minInt,
+    quat,
+    type Transform,
+    type Vec3,
+    vec3,
+    type WorldTransform,
+    xf,
+} from "../common/math";
+import {
+    BodyType,
+    cloneMaterial,
+    type FilterBits,
+    type ShapeDef,
+    ShapeType,
+    type SurfaceMaterial,
+    toFilterBits,
+} from "../common/types";
+import { syncHeadShape } from "../kernel/bodycolumns";
+import { writeFatAabb } from "../kernel/fataabbcolumns";
+import { unlinkShape, writeShape } from "../kernel/shapecolumns";
+import { type Body, getBodyTransformQuick, updateBodyMassData } from "../world/body";
+import { createSensor, destroySensor, type Visitor } from "../world/sensor";
+import { addHullToDatabase, removeHullFromDatabase, type WorldState } from "../world/world";
 import {
     type CompoundData,
     collideMoverAndCompound,
@@ -20,25 +70,6 @@ import {
     rayCastCompound,
     shapeCastCompound,
 } from "./compound";
-import { destroyContact } from "../collision/contact";
-import {
-    AABB_MARGIN_FRACTION,
-    LINEAR_SLOP,
-    MAX_AABB_MARGIN,
-    MAX_SHAPE_CAST_POINTS,
-    SetType,
-    SPECULATIVE_DISTANCE,
-} from "../common/core";
-import {
-    type CastOutput,
-    emptyCastOutput,
-    getSweepTransform,
-    type RayCastInput,
-    type ShapeCastInput,
-    type ShapeProxy,
-    type Sweep,
-} from "../collision/distance";
-import { writeFatAabb } from "../kernel/fataabbcolumns";
 import {
     type Capsule,
     collideMoverAndCapsule,
@@ -82,24 +113,6 @@ import {
     rayCastHull,
     shapeCastHull,
 } from "./hull";
-import { allocId, freeId } from "../common/ids";
-import {
-    type AABB,
-    aabb,
-    clampInt,
-    f32,
-    froundConfig,
-    mat3,
-    maxf,
-    minf,
-    minInt,
-    quat,
-    type Transform,
-    type Vec3,
-    vec3,
-    type WorldTransform,
-    xf,
-} from "../common/math";
 import {
     collideMoverAndMesh,
     computeMeshAABB,
@@ -110,19 +123,6 @@ import {
     safeScale,
     shapeCastMesh,
 } from "./mesh";
-import type { PlaneResult } from "../collision/mover";
-import { createSensor, destroySensor, type Visitor } from "../world/sensor";
-import { unlinkShape, writeShape } from "../kernel/shapecolumns";
-import {
-    BodyType,
-    cloneMaterial,
-    type FilterBits,
-    type ShapeDef,
-    ShapeType,
-    type SurfaceMaterial,
-    toFilterBits,
-} from "../common/types";
-import { addHullToDatabase, removeHullFromDatabase, type WorldState } from "../world/world";
 
 /** Min extent (smallest sphere fitting inside) and max extent per axis, for sleeping (b3ShapeExtent). */
 export type ShapeExtent = { minExtent: number; maxExtent: Vec3 };
