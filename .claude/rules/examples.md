@@ -21,9 +21,9 @@ Physics recipes cite gym gold twins. Teach published substrate; beyond it, name 
 
 Gym: one project, query-selected subsystem atoms; correctness/benchmark/demo in one unbranched scene. Targeted device tier, not teaching. Fold labs case-by-case into owning params/modes, no mechanical moves. Real-input cases may own by-path Playwright drivers; params/assert stay environment-unaware.
 
-Flows: verify-only ejected apps beyond unit reach. Showcase: rich self-contained capabilities, own/dogfood published-surface gates/driver, never repo scripts. Check tier before quality. Site builds published-package ejected consumers; command: root AGENTS.
+Flows: verify-only ejected apps beyond unit reach. Showcase: rich self-contained capabilities, own/dogfood published-surface gates/driver, never repo scripts. Check tier before quality.
 
-Showcase perf: ProfilePlugin frame percentiles/GPU spans, real input for interaction costs. Gate named structural mechanisms/in-run ratios; absolute timing ungated. Attribute remote reports locally before gates; no local red: name dominant cost + ungated reading. RUM intake drives above/below 50ms, asserts duration-vital call AND intercepted wire; fulfill every matching request locally, never forward.
+Showcase perf: ProfilePlugin frame percentiles/GPU spans, real input for interaction costs. Gate named structural mechanisms/in-run ratios; absolute timing ungated. Attribute remote reports locally before gates; no local red: name dominant cost + ungated reading.
 
 ## Gym scenario contract
 
