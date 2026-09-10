@@ -1,4 +1,5 @@
-// Bit-exact fixture gate — the stage-8 regression contract. Each scene is rebuilt through the
+// The bit-exact fixture harness: scene builders and the replay driver. The declared checks that call
+// it live beside it in step.gold.test.ts. Each scene is rebuilt through the
 // public API, stepped, and its FNV-1a world-state hash asserted equal to the C reference's, per
 // step. The fixtures come from the Box3D C reference (branch `harness`) built scalar + force-overflow;
 // regenerate with `bun run crates/physics/scripts/gen-fixtures.ts`. On divergence the first mismatched step is reported with
@@ -8,7 +9,7 @@
 // per-scene, matching the generator: stage-8 scenes run the awake path with sleep off; stage-9 scenes
 // (sphere-sleep / box-sleep / wake-drop) turn it on and gate the sleep-step index bit-for-bit.
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -1585,12 +1586,6 @@ const stepFactories: Record<string, () => (world: World, step: number) => void> 
     },
 };
 
-// scene name → [enableSleep, enableContinuous], matching gen.c's per-scene world flags.
-// SCENES lives in step.scenes.ts so the default-suite parity arm in step.test.ts can import it without
-// registering the heavy bit-exact fixture tests in `bun test`. The count of entries is derived by that
-// arm against the committed fixture files in tests/physics/fixtures/.
-import { SCENES } from "./step.scenes";
-
 // The hashes are the C reference's, generated serially — and cross-thread-count determinism is what the
 // ported task machinery guarantees (within a color no two constraints share a body, the overflow color
 // and contact creation stay serial in creation order, no reduction depends on worker identity). So the
@@ -1603,98 +1598,59 @@ const THREADS = AUTO ? undefined : Number(RAW ?? 0);
 // only `SHALLOT_PHYSICS_THREADS` absent/0 stays single-thread.
 const WANT_MT = AUTO || (THREADS ?? 0) >= 1;
 
-beforeAll(async () => {
+/**
+ * Bring the kernel up at the thread count `SHALLOT_PHYSICS_THREADS` asks for.
+ * A silent fall back to single-thread would make the MT run a vacuous re-run of the default one, so
+ * this refuses when the shared kernel was asked for and did not load (`sharedBytes` is 0 on the ST path).
+ */
+export async function startKernel(): Promise<void> {
     await (AUTO ? init() : init({ threads: THREADS }));
-    // A silent fall back to single-thread would make the MT run a vacuous re-run of the default one, so
-    // the gate asserts the shared kernel actually loaded (`sharedBytes` is 0 on the ST path).
     if (WANT_MT && sharedBytes() === 0) {
         throw new Error(`wanted the multithreaded kernel (${RAW}), got the single-thread one`);
     }
-    console.log(`[fixtures] threads: ${threads()}${sharedBytes() > 0 ? " (shared kernel)" : ""}`);
-});
+    console.log(`[gold] threads: ${threads()}${sharedBytes() > 0 ? " (shared kernel)" : ""}`);
+}
 
-afterAll(async () => {
+/** Tear the kernel down. */
+export async function stopKernel(): Promise<void> {
     await shutdown();
-});
+}
 
-describe("fixture parity", () => {
-    for (const [scene, enableSleep, enableContinuous] of SCENES) {
-        test(scene, () => {
-            const fx = loadFixture(scene);
-            const timeStep = fround(fx.timeStep);
+/**
+ * Rebuild one scene through the public API, step it, and assert its world-state hash equals the C
+ * reference's at every step. Throws with the first divergent step and both body dumps on a mismatch.
+ */
+export function runScene(scene: string, enableSleep: boolean, enableContinuous: boolean): void {
+    const fx = loadFixture(scene);
+    const timeStep = fround(fx.timeStep);
 
-            const world = new World({
-                gravity: { x: fx.gravity[0], y: fx.gravity[1], z: fx.gravity[2] },
-                enableSleep,
-                enableContinuous,
-            });
-            builders[sceneBuilder[scene] ?? scene](world, fx);
-            const stepFn = stepFactories[scene]?.();
+    const world = new World({
+        gravity: { x: fx.gravity[0], y: fx.gravity[1], z: fx.gravity[2] },
+        enableSleep,
+        enableContinuous,
+    });
+    builders[sceneBuilder[scene] ?? scene](world, fx);
+    const stepFn = stepFactories[scene]?.();
 
-            for (let step = 0; step < fx.stepCount; ++step) {
-                stepFn?.(world, step);
-                world.step(timeStep, fx.subStepCount);
-                const got = toHex(hashWorldState(world.state));
-                if (got !== fx.hashes[step]) {
-                    const dump = dumpBodies(world);
-                    const ref = fx.states.find((s) => s.step === step);
-                    let msg = `${scene}: hash diverged at step ${step}\n  got  ${got}\n  want ${fx.hashes[step]}\n`;
-                    msg += `  port bodies: ${JSON.stringify(dump)}\n`;
-                    if (ref) {
-                        msg += `  ref bodies:  ${JSON.stringify(ref.bodies)}\n`;
-                    } else {
-                        msg += `  (no reference state dump at step ${step})\n`;
-                    }
-                    throw new Error(msg);
-                }
-                expect(got).toBe(fx.hashes[step]);
+    for (let step = 0; step < fx.stepCount; ++step) {
+        stepFn?.(world, step);
+        world.step(timeStep, fx.subStepCount);
+        const got = toHex(hashWorldState(world.state));
+        if (got !== fx.hashes[step]) {
+            const dump = dumpBodies(world);
+            const ref = fx.states.find((s) => s.step === step);
+            let msg = `${scene}: hash diverged at step ${step}\n  got  ${got}\n  want ${fx.hashes[step]}\n`;
+            msg += `  port bodies: ${JSON.stringify(dump)}\n`;
+            if (ref) {
+                msg += `  ref bodies:  ${JSON.stringify(ref.bodies)}\n`;
+            } else {
+                msg += `  (no reference state dump at step ${step})\n`;
             }
-
-            expectIdentityRecords();
-            world.destroy();
-        });
+            throw new Error(msg);
+        }
+        expect(got).toBe(fx.hashes[step]);
     }
-});
 
-// Joint events are flagged during the joint solve (getJointReaction vs threshold), so on the pool the
-// solve runs in-kernel and the flags must be rebuilt from the read-back impulses — a behavioral property
-// the world-state hash can't see. This lives in the fixture harness (not engine/events.test.ts) because
-// the check must run at ST, t2, and t8, and the kernel is a process singleton whose thread count latches
-// at the first init(): only the per-count fixture processes (test:fixture / :mt / :auto) realize all
-// three. The ST run passes on the serial path pre-fix; the MT runs are the regression that was red.
-describe("joint events", () => {
-    // A zero-threshold weld reports its joint every awake step; a default (no-threshold) weld never does.
-    // Mirrors events.test.ts's serial "joint events" specs, but under the harness's resolved thread count.
-    test("a zero-threshold joint reports every awake step", () => {
-        const world = new World();
-        const anchor = world.createBody({ type: BodyType.Static, position: { x: 0, y: 5, z: 0 } });
-        const hung = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 4, z: 0 } });
-        hung.createHull({ density: 1 }, makeBoxHull(0.5, 0.5, 0.5));
-        const flagged = world.createWeldJoint(anchor, hung, {
-            forceThreshold: 0,
-            userData: "load",
-        });
-
-        world.step(1 / 60);
-
-        const events = world.getJointEvents();
-        expect(events.length).toBe(1);
-        expect(events[0].joint.id.index1).toBe(flagged.id.index1);
-        expect(events[0].userData).toBe("load");
-
-        world.destroy();
-    });
-
-    test("a default (no-threshold) joint reports nothing", () => {
-        const world = new World();
-        const anchor = world.createBody({ type: BodyType.Static, position: { x: 0, y: 5, z: 0 } });
-        const hung = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 4, z: 0 } });
-        hung.createHull({ density: 1 }, makeBoxHull(0.5, 0.5, 0.5));
-        world.createWeldJoint(anchor, hung);
-
-        world.step(1 / 60);
-        expect(world.getJointEvents().length).toBe(0);
-
-        world.destroy();
-    });
-});
+    expectIdentityRecords();
+    world.destroy();
+}
