@@ -10,10 +10,9 @@
 // the installed engine's agent surface.
 export const ENGINE_REFERENCE = `## Engine reference
 
-The engine is the documentation. Read \`node_modules/@dylanebert/shallot/AGENTS.md\` for the full
-contract (ECS, plugins, scenes, GPU, UI), and every public export
-carries JSDoc. The examples index lives at \`node_modules/@dylanebert/shallot/examples/AGENTS.md\` — grep
-it for the problem you have, then read that recipe's source, before writing a pattern from scratch.
+The engine is the documentation. Read \`node_modules/@dylanebert/shallot/README.md\` for the setup,
+and every public export carries JSDoc. The recipes live at \`node_modules/@dylanebert/shallot/examples/recipes/\`;
+read the one closest to your problem before writing a pattern from scratch.
 \`bunx shallot add <name> [dir]\` copies a recipe out of the installed package into a runnable project
 (bare: lists them).`;
 

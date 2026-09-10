@@ -38,16 +38,28 @@ bun add @dylanebert/shallot typegpu@~0.12.5
 bun add -d unplugin-typegpu@~0.12.3
 ```
 
-TypeGPU is a required peer, and TGSL needs exactly one TypeGPU transform in your bundler. A `shallot.json` project gets that from the CLI. An ejected Vite app adds `typegpu()` from `unplugin-typegpu/vite` plus `optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] }`. [MIGRATION.md](https://github.com/dylanebert/shallot/blob/main/MIGRATION.md) has the full setup, and it's also the GPU-consumer port from 0.8.
+TypeGPU is a required peer, and TGSL needs exactly one TypeGPU transform in your bundler. A `shallot.json` project gets that from the CLI. An ejected Vite app adds `typegpu()` from `unplugin-typegpu/vite` plus `optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] }`:
+
+```ts
+// vite.config.ts
+import { defineConfig } from "vite";
+import typegpu from "unplugin-typegpu/vite";
+import { projectPlugin } from "@dylanebert/shallot/vite";
+
+export default defineConfig({
+    plugins: [typegpu(), projectPlugin(".")],
+    optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] },
+});
+```
 
 `bunx shallot add <name> [dir]` copies a recipe out as a runnable, version-matched project.
 
 ## the repo is the docs
 
-The source is the reference: every public export carries a JSDoc contract. There's no docs site to drift from it, and two files carry the consumer surface:
+The source is the reference: every public export carries a JSDoc contract. There's no docs site to drift from it, and two files carry the agent surface:
 
-- [`AGENTS.md`](https://github.com/dylanebert/shallot/blob/main/AGENTS.md) — the repo and consumer contract: commands, the ECS and plugin conventions, the GPU, render, physics, and testing rules. Ships in the npm package.
-- [`examples/AGENTS.md`](examples/AGENTS.md) — the examples index: one line per entry, so you grep for the problem you have. The recipes section ships in the npm package as well.
+- [`AGENTS.md`](AGENTS.md) — the repo's agent contract: commands, pins, the ECS and plugin conventions, the GPU, render, physics, and testing rules.
+- [`examples/AGENTS.md`](examples/AGENTS.md) — the examples index: one line per entry, so you grep for the problem you have. The recipes themselves ship in the npm package.
 
 Written for coding agents first, readable by hand. Both files move in the same commit as the code they describe, so there's no generated layer to fall behind.
 
@@ -111,15 +123,15 @@ Portable builds bundle the Chromium runtime (CEF) instead of the system webview.
 run from the repo root. The `test` script in [`package.json`](package.json) defines the default test paths.
 
 ```bash
-bun check          # read-only: tsc + biome + check-pack + check-docs
+bun run check      # read-only: tsc, biome, every scripts/check-*.ts, scene format
 bun run test       # empty until tests are re-admitted by declaration
 bun run format     # biome + scene formatter
 bun run build      # rust artifacts
 ```
 
-Engine-internal layout, the full command table, and the rules index are in [`AGENTS.md`](AGENTS.md); the conventions themselves are path-scoped under [`.claude/rules/`](.claude/rules/).
+The full command table, the toolchain pins and the conventions are in [`AGENTS.md`](AGENTS.md).
 
-`bun check` is the gate before pushing. The old tests live at the `archive/tests-pre-slice` tag (see [ARCHIVE.md](ARCHIVE.md)) and come back one declared check at a time. The by-path slow suites, the invitation-only PR policy, and where to file an issue are in [CONTRIBUTING.md](CONTRIBUTING.md).
+`bun run check` is the gate before pushing. The old tests live at the `archive/tests-pre-slice` tag (see [ARCHIVE.md](ARCHIVE.md)) and come back one declared check at a time. File issues at <https://github.com/dylanebert/shallot/issues>.
 
 ## license
 
