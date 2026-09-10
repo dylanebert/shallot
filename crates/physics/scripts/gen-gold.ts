@@ -8,7 +8,7 @@
 //
 // The reference is pinned in crates/physics/reference.json and cloned on demand into the user cache
 // (scripts/reference.ts); offline with no cached checkout, it refuses with the remedy. The committed gold is the frozen contract
-// (pin 29bf523); only run this at a deliberate upstream sync.
+// for the currently declared reference; only run this at a deliberate upstream sync.
 //
 // Usage: bun run crates/physics/scripts/gen-gold.ts <name>   (from the repo root)
 //        e.g. bun run crates/physics/scripts/gen-gold.ts contact

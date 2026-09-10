@@ -9,18 +9,19 @@
 // every scene), so
 // these fixtures pin the wide-simd wasm path too. Requires cmake and a C toolchain.
 //
-// The committed fixtures are the frozen contract (pin 29bf523 — tests/physics/fixtures/README.md); only
-// run this at a deliberate upstream sync. Offline with no cached checkout, it refuses with the remedy.
+// The committed fixtures are the frozen contract; the generator records the exact reference pin beside
+// them. Only run this at a deliberate upstream sync. Offline with no cached checkout, it refuses with the remedy.
 //
 // Usage: bun run crates/physics/scripts/gen-fixtures.ts   (from the repo root)
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { ensureReference } from "./reference";
+import { ensureReference, pin } from "./reference";
 
 const pkgRoot = resolve(import.meta.dir, "../../..");
-const refDir = ensureReference();
+const reference = pin();
+const refDir = ensureReference(reference);
 const buildDir = resolve(refDir, "build-fixtures");
 const outDir = resolve(pkgRoot, "src/standard/physics/solver/fixtures");
 
@@ -51,4 +52,9 @@ run("cmake", ["--build", buildDir, "--target", "fixture_gen", "-j"]);
 mkdirSync(outDir, { recursive: true });
 console.log(`[physics/gen-fixtures] generating fixtures -> ${outDir}`);
 run(resolve(buildDir, "bin", "fixture_gen"), [outDir]);
+writeFileSync(
+    resolve(outDir, "reference-pin.json"),
+    `${JSON.stringify({ url: reference.url, branch: reference.branch, commit: reference.commit }, null, 2)}\n`,
+);
+console.log(`[physics/gen-fixtures] recorded reference pin ${reference.commit}`);
 console.log("[physics/gen-fixtures] done");
