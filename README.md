@@ -67,7 +67,7 @@ A recipe is one small project per problem: a first-person character, a physics p
 bunx shallot add first-person
 ```
 
-Recipes ship in the npm package. Showcases, full projects like `ascii` and `visualization`, stay in the repo.
+Recipes ship in the npm package.
 
 ## Extensions
 

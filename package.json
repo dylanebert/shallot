@@ -65,8 +65,6 @@
         "dist",
         "examples",
         "!examples/AGENTS.md",
-        "!examples/ascii",
-        "!examples/visualization",
         "!examples/*/node_modules",
         "!examples/*/tsconfig.json",
         "!src/extras/gltf/fixtures",
