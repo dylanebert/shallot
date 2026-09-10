@@ -16,7 +16,7 @@ import { normalize } from "../project/manifest";
 import { manifestPath } from "../project/vite";
 import { tryPrebuilt } from "./prebuilt";
 
-const RUST_CRATE = resolve(import.meta.dir, "../../rust/native");
+const RUST_CRATE = resolve(import.meta.dir, "../../crates/native");
 const DEFAULT_ICON = resolve(import.meta.dir, "../../assets/icon-1024.png");
 const WIN_TARGET = "x86_64-pc-windows-msvc";
 const MAC_TARGET = "aarch64-apple-darwin";
@@ -69,14 +69,16 @@ export function nativeOutDir(
 }
 
 // cargo's build output root for the crate. The windows-portable WSL build redirects to a local
-// Windows dir (winBuildDir) instead; everything else uses this.
+// Windows dir (winBuildDir) instead; everything else uses this. cargoBuild pins CARGO_TARGET_DIR to
+// it, so the path is the same whether the crate builds as a member of the source repo's workspace
+// (whose default is the root target/) or standalone from the npm tarball.
 const CRATE_TARGET = resolve(RUST_CRATE, "target");
 
 export function cargoTarget(target: string, release: boolean, targetDir = CRATE_TARGET): string {
     const profile = release ? "release" : "debug";
     return resolve(
         targetDir,
-        `${target}/${profile}/shallot-window${target.includes("windows") ? ".exe" : ""}`,
+        `${target}/${profile}/shallot-native${target.includes("windows") ? ".exe" : ""}`,
     );
 }
 
@@ -158,12 +160,12 @@ export function resolveCargoInvocation(
     return { kind: msvc ? "xwin" : "native", flags };
 }
 
-// rust/native ships in the npm tarball (package.json `files` includes `rust/native`), so a missing
+// crates/native ships in the npm tarball (package.json `files` includes `crates/native`), so a missing
 // crate dir means a corrupt install or a non-standard layout, not an unsupported path. Guard it
 // before spawning cargo, since a raw ENOENT from `cwd: RUST_CRATE` below is an opaque failure.
 export function missingCrateDiagnostic(crateDir: string): string | null {
     if (existsSync(crateDir)) return null;
-    return `no rust/native crate found at ${crateDir}. The crate ships in the npm package, so this looks like a corrupt install or a non-standard layout. Reinstall @dylanebert/shallot, or build from the source repo.`;
+    return `no crates/native crate found at ${crateDir}. The crate ships in the npm package, so this looks like a corrupt install or a non-standard layout. Reinstall @dylanebert/shallot, or build from the source repo.`;
 }
 
 function requireRustCrate(): void {
@@ -217,7 +219,11 @@ function cargoBuild(
 
     // cross-compile a Windows target from a non-WSL host (cargo-xwin), or build a native target.
     const cmd = invocation.kind === "xwin" ? "cargo xwin build" : "cargo build";
-    const env = distDir ? { ...process.env, SHALLOT_DIST: distDir } : process.env;
+    const env = {
+        ...process.env,
+        CARGO_TARGET_DIR: CRATE_TARGET,
+        ...(distDir ? { SHALLOT_DIST: distDir } : {}),
+    };
     execSync([cmd, ...invocation.flags].join(" "), { cwd: RUST_CRATE, stdio: "inherit", env });
 }
 
@@ -557,7 +563,7 @@ export async function bundleNativeMac(
         if (release) tryStrip(resolve(fwOut, "Chromium Embedded Framework"), "-x -S");
     }
 
-    // Debug stages dist/ on disk so asset edits show without a recompile (see rust/native/src/main.rs).
+    // Debug stages dist/ on disk so asset edits show without a recompile (see crates/native/src/main.rs).
     // It goes in Resources/, not MacOS/ — codesign treats everything under MacOS/ as nested code and
     // rejects the bundle on the first non-Mach-O asset; Resources is where bundled data belongs.
     if (!release) {

@@ -73,7 +73,7 @@ export function devConfig(
             // cross-origin isolation so physics multithreads (COOP/COEP → shared WebAssembly.Memory)
             headers: CROSS_ORIGIN_ISOLATION,
             // searchForWorkspaceRoot restores vite's default fs.allow root (which an explicit `allow`
-            // overrides). The engine package (`@dylanebert/shallot`, with its `rust/audio/pkg/*.wasm`
+            // overrides). The engine package (`@dylanebert/shallot`, with its `crates/audio/pkg/*.wasm`
             // fetched over /@fs/) is covered by it when in-workspace; a cross-repo symlink (a project
             // symlinked in from outside the workspace) lands outside, so the CLI's own engine dir is
             // allowed explicitly too.

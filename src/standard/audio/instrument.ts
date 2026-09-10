@@ -39,7 +39,7 @@ export const NODE_TYPE_ID: Record<NodeType, number> = {
     tremolo: 15,
 };
 
-/** `dynamics.mode` values — mirrors `rust/audio/src/dynamics.rs`'s `DynamicsMode`.
+/** `dynamics.mode` values — mirrors `crates/audio/src/dynamics.rs`'s `DynamicsMode`.
  *  `limiter`/`gate` share the `compressor`/`expander` curve; only the default
  *  parameter preset differs. */
 const DYNAMICS_MODE = {
@@ -49,7 +49,7 @@ const DYNAMICS_MODE = {
     gate: 3,
 } as const;
 
-/** `waveshaper.mode` values — mirrors `rust/audio/src/waveshaper.rs`'s `ShaperMode`.
+/** `waveshaper.mode` values — mirrors `crates/audio/src/waveshaper.rs`'s `ShaperMode`.
  *  `soft` is DaisySP's overdrive (rational-tanh), `hard` a clip, `fold` a wavefolder. */
 const WAVESHAPER_MODE = {
     soft: 0,
@@ -221,7 +221,7 @@ const NO_BUF = 0xff;
 /**
  * the kernel's fixed instrument-table size: the number of distinct instrument *definitions* that can be
  * registered (not concurrent voices; the 64-slot pool bounds polyphony). Registering past it warns and
- * plays silent. Mirrors `rust/audio/src/graph.rs`'s `[InstrumentDef; MAX_INSTRUMENTS]`.
+ * plays silent. Mirrors `crates/audio/src/graph.rs`'s `[InstrumentDef; MAX_INSTRUMENTS]`.
  */
 export const MAX_INSTRUMENTS = 32;
 export const MAX_BUFFERS = 8;

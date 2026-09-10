@@ -1,8 +1,8 @@
-# Prebuilt shallot-window shell release pipeline.
+# Prebuilt shallot-native shell release pipeline.
 #
 # This is the repo's first CI. It produces the prebuilt binary archives that `shallot build --target`
 # downloads when available (stage B's `tryPrebuilt` in src/native/prebuilt.ts), falling back to lazy compile on
-# any miss. One `shallot-window-<triple>-<mode>.tar.gz` per matrix cell, plus a top-level `SHA256SUMS`
+# any miss. One `shallot-native-<triple>-<mode>.tar.gz` per matrix cell, plus a top-level `SHA256SUMS`
 # covering all six.
 #
 # TRIGGER ASYMMETRY — the dry run's whole safety property:
@@ -55,35 +55,35 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
             mode: system
-            binary: shallot-window
-            archive: shallot-window-x86_64-unknown-linux-gnu-system.tar.gz
+            binary: shallot-native
+            archive: shallot-native-x86_64-unknown-linux-gnu-system.tar.gz
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
             mode: portable
-            binary: shallot-window
-            archive: shallot-window-x86_64-unknown-linux-gnu-portable.tar.gz
+            binary: shallot-native
+            archive: shallot-native-x86_64-unknown-linux-gnu-portable.tar.gz
           # windows → windows (x86_64-pc-windows-msvc)
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
             mode: system
-            binary: shallot-window.exe
-            archive: shallot-window-x86_64-pc-windows-msvc-system.tar.gz
+            binary: shallot-native.exe
+            archive: shallot-native-x86_64-pc-windows-msvc-system.tar.gz
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
             mode: portable
-            binary: shallot-window.exe
-            archive: shallot-window-x86_64-pc-windows-msvc-portable.tar.gz
+            binary: shallot-native.exe
+            archive: shallot-native-x86_64-pc-windows-msvc-portable.tar.gz
           # macos-14 (Apple Silicon) → mac (aarch64-apple-darwin)
           - target: aarch64-apple-darwin
             runner: macos-14
             mode: system
-            binary: shallot-window
-            archive: shallot-window-aarch64-apple-darwin-system.tar.gz
+            binary: shallot-native
+            archive: shallot-native-aarch64-apple-darwin-system.tar.gz
           - target: aarch64-apple-darwin
             runner: macos-14
             mode: portable
-            binary: shallot-window
-            archive: shallot-window-aarch64-apple-darwin-portable.tar.gz
+            binary: shallot-native
+            archive: shallot-native-aarch64-apple-darwin-portable.tar.gz
     runs-on: ${{ matrix.runner }}
     steps:
       # First-party actions on major tags, deliberately (see comment at top of file).
@@ -110,19 +110,19 @@ jobs:
             g++ \
             pkg-config
 
-      - name: Build shallot-window shell (release)
-        working-directory: rust/native
+      - name: Build shallot-native shell (release)
+        working-directory: crates/native
         run: |
           if [ "${{ matrix.mode }}" = "portable" ]; then
-            cargo build --release --target ${{ matrix.target }} --no-default-features --features portable
+            cargo build --release --target-dir target --target ${{ matrix.target }} --no-default-features --features portable
           else
-            cargo build --release --target ${{ matrix.target }}
+            cargo build --release --target-dir target --target ${{ matrix.target }}
           fi
 
       # Assemble the archive per the pinned contract:
-      #   system       → shallot-window[.exe]
-      #   linux/win portable → shallot-window[.exe] + cef/ (copyCefLibs/copyCefDlls file sets)
-      #   mac portable → shallot-window + shallot-helper + Chromium Embedded Framework.framework/
+      #   system       → shallot-native[.exe]
+      #   linux/win portable → shallot-native[.exe] + cef/ (copyCefLibs/copyCefDlls file sets)
+      #   mac portable → shallot-native + shallot-helper + Chromium Embedded Framework.framework/
       # The CEF runtime is discovered via the same findCefDir search pattern native.ts uses
       # (target/<triple>/release/build/cef-dll-sys-*/out/<subdir>/), NOT by re-deriving the CDN URL.
       - name: Assemble archive
@@ -133,7 +133,7 @@ jobs:
           ARCHIVE: ${{ matrix.archive }}
         run: |
           set -e
-          CRATE="rust/native"
+          CRATE="crates/native"
           STAGE="stage"
           mkdir -p "$STAGE"
 
@@ -262,13 +262,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: archives
-          pattern: shallot-window-*.tar.gz
+          pattern: shallot-native-*.tar.gz
           merge-multiple: true
 
       - name: Generate SHA256SUMS
         run: |
           cd archives
-          sha256sum shallot-window-*.tar.gz > ../SHA256SUMS
+          sha256sum shallot-native-*.tar.gz > ../SHA256SUMS
           cat ../SHA256SUMS
 
       - name: Upload SHA256SUMS artifact
@@ -293,7 +293,7 @@ jobs:
       # first already-present asset.
       #
       # Uses `gh` (preinstalled on GitHub runners) rather than a third-party action. The glob
-      # `archives/shallot-window-*.tar.gz` makes a zero-match an error: bash passes the unmatched
+      # `archives/shallot-native-*.tar.gz` makes a zero-match an error: bash passes the unmatched
       # literal to gh, which fails because the file does not exist — so a partial assembly cannot
       # publish a SHA256SUMS with no archives beside it.
       #
@@ -316,10 +316,10 @@ jobs:
         run: |
           if gh release view "${{ github.ref_name }}" > /dev/null 2>&1; then
             gh release upload "${{ github.ref_name }}" --clobber \
-              archives/shallot-window-*.tar.gz \
+              archives/shallot-native-*.tar.gz \
               SHA256SUMS
           else
             gh release create "${{ github.ref_name }}" --verify-tag --generate-notes \
-              archives/shallot-window-*.tar.gz \
+              archives/shallot-native-*.tar.gz \
               SHA256SUMS
           fi

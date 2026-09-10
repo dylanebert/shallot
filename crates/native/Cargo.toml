@@ -1,0 +1,60 @@
+[package]
+name = "shallot-native"
+# Literal, not workspace-inherited: this crate also builds standalone from the npm tarball.
+version = "0.10.0"
+edition = "2021"
+license = "MIT"
+
+[[bin]]
+name = "shallot-native"
+path = "src/main.rs"
+
+# macOS CEF subprocess entry. CEF on macOS launches renderer/GPU/etc. as separate helper .app
+# bundles (not the main exe), so they need their own minimal binary. A no-op on every other config.
+[[bin]]
+name = "shallot-helper"
+path = "src/helper.rs"
+
+# Two build modes, one per backend. `system` (default) builds against the platform's system webview
+# (wry → WebView2 / WKWebView / WebKitGTK); `portable` ships the Chromium runtime (CEF) and runs
+# anywhere. A portable build is invoked with `--no-default-features --features portable`, so it never
+# links wry/winit — the artifact is self-contained. objc2 is macOS-only; Cargo recognizes the
+# `dep:` reference on every target and activates it only where its `cfg(target_os)` matches.
+[features]
+default = ["system"]
+system = ["dep:wry", "dep:winit", "dep:image"]
+portable = ["dep:cef", "dep:objc2", "dep:objc2-app-kit"]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winit = { version = "0.30", optional = true }
+wry = { version = "0.48", optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+cef = { version = "145", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+winit = { version = "0.30", optional = true }
+wry = { version = "0.48", optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+cef = { version = "145", optional = true }
+
+# macOS CEF: default-features = false drops the unused build-util + sandbox.
+[target.'cfg(target_os = "macos")'.dependencies]
+winit = { version = "0.30", optional = true }
+wry = { version = "0.48", optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+cef = { version = "145", default-features = false, optional = true }
+objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", default-features = false, optional = true, features = [
+    "std",
+    "NSApplication",
+    "NSResponder",
+    "NSEvent",
+] }
+
+# Mirrors the workspace root profile; read only when built standalone from the npm tarball.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

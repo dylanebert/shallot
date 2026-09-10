@@ -56,8 +56,8 @@ const required = [
     "src/cli/index.ts",
     "dist/vite.js",
     "src/harness/browser.json",
-    "rust/native/Cargo.toml",
-    "rust/native/Cargo.lock",
+    "crates/native/Cargo.toml",
+    "crates/native/Cargo.lock",
     "assets/icon-1024.png",
     "shallot.schema.json",
 ];
@@ -74,7 +74,7 @@ for (const f of files.filter((f) => f.endsWith("package.json") && f !== "package
 }
 
 const missing = required.filter((f) => !files.includes(f));
-if (!files.some((f) => f.startsWith("rust/audio/pkg/"))) missing.push("rust/audio/pkg/");
+if (!files.some((f) => f.startsWith("crates/audio/pkg/"))) missing.push("crates/audio/pkg/");
 if (!files.some((f) => f.startsWith("examples/recipes/"))) missing.push("examples/recipes/");
 
 if (violations.length > 0) {

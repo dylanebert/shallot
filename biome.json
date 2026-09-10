@@ -7,7 +7,7 @@
             "examples/**/*.ts",
             "evals/**/*.ts",
             "scripts/**/*.ts",
-            "rust/physics/scripts/**/*.ts",
+            "crates/physics/scripts/**/*.ts",
             "!examples/*/public",
             "!bin",
             "!src/project",
@@ -92,7 +92,7 @@
     },
     "overrides": [
         {
-            "includes": ["**/rust/**/pkg/**"],
+            "includes": ["crates/*/pkg/**"],
             "linter": { "rules": { "style": { "useNamingConvention": "off" } } }
         }
     ]

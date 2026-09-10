@@ -1,0 +1,17 @@
+[workspace]
+members = ["crates/audio", "crates/native", "crates/physics"]
+resolver = "2"
+
+[workspace.package]
+version = "0.10.0"
+edition = "2021"
+license = "MIT"
+
+# One shipping profile for every crate's release build. crates/native repeats it because it also
+# builds standalone from the npm tarball, where this root manifest is absent.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
