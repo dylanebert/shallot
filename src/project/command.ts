@@ -1,6 +1,6 @@
 // The command half of the project host: a project directory in, an exit code and (on success) one
 // resolved plan out, plus the loader that turns that plan's local plugins into real Plugin objects. This
-// is the single module the package's own tooling (`bin/toolchain.ts`) reaches the project through, so a
+// is the single module the package's own tooling (`src/cli`) reaches the project through, so a
 // command never repeats resolution, never reads this package's `exports` map and never deep-imports
 // engine source to find a plugin.
 //
@@ -34,7 +34,7 @@ export {
 } from "./host";
 
 // exit codes: 0 and the setup code every sibling command already uses for "bad input, never reached the
-// real work" (`bin/verify.ts`'s own numbering).
+// real work".
 export const EXIT_OK = 0;
 export const EXIT_SETUP = 2;
 

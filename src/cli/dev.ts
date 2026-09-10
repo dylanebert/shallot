@@ -32,7 +32,7 @@ function synthIndexPlugin(name: string): VitePlugin {
 /** the vite dev config for a manifest project. `open` defaults true: a person typing `shallot dev`
  *  wants the page. A driver that brings its own browser passes `--no-open` (a gate that opened a tab in
  *  the operator's browser on every start is the defect this default earns), and every non-interactive
- *  caller in this repo — `bin/verify.ts`, the eval grader, the showcase gates' web servers — passes
+ *  caller in this repo (the showcase gates' web servers) passes
  *  `open: false` explicitly rather than relying on one. */
 export function devConfig(
     absProjectDir: string,

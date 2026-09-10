@@ -90,7 +90,7 @@ export const AnimationSystem: System = {
                 // an animator that resolves no playable is a scene defect, never a quiet no-op: the
                 // visualization and clips-recipe scenes shipped `animator="loop: 1; target: @x"` with no
                 // `clip:` and every gate stayed green on a static canvas. Warn once per animator, in the
-                // `is not registered` form `shallot verify` promotes to an error.
+                // `is not registered` form a browser driver promotes to an error.
                 if (!warned.has(eid)) {
                     warned.add(eid);
                     console.warn(

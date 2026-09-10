@@ -1,6 +1,6 @@
 /**
  * a captured GPU-side log line: what a `console.log` inside a TGSL kernel printed, once its ring buffer
- * was read back. `errors` holds the `console.error` subset, which `shallot verify` fails on.
+ * was read back. `errors` holds the `console.error` subset, which a browser driver fails on.
  */
 export interface GpuLog {
     lines: string[];
@@ -29,7 +29,7 @@ function text(args: unknown[]): string {
 /**
  * tee GPU-side log lines into `globalThis.__gpuLog`, so a harness can read what a kernel printed.
  *
- * Opt-in by presence: the host creates `__gpuLog` before the page's own scripts run (`shallot verify`
+ * Opt-in by presence: the host creates `__gpuLog` before the page's own scripts run (a browser driver
  * does it in an init script), and without it this is a no-op — an engine that always wrapped `console`
  * would be taxing every app for a debugging affordance.
  *

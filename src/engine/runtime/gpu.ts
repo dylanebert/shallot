@@ -211,7 +211,7 @@ export interface ShaderArtifact {
     compilationError?: { errorClass: string; message: string };
 }
 
-/** the page-side artifact capture `shallot verify` opts into before application code runs. @internal */
+/** the page-side artifact capture a browser driver opts into before application code runs. @internal */
 export interface GpuDiagnostics {
     artifacts: ShaderArtifact[];
 }

@@ -25,11 +25,11 @@ bun install
 bunx shallot dev
 ```
 
-`bunx shallot dev` runs the project with hot reload, and `bunx shallot build` ships it as a web bundle. `bunx shallot build --target windows|mac|linux --release` downloads a prebuilt shell for that version from GitHub Releases, so no Rust toolchain is needed on a hit. A debug build, or any miss (404, offline, checksum mismatch, a source checkout), silently falls back to compiling the Rust window host from source, which needs the Rust toolchain plus that target's system dependencies (see [from source](#from-source)).
+`bunx shallot dev` runs the project with hot reload, and `bunx shallot build` ships it as a web bundle. `bunx shallot build --target windows|mac|linux --release` downloads a prebuilt shell for that version from GitHub Releases, so no Rust toolchain is needed on a hit. A debug build, or any miss (404, offline, checksum mismatch, a source checkout), silently falls back to compiling the Rust native host from source, which needs the Rust toolchain plus that target's system dependencies (see [from source](#from-source)).
 
 A project is plain data plus code: a `shallot.json` manifest, a `.scene` file, and TypeScript plugins you edit in your IDE.
 
-`bunx shallot verify` boots the project in full Chromium headlessly by default and exits 0 or nonzero, a check you, an agent, or CI can run to catch a project that no longer boots or renders. Use `--headed` only for checks whose claim depends on a display or compositor; `--connect` drives an endpoint-owned browser. It drives a real browser through the optional playwright peer, so install that once per project: `bun add -d playwright && bunx playwright install chromium`. The packed-install probe is `bun test --timeout 120000 ./scripts/install-test.probes.ts`.
+`shallot verify` is gone in this version, and `shallot check` will replace it. Until then, `bunx shallot check` says it isn't available and exits 2. Any other verb runs `shallot-<verb>` from your PATH or your project's installed bins, the way Cargo and git do it. The packed-install probe is `bun test --timeout 120000 ./scripts/install-test.probes.ts`.
 
 ## add to an existing project
 
@@ -40,7 +40,7 @@ bun add -d unplugin-typegpu@~0.12.3
 
 TypeGPU is a required peer, and TGSL needs exactly one TypeGPU transform in your bundler. A `shallot.json` project gets that from the CLI. An ejected Vite app adds `typegpu()` from `unplugin-typegpu/vite` plus `optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] }`. [MIGRATION.md](https://github.com/dylanebert/shallot/blob/main/MIGRATION.md) has the full setup, and it's also the GPU-consumer port from 0.8.
 
-`bunx shallot recipe <name> [dir]` copies a recipe out as a runnable, version-matched project.
+`bunx shallot add <name> [dir]` copies a recipe out as a runnable, version-matched project.
 
 ## the repo is the docs
 

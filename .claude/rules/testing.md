@@ -57,7 +57,7 @@ Bump all pins together, resolve lock, confirm one TypeGPU identity before gates.
 
 Evals tools: `bun run evals/setup.ts`, `bun run evals/grade.ts`.
 
-`bun run test:install`: pack not link; browser/build; plain-Node export/brand/realpath/docs/imports, fail-closed; no selector. Reachability repairs owe `bun test --timeout 120000 ./bin/build.probes.ts`: source + physical public-build proof, retain/prune. Other CLI/manifest/deps/prebundle/launch/runtime/scaffold/native-package changes retain full install.
+`bun run test:install`: pack not link; browser/build; plain-Node export/brand/realpath/docs/imports, fail-closed; no selector. CLI/manifest/deps/prebundle/launch/runtime/scaffold/native-package changes retain full install.
 
 ## Release gate
 

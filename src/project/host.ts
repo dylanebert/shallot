@@ -1,7 +1,7 @@
 // The project host: plan, discovery and resolution for a project directory, as pure data. One module
 // answers "what is this project, and which plugins does it enable" for both consumers — the browser
 // generator (`generate.ts` → `virtual:project`, through `vite.ts`) and the command entry (`command.ts`
-// → `bin/toolchain.ts`) — so the two cannot drift in how a manifest becomes a plugin set.
+// → `src/cli`) — so the two cannot drift in how a manifest becomes a plugin set.
 //
 // Nothing here imports Vite, a browser API or a GPU global, and nothing here loads a plugin module: a
 // plan is data the caller may inspect, log or refuse before any module evaluation happens

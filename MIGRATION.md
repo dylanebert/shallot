@@ -4,13 +4,16 @@ Keep one `@dylanebert/shallot` installation. The `shallot` CLI, scaffold command
 
 The `@dylanebert/shallot/src/*` wildcard is removed. Use the bare package for author APIs (including `State`, `Physics` and loading themes), `/runtime` for platform/device services, `/harness` for verification, and the named `*/core` extension subpaths. The former loading-module import becomes `import { shallotDark } from "@dylanebert/shallot"`. Arbitrary implementation files have no supported replacement; request a public seam rather than resolving package directories yourself.
 
-Runtime exports remain raw TypeScript. Keep the exact-once TGSL transform and ejected/framework configuration below; do not prebundle the engine or TypeGPU. Plain Node configuration imports still use the compiled `/vite` and `/harness/browser` entries. Raw runtime source still needs its supported transform/loader, not Node's default package loader.
+Runtime exports remain raw TypeScript. Keep the exact-once TGSL transform and ejected/framework configuration below; do not prebundle the engine or TypeGPU. Plain Node configuration imports use the compiled `/vite` entry and the JSON `/harness/browser` entry, imported `with { type: "json" }`. Raw runtime source still needs its supported transform/loader, not Node's default package loader.
 
 The original 0.9.5 scaffold's TypeScript configuration selects only WebGPU globals. Its `tsc --noEmit` reports missing `ImportMeta.env` and Node worker types in 0.9.5; the Node type-context errors also occur in 0.10. For that project, install `bun add -d @types/node@^26.0.0`, then use `bunx tsc --noEmit --types @webgpu/types,node,vite/client`, or add those same entries to `compilerOptions.types`. This supplies the Vite configuration and runtime host-adapter type contexts; it does not add them to your browser bundle.
 
 ## 0.10 user-facing changes
 
 - `shallot tui` is removed.
+- `shallot recipe` is renamed to `shallot add`.
+- `shallot verify` is removed pending `shallot check`, which isn't available in this version and exits 2.
+- `@dylanebert/shallot/harness/browser` is a JSON module: `import launch from "@dylanebert/shallot/harness/browser" with { type: "json" }`. `/harness` still exports `REAL_GPU_LAUNCH` by name.
 - `Tumble`, `TumblePlugin` and `tumble/core` are renamed to `Physics`, `PhysicsPlugin` and `physics/core`. Same solver, same behaviour.
 - The `avbd` subpaths moved to the `@dylanebert/shallot-avbd-physics` extension.
 
@@ -18,7 +21,7 @@ The original 0.9.5 scaffold's TypeScript configuration selects only WebGPU globa
 
 These changes predate the internal package move but affect a project coming from 0.9.5:
 
-- `/tween/core` becomes `/animation/core`. `Composite`, `Fill`, ownership, sampling and easing helpers keep their behavior. Author animations with `Animator`, `AnimationPlugin` and registered `keyframes`/`script`/`mixer` playables instead of `Tween`, `Sequence`, `TweenState`, `TweenPlugin`, `tween` and `sequence`. `shallot recipe animate-with-clips` is the runnable authoring example.
+- `/tween/core` becomes `/animation/core`. `Composite`, `Fill`, ownership, sampling and easing helpers keep their behavior. Author animations with `Animator`, `AnimationPlugin` and registered `keyframes`/`script`/`mixer` playables instead of `Tween`, `Sequence`, `TweenState`, `TweenPlugin`, `tween` and `sequence`. `shallot add animate-with-clips` is the runnable authoring example.
 - `/document` and the bare `Document`, `Readback`, `ReadbackSystem` and `Session` exports are removed with the retired editor/document layer. There is no replacement undo/history or edit-mode session API. Runtime `load` and `serialize` remain available for scene save/load; callers that require editor history must own it themselves.
 
 ## Self-contained browser output
@@ -330,14 +333,6 @@ Run these from the project root:
 bunx tsc --noEmit
 bunx eslint . --max-warnings=0
 bunx shallot build
-bunx shallot verify --dist
 ```
 
-`shallot verify` uses Shallot's optional Playwright peer. Before the first verify run, install it and its Chromium binary:
-
-```bash
-bun add -d playwright
-bunx playwright install chromium
-```
-
-Resolve or CPU-call one consumer-owned TGSL function. `requestGPU` checks engine metadata but cannot prove a `.svelte` or `.vue` block passed through your filter. For a custom GPU path, keep a final resource or framebuffer assertion in `shallot verify`; emitted WGSL alone does not prove WebGPU accepted or consumed it.
+Resolve or CPU-call one consumer-owned TGSL function. `requestGPU` checks engine metadata but cannot prove a `.svelte` or `.vue` block passed through your filter. For a custom GPU path, keep a final resource or framebuffer assertion in a test of your own; emitted WGSL alone does not prove WebGPU accepted or consumed it.

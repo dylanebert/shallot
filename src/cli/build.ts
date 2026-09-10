@@ -16,7 +16,7 @@ import {
 // the entry a manifest project lacks: a page that runs the project's manifest. resolves the same
 // `virtual:project` `shallot dev` reads (one resolver, no second manifest reader) — its `plugins` are the
 // enabled set (engine via the barrel, tree-shaken; locals by specifier), `scene` the default scene.
-// shared by the web build here and the standalone `shallot dev` server (bin/dev.ts).
+// shared by the web build here and the standalone `shallot dev` server (dev.ts).
 export const synthIndex = (name: string) => `<!doctype html>
 <html lang="en">
     <head>

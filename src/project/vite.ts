@@ -7,7 +7,7 @@ import { generateModuleFromPlan } from "./generate";
 import { emptyPlan, readProject } from "./host";
 
 // the manifest descriptor half of `assets.ts` is part of this subpath's published surface — the CLI
-// (`bin/build.ts`, `bin/features.ts`, `bin/toolchain.ts`) and consumers already resolve both through
+// (`src/cli/build.ts`, `src/engine/runtime/floor.ts`, `toolchain.ts`) and consumers already resolve both through
 // `@dylanebert/shallot/vite`. The readers beside them stay internal to `src/project/`.
 export { manifestPath, manifestWarnings } from "./assets";
 // scene discovery is the project host's (`host.ts`) — re-exported here because the CLI and consumers
@@ -16,7 +16,7 @@ export { discoverScenes } from "./host";
 
 /**
  * cross-origin isolation headers, applied by every serve surface (`shallot dev`, `shallot run`'s preview,
- * `shallot verify`'s dev/ejected/dist boots). physics multithreads only when the page can hold a
+ * the dev/ejected/dist boots). physics multithreads only when the page can hold a
  * shared `WebAssembly.Memory`, which a browser grants only to a cross-origin-isolated document — so the
  * dev/preview server sends COOP/COEP to enable the multithreaded kernel. A static host that can't set
  * headers (GitHub Pages) gets the single-thread kernel and one log, a documented fallback. The cost of
@@ -256,7 +256,7 @@ export function projectPlugin(projectDir?: string): Plugin {
         },
         // drop the assets vite's `new URL` scanner over-emitted (see orphanedAssets). Build-only (a
         // rollup output hook, never fires in dev), and homed here so every build path inherits it: the
-        // synth build (bin/build.ts) and a standalone's own vite.config both run projectPlugin.
+        // synth build (src/cli/build.ts) and a standalone's own vite.config both run projectPlugin.
         generateBundle(_options, bundle) {
             const orphans = orphanedAssets(bundle);
             if (!orphans.length) return;
