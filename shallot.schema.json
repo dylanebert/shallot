@@ -18,6 +18,10 @@
             "type": "string",
             "description": "One line naming the problem the project answers; the examples index prints it."
         },
+        "problem": {
+            "type": "string",
+            "description": "Examples only: the user's problem in their own words; the examples index prints it in place of description. Ignored by dev, build and run."
+        },
         "scene": {
             "type": "string",
             "description": "Path to the project's scene file, relative to the manifest (e.g. \"scenes/main.scene\")."

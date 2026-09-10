@@ -1,9 +1,0 @@
-{
-  "kind": "showcase",
-  "description": "The cell-grid cube seeded on the web sink.",
-  "scene": "scenes/ascii.scene",
-  "plugins": {
-    "Orbit": true,
-    "Cells": true
-  }
-}

@@ -1,6 +1,7 @@
 {
     "kind": "recipe",
     "description": "Turn a skinned model into a ragdoll with LiveSkin and the Physics escape hatch.",
+    "problem": "I want a character to go limp and crumple when it dies.",
     "scene": "scenes/ragdoll.scene",
     "plugins": {
         "Physics": true,

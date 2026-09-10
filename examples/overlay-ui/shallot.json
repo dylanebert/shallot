@@ -1,6 +1,7 @@
 {
     "kind": "recipe",
     "description": "Overlay or embed UI on the canvas with mountOverlay or run.",
+    "problem": "I want a HUD over my game that updates every frame.",
     "scene": "scenes/overlay-ui.scene",
     "plugins": {
         "Orbit": true,

@@ -1,6 +1,7 @@
 {
     "kind": "recipe",
     "description": "Control how bodies slide with Body.friction.",
+    "problem": "Why does my box slide off the ramp instead of gripping?",
     "scene": "scenes/surface-friction.scene",
     "plugins": {
         "Orbit": true,

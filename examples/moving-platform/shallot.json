@@ -1,6 +1,7 @@
 {
     "kind": "recipe",
     "description": "Carry bodies on a kinematic moving platform.",
+    "problem": "I want an elevator that carries whatever is standing on it.",
     "scene": "scenes/moving-platform.scene",
     "plugins": {
         "Orbit": true,

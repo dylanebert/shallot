@@ -1,6 +1,7 @@
 {
     "kind": "recipe",
     "description": "Walk a first-person character controller across platforms.",
+    "problem": "I want to walk around and look with the mouse like a first-person game.",
     "scene": "scenes/first-person.scene",
     "plugins": {
         "Physics": true,

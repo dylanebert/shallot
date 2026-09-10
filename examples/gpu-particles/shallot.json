@@ -1,6 +1,7 @@
 {
     "kind": "recipe",
     "description": "Simulate particles in compute and draw them from the vertex buffer.",
+    "problem": "I want tens of thousands of particles simulated and drawn on the GPU without a CPU round trip.",
     "scene": "scenes/gpu-particles.scene",
     "plugins": {
         "Orbit": true,

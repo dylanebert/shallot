@@ -1,6 +1,7 @@
 {
   "kind": "recipe",
   "description": "Write a custom WGSL surface or backdrop material.",
+  "problem": "I want to write my own shader for a material and for the background.",
   "scene": "scenes/custom-material.scene",
   "plugins": {
     "Orbit": true,
