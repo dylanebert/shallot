@@ -22,5 +22,5 @@
         "types": ["@webgpu/types"]
     },
     "include": ["src", "bin", "examples", "scripts", "evals", "rust/physics/scripts"],
-    "exclude": ["**/dist", "**/build"]
+    "exclude": ["**/dist", "**/build", "evals/tasks"]
 }

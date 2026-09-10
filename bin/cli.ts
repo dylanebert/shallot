@@ -14,7 +14,6 @@ const usage = `
     dev       Run the project standalone, with hot reload
     build     Build for distribution
     run       Build and run
-    verify    Boot the project in full Chromium headlessly and check it renders (shallot verify --help)
     recipe    Copy an example recipe out of the package (bare: list them)
 
   Options
@@ -41,7 +40,7 @@ const usage = `
 `;
 
 export type CliArgs =
-    | { kind: "delegate"; cmd: "verify" | "recipe"; rest: string[] }
+    | { kind: "delegate"; cmd: "recipe"; rest: string[] }
     | { kind: "usage"; exitCode: 0 | 1 }
     | {
           kind: "run";
@@ -62,7 +61,6 @@ export type CliArgs =
  * every one of their flags. Throws on an unrecognized `-`-prefixed option, same as `parseVerifyArgs`.
  */
 export function parseCliArgs(raw: string[]): CliArgs {
-    if (raw[0] === "verify") return { kind: "delegate", cmd: "verify", rest: raw.slice(1) };
     if (raw[0] === "recipe") return { kind: "delegate", cmd: "recipe", rest: raw.slice(1) };
 
     const positionalArgs: string[] = [];
@@ -149,13 +147,8 @@ if (import.meta.main) {
     }
 
     if (parsed.kind === "delegate") {
-        if (parsed.cmd === "verify") {
-            const { runVerify } = await import("./verify");
-            process.exit(await runVerify(parsed.rest));
-        } else {
-            const { runRecipe } = await import("./recipe");
-            process.exit(await runRecipe(parsed.rest));
-        }
+        const { runRecipe } = await import("./recipe");
+        process.exit(await runRecipe(parsed.rest));
     } else if (parsed.kind === "usage") {
         console.log(usage);
         process.exit(parsed.exitCode);

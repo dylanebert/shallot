@@ -2,7 +2,7 @@
 paths:
   - "src/**/*.test.ts"
   - "scripts/*.ts"
-  - "{src,bin,scripts}/**/*.{test,probes}.ts"
+  - "{src,scripts}/**/*.{test,probes}.ts"
   - "scripts/build.ts"
   - "scripts/{install-test.ts,install-test/**/*.ts}"
 ---
@@ -37,7 +37,7 @@ Attribution kind isn't magnitude; non-script remainder isn't a JS owner. Assert 
 
 Observe, don't guess causes; empty diagnostics mean incomplete. Flush before exit; reject empty/non-numeric flags. RUM: read emitters, clean profiles.
 
-`verify` reads console/pixels; motion needs differing frames. `bin/verify.ts` owns center-vs-corner ready/post-run OR: flashes pass, capture fails closed, paint isn't identity. Reframe, don't soften; assert buffer identity. Only app `noRender` opts out visibly. Blank flow is negative control. Leak: idle, derived rate, manual `--leak` control on changes; GC ungated. Instrument failure is incomplete; determined failure outranks unavailable.
+`check` replaces archived `verify` (`ARCHIVE.md`); its settle and center-vs-corner heuristics stay out. Assert buffer identity; paint isn't identity. Only app `noRender` opts out visibly. Instrument failure is incomplete; determined failure outranks unavailable.
 
 ## Tiers
 
@@ -49,7 +49,7 @@ Exact: `1e-10` or tighter. Truncation: integrator order/step size. Single f32 op
 
 ## Fixtures and pins
 
-Floor needs member install, matching audio JS/declarations/WASM and AVBD inputs. Missing artifacts block shared imports; build checks need required-mode absence reds. In-tree isn't pack proof. Native-FFI needs a conformant adapter (macOS arm64 and nvidia lovelace), else incomplete, not red; no browser-golden claim.
+Floor needs member install, matching audio JS/declarations/WASM and AVBD inputs. Missing artifacts block shared imports; build checks need required-mode absence reds. In-tree isn't pack proof. Native-FFI needs a conformant adapter (Apple Silicon macOS and nvidia lovelace), else incomplete, not red; no browser-golden claim.
 
 Bump all pins together, resolve lock, confirm one TypeGPU identity before gates. `check-docs.ts` pins commands, not history.
 

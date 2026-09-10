@@ -5,6 +5,3 @@ const DEGRADED_BOOT_HINT =
 export function isDegradedBootMessage(text: string): boolean {
     return DEGRADED_BOOT_HINT.test(text);
 }
-
-/** @internal the console signature matcher used by `shallot verify`. */
-export const degradedBootHint = DEGRADED_BOOT_HINT;

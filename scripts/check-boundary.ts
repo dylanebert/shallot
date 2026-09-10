@@ -19,8 +19,6 @@ const COMPUTED_LOADERS: Record<string, string> = {
     "bin/features.ts":
         "preflights all enabled project-root entry identities before engine/local evaluation, then reads required features from those identities",
     "bin/bun-native.ts": "imports the optional bun-webgpu peer, only under Bun",
-    "bin/verify.ts":
-        "loads the consumer project's own installed playwright, resolved from its package root",
 };
 
 /** Directories that carry a `package.json` but are deliberately not workspaces: install-time fixtures and
@@ -28,7 +26,6 @@ const COMPUTED_LOADERS: Record<string, string> = {
  *  apart from a workspace someone forgot to declare; an entry naming a directory that no longer exists
  *  refuses. */
 const NON_WORKSPACE_PACKAGES: Record<string, string> = {
-    "evals/harness": "eval harness installed per run, never part of the repo workspace graph",
     "scripts/install-test/widget":
         "the synthetic malformed-install fixture the packed install gate publishes into a temp tree",
 };

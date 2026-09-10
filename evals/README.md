@@ -39,12 +39,14 @@ bun run evals/setup.ts red-box
 
 # 2. an agent works in that dir with only PROMPT.md + the installed engine
 
-# 3. grade it — typecheck, build, then drive the withheld gate
+# 3. grade it
 bun run evals/grade.ts red-box /tmp/shallot-eval-red-box-XXXX/app
 ```
 
-`grade` prints per-check marks, the gate's assertions, a PASS/FAIL/INCOMPLETE verdict, and a
-machine-readable JSON result. `--json` emits only the JSON.
+Grading isn't available in this version. `grade` checks its arguments and that the task exists, then
+reports that grading needs `shallot check` and exits 2. The browser driver the gates ran on is archived
+(`archive/verify`, see `ARCHIVE.md`); the gates come back as browser-tier declarations that `check`
+runs.
 
 `setup` takes `--bare`: it removes the shipped `examples/` corpus from the installed package and strips
 the scaffold's pointer to it, leaving only the code, its JSDoc, and the product workflow. That's the
@@ -53,19 +55,7 @@ without-context arm — running the same task with and without `--bare` measures
 ## Layout
 
 - `setup.ts` — pack engine → scaffold via `create-shallot` → install → drop `PROMPT.md`. Emits the dir.
-- `grade.ts` — typecheck + build + boot + drive the gate. Uses `harness/` for the browser path.
-- `harness/lib.ts` — the shared gate driver: boot, screenshot, pixel/region/diff/centroid helpers.
-- `harness/{server,playwright,display}.ts` — the self-contained browser path: server boot, `playwright test` runner, display detection.
-- `harness/gate.config.ts`, `harness/package.json` — the Playwright config + deps staged to run a gate.
-- `harness/result.ts` — pure derivation of a graded task's result kind (PASS/FAIL/INCOMPLETE) from its typecheck, build, and gate inputs.
-- `tasks/<task>/` — `PROMPT.md` (shown), `gate.ts` + `NOTES.md` (withheld).
-
-## Notes
-
-- The browser gate is **display-gated** like the rest of the harness: it launches a headed local
-  browser and auto-skips with no display. `typecheck` and `build` always run; the gate reports
-  `skipped` without a display.
-- Physics and raster need a real GPU, so those gates only mean anything where a display is present.
-- The result schema carries `verification` fields. This script fills the mechanical ones (`booted`,
-  `rendered`); the judgment ones (did the agent *claim* it verified, and was that honest) are filled by
-  whatever spawns the agent, from its transcript.
+- `grade.ts` — argument parsing and task discovery; reports grading unavailable until `check` ships.
+- `result.ts` — pure derivation of a graded task's result kind (PASS/FAIL/INCOMPLETE) from its typecheck, build, and gate inputs.
+- `tasks/<task>/` — `PROMPT.md` (shown), `gate.ts` + `NOTES.md` (withheld). The gates still import the
+  archived `harness/lib`, so `tsconfig.json` excludes them until they're redeclared for `check`.

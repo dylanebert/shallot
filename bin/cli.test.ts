@@ -2,10 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { type CliArgs, parseCliArgs } from "./cli";
 
 describe("parseCliArgs", () => {
-    test("routes verify/recipe before the shared parse, carrying the rest of argv untouched", () => {
-        const v = parseCliArgs(["verify", "--dist", "--json"]);
-        expect(v).toEqual({ kind: "delegate", cmd: "verify", rest: ["--dist", "--json"] });
-
+    test("routes recipe before the shared parse, carrying the rest of argv untouched", () => {
         const r = parseCliArgs(["recipe", "joints", "dest"]);
         expect(r).toEqual({ kind: "delegate", cmd: "recipe", rest: ["joints", "dest"] });
     });
@@ -73,8 +70,7 @@ describe("parseCliArgs", () => {
     });
 
     // `--port abc` throws with a message naming the flag, so a typo doesn't flow NaN into vite's port
-    // (the policy in verify.ts's `--port` JSDoc: "a typo must not silently no-op or flow NaN"). The
-    // message assertion distinguishes this validation throw from the `unknown option` guard above.
+    // (a typo must not silently no-op or flow NaN). The message assertion distinguishes this validation throw from the `unknown option` guard above.
     test("--port abc throws with a message naming the flag instead of flowing NaN to vite", () => {
         expect(() => parseCliArgs(["dev", "--port", "abc"])).toThrow('invalid --port value "abc"');
     });

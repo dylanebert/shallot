@@ -529,5 +529,5 @@ test("the repo's own boundary is clean under its real ledger", () => {
     const result = checkBoundary(resolve(import.meta.dir, ".."));
     expect(result.violations).toEqual([]);
     expect(result.errors).toEqual([]);
-    expect(result.consumers).toBeGreaterThan(30);
+    expect(result.consumers).toBeGreaterThan(28);
 });
