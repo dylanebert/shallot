@@ -7,7 +7,7 @@
 // `--bare` sets up the without-context arm of the shipped-context delta: the packed engine installs as
 // usual, then the shipped `examples/` corpus (recipes + index) is removed from the installed package and
 // the scaffold's agent docs lose the section pointing at it. The agent is left with the code, its JSDoc,
-// and the product workflow (build/run/verify) — but none of the version-matched teaching context.
+// and the product workflow (build/run) — but none of the version-matched teaching context.
 //
 // Run: `bun run evals/setup.ts <task> [--json] [--bare]`
 
@@ -67,7 +67,7 @@ const task = args.find((a) => !a.startsWith("--"));
 
 // Strip the "## Engine reference" section from the scaffold's agent docs — its only content is the
 // pointers at the shipped `node_modules/.../AGENTS.md` + `examples/` docs, the context the bare arm
-// withholds. The build/run/verify section (the shipped verify CLI is product surface, not context) and
+// withholds. The build/run section (the shipped CLI is product surface, not context) and
 // every other section stay.
 function stripShippedContext(md: string): string {
     // anchor the end on the next section OR end-of-string, so the strip still fires if "Engine

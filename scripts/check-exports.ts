@@ -518,7 +518,7 @@ export function computeEntryFiles(
             existsSync(resolve(rootDir, "package.json")) &&
             target.startsWith("./src/") &&
             !target.startsWith("./src/project/") &&
-            target !== "./src/harness/browser.ts" &&
+            target !== "./src/harness/browser.d.ts" &&
             !existsSync(resolve(pkgDir, target))
         ) {
             throw new Error(`missing runtime export projection: ${key} → ${target}`);

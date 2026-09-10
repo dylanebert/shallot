@@ -6,11 +6,10 @@ import type { Plugin } from "vite";
 import {
     composeViteConfig,
     flattenPlugins,
-    isProject,
     loadProjectConfig,
     type ProjectConfig,
-    requireProject,
 } from "./toolchain";
+import { isProject, requireProject } from "./host";
 
 const p = (name: string) => ({ name }) as Plugin;
 

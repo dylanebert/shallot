@@ -40,6 +40,11 @@ function resolveImport(fromFile: string, specifier: string): string | null {
     return relative(src, abs);
 }
 
+// Node/Bun-only leaves beside the runtime they serve, reached by path because the `./runtime` barrel is
+// browser-shipped and must never pull them in: the platform admission floor the CLI checks before a
+// native build or launch, and the Dawn bridge loader tests and native setup use under Bun.
+const NODE_LEAVES = new Set(["engine/runtime/floor", "engine/runtime/bun-native"]);
+
 const importRe = /from\s+["']([^"']+)["']/g;
 
 const violations: { file: string; line: number; import: string; target: string }[] = [];
@@ -69,6 +74,7 @@ for await (const path of glob.scan({ cwd: src })) {
             // Cross-module import — check if it targets a barrel or allowed subpath
             if (resolved.endsWith("/index") || resolved === targetModule) continue;
             if (allowedSubpaths.has(resolved)) continue;
+            if (NODE_LEAVES.has(resolved)) continue;
 
             violations.push({
                 file: path,

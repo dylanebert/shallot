@@ -13,7 +13,7 @@ import {
     missingCrateDiagnostic,
     nativeOutDir,
     resolveCargoInvocation,
-} from "./native";
+} from ".";
 
 describe("nativeOutDir", () => {
     test("builds <projectDir>/build/<platform>/<profile>-<mode>", () => {
@@ -113,7 +113,7 @@ describe("missingCrateDiagnostic", () => {
     });
 
     test("names the missing dir when it doesn't exist", () => {
-        const dir = join(mkdtempSync(join(tmpdir(), "shallot-crate-")), "rust/window");
+        const dir = join(mkdtempSync(join(tmpdir(), "shallot-crate-")), "rust/native");
         const msg = missingCrateDiagnostic(dir);
         expect(msg).not.toBeNull();
         expect(msg).toContain(dir);

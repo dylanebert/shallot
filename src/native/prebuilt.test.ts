@@ -23,7 +23,7 @@ import {
     resolvePrebuiltDecision,
     sha256Hex,
     tryPrebuilt,
-} from "./native";
+} from "./prebuilt";
 
 // --- Pure decision table ---
 
@@ -550,7 +550,7 @@ function buildTarGz(entries: { name: string; content: string }[]): Buffer {
 // The CI dry run (workflow_dispatch) is the gate for those — it exercises the real build, assemble,
 // and upload pipeline end-to-end.
 
-const WORKFLOW_PATH = resolve(import.meta.dir, "../.github/workflows/release.yml");
+const WORKFLOW_PATH = resolve(import.meta.dir, "../../.github/workflows/release.yml");
 
 // The three rust triples the CLI actually expects (from native.ts WIN_TARGET/MAC_TARGET/LINUX_TARGET).
 const RELEASE_TARGETS = [

@@ -74,7 +74,7 @@ describe("devConfig", () => {
     });
 
     test("sends the cross-origin isolation headers so physics multithreads", () => {
-        // the COOP/COEP the dev server (shallot dev + verify's project boot) needs for a shared
+        // the COOP/COEP the dev server (shallot dev) needs for a shared
         // WebAssembly.Memory; a regression here silently degrades physics to single-thread
         const headers = devConfig(dir, "demo", { open: false }).server.headers;
         expect(headers["Cross-Origin-Opener-Policy"]).toBe("same-origin");

@@ -111,10 +111,10 @@ beforeAll(async () => {
             "unreachable repository command: bun toString",
         );
         await run("unreachable documented path", {
-            "MAINTAINERS.md": (text) => text.replace("bin/cli.ts", "bin/gone.ts"),
+            "MAINTAINERS.md": (text) => text.replace("bin/shallot.ts", "bin/gone.ts"),
         });
         await run("registry lookup is not tree resolution", {
-            "MAINTAINERS.md": (text) => text.replace("bun bin/cli.ts", "bunx shallot"),
+            "MAINTAINERS.md": (text) => text.replace("bun bin/shallot.ts", "bunx shallot"),
         });
         for (const kind of ["bin", "files"]) {
             await run(`unregistered ${kind} target`, {

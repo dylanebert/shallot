@@ -39,17 +39,17 @@ bun run recipes [--recipe <name>]
 ```
 
 ```bash
-bun bin/cli.ts <dev|build|run|verify> [dir]
+bun bin/shallot.ts <dev|build|run|add> [dir]
 # build/run: [--target <os>] [--portable]; build: [--release]
 ```
 
-OS: windows/mac/linux; web emits dist; native uses platform tools and builds `rust/window` per project. Published `/harness`; recipes wrap it. Screenshots never gate. Laws: `examples.md`.
+OS: windows/mac/linux; web emits dist; native uses platform tools and builds `rust/native` per project. Published `/harness`; recipes wrap it. Screenshots never gate. Laws: `examples.md`.
 
 ### Verification
 
 Before completion: format, check, test above. Release order: `testing.md`. Physics fixtures per `physics.md`; Rust audio: `cargo test` from `rust/audio`.
 
-GPU/serialize/restore/config.ui/dev-server/physics changes owe flow/recipe gates. Reachability repairs owe source + physical public-build proof via build.probes.ts; other CLI/manifest/dependency/launch/runtime/scaffold/native-package changes owe test:install; links don’t prove it.
+GPU/serialize/restore/config.ui/dev-server/physics changes owe flow/recipe gates. CLI/manifest/dependency/launch/runtime/scaffold/native-package changes owe test:install; links don’t prove it.
 
 ## Examples
 

@@ -1,6 +1,6 @@
 # Shallot
 
-WebGPU game engine: ECS, scenes, plugins. JSDoc owns APIs. Search `examples/AGENTS.md` and read a recipe first; `bunx shallot recipe <name> [dir]` copies one (bare lists). Repo maintainers: read `MAINTAINERS.md`.
+WebGPU game engine: ECS, scenes, plugins. JSDoc owns APIs. Search `examples/AGENTS.md` and read a recipe first; `bunx shallot add <name> [dir]` copies one (bare lists). Repo maintainers: read `MAINTAINERS.md`.
 
 ## Commands
 
@@ -9,10 +9,11 @@ bun create shallot <name>
 bunx shallot dev [dir]
 bunx shallot build [dir]
 bunx shallot run [dir]
-bunx shallot verify [dir]
+bunx shallot add <name> [dir]
+bunx shallot check [dir]
 ```
 
-Verify defaults full-Chromium headless; display uses `--headed`, remote mode `--connect`. `bunx tsc --noEmit`. `shallot.json` names scene/plugins; CLI supplies HTML/Vite. Native targets use Rust/system dependencies; `--portable` bundles Chromium.
+`check` isn't available yet (exits 2); other verbs run `shallot-<verb>` from PATH. `bunx tsc --noEmit`. `shallot.json` names scene/plugins; CLI supplies HTML/Vite. Native targets use Rust/system dependencies; `--portable` bundles Chromium.
 
 ## Philosophy
 
@@ -46,10 +47,10 @@ Decode scene sRGB hex to linear; surfaces stay linear, composite alone encodes s
 
 Procedural-first, no format-shaped substrate. GltfPlugin converts to mesh/material/VAT/rig data; engine-owned SkinPlugin accepts glTF/physics/procedural poses. Producers compose skin/core surfaces.
 
-## Testing and verify
+## Testing
 
 Unit verdicts need a native adapter; real GPU gates cover compile/raster/readback. Keep permanent tests, temporary labs; derive tolerances (exact ~1e-10, f32 ~1e-6 relative, convergence from order/steps), never tune. Measure GPU timestamps, not FPS.
 
-Verify self-terminates. Install `bun add -d playwright`, `bunx playwright install chromium`. Hardware refusal fails. Build then verify `--dist`. COOP/COEP needs CORS/CORP or local assets; physics is single-threaded.
+`shallot verify` is removed; `check` replaces it. Hardware refusal fails. COOP/COEP needs CORS/CORP or local assets; physics is single-threaded.
 
-Without `window.__harness`, verify needs settled nonblank rendering/no page errors. Pin `{ready:false}` immediately, then installHarness from `/harness`; initialize pins, run resolves entities. Verify waits ready, calls run, requires Verdict.ok/no page errors. Queries feed run; JSON preserves checks/extras. Batch `--run k=v` isolates pages/contexts, any failure fails; perf thresholds run separately. Seed storage/exercise restore for persistence. JSDoc owns pose reads/flags; remove temporary verify plugins.
+Publish `window.__harness`: pin `{ready:false}` immediately, then installHarness from `/harness`; initialize pins, run resolves entities and returns a Verdict. Seed storage/exercise restore for persistence. JSDoc owns pose reads/flags; remove temporary harness plugins.

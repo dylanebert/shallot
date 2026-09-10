@@ -50,11 +50,12 @@ const violations = files.flatMap((f) =>
 
 const required = [
     "src/index.ts",
-    "bin/cli.ts",
+    "bin/shallot.ts",
+    "src/cli/index.ts",
     "dist/vite.js",
-    "dist/harness-browser.js",
-    "rust/window/Cargo.toml",
-    "rust/window/Cargo.lock",
+    "src/harness/browser.json",
+    "rust/native/Cargo.toml",
+    "rust/native/Cargo.lock",
     "assets/icon-1024.png",
     "AGENTS.md",
     "MIGRATION.md",

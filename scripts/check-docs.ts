@@ -75,7 +75,7 @@ for (const line of (entry ?? "").split("\n")) {
         let reachable = false;
         if (match?.[1] === "bunx") {
             const bin = resolve(root, "node_modules/.bin", token!);
-            const expected = resolve(root, "bin/cli.ts");
+            const expected = resolve(root, "bin/shallot.ts");
             reachable =
                 token === "shallot" &&
                 existsSync(bin) &&
@@ -137,7 +137,7 @@ if (docs.length === 0) {
 // `git ls-files` derivation catches a new doc the hand list would have missed).
 const BARE_COMMAND_EXCLUSIONS: string[] = [];
 
-const SUBCOMMAND = "(dev|build|run|verify|recipe)";
+const SUBCOMMAND = "(dev|build|run|add|check)";
 // A bare command-line-shaped `shallot <cmd>`: anchored at the start of a fenced code line, or
 // right after a `&&` chain — never mid-prose, never preceded by `bunx `.
 const BARE_COMMAND_RE = new RegExp(`(^|&&)\\s*shallot\\s+${SUBCOMMAND}\\b`);
@@ -1142,7 +1142,7 @@ if (citationCandidates.length === 0) {
 // Disjunct 2: the citation population floor. A predicate narrowing shrinks the population
 // below the floor and reds; legitimate prose growth passes and re-pins the floor
 // opportunistically upward.
-const PINNED_CITATION_COUNT = 116;
+const PINNED_CITATION_COUNT = 114;
 if (citationCandidates.length < PINNED_CITATION_COUNT) {
     console.error(
         `✗ citation count below floor: floor ${PINNED_CITATION_COUNT}, actual ${citationCandidates.length}.

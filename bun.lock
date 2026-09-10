@@ -22,7 +22,7 @@
         "@types/jpeg-js": "^0.3.7",
         "@types/pngjs": "^6.0.5",
         "binaryen": "132.0.0",
-        "bun-webgpu": "github:dylanebert/bun-webgpu#shallot-bridge/fork",
+        "bun-webgpu": "github:dylanebert/bun-webgpu#b846ee90103efe6734e84f488c304934f04380b5",
         "eslint": "^10.10.0",
         "eslint-plugin-typegpu": "~0.12.0",
         "fast-check": "^4.9.0",
@@ -421,7 +421,7 @@
 
     "bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
-    "bun-webgpu": ["bun-webgpu@github:dylanebert/bun-webgpu#ad92c6d", { "optionalDependencies": { "bun-webgpu-darwin-arm64": "0.1.7", "bun-webgpu-darwin-x64": "0.1.7", "bun-webgpu-linux-x64": "0.1.7", "bun-webgpu-win32-x64": "0.1.7" }, "peerDependencies": { "typescript": "^5" } }, "dylanebert-bun-webgpu-ad92c6d", "sha512-1nSJ/ebNn4xDGwipo9adGSP5HRGiaxIvpYVkb/SJNM5ggbNM1ZszOSTGLeAxjeJBhflYsyZU4Ad1TWsuSvP9Gg=="],
+    "bun-webgpu": ["bun-webgpu@github:dylanebert/bun-webgpu#b846ee9", { "optionalDependencies": { "bun-webgpu-darwin-arm64": "0.1.7", "bun-webgpu-darwin-x64": "0.1.7", "bun-webgpu-linux-x64": "0.1.7", "bun-webgpu-win32-x64": "0.1.7" }, "peerDependencies": { "typescript": "^5" } }, "dylanebert-bun-webgpu-b846ee9", "sha512-uzwK8E8chGr7sao/v7zVpDyH3C8RZsMXcTiqA+JXpRZal0CDCSERLkUNvEh75FhZ7vQGf8/MXPdhYMUybT7egQ=="],
 
     "bun-webgpu-darwin-arm64": ["bun-webgpu-darwin-arm64@0.1.7", "", { "os": "darwin", "cpu": "arm64" }, "sha512-mRrFFyHzPWjsTRidAZBRcu808CPQBOUL0P6b4nxLhp+XHcV/mbUHERZMgW9s58tsojQfSdzschiQa8q+JCgRWA=="],
 

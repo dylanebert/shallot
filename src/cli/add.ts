@@ -1,15 +1,15 @@
 import { cpSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { CLAUDE_IMPORT, RECIPE_TSCONFIG, recipeDoc } from "./scaffold";
+import { CLAUDE_IMPORT, RECIPE_TSCONFIG, recipeDoc } from "./add-fragments";
 
-// `shallot recipe [name] [dir]` — copy a recipe out of the installed package into a runnable project.
+// `shallot add [name] [dir]` — copy a recipe out of the installed package into a runnable project.
 // The recipes ship in the tarball under this package's `examples/recipes/`; running
 // one in place breaks its own dep resolution and users shouldn't edit inside node_modules, so copy-out is
 // the path. The copy gains (or has its local dep rewritten to) the installed engine version so a plain
 // `bun install && bunx shallot dev` runs green. Paths resolve relative to this package, never cwd — the
-// corpus lives beside the CLI (`bin/` and `examples/` are siblings at the package root).
+// corpus lives beside the CLI (`examples/` sits two levels above `src/cli/`, at the package root).
 
-const PACKAGE_ROOT = resolve(import.meta.dir, "..");
+const PACKAGE_ROOT = resolve(import.meta.dir, "../..");
 const ENGINE = "@dylanebert/shallot";
 
 interface Env {
@@ -75,7 +75,7 @@ export function pinEngine(pkgText: string, version: string): string {
     return `${JSON.stringify(pkg, null, 4)}\n`;
 }
 
-export async function runRecipe(args: string[], e: Env = env()): Promise<number> {
+export async function runAdd(args: string[], e: Env = env()): Promise<number> {
     const { recipesDir, version } = e;
     const available = listRecipes(recipesDir);
 
@@ -90,7 +90,7 @@ export async function runRecipe(args: string[], e: Env = env()): Promise<number>
     if (name == null) {
         console.log("Available recipes:\n");
         for (const r of available) console.log(`  ${r}`);
-        console.log("\nCopy one out with:\n  bunx shallot recipe <name> [dir]");
+        console.log("\nCopy one out with:\n  bunx shallot add <name> [dir]");
         return 0;
     }
 

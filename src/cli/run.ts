@@ -1,10 +1,10 @@
 import { execSync } from "node:child_process";
 import { basename, resolve } from "node:path";
 import { preview } from "vite";
-import { CROSS_ORIGIN_ISOLATION } from "../src/project/vite";
+import { requireBackend } from "../engine/runtime/floor";
+import { bundleNativeLinux, bundleNativeMac, bundleNativeWindows, nativeOutDir } from "../native";
+import { CROSS_ORIGIN_ISOLATION } from "../project/vite";
 import { buildWeb } from "./build";
-import { requireBackend } from "./features";
-import { bundleNativeLinux, bundleNativeMac, bundleNativeWindows, nativeOutDir } from "./native";
 
 export type RunTarget =
     | { kind: "web" }

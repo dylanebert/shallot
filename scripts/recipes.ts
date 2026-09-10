@@ -1,10 +1,9 @@
 import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { skipReason, verify } from "./verify";
 
-// `bun run recipes` — every recipe through the shipped `shallot verify`, gated on its own boot + settled
-// nonblank render. `./verify` owns the display guard, so a headless seat skips honestly instead of
-// reaching a software adapter.
+// `bun run recipes` — booted every recipe through `shallot verify`. Verify is archived and `check`
+// replaces it in this version, so after validating the selector this reports the run unavailable and
+// exits 2: nothing ran, and an unrun gate is not a pass.
 
 /** Pure seam for the population guards: an error message if the population is empty or the selector is
  *  unknown, or null if the run should proceed. */
@@ -28,24 +27,15 @@ const RECIPES = existsSync(recipesRoot)
           .sort()
     : [];
 
-async function runRecipe(dir: string): Promise<boolean> {
-    console.log(`\n--- ${dir} ---`);
-    const result = await verify(`examples/recipes/${dir}`, ["--headed", "--timeout", "60000"]);
-    const ok = result?.pass === true;
-    console.log(ok ? `PASS: ${dir}` : `FAIL: ${dir}`);
-    return ok;
-}
-
-async function main(): Promise<void> {
+function main(): void {
     const args = process.argv.slice(2);
     if (args.includes("--help") || args.includes("-h")) {
         console.log(`Usage: bun run recipes [--recipe <name>]
 
-Boots every recipe through \`shallot verify\` and requires a settled nonblank render. Display-gated
-(native hardware only).
+Unavailable in this version: \`check\` replaces \`shallot verify\`, which booted each recipe.
 
 Options:
-  --recipe <name>   Run a single recipe by its directory name (e.g. moving-platform)`);
+  --recipe <name>   Select a single recipe by its directory name (e.g. moving-platform)`);
         process.exit(0);
     }
     const idx = args.indexOf("--recipe");
@@ -57,28 +47,10 @@ Options:
         process.exit(only ? 2 : 1);
     }
 
-    const skip = skipReason();
-    if (skip) {
-        console.log(`bun run recipes needs native hardware (${skip}). Skipping.`);
-        process.exit(0);
-    }
-
-    const list = only ? [only] : RECIPES;
-    console.log(`Running ${list.length} recipe verification(s)...`);
-    let allPass = true;
-    for (const dir of list) allPass = (await runRecipe(dir)) && allPass;
-
-    if (!allPass) {
-        console.error("\nFAIL: recipe verification failed");
-        process.exit(1);
-    }
-    console.log("\nPASS: recipes green");
-    process.exit(0);
+    console.error(
+        "bun run recipes: unavailable — `check` replaces `shallot verify` in this version",
+    );
+    process.exit(2);
 }
 
-if (import.meta.main) {
-    main().catch((err) => {
-        console.error(err instanceof Error ? err.message : err);
-        process.exit(1);
-    });
-}
+if (import.meta.main) main();

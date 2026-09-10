@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 
 export const harnessContract = `
 import * as harness from "@dylanebert/shallot/harness";
-import { REAL_GPU_LAUNCH as leaf } from "@dylanebert/shallot/harness/browser";
+import leaf from "@dylanebert/shallot/harness/browser" with { type: "json" };
 const names = ["installHarness", "isDegradedBootMessage", "assertMotion", "frameDifference", "pixelProbePass", "probePixels", "REAL_GPU_LAUNCH"].sort();
 if (JSON.stringify(Object.keys(harness).sort()) !== JSON.stringify(names)) throw new Error("HARNESS_SURFACE");
 const launch = { channel: "chromium", args: ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures", "--class=kex-gate"] };
@@ -44,7 +44,7 @@ export function harnessArms(project: string): void {
     writeFileSync(join(project, "harness-types.ts"), types);
     writeFileSync(
         join(project, "harness-preload.ts"),
-        `import { installGpuGlobals } from "./node_modules/@dylanebert/shallot/bin/gpu-globals.ts"; installGpuGlobals();\n`,
+        `import { installGpuGlobals } from "./node_modules/@dylanebert/shallot/src/cli/gpu-globals.ts"; installGpuGlobals();\n`,
     );
     writeFileSync(
         join(project, "harness-node.mjs"),
@@ -102,22 +102,13 @@ console.log("NODE_LEAF_OK");\n`,
         ["args: string[];", "args: readonly string[];", "immutable args"],
     ])
         mutate(
-            "src/harness/browser.ts",
+            "src/harness/browser.d.ts",
             (s) => s.replace(before, after),
             () => exec(name, typecheck, false),
         );
-    mutate(
-        "package.json",
-        (s) => {
-            const pkg = JSON.parse(s);
-            pkg.exports["./harness/browser"].default = "./src/harness/browser.ts";
-            return JSON.stringify(pkg);
-        },
-        () => exec("Node raw-TS default", node, false, /node_modules|TypeScript|typescript/),
-    );
     for (const [file, command, name] of [
-        ["dist/harness-browser.js", node, "missing compiled leaf"],
-        ["src/harness/browser.ts", typecheck, "missing type source"],
+        ["src/harness/browser.json", node, "missing JSON leaf"],
+        ["src/harness/browser.d.ts", typecheck, "missing type source"],
         ["src/harness/runtime.ts", raw, "missing runtime source"],
     ] as const) {
         const path = join(shipped, file);
@@ -132,7 +123,7 @@ console.log("NODE_LEAF_OK");\n`,
         "package.json",
         (s) => {
             const pkg = JSON.parse(s);
-            pkg.exports["./harness"] = "./dist/harness-browser.js";
+            pkg.exports["./harness"] = "./src/harness/browser.json";
             return JSON.stringify(pkg);
         },
         () => exec("compiled aggregate replacement", raw, false, /HARNESS_SURFACE/),
@@ -140,7 +131,16 @@ console.log("NODE_LEAF_OK");\n`,
     const hash = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
     const owner = resolve(import.meta.dir, "../..");
     const tracked = Bun.spawnSync(
-        ["git", "ls-files", "--", "bin", "src/project", "src/harness/browser.ts"],
+        [
+            "git",
+            "ls-files",
+            "--",
+            "bin",
+            "src/cli",
+            "src/project",
+            "src/harness/browser.json",
+            "src/harness/browser.d.ts",
+        ],
         {
             cwd: owner,
         },
@@ -158,7 +158,7 @@ console.log("NODE_LEAF_OK");\n`,
             hash(join(owner, file)),
             `installed source ${file}`,
         );
-    for (const file of ["dist/vite.js", "dist/harness-browser.js"])
+    for (const file of ["dist/vite.js"])
         assert(existsSync(join(shipped, file)), `installed compiled tooling ${file}`);
     exec("restored raw surface", raw, true, /HARNESS_CONTRACT_OK/);
     console.log(`harness: ${sources.length} source files match their installed bytes`);

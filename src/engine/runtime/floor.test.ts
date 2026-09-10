@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { requiredFeatures, verdict, WEBVIEW_UNSUPPORTED } from "./features";
+import { requiredFeatures, verdict, WEBVIEW_UNSUPPORTED } from "./floor";
 
 const dirs: string[] = [];
 function temporary() {
@@ -100,7 +100,7 @@ describe("requiredFeatures", () => {
             const script = `
             import assert from "node:assert/strict";
             import { existsSync } from "node:fs";
-            import { requiredFeatures } from ${JSON.stringify(resolve(import.meta.dir, "features.ts"))};
+            import { requiredFeatures } from ${JSON.stringify(resolve(import.meta.dir, "floor.ts"))};
             ${
                 missing
                     ? `await assert.rejects(requiredFeatures(${JSON.stringify(dir)}), /Gone/);

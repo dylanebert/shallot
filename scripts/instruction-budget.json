@@ -1,5 +1,5 @@
 {
-    "total": 52922,
+    "total": 52219,
     "files": {
         ".claude/rules/audio.md": {
             "bytes": 3677,
@@ -34,23 +34,23 @@
             "paragraph": 473
         },
         ".claude/rules/testing.md": {
-            "bytes": 4786,
-            "paragraph": 442
+            "bytes": 4476,
+            "paragraph": 360
         },
         ".claude/rules/visual-identity.md": {
             "bytes": 1043,
             "paragraph": 263
         },
         "AGENTS.md": {
-            "bytes": 4988,
-            "paragraph": 511
+            "bytes": 4683,
+            "paragraph": 503
         },
         "CLAUDE.md": {
             "bytes": 123,
             "paragraph": 94
         },
         "MAINTAINERS.md": {
-            "bytes": 3389,
+            "bytes": 3301,
             "paragraph": 443
         },
         "examples/AGENTS.md": {

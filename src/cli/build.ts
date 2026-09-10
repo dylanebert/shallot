@@ -2,21 +2,21 @@ import { execSync } from "node:child_process";
 import { cpSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { basename, relative, resolve } from "node:path";
 import { build as viteBuild } from "vite";
+import { requireBackend } from "../engine/runtime/floor";
+import { bundleNativeLinux, bundleNativeMac, bundleNativeWindows, nativeOutDir } from "../native";
+import { composeViteConfig, loadProjectConfig } from "../project/toolchain";
 import {
     discoverScenes,
     findPublicDirs,
     manifestPath,
     projectPlugin,
     typegpuPlugin,
-} from "../src/project/vite";
-import { requireBackend } from "./features";
-import { bundleNativeLinux, bundleNativeMac, bundleNativeWindows, nativeOutDir } from "./native";
-import { composeViteConfig, loadProjectConfig } from "./toolchain";
+} from "../project/vite";
 
 // the entry a manifest project lacks: a page that runs the project's manifest. resolves the same
 // `virtual:project` `shallot dev` reads (one resolver, no second manifest reader) — its `plugins` are the
 // enabled set (engine via the barrel, tree-shaken; locals by specifier), `scene` the default scene.
-// shared by the web build here and the standalone `shallot dev` server (bin/dev.ts).
+// shared by the web build here and the standalone `shallot dev` server (dev.ts).
 export const synthIndex = (name: string) => `<!doctype html>
 <html lang="en">
     <head>

@@ -1,13 +1,14 @@
 import { basename, relative, resolve } from "node:path";
 import { createServer, searchForWorkspaceRoot, type Plugin as VitePlugin } from "vite";
+import { requireProject } from "../project/host";
+import { composeViteConfig, loadProjectConfig } from "../project/toolchain";
 import {
     CROSS_ORIGIN_ISOLATION,
     findPublicDirs,
     projectPlugin,
     typegpuPlugin,
-} from "../src/project/vite";
+} from "../project/vite";
 import { synthIndex } from "./build";
-import { composeViteConfig, loadProjectConfig, requireProject } from "./toolchain";
 
 // serve the synthesized entry at `/` — a manifest project owns no index.html, so the CLI provides one.
 // `transformIndexHtml` runs the page through vite's HTML pipeline (HMR client, inline-module extraction),
@@ -31,7 +32,7 @@ function synthIndexPlugin(name: string): VitePlugin {
 /** the vite dev config for a manifest project. `open` defaults true: a person typing `shallot dev`
  *  wants the page. A driver that brings its own browser passes `--no-open` (a gate that opened a tab in
  *  the operator's browser on every start is the defect this default earns), and every non-interactive
- *  caller in this repo — `bin/verify.ts`, the eval grader, the showcase gates' web servers — passes
+ *  caller in this repo (the showcase gates' web servers) passes
  *  `open: false` explicitly rather than relying on one. */
 export function devConfig(
     absProjectDir: string,
@@ -80,7 +81,7 @@ export function devConfig(
                 allow: [
                     searchForWorkspaceRoot(absProjectDir),
                     absProjectDir,
-                    resolve(import.meta.dir, ".."),
+                    resolve(import.meta.dir, "../.."),
                     ...findPublicDirs(absProjectDir),
                 ],
             },

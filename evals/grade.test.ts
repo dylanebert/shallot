@@ -1,12 +1,12 @@
 // A gate that could not run maps to INCOMPLETE, never to a crash and never to a pass.
 //
 // grade.ts catches a gate-setup throw and sets gate.ok = null; deriveResultKind (the pure
-// derivation in ./harness/result) maps gateOk=null with an ok typecheck and build to INCOMPLETE.
+// derivation in ./result) maps gateOk=null with an ok typecheck and build to INCOMPLETE.
 // This arm drives that derivation directly — grade.ts itself is a top-level script (argv parsing,
 // top-level await) that can never be imported.
 
 import { expect, test } from "bun:test";
-import { deriveResultKind, resultKindToPass } from "./harness/result";
+import { deriveResultKind, resultKindToPass } from "./result";
 
 test("deriveResultKind — staging failure (gateOk=null) with ok typecheck/build → INCOMPLETE", () => {
     // The invariant: a staging failure (gate never ran, gateOk=null) with ok typecheck and build

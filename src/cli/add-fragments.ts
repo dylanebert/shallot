@@ -1,7 +1,8 @@
-// Scaffold fragments emitted into a recipe copied out by `shallot recipe` (bin/recipe.ts): the
+// Scaffold fragments `shallot add` (add.ts) writes into a recipe it copies out: the
 // AGENTS.md pointer stanza that hands an agent the engine's contract, the CLAUDE.md that imports it,
-// and a standalone tsconfig. The create-shallot scaffold, a separate repository, carries its own copy of
-// `ENGINE_REFERENCE` and `CLAUDE_IMPORT`; the two must be kept identical by hand.
+// and a standalone tsconfig. This file is the single copy. The create-shallot scaffold, a separate
+// repository, still carries its own `ENGINE_REFERENCE` and `CLAUDE_IMPORT` until it consumes these from
+// the installed package; until then the two must be kept identical by hand.
 
 // The reach the recipes-install-ux distribution decision rests on: a stock harness (Claude Code,
 // Cursor, Codex) never reads instruction files from node_modules, but it follows an explicit path from
@@ -10,10 +11,10 @@
 export const ENGINE_REFERENCE = `## Engine reference
 
 The engine is the documentation. Read \`node_modules/@dylanebert/shallot/AGENTS.md\` for the full
-contract (ECS, plugins, scenes, GPU, UI, and the \`shallot verify\` harness), and every public export
+contract (ECS, plugins, scenes, GPU, UI), and every public export
 carries JSDoc. The examples index lives at \`node_modules/@dylanebert/shallot/examples/AGENTS.md\` — grep
 it for the problem you have, then read that recipe's source, before writing a pattern from scratch.
-\`bunx shallot recipe <name> [dir]\` copies a recipe out of the installed package into a runnable project
+\`bunx shallot add <name> [dir]\` copies a recipe out of the installed package into a runnable project
 (bare: lists them).`;
 
 // one contract, two entrypoints: Codex reads AGENTS.md, Claude Code reads CLAUDE.md and expands the

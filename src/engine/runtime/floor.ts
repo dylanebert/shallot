@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { plan } from "../src/project/generate";
-import { resolveLocalModules } from "../src/project/host";
-import { normalize } from "../src/project/manifest";
-import { manifestPath } from "../src/project/vite";
-import { installGpuGlobals } from "./gpu-globals";
+import { installGpuGlobals } from "../../cli/gpu-globals";
+import { plan } from "../../project/generate";
+import { resolveLocalModules } from "../../project/host";
+import { normalize } from "../../project/manifest";
+import { manifestPath } from "../../project/vite";
 
 /** System-webview gaps beyond the base floor; null means the base floor itself is unavailable.
  * WKWebView's Safari 26.5 / Apple Silicon audit met the floor including timestamp-query;
