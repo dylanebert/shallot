@@ -32,6 +32,8 @@ const HARNESS = src("harness");
 const INPUT = src("standard/input");
 const TRANSFORMS = src("standard/transforms");
 const ORBIT = src("extras/orbit");
+/** Flow and rendered-page assertions observe the boot path even when their specific claim is elsewhere. */
+const BOOT = src("engine/ecs", "standard/glaze", "standard/loading");
 
 /** The rigid-body surface and both backends read by the physics assertions. */
 const PHYSICS = [
@@ -233,7 +235,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
     {
         dir: "examples/flows/blank",
         tier: "flows",
-        covers: ["examples/flows/blank/**", ...HARNESS, ...src("engine/app"), ...BARRELS],
+        covers: ["examples/flows/blank/**", ...HARNESS, ...BOOT, ...src("engine/app"), ...BARRELS],
         gate: "bun run flows --flow blank",
     },
     {
@@ -242,6 +244,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         covers: [
             "examples/flows/no-walls/**",
             ...HARNESS,
+            ...BOOT,
             ...BARRELS,
             ...src(
                 "engine/app",
@@ -259,6 +262,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         covers: [
             "examples/flows/survive-reload/**",
             ...HARNESS,
+            ...BOOT,
             ...BARRELS,
             ...src("engine/app", "engine/scene"),
         ],
@@ -267,7 +271,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
     {
         dir: "examples/flows/ui-containment",
         tier: "flows",
-        covers: ["examples/flows/ui-containment/**", ...HARNESS, ...BARRELS, ...src("engine/app")],
+        covers: ["examples/flows/ui-containment/**", ...HARNESS, ...BOOT, ...BARRELS, ...src("engine/app")],
         gate: "bun run flows --flow ui-containment",
     },
     {
@@ -276,6 +280,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         covers: [
             "examples/showcase/ascii/**",
             ...HARNESS,
+            ...BOOT,
             ...src("extras/cells", "extras/orbit", "standard/input"),
         ],
         gate: "bun run --cwd examples/showcase/ascii gate",
@@ -288,6 +293,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
             "examples/showcase/collapse/**",
             ...BARRELS,
             ...HARNESS,
+            ...BOOT,
             ...src("extras/orbit", "standard/input", "standard/avbd", "standard/render"),
         ],
         gate: "bun run --cwd examples/showcase/collapse gate",
@@ -300,6 +306,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
             "examples/showcase/ocean/**",
             ...BARRELS,
             ...HARNESS,
+            ...BOOT,
             ...src("standard/render", "standard/sear", "engine/utils"),
         ],
         gate: "bun run --cwd examples/showcase/ocean gate",
@@ -311,6 +318,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
             "examples/showcase/roads/**",
             ...BARRELS,
             ...HARNESS,
+            ...BOOT,
             ...ORBIT,
             ...INPUT,
             ...src(
@@ -331,6 +339,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
             "examples/showcase/sandbox/**",
             ...BARRELS,
             ...HARNESS,
+            ...BOOT,
             ...INPUT,
             ...src("standard/player", "standard/render"),
         ],
@@ -343,6 +352,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
             "examples/showcase/visualization/**",
             ...BARRELS,
             ...HARNESS,
+            ...BOOT,
             ...ORBIT,
             ...INPUT,
             ...TRANSFORMS,
@@ -358,6 +368,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
             "examples/showcase/voxel/**",
             ...BARRELS,
             ...HARNESS,
+            ...BOOT,
             ...ORBIT,
             ...INPUT,
             ...src(
@@ -382,6 +393,7 @@ export const EXAMPLE_GATES: ExampleGate[] = [
         covers: [
             "examples/gym/**",
             ...BARRELS,
+            ...BOOT,
             ...new Set(Object.values(SCENARIO_GATES).flatMap((gate) => gate.covers ?? [])),
             ...src(
                 "extras/orbit",

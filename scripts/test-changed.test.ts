@@ -305,6 +305,76 @@ describe("changed-path execution tiers", () => {
         }
     });
 
+    test("required display refusal and CPU failure are red", async () => {
+        const logs: string[] = [];
+        const old = console.log;
+        console.log = (...parts) => logs.push(parts.join(" "));
+        try {
+            expect(
+                await main(args, {
+                    paths: async () => ["examples/showcase/ocean/src/ocean/fft.ts"],
+                    run: async () => ({ ok: true, warnings: 0 }),
+                    displaySkip: () => "fixture seat",
+                    displayRequired: true,
+                }),
+            ).toBe(1);
+            expect(
+                logs.some((line) => line.startsWith("FAIL: selected display gates need native hardware")),
+            ).toBe(true);
+            expect(logs.some((line) => line.includes("display rows were unavailable"))).toBe(false);
+
+            logs.length = 0;
+            expect(
+                await main(args, {
+                    paths: async () => ["examples/showcase/ocean/src/ocean/fft.ts"],
+                    run: async () => ({ ok: false, warnings: 0 }),
+                    displaySkip: () => "fixture seat",
+                }),
+            ).toBe(1);
+            expect(logs.some((line) => line.startsWith("FAIL: CPU ocean realization"))).toBe(true);
+        } finally {
+            console.log = old;
+        }
+    });
+
+    test("SHALLOT_DISPLAY_REQUIRED=1 is loaded from the host environment", async () => {
+        const reader = resolve(import.meta.dir, "test-changed.ts");
+        const source = `
+            import { main } from ${JSON.stringify(reader)};
+            process.exitCode = await main(["--base", "base", "--diff", "head"], {
+                paths: async () => ["examples/showcase/ocean/src/ocean/fft.ts"],
+                run: async () => ({ ok: true, warnings: 0 }),
+                displaySkip: () => "fixture seat",
+            });
+        `;
+        const runHost = async (required: boolean) => {
+            const env = { ...process.env };
+            delete env.SHALLOT_DISPLAY_REQUIRED;
+            if (required) env.SHALLOT_DISPLAY_REQUIRED = "1";
+            const child = Bun.spawn([process.execPath, "--eval", source], {
+                env,
+                stdout: "pipe",
+                stderr: "pipe",
+            });
+            const [stdout, stderr, code] = await Promise.all([
+                new Response(child.stdout).text(),
+                new Response(child.stderr).text(),
+                child.exited,
+            ]);
+            expect(stderr).toBe("");
+            return { stdout, code };
+        };
+        const unavailable = await runHost(false);
+        expect(unavailable.code).toBe(0);
+        expect(unavailable.stdout).toContain("UNAVAILABLE: selected display gates need native hardware");
+        expect(unavailable.stdout).toContain("display rows were unavailable");
+
+        const required = await runHost(true);
+        expect(required.code).toBe(1);
+        expect(required.stdout).toContain("FAIL: selected display gates need native hardware");
+        expect(required.stdout).not.toContain("display rows were unavailable");
+    });
+
     test("main routes the selected CPU row before its display row with exact commands", async () => {
         const commands: string[] = [];
         expect(
