@@ -73,18 +73,11 @@
         "assets/icon-1024.png",
         "dist",
         "examples/recipes",
-        "examples/AGENTS.md",
         "!examples/recipes/*/node_modules",
         "!examples/recipes/*/tsconfig.json",
         "!src/extras/gltf/fixtures",
         "!src/standard/physics/samples",
         "!src/standard/physics/solver/fixtures",
-        "!src/extras/cells/generate-ramp.ts",
-        "!src/extras/gltf/gltf-conformance.ts",
-        "!src/extras/gltf/gltf-corpus.ts",
-        "!src/testing",
-        "AGENTS.md",
-        "MIGRATION.md",
         "shallot.schema.json",
         "!**/*.test.ts",
         "!**/*.tier.ts",
@@ -100,15 +93,13 @@
         "examples/showcase/*"
     ],
     "scripts": {
-        "prepack": "bun run ./scripts/tooling.ts",
         "build": "bun run ./scripts/build.ts",
-        "icons": "bun run scripts/brand-assets.ts --write",
-        "check": "tsc && biome check && bun scripts/check-pack.ts && bun scripts/check-docs.ts",
+        "check": "bun run scripts/check.ts",
         "format": "biome check --write && bun run scripts/format.ts",
-        "test": "bun test src --pass-with-no-tests",
+        "test": "bun test --pass-with-no-tests src scripts",
         "test:install": "bun run scripts/install-test.ts",
         "assets": "bun run scripts/assets.ts",
-        "recipes": "bun run scripts/recipes.ts"
+        "prepack": "bun run ./scripts/tooling.ts"
     },
     "dependencies": {
         "@types/node": "^26.2.0",
@@ -129,30 +120,15 @@
             "optional": true
         }
     },
-    "optionalDependencies": {
-        "pngjs": "^7.0.0"
-    },
     "devDependencies": {
-        "@babel/core": "^8.0.1",
-        "@babel/eslint-parser": "^8.0.1",
         "@babel/parser": "^8.0.4",
-        "@babel/plugin-syntax-typescript": "^8.0.3",
         "@biomejs/biome": "^2.5.13",
         "@dylanebert/shallot": "link:.",
         "@playwright/test": "^1.63.0",
-        "@types/bun": "latest",
-        "@types/pngjs": "^6.0.5",
+        "@types/bun": "^1.4.2",
         "binaryen": "132.0.0",
-        "bun-webgpu": "github:dylanebert/bun-webgpu#b846ee90103efe6734e84f488c304934f04380b5",
-        "eslint": "^10.10.0",
-        "eslint-plugin-typegpu": "~0.12.0",
-        "jiti": "^2.7.0",
-        "js-yaml": "^5.4.1",
-        "pngjs": "^7.0.0",
+        "bun-webgpu": "github:dylanebert/bun-webgpu#7b75d0440d2f22e2c9a1cb383d15529652c53d98",
         "typegpu": "~0.12.5",
         "typescript": "^7.0.2"
-    },
-    "trustedDependencies": [
-        "webgpu"
-    ]
+    }
 }
