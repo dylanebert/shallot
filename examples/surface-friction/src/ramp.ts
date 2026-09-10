@@ -35,7 +35,7 @@ function body(
     Color.rgba.set(eid, color[0], color[1], color[2], 1);
 }
 
-function build(state: State): void {
+export function build(state: State): void {
     // a flat floor to catch whatever slides off, plus the tilted ramp (its own friction is a middling 1)
     body(state, 0, 0, 0, 22, 0.5, 22, 0, 0.6, [0.4, 0.42, 0.46]);
     body(state, 0, 8.5, -5, 16, 0.5, 10, 0, 1, [0.46, 0.48, 0.52], true);
