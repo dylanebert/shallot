@@ -27,14 +27,13 @@ export interface KernelExport {
 
 export async function sourceModules(): Promise<string[]> {
     const out: string[] = [];
-    for (const root of [SRC_DIR, join(import.meta.dir, "../packages/shallot-physics/src")]) {
+    for (const root of [SRC_DIR, join(import.meta.dir, "../packages/shallot-avbd-physics/src")]) {
         const before = out.length;
         for await (const path of new Bun.Glob("**/*.ts").scan({ cwd: root })) {
             if (
                 /\.d\.ts$/.test(path) ||
                 TEST_TIER_SUFFIXES.test(path) ||
-                /\.fixture\.ts$/.test(path) ||
-                (root === SRC_DIR && path.startsWith("standard/physics/engine/"))
+                /\.fixture\.ts$/.test(path)
             )
                 continue;
             out.push(relative(SRC_DIR, join(root, path)));
@@ -307,7 +306,7 @@ export type DifferentialRegistry = Record<string, DifferentialEntry>;
  *    kernel directly on the CPU against the legacy scalar codec, 4096 random unit vectors plus the
  *    cardinal/degenerate cases.
  *  - `collideHull`: the packed-hull TGSL graph test (`standard/avbd/collide.test.ts`) calls the
- *    kernel directly on the CPU against the f64 hull SAT oracle (`tests/avbd/hull.ts`).
+ *    kernel directly on the CPU against the f64 hull SAT oracle (`packages/shallot-avbd-physics/tests/hull.ts`).
  *  - `packQuatSmallest3` / `unpackQuatSmallest3`: raw-WGSL leaves — their own JSDoc
  *    (`engine/utils/encode.ts`) states why: smallest-3 dynamically indexes a vector (`q[largest]`)
  *    and switches on the result, neither of which TGSL expresses, so the body stays WGSL text with no
@@ -322,7 +321,7 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     collideHull: {
         test: {
-            file: "src/standard/avbd/collide.test.ts",
+            file: "packages/shallot-avbd-physics/src/collide.test.ts",
             symbol: "collideHull",
         },
     },
@@ -404,11 +403,14 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
         gap: "a CPU differential would call clusterOf's pure vec/branch math against a hand-computed froxel index for a given fragCoord/near/far/cluster config; none written",
     },
     collideBoxBox: {
-        test: { file: "tests/avbd/sat.oracle.ts", symbol: "collideBoxBox" },
+        test: {
+            file: "packages/shallot-avbd-physics/tests/sat.oracle.ts",
+            symbol: "collideBoxBox",
+        },
     },
     collideRounded: {
         test: {
-            file: "tests/avbd/rounded.oracle.ts",
+            file: "packages/shallot-avbd-physics/tests/rounded.oracle.ts",
             symbol: "collideRounded",
             alias: "tgslCollideRounded",
         },
@@ -640,7 +642,7 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     polyMake: {
         test: {
-            file: "src/standard/avbd/collide.test.ts",
+            file: "packages/shallot-avbd-physics/src/collide.test.ts",
             symbol: "polyMake",
         },
     },
@@ -870,7 +872,7 @@ export function callsSymbol(text: string, symbol: string): boolean {
  *  The residual it does *not* close: it matches the specifier name, never the `from` clause, so a
  *  binding of the right name from the wrong module satisfies it. `rounded.oracle.ts` is the live
  *  instance — it imports the real kernel aliased (`collideRounded as tgslCollideRounded`, from
- *  `src/standard/avbd/collide`) and separately imports its own f64 reference under the bare name from
+ *  `packages/shallot-avbd-physics/src/collide`) and separately imports its own f64 reference under the bare name from
  *  `./rounded`. That row is honest only because it declares the `alias`; a bare row sharing a file
  *  with an unrelated same-named import would pass both checks against the wrong function. Closing it
  *  needs the kernel's defining module carried per row, which the registry doesn't hold. */

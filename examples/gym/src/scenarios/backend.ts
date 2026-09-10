@@ -49,18 +49,14 @@ import {
     BACKEND_REST_Y as REST_Y,
 } from "./backend-geometry";
 
-// backend — the substrate swap gate: ONE scene, authored purely against
-// the `standard/physics` substrate (Body components, `Physics.backend`'s kinematic drive, the CPU raycast,
-// the `transforms` firehose), that runs unmodified under EITHER `PhysicsPlugin` (default) or `AvbdPlugin`
-// (`--param backend=physics|avbd`) — the one-line manifest swap the substrate's typed `PhysicsBackend`
-// handle exists to make possible (physics.md substrate rule, `standard/physics/index.ts`). Where the
-// sibling `pile`/`constraints`/`character` scenarios gate the AVBD SOLVER's math against the f64 oracle,
-// this scenario gates the SUBSTRATE's contract: the same behavioral assertions must hold under both
-// backends, since two solvers can never bit-match a trajectory (Lyapunov) — cross-backend parity is
-// behavioral, never bit-exact (the spec's locked decision).
+// backend — the substrate contract gate: ONE scene, authored purely against the `standard/physics`
+// substrate (Body components, `Physics.backend`'s kinematic drive, the CPU raycast, the `transforms`
+// firehose), run under `PhysicsPlugin`. Assertions are behavioral bands, never bit-exact trajectories, so
+// any backend plugged in through the typed `PhysicsBackend` handle (`standard/physics/index.ts`) must
+// pass the same set; the gym itself wires only the in-package kernel.
 //
 // The gate set:
-//   • settle + no-fall-through — a dropped grid of boxes comes to rest on the floor, under either backend.
+//   • settle + no-fall-through — a dropped grid of boxes comes to rest on the floor.
 //   • raycast — the backend-neutral CPU raycast (`physics/core`) hits the settled target box (bodyCandidates
 //     reads live poses through `Physics.backend`, so the cast never touches a backend internal).
 //   • drive + writeback — a kinematic platform driven by `Physics.backend.setKinematic` each fixed tick
@@ -71,9 +67,9 @@ import {
 //     backend-neutral — physics derives its hertz from it), a spherical pendulum holds its pin length, a fixed
 //     joint holds its authored pose, and the stiffness-guard station exercises the authoring-layer guard
 //     (S1): a finite-positive stiffnessAng (1000) pins its body (grant arm), while negative and NaN defs are
-//     dropped so those bodies free-fall (skip arms) — under either backend. Cross-backend behavioral bands.
+//     dropped so those bodies free-fall (skip arms) — behavioral bands.
 //   • character — the SHARED CPU sweep (`standard/character`, backend-neutral since stage 5 decoupled it from
-//     AVBD) drives a capsule to a waypoint and grounds it, under either backend, through the same
+//     AVBD) drives a capsule to a waypoint and grounds it through the same
 //     `readBody`/`setKinematic` seams the drive gate exercises directly.
 //   • measured — the per-tick CPU spans (`Profile.cpu`, the scheduler's automatic per-system timing) for the
 //     shared substrate systems (`step` / `constraints` / `compose` / `character`) plus each backend's own
@@ -105,9 +101,8 @@ const WELD_OFFSET: [number, number, number] = [0, -1, 0];
 // jointed with a different authored stiffnessAng — a finite-intermediate (1000, the grant arm), a
 // negative (-1, the skip arm), and a NaN (the skip arm). The authoring-layer guard (S1, physics/index.ts
 // jointDefs) drops the negative and NaN defs with a warn+skip, so those bodies free-fall; the
-// finite-positive 1000 passes through and pins its body. Cross-backend: the same def set reaches both
-// physics (via stiffnessHertz) and avbd (via setJoints), so the guard's one behavior is asserted under
-// either backend — the substrate contract this scenario exists to gate.
+// finite-positive 1000 passes through and pins its body. The def set reaches the backend through the
+// substrate, so the guard's behavior is part of the contract this scenario gates.
 const GUARD_ARM = 2;
 const GUARD_Z_INTERMEDIATE = -2;
 const GUARD_Z_NEGATIVE = -3;

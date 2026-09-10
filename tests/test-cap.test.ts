@@ -445,12 +445,6 @@ describe("the cap in a real bun test child", () => {
      *     tracked test file added anywhere silently extends the cone, and an untracked test file
      *     added to a directory that already holds one is also green.
      *
-     * `site/rum-sampler.test.ts` was the standing orphan — discovered by bare `bun test` but run
-     * by no gate. It is now in the default gate's cone (`site` added to the root `test` script's
-     * paths), so the population arm covers it with no exclusion. Witnessed red before the fix:
-     * deleting the `orphanExclusions` entry reded the arm (`site/rum-sampler.test.ts` outside the
-     * declared cone); adding `site` to the root `test` script read green.
-     *
      * Witnessed red (three-armed mutation proof, each run + reverted by deleting only the created
      * path):
      *   (a) an untracked `.test.ts` in an undeclared directory → red;

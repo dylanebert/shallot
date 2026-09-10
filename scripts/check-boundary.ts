@@ -10,8 +10,6 @@ import { parse, parseExpression } from "@babel/parser";
  *  bound that keeps it readable. Every other computed `import()`/`require()` refuses: a specifier this
  *  reader cannot resolve is a hole in the source cone, not a detail. */
 const COMPUTED_LOADERS: Record<string, string> = {
-    "packages/shallot-physics/scripts/physics/gen-sample-golds.ts":
-        "Frozen mint recipe: four loads name the absent retired sample base/registry and this owner's body/index files; refuses before loading without that checkout. Never part of shipped solver source.",
     "src/standard/physics/engine/pool.ts":
         "the Node-only branch loads the fixed node:worker_threads specifier with vite-ignore; the browser branch creates an embedded Blob worker",
     "src/project/command.ts":
@@ -75,7 +73,6 @@ const NON_WORKSPACE_PACKAGES: Record<string, string> = {
 
 const PKG = "@dylanebert/shallot";
 const ENGINE_PACKAGE = ".";
-const SOLVER_PACKAGE = "packages/shallot-physics";
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".svelte"];
 
 export interface Violation {
@@ -392,6 +389,7 @@ function scanConsumers(
     roots: string[],
     surface: ReturnType<typeof publishedSurface>,
     oracleSeam: string,
+    sampleSeam: string,
     ledger: Ledger = { computedLoaders: {}, nonWorkspacePackages: {} },
     usedLoaders = new Set<string>(),
     errors: string[] = [],
@@ -427,14 +425,6 @@ function scanConsumers(
                 }
                 if (!r.spec) continue;
                 const spec = r.spec;
-                if (
-                    root !== resolve(repoRoot, SOLVER_PACKAGE) &&
-                    (spec === "shallot-physics" || spec.startsWith("shallot-physics/"))
-                )
-                    violations.push({
-                        ...at(r, spec),
-                        reason: "private solver is not a consumer installation surface",
-                    });
                 const targets = spec.startsWith(".")
                     ? [resolve(dirname(full), spec)]
                     : aliasTargets(full, spec).targets;
@@ -451,7 +441,7 @@ function scanConsumers(
                         continue;
                     if (resolved === root || resolved.startsWith(root + sep)) continue;
                     if (
-                        [oracleSeam, resolve(repoRoot, SOLVER_PACKAGE, "tests")].some(
+                        [oracleSeam, sampleSeam].some(
                             (seam) => resolved === seam || resolved.startsWith(seam + sep),
                         )
                     )
@@ -531,6 +521,8 @@ export function checkBoundary(repoRoot: string, ledger: Ledger = REPO_LEDGER): B
         .map((dir) => resolve(repoRoot, dir))
         .filter((dir) => existsSync(dir) && statSync(dir).isDirectory());
     const oracleSeam = resolve(repoRoot, ENGINE_PACKAGE, "tests");
+    // the committed physics sample scenes and golds the gym's sample twins replay
+    const sampleSeam = resolve(repoRoot, ENGINE_PACKAGE, "src/standard/physics/samples");
 
     const usedLoaders = new Set<string>();
     const errors: string[] = [];
@@ -539,26 +531,12 @@ export function checkBoundary(repoRoot: string, ledger: Ledger = REPO_LEDGER): B
         consumerRoots,
         surface,
         oracleSeam,
+        sampleSeam,
         ledger,
         usedLoaders,
         errors,
     );
     violations.push(...scanLoaders(repoRoot, ledger, usedLoaders));
-    const solverSource = resolve(repoRoot, SOLVER_PACKAGE, "src");
-    for (const file of sourceFiles(solverSource)) {
-        if (/\.(test|fixture)\.ts$/.test(file)) continue;
-        for (const ref of references(readFileSync(file, "utf8"))) {
-            if (!ref.spec || ref.spec.startsWith("node:")) continue;
-            const target = resolve(dirname(file), ref.spec);
-            if (!ref.spec.startsWith(".") || !target.startsWith(solverSource + sep))
-                violations.push({
-                    file: relative(repoRoot, file),
-                    line: ref.line,
-                    import: ref.spec,
-                    reason: "solver source leaves its isolated owner",
-                });
-        }
-    }
 
     // Two-way completeness. A source cone proves nothing if a project can sit outside it, or if a
     // declared escape outlives the code it excused.
@@ -641,6 +619,8 @@ if (import.meta.main) {
             external,
             roots,
             surface,
+            resolve(repoRoot, ENGINE_PACKAGE, "tests"),
+            // an external tree never reaches the repo's sample seam
             resolve(repoRoot, ENGINE_PACKAGE, "tests"),
             undefined,
             undefined,
