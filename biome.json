@@ -5,7 +5,6 @@
             "src/**/*.ts",
             "bin/**/*.ts",
             "examples/**/*.ts",
-            "evals/**/*.ts",
             "scripts/**/*.ts",
             "crates/physics/scripts/**/*.ts",
             "!examples/*/public",

@@ -21,6 +21,6 @@
         "noPropertyAccessFromIndexSignature": false,
         "types": ["@webgpu/types"]
     },
-    "include": ["src", "bin", "examples", "scripts", "evals", "crates/physics/scripts"],
-    "exclude": ["**/dist", "**/build", "evals/tasks"]
+    "include": ["src", "bin", "examples", "scripts", "crates/physics/scripts"],
+    "exclude": ["**/dist", "**/build"]
 }

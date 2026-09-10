@@ -116,7 +116,6 @@ Portable builds bundle the Chromium runtime (CEF) instead of the system webview.
 
 - `` — public engine-and-tools distribution, `@dylanebert/shallot`
 - `examples/` — example projects against the engine
-- `evals/` — agent-agnostic eval suite
 
 ### commands
 
