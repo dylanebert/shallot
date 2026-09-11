@@ -8,7 +8,7 @@ const mode = Bun.argv.includes("--integration")
       : "unit";
 const env = { ...process.env };
 if (mode === "unit") env.SHALLOT_UNIT_ONLY = "1";
-if (mode === "integration") env.SHALLOT_INTEGRATION_ONLY = "1";
+// Integration runs include unit rows because some integration fixtures need their setup hooks.
 const started = performance.now();
 const proc = Bun.spawnSync(
     [

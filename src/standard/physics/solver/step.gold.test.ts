@@ -474,7 +474,10 @@ check(
 
 check(
     "gold bench-joint-grid",
-    { claim: "a large joint grid solves bit-exactly, so a changed joint colouring at scale reds." },
+    {
+        claim: "a large joint grid solves bit-exactly, so a changed joint colouring at scale reds.",
+        size: "integration",
+    },
     () => {
         runScene("bench-joint-grid", false, false);
     },
@@ -524,6 +527,7 @@ check(
     "gold bench-rain",
     {
         claim: "ragdolls created mid-replay with their joints solve bit-exactly, so a changed mid-step body or joint creation path reds.",
+        size: "integration",
     },
     () => {
         runScene("bench-rain", false, false);
