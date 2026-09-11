@@ -10,7 +10,6 @@ check(
     "GrowVec push, get and count agree",
     {
         claim: "GrowVec.push writes past or before its own tail, so the value read back at index zero is not the value pushed and count does not advance",
-        tier: "step",
     },
     () => {
         const a = intVec();
@@ -29,7 +28,6 @@ check(
     "GrowVec emplace returns writable indices across regrowth",
     {
         claim: "GrowVec.emplace hands back an index outside the backing store or loses earlier elements when it doubles capacity",
-        tier: "step",
     },
     () => {
         const a = intVec();
@@ -50,7 +48,6 @@ check(
     "GrowVec reserve sizes capacity and removeSwap preserves the multiset",
     {
         claim: "GrowVec.reserve leaves count nonzero or removeSwap drops or duplicates an element while draining from the head",
-        tier: "step",
     },
     () => {
         const a = intVec();
@@ -76,7 +73,6 @@ check(
     "GrowVec removeSwap reports the moved index",
     {
         claim: "GrowVec.removeSwap returns the wrong moved index or fails to return NULL_INDEX for the tail, so callers fix up a back-index that never moved",
-        tier: "step",
     },
     () => {
         const a = intVec();
@@ -93,7 +89,6 @@ check(
     "GrowVec resize sets capacity and count, and pop drains",
     {
         claim: "GrowVec.resize sets capacity without count, or pop returns elements in an order other than last in first out",
-        tier: "step",
     },
     () => {
         const a = intVec();
@@ -134,7 +129,6 @@ check(
     "qsort orders a large array through the partition and stack path",
     {
         claim: "the qsort port mishandles its subfile stack or the i>=j partition boundary above the insertion cutoff, leaving 200 duplicate-heavy keys out of order",
-        tier: "step",
     },
     () => {
         // 200 elements (>> the cutoff of 16) with many duplicates (values 0..49) exercises the
@@ -148,7 +142,6 @@ check(
     "qsort orders duplicate keys through the insertion path",
     {
         claim: "the qsort insertion-sort cutoff branch mis-sorts a short run containing repeated keys",
-        tier: "step",
     },
     () => {
         expect(sorted([5, 1, 5, 3, 1, 2, 5, 0, 3, 2])).toEqual([0, 1, 1, 2, 2, 3, 3, 5, 5, 5]);
@@ -159,7 +152,6 @@ check(
     "qsort handles empty, single and pair inputs",
     {
         claim: "the qsort port indexes out of bounds or swaps needlessly on inputs of length zero, one or two",
-        tier: "step",
     },
     () => {
         expect(sorted([])).toEqual([]);

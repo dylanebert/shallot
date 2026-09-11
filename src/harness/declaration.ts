@@ -1,81 +1,61 @@
-/** the four check classes: what a check costs to run, under the Kex surface law. */
-export const CHECK_CLASSES = ["pure", "process", "seat", "oracle"] as const;
-/** the six tiers: which runner and cadence a check belongs to. */
-export const CHECK_TIERS = ["step", "gpu", "browser", "headed", "built", "live"] as const;
-/** the wall-clock ceiling a `step`-tier check may declare, in milliseconds. Never raised. */
-export const STEP_BUDGET_MS = 1000;
+/** The sizes that set cadence and the wall-clock ceiling for a check. */
+export const CHECK_SIZES = ["unit", "integration"] as const;
+/** Environment tags a runner may require. */
+export const CHECK_REQUIREMENTS = ["chromium", "gpu", "display", "deploy"] as const;
+export const UNIT_BUDGET_MS = 250;
+export const INTEGRATION_BUDGET_MS = 20_000;
 
-export type CheckClass = (typeof CHECK_CLASSES)[number];
-export type CheckTier = (typeof CHECK_TIERS)[number];
+export type CheckSize = (typeof CHECK_SIZES)[number];
+export type CheckRequirement = (typeof CHECK_REQUIREMENTS)[number];
 
-/** Defaults coupled to each tier; `live` has no automatic wall-clock ceiling. */
-export const TIER_DEFAULTS = {
-    step: { class: "pure", ceiling: STEP_BUDGET_MS },
-    gpu: { class: "seat", ceiling: 60000 },
-    browser: { class: "process", ceiling: 20000 },
-    headed: { class: "seat", ceiling: 60000 },
-    built: { class: "process", ceiling: 20000 },
-    live: { class: "oracle", ceiling: undefined },
-} as const satisfies Record<CheckTier, { class: CheckClass; ceiling: number | undefined }>;
-
-/** The options object every check declares; class, premises and budget derive from its tier. */
 export interface CheckDeclaration {
     /** unique sentence naming the defect this check would catch. */
     claim: string;
-    /** which runner and cadence owns it. */
-    tier: CheckTier;
-    /** what running it costs; defaults from `tier`. */
-    class?: CheckClass;
-    /** external things that must exist for it to run; defaults to hermetic. */
-    premises?: readonly string[];
-    /** wall-clock ceiling in milliseconds; defaults from `tier` when that tier has one. */
+    /** unit by default; integration rows run on the hosted cadence. */
+    size?: CheckSize;
+    /** external environment tags that must be available to run. */
+    requires?: readonly CheckRequirement[];
+    /** wall-clock budget in milliseconds; defaults to the size ceiling. */
     budget?: number;
 }
 
 export interface ResolvedCheckDeclaration {
     claim: string;
-    class: CheckClass;
-    tier: CheckTier;
-    premises: readonly string[];
-    budget?: number;
+    size: CheckSize;
+    requires: readonly CheckRequirement[];
+    budget: number;
 }
 
-/**
- * Validate a declaration and fill its tier-derived values.
- * Shared with `scripts/check-surface.ts`, which reads declarations statically.
- */
+/** Validate a declaration and fill its size-derived values. Shared with the static surface reader. */
 export function validateDeclaration(where: string, value: unknown): ResolvedCheckDeclaration {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
         throw new Error(`invalid declaration: ${where} needs an options object`);
     }
     const decl = value as Record<string, unknown>;
-    for (const field of ["claim", "tier"] as const) {
-        if (!(field in decl))
-            throw new Error(`invalid declaration: ${where} is missing \`${field}\``);
-    }
+    if (!("claim" in decl)) throw new Error(`invalid declaration: ${where} is missing \`claim\``);
     if (typeof decl.claim !== "string" || decl.claim.trim() === "") {
         throw new Error(`invalid declaration: ${where} needs a non-empty \`claim\``);
     }
-    if (!CHECK_TIERS.includes(decl.tier as CheckTier)) {
+    if ("class" in decl || "tier" in decl || "premises" in decl) {
+        const field = ["class", "tier", "premises"].find((name) => name in decl);
+        throw new Error(`invalid declaration: ${where} has retired field \`${field}\``);
+    }
+    const size = decl.size === undefined ? "unit" : decl.size;
+    if (!CHECK_SIZES.includes(size as CheckSize)) {
         throw new Error(
-            `invalid declaration: ${where} has tier \`${String(decl.tier)}\`, not one of ${CHECK_TIERS.join(", ")}`,
+            `invalid declaration: ${where} has size \`${String(size)}\`, not one of ${CHECK_SIZES.join(", ")}`,
         );
     }
-    const tier = decl.tier as CheckTier;
-    const defaults = TIER_DEFAULTS[tier];
-    if (decl.class !== undefined && !CHECK_CLASSES.includes(decl.class as CheckClass)) {
-        throw new Error(
-            `invalid declaration: ${where} has class \`${String(decl.class)}\`, not one of ${CHECK_CLASSES.join(", ")}`,
-        );
+    const requires = decl.requires === undefined ? [] : decl.requires;
+    if (!Array.isArray(requires) || requires.some((tag) => typeof tag !== "string")) {
+        throw new Error(`invalid declaration: ${where} needs \`requires\` as an array of strings`);
     }
-    if (decl.class !== undefined && decl.class !== defaults.class) {
-        throw new Error(
-            `invalid declaration: ${where} class \`${String(decl.class)}\` contradicts tier \`${tier}\` (expected \`${defaults.class}\`)`,
-        );
-    }
-    const premises = decl.premises === undefined ? [] : decl.premises;
-    if (!Array.isArray(premises) || premises.some((p) => typeof p !== "string")) {
-        throw new Error(`invalid declaration: ${where} needs \`premises\` as an array of strings`);
+    for (const tag of requires) {
+        if (!CHECK_REQUIREMENTS.includes(tag as CheckRequirement)) {
+            throw new Error(
+                `invalid declaration: ${where} has requirement tag \`${tag}\`, not one of ${CHECK_REQUIREMENTS.join(", ")}`,
+            );
+        }
     }
     if (
         decl.budget !== undefined &&
@@ -85,17 +65,17 @@ export function validateDeclaration(where: string, value: unknown): ResolvedChec
             `invalid declaration: ${where} needs a positive finite \`budget\` in milliseconds`,
         );
     }
-    const budget = decl.budget ?? defaults.ceiling;
-    if (defaults.ceiling !== undefined && budget !== undefined && budget > defaults.ceiling) {
+    const ceiling = size === "unit" ? UNIT_BUDGET_MS : INTEGRATION_BUDGET_MS;
+    const budget = decl.budget ?? ceiling;
+    if (budget > ceiling) {
         throw new Error(
-            `invalid declaration: ${where} budget ${budget}ms is above the ${tier} ceiling of ${defaults.ceiling}ms`,
+            `invalid declaration: ${where} budget ${budget}ms is above the ${size} ceiling of ${ceiling}ms`,
         );
     }
     return {
         claim: decl.claim,
-        class: defaults.class,
-        tier,
-        premises,
+        size: size as CheckSize,
+        requires: requires as CheckRequirement[],
         budget,
     };
 }

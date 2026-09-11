@@ -11,7 +11,6 @@ check(
     "the pair hash set's power-of-two sizing rounds a capacity up to the next power",
     {
         claim: "the pair hash set sizes its table with a wrong power of two, so probing wraps over a non-power-of-two mask",
-        tier: "step",
     },
     () => {
         const power = boundingPowerOf2(3008);
@@ -24,7 +23,6 @@ check(
     "the pair hash set fills, removes its diagonal, answers reversed queries and drains",
     {
         claim: "the pair hash set loses or resurrects a pair across grows and backward-shift deletes, so the broad phase reports stale membership",
-        tier: "step",
     },
     () => {
         const N = 200;
@@ -77,7 +75,6 @@ check(
     "the pair hash set reports duplicates and separates pairs by child index",
     {
         claim: "the pair hash set treats a reversed insert as new or merges two child indices of one shape pair, so per-child manifolds collide",
-        tier: "step",
     },
     () => {
         const set = createSet(16);
@@ -126,7 +123,6 @@ check(
     "the pair key's split halves match the u64 oracle on packing edge cases",
     {
         claim: "the pair key packs a field across the word boundary wrongly at its extremes, so saturated shape or child indices alias",
-        tier: "step",
     },
     () => {
         for (const [s1, s2, c] of [
@@ -154,7 +150,6 @@ check(
     "the pair key and its fmix match the u64 oracle over random triples",
     {
         claim: "the pair key's split fmix drops a carry on some triple, so its hash diverges from Box3D's u64 fmix64",
-        tier: "step",
     },
     () => {
         // Deterministic LCG — a failing seed is reproducible.
@@ -173,7 +168,6 @@ check(
     "the pair key is symmetric in its shapes and injective over distinct triples",
     {
         claim: "the pair key maps two distinct shape-child triples to one key or answers differently for a reversed pair, so the broad phase drops a pair",
-        tier: "step",
     },
     () => {
         const seen = new Set<string>();

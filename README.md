@@ -1,3 +1,5 @@
+[![test-surface](https://github.com/dylanebert/shallot/actions/workflows/test-surface.yml/badge.svg?branch=main)](https://github.com/dylanebert/shallot/actions/workflows/test-surface.yml)
+
 # Shallot
 
 Shallot is a WebGPU game engine for TypeScript. You describe a game as data, a `shallot.json` manifest and a `.scene` file, and its behavior as plugins: components hold data, systems do the work, and each plugin declares where its systems run. It runs in any browser with WebGPU, and the same project builds into a native desktop app.

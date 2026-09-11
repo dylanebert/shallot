@@ -2,14 +2,11 @@ import { test } from "bun:test";
 import { type CheckDeclaration, validateDeclaration } from "./declaration";
 import {
     emitVerdict,
-    missingPremise,
+    missingRequirement,
     quarantineReason,
     type VerdictMetadata,
     verdictMetadata,
 } from "./verdict";
-
-// The one call every check is registered through: Bun's `test` behind a mandatory typed
-// declaration, with the declared budget as the runner's timeout.
 
 export * from "./declaration";
 
@@ -31,17 +28,12 @@ export function assertDeclared(path: string): void {
     }
     if ((declared.get(path) ?? 0) === 0) {
         throw new Error(
-            `undeclared check file: ${path} registers no check(); declare each test with check(name, { claim, class, tier, premises, budget }, body)`,
+            `undeclared check file: ${path} registers no check(); declare each test with check(name, { claim, size, requires, budget }, body)`,
         );
     }
 }
 
-/**
- * Register one check. The declaration is mandatory and its budget is the runner's timeout.
- * @param name what the runner prints.
- * @param declaration the claim, class, tier, premises and budget.
- * @param body the check itself.
- */
+/** Register one check. The declaration supplies the claim, cadence, requirements and timeout. */
 export function check(
     name: string,
     declaration: CheckDeclaration,
@@ -51,13 +43,23 @@ export function check(
     const file = currentFile;
     if (file !== null) declared.set(file, (declared.get(file) ?? 0) + 1);
 
+    // The ordinary package test intentionally excludes integration rows. They remain discovered,
+    // but their bodies are not scheduled; test:changed and hosted jobs omit this filter.
+    if (
+        (process.env.SHALLOT_UNIT_ONLY === "1" && decl.size === "integration") ||
+        (process.env.SHALLOT_INTEGRATION_ONLY === "1" && decl.size === "unit")
+    ) {
+        test.skip(name, () => {}, decl.budget);
+        return;
+    }
+
     const refusal =
         (file === null ? null : quarantineReason(file, decl.claim)) ??
-        missingPremise(decl.premises);
-    const reports = decl.tier !== "step" || refusal !== null;
+        missingRequirement(decl.requires);
+    const reports = decl.size === "integration" || refusal !== null;
     if (refusal !== null) {
         if (reports) {
-            emitVerdict(decl.claim, decl.tier, performance.now(), "refused", { reason: refusal });
+            emitVerdict(decl.claim, decl.size, performance.now(), "refused", { reason: refusal });
         }
         test.skip(name, () => {}, decl.budget);
         return;
@@ -81,11 +83,11 @@ export function check(
                     );
                     throw error;
                 }
-                if (reports) emitVerdict(decl.claim, decl.tier, started, "pass", metadata);
+                if (reports) emitVerdict(decl.claim, decl.size, started, "pass", metadata);
                 return value;
             } catch (error) {
                 if (reports) {
-                    emitVerdict(decl.claim, decl.tier, started, "fail", verdictMetadata(error));
+                    emitVerdict(decl.claim, decl.size, started, "fail", verdictMetadata(error));
                 }
                 throw error;
             }

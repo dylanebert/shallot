@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { TIER_DEFAULTS } from "../src/harness/declaration";
+import { CHECK_SIZES, INTEGRATION_BUDGET_MS, UNIT_BUDGET_MS } from "../src/harness/declaration";
 import { collectPopulation, readQuarantine, renderWorkflow } from "./surface";
 
 // `check` arm for the check surface itself: every test-suffix file declares, claims are unique,
-// no declaration overruns its tier ceiling, quarantine rows are live and current, and the hosted
+// no declaration overruns its size ceiling, quarantine rows are live and current, and the hosted
 // workflow is exactly the one the population emits.
 
 function isShallotRoot(root: string): boolean {
@@ -35,10 +35,12 @@ export function readSurface(root: string): string[] {
         } else {
             seen.set(row.claim, row.file);
         }
-        const ceiling = TIER_DEFAULTS[row.tier as keyof typeof TIER_DEFAULTS].ceiling;
-        if (ceiling !== undefined && row.budget !== undefined && row.budget > ceiling) {
+        const ceiling = row.size === "unit" ? UNIT_BUDGET_MS : INTEGRATION_BUDGET_MS;
+        if (!CHECK_SIZES.includes(row.size as (typeof CHECK_SIZES)[number])) {
+            violations.push(`unknown size: "${row.size}" in ${row.file}`);
+        } else if (row.budget > ceiling) {
             violations.push(
-                `over-budget declaration: "${row.claim}" in ${row.file} declares ${row.budget}ms above the ${row.tier} ceiling of ${ceiling}ms`,
+                `over-budget declaration: "${row.claim}" in ${row.file} declares ${row.budget}ms above the ${row.size} ceiling of ${ceiling}ms`,
             );
         }
     }

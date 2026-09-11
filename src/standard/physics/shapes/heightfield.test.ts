@@ -122,7 +122,6 @@ check(
     "height field build is bit-exact against the C geometry gold",
     {
         claim: "a height field built by createGrid or createHeightField would drift from the pinned C reference in its quantized heights, bounds, edge flags, winding remap or decompressed triangle vertices",
-        tier: "step",
     },
     () => {
         const cases: Array<{ name: string; build: () => HeightFieldData }> = [
@@ -143,7 +142,6 @@ check(
     "height field wave authoring yields sound dimensions and finite triangles",
     {
         claim: "createWave would author a height field with the wrong row, column, material or flag counts, or a triangle decoding to a non-finite vertex or an invalid field AABB",
-        tier: "step",
     },
     () => {
         // createWave uses Math.sin (not the portable b3 trig or C's sinf), so it is authoring-only and
@@ -231,7 +229,6 @@ check(
     "height field ray cast lands on a flat surface with an up normal",
     {
         claim: "rayCastHeightField would miss a flat height field, or recover the wrong hit fraction or a surface normal that is not the field's up axis",
-        tier: "step",
     },
     () => {
         // Tight quantization range keeps the recovered surface within ~1e-5 of y=0.
@@ -262,7 +259,6 @@ check(
     "height field overlap separates a proxy above the surface from one through it",
     {
         claim: "overlapHeightField would report a hit for a proxy hovering clear above the field, or miss one whose radius reaches the field surface",
-        tier: "step",
     },
     () => {
         const hf = createGrid(4, 4, { x: 1, y: 1, z: 1 }, false);
@@ -291,7 +287,6 @@ check(
     "height field shape cast tests every cell the swept proxy straddles",
     {
         claim: "shapeCastHeightField would cull the one solid height field cell that sits on the trailing side of the swept proxy's x, z or corner boundary",
-        tier: "step",
     },
     () => {
         // Only cell (0,0) is solid; the swept sphere's center is nudged just past each boundary so the
@@ -345,7 +340,6 @@ check(
     "height field shape cast grid walk matches the brute-force cast",
     {
         claim: "the grid walk in shapeCastHeightField would disagree with a brute-force cast over every wave height field triangle on hit or fraction for some origin, sweep and proxy radius",
-        tier: "step",
     },
     () => {
         const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
@@ -391,7 +385,6 @@ check(
     "height field ray cast grid walk matches the brute-force ray",
     {
         claim: "the grid walk in rayCastHeightField would disagree with a brute-force ray against every wave height field triangle on hit or fraction for some origin and translation",
-        tier: "step",
     },
     () => {
         const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);

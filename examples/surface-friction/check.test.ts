@@ -46,7 +46,6 @@ check(
     "a low-friction box slides off the ramp while a high-friction box holds",
     {
         claim: "Body.friction makes a low-friction box leave the ramp while a high-friction box holds",
-        tier: "step",
     },
     async () => {
         const state = await headlessRecipeState();
@@ -74,9 +73,8 @@ check(
     "Chromium observes the friction ladder through the in-page harness",
     {
         claim: "Chromium observes Body.friction making a low-friction box leave the ramp while a high-friction box holds",
-        tier: "browser",
-        premises: ["playwright"],
-        budget: 20000,
+        size: "integration",
+        requires: ["chromium"],
     },
     async () => {
         const verdict = await runBrowserCheck(import.meta.dir);

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { parse } from "@babel/parser";
 import { Glob } from "bun";
-import { CHECK_CLASSES, CHECK_TIERS, validateDeclaration } from "../src/harness/declaration";
+import { CHECK_REQUIREMENTS, CHECK_SIZES, validateDeclaration } from "../src/harness/declaration";
 
 // The check population, derived by discovery and never hand-written: every declared check under
 // `src/` and `scripts/`, plus every recipe check declared in an `examples/*/shallot.json`.
@@ -13,10 +13,9 @@ export interface SurfaceRow {
     /** the name passed to Bun's test runner. */
     name: string;
     claim: string;
-    class: string;
-    tier: string;
-    premises: string[];
-    budget?: number;
+    size: string;
+    requires: string[];
+    budget: number;
     /** path relative to the tree root. */
     file: string;
 }
@@ -169,7 +168,7 @@ function walk(node: unknown, visit: (call: Record<string, unknown>) => void): vo
     }
 }
 
-function readFileDeclarations(root: string, path: string, population: Population): void {
+export function readFileDeclarations(root: string, path: string, population: Population): void {
     const file = relative(root, path);
     const source = readFileSync(path, "utf8");
     for (const match of source.matchAll(BUN_TEST_IMPORT)) {
@@ -210,9 +209,8 @@ function readFileDeclarations(root: string, path: string, population: Population
             population.rows.push({
                 name,
                 claim: valid.claim,
-                class: valid.class,
-                tier: valid.tier,
-                premises: [...valid.premises],
+                size: valid.size,
+                requires: [...valid.requires],
                 budget: valid.budget,
                 file,
             });
@@ -224,28 +222,65 @@ function readFileDeclarations(root: string, path: string, population: Population
         population.undeclared.push({ file, reason: "registers no check() declaration" });
 }
 
+/** Read a recipe's named check file through the same static reader as the surface population. */
+export function readCheckDeclarations(
+    root: string,
+    path: string,
+): { rows: SurfaceRow[]; errors: string[] } {
+    const population: Population = { root, rows: [], undeclared: [], invalid: [] };
+    if (!existsSync(path))
+        return { rows: [], errors: [`recipe check file does not exist: ${relative(root, path)}`] };
+    readFileDeclarations(root, path, population);
+    return {
+        rows: population.rows,
+        errors: [
+            ...population.invalid,
+            ...population.undeclared.map(
+                (file) => `undeclared recipe check file: ${file.file} ${file.reason}`,
+            ),
+        ],
+    };
+}
+
 function readManifest(root: string, path: string, population: Population): void {
     const manifest = JSON.parse(readFileSync(path, "utf8")) as { check?: unknown };
     if (manifest.check === undefined) return;
     const dir = relative(root, resolve(path, ".."));
-    const entries = Array.isArray(manifest.check) ? manifest.check : [manifest.check];
-    for (const entry of entries) {
-        const decl = entry as Record<string, unknown> | null;
-        const file = typeof decl?.file === "string" ? `${dir}/${decl.file}` : `${dir}/shallot.json`;
-        try {
-            const valid = validateDeclaration(`${dir}/shallot.json check`, decl);
-            population.rows.push({
-                name: valid.claim,
-                claim: valid.claim,
-                class: valid.class,
-                tier: valid.tier,
-                premises: [...valid.premises],
-                budget: valid.budget,
-                file,
-            });
-        } catch (error) {
-            population.invalid.push((error as Error).message);
-        }
+    const entry = manifest.check as Record<string, unknown> | null;
+    if (Array.isArray(manifest.check) || entry === null || typeof entry !== "object") {
+        population.invalid.push(
+            `invalid recipe declaration: ${dir}/shallot.json check must be { file }`,
+        );
+        return;
+    }
+    const extraFields = Object.keys(entry).filter((field) => field !== "file");
+    if (extraFields.length > 0) {
+        population.invalid.push(
+            `invalid recipe declaration: ${dir}/shallot.json check only accepts file (found ${extraFields.join(", ")})`,
+        );
+        return;
+    }
+    if (typeof entry.file !== "string" || entry.file.trim() === "") {
+        population.invalid.push(
+            `invalid recipe declaration: ${dir}/shallot.json check needs a file`,
+        );
+        return;
+    }
+    const checkPath = resolve(path, "..", entry.file);
+    if (!existsSync(checkPath)) {
+        population.invalid.push(`recipe check file does not exist: ${relative(root, checkPath)}`);
+        return;
+    }
+    const before =
+        population.rows.length + population.invalid.length + population.undeclared.length;
+    readFileDeclarations(root, checkPath, population);
+    if (
+        population.rows.length + population.invalid.length + population.undeclared.length ===
+        before
+    ) {
+        population.invalid.push(
+            `recipe check file declares no check(): ${relative(root, checkPath)}`,
+        );
     }
 }
 
@@ -275,30 +310,19 @@ function finish(population: Population): Population {
     return population;
 }
 
-const COLUMNS = ["claim", "class", "tier", "premises", "budget", "file", "status"] as const;
-
-function quarantineKey(file: string, claim: string): string {
-    return `${file}\u0000${claim}`;
-}
+const COLUMNS = ["claim", "size", "requires", "budget", "file"] as const;
 
 /** Render the population as the table `--list` prints. */
 export function formatPopulation(
     population: Population,
     quarantines: readonly QuarantineRow[] = readQuarantine(population.root).rows,
 ): string {
-    const marked = new Map(
-        quarantines.map((row) => [quarantineKey(row.file, row.claim), row.reason]),
-    );
     const cells = population.rows.map((row) => [
         row.claim,
-        row.class,
-        row.tier,
-        row.premises.join(" ") || "-",
-        row.budget === undefined ? "-" : `${row.budget}ms`,
+        row.size,
+        row.requires.join(" ") || "-",
+        `${row.budget}ms`,
         row.file,
-        marked.has(quarantineKey(row.file, row.claim))
-            ? `quarantined: ${marked.get(quarantineKey(row.file, row.claim))}`
-            : "-",
     ]);
     const widths = COLUMNS.map((name, index) =>
         Math.max(name.length, ...cells.map((cell) => cell[index].length), 0),
@@ -349,7 +373,7 @@ function readBuildPins(root: string): BuildPins {
 /** Emit the hosted cadence from the discovered population and project build pins. */
 export function renderWorkflow(population: Population): string {
     const pins = readBuildPins(population.root);
-    const needsChromium = population.rows.some((row) => row.tier === "browser");
+    const needsChromium = population.rows.some((row) => row.requires.includes("chromium"));
     const common = [
         "      - uses: actions/checkout@v4",
         "      - uses: oven-sh/setup-bun@v2",
@@ -361,6 +385,8 @@ export function renderWorkflow(population: Population): string {
         "      - run: bun run build",
         "      - run: bun run check",
         "      - run: bun run test",
+        "      - run: bun run test:integration",
+        "      - run: cargo test --workspace --exclude shallot-native --quiet",
     ];
     const job = (id: string, runner: string, condition: string): string[] => [
         `  ${id}:`,
@@ -413,4 +439,4 @@ if (import.meta.main) {
     if (quarantine.errors.length > 0) process.exit(1);
 }
 
-export { CHECK_CLASSES, CHECK_TIERS };
+export { CHECK_REQUIREMENTS, CHECK_SIZES };

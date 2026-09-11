@@ -20,7 +20,6 @@ check(
     "a headless State warms PhysicsPlugin and steps it with no GPU",
     {
         claim: "physics stops stepping without a GPU device, so every step-tier physics check would be unrunnable in Bun",
-        tier: "step",
     },
     async () => {
         const state = await headlessPhysicsState();

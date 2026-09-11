@@ -1,3 +1,2 @@
 import { check } from "@dylanebert/shallot/harness/check";
-
-check("same claim again", { claim: "same claim", class: "pure", tier: "step", premises: [], budget: 10 }, () => {});
+check("same claim two", { claim: "same claim" }, () => {});

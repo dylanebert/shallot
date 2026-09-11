@@ -1,4 +1,4 @@
 import { check } from "@dylanebert/shallot/harness/check";
 
-const declaration = { claim: "identifier declaration", class: "pure", tier: "step", premises: [], budget: 10 };
+const declaration = { claim: "identifier declaration" };
 check("identifier declaration", declaration, () => {});

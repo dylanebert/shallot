@@ -153,7 +153,6 @@ check(
     "rayCastSphere bit-exact vs C reference",
     {
         claim: "a ray against a sphere lands on a different f32 hit point, normal or fraction than the C reference does, including the grazing and ray-origin-inside cases.",
-        tier: "step",
     },
     () => {
         for (const g of gold.raySphere) {
@@ -174,7 +173,6 @@ check(
     "rayCastCapsule bit-exact vs C reference",
     {
         claim: "a ray against a capsule picks the wrong segment region or rounds the endcap and skew hits away from the C reference bits.",
-        tier: "step",
     },
     () => {
         for (const g of gold.rayCapsule) {
@@ -196,7 +194,6 @@ check(
     "rayCastHull bit-exact vs C reference",
     {
         claim: "the hull slab clip picks a different entering plane or fraction than the C reference on face, edge, corner and interior-origin rays.",
-        tier: "step",
     },
     () => {
         for (const g of gold.rayHull) {
@@ -209,7 +206,6 @@ check(
     "shapeCast bit-exact vs C reference",
     {
         claim: "the GJK-backed shape cast against a sphere or hull drifts from the C reference's conservative-advancement fraction and witness point.",
-        tier: "step",
     },
     () => {
         for (const g of gold.shapeCast) {
@@ -239,7 +235,6 @@ check(
     "overlap bit-exact vs C reference",
     {
         claim: "the sphere and hull overlap predicate answers differently from the C reference at the touching and separated boundary.",
-        tier: "step",
     },
     () => {
         for (const g of gold.overlap) {
@@ -265,7 +260,6 @@ check(
     "rayCastMesh bit-exact vs C reference",
     {
         claim: "a ray through the mesh BVH reports a different triangle index or hit bits than the C reference, so traversal order or triangle clipping has moved.",
-        tier: "step",
     },
     () => {
         for (const g of gold.rayMesh) {
@@ -282,7 +276,6 @@ check(
     "shapeCastMesh bit-exact vs C reference",
     {
         claim: "sweeping a proxy through the mesh selects a different triangle or fraction than the C reference when several triangles are candidates.",
-        tier: "step",
     },
     () => {
         for (const g of gold.shapeCastMesh) {
@@ -300,7 +293,6 @@ check(
     "overlapMesh bit-exact vs C reference",
     {
         claim: "the mesh overlap predicate disagrees with the C reference about a proxy resting on or just clear of the grid surface.",
-        tier: "step",
     },
     () => {
         for (const g of gold.overlapMesh) {
@@ -314,7 +306,6 @@ check(
     "rayCastHeightField bit-exact vs C reference",
     {
         claim: "the height-field ray walk visits cells in a different order or clips the sampled column differently from the C reference.",
-        tier: "step",
     },
     () => {
         for (const g of gold.rayHeight) {
@@ -331,7 +322,6 @@ check(
     "shapeCastHeightField bit-exact vs C reference",
     {
         claim: "sweeping a proxy across the height field returns a different cell triangle or fraction than the C reference.",
-        tier: "step",
     },
     () => {
         for (const g of gold.shapeCastHeight) {
@@ -349,7 +339,6 @@ check(
     "overlapHeightField bit-exact vs C reference",
     {
         claim: "the height-field overlap predicate disagrees with the C reference about a proxy at the sampled column boundary.",
-        tier: "step",
     },
     () => {
         for (const g of gold.overlapHeight) {
@@ -367,7 +356,6 @@ check(
     "rayCastCompound bit-exact vs C reference",
     {
         claim: "a ray against a two-child compound reports the wrong child index or takes the farther child's hit, unlike the C reference.",
-        tier: "step",
     },
     () => {
         for (const g of gold.rayCompound) {
@@ -384,7 +372,6 @@ check(
     "shapeCastCompound bit-exact vs C reference",
     {
         claim: "sweeping a proxy through a compound fails to keep the nearest child's fraction and its child index together, unlike the C reference.",
-        tier: "step",
     },
     () => {
         for (const g of gold.shapeCastCompound) {
@@ -402,7 +389,6 @@ check(
     "overlapCompound bit-exact vs C reference",
     {
         claim: "the compound overlap predicate misses a proxy that touches only one child, or reports one in the gap between children, unlike the C reference.",
-        tier: "step",
     },
     () => {
         for (const g of gold.overlapCompound) {
