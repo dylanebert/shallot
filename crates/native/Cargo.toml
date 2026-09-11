@@ -29,13 +29,13 @@ portable = ["dep:cef", "dep:objc2", "dep:objc2-app-kit"]
 winit = { version = "0.30", optional = true }
 wry = { version = "0.48", optional = true }
 image = { version = "0.25", default-features = false, features = ["png"], optional = true }
-cef = { version = "145", optional = true }
+cef = { version = "152", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 winit = { version = "0.30", optional = true }
 wry = { version = "0.48", optional = true }
 image = { version = "0.25", default-features = false, features = ["png"], optional = true }
-cef = { version = "145", optional = true }
+cef = { version = "152", optional = true }
 
 # macOS CEF: default-features = false drops the unused build-util + sandbox.
 [target.'cfg(target_os = "macos")'.dependencies]
