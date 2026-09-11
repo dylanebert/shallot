@@ -18,10 +18,7 @@ import {
 check(
     "qRotate applies a 90-degree yaw and its conjugate inverts it",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "the raycast quaternion rotation turns a vector the wrong way, so picking a rotated body would test the ray against a mirrored orientation",
     },
     () => {
@@ -41,10 +38,7 @@ check(
 check(
     "raySphere returns the near root with an outward normal, and null on a miss",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "the ray-sphere solve takes the far root or an inward normal, so clicking a sphere would report the back surface",
     },
     () => {
@@ -64,10 +58,7 @@ check(
 check(
     "rayOBB hits each face at the analytic distance and misses cleanly",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "the oriented-box slab test picks the wrong entry face or ignores the body rotation, so picking a turned box would report a wrong distance or normal",
     },
     () => {
@@ -93,10 +84,7 @@ check(
 check(
     "rayOBB from inside returns the exit distance paired with the exit face normal",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "an oriented-box hit from a ray origin inside the box reports the entry face the slab test tracks for tmin, so a camera inside geometry would pick a surface behind it",
     },
     () => {
@@ -120,10 +108,7 @@ check(
 check(
     "rayCapsule separates the cylinder body from the hemispherical caps",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "the ray-capsule solve treats the caps as part of the infinite cylinder, so a ray along the capsule axis would hit at the wrong distance",
     },
     () => {
@@ -143,10 +128,7 @@ check(
 check(
     "raycast returns the nearest body, honours maxDist, and returns null on an empty list",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "the raycast sweep over a body list keeps the last hit rather than the nearest or ignores maxDist, so clicking overlapping bodies would select the one behind",
     },
     () => {
@@ -175,10 +157,7 @@ check(
 check(
     "generateRay unprojects NDC through the camera's fov, aspect and pose",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "the NDC-to-world ray drops the aspect ratio, the near offset or the camera rotation, so a pick would miss the object under the cursor on a non-square canvas or a turned camera",
     },
     () => {
@@ -223,10 +202,7 @@ check(
 check(
     "screenToRay maps pixels to NDC with the y axis flipped",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "the pixel-to-NDC conversion drops the y flip or mis-centres the canvas, so a cursor above the centre would pick a body below it",
     },
     () => {

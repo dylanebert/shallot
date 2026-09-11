@@ -8,10 +8,7 @@ import { ShapeKind } from "./index";
 check(
     "nlerpShortest returns curr exactly at t=1 and prev exactly at t=0",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "render interpolation misses its endpoints, so a body at rest would show a pose that is neither the previous nor the current physics transform",
     },
     () => {
@@ -26,10 +23,7 @@ check(
 check(
     "nlerpShortest blends the shortest arc",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "render interpolation mixes quaternions without flipping the previous one into the current hemisphere, so a rotating body would spin the long way around between frames",
     },
     () => {
@@ -44,10 +38,7 @@ check(
 check(
     "nlerpShortest result is always unit-length",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "render interpolation leaves the blended quaternion unnormalized, so an interpolated body would shear or scale mid-rotation",
     },
     () => {
@@ -60,10 +51,7 @@ check(
 check(
     "renderScale doubles half-extents for box and hull",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "render scale passes box and hull half-extents through undoubled, so every box would draw at half the size the solver collides with",
     },
     () => {
@@ -75,10 +63,7 @@ check(
 check(
     "renderScale scales a sphere uniformly to twice its radius",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "render scale reads a sphere's size from its unused half-extents instead of its radius, so every sphere would draw at zero size",
     },
     () => {
@@ -89,10 +74,7 @@ check(
 check(
     "renderScale gives a capsule (2r, halfHeight + r, 2r)",
     {
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
         claim: "render scale treats a capsule like a box, so its hemispherical caps would distort under a non-proportional height-to-radius ratio",
     },
     () => {

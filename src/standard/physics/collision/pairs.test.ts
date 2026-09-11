@@ -18,10 +18,7 @@ check(
     "category and mask must overlap in both directions",
     {
         claim: "collision filtering by category and mask lets a one-sided match through, so a shape that sees another collides with it even when that other shape's mask excludes it — and the default all-pass filter stops colliding with itself",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         // the default filter is the all-pass case every fixture scene rides on.
@@ -44,10 +41,7 @@ check(
     "filter bits above 32 survive the u64 split",
     {
         claim: "collision filtering across the two u32 halves of the 64-bit filter drops or aliases the high half, so a category above bit 32 either misses its own mask or matches an unrelated low-half one, and a half's top bit reads as no match through a signed AND",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const hiOnly = 1n << 40n;
@@ -71,10 +65,7 @@ check(
     "a shared non-zero filter group overrides the mask",
     {
         claim: "collision filtering by group index stops taking precedence over the mask, so a shared positive group no longer forces the pair together, a shared negative group no longer keeps it apart, or two different groups skip the mask test instead of falling through to it",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         // Same positive group forces collision despite disjoint masks.
@@ -97,10 +88,7 @@ check(
     "overlapping moved proxies create one contact and don't duplicate it across steps",
     {
         claim: "contact pair creation from the broad phase emits an overlapping pair once per moved side instead of deduplicating it, or re-creates a pair already in the pair set on a later step, so a single touching pair fires two begin-touch events",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         // Two dynamic boxes overlap along x and both drift +y (zero gravity, sleep off) so both sit in

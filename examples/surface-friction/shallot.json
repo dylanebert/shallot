@@ -5,10 +5,7 @@
     "check": {
         "file": "check.test.ts",
         "claim": "Body.friction makes a low-friction box leave the ramp while a high-friction box holds",
-        "class": "pure",
-        "tier": "step",
-        "premises": [],
-        "budget": 1000
+        "tier": "step"
     },
     "scene": "scenes/surface-friction.scene",
     "plugins": {

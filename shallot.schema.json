@@ -25,7 +25,7 @@
         "check": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["file", "claim", "class", "tier", "premises", "budget"],
+            "required": ["file", "claim", "tier"],
             "properties": {
                 "file": {
                     "type": "string",
@@ -37,21 +37,21 @@
                 },
                 "class": {
                     "enum": ["pure", "process", "seat", "oracle"],
-                    "description": "What running the recipe check costs."
+                    "description": "What running the recipe check costs; defaults from tier."
                 },
                 "tier": {
                     "enum": ["step", "gpu", "browser", "headed", "built", "live"],
-                    "description": "Which runner and cadence owns the recipe check."
+                    "description": "Which runner and cadence owns the recipe check; also supplies class and budget defaults."
                 },
                 "premises": {
                     "type": "array",
                     "items": { "type": "string" },
-                    "description": "External things that must exist for the recipe check to run."
+                    "description": "External things that must exist for the recipe check to run; defaults to none."
                 },
                 "budget": {
                     "type": "number",
                     "exclusiveMinimum": 0,
-                    "description": "The recipe check's wall-clock budget in milliseconds."
+                    "description": "The recipe check's wall-clock budget in milliseconds; defaults from tier."
                 }
             }
         },

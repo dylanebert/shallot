@@ -88,10 +88,7 @@ check(
     "shapeDistance matches the C reference bit for bit",
     {
         claim: "the GJK distance solver drifts from the pinned Box3D C reference on witness points, normal, distance, iteration count or simplex cache",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         for (const g of gold.distance) {
@@ -122,10 +119,7 @@ check(
     "shapeCast matches the C reference bit for bit",
     {
         claim: "the conservative-advancement shape cast drifts from the pinned Box3D C reference on hit flag, fraction, contact point, normal or iteration count",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         for (const g of gold.cast) {
@@ -152,10 +146,7 @@ check(
     "timeOfImpact matches the C reference bit for bit",
     {
         claim: "the swept time-of-impact root finder drifts from the pinned Box3D C reference on state, fraction, separation, witness point, normal or any of its three iteration counters",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         for (const g of gold.toi) {
@@ -188,10 +179,7 @@ check(
     "segmentDistance matches the C reference bit for bit",
     {
         claim: "the closest-points-between-two-segments primitive drifts from the pinned Box3D C reference on either witness point or either clamped fraction",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         for (const g of gold.segment) {
@@ -217,10 +205,7 @@ check(
     "segmentDistance finds the analytic closest pair on two perpendicular segments",
     {
         claim: "segmentDistance mis-parameterizes or fails to clamp a perpendicular segment pair, so the closest pair lands off the segments instead of at the midpoint and the endpoint",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const r = segmentDistance(v(-1, -1, 0), v(-1, 1, 0), v(2, 0, 0), v(1, 0, 0));
@@ -239,10 +224,7 @@ check(
     "shapeDistance reports the analytic gap between a quad and a separated segment",
     {
         claim: "shapeDistance returns a gap other than the analytic 1 between a unit quad and a segment standing one unit away, so separated pairs report the wrong distance",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const proxyA: ShapeProxy = {
@@ -268,10 +250,7 @@ check(
     "shapeCast stops the segment at the analytic half of its translation",
     {
         claim: "shapeCast misses the hit or reports a fraction away from the analytic 0.5 when a segment is swept two units into a quad one unit away",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const proxyA: ShapeProxy = {
@@ -297,10 +276,7 @@ check(
     "timeOfImpact lands the Hit state at the analytic half of the sweep",
     {
         claim: "timeOfImpact returns a state other than Hit or a fraction away from the analytic 0.5 when a segment sweeps two units into a stationary quad one unit away",
-        class: "pure",
         tier: "step",
-        premises: [],
-        budget: 1000,
     },
     () => {
         const proxyA: ShapeProxy = {
