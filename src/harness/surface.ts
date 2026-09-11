@@ -223,25 +223,31 @@ interface ManifestEntry {
     file: string;
 }
 
-function manifestEntries(root: string, path: string, population: Population): ManifestEntry[] {
+interface ManifestRead {
+    entries: ManifestEntry[];
+    hasCheck: boolean;
+}
+
+function manifestEntries(root: string, path: string, population: Population): ManifestRead {
     const label = relativeFile(root, path);
     let parsed: unknown;
     try {
         parsed = JSON.parse(readFileSync(path, "utf8"));
     } catch (error) {
         population.invalid.push(`invalid manifest: ${label}: ${(error as Error).message}`);
-        return [];
+        return { entries: [], hasCheck: false };
     }
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
         population.invalid.push(`invalid manifest: ${label}: expected an object`);
-        return [];
+        return { entries: [], hasCheck: false };
     }
-    const check = (parsed as Record<string, unknown>).check;
-    if (check === undefined) return [];
+    const manifest = parsed as Record<string, unknown>;
+    if (!Object.hasOwn(manifest, "check")) return { entries: [], hasCheck: false };
+    const check = manifest.check;
     const entries = Array.isArray(check) ? check : [check];
     if (entries.length === 0) {
         population.invalid.push(`invalid manifest: ${label}: check array must not be empty`);
-        return [];
+        return { entries: [], hasCheck: true };
     }
     const seen = new Set<string>();
     const result: ManifestEntry[] = [];
@@ -264,6 +270,10 @@ function manifestEntries(root: string, path: string, population: Population): Ma
         }
         const file = resolve(path, "..", entry.file);
         const relativePath = relativeFile(root, file);
+        if (relativePath === ".." || relativePath.startsWith("../")) {
+            population.invalid.push(`manifest entry escapes project root: ${relativePath}`);
+            continue;
+        }
         if (seen.has(relativePath)) {
             population.invalid.push(`duplicate manifest entry: ${relativePath}`);
             continue;
@@ -277,7 +287,7 @@ function manifestEntries(root: string, path: string, population: Population): Ma
             population.invalid.push(`manifest entry is not a check file: ${relativePath}`);
         result.push({ file });
     }
-    return result;
+    return { entries: result, hasCheck: true };
 }
 
 /** Read one manifest-selected check file through the same carrier reader. */
@@ -335,14 +345,28 @@ export function collectPopulation(root: string): Population {
     const manifestFiles = [...manifests]
         .filter((match) => !match.split("/").some((part) => SKIP.has(part)))
         .sort();
-    const admitted = new Set<string>(files);
-    for (const match of manifestFiles) {
-        for (const entry of manifestEntries(
-            population.root,
-            resolve(population.root, match),
-            population,
-        ))
-            admitted.add(resolve(entry.file));
+    const manifestResults = new Map<string, ManifestRead>();
+    for (const match of manifestFiles)
+        manifestResults.set(
+            match,
+            manifestEntries(population.root, resolve(population.root, match), population),
+        );
+    const rootResult = manifestResults.get("shallot.json");
+    const rootIsAuthoritative = rootResult?.hasCheck === true;
+    const admitted = rootIsAuthoritative
+        ? new Set((rootResult?.entries ?? []).map((entry) => resolve(entry.file)))
+        : new Set<string>(files);
+    if (rootIsAuthoritative) {
+        const listed = new Set(admitted);
+        for (const file of files) {
+            if (!listed.has(file))
+                population.invalid.push(
+                    `unlisted check file: ${relativeFile(population.root, file)}; root shallot.json check is authoritative`,
+                );
+        }
+    } else {
+        for (const result of manifestResults.values())
+            for (const entry of result.entries) admitted.add(resolve(entry.file));
     }
     for (const path of [...admitted].sort()) {
         if (!SUFFIX.test(path) || path.split(sep).some((part) => SKIP.has(part))) continue;
@@ -635,9 +659,10 @@ export function writeWorkflow(root: string): "written" | "removed" | "empty" {
 }
 
 export function discoverTestFiles(root: string, includeOracles = false): string[] {
-    return discoveredFiles(root)
+    const population = collectPopulation(root);
+    return population.files
         .filter((path) => includeOracles || !ORACLE_SUFFIX.test(path))
-        .map((path) => relativeFile(root, path));
+        .map((path) => relativeFile(root, resolve(root, path)));
 }
 
 export { CHECK_REQUIREMENTS, CHECK_SIZES };

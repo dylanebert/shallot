@@ -14,6 +14,7 @@ import { join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
 import {
     collectPopulation,
+    discoverTestFiles,
     readSurface,
     renderWorkflow,
     selectIntegrationRows,
@@ -229,6 +230,97 @@ check(
             ).toEqual(["added path selects"]);
         } finally {
             rmSync(tree.root, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
+    "root manifests are complete authorities for static and launched populations",
+    {
+        claim: "root shallot.json check arrays admit exactly every visible entrypoint and keep named oracles out of ordinary launches",
+        size: "integration",
+    },
+    () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-surface-root-authority-"));
+        mkdirSync(join(tree, "src"), { recursive: true });
+        mkdirSync(join(tree, "tests"), { recursive: true });
+        const checkModule = resolve(ROOT, "src/harness/check");
+        writeFileSync(
+            join(tree, "src/kept.test.ts"),
+            `import { check } from ${JSON.stringify(checkModule)};\ncheck("kept", { claim: "kept" }, () => {});\n`,
+        );
+        writeFileSync(
+            join(tree, "tests/named.oracle.ts"),
+            `import { check } from ${JSON.stringify(checkModule)};\ncheck("named", { claim: "named" }, () => {});\n`,
+        );
+        writeFileSync(
+            join(tree, "shallot.json"),
+            JSON.stringify(
+                {
+                    check: [{ file: "src/kept.test.ts" }, { file: "tests/named.oracle.ts" }],
+                },
+                null,
+                2,
+            ),
+        );
+        try {
+            let population = collectPopulation(tree);
+            expect(population.invalid).toEqual([]);
+            expect(population.undeclared).toEqual([]);
+            expect(population.files).toEqual(["src/kept.test.ts", "tests/named.oracle.ts"]);
+            expect(discoverTestFiles(tree)).toEqual(["src/kept.test.ts"]);
+            expect(discoverTestFiles(tree, true)).toEqual([
+                "src/kept.test.ts",
+                "tests/named.oracle.ts",
+            ]);
+
+            writeFileSync(
+                join(tree, "shallot.json"),
+                JSON.stringify({ check: [{ file: "src/kept.test.ts" }] }),
+            );
+            population = collectPopulation(tree);
+            expect(population.invalid).toContain(
+                "unlisted check file: tests/named.oracle.ts; root shallot.json check is authoritative",
+            );
+            expect(population.files).toEqual(["src/kept.test.ts"]);
+
+            writeFileSync(
+                join(tree, "shallot.json"),
+                JSON.stringify({
+                    check: [
+                        { file: "src/kept.test.ts" },
+                        { file: "src/kept.test.ts" },
+                        { file: "src/moved.test.ts" },
+                    ],
+                }),
+            );
+            population = collectPopulation(tree);
+            expect(population.invalid).toEqual([
+                "duplicate manifest entry: src/kept.test.ts",
+                "manifest entry does not exist: src/moved.test.ts",
+                "unlisted check file: tests/named.oracle.ts; root shallot.json check is authoritative",
+            ]);
+
+            writeFileSync(
+                join(tree, "src/unlisted.test.ts"),
+                `import { check } from ${JSON.stringify(checkModule)};\ncheck("unlisted", { claim: "unlisted" }, () => { throw new Error("UNLISTED_RAN"); });\n`,
+            );
+            writeFileSync(
+                join(tree, "shallot.json"),
+                JSON.stringify({ check: [{ file: "src/kept.test.ts" }] }),
+            );
+            const runner = Bun.spawnSync(
+                ["bun", resolve(ROOT, "scripts/test-runner.ts"), "--root", tree],
+                { cwd: ROOT, stdout: "pipe", stderr: "pipe" },
+            );
+            expect(runner.exitCode).toBe(1);
+            expect(runner.stderr.toString()).toContain(
+                "unlisted check file: tests/named.oracle.ts",
+            );
+            expect(runner.stderr.toString()).toContain("unlisted check file: src/unlisted.test.ts");
+            expect(runner.stderr.toString()).not.toContain("UNLISTED_RAN");
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
         }
     },
 );
