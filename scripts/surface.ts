@@ -315,19 +315,6 @@ export function formatPopulation(
     ].join("\n");
 }
 
-function shellQuote(value: string): string {
-    return `'${value.replaceAll("'", "'\"'\"'")}'`;
-}
-
-function seatSummary(rows: readonly SurfaceRow[]): string[] {
-    const seats = rows.filter((row) => row.class === "seat");
-    if (seats.length === 0)
-        return ["          echo 'No seat-class checks declared.' >> \"$GITHUB_STEP_SUMMARY\""];
-    return seats.flatMap((row) => [
-        `          echo ${shellQuote(`- refused: ${row.claim} (${row.file})`)} >> "$GITHUB_STEP_SUMMARY"`,
-    ]);
-}
-
 interface BuildPins {
     stable: string;
     nightly: string;
@@ -362,35 +349,18 @@ function readBuildPins(root: string): BuildPins {
 /** Emit the hosted cadence from the discovered population and project build pins. */
 export function renderWorkflow(population: Population): string {
     const pins = readBuildPins(population.root);
-    const nonStepTiers = [
-        ...new Set(
-            population.rows
-                .filter((row) => row.class !== "seat" && row.tier !== "step")
-                .map((row) => row.tier),
-        ),
-    ].sort();
-    const tierSteps = nonStepTiers.flatMap((tier) => [
-        `      - name: Run ${tier} tier`,
-        "        run: bun run test",
-    ]);
+    const needsChromium = population.rows.some((row) => row.tier === "browser");
     const common = [
         "      - uses: actions/checkout@v4",
         "      - uses: oven-sh/setup-bun@v2",
         "      - run: bun install --frozen-lockfile",
+        ...(needsChromium ? ["      - run: bunx playwright install --with-deps chromium"] : []),
         `      - run: rustup toolchain install ${pins.stable} --target ${pins.target}`,
         `      - run: rustup toolchain install ${pins.nightly} --component rust-src --target ${pins.target}`,
         ...(pins.hasBinaryen ? [] : ["      - run: bun add --global binaryen"]),
         "      - run: bun run build",
         "      - run: bun run check",
         "      - run: bun run test",
-        ...tierSteps,
-        "      - name: Record refused seat checks",
-        "        if: always()",
-        "        shell: bash",
-        "        run: |",
-        "          echo '## Surface verdicts' >> \"$GITHUB_STEP_SUMMARY\"",
-        "          echo 'Seat-class checks are refused on hosted runners:' >> \"$GITHUB_STEP_SUMMARY\"",
-        ...seatSummary(population.rows),
     ];
     const job = (id: string, runner: string, condition: string): string[] => [
         `  ${id}:`,
@@ -407,8 +377,6 @@ export function renderWorkflow(population: Population): string {
         "    branches: [main]",
         '    tags: ["v*"]',
         "  pull_request:",
-        "  schedule:",
-        '    - cron: "0 0 * * 0"',
         "",
         "jobs:",
         ...job(
@@ -416,16 +384,8 @@ export function renderWorkflow(population: Population): string {
             "ubuntu-latest",
             "github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')",
         ),
-        ...job(
-            "macos",
-            "macos-latest",
-            "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'schedule'",
-        ),
-        ...job(
-            "windows",
-            "windows-latest",
-            "startsWith(github.ref, 'refs/tags/v') || github.event_name == 'schedule'",
-        ),
+        ...job("macos", "macos-latest", "startsWith(github.ref, 'refs/tags/v')"),
+        ...job("windows", "windows-latest", "startsWith(github.ref, 'refs/tags/v')"),
         "",
     ].join("\n");
 }

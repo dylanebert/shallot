@@ -2,6 +2,7 @@ import { afterAll, afterEach, expect } from "bun:test";
 import { State, Time } from "../../src/engine";
 import { clear, register } from "../../src/engine/ecs/traits";
 import { check } from "../../src/harness/check";
+import { runBrowserCheck } from "../../src/harness/driver";
 import { Color, Part } from "../../src/standard/part";
 import {
     Body,
@@ -66,5 +67,25 @@ check(
         // The low-friction box has fallen past the ramp's top surface; the high-friction box remains near it.
         expect(lowPosition!.y).toBeLessThan(8);
         expect(highPosition!.y).toBeGreaterThan(9);
+    },
+);
+
+check(
+    "Chromium observes the friction ladder through the in-page harness",
+    {
+        claim: "Chromium observes Body.friction making a low-friction box leave the ramp while a high-friction box holds",
+        tier: "browser",
+        premises: ["playwright"],
+        budget: 20000,
+    },
+    async () => {
+        const verdict = await runBrowserCheck(import.meta.dir);
+        if (!verdict.ok) {
+            throw Object.assign(
+                new Error("the browser harness did not observe the friction claim"),
+                { runtime: verdict.runtime, hardware: verdict.hardware },
+            );
+        }
+        return verdict;
     },
 );

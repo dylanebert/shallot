@@ -1,4 +1,5 @@
-import { Body, Color, Part, type Plugin, type State } from "@dylanebert/shallot";
+import { Body, Color, Part, type Plugin, type State, Time } from "@dylanebert/shallot";
+import { installHarness } from "@dylanebert/shallot/harness";
 
 // surface friction — the substrate `Body.friction` field, the coulomb coefficient that decides whether a
 // body slides or grips. five boxes are released across a tilted ramp with friction ramping low → high: the
@@ -21,7 +22,7 @@ function body(
     friction: number,
     color: [number, number, number],
     tilt = false,
-): void {
+): number {
     const eid = state.create();
     state.add(eid, Body);
     Body.pos.set(eid, x, y, z, 0);
@@ -33,6 +34,7 @@ function body(
     state.add(eid, Part);
     state.add(eid, Color);
     Color.rgba.set(eid, color[0], color[1], color[2], 1);
+    return eid;
 }
 
 export function build(state: State): void {
@@ -41,11 +43,31 @@ export function build(state: State): void {
     body(state, 0, 8.5, -5, 16, 0.5, 10, 0, 1, [0.46, 0.48, 0.52], true);
 
     // boxes released across the ramp with friction rising (i+1)²·0.04 — a slippery-to-grippy ladder
+    const boxes: number[] = [];
     for (let i = 0; i < COUNT; i++) {
         const friction = (i + 1) * (i + 1) * 0.04;
         const shade = 0.3 + 0.14 * i;
-        body(state, -10 + 5 * i, 16.75, -10.6, 1, 1, 1, 1, friction, [0.9, shade, 0.3]);
+        boxes.push(body(state, -10 + 5 * i, 16.75, -10.6, 1, 1, 1, 1, friction, [0.9, shade, 0.3]));
     }
+
+    const harness = installHarness(state);
+    harness.run = async () => {
+        for (let i = 0; i < 180; i++) state.step(Time.FIXED_DT);
+        const low = harness.read!(boxes[0]);
+        const high = harness.read!(boxes[boxes.length - 1]);
+        const lowY = low?.pos[1] ?? Number.NaN;
+        const highY = high?.pos[1] ?? Number.NaN;
+        const lowLeaves = Number.isFinite(lowY) && lowY < 8;
+        const highHolds = Number.isFinite(highY) && highY > 9;
+        return {
+            ok: lowLeaves && highHolds,
+            checks: [
+                { name: "low-friction box leaves the ramp", ok: lowLeaves },
+                { name: "high-friction box holds", ok: highHolds },
+            ],
+            data: { lowY, highY },
+        };
+    };
 }
 
 export const Ramp = {
