@@ -36,6 +36,7 @@
         "./harness": "./src/harness/index.ts",
         "./harness/check": "./src/harness/check.ts",
         "./harness/surface": "./src/harness/surface.ts",
+        "./harness/preload": "./src/harness/preload.ts",
         "./harness/pixels": "./src/harness/pixels.ts",
         "./harness/browser": {
             "types": "./src/harness/browser.d.ts",
