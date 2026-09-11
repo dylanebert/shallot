@@ -240,15 +240,25 @@ pub extern "C" fn reserve_broad(cap_s: usize, cap_k: usize, cap_d: usize, set_ca
         debug_assert!(new_end >= old_top, "broad region must never shift down");
         let delta = new_end.saturating_sub(old_top);
         let geo_end = crate::geo::region_end();
-        if delta > 0 && geo_end > old_top {
-            ensure_capacity(geo_end + delta);
-            // `copy` is memmove; dest > src (the region only grows), so the overlap is handled.
-            core::ptr::copy(
-                old_top as *const u8,
-                (old_top + delta) as *mut u8,
-                geo_end - old_top,
-            );
-            crate::geo::relocate(delta);
+        if delta > 0 {
+            if geo_end > old_top {
+                ensure_capacity(geo_end + delta);
+                // `copy` is memmove; dest > src (the region only grows), so the overlap is handled.
+                core::ptr::copy(
+                    old_top as *const u8,
+                    (old_top + delta) as *mut u8,
+                    geo_end - old_top,
+                );
+            } else {
+                ensure_capacity(new_end);
+            }
+            // An empty geometry region still records its solver anchor at `old_top`. Move that
+            // anchor when the broad region grows, or the next per-step reserve will overlap the
+            // newly extended broad columns. `geo::relocate` is a no-op before geometry has ever
+            // been reserved.
+            if geo_end != 0 && geo_end >= old_top {
+                crate::geo::relocate(delta);
+            }
         } else {
             ensure_capacity(new_end);
         }
