@@ -12,7 +12,14 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
-import { readSurface, subjectTokens, writeWorkflow } from "@dylanebert/shallot/harness/surface";
+import {
+    collectPopulation,
+    readSurface,
+    renderWorkflow,
+    selectIntegrationRows,
+    subjectTokens,
+    writeWorkflow,
+} from "@dylanebert/shallot/harness/surface";
 
 const ROOT = resolve(import.meta.dir, "..");
 const FIXTURES = resolve(ROOT, "scripts/fixtures/surface");
@@ -60,6 +67,43 @@ function reader(name: string): { code: number; out: string; err: string } {
     } finally {
         rmSync(tree, { recursive: true, force: true });
     }
+}
+
+function git(root: string, ...args: string[]): string {
+    const proc = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+    expect(proc.exitCode).toBe(0);
+    return proc.stdout.toString().trim();
+}
+
+function subjectTree(): {
+    root: string;
+    base: string;
+    comment: string;
+    audio: string;
+    added: string;
+} {
+    const root = mkdtempSync(join(tmpdir(), "shallot-surface-refs-"));
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src/setup.ts"), "export const ready = true;\\n");
+    git(root, "init", "-q");
+    git(root, "config", "user.email", "surface@example.test");
+    git(root, "config", "user.name", "surface");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "base");
+    const base = git(root, "rev-parse", "HEAD");
+    writeFileSync(join(root, "src/setup.ts"), "export const ready = true; // comment only\\n");
+    git(root, "commit", "-qam", "comment");
+    const comment = git(root, "rev-parse", "HEAD");
+    mkdirSync(join(root, "crates/audio/pkg"), { recursive: true });
+    writeFileSync(join(root, "crates/audio/pkg/shallot_audio.js"), "audio\\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "audio");
+    const audio = git(root, "rev-parse", "HEAD");
+    writeFileSync(join(root, "src/new.ts"), "export const added = true;\\n");
+    git(root, "add", ".");
+    git(root, "commit", "-qm", "add");
+    const added = git(root, "rev-parse", "HEAD");
+    return { root, base, comment, audio, added };
 }
 
 check(
@@ -138,6 +182,164 @@ check(
             subjectTokens("const value = 1; /* prose */"),
         );
         expect(subjectTokens("const value = 1;")).not.toEqual(subjectTokens("const value = 2;"));
+    },
+);
+
+check(
+    "root-law selection validates event ref trees and ignores comments, unrelated audio, and oracles",
+    {
+        claim: "surface selection compares complete valid pre/post subject token streams and excludes named oracle files from ordinary integration rows",
+        size: "integration",
+    },
+    () => {
+        const tree = subjectTree();
+        const setup = {
+            name: "setup",
+            claim: "setup changes select",
+            size: "integration" as const,
+            requires: [],
+            budget: 20000,
+            file: "src/setup.test.ts",
+            subjects: ["src/setup.ts"],
+        };
+        const oracle = {
+            ...setup,
+            claim: "oracle changes select",
+            file: "tests/browser.oracle.ts",
+            subjects: [],
+        };
+        const added = {
+            ...setup,
+            claim: "added path selects",
+            file: "src/add.test.ts",
+            subjects: ["src/new.ts"],
+        };
+        const population = {
+            root: tree.root,
+            rows: [setup, oracle, added],
+            undeclared: [],
+            invalid: [],
+            files: [],
+        };
+        try {
+            expect(selectIntegrationRows(population, tree.base, tree.comment)).toEqual([]);
+            expect(selectIntegrationRows(population, tree.base, tree.audio)).toEqual([]);
+            expect(
+                selectIntegrationRows(population, tree.base, tree.added).map((row) => row.claim),
+            ).toEqual(["added path selects"]);
+        } finally {
+            rmSync(tree.root, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
+    "workflow refs and requirement setup are portable and conditional",
+    {
+        claim: "workflow rendering materializes full history, derives event-correct refs, and installs only declared ordinary Chromium requirements",
+        size: "integration",
+    },
+    () => {
+        const ordinary = {
+            root: "/tmp/project",
+            rows: [
+                {
+                    name: "browser",
+                    claim: "browser runs",
+                    size: "integration" as const,
+                    requires: ["chromium"],
+                    budget: 20000,
+                    file: "src/browser.test.ts",
+                    subjects: [],
+                },
+            ],
+            undeclared: [],
+            invalid: [],
+            files: [],
+        };
+        const rendered = renderWorkflow(ordinary);
+        expect(rendered).toContain("fetch-depth: 0");
+        expect(rendered).toContain("github.event.pull_request.base.sha");
+        expect(rendered).toContain("github.event.before");
+        expect(rendered).toContain("github.event.repository.default_branch");
+        expect(rendered).toContain("git merge-base");
+        expect(rendered).toContain("bunx playwright install --with-deps chromium");
+        expect(rendered).not.toContain("github.event.pull_request.base.sha || github.event.before");
+        expect(rendered).not.toMatch(/origin\/main|Rust|GPU|display|deploy/);
+
+        const seats = {
+            ...ordinary,
+            rows: ["gpu", "display", "deploy"].map((requirement, index) => ({
+                ...ordinary.rows[0],
+                name: requirement,
+                claim: `${requirement} refuses`,
+                requires: [requirement],
+                file: `src/${requirement}.test.ts`,
+                subjects: [`src/${requirement}.ts`],
+                budget: 20000,
+                index,
+            })),
+        };
+        expect(renderWorkflow(seats)).not.toContain("playwright install");
+        const oracleOnly = {
+            ...ordinary,
+            rows: [{ ...ordinary.rows[0], file: "tests/browser.oracle.ts" }],
+        };
+        expect(renderWorkflow(oracleOnly)).toBe("");
+        expect(
+            renderWorkflow({
+                ...ordinary,
+                rows: [{ ...ordinary.rows[0], file: "tests/browser.oracle.ts" }, ordinary.rows[0]],
+            }),
+        ).toContain("playwright install");
+    },
+);
+
+check(
+    "integration runner rejects non-commit refs before reading subjects",
+    {
+        claim: "test-runner refuses zero and absent integration refs instead of treating missing files as empty trees",
+        size: "integration",
+    },
+    () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-surface-runner-"));
+        mkdirSync(join(tree, "src"), { recursive: true });
+        writeFileSync(
+            join(tree, "src/check.test.ts"),
+            'check("row", { claim: "runner row", size: "integration", subject: "src/setup.ts" }, () => {});\\n',
+        );
+        git(tree, "init", "-q");
+        git(tree, "config", "user.email", "surface@example.test");
+        git(tree, "config", "user.name", "surface");
+        git(tree, "add", ".");
+        git(tree, "commit", "-qm", "base");
+        const head = git(tree, "rev-parse", "HEAD");
+        try {
+            for (const base of [
+                "0000000000000000000000000000000000000000",
+                "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+            ]) {
+                const proc = Bun.spawnSync(
+                    [
+                        "bun",
+                        resolve(ROOT, "scripts/test-runner.ts"),
+                        "--root",
+                        tree,
+                        "--integration",
+                        "--base",
+                        base,
+                        "--diff",
+                        head,
+                    ],
+                    { cwd: ROOT, stdout: "pipe", stderr: "pipe" },
+                );
+                expect(proc.exitCode).toBe(1);
+                expect(proc.stderr.toString()).toContain("existing commit objects");
+            }
+            expect(collectPopulation(tree).rows).toHaveLength(1);
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
     },
 );
 
