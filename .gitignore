@@ -2,7 +2,11 @@ node_modules
 dist
 *.tgz
 /target/
-crates/*/pkg/
+crates/*/pkg/*
+!crates/audio/pkg/
+!crates/audio/pkg/shallot_audio.js
+!crates/audio/pkg/shallot_audio.d.ts
+!crates/audio/pkg/shallot_audio.wasm
 .cache
 *.tsbuildinfo
 .claude/settings.local.json
