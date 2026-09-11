@@ -112,9 +112,11 @@ check(
                 "    await Bun.sleep(2000);\n});\n",
         );
         try {
+            const environment = { ...process.env };
+            delete environment.KEX_S3_ROW;
             const proc = Bun.spawnSync(["bun", "test", file], {
                 cwd: root,
-                env: { ...process.env, SHALLOT_UNIT_ONLY: "", SHALLOT_INTEGRATION_ONLY: "" },
+                env: { ...environment, SHALLOT_UNIT_ONLY: "", SHALLOT_INTEGRATION_ONLY: "" },
             });
             expect(proc.exitCode).not.toBe(0);
             expect(proc.stderr.toString()).toContain("timed out after 20ms");
