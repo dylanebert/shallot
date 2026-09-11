@@ -349,10 +349,12 @@ function readBuildPins(root: string): BuildPins {
 /** Emit the hosted cadence from the discovered population and project build pins. */
 export function renderWorkflow(population: Population): string {
     const pins = readBuildPins(population.root);
+    const needsChromium = population.rows.some((row) => row.tier === "browser");
     const common = [
         "      - uses: actions/checkout@v4",
         "      - uses: oven-sh/setup-bun@v2",
         "      - run: bun install --frozen-lockfile",
+        ...(needsChromium ? ["      - run: bunx playwright install --with-deps chromium"] : []),
         `      - run: rustup toolchain install ${pins.stable} --target ${pins.target}`,
         `      - run: rustup toolchain install ${pins.nightly} --component rust-src --target ${pins.target}`,
         ...(pins.hasBinaryen ? [] : ["      - run: bun add --global binaryen"]),

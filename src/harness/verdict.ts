@@ -49,11 +49,19 @@ export function quarantineReason(file: string, claim: string): string | null {
     );
 }
 
-/** attempt to load each named package premise; absence is a refusal, never a pass. */
+/** resolve each named premise; a browser premise requires a launchable Chromium, never just an importable package. */
 export function missingPremise(premises: readonly string[]): string | null {
     for (const premise of premises) {
         try {
-            require(premise);
+            const module = require(premise) as {
+                chromium?: { executablePath?: () => string };
+            };
+            if (premise === "playwright") {
+                const executable = module.chromium?.executablePath?.();
+                if (typeof executable !== "string" || !existsSync(executable)) {
+                    return `playwright Chromium executable is unavailable${executable ? ` at ${executable}` : ""}`;
+                }
+            }
         } catch {
             return `${premise} is unavailable`;
         }
