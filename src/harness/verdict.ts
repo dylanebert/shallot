@@ -19,10 +19,12 @@ interface QuarantineRow {
 }
 
 const require = createRequire(import.meta.url);
-const ROOT = resolve(import.meta.dir, "../..");
+function projectRoot(): string {
+    return resolve(process.env.SHALLOT_PROJECT_ROOT ?? process.cwd());
+}
 
 function readQuarantine(): QuarantineRow[] {
-    const path = resolve(ROOT, "quarantine.json");
+    const path = resolve(projectRoot(), "quarantine.json");
     if (!existsSync(path)) return [];
     try {
         const value = JSON.parse(readFileSync(path, "utf8"));
@@ -42,7 +44,7 @@ function readQuarantine(): QuarantineRow[] {
 
 /** return a quarantine reason for a runtime registration, or null when the row is live. */
 export function quarantineReason(file: string, claim: string): string | null {
-    const relativeFile = relative(ROOT, file).split("\\").join("/");
+    const relativeFile = relative(projectRoot(), file).split("\\").join("/");
     return (
         readQuarantine().find((row) => row.file === relativeFile && row.claim === claim)?.reason ??
         null

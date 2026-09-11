@@ -42,6 +42,35 @@ check(
         expect(() =>
             validateDeclaration("here", { claim: "bad", requires: ["gpu", "display", "deploy"] }),
         ).not.toThrow();
+        expect(
+            validateDeclaration("here", {
+                claim: "integration",
+                size: "integration",
+                subject: ["src/a.ts", "src/b.ts"],
+            }).subject,
+        ).toEqual(["src/a.ts", "src/b.ts"]);
+        expect(() => validateDeclaration("here", { claim: "bad", subject: [] })).toThrow(
+            "non-empty string `subject`",
+        );
+        const tree = mkdtempSync(join(resolve(import.meta.dir, "../.."), ".surface-requirement-"));
+        const file = join(tree, "missing.test.ts");
+        writeFileSync(
+            file,
+            `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n` +
+                'check("missing", { claim: "missing GPU refuses", requires: ["gpu"] }, () => {});\n',
+        );
+        try {
+            const proc = Bun.spawnSync(["bun", "test", file], {
+                cwd: resolve(import.meta.dir, "../.."),
+                env: { ...process.env, SHALLOT_UNIT_ONLY: "" },
+            });
+            expect(proc.exitCode).not.toBe(0);
+            expect(proc.stderr.toString() + proc.stdout.toString()).toContain(
+                "refused check missing GPU refuses",
+            );
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
     },
 );
 

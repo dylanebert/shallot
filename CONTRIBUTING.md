@@ -26,11 +26,25 @@ This page is for anyone changing the engine itself, person or agent. Using Shall
 ```bash
 bun run build          # audio WASM, dist/vite.js, physics kernel
 bun run check          # tsc, biome, every scripts/check-*.ts, examples index, scene format, cargo fmt
-bun run test           # cargo test over the workspace, then bun test over src and scripts
+bun run test           # hermetic unit rows discovered from the project root
+bun run test:integration -- --base <ref> --diff <ref> # selected integration rows
+bun run list            # the discovered carrier population
+bun run workflow        # render the portable hosted workflow (none for an empty population)
 bun run format         # biome and the scene formatter, writing
 bun run assets         # fetch assets.json entries, linking each into the examples that declare it
 bun run prepack        # compile the Node-reachable tooling
 ```
+
+The same `list`, `check`, `test`, `test:integration` and `workflow` verbs are installed by
+`shallot`. They operate from the caller's project root and do not assume Rust, a package name,
+or a branch. A project with another Bun preload composes it with the carrier preload instead of
+replacing it. In `bunfig.toml`, compose the entries as
+`preload = ["./src/project-preload.ts", "@dylanebert/shallot/harness/preload"]`.
+
+A root `shallot.json` may admit one check entry or an array of `{ "file": "..." }` entries.
+Every admitted file is still discovered and must use `check()`; malformed, duplicate, or missing
+entries refuse. `.oracle.ts` files are named evidence and stay out of ordinary `test` and
+subject-selected integration sweeps; run one explicitly with `--oracle <claim>`.
 
 `bun run examples:index` regenerates `examples/AGENTS.md`; `check` reds when it drifts. `check` is the gate before every push.
 

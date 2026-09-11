@@ -35,6 +35,7 @@
         "./extras": "./src/extras/index.ts",
         "./harness": "./src/harness/index.ts",
         "./harness/check": "./src/harness/check.ts",
+        "./harness/surface": "./src/harness/surface.ts",
         "./harness/pixels": "./src/harness/pixels.ts",
         "./harness/browser": {
             "types": "./src/harness/browser.d.ts",
@@ -70,6 +71,8 @@
         "!examples/*/tsconfig.json",
         "!src/extras/gltf/fixtures",
         "!src/standard/physics/solver/fixtures",
+        "scripts",
+        "!scripts/fixtures/**",
         "shallot.schema.json",
         "!**/*.test.ts",
         "!**/*.tier.ts",
@@ -90,6 +93,8 @@
         "test": "bun run scripts/test-runner.ts --unit",
         "test:integration": "bun run scripts/test-runner.ts --integration",
         "test:changed": "bun run scripts/test-changed.ts",
+        "list": "bun run scripts/surface.ts --list",
+        "workflow": "bun run scripts/surface.ts --workflow",
         "assets": "bun run scripts/assets.ts",
         "examples:index": "bun run scripts/examples-index.ts",
         "prepack": "bun run ./scripts/tooling.ts"
