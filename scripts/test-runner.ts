@@ -11,7 +11,15 @@ if (mode === "unit") env.SHALLOT_UNIT_ONLY = "1";
 if (mode === "integration") env.SHALLOT_INTEGRATION_ONLY = "1";
 const started = performance.now();
 const proc = Bun.spawnSync(
-    [process.execPath, "test", "--pass-with-no-tests", "src", "scripts", "examples"],
+    [
+        process.execPath,
+        "test",
+        "--max-concurrency=1",
+        "--pass-with-no-tests",
+        "src",
+        "scripts",
+        "examples",
+    ],
     { cwd: root, env, stdout: "pipe", stderr: "pipe" },
 );
 await new Promise<void>((done, fail) =>
