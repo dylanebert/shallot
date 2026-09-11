@@ -4,88 +4,65 @@ import { join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
 import { validateDeclaration } from "./declaration";
 
-const BASE = { claim: "base", class: "pure", tier: "step", premises: [], budget: 10 };
-
 check(
-    "a declaration missing a field refuses",
-    {
-        claim: "check() requires claim and tier while deriving class, premises and budget defaults",
-        tier: "step",
-        budget: 100,
-    },
+    "a declaration defaults its size, requirements and budget",
+    { claim: "check() defaults a declaration to a hermetic unit row and its 250ms ceiling" },
     () => {
-        for (const field of ["claim", "tier"]) {
-            const partial: Record<string, unknown> = { ...BASE };
-            delete partial[field];
-            expect(() => validateDeclaration("here", partial)).toThrow(
-                `invalid declaration: here is missing \`${field}\``,
-            );
-        }
-        expect(validateDeclaration("here", { claim: "browser", tier: "browser" })).toEqual({
-            claim: "browser",
-            class: "process",
-            tier: "browser",
-            premises: [],
+        expect(validateDeclaration("here", { claim: "unit" })).toEqual({
+            claim: "unit",
+            size: "unit",
+            requires: [],
+            budget: 250,
+        });
+        expect(validateDeclaration("here", { claim: "integration", size: "integration" })).toEqual({
+            claim: "integration",
+            size: "integration",
+            requires: [],
             budget: 20000,
         });
-        expect(() => validateDeclaration("here", BASE)).not.toThrow();
     },
 );
 
 check(
-    "a declaration outside the class and tier vocabulary refuses",
-    {
-        claim: "check() refuses a class or tier outside the four classes and six tiers, and rejects tier contradictions",
-        tier: "step",
-        budget: 100,
-    },
+    "a declaration refuses retired and unknown vocabulary",
+    { claim: "check() refuses tier and class fields plus unknown sizes and requirement tags" },
     () => {
-        expect(() => validateDeclaration("here", { ...BASE, class: "unit" })).toThrow(
-            "has class `unit`",
+        expect(() => validateDeclaration("here", { claim: "old", tier: "step" })).toThrow(
+            "retired field `tier`",
         );
-        expect(() => validateDeclaration("here", { ...BASE, tier: "smoke" })).toThrow(
-            "has tier `smoke`",
+        expect(() => validateDeclaration("here", { claim: "old", class: "pure" })).toThrow(
+            "retired field `class`",
         );
-        for (const [tier, className] of Object.entries({
-            step: "pure",
-            gpu: "seat",
-            browser: "process",
-            headed: "seat",
-            built: "process",
-            live: "oracle",
-        })) {
-            expect(() =>
-                validateDeclaration("here", { claim: "base", tier, class: className }),
-            ).not.toThrow();
-        }
-        expect(() => validateDeclaration("here", { ...BASE, class: "process" })).toThrow(
-            "contradicts tier `step`",
+        expect(() => validateDeclaration("here", { claim: "bad", size: "smoke" })).toThrow(
+            "has size `smoke`",
         );
-        expect(() => validateDeclaration("here", { ...BASE, budget: 1001 })).toThrow(
-            "above the step ceiling of 1000ms",
+        expect(() => validateDeclaration("here", { claim: "bad", requires: ["network"] })).toThrow(
+            "requirement tag `network`",
         );
+        expect(() =>
+            validateDeclaration("here", { claim: "bad", requires: ["gpu", "display", "deploy"] }),
+        ).not.toThrow();
     },
 );
 
 check(
-    "a bad premises list or budget refuses",
-    {
-        claim: "check() refuses non-string premises and a budget that is not a positive finite number",
-        tier: "step",
-        budget: 100,
-    },
+    "a declaration enforces size ceilings and requirement shape",
+    { claim: "check() rejects invalid requires values and budgets over the size ceiling" },
     () => {
-        expect(() => validateDeclaration("here", { ...BASE, premises: "cmake" })).toThrow(
-            "array of strings",
-        );
-        expect(() => validateDeclaration("here", { ...BASE, premises: [1] })).toThrow(
+        expect(() => validateDeclaration("here", { claim: "bad", requires: "chromium" })).toThrow(
             "array of strings",
         );
         for (const budget of [0, -1, Number.NaN, "10"]) {
-            expect(() => validateDeclaration("here", { ...BASE, budget })).toThrow(
+            expect(() => validateDeclaration("here", { claim: "bad", budget })).toThrow(
                 "positive finite `budget`",
             );
         }
+        expect(() => validateDeclaration("here", { claim: "slow", budget: 251 })).toThrow(
+            "above the unit ceiling of 250ms",
+        );
+        expect(() =>
+            validateDeclaration("here", { claim: "slow", size: "integration", budget: 20001 }),
+        ).toThrow("above the integration ceiling of 20000ms");
     },
 );
 
@@ -93,7 +70,7 @@ check(
     "the declared budget is the runner timeout",
     {
         claim: "check() passes the declared budget to the runner, so a body that overruns it fails as a timeout",
-        tier: "built",
+        size: "integration",
     },
     () => {
         const root = resolve(import.meta.dir, "../..");
@@ -102,11 +79,14 @@ check(
         writeFileSync(
             file,
             'import { check } from "@dylanebert/shallot/harness/check";\n' +
-                'check("overruns", { claim: "overruns its budget", class: "pure", tier: "step", premises: [], budget: 20 }, async () => {\n' +
+                'check("overruns", { claim: "overruns its budget", budget: 20 }, async () => {\n' +
                 "    await Bun.sleep(2000);\n});\n",
         );
         try {
-            const proc = Bun.spawnSync(["bun", "test", file], { cwd: root });
+            const proc = Bun.spawnSync(["bun", "test", file], {
+                cwd: root,
+                env: { ...process.env, SHALLOT_UNIT_ONLY: "", SHALLOT_INTEGRATION_ONLY: "" },
+            });
             expect(proc.exitCode).not.toBe(0);
             expect(proc.stderr.toString()).toContain("timed out after 20ms");
         } finally {
@@ -119,8 +99,6 @@ check(
     "the public import path resolves",
     {
         claim: "check() is reachable at @dylanebert/shallot/harness/check, the path an extension imports",
-        tier: "step",
-        budget: 100,
     },
     () => {
         expect(typeof check).toBe("function");

@@ -30,7 +30,6 @@ check(
     "createContact links both bodies and destroyContact unthreads them",
     {
         claim: "createContact leaves a body edge, an awake-set row or a broad-phase pair entry behind after destroyContact, leaking a contact into the next step",
-        tier: "step",
     },
     () => {
         const world = getWorld(createWorld(defaultWorldDef())) as WorldState;
@@ -68,7 +67,6 @@ check(
     "a contact between two sleeping bodies parks in the disabled set",
     {
         claim: "createContact files a non-touching contact between two asleep bodies into the awake set, so sleeping islands pay for contacts nothing is simulating",
-        tier: "step",
     },
     () => {
         // A body that starts asleep lands in a sleeping set; a contact where neither body is awake

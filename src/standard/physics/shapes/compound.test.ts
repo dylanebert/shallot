@@ -240,7 +240,6 @@ check(
     "compound geometry gold — mixed, materials and transforms scenes bit for bit",
     {
         claim: "a compound's materials, inner tree nodes and resolved child transforms drift from the pinned Box3D compound gold, bit for bit.",
-        tier: "step",
     },
     () => {
         const scenes: [string, () => CompoundData][] = [
@@ -263,7 +262,6 @@ check(
     "compound creation — mixed and single-type child counts",
     {
         claim: "createCompound mis-sorts a compound's children into the wrong per-type arrays, or leaves its inner tree unbuilt, for the mixed scene or for a lone capsule, hull, mesh or sphere.",
-        tier: "step",
     },
     () => {
         vector("CompoundCreateMixed — counts + shared diagnostics", () => {
@@ -328,7 +326,6 @@ check(
     "compound material table — dedup, distinct slots, cross-shape and mesh sharing",
     {
         claim: "a compound's material table collapses materials that differ, or duplicates identical ones, across capsules, hulls, spheres and mesh material arrays.",
-        tier: "step",
     },
     () => {
         vector("CompoundMaterialDedup — identical materials collapse to one slot", () => {
@@ -415,7 +412,6 @@ check(
     "compound geometry sharing — hull and mesh dedup by pointer, content and difference",
     {
         claim: "a compound's shared hull and shared mesh counts stop deduplicating identical geometry by content, or wrongly merge geometry that differs.",
-        tier: "step",
     },
     () => {
         vector(
@@ -496,7 +492,6 @@ check(
     "compound child addressing — dispatch by index, inner-tree query and root AABB cover",
     {
         claim: "a compound's child index stops resolving to the right child shape, its inner-tree AABB query visits the wrong children, or its root AABB fails to contain a child's own AABB.",
-        tier: "step",
     },
     () => {
         vector("CompoundChildDispatch — getCompoundChild resolves the right type per index", () => {
@@ -574,7 +569,6 @@ check(
     "compound casts — ray miss, nearest child, rotated hull normal, shape cast and overlap",
     {
         claim: "a compound's ray cast, shape cast or overlap query reports the wrong child, fraction, material or hull normal frame, or hits where the compound has a gap.",
-        tier: "step",
     },
     () => {
         vector("ray cast misses a compound it passes over", () => {
@@ -672,7 +666,6 @@ check(
     "compound mover collision — a plane per straddled child, capacity honored",
     {
         claim: "collideMoverAndCompound drops one of the up-facing planes a capsule mover straddling two compound box children should get, or overruns the plane capacity it was given.",
-        tier: "step",
     },
     () => {
         // Ported from test_compound.c CompoundMover.

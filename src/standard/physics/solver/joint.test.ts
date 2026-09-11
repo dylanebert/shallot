@@ -37,7 +37,6 @@ function pendulum(): { world: World; joint: Joint } {
 check(
     "a created joint exposes its type, its bodies and the world's joint count",
     {
-        tier: "step",
         claim: "a freshly created joint handle reports the wrong type or the wrong pair of bodies, so a caller could not tell which constraint it just made",
     },
     () => {
@@ -54,7 +53,6 @@ check(
 check(
     "destroying a joint invalidates its handle and frees the id",
     {
-        tier: "step",
         claim: "a destroyed joint still reports itself valid or leaves its id counted, so the joint pool would leak slots across a scene teardown",
     },
     () => {
@@ -70,7 +68,6 @@ check(
 check(
     "a recycled joint slot invalidates the stale generation",
     {
-        tier: "step",
         claim: "a joint handle kept past its destroy resolves again once its slot is reused, so a stale reference would silently drive somebody else's constraint",
     },
     () => {
@@ -89,7 +86,6 @@ check(
 check(
     "collideConnected decides whether jointed bodies also collide",
     {
-        tier: "step",
         claim: "the joint-connected contact filter ignores collideConnected, so two jointed touching bodies would either fight their own contact or pass through each other against the caller's setting",
     },
     () => {
@@ -120,7 +116,6 @@ check(
 check(
     "a revolute joint holds the arm at its hinge and reacts against gravity",
     {
-        tier: "step",
         claim: "a revolute joint does not hold its hinge point, so a pendulum arm would drift away from its anchor or carry no constraint force",
     },
     () => {
@@ -145,7 +140,6 @@ check(
 check(
     "a weld joint rigidly holds a box fixed to a static anchor against gravity",
     {
-        tier: "step",
         claim: "a weld joint lets its body sag, so a welded box would fall away from its start pose under gravity",
     },
     () => {
@@ -169,7 +163,6 @@ check(
 check(
     "a parallel joint applies a corrective torque against a body spinning off-axis",
     {
-        tier: "step",
         claim: "a parallel joint carries no constraint torque, so a body spinning off its partner's axis would never be pulled back into alignment",
     },
     () => {
@@ -194,7 +187,6 @@ check(
 check(
     "a motor joint drives the arm's spin in the direction of the target angular velocity",
     {
-        tier: "step",
         claim: "a motor joint's target angular velocity does not set which way its body turns, so a driven arm would spin the same way whatever sign the caller asks for",
     },
     () => {
@@ -228,7 +220,6 @@ check(
 check(
     "a prismatic motor drives the slider to its upper limit while the line holds it off-axis",
     {
-        tier: "step",
         claim: "a prismatic joint ignores its translation limit or lets gravity pull the slider off its axis, so a driven slider would overshoot or drop off its rail",
     },
     () => {
@@ -259,7 +250,6 @@ check(
 check(
     "a spherical joint pins the arm's pivot at the anchor as it swings",
     {
-        tier: "step",
         claim: "a spherical joint does not pin its pivot point, so a ball-jointed arm would drift off its socket while it swings",
     },
     () => {
@@ -281,7 +271,6 @@ check(
 check(
     "a wheel joint's spin motor drives the wheel in the target direction",
     {
-        tier: "step",
         claim: "a wheel joint's spin motor ignores the sign of its target speed, so a vehicle wheel would turn the same way in forward and reverse",
     },
     () => {
@@ -311,7 +300,6 @@ check(
 check(
     "a filter joint suppresses the contact between its two bodies",
     {
-        tier: "step",
         claim: "a filter joint fails to suppress the contact between its pair, so two overlapping bodies deliberately excluded from each other would still push apart",
     },
     () => {
@@ -340,7 +328,6 @@ check(
 check(
     "a mixed spherical/revolute ragdoll island settles and sleeps as a unit",
     {
-        tier: "step",
         claim: "a multi-joint island never reaches sleep, so a settled ragdoll would keep every one of its bodies awake and burning solver time forever",
     },
     () => {
@@ -398,7 +385,6 @@ check(
 check(
     "a distance joint holds a rigid length between the anchors as the ball swings down",
     {
-        tier: "step",
         claim: "a rigid distance joint lets its length change under load, so a swinging ball on a fixed rope would stretch away from its anchor",
     },
     () => {
@@ -510,7 +496,6 @@ function exerciseBase(joint: Joint, world: World, expectedType: JointType) {
 check(
     "parallel joint accessors round-trip and the joint steps",
     {
-        tier: "step",
         claim: "a parallel joint's spring and max-torque accessors do not round-trip through the solver's storage, so tuning a parallel joint from script would silently keep the old value",
     },
     () => {
@@ -537,7 +522,6 @@ check(
 check(
     "distance joint accessors round-trip and the joint steps",
     {
-        tier: "step",
         claim: "a distance joint's length, spring, limit and motor accessors do not round-trip, so retuning a rope or spring from script would silently keep the old value",
     },
     () => {
@@ -578,7 +562,6 @@ check(
 check(
     "filter joint carries the shared base API with no type-specific accessors",
     {
-        tier: "step",
         claim: "a filter joint does not answer the shared joint API or refuses to step, so a contact-suppression joint would break the code paths every other joint type shares",
     },
     () => {
@@ -592,7 +575,6 @@ check(
 check(
     "motor joint accessors round-trip and the joint steps",
     {
-        tier: "step",
         claim: "a motor joint's velocity targets, force caps and spring tuning do not round-trip, so retargeting a motor from script would silently keep the old drive",
     },
     () => {
@@ -631,7 +613,6 @@ check(
 check(
     "prismatic joint accessors round-trip and the joint steps",
     {
-        tier: "step",
         claim: "a prismatic joint's spring, limit and motor accessors do not round-trip, so retuning a slider from script would silently keep the old rail settings",
     },
     () => {
@@ -669,7 +650,6 @@ check(
 check(
     "revolute joint accessors round-trip and the joint steps",
     {
-        tier: "step",
         claim: "a revolute joint's target angle, limits and motor accessors do not round-trip, so retuning a hinge from script would silently keep the old settings",
     },
     () => {
@@ -706,7 +686,6 @@ check(
 check(
     "spherical joint accessors round-trip and the joint steps",
     {
-        tier: "step",
         claim: "a spherical joint's cone, twist, spring and motor accessors do not round-trip, so retuning a ball socket from script would silently keep the old limits",
     },
     () => {
@@ -760,7 +739,6 @@ check(
 check(
     "weld joint accessors round-trip and the joint steps",
     {
-        tier: "step",
         claim: "a weld joint's linear and angular softness accessors do not round-trip, so softening a weld from script would silently keep it rigid",
     },
     () => {
@@ -784,7 +762,6 @@ check(
 check(
     "wheel joint accessors round-trip and the joint steps",
     {
-        tier: "step",
         claim: "a wheel joint's suspension, spin-motor and steering accessors do not round-trip, so tuning a vehicle wheel from script would silently keep the old suspension or steering",
     },
     () => {
@@ -848,7 +825,6 @@ function rig() {
 check(
     "revolute setLimits orders reversed args and clamps to plus/minus 0.99 pi",
     {
-        tier: "step",
         claim: "revolute setLimits stores its arguments unordered or unclamped, so a hinge given reversed or out-of-range angles would hold an empty or wrapped limit range",
     },
     () => {
@@ -868,7 +844,6 @@ check(
 check(
     "prismatic setLimits orders reversed args with no clamp",
     {
-        tier: "step",
         claim: "prismatic setLimits stores its arguments unordered, so a slider given reversed translations would hold an empty limit range and jam",
     },
     () => {
@@ -884,7 +859,6 @@ check(
 check(
     "spherical setTwistLimits orders reversed args and clamps to plus/minus 0.99 pi",
     {
-        tier: "step",
         claim: "spherical setTwistLimits stores its arguments unordered or unclamped, so a ball socket given reversed or out-of-range twist angles would hold an empty or wrapped range",
     },
     () => {
@@ -904,7 +878,6 @@ check(
 check(
     "distance setLength clamps below the linear slop",
     {
-        tier: "step",
         claim: "distance setLength accepts a zero or negative length, so a collapsed rope would divide by its own degenerate axis in the solver",
     },
     () => {
@@ -919,7 +892,6 @@ check(
 check(
     "distance setLengthRange clamps each value then orders the pair",
     {
-        tier: "step",
         claim: "distance setLengthRange orders before clamping or skips one of the two, so a reversed range with a degenerate low end would survive into the solver",
     },
     () => {
@@ -936,7 +908,6 @@ check(
 check(
     "motor clamps a negative max spring force and torque to zero",
     {
-        tier: "step",
         claim: "motor setMaxSpringForce and setMaxSpringTorque keep a negative cap, so a mis-set motor would drive its spring backwards instead of disabling it",
     },
     () => {

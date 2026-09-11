@@ -56,7 +56,7 @@ check(
     "--list prints exactly the declared population",
     {
         claim: "surface.ts --list prints one row per declared check in the tree, from files and manifests, and nothing else",
-        tier: "built",
+        size: "integration",
     },
     () => {
         const tree = seed("clean");
@@ -64,11 +64,11 @@ check(
             const { code, out } = run("surface.ts", tree);
             expect(code).toBe(0);
             expect(out.split("\n")).toEqual([
-                "claim             class    tier     premises    budget   file                         status",
-                "alpha holds       pure     step     -           50ms     src/alpha.test.ts            -",
-                "alpha refuses     pure     step     cmake       200ms    src/alpha.test.ts            -",
-                "beta builds       process  built    -           20000ms  scripts/beta.tier.ts         -",
-                "demo recipe runs  process  browser  playwright  20000ms  examples/demo/check.test.ts  -",
+                "claim             size         requires  budget   file",
+                "alpha holds       unit         -         250ms    src/alpha.test.ts",
+                "alpha refuses     unit         -         250ms    src/alpha.test.ts",
+                "beta builds       integration  -         20000ms  scripts/beta.tier.ts",
+                "demo recipe runs  integration  chromium  20000ms  examples/demo/check.test.ts",
                 "4 checks (parsed 4; 0 quarantined)",
             ]);
         } finally {
@@ -79,7 +79,8 @@ check(
             const { code, out } = run("surface.ts", defaults);
             expect(code).toBe(0);
             expect(out).toContain("browser defaults");
-            expect(out).toContain("process  browser");
+            expect(out).toContain("integration");
+            expect(out).toContain("chromium");
             expect(out).toContain("20000ms");
         } finally {
             rmSync(defaults, { recursive: true, force: true });
@@ -91,7 +92,7 @@ check(
     "an undeclared check file reds the reader",
     {
         claim: "check-surface.ts reds on a test-suffix file that registers no check() declaration",
-        tier: "built",
+        size: "integration",
     },
     () => {
         const { code, err } = reader("undeclared");
@@ -106,7 +107,7 @@ check(
     "a duplicate claim reds the reader",
     {
         claim: "check-surface.ts reds when two checks declare the same claim, naming both files",
-        tier: "built",
+        size: "integration",
     },
     () => {
         const { code, err } = reader("duplicate");
@@ -118,16 +119,16 @@ check(
 );
 
 check(
-    "an over-budget step declaration reds the reader",
+    "an over-budget unit declaration reds the reader",
     {
-        claim: "check-surface.ts reds on a step-tier declaration whose budget is above the 1000 ms ceiling",
-        tier: "built",
+        claim: "check-surface.ts reds on a unit declaration whose budget is above the 250 ms ceiling",
+        size: "integration",
     },
     () => {
         const { code, err } = reader("over-budget");
         expect(code).toBe(1);
         expect(err).toContain(
-            'invalid declaration: src/slow.test.ts check("slow step") budget 1500ms is above the step ceiling of 1000ms',
+            'invalid declaration: src/slow.test.ts check("slow unit") budget 251ms is above the unit ceiling of 250ms',
         );
     },
 );
@@ -136,7 +137,7 @@ check(
     "an orphan quarantine row reds the reader",
     {
         claim: "check-surface.ts reds when quarantine.json names a claim no check declares, and treats an absent file as zero rows",
-        tier: "built",
+        size: "integration",
     },
     () => {
         const orphan = reader("orphan");
@@ -154,7 +155,7 @@ check(
     "a non-literal declaration reds the reader",
     {
         claim: "check-surface.ts reds a check whose options use a spread, identifier or computed value, naming its file",
-        tier: "built",
+        size: "integration",
     },
     () => {
         const nonLiteral = reader("non-literal");
@@ -171,7 +172,7 @@ check(
     "an expired quarantine row reds the reader",
     {
         claim: "check-surface.ts reds a quarantine row whose ISO expiry is in the past",
-        tier: "built",
+        size: "integration",
     },
     () => {
         const expired = reader("expired");
@@ -181,10 +182,23 @@ check(
 );
 
 check(
+    "a recipe manifest must name a file that declares a check",
+    {
+        claim: "check-surface.ts reds when a recipe manifest names a file with no check declaration",
+        size: "integration",
+    },
+    () => {
+        const missing = reader("manifest-no-check");
+        expect(missing.code).toBe(1);
+        expect(missing.err).toContain("undeclared check file: examples/no-check/check.test.ts");
+    },
+);
+
+check(
     "the reader passes the shipped tree",
     {
         claim: "check-surface.ts is green on the engine's own tree, so the population is never an empty scan",
-        tier: "built",
+        size: "integration",
     },
     () => {
         const proc = Bun.spawnSync(["bun", resolve(ROOT, "scripts/check-surface.ts")], {

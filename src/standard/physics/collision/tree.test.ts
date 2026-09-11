@@ -218,7 +218,6 @@ check(
     "dynamic tree replays tree.gold.json bit-exactly against the C reference",
     {
         claim: "the dynamic tree's insert, move, enlarge, destroy, rebuild and query paths drift from the Box3D C reference, so node layout, AABB bits or visit counts diverge from the recorded op stream",
-        tier: "step",
     },
     () => {
         const tree = createTree(gold.proxyCapacity);
@@ -279,7 +278,6 @@ check(
     "an empty dynamic tree visits no nodes for a query",
     {
         claim: "the dynamic tree walks a root that does not exist when it holds no proxies, so an empty broad phase reports visits or hits instead of nothing",
-        tier: "step",
     },
     () => {
         const tree = createTree(16);
@@ -301,7 +299,6 @@ check(
     "a dynamic tree with one proxy makes that leaf the root at height zero",
     {
         claim: "the dynamic tree synthesizes an internal parent for its first proxy, so a one-proxy broad phase reports the wrong root, height or proxy count",
-        tier: "step",
     },
     () => {
         const tree = createTree(16);
@@ -318,7 +315,6 @@ check(
     "destroying every dynamic tree proxy empties the tree and leaves it valid",
     {
         claim: "the dynamic tree leaks internal parents when its proxies are all destroyed, so the root or proxy count survives an emptied broad phase",
-        tier: "step",
     },
     () => {
         const tree = createTree(16);
@@ -348,7 +344,6 @@ check(
     "setCategoryBits ORs a dynamic tree leaf's category up to the root",
     {
         claim: "a dynamic tree leaf's category change stops at the leaf instead of ORing up its ancestors, so a mask-filtered query prunes a subtree that still contains a matching proxy",
-        tier: "step",
     },
     () => {
         const tree = createTree(16);
@@ -407,7 +402,6 @@ check(
     "a dynamic tree all-bits query matches a mask whose half has its top bit set",
     {
         claim: "the dynamic tree's requireAllBits filter compares a signed int32 AND, so an all-ones or bit-31/bit-63 category mask never matches and the query silently drops the proxy",
-        tier: "step",
     },
     () => {
         const cases: [string, number, number, number, number, number][] = [
@@ -428,7 +422,6 @@ check(
     "a dynamic tree any-bit query keeps the category halves distinct",
     {
         claim: "the dynamic tree's any-bit filter aliases the high and low category words, so a proxy above bit 32 matches a low-half mask and vice versa",
-        tier: "step",
     },
     () => {
         const cases: [string, number, number, number, number, number][] = [
@@ -447,7 +440,6 @@ check(
     "dynamic tree category words survive the node-pool grow copy",
     {
         claim: "the dynamic tree's node-pool grow drops or truncates the 0xffffffff category words it copies, so proxies added past the initial capacity stop matching an all-bits query",
-        tier: "step",
     },
     () => {
         // createTree floors nodeCapacity at 2*16-1 = 31 nodes; each proxy past the first costs 2
@@ -486,7 +478,6 @@ check(
     "a dynamic tree query nested inside another query leaves the outer traversal intact",
     {
         claim: "the dynamic tree's traversal stack and visit stats are a shared singleton rather than pooled by depth, so a compound leaf's inner query clobbers the outer query's stack and counts",
-        tier: "step",
     },
     () => {
         const boxAt = (x: number): AABB => ({

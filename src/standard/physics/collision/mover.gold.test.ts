@@ -87,7 +87,6 @@ check(
     "solvePlanes matches the C reference bit-for-bit over every gold vector",
     {
         claim: "the mover plane solver drifts from the Box3D C reference in its delta bits or iteration count, so a character resolves penetration differently than the pinned reference",
-        tier: "step",
     },
     () => {
         for (const g of gold.solvePlanes) {
@@ -108,7 +107,6 @@ check(
     "clipVector matches the C reference bit-for-bit over every gold vector",
     {
         claim: "the mover velocity clip drifts from the Box3D C reference, so a character keeps or loses velocity against a contact plane differently than the pinned reference",
-        tier: "step",
     },
     () => {
         for (const g of gold.clipVector) {
@@ -124,7 +122,6 @@ check(
     "collideMoverAndSphere matches the C reference bit-for-bit over every gold vector",
     {
         claim: "mover-versus-sphere collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits",
-        tier: "step",
     },
     () => {
         for (const g of gold.sphere) {
@@ -143,7 +140,6 @@ check(
     "collideMoverAndCapsule matches the C reference bit-for-bit over every gold vector",
     {
         claim: "mover-versus-capsule collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits",
-        tier: "step",
     },
     () => {
         for (const g of gold.capsule) {
@@ -176,7 +172,6 @@ check(
     "collideMoverAndHull matches the C reference bit-for-bit over every gold vector",
     {
         claim: "mover-versus-hull collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits",
-        tier: "step",
     },
     () => {
         for (const g of gold.hull) {
@@ -207,7 +202,6 @@ check(
     "collideMoverAndMesh matches the C reference bit-for-bit over every gold vector",
     {
         claim: "mover-versus-triangle-mesh collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits",
-        tier: "step",
     },
     () => {
         for (const g of gold.mesh) {
@@ -221,7 +215,6 @@ check(
     "collideMoverAndHeightField matches the C reference bit-for-bit over every gold vector",
     {
         claim: "mover-versus-height-field collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits",
-        tier: "step",
     },
     () => {
         for (const g of gold.height) {
@@ -235,7 +228,6 @@ check(
     "collideMoverAndCompound matches the C reference bit-for-bit over every gold vector",
     {
         claim: "mover-versus-compound collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits",
-        tier: "step",
     },
     () => {
         for (const g of gold.compound) {

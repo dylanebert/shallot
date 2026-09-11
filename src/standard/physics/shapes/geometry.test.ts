@@ -60,7 +60,6 @@ check(
     "sphere/capsule mass bit-exact vs C reference",
     {
         claim: "computeSphereMass or computeCapsuleMass drifts from the Box3D C reference's f32 bits for a sphere or capsule vector, including the ragdoll bone capsule where an unrounded 0.4 sphere-inertia literal costs a ULP",
-        tier: "step",
     },
     () => {
         // f32-round non-exact literals (0.35, 0.3) to match the C float inputs bit-for-bit.
@@ -97,7 +96,6 @@ check(
     "sphere/capsule AABB",
     {
         claim: "computeSphereAABB or computeCapsuleAABB stops bounding a sphere or capsule at center +/- radius, or stops following the transform's translation",
-        tier: "step",
     },
     () => {
         // AABBs compose xf.point (bit-exact) with min/max/sub/add; concrete extremes pin the
@@ -141,7 +139,6 @@ check(
     "f32 geometry rounding at the storage boundary",
     {
         claim: "roundSphere or roundCapsule leaves an f64 sphere or capsule field unrounded at the storage boundary, so solver arithmetic on it diverges from the C's f32 struct fields",
-        tier: "step",
     },
     () => {
         // The C holds geometry as f32 struct fields; callers pass f64 JS numbers. A field that is

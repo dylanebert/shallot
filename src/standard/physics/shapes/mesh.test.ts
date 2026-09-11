@@ -105,7 +105,6 @@ check(
     "triangle mesh builders match the C reference bit for bit",
     {
         claim: "a triangle mesh builder drifts from the Box3D C reference in its BVH nodes, vertices, winding, edge flags or surface area, and the mesh gold no longer describes what the TypeScript port builds",
-        tier: "step",
     },
     () => {
         const cases: [string, () => MeshData, string][] = [
@@ -138,7 +137,6 @@ check(
     "the triangle wave mesh grids, flattens its seed rows and stays inside its amplitude",
     {
         claim: "createWaveMesh emits the wrong triangle count for its cell grid, lifts the zero-sine boundary row or column off the plane, or rides its sine product past the requested amplitude",
-        tier: "step",
     },
     () => {
         const xCount = 6;

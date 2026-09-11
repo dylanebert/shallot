@@ -90,7 +90,7 @@ export async function runBrowserCheck(projectDir: string): Promise<BrowserVerdic
         const verdict = (await page.evaluate(async () => {
             const harness = window.__harness;
             if (!harness?.run) throw new Error("page did not install window.__harness.run");
-            return harness.run({ tier: "browser" });
+            return harness.run({ size: "integration", requires: ["chromium"] });
         })) as Verdict;
         return { ...verdict, runtime, hardware };
     } catch (error) {

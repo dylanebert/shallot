@@ -20,6 +20,8 @@ jobs:
       - run: bun run build
       - run: bun run check
       - run: bun run test
+      - run: bun run test:integration
+      - run: cargo test --workspace --exclude shallot-native --quiet
   macos:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-latest
@@ -33,6 +35,8 @@ jobs:
       - run: bun run build
       - run: bun run check
       - run: bun run test
+      - run: bun run test:integration
+      - run: cargo test --workspace --exclude shallot-native --quiet
   windows:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
@@ -46,3 +50,5 @@ jobs:
       - run: bun run build
       - run: bun run check
       - run: bun run test
+      - run: bun run test:integration
+      - run: cargo test --workspace --exclude shallot-native --quiet

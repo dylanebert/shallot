@@ -1,3 +1,2 @@
 import { check } from "@dylanebert/shallot/harness/check";
-
-check("slow step", { claim: "slow step", class: "pure", tier: "step", premises: [], budget: 1500 }, () => {});
+check("slow unit", { claim: "slow unit", budget: 251 }, () => {});

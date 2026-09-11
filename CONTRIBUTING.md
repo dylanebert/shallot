@@ -36,7 +36,17 @@ bun run prepack        # compile the Node-reachable tooling
 
 ## Tests
 
-`bun run test` runs `cargo test` over the Cargo workspace, every crate except the native host, and then `bun test`, which runs every declared check. A check is `check(name, { claim, class, tier, premises, budget }, body)` from `@dylanebert/shallot/harness/check`; an undeclared test file refuses at load, and `bun scripts/surface.ts --list` prints the population. The TypeScript tests were retired to the `archive/tests-pre-slice` tag. Each one comes back only as a declared claim with a class and a tier, physics gold replays first; [`ARCHIVE.md`](ARCHIVE.md) lists the order.
+- `bun run test` runs unit rows only, hermetically, under the 250ms unit ceiling, and prints the suite wall time last.
+- `bun run check` validates structure, the discovered population and generated workflow drift.
+- `bun run test:changed` runs the unit and integration populations, then runs Cargo when the diff touches `crates/**`, `Cargo.*` or solver fixtures.
+
+A check declares its claim, optional size and requirements in the runner call:
+
+```ts
+check("the body settles", { claim: "Body settles on the floor" }, body);
+```
+
+Use `bun scripts/surface.ts --list` to inspect claim, size, requirements, budget and file. Rust suites use Cargo with `#[test]` as their declaration and stay outside this list. Retire a unit by tag, add its row to [`ARCHIVE.md`](ARCHIVE.md), then delete it.
 
 ## Pins and freshness
 

@@ -153,7 +153,6 @@ const goldBox = (name: string) => gold.boxHulls.find((h) => h.name === name) as 
 check(
     "hull bit-exact vs C reference",
     {
-        tier: "step",
         claim: "the convex hull builder's quickhull output — points, half-edges, planes, center, inertia, volume, surface area, inner radius and aabb — diverges by a bit from the Box3D C reference on any of the cube, tetrahedron, redundant-cloud, skew, cylinder, cylinder6, cone or rock cases",
     },
     () => {
@@ -176,7 +175,6 @@ check(
 check(
     "box hull bit-exact vs C reference",
     {
-        tier: "step",
         claim: "a convex hull built from box half-extents — unit, oblong, or rotated by a quaternion through makeTransformedBoxHull — diverges by a bit from the Box3D C reference",
     },
     () => {
@@ -231,7 +229,6 @@ function fillSphereSample(count: number, seed: number): Vec3[] {
 check(
     "hull topology satisfies Euler",
     {
-        tier: "step",
         claim: "a convex hull leaves a broken half-edge topology — counts off the expected 8/24/6 cube or 4/12/4 tetrahedron, or V - E + F away from 2 on dense sphere clouds driven through the merge cascade",
     },
     () => {
@@ -262,7 +259,6 @@ check(
 check(
     "hull vertex cap is honored and clamped",
     {
-        tier: "step",
         claim: "the convex hull builder overruns its maxVertexCount cap or fails to clamp an out-of-range cap into [4, 255]",
     },
     () => {
@@ -286,7 +282,6 @@ check(
 check(
     "degenerate hull inputs are rejected",
     {
-        tier: "step",
         claim: "the convex hull builder returns a hull instead of null for a degenerate point cloud: empty, fewer than four points, collinear, coincident or coplanar",
     },
     () => {
@@ -320,7 +315,6 @@ check(
 check(
     "hull support queries and world AABB",
     {
-        tier: "step",
         claim: "a convex hull's support vertex is not the extreme point along the query direction, its support face normal is not the one aligned with that direction, or computeHullAABB fails to reproduce the local aabb under identity and translate it",
     },
     () => {
@@ -347,7 +341,6 @@ check(
 check(
     "hull determinism, mass and clone",
     {
-        tier: "step",
         claim: "the convex hull builder is nondeterministic across two identical builds (structure or hash), computeHullMass ignores the hull's volume or center, or cloneHull returns a shallow copy that aliases the original's points",
     },
     () => {

@@ -5,7 +5,7 @@ import { relative, resolve } from "node:path";
 /** the result vocabulary printed by the surface reporter. */
 export type VerdictResult = "pass" | "fail" | "refused" | "unrun";
 
-/** optional host measurements returned by a process-tier check. */
+/** optional host measurements returned by an integration check. */
 export interface VerdictMetadata {
     runtime?: string;
     hardware?: string;
@@ -50,20 +50,21 @@ export function quarantineReason(file: string, claim: string): string | null {
 }
 
 /** resolve each named premise; a browser premise requires a launchable Chromium, never just an importable package. */
-export function missingPremise(premises: readonly string[]): string | null {
-    for (const premise of premises) {
+export function missingRequirement(requirements: readonly string[]): string | null {
+    for (const requirement of requirements) {
+        if (requirement !== "chromium") {
+            return `runner cannot supply requirement ${requirement}`;
+        }
         try {
-            const module = require(premise) as {
+            const module = require("playwright") as {
                 chromium?: { executablePath?: () => string };
             };
-            if (premise === "playwright") {
-                const executable = module.chromium?.executablePath?.();
-                if (typeof executable !== "string" || !existsSync(executable)) {
-                    return `playwright Chromium executable is unavailable${executable ? ` at ${executable}` : ""}`;
-                }
+            const executable = module.chromium?.executablePath?.();
+            if (typeof executable !== "string" || !existsSync(executable)) {
+                return `launchable Chromium is unavailable${executable ? ` at ${executable}` : ""}`;
             }
         } catch {
-            return `${premise} is unavailable`;
+            return "launchable Chromium is unavailable: playwright is unavailable";
         }
     }
     return null;
@@ -92,19 +93,16 @@ export function verdictMetadata(value: unknown): VerdictMetadata {
 /** print the one-line, structured verdict for a non-step or refused check. */
 export function emitVerdict(
     claim: string,
-    tier: string,
+    size: string,
     started: number,
     result: VerdictResult,
     metadata: VerdictMetadata = {},
 ): void {
     const defaults = defaultMetadata();
-    const runtime =
-        metadata.runtime ??
-        (tier === "browser" ? `${defaults.runtime} + chromium unavailable` : defaults.runtime);
     const line = {
         claim,
-        tier,
-        runtime,
+        size,
+        runtime: metadata.runtime ?? defaults.runtime,
         hardware: metadata.hardware ?? defaults.hardware,
         duration: Number((performance.now() - started).toFixed(2)),
         result,

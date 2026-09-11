@@ -54,7 +54,6 @@ check(
     "proxy key packs and unpacks id and body type",
     {
         claim: "the broad-phase proxy key loses the id or the body type across pack and unpack, so a moved proxy would be attributed to the wrong tree",
-        tier: "step",
     },
     () => {
         const types: BodyTypeValue[] = [BodyType.Static, BodyType.Kinematic, BodyType.Dynamic];
@@ -73,7 +72,6 @@ check(
     "the broad-phase move buffer takes dynamic creates and skips unforced static ones",
     {
         claim: "the broad-phase move buffer records a plain static proxy on create, so every static shape would be queried for new pairs on the step it is added",
-        tier: "step",
     },
     () => {
         const bp = fresh();
@@ -121,7 +119,6 @@ check(
     "the broad-phase move buffer dedups a key buffered twice",
     {
         claim: "the broad-phase move buffer appends a key it already holds, so one proxy moved twice in a step would be pair-queried twice",
-        tier: "step",
     },
     () => {
         const bp = fresh();
@@ -145,7 +142,6 @@ check(
     "the broad-phase move buffer keeps creates in insertion order",
     {
         claim: "the broad-phase move buffer reorders buffered keys against creation order, so pair finding would stop being deterministic across runs",
-        tier: "step",
     },
     () => {
         const bp = fresh();
@@ -172,7 +168,6 @@ check(
     "a destroyed proxy leaves the broad-phase move buffer and its bit",
     {
         claim: "the broad-phase move buffer keeps a destroyed proxy's key or its moved bit, so a freed tree slot would be pair-queried after destruction",
-        tier: "step",
     },
     () => {
         const bp = fresh();
@@ -198,7 +193,6 @@ check(
     "moveProxy re-enters a cleared proxy into the broad-phase move buffer",
     {
         claim: "the broad-phase move buffer misses a proxy moved after the per-step clear, so a body that moved would never be re-queried for pairs",
-        tier: "step",
     },
     () => {
         const bp = fresh();
@@ -226,7 +220,6 @@ check(
     "testOverlap on two proxy keys reflects their tree AABBs",
     {
         claim: "the broad-phase proxy key overlap test reads the wrong tree slot, so overlapping proxies would report separated and drop the contact",
-        tier: "step",
     },
     () => {
         const bp = fresh();
@@ -242,7 +235,6 @@ check(
     "enlarging a static proxy key throws",
     {
         claim: "the broad-phase proxy key guard lets a static proxy be enlarged, so the static tree would silently need rebuilding mid-step",
-        tier: "step",
     },
     () => {
         const bp = fresh();
