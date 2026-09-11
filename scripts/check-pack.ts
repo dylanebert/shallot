@@ -36,9 +36,9 @@ if (files.length === 0) {
 }
 
 // The `**/` negations in `files`, read back from package.json so the pack gate and the allowlist can't disagree.
-const negated = (
-    JSON.parse(readFileSync(resolve(pkgDir, "package.json"), "utf8")).files as string[]
-)
+const packageFiles = JSON.parse(readFileSync(resolve(pkgDir, "package.json"), "utf8"))
+    .files as string[];
+const negated = packageFiles
     .filter((entry) => entry.startsWith("!**/"))
     .map((entry) => new Glob(entry.slice(1)));
 const forbidden: [string, (f: string) => boolean][] = [
@@ -91,6 +91,16 @@ const shipped = [
     ...new Set(files.filter((f) => f.startsWith("examples/")).map((f) => f.split("/")[1])),
 ].sort();
 if (recipes.length === 0) missing.push("examples/<recipe>/");
+const declaredExampleDirs = packageFiles
+    .filter((entry) => /^examples\/[^/]+$/.test(entry))
+    .map((entry) => entry.slice("examples/".length))
+    .sort();
+if (packageFiles.includes("examples"))
+    violations.push('package files allowlist must not contain the broad "examples" directory');
+if (declaredExampleDirs.join() !== recipes.join())
+    violations.push(
+        `package files allowlist names [${declaredExampleDirs.join(", ")}], recipes are [${recipes.join(", ")}]`,
+    );
 if (shipped.join() !== recipes.join())
     violations.push(`examples/ ships [${shipped.join(", ")}], recipes are [${recipes.join(", ")}]`);
 
