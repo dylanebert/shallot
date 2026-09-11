@@ -90,10 +90,13 @@ export function emitVerdict(
     metadata: VerdictMetadata = {},
 ): void {
     const defaults = defaultMetadata();
+    const runtime =
+        metadata.runtime ??
+        (tier === "browser" ? `${defaults.runtime} + chromium unavailable` : defaults.runtime);
     const line = {
         claim,
         tier,
-        runtime: metadata.runtime ?? defaults.runtime,
+        runtime,
         hardware: metadata.hardware ?? defaults.hardware,
         duration: Number((performance.now() - started).toFixed(2)),
         result,
