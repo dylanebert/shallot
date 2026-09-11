@@ -1,12 +1,21 @@
 {
     "kind": "recipe",
     "description": "Control how bodies slide with Body.friction.",
-    "problem": "Why does my box slide off the ramp instead of gripping?",
-    "check": {
-        "file": "check.test.ts",
-        "claim": "Body.friction makes a low-friction box leave the ramp while a high-friction box holds",
-        "tier": "step"
-    },
+    "problem": "Why does my box slide off ramp instead of gripping?",
+    "check": [
+        {
+            "file": "check.test.ts",
+            "claim": "Body.friction makes a low-friction box leave the ramp while a high-friction box holds",
+            "tier": "step"
+        },
+        {
+            "file": "check.test.ts",
+            "claim": "Chromium observes Body.friction making a low-friction box leave the ramp while a high-friction box holds",
+            "tier": "browser",
+            "premises": ["playwright"],
+            "budget": 20000
+        }
+    ],
     "scene": "scenes/surface-friction.scene",
     "plugins": {
         "Orbit": true,

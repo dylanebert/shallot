@@ -5,23 +5,7 @@
     "description": "The committed source of truth for a shallot project's scene + plugin enablement (shallot.json). Read identically by every boot host.",
     "type": "object",
     "additionalProperties": false,
-    "properties": {
-        "$schema": {
-            "type": "string",
-            "description": "Pointer to this schema for editor autocomplete + validation."
-        },
-        "kind": {
-            "enum": ["recipe", "showcase"],
-            "description": "Examples only: which table of the generated examples index this project belongs to. Ignored by dev, build and run."
-        },
-        "description": {
-            "type": "string",
-            "description": "One line naming the problem the project answers; the examples index prints it."
-        },
-        "problem": {
-            "type": "string",
-            "description": "Examples only: the user's problem in their own words; the examples index prints it in place of description. Ignored by dev, build and run."
-        },
+    "$defs": {
         "check": {
             "type": "object",
             "additionalProperties": false,
@@ -54,6 +38,34 @@
                     "description": "The recipe check's wall-clock budget in milliseconds; defaults from tier."
                 }
             }
+        }
+    },
+    "properties": {
+        "$schema": {
+            "type": "string",
+            "description": "Pointer to this schema for editor autocomplete + validation."
+        },
+        "kind": {
+            "enum": ["recipe", "showcase"],
+            "description": "Examples only: which table of the generated examples index this project belongs to. Ignored by dev, build and run."
+        },
+        "description": {
+            "type": "string",
+            "description": "One line naming the problem the project answers; the examples index prints it."
+        },
+        "problem": {
+            "type": "string",
+            "description": "Examples only: the user's problem in their own words; the examples index prints it in place of description. Ignored by dev, build and run."
+        },
+        "check": {
+            "oneOf": [
+                { "$ref": "#/$defs/check" },
+                {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/check" },
+                    "minItems": 1
+                }
+            ]
         },
         "scene": {
             "type": "string",

@@ -1,5 +1,12 @@
 import { test } from "bun:test";
 import { type CheckDeclaration, validateDeclaration } from "./declaration";
+import {
+    emitVerdict,
+    missingPremise,
+    quarantineReason,
+    type VerdictMetadata,
+    verdictMetadata,
+} from "./verdict";
 
 // The one call every check is registered through: Bun's `test` behind a mandatory typed
 // declaration, with the declared budget as the runner's timeout.
@@ -38,9 +45,51 @@ export function assertDeclared(path: string): void {
 export function check(
     name: string,
     declaration: CheckDeclaration,
-    body: () => void | Promise<void>,
+    body: () => unknown | Promise<unknown>,
 ): void {
     const decl = validateDeclaration(`check(${JSON.stringify(name)})`, declaration);
-    if (currentFile !== null) declared.set(currentFile, (declared.get(currentFile) ?? 0) + 1);
-    test(name, body, decl.budget);
+    const file = currentFile;
+    if (file !== null) declared.set(file, (declared.get(file) ?? 0) + 1);
+
+    const refusal =
+        (file === null ? null : quarantineReason(file, decl.claim)) ??
+        missingPremise(decl.premises);
+    const reports = decl.tier !== "step" || refusal !== null;
+    if (refusal !== null) {
+        if (reports) {
+            emitVerdict(decl.claim, decl.tier, performance.now(), "refused", { reason: refusal });
+        }
+        test.skip(name, () => {}, decl.budget);
+        return;
+    }
+
+    test(
+        name,
+        async () => {
+            const started = performance.now();
+            try {
+                const value = await body();
+                const metadata: VerdictMetadata = verdictMetadata(value);
+                if (
+                    value !== null &&
+                    typeof value === "object" &&
+                    (value as Record<string, unknown>).ok === false
+                ) {
+                    const error = Object.assign(
+                        new Error(`browser harness returned a failing verdict for ${decl.claim}`),
+                        metadata,
+                    );
+                    throw error;
+                }
+                if (reports) emitVerdict(decl.claim, decl.tier, started, "pass", metadata);
+                return value;
+            } catch (error) {
+                if (reports) {
+                    emitVerdict(decl.claim, decl.tier, started, "fail", verdictMetadata(error));
+                }
+                throw error;
+            }
+        },
+        decl.budget,
+    );
 }
