@@ -84,22 +84,22 @@ function subjectTree(): {
 } {
     const root = mkdtempSync(join(tmpdir(), "shallot-surface-refs-"));
     mkdirSync(join(root, "src"), { recursive: true });
-    writeFileSync(join(root, "src/setup.ts"), "export const ready = true;\\n");
+    writeFileSync(join(root, "src/setup.ts"), "export const ready = true;\n");
     git(root, "init", "-q");
     git(root, "config", "user.email", "surface@example.test");
     git(root, "config", "user.name", "surface");
     git(root, "add", ".");
     git(root, "commit", "-qm", "base");
     const base = git(root, "rev-parse", "HEAD");
-    writeFileSync(join(root, "src/setup.ts"), "export const ready = true; // comment only\\n");
+    writeFileSync(join(root, "src/setup.ts"), "export const ready = true; // comment only\n");
     git(root, "commit", "-qam", "comment");
     const comment = git(root, "rev-parse", "HEAD");
     mkdirSync(join(root, "crates/audio/pkg"), { recursive: true });
-    writeFileSync(join(root, "crates/audio/pkg/shallot_audio.js"), "audio\\n");
+    writeFileSync(join(root, "crates/audio/pkg/shallot_audio.js"), "audio\n");
     git(root, "add", ".");
     git(root, "commit", "-qm", "audio");
     const audio = git(root, "rev-parse", "HEAD");
-    writeFileSync(join(root, "src/new.ts"), "export const added = true;\\n");
+    writeFileSync(join(root, "src/new.ts"), "export const added = true;\n");
     git(root, "add", ".");
     git(root, "commit", "-qm", "add");
     const added = git(root, "rev-parse", "HEAD");
@@ -306,7 +306,7 @@ check(
         mkdirSync(join(tree, "src"), { recursive: true });
         writeFileSync(
             join(tree, "src/check.test.ts"),
-            'check("row", { claim: "runner row", size: "integration", subject: "src/setup.ts" }, () => {});\\n',
+            'check("row", { claim: "runner row", size: "integration", subject: "src/setup.ts" }, () => {});\n',
         );
         git(tree, "init", "-q");
         git(tree, "config", "user.email", "surface@example.test");
