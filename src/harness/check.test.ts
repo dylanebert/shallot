@@ -1,5 +1,5 @@
 import { expect } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
 import { validateDeclaration } from "./declaration";
@@ -112,12 +112,65 @@ check(
                 "    await Bun.sleep(2000);\n});\n",
         );
         try {
+            const environment = { ...process.env };
+            delete environment.KEX_S3_ROW;
             const proc = Bun.spawnSync(["bun", "test", file], {
                 cwd: root,
-                env: { ...process.env, SHALLOT_UNIT_ONLY: "", SHALLOT_INTEGRATION_ONLY: "" },
+                env: { ...environment, SHALLOT_UNIT_ONLY: "", SHALLOT_INTEGRATION_ONLY: "" },
             });
             expect(proc.exitCode).not.toBe(0);
             expect(proc.stderr.toString()).toContain("timed out after 20ms");
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
+    "an exact row selector skips every other declaration size",
+    {
+        claim: "KEX_S3_ROW selects exactly one claim and skips unrelated unit bodies",
+        size: "integration",
+    },
+    () => {
+        const root = resolve(import.meta.dir, "../..");
+        const tree = mkdtempSync(join(root, ".surface-row-selector-"));
+        const file = join(tree, "selector.test.ts");
+        const sideEffect = join(tree, "unit-reached");
+        const unitClaim = "unselected unit must not execute";
+        const targetClaim = "selected integration executes with a real verdict";
+        writeFileSync(
+            file,
+            `import { appendFileSync } from "node:fs";\n` +
+                `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n` +
+                `check("unit", { claim: ${JSON.stringify(unitClaim)} }, () => {\n` +
+                `    appendFileSync(${JSON.stringify(sideEffect)}, "reached");\n` +
+                `    throw new Error("the skipped unit body was reached");\n` +
+                `});\n` +
+                `check("target", { claim: ${JSON.stringify(targetClaim)}, size: "integration" }, () => ({ ok: true }));\n`,
+        );
+        try {
+            const proc = Bun.spawnSync(
+                ["bun", "test", "--max-concurrency=1", "--pass-with-no-tests", file],
+                {
+                    cwd: root,
+                    env: {
+                        ...process.env,
+                        KEX_S3_ROW: targetClaim,
+                        SHALLOT_UNIT_ONLY: "",
+                        SHALLOT_INTEGRATION_ONLY: "",
+                    },
+                },
+            );
+            const output = proc.stdout.toString() + proc.stderr.toString();
+            expect(proc.exitCode).toBe(0);
+            expect(output).toContain(targetClaim);
+            expect(output).toContain('"result":"pass"');
+            expect(output.match(/shallot verdict/g)?.length).toBe(1);
+            expect(output).toContain("1 pass");
+            expect(output).toContain("1 skip");
+            expect(output).not.toContain("no tests");
+            expect(existsSync(sideEffect)).toBe(false);
         } finally {
             rmSync(tree, { recursive: true, force: true });
         }

@@ -49,9 +49,7 @@ export function check(
     if (
         (process.env.SHALLOT_UNIT_ONLY === "1" && decl.size === "integration") ||
         (process.env.SHALLOT_INTEGRATION_ONLY === "1" && decl.size === "unit") ||
-        (decl.size === "integration" &&
-            process.env.KEX_S3_ROW !== undefined &&
-            process.env.KEX_S3_ROW !== decl.claim)
+        (process.env.KEX_S3_ROW !== undefined && process.env.KEX_S3_ROW !== decl.claim)
     ) {
         test.skip(name, () => {}, decl.budget);
         return;
