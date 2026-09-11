@@ -42,8 +42,11 @@ replacing it. In `bunfig.toml`, compose the entries as
 `preload = ["./src/project-preload.ts", "@dylanebert/shallot/harness/preload"]`.
 
 A root `shallot.json` may admit one check entry or an array of `{ "file": "..." }` entries.
-Every admitted file is still discovered and must use `check()`; malformed, duplicate, or missing
-entries refuse. `.oracle.ts` files are named evidence and stay out of ordinary `test` and
+When its `check` field is present, that list is the complete project population: every visible
+`.test.ts`, `.tier.ts` and `.oracle.ts` file must appear exactly once, and an omitted file refuses.
+Every admitted file must use `check()`; malformed, duplicate, missing and moved entries refuse.
+Without a root `check` field, project-rooted discovery remains in force, including nested recipe
+manifests. `.oracle.ts` files are named evidence and stay out of ordinary `test` and
 subject-selected integration sweeps; run one explicitly with `--oracle <claim>`.
 
 `bun run examples:index` regenerates `examples/AGENTS.md`; `check` reds when it drifts. `check` is the gate before every push.
