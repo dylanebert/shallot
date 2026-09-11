@@ -468,8 +468,18 @@ export function selectIntegrationRows(
 ): SurfaceRow[] {
     return population.rows.filter(
         (row) =>
-            row.size === "integration" && subjectChanged(population.root, row.subjects, base, diff),
+            row.size === "integration" &&
+            !ORACLE_SUFFIX.test(row.file) &&
+            subjectChanged(population.root, row.subjects, base, diff),
     );
+}
+
+function workflowRows(population: Population): SurfaceRow[] {
+    return population.rows.filter((row) => !ORACLE_SUFFIX.test(row.file));
+}
+
+function workflowNeedsChromium(population: Population): boolean {
+    return workflowRows(population).some((row) => row.requires.includes("chromium"));
 }
 
 function workflowPath(root: string): string {
@@ -478,7 +488,59 @@ function workflowPath(root: string): string {
 
 /** Render only portable Bun/project steps. The carrier never names a member, branch or engine. */
 export function renderWorkflow(population: Population): string {
-    if (population.rows.length === 0) return "";
+    if (workflowRows(population).length === 0) return "";
+    const steps = [
+        "      - uses: actions/checkout@v4",
+        "        with:",
+        "          fetch-depth: 0",
+        "      - uses: oven-sh/setup-bun@v2",
+        "      - name: resolve surface refs",
+        "        env:",
+        "          SURFACE_EVENT: $" + "{{ github.event_name }}",
+        "          SURFACE_PR_BASE: $" + "{{ github.event.pull_request.base.sha }}",
+        "          SURFACE_BEFORE: $" + "{{ github.event.before }}",
+        "          SURFACE_DIFF: $" + "{{ github.sha }}",
+        "          SURFACE_REF: $" + "{{ github.ref }}",
+        "          SURFACE_DEFAULT_BRANCH: $" + "{{ github.event.repository.default_branch }}",
+        "        run: |",
+        "          set -euo pipefail",
+        "          zero=0000000000000000000000000000000000000000",
+        '          if [ "$SURFACE_EVENT" = "pull_request" ]; then',
+        '            base="$SURFACE_PR_BASE"',
+        '          elif [ -n "$SURFACE_BEFORE" ] && [ "$SURFACE_BEFORE" != "$zero" ]; then',
+        '            base="$SURFACE_BEFORE"',
+        '          elif [ "$SURFACE_REF" = "refs/heads/$SURFACE_DEFAULT_BRANCH" ]; then',
+        '            base="$(git rev-parse --verify --quiet --end-of-options "$SURFACE_DIFF^")" || {',
+        '              echo "surface refused: the initial default-branch push has no parent commit" >&2',
+        "              exit 1",
+        "            }",
+        "          else",
+        '            base="$(git merge-base "$SURFACE_DIFF" "origin/$SURFACE_DEFAULT_BRANCH")" || {',
+        '              echo "surface refused: could not derive a merge base for the new branch push" >&2',
+        "              exit 1",
+        "            }",
+        "          fi",
+        '          git rev-parse --verify --quiet --end-of-options "$base^{commit}" >/dev/null || {',
+        '            echo "surface refused: base is not an existing commit object: $base" >&2',
+        "            exit 1",
+        "          }",
+        '          git rev-parse --verify --quiet --end-of-options "$SURFACE_DIFF^{commit}" >/dev/null || {',
+        '            echo "surface refused: diff is not an existing commit object: $SURFACE_DIFF" >&2',
+        "            exit 1",
+        "          }",
+        '          echo "surface refs: base=$base diff=$SURFACE_DIFF"',
+        '          echo "SHALLOT_SURFACE_BASE=$base" >> "$GITHUB_ENV"',
+        '          echo "SHALLOT_SURFACE_DIFF=$SURFACE_DIFF" >> "$GITHUB_ENV"',
+        "      - run: bun install --frozen-lockfile",
+    ];
+    if (workflowNeedsChromium(population))
+        steps.push("      - run: bunx playwright install --with-deps chromium");
+    steps.push(
+        "      - run: bun run check",
+        "      - run: bun run test",
+        "      - run: bun run test:integration -- --base $SHALLOT_SURFACE_BASE --diff $SHALLOT_SURFACE_DIFF",
+        "",
+    );
     return [
         "name: test-surface",
         "",
@@ -488,15 +550,7 @@ export function renderWorkflow(population: Population): string {
         "  surface:",
         "    runs-on: ubuntu-latest",
         "    steps:",
-        "      - uses: actions/checkout@v4",
-        "      - uses: oven-sh/setup-bun@v2",
-        "      - run: bun install --frozen-lockfile",
-        "      - run: bun run check",
-        "      - run: bun run test",
-        "      - run: bun run test:integration -- --base $" +
-            "{{ github.event.pull_request.base.sha || github.event.before }} --diff $" +
-            "{{ github.sha }}",
-        "",
+        ...steps,
     ].join("\n");
 }
 
@@ -554,7 +608,7 @@ export function readSurface(root: string): string[] {
     }
     if (projectPackage(root)) {
         const path = workflowPath(root);
-        if (population.rows.length === 0) {
+        if (workflowRows(population).length === 0) {
             if (existsSync(path))
                 violations.push("empty population must not have a generated workflow");
         } else if (!existsSync(path)) {
@@ -571,7 +625,7 @@ export function readSurface(root: string): string[] {
 export function writeWorkflow(root: string): "written" | "removed" | "empty" {
     const population = collectPopulation(root);
     const path = workflowPath(root);
-    if (population.rows.length === 0) {
+    if (workflowRows(population).length === 0) {
         if (existsSync(path)) rmSync(path);
         return "empty";
     }

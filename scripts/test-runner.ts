@@ -56,18 +56,16 @@ if (!integration) {
 if (base === undefined || diff === undefined || base === "" || diff === "") {
     refuse("test:integration requires --base <ref> and --diff <ref>");
 }
-const baseRef = Bun.spawnSync(["git", "rev-parse", "--verify", base], {
-    cwd: root,
-    stdout: "pipe",
-    stderr: "pipe",
-});
-const diffRef = Bun.spawnSync(["git", "rev-parse", "--verify", diff], {
-    cwd: root,
-    stdout: "pipe",
-    stderr: "pipe",
-});
-if (!baseRef.success || !diffRef.success)
-    refuse(`could not resolve integration refs ${base} and ${diff}`);
+function isCommitObject(ref: string): boolean {
+    const resolved = Bun.spawnSync(
+        ["git", "rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`],
+        { cwd: root, stdout: "pipe", stderr: "pipe" },
+    );
+    return resolved.success && resolved.stdout.toString().trim() !== "";
+}
+
+if (!isCommitObject(base) || !isCommitObject(diff))
+    refuse(`integration refs must be existing commit objects: base=${base} diff=${diff}`);
 const selected =
     oracle === undefined
         ? selectIntegrationRows(population, base, diff)

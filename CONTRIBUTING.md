@@ -24,7 +24,7 @@ This page is for anyone changing the engine itself, person or agent. Using Shall
 ## Commands
 
 ```bash
-bun run build          # audio WASM, dist/vite.js, physics kernel
+bun run build          # regenerate committed audio WASM, dist/vite.js, physics kernel
 bun run check          # tsc, biome, every scripts/check-*.ts, examples index, scene format, cargo fmt
 bun run test           # hermetic unit rows discovered from the project root
 bun run test:integration -- --base <ref> --diff <ref> # selected integration rows

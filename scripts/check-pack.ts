@@ -61,6 +61,9 @@ const required = [
     "crates/native/Cargo.lock",
     "assets/icon-1024.png",
     "shallot.schema.json",
+    "crates/audio/pkg/shallot_audio.js",
+    "crates/audio/pkg/shallot_audio.d.ts",
+    "crates/audio/pkg/shallot_audio.wasm",
 ];
 // A shipped manifest must not name the engine by a local path: copy-out pins the installed version,
 // and a `file:`/`link:`/`workspace:` spec in the tarball points at a directory no consumer has.
@@ -75,7 +78,6 @@ for (const f of files.filter((f) => f.endsWith("package.json") && f !== "package
 }
 
 const missing = required.filter((f) => !files.includes(f));
-if (!files.some((f) => f.startsWith("crates/audio/pkg/"))) missing.push("crates/audio/pkg/");
 // The shipped example set is exactly the `kind: "recipe"` manifests: `files` negates showcases by
 // name, so a new showcase that misses its negation (or a recipe caught by one) reds here.
 const examplesDir = resolve(pkgDir, "examples");
