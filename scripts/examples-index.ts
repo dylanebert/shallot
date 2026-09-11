@@ -1,21 +1,46 @@
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readCheckDeclarations } from "./surface";
 
-// `bun run examples:index [--check]`: emit `examples/AGENTS.md` from each `examples/*/shallot.json`
-// `kind` + `problem` (or `description` where no problem is declared). The index is never hand-written; `--check` reds when the committed file
-// differs from what the declarations generate. Every example dir must declare both fields.
+// `bun run examples:index [--check]`: emit `examples/AGENTS.md` from each source-visible
+// `examples/*/shallot.json` (`--root <dir>` is for isolated fixture tests). The index is never
+// hand-written; `--check` reds when the committed file differs from what the declarations
+// generate. Every source-visible example dir must declare both fields.
 
-const root = resolve(import.meta.dir, "..");
+const args = Bun.argv.slice(2);
+const rootIndex = args.indexOf("--root");
+if (rootIndex !== -1 && args[rootIndex + 1] === undefined) {
+    console.error("✗ --root requires a directory");
+    process.exit(1);
+}
+const root = resolve(
+    rootIndex === -1 ? resolve(import.meta.dir, "..") : (args[rootIndex + 1] as string),
+);
 const examples = resolve(root, "examples");
 const out = resolve(examples, "AGENTS.md");
 const KINDS = ["recipe", "showcase"] as const;
 type Kind = (typeof KINDS)[number];
 
+const evidence = Bun.spawnSync(
+    ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "examples"],
+    { cwd: root, stdout: "pipe", stderr: "pipe" },
+);
+if (!evidence.success) {
+    console.error("✗ `git ls-files` failed — examples index needs a Git source file list.");
+    process.exit(1);
+}
+
+const names = new Set<string>();
+for (const path of evidence.stdout.toString().split("\0")) {
+    if (!path.startsWith("examples/")) continue;
+    const relative = path.slice("examples/".length);
+    const slash = relative.indexOf("/");
+    if (slash > 0 && slash < relative.length - 1) names.add(relative.slice(0, slash));
+}
+
 const rows: { name: string; kind: Kind; description: string; checkSize: string }[] = [];
 const errors: string[] = [];
-for (const name of readdirSync(examples).sort()) {
-    if (!statSync(resolve(examples, name)).isDirectory()) continue;
+for (const name of [...names].sort()) {
     const path = resolve(examples, name, "shallot.json");
     if (!existsSync(path)) {
         errors.push(`examples/${name}/ has no shallot.json`);
