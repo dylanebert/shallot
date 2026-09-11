@@ -43,27 +43,38 @@ export function check(
     const file = currentFile;
     if (file !== null) declared.set(file, (declared.get(file) ?? 0) + 1);
 
-    // The ordinary package test intentionally excludes integration rows. They remain discovered,
-    // but their bodies are not scheduled; test:changed and hosted jobs omit this filter.
+    // The ordinary unit sweep never schedules integrations. Named oracle files are excluded by the
+    // carrier runner; this guard remains so a direct Bun invocation cannot accidentally make an
+    // integration row part of the unit population.
     if (
         (process.env.SHALLOT_UNIT_ONLY === "1" && decl.size === "integration") ||
-        (process.env.SHALLOT_INTEGRATION_ONLY === "1" && decl.size === "unit")
+        (process.env.SHALLOT_INTEGRATION_ONLY === "1" && decl.size === "unit") ||
+        (decl.size === "integration" &&
+            process.env.KEX_S3_ROW !== undefined &&
+            process.env.KEX_S3_ROW !== decl.claim)
     ) {
         test.skip(name, () => {}, decl.budget);
         return;
     }
 
-    const refusal =
-        (file === null ? null : quarantineReason(file, decl.claim)) ??
-        missingRequirement(decl.requires);
-    const reports = decl.size === "integration" || refusal !== null;
-    if (refusal !== null) {
-        if (reports) {
-            emitVerdict(decl.claim, decl.size, performance.now(), "refused", { reason: refusal });
+    const quarantine = file === null ? null : quarantineReason(file, decl.claim);
+    if (quarantine !== null) {
+        if (decl.size === "integration") {
+            emitVerdict(decl.claim, decl.size, performance.now(), "refused", {
+                reason: quarantine,
+            });
         }
         test.skip(name, () => {}, decl.budget);
         return;
     }
+    const missing = missingRequirement(decl.requires);
+    if (missing !== null) {
+        // A missing premise is refusal, never a green skip. Throw at registration so Bun's exit
+        // status carries the refusal through every installed command and hosted runner.
+        emitVerdict(decl.claim, decl.size, performance.now(), "refused", { reason: missing });
+        throw new Error(`refused check ${decl.claim}: ${missing}`);
+    }
+    const reports = decl.size === "integration";
 
     test(
         name,

@@ -15,6 +15,8 @@ export interface CheckDeclaration {
     size?: CheckSize;
     /** external environment tags that must be available to run. */
     requires?: readonly CheckRequirement[];
+    /** project-rooted source path(s) whose token changes select an integration row. */
+    subject?: string | readonly string[];
     /** wall-clock budget in milliseconds; defaults to the size ceiling. */
     budget?: number;
 }
@@ -23,6 +25,7 @@ export interface ResolvedCheckDeclaration {
     claim: string;
     size: CheckSize;
     requires: readonly CheckRequirement[];
+    subject?: string | readonly string[];
     budget: number;
 }
 
@@ -58,6 +61,21 @@ export function validateDeclaration(where: string, value: unknown): ResolvedChec
         }
     }
     if (
+        decl.subject !== undefined &&
+        !(
+            (typeof decl.subject === "string" && decl.subject.trim() !== "") ||
+            (Array.isArray(decl.subject) &&
+                decl.subject.length > 0 &&
+                decl.subject.every(
+                    (subject) => typeof subject === "string" && subject.trim() !== "",
+                ))
+        )
+    ) {
+        throw new Error(
+            `invalid declaration: ${where} needs a non-empty string \`subject\` or array of strings`,
+        );
+    }
+    if (
         decl.budget !== undefined &&
         (typeof decl.budget !== "number" || !Number.isFinite(decl.budget) || decl.budget <= 0)
     ) {
@@ -76,6 +94,9 @@ export function validateDeclaration(where: string, value: unknown): ResolvedChec
         claim: decl.claim,
         size: size as CheckSize,
         requires: requires as CheckRequirement[],
+        ...(decl.subject === undefined
+            ? {}
+            : { subject: decl.subject as string | readonly string[] }),
         budget,
     };
 }

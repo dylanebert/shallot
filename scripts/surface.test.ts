@@ -1,8 +1,18 @@
 import { expect } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import {
+    cpSync,
+    mkdirSync,
+    mkdtempSync,
+    readdirSync,
+    renameSync,
+    rmSync,
+    statSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
+import { readSurface, subjectTokens, writeWorkflow } from "@dylanebert/shallot/harness/surface";
 
 const ROOT = resolve(import.meta.dir, "..");
 const FIXTURES = resolve(ROOT, "scripts/fixtures/surface");
@@ -85,6 +95,49 @@ check(
         } finally {
             rmSync(defaults, { recursive: true, force: true });
         }
+
+        const malformed = mkdtempSync(join(tmpdir(), "shallot-surface-root-array-"));
+        try {
+            writeFileSync(join(malformed, "shallot.json"), '{"check":[]}');
+            expect(readSurface(malformed).join("\\n")).toContain("check array must not be empty");
+        } finally {
+            rmSync(malformed, { recursive: true, force: true });
+        }
+
+        const empty = mkdtempSync(join(tmpdir(), "shallot-surface-empty-"));
+        try {
+            mkdirSync(join(empty, ".github/workflows"), { recursive: true });
+            writeFileSync(join(empty, "package.json"), "{}");
+            writeFileSync(join(empty, ".github/workflows/test-surface.yml"), "name: no-op\\n");
+            expect(readSurface(empty).join("\\n")).toContain(
+                "empty population must not have a generated workflow",
+            );
+            rmSync(join(empty, ".github/workflows/test-surface.yml"));
+            expect(readSurface(empty)).toEqual([]);
+        } finally {
+            rmSync(empty, { recursive: true, force: true });
+        }
+
+        const portable = mkdtempSync(join(tmpdir(), "shallot-surface-portable-"));
+        try {
+            mkdirSync(join(portable, "src"), { recursive: true });
+            writeFileSync(join(portable, "package.json"), "{}");
+            writeFileSync(
+                join(portable, "src/claim.test.ts"),
+                'import { check } from "@dylanebert/shallot/harness/check";\ncheck("claim", { claim: "portable claim" }, () => {});\n',
+            );
+            writeWorkflow(portable);
+            expect(readSurface(portable)).toEqual([]);
+            writeFileSync(join(portable, ".github/workflows/test-surface.yml"), "drift\n");
+            expect(readSurface(portable).join("\n")).toContain("generated workflow drift");
+        } finally {
+            rmSync(portable, { recursive: true, force: true });
+        }
+
+        expect(subjectTokens("const value = 1; // prose")).toEqual(
+            subjectTokens("const value = 1; /* prose */"),
+        );
+        expect(subjectTokens("const value = 1;")).not.toEqual(subjectTokens("const value = 2;"));
     },
 );
 

@@ -1,54 +1,14 @@
 name: test-surface
 
-on:
-  push:
-    branches: [main]
-    tags: ["v*"]
-  pull_request:
+on: [push, pull_request]
 
 jobs:
-  ubuntu:
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+  surface:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium
-      - run: rustup toolchain install 1.98.1 --target wasm32-unknown-unknown
-      - run: rustup toolchain install nightly-2026-09-10 --component rust-src --target wasm32-unknown-unknown
-      - run: bun run build
       - run: bun run check
       - run: bun run test
-      - run: bun run test:integration
-      - run: cargo test --workspace --exclude shallot-native --quiet
-  macos:
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium
-      - run: rustup toolchain install 1.98.1 --target wasm32-unknown-unknown
-      - run: rustup toolchain install nightly-2026-09-10 --component rust-src --target wasm32-unknown-unknown
-      - run: bun run build
-      - run: bun run check
-      - run: bun run test
-      - run: bun run test:integration
-      - run: cargo test --workspace --exclude shallot-native --quiet
-  windows:
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium
-      - run: rustup toolchain install 1.98.1 --target wasm32-unknown-unknown
-      - run: rustup toolchain install nightly-2026-09-10 --component rust-src --target wasm32-unknown-unknown
-      - run: bun run build
-      - run: bun run check
-      - run: bun run test
-      - run: bun run test:integration
-      - run: cargo test --workspace --exclude shallot-native --quiet
+      - run: bun run test:integration -- --base ${{ github.event.pull_request.base.sha || github.event.before }} --diff ${{ github.sha }}
