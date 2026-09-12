@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import { REAL_GPU_LAUNCH } from "./index";
 import type { Verdict } from "./runtime";
 
@@ -24,7 +23,7 @@ async function waitForServer(url: string, process: ReturnType<typeof Bun.spawn>)
     const deadline = performance.now() + 15_000;
     while (performance.now() < deadline) {
         if (process.exitCode !== null)
-            throw new Error(`shallot dev exited with ${process.exitCode}`);
+            throw new Error(`serve command exited with ${process.exitCode}`);
         try {
             const response = await fetch(url, { signal: AbortSignal.timeout(500) });
             if (response.ok) return;
@@ -33,7 +32,7 @@ async function waitForServer(url: string, process: ReturnType<typeof Bun.spawn>)
         }
         await Bun.sleep(50);
     }
-    throw new Error(`timed out waiting for shallot dev at ${url}`);
+    throw new Error(`timed out waiting for serve command at ${url}`);
 }
 
 async function adapterLabel(page: import("playwright").Page): Promise<string> {
@@ -50,30 +49,21 @@ async function adapterLabel(page: import("playwright").Page): Promise<string> {
     });
 }
 
+export type BrowserServeCommand = (port: number) => string[];
+
 /**
- * Boot a manifest recipe through the normal dev host and return the page's in-engine Verdict.
- * The page owns the stepped-clock assertion; this process only waits for readiness and transports
- * the resulting JSON across the browser boundary.
+ * Boot a project through its serve command and return the page's in-engine Verdict. The driver
+ * supplies an unused port; the command owns its host-specific arguments. The page owns the
+ * stepped-clock assertion; this process only waits for readiness and transports the resulting JSON
+ * across the browser boundary.
  */
-export async function runBrowserCheck(projectDir: string): Promise<BrowserVerdict> {
+export async function runBrowserCheck(serveCommand: BrowserServeCommand): Promise<BrowserVerdict> {
     const { chromium } = await import("playwright");
     const browser = await chromium.launch({ headless: true, ...REAL_GPU_LAUNCH });
     const runtime = `bun ${Bun.version} + chromium ${browser.version()}`;
     const port = 4000 + Math.floor(Math.random() * 1000);
     const url = `http://localhost:${port}/`;
-    const server = Bun.spawn(
-        [
-            process.execPath,
-            resolve(import.meta.dir, "../../bin/shallot.ts"),
-            "dev",
-            resolve(projectDir),
-            "--port",
-            String(port),
-            "--strict-port",
-            "--no-open",
-        ],
-        { cwd: resolve(import.meta.dir, "../.."), stdout: "ignore", stderr: "ignore" },
-    );
+    const server = Bun.spawn(serveCommand(port), { stdout: "ignore", stderr: "ignore" });
     const page = await browser.newPage();
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));

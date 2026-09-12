@@ -1,4 +1,5 @@
 import { afterAll, afterEach, expect } from "bun:test";
+import { resolve } from "node:path";
 import { State, Time } from "../../src/engine";
 import { clear, register } from "../../src/engine/ecs/traits";
 import { check } from "../../src/harness/check";
@@ -77,7 +78,16 @@ check(
         requires: ["chromium"],
     },
     async () => {
-        const verdict = await runBrowserCheck(import.meta.dir);
+        const verdict = await runBrowserCheck((port) => [
+            process.execPath,
+            resolve(import.meta.dir, "../../bin/shallot.ts"),
+            "dev",
+            import.meta.dir,
+            "--port",
+            String(port),
+            "--strict-port",
+            "--no-open",
+        ]);
         if (!verdict.ok) {
             throw Object.assign(
                 new Error("the browser harness did not observe the friction claim"),
