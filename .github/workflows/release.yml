@@ -87,7 +87,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       # First-party actions on major tags, deliberately (see comment at top of file).
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # GitHub runners ship rustup + a stable Rust toolchain preinstalled; only the cross-compile
       # target may need adding. No third-party rust setup action.
