@@ -77,7 +77,7 @@ export const EDGE_MAGNITUDE_THRESHOLD = 0.4;
  * Sobel kernel's diagonal taps (`l00`, `l20`, `l02`, `l22`). Tried first as a second, lower threshold on
  * the *same* Sobel magnitude `selectKernel` already computes, and measured wrong: the Sobel kernel's
  * diagonal taps carry a real boundary's influence *past* its own row/column into an adjacent, genuinely
- * flat cell — reproduced directly against `examples/render-to-a-terminal` at a yaw showing three
+ * flat cell — reproduced directly against `examples/ascii` at a yaw showing three
  * faces (2.4 rad): a cell sitting one row below a real horizontal face boundary, with identical luma to
  * both its immediate left and right neighbors *and* to the same cell one row above and one row below (a
  * textbook-flat 4-connected neighborhood), still read a nonzero Sobel magnitude solely from its two
@@ -275,7 +275,7 @@ export const localBoundaryMagnitude = tgpu.fn(
 
 /**
  * the facade luma band the fill-treatment amendment's rule 3 measurement renders against: three values hand-picked, not derived, to sit
- * inside the luma band the recipe's faces occupy in the tier-0 dump (`examples/render-to-a-terminal`
+ * inside the luma band the recipe's faces occupy in the tier-0 dump (`examples/ascii`
  * at one orbit angle), not the fill ramp's whole `[0, 1]` domain the prior version of this measurement
  * swept — criterion 8's round-1 rejection named exactly that mismatch, since the ramp's own blank and
  * densest-glyph ends are not a facade and were never the reference's own quantity. `select.test.ts`'s
