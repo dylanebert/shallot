@@ -1,0 +1,22 @@
+<scene>
+    <a ambient-light />
+    <a directional-light />
+    <a camera sear orbit="distance: 12; pitch: 0.5236" transform />
+
+    <!-- three static reference axes (thin, dim) -->
+    <a line="offset: 4 0 0; thickness: 1.5; color: 0xff5566; opacity: 0.5" transform />
+    <a line="offset: 0 4 0; thickness: 1.5; color: 0x66ff99; opacity: 0.5" transform />
+    <a line="offset: 0 0 4; thickness: 1.5; color: 0x6699ff; opacity: 0.5" transform />
+
+    <!-- three arrow "hands"; SpinSystem rotates each by writing its Line.offset (the field is the
+         source of truth, mutated like any other) — the opposite of the immediate API. The third
+         hand wobbles through the third axis. -->
+    <a line="thickness: 3; color: 0xffcc44" arrow="size: 1.2" spin="speed: 0.5" transform />
+    <a line="thickness: 3; color: 0xff66cc" arrow="size: 1.2" spin="speed: 0.85" transform />
+    <a
+        line="thickness: 3; color: 0x44ddff"
+        arrow="size: 1.2"
+        spin="speed: 1.2; wobble: 1"
+        transform
+    />
+</scene>

@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <link rel="icon" type="image/svg+xml" href="../icon.svg" />
+        <title>wireframe lines</title>
+        <style>*{box-sizing:border-box;margin:0;padding:0}html,body{background:#0c0a09;width:100%;height:100%;overflow:hidden}canvas{width:100%;height:100%;display:block}</style>
+      <script type="module" crossorigin src="../assets/wireframe-Bo3_kbYB.js"></script>
+      <link rel="modulepreload" crossorigin href="../assets/boot-CDoqe7z9.js">
+    </head>
+    <body>
+        <canvas></canvas>
+    <!-- shallot: datadog rum slow-frame vitals -->
+<script>
+(function(h,o,u,n,d) {
+    h=h[d]=h[d]||{q:[],onReady:function(c){h.q.push(c)}}
+    d=o.createElement(u);d.async=1;d.src=n;d.crossOrigin='anonymous'
+    n=o.getElementsByTagName(u)[0];n.parentNode.insertBefore(d,n)
+})(window,document,'script','https://www.datadoghq-browser-agent.com/us1/v6/datadog-rum.js','DD_RUM')
+window.DD_RUM.onReady(function() {
+    var ddEnv=/(^|\.)dylanebert\.com$/.test(location.hostname)?'prod':'local';
+    window.DD_RUM.init(Object.assign({env:ddEnv},{"applicationId":"a5ffefd9-8f32-49dd-b8ae-ff31988e6bfe","clientToken":"pube2bd4a743b9fd4d05457e14b56fa53c5","site":"datadoghq.com","service":"shallot-site","sessionSampleRate":100,"trackLongTasks":true,"sessionReplaySampleRate":0}));
+});
+</script>
+<script type="module">
+// src/rum-compile-vitals.ts
+function compileVitalReports(entries, prefix, timeOrigin) {
+  const reports = [];
+  for (const entry of entries) {
+    if (!entry.name.startsWith(prefix))
+      continue;
+    reports.push({
+      name: entry.name,
+      startTime: timeOrigin + entry.startTime,
+      duration: entry.duration,
+      context: { label: entry.name.slice(prefix.length) }
+    });
+  }
+  return reports;
+}
+
+// src/rum-loaf.ts
+var UNSUPPORTED_ATTRIBUTION = {
+  loafSupported: false,
+  loafEntryCount: 0,
+  loafOverlapDurationMs: 0,
+  loafOverlapBlockingMs: 0,
+  topScript: null
+};
+function unsupportedLoafAttribution() {
+  return UNSUPPORTED_ATTRIBUTION;
+}
+function overlaps(entry, start, end) {
+  return entry.startTime < end && entry.startTime + entry.duration > start;
+}
+function attributeSlowFrame(start, duration, entries) {
+  const end = start + duration;
+  const overlapping = entries.filter((entry) => overlaps(entry, start, end));
+  let loafOverlapDurationMs = 0;
+  let loafOverlapBlockingMs = 0;
+  let topScript = null;
+  for (const entry of overlapping) {
+    loafOverlapDurationMs += entry.duration;
+    loafOverlapBlockingMs += entry.blockingDuration;
+    for (const script of entry.scripts) {
+      if (!topScript || script.duration > topScript.duration)
+        topScript = script;
+    }
+  }
+  return {
+    loafSupported: true,
+    loafEntryCount: overlapping.length,
+    loafOverlapDurationMs,
+    loafOverlapBlockingMs,
+    topScript
+  };
+}
+
+// src/rum-sampler.ts
+var SLOW_FRAME_THRESHOLD_MS = 50;
+var MEDIAN_WINDOW = 20;
+var initialFrameSamplerState = {
+  lastTimestamp: null,
+  intervals: [],
+  frameCount: 0
+};
+function median(values) {
+  if (values.length === 0)
+    return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+function sampleFrame(state, timestamp) {
+  const frameCount = state.frameCount + 1;
+  if (state.lastTimestamp === null) {
+    return {
+      state: { lastTimestamp: timestamp, intervals: state.intervals, frameCount },
+      report: null
+    };
+  }
+  const delta = timestamp - state.lastTimestamp;
+  const rollingMedianIntervalMs = median(state.intervals);
+  const intervals = [...state.intervals, delta].slice(-MEDIAN_WINDOW);
+  const report = delta >= SLOW_FRAME_THRESHOLD_MS ? {
+    startTime: state.lastTimestamp,
+    duration: delta,
+    context: {
+      duration: delta,
+      msSinceLoad: timestamp,
+      rollingMedianIntervalMs,
+      framesObserved: frameCount
+    }
+  } : null;
+  return { state: { lastTimestamp: timestamp, intervals, frameCount }, report };
+}
+function resetFrameSampler(state) {
+  return { ...state, lastTimestamp: null };
+}
+
+// src/rum-runtime.ts
+if (typeof PerformanceObserver !== "undefined") {
+  try {
+    new PerformanceObserver((list) => {
+      const reports = compileVitalReports(list.getEntries(), "shallot:pipeline-compile:", performance.timeOrigin);
+      for (const report of reports) {
+        window.DD_RUM?.onReady(() => {
+          window.DD_RUM?.addDurationVital("pipeline_compile", {
+            startTime: report.startTime,
+            duration: report.duration,
+            context: { ...report.context }
+          });
+        });
+        performance.clearMeasures(report.name);
+      }
+    }).observe({ type: "measure", buffered: true });
+  } catch {}
+}
+var state = initialFrameSamplerState;
+var LOAF_BUFFER_LIMIT = 200;
+var loafSupported = typeof PerformanceObserver !== "undefined" && (PerformanceObserver.supportedEntryTypes?.includes("long-animation-frame") ?? false);
+var loafEntries = [];
+if (loafSupported) {
+  try {
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        loafEntries.push({
+          startTime: e.startTime,
+          duration: e.duration,
+          blockingDuration: e.blockingDuration,
+          scripts: (e.scripts ?? []).map((s) => ({
+            sourceURL: s.sourceURL ?? "",
+            sourceFunctionName: s.sourceFunctionName ?? "",
+            invoker: s.invoker ?? "",
+            duration: s.duration
+          }))
+        });
+      }
+      if (loafEntries.length > LOAF_BUFFER_LIMIT) {
+        loafEntries = loafEntries.slice(-LOAF_BUFFER_LIMIT);
+      }
+    }).observe({ type: "long-animation-frame", buffered: true });
+  } catch {
+    loafSupported = false;
+  }
+}
+var LOAF_ATTRIBUTION_DELAY_MS = 500;
+function attributeContext(startTime, duration) {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve(loafSupported ? attributeSlowFrame(startTime, duration, loafEntries) : unsupportedLoafAttribution());
+    }, LOAF_ATTRIBUTION_DELAY_MS);
+  });
+}
+var wasHidden = false;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden)
+    wasHidden = true;
+});
+function tick(timestamp) {
+  if (document.hidden) {
+    wasHidden = true;
+  } else {
+    if (wasHidden) {
+      state = resetFrameSampler(state);
+      wasHidden = false;
+    }
+    const result = sampleFrame(state, timestamp);
+    state = result.state;
+    if (result.report) {
+      const { startTime, duration, context } = result.report;
+      const epochStartTime = performance.timeOrigin + startTime;
+      attributeContext(startTime, duration).then((attribution) => {
+        window.DD_RUM?.onReady(() => {
+          window.DD_RUM?.addDurationVital("slow_frame", {
+            startTime: epochStartTime,
+            duration,
+            context: { ...context, ...attribution }
+          });
+        });
+      });
+    }
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

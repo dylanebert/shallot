@@ -1,0 +1,15 @@
+{
+    "recipe": 3,
+    "mode": {
+        "kind": "prod",
+        "version": "0.9.5",
+        "tag": "v0.9.5"
+    },
+    "demos": {
+        "collapse": "tag:v0.9.5",
+        "roads": "tag:v0.9.5",
+        "sandbox": "tag:v0.9.5",
+        "visualization": "tag:v0.9.5",
+        "voxel": "tag:v0.9.5"
+    }
+}

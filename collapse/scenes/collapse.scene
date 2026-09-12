@@ -1,0 +1,23 @@
+<scene>
+    <!-- Declarative environment: lights, ground, and the orbit camera. The collapsing wall itself is built
+         imperatively after load (a placement loop is clearer than hundreds of <a> tags) — see collapse.ts. -->
+    <a ambient-light="color: 0xdfe7f2" />
+    <a directional-light="direction: -0.4 -0.85 -0.32; color: 0xfff1d8; intensity: 1.35" shadow />
+
+    <!-- ground: a static physics body (mass 0) rendered as a Part. Authored here so its eid precedes the
+         spawned planks — the broadphase orders each dynamic plank as body A against the static ground. Its
+         top face (half-Y 0.5 at y 0) is y = 0.5, which must match GROUND_TOP in collapse.ts. The Z half-extent
+         is sized to cover the wall at the maximum count (capacity ≈ 65k) — the wall scales with TARGET, so the
+         floor is a large fixed plain. Colour is LINEAR (a Color component) — a dark, low-chroma cool tone. -->
+    <a body="mass: 0; pos: 0 0 0; half-extents: 30 0.5 600" part color="rgba: 0.02 0.028 0.041" />
+
+    <!-- orbit camera on the +X side, looking along the wall's length (Z) so the travelling collapse reads;
+         zoomed out with a long far plane to keep the whole wall + the ball's run in frame. Tweak `yaw` if the
+         angle wants flipping (yaw 0 = +Z end-on; ~1.3 = a 3/4 side view of the long face). -->
+    <a
+        camera="far: 5000; clear-color: 0x080f1c"
+        sear
+        orbit="pan: 0 11 0; yaw: 1.3; pitch: 0.24; distance: 56; min-distance: 8; max-distance: 600"
+        transform
+    />
+</scene>

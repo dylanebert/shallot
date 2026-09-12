@@ -1,0 +1,23 @@
+<scene>
+    <a ambient-light />
+    <a directional-light />
+    <a camera sear orbit="distance: 18; pitch: 0.5236" transform />
+
+    <!-- a 4x4 grid of lit cubes; the script draws a depth-tested box() wireframe around each -->
+    <a part transform="pos: -3.6 0 -3.6; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+    <a part transform="pos: -3.6 0 -1.2; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+    <a part transform="pos: -3.6 0 1.2; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+    <a part transform="pos: -3.6 0 3.6; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+    <a part transform="pos: -1.2 0 -3.6; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+    <a part transform="pos: -1.2 0 -1.2; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+    <a part transform="pos: -1.2 0 1.2; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+    <a part transform="pos: -1.2 0 3.6; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+    <a part transform="pos: 1.2 0 -3.6; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+    <a part transform="pos: 1.2 0 -1.2; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+    <a part transform="pos: 1.2 0 1.2; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+    <a part transform="pos: 1.2 0 3.6; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+    <a part transform="pos: 3.6 0 -3.6; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+    <a part transform="pos: 3.6 0 -1.2; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+    <a part transform="pos: 3.6 0 1.2; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+    <a part transform="pos: 3.6 0 3.6; scale: 1.2 1.2 1.2" color="rgba: 0.5 0.55 0.62" />
+</scene>
