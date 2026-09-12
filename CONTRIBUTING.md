@@ -25,14 +25,15 @@ This page is for anyone changing the engine itself, person or agent. Using Shall
 
 ```bash
 bun run build          # regenerate committed audio WASM, dist/vite.js, physics kernel
-bun run check          # tsc, biome, every scripts/check-*.ts, examples index, scene format, cargo fmt
-bun run test           # hermetic unit rows discovered from the project root
-bun run test -- --integration --base <ref> --diff <ref> # selected integration rows
+bun run check          # structure, population, workflow and static gates
+bun run test           # every unit row, whole, inside the sweep ceiling
+bun run test -- --integration --base <ref> --diff <ref> # changed-subject rows plus subjectless rows
 bun run test -- --integration --all                  # every non-oracle integration row
 bun run test -- --integration --requires chromium    # integration rows carrying a requirement
 bun run test -- --integration --subject <prefix>     # integration rows under a subject prefix
-bun run list            # the discovered carrier population
-bun run workflow        # render the portable hosted workflow (none for an empty population)
+bun run test -- --oracle <claim>                     # one named oracle row
+bun run list            # the population selected by the same selectors
+bun run workflow        # render the hosted workflow emitted from the population
 bun run format         # biome and the scene formatter, writing
 bun run assets         # fetch assets.json entries, linking each into the examples that declare it
 bun run prepack        # compile the Node-reachable tooling
@@ -57,8 +58,10 @@ subject-selected integration sweeps; run one explicitly with `--oracle <claim>`.
 ## Tests
 
 - `bun run test` runs unit rows only, hermetically, under the 250ms unit ceiling, and prints the suite wall time last.
+- `bun run test -- --integration --base <ref> --diff <ref>` selects changed-subject integration rows plus subjectless rows; `--all`, `--requires <tag>`, and `--subject <prefix>` are composable direct selectors and refuse an empty match.
+- `bun run test -- --oracle <claim>` runs one named oracle row outside the ordinary sweeps.
 - `bun run check` validates structure, the discovered population and generated workflow drift.
-- `bun run test:changed` runs the unit and integration populations, then runs Cargo when the diff touches `crates/**`, `Cargo.*` or solver fixtures.
+- Cargo suites are declared integration rows with `requires: ["cargo"]`; requirement resolution compiles them once, untimed, and the row budget covers only the compiled run.
 
 A check declares its claim, optional size and requirements in the runner call:
 
@@ -66,7 +69,7 @@ A check declares its claim, optional size and requirements in the runner call:
 check("the body settles", { claim: "Body settles on the floor" }, body);
 ```
 
-Use `bun scripts/surface.ts --list` to inspect claim, size, requirements, budget and file. Add `--integration` with `--all`, `--requires <tag>`, `--subject <prefix>`, or a `--base`/`--diff` pair to inspect the rows that selector would run. Rust suites use Cargo with `#[test]` as their declaration and stay outside this list. Retire a unit by tag, add its row to [`ARCHIVE.md`](ARCHIVE.md), then delete it.
+Use `bun run list` with the same selectors to inspect claim, size, requirements, budget and file. Integration selectors compose with each other but refuse with `--base`/`--diff`; a selector matching no row refuses. Retire a unit by tag, add its row to [`ARCHIVE.md`](ARCHIVE.md), then delete it.
 
 ## Pins and freshness
 
