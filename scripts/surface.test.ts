@@ -191,11 +191,11 @@ check(
             const { code, out } = run("surface.ts", tree);
             expect(code).toBe(0);
             expect(out.split("\n")).toEqual([
-                "claim             size         requires  budget   file",
-                "alpha holds       unit         -         250ms    src/alpha.test.ts",
-                "alpha refuses     unit         -         250ms    src/alpha.test.ts",
-                "beta builds       integration  -         20000ms  scripts/beta.test.ts",
-                "demo recipe runs  integration  chromium  20000ms  examples/demo/check.test.ts",
+                "claim             size         requires  subject  budget   file",
+                "alpha holds       unit         -         -        250ms    src/alpha.test.ts",
+                "alpha refuses     unit         -         -        250ms    src/alpha.test.ts",
+                "beta builds       integration  -         -        20000ms  scripts/beta.test.ts",
+                "demo recipe runs  integration  chromium  -        20000ms  examples/demo/check.test.ts",
                 "4 checks (parsed 4; 0 quarantined)",
             ]);
         } finally {
@@ -430,6 +430,7 @@ check(
         expect(rendered).toContain("bunx playwright install --with-deps chromium");
         expect(rendered).not.toContain("github.event.pull_request.base.sha || github.event.before");
         expect(rendered).not.toMatch(/origin\/main|Rust|GPU|display|deploy/);
+        expect(rendered).not.toContain("actions/cache");
 
         const seats = {
             ...ordinary,
@@ -445,6 +446,13 @@ check(
             })),
         };
         expect(renderWorkflow(seats)).not.toContain("playwright install");
+        expect(renderWorkflow(seats)).not.toContain("rust-toolchain");
+        const cargo = {
+            ...ordinary,
+            rows: [{ ...ordinary.rows[0], claim: "cargo runs", requires: ["cargo"] }],
+        };
+        expect(renderWorkflow(cargo)).toContain("dtolnay/rust-toolchain@stable");
+        expect(renderWorkflow(cargo)).toContain("path: target");
         const oracleOnly = {
             ...ordinary,
             rows: [{ ...ordinary.rows[0], file: "tests/browser.oracle.ts" }],

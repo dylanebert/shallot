@@ -62,7 +62,7 @@ const ORACLE_SUFFIX = /\.oracle\.ts$/;
 const SKIP = new Set([".git", ".cache", "node_modules", "fixtures", "target", "dist", "coverage"]);
 const BUN_TEST_IMPORT = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*["']bun:test["']/g;
 const REGISTRARS = new Set(["test", "it", "describe"]);
-const COLUMNS = ["claim", "size", "requires", "budget", "file"] as const;
+const COLUMNS = ["claim", "size", "requires", "subject", "budget", "file"] as const;
 
 interface StaticValue {
     ok: boolean;
@@ -435,6 +435,7 @@ export function formatPopulation(
         row.claim,
         row.size,
         row.requires.join(" ") || "-",
+        row.subjects.join(" ") || "-",
         `${row.budget}ms`,
         row.file,
     ]);
@@ -535,6 +536,10 @@ function workflowNeedsChromium(population: Population): boolean {
     return workflowRows(population).some((row) => row.requires.includes("chromium"));
 }
 
+function workflowNeedsCargo(population: Population): boolean {
+    return workflowRows(population).some((row) => row.requires.includes("cargo"));
+}
+
 function workflowPath(root: string): string {
     return resolve(root, ".github/workflows/test-surface.yml");
 }
@@ -547,6 +552,20 @@ export function renderWorkflow(population: Population): string {
         "        with:",
         "          fetch-depth: 0",
         "      - uses: oven-sh/setup-bun@v2",
+    ];
+    if (workflowNeedsCargo(population))
+        steps.push(
+            "      - uses: dtolnay/rust-toolchain@stable",
+            "      - uses: actions/cache@v4",
+            "        with:",
+            "          path: target",
+            "          key: $" +
+                "{{ runner.os }}-cargo-$" +
+                "{{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}",
+            "          restore-keys: |",
+            "            $" + "{{ runner.os }}-cargo-",
+        );
+    steps.push(
         "      - name: resolve surface refs",
         "        env:",
         "          SURFACE_EVENT: $" + "{{ github.event_name }}",
@@ -585,7 +604,7 @@ export function renderWorkflow(population: Population): string {
         '          echo "SHALLOT_SURFACE_BASE=$base" >> "$GITHUB_ENV"',
         '          echo "SHALLOT_SURFACE_DIFF=$SURFACE_DIFF" >> "$GITHUB_ENV"',
         "      - run: bun install --frozen-lockfile",
-    ];
+    );
     if (workflowNeedsChromium(population))
         steps.push("      - run: bunx playwright install --with-deps chromium");
     steps.push(

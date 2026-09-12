@@ -65,7 +65,15 @@ export function check(
         test.skip(name, () => {}, decl.budget);
         return;
     }
-    const missing = missingRequirement(decl.requires);
+    const missing = missingRequirement(decl.requires, {
+        root: process.env.SHALLOT_PROJECT_ROOT ?? process.cwd(),
+        subjects:
+            decl.subject === undefined
+                ? []
+                : typeof decl.subject === "string"
+                  ? [decl.subject]
+                  : decl.subject,
+    });
     if (missing !== null) {
         // A missing premise is refusal, never a green skip. Throw at registration so Bun's exit
         // status carries the refusal through every installed command and hosted runner.

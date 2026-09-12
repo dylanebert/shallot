@@ -84,7 +84,6 @@
         "check": "bun run scripts/check.ts",
         "format": "biome check --write && bun run scripts/format.ts",
         "test": "bun run scripts/test-runner.ts --unit",
-        "test:changed": "bun run scripts/test-changed.ts",
         "list": "bun run scripts/surface.ts --list",
         "workflow": "bun run scripts/surface.ts --workflow",
         "assets": "bun run scripts/assets.ts",

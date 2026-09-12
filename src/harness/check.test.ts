@@ -40,7 +40,10 @@ check(
             "requirement tag `network`",
         );
         expect(() =>
-            validateDeclaration("here", { claim: "bad", requires: ["gpu", "display", "deploy"] }),
+            validateDeclaration("here", {
+                claim: "bad",
+                requires: ["gpu", "display", "deploy", "cargo"],
+            }),
         ).not.toThrow();
         expect(
             validateDeclaration("here", {

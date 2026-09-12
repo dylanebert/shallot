@@ -51,9 +51,69 @@ export function quarantineReason(file: string, claim: string): string | null {
     );
 }
 
-/** resolve each named premise; a browser premise requires a launchable Chromium, never just an importable package. */
-export function missingRequirement(requirements: readonly string[]): string | null {
+interface RequirementContext {
+    root?: string;
+    subjects?: readonly string[];
+}
+
+const cargoBuilds = new Map<string, string | null>();
+
+function cargoPackage(root: string, subjects: readonly string[]): string | null {
+    if (subjects.length !== 1)
+        return "cargo requirement needs exactly one subject naming a Cargo crate";
+    const subject = subjects[0];
+    if (subject.startsWith("/") || subject.includes(".."))
+        return `cargo requirement has an invalid subject: ${subject}`;
+    const manifest = resolve(root, subject, "Cargo.toml");
+    if (!existsSync(manifest)) return `cargo manifest is unavailable at ${manifest}`;
+    const source = readFileSync(manifest, "utf8");
+    const packageName = source.match(/^name\s*=\s*"([^"]+)"\s*$/m)?.[1];
+    return packageName === undefined
+        ? `cargo manifest has no package name: ${manifest}`
+        : packageName;
+}
+
+function resolveCargo(root: string, subjects: readonly string[]): string | null {
+    const packageName = cargoPackage(root, subjects);
+    if (packageName === null || packageName.startsWith("cargo ")) return packageName;
+    const key = `${root}\u0000${packageName}`;
+    const cached = cargoBuilds.get(key);
+    if (cached !== undefined) return cached;
+    try {
+        const proc = Bun.spawnSync(["cargo", "test", "--no-run", "-p", packageName], {
+            cwd: root,
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        if (proc.success) {
+            cargoBuilds.set(key, null);
+            return null;
+        }
+        const detail = proc.stderr.toString().trim() || proc.stdout.toString().trim();
+        const reason = `cargo test --no-run -p ${packageName} failed${detail ? `: ${detail}` : ""}`;
+        cargoBuilds.set(key, reason);
+        return reason;
+    } catch (error) {
+        const reason = `cargo is unavailable: ${(error as Error).message}`;
+        cargoBuilds.set(key, reason);
+        return reason;
+    }
+}
+
+/** Resolve each named premise. Cargo compilation is a once-per-process, untimed prerequisite. */
+export function missingRequirement(
+    requirements: readonly string[],
+    context: RequirementContext = {},
+): string | null {
     for (const requirement of requirements) {
+        if (requirement === "cargo") {
+            const reason = resolveCargo(
+                resolve(context.root ?? process.cwd()),
+                context.subjects ?? [],
+            );
+            if (reason !== null) return reason;
+            continue;
+        }
         if (requirement !== "chromium") {
             return `runner cannot supply requirement ${requirement}`;
         }
