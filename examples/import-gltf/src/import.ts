@@ -30,7 +30,7 @@ const Models = {
 
 // A skinned mesh bakes its clips to a vertex-animation texture and plays them by name. To pose a rig
 // from your own code instead (a ragdoll, IK, a network stream), import it with `loadGltf(url, { live:
-// true })` and write its joint palette each frame through `LiveSkin` — the ragdoll recipe is the worked
-// example.
+// true })` and write its joint palette each frame through `LiveSkin` — future Physics closeout work owns
+// any worked ragdoll example.
 
 export default Models;

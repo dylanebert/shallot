@@ -62,7 +62,7 @@ Any other verb runs `shallot-<verb>` from your PATH or your project's installed 
 
 ## Recipes
 
-A recipe is one small project per problem: a first-person character, a physics playground, importing a model, a day-night sky. [`examples/AGENTS.md`](examples/AGENTS.md) indexes every example in one line each, generated from their manifests, so grep it for the problem you have. Then copy one out:
+A recipe is one small project per problem: a first-person character, importing a model, a day-night sky, or driving a vehicle. [`examples/AGENTS.md`](examples/AGENTS.md) indexes every example in one line each, generated from their manifests, so grep it for the problem you have. Then copy one out:
 
 ```bash
 bunx shallot add first-person
