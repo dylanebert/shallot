@@ -57,6 +57,14 @@ check(
             const index = readFileSync(join(tree, "examples/AGENTS.md"), "utf8");
             expect(index).toContain("`visible-source`");
             expect(index).not.toContain("ignored-output");
+            expect(index).toContain("## Coverage plan");
+            expect(index).toContain("### 1. Physics closeout");
+            expect(index).toContain("### 2. The frame");
+            expect(index).toContain("### 3. Input and gameplay");
+            expect(index).toContain("### 4. Engine core, audio, project and CLI");
+            expect(index).toContain("| reference |");
+            expect(index).toContain("| invariant |");
+            expect(index).toContain("| demand |");
             expect(run(tree, ["--check"]).code).toBe(0);
 
             writeFileSync(
