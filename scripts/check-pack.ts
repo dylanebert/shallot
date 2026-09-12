@@ -93,16 +93,6 @@ const shipped = [
     ...new Set(files.filter((f) => f.startsWith("examples/")).map((f) => f.split("/")[1])),
 ].sort();
 if (recipes.length === 0) missing.push("examples/<recipe>/");
-const declaredExampleDirs = packageFiles
-    .filter((entry) => /^examples\/[^/]+$/.test(entry))
-    .map((entry) => entry.slice("examples/".length))
-    .sort();
-if (packageFiles.includes("examples"))
-    violations.push('package files allowlist must not contain the broad "examples" directory');
-if (declaredExampleDirs.join() !== recipes.join())
-    violations.push(
-        `package files allowlist names [${declaredExampleDirs.join(", ")}], recipes are [${recipes.join(", ")}]`,
-    );
 if (shipped.join() !== recipes.join())
     violations.push(`examples/ ships [${shipped.join(", ")}], recipes are [${recipes.join(", ")}]`);
 

@@ -1,7 +1,7 @@
 {
     "name": "@dylanebert/shallot",
     "version": "0.10.0",
-    "description": "WebGPU game engine. Procedural-first, ECS, declarative scenes. In development.",
+    "description": "WebGPU game engine for TypeScript: scenes as data, behavior as plugins, web and native desktop builds.",
     "sideEffects": [
         "./src/standard/index.ts",
         "./src/standard/defaults.ts"
@@ -21,11 +21,7 @@
     "keywords": [
         "webgpu",
         "game-engine",
-        "ecs",
-        "3d",
-        "graphics",
-        "physics",
-        "rendering"
+        "ecs"
     ],
     "type": "module",
     "main": "./src/index.ts",
@@ -66,28 +62,8 @@
         "crates/native",
         "assets/icon-1024.png",
         "dist",
-        "examples/animate-with-clips",
-        "examples/annotate-the-world",
-        "examples/billboards-and-sprites",
-        "examples/breakable-joints",
-        "examples/compute-and-readback",
-        "examples/custom-material",
-        "examples/day-night-sky",
-        "examples/drive-a-vehicle",
-        "examples/first-person",
-        "examples/game-loop",
-        "examples/gpu-particles",
-        "examples/import-a-model",
-        "examples/joints",
-        "examples/moving-platform",
-        "examples/overlay-ui",
-        "examples/physics-playground",
-        "examples/play-sound",
-        "examples/ragdoll",
-        "examples/render-to-a-terminal",
-        "examples/respond-to-input",
-        "examples/save-and-restore",
-        "examples/surface-friction",
+        "examples",
+        "!examples/AGENTS.md",
         "!examples/*/node_modules",
         "!examples/*/tsconfig.json",
         "!src/extras/gltf/fixtures",
@@ -103,9 +79,6 @@
         "!**/*.gold.json",
         "!**/fixtures/**",
         "!**/target/**"
-    ],
-    "workspaces": [
-        "examples/*"
     ],
     "scripts": {
         "build": "bun run ./scripts/build.ts",
@@ -143,10 +116,10 @@
         "@babel/parser": "^8.0.4",
         "@biomejs/biome": "^2.5.13",
         "@dylanebert/shallot": "link:.",
-        "@playwright/test": "^1.63.0",
         "@types/bun": "^1.4.2",
         "binaryen": "132.0.0",
         "bun-webgpu": "github:dylanebert/bun-webgpu#7b75d0440d2f22e2c9a1cb383d15529652c53d98",
+        "playwright": "^1.63.0",
         "typegpu": "~0.12.5",
         "typescript": "^7.0.2"
     }
