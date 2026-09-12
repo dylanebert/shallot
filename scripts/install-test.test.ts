@@ -13,6 +13,8 @@
 // guard from a comment, which is this spec's own defect class, so this file is a note and not
 // coverage. Arming it behaviorally needs a hermetic pack-and-install fixture; that cost was not paid
 // here.
+//
+// The costly packed-install admission runs by path in scripts/install-test.probes.ts.
 
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -38,14 +40,11 @@ test("install-test — the free-port probe is used for the dev server port", () 
     expect(src).toMatch(/await\s+freePort\(\)/);
 });
 
-// The previous release's built-verify leg attaches to a browser server; the candidate's does not.
-// 0.9.5's own `bin/verify.ts` hard-codes `headless: true`, and a headless launch reaches only a
-// software rasterizer on a seat whose real adapter is discrete (measured 2026-09-08: the leg reported
-// `google / swiftshader` and its display gate refused). `--connect` is that CLI's one route to real
-// hardware. The candidate keeps its own launch, because that launch is part of what this flow
-// verifies — so the two labels must differ here, and asserting only the `previous` shape would pass
-// just as well if both carried the flag.
+// The previous release's built-verify leg attaches to a browser server; the candidate's does not. The
+// candidate's own public headless launch is part of what this flow verifies, so asserting only the
+// `previous` shape would pass just as well if both carried the flag.
 
+import { missingCrateDiagnosticPass } from "./install-test";
 import { readEndpoint, verifyArgs } from "./install-test/browser-server";
 
 test("only the previous label attaches to a browser server, at any verified directory", () => {
@@ -66,6 +65,72 @@ test("only the previous label attaches to a browser server, at any verified dire
         // the verify arguments themselves are the same run on both sides; only the transport differs.
         expect(previous.slice(0, candidate.length)).toEqual(candidate);
     }
+});
+
+test("the 17 caller constructions keep explicit headed membership and ordinary headless membership", () => {
+    const callers: Array<{ file: string; constructions: number; headed: boolean }> = [
+        { file: "bench.ts", constructions: 3, headed: true },
+        { file: "stall-attribution.ts", constructions: 1, headed: true },
+        { file: "loaf-attribution.ts", constructions: 1, headed: true },
+        { file: "flows.ts", constructions: 4, headed: false },
+        { file: "recipes.ts", constructions: 1, headed: false },
+        { file: "demos.ts", constructions: 1, headed: false },
+        { file: "compile-concurrency.ts", constructions: 1, headed: false },
+        { file: "physics-bench.ts", constructions: 1, headed: false },
+        { file: "bench-tumble.ts", constructions: 1, headed: false },
+        { file: "tumble-interaction.ts", constructions: 1, headed: false },
+        { file: "boot-cost.ts", constructions: 1, headed: false },
+    ];
+    let total = 0;
+    let explicit = 0;
+    for (const caller of callers) {
+        const source = readFileSync(resolve(import.meta.dir, caller.file), "utf8");
+        const headedFlags = (source.match(/"--headed"/g) ?? []).length;
+        expect(headedFlags).toBe(caller.headed ? caller.constructions : 0);
+        if (!caller.headed) expect(source).not.toContain("skipReason");
+        const calls = (source.match(/await verify(?:Batch)?\(/g) ?? []).length;
+        const spawned = (source.match(/await spawnVerify\(/g) ?? []).length;
+        expect(calls).toBe(caller.file === "boot-cost.ts" ? 0 : caller.constructions);
+        expect(spawned).toBe(caller.file === "boot-cost.ts" ? 2 : 0);
+        total += caller.constructions;
+        explicit += headedFlags;
+    }
+    expect(total).toBe(16);
+    expect(explicit).toBe(5);
+
+    const ocean = JSON.parse(
+        readFileSync(resolve(import.meta.dir, "../examples/showcase/ocean/package.json"), "utf8"),
+    ) as { scripts?: { gate?: string } };
+    expect(ocean.scripts?.gate).toBe("bunx shallot verify . --screenshot ocean.png");
+    total += 1;
+    expect(total).toBe(17);
+});
+
+test("the missing-crate accumulator requires failure, its diagnostic, and no raw ENOENT", () => {
+    expect(
+        missingCrateDiagnosticPass({
+            ok: false,
+            out: "corrupt install: reinstall @dylanebert/shallot",
+        }),
+    ).toBe(true);
+    expect(
+        missingCrateDiagnosticPass({
+            ok: false,
+            out: "cargo failed without the named remedy",
+        }),
+    ).toBe(false);
+    expect(
+        missingCrateDiagnosticPass({
+            ok: true,
+            out: "success, but corrupt install appeared in a warning",
+        }),
+    ).toBe(false);
+    expect(
+        missingCrateDiagnosticPass({
+            ok: false,
+            out: "corrupt install: ENOENT from cargo",
+        }),
+    ).toBe(false);
 });
 
 test("the endpoint reader refuses output with no ws:// line, naming the log", () => {

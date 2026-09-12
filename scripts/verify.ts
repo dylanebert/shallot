@@ -170,10 +170,10 @@ export interface ShaderArtifactSummary {
     messages?: Array<{ type: string; message: string; lineNum: number; linePos: number }>;
 }
 
-// verify drives a headed browser against local hardware, so its one prerequisite is a display: on Linux
-// a session with neither DISPLAY nor WAYLAND_DISPLAY has no headed launch and therefore no conformant
-// adapter (measured: headless Chrome falls back to a software rasterizer, which misses the device floor).
-// Returns a human reason to skip, or null to proceed.
+// `skipReason` remains for callers that explicitly own a headed/display-dependent observation. The
+// public verifier's ordinary launch is headless and does not use this helper; those callers must let its
+// hardware refusal be observed rather than skipping a correctness gate.
+// Returns a human reason to skip for a headed owner, or null to proceed.
 export function skipReason(): string | null {
     if (process.platform === "linux" && !(process.env.DISPLAY || process.env.WAYLAND_DISPLAY)) {
         return "no display";

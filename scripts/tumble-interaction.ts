@@ -1,4 +1,4 @@
-import { skipReason, verify } from "./verify";
+import { verify } from "./verify";
 
 // `bun run scripts/tumble-interaction.ts` — the standing interaction + visual gate for the tumble gym
 // sample host. A thin wrapper over the shipped gate exactly like
@@ -16,7 +16,7 @@ import { skipReason, verify } from "./verify";
 //     labels ON-SCREEN (post-cull, `overlay-labels`, on events-joint-break's six threshold labels).
 // Visuals and input never feed the gold oracle; these are additive checks on the same run.
 //
-//   ⚠ Display gates self-terminate and run alone (AGENTS.md); never run this
+//   ⚠ Browser gates self-terminate and run alone (AGENTS.md); never run this
 //   alongside another `bun bench`, `bun run scripts/bench-tumble.ts`, `bun run flows`, or `bun run recipes`.
 
 const GYM = "examples/gym";
@@ -118,20 +118,12 @@ async function main(): Promise<void> {
     if (args.includes("--help") || args.includes("-h")) {
         console.log(`Usage: bun run scripts/tumble-interaction.ts [--only <slug>]
 
-Drives the tumble gym host's interaction + visual probe through \`shallot verify\` on a real device,
-reusing one browser session. Display-gated (native hardware). Display gates run alone, one at a
-time — never run concurrent with another bench / scripts/bench-tumble.ts / flows / recipes.
+Drives the tumble gym host's interaction + visual probe through \`shallot verify\` in the public headless
+mode on a real device, reusing one browser session. Browser gates run alone, one at a time — never run
+concurrent with another bench / scripts/bench-tumble.ts / flows / recipes.
 
 Options:
   --only <slug>   Run a single probe by its scenario slug (${PROBES.map((p) => p.slug).join(", ")})`);
-        process.exit(0);
-    }
-
-    const skip = skipReason();
-    if (skip) {
-        console.log(
-            `bun run scripts/tumble-interaction.ts needs native hardware (${skip}). Skipping.`,
-        );
         process.exit(0);
     }
 

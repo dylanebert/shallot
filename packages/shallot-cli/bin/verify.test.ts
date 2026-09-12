@@ -134,6 +134,7 @@ describe("parseVerifyArgs", () => {
         expect(a.dir).toBe(".");
         expect(a.dist).toBe(false);
         expect(a.json).toBe(false);
+        expect(a.headed).toBe(false);
         expect(a.timeoutMs).toBe(60_000);
         expect(a.query).toEqual([]);
     });
@@ -143,6 +144,7 @@ describe("parseVerifyArgs", () => {
             "examples/x",
             "--dist",
             "--json",
+            "--headed",
             "--screenshot",
             "out.png",
             "--port",
@@ -153,6 +155,7 @@ describe("parseVerifyArgs", () => {
         expect(a.dir).toBe("examples/x");
         expect(a.dist).toBe(true);
         expect(a.json).toBe(true);
+        expect(a.headed).toBe(true);
         expect(a.screenshot).toBe("out.png");
         expect(a.port).toBe(5300);
         expect(a.timeoutMs).toBe(9000);
@@ -168,6 +171,13 @@ describe("parseVerifyArgs", () => {
         expect(parseVerifyArgs([]).connect).toBeUndefined();
         expect(parseVerifyArgs(["--connect", "ws://host:9/abc"]).connect).toBe("ws://host:9/abc");
         expect(parseVerifyArgs(["--connect=ws://host:9/abc"]).connect).toBe("ws://host:9/abc");
+    });
+
+    test("--headed is explicit and endpoint-owned --connect rejects it", () => {
+        expect(parseVerifyArgs(["--headed"]).headed).toBe(true);
+        expect(() => parseVerifyArgs(["--headed", "--connect", "ws://host:9/abc"])).toThrow(
+            "cannot be combined",
+        );
     });
 
     test("unknown option throws", () => {

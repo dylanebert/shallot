@@ -7,6 +7,8 @@ import { installHarness } from "@dylanebert/shallot/harness";
 // (an expected-fail) — the standing proof that the gate goes red on a canvas that drew nothing, and the
 // runnable oracle behind the pixel-honest `rendered` verdict. It deliberately does NOT declare noRender:
 // that is the opt-out this proves the gate still catches a real blank without.
+window.__harness = { ready: false };
+
 const scene = `<scene>
     <a ambient-light="intensity: 0.6" />
     <a camera sear transform />

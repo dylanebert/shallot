@@ -12,7 +12,7 @@ Gates never write. Root commands: AGENTS.md; budgets: style.md; test paths: mani
 
 ## What a change class owes
 
-Keep AGENTS.md's Verification triggers; price selected page boots. Narrow bench/flow/recipe selectors, not coverage; install has none. Close: `bun run test:changed -- --base <ref> --diff <ref>`. CPU precedes display; deleted covers select. Zero/unavailable/success differ; `SHALLOT_DISPLAY_REQUIRED=1` refuses unavailable.
+Keep AGENTS.md Verification triggers; price boots. Narrow selectors; install has none. Close: `bun run test:changed -- --base <ref> --diff <ref>`. CPU precedes display; verify defaults full-Chromium headless; display callers use `--headed`. Zero/unavailable/success differ; `SHALLOT_DISPLAY_REQUIRED=1` refuses unavailable.
 
 Ocean gates: `bun run test:ocean-realization`, `bun run test:ocean-slope`, `bun run test:ocean-mesh-inversion`, `bun run test:ocean-fold`. Headers own bounds/controls, `scripts/ocean-oracle-gates.ts` the cones. Reduced fold isn't production proof; mesh flips aren't fidelity; device parity excludes composition.
 
@@ -50,7 +50,7 @@ Observe, don't guess causes; empty diagnostics mean incomplete. Flush before exi
 
 CRUD/reload: bugs/novel lifecycles/dynamic adds; conformance: novel state/registries. ECS/app tests own atoms, flows end-to-end. Pairwise GPU matrices plus compile. `tests/standards.ts`: corpus/limits.
 
-One browser session/file, phased assertions. Probe/log adapter names before waits; software can pass feature floors. Only device-dependent gates skip; skips aren't proof.
+One browser session/file; verify is full-Chromium headless; display/compositor/input claims use `--headed`. Log adapters before waits; skips aren't proof.
 
 Suffix owner: `tests/test-tiers.ts`. Fast `.test.ts`; heavy CPU `.oracle.ts`/corpus `.tier.ts` by explicit `./` path on header triggers, retaining split sentinels. Browser/subprocess `.probes.ts` by-path, pure siblings fast: `bun run test:tui-probes`. `.lab.ts` temporary; `.playwright.ts` uses project configs. Outside-cone tests need invoking gates. Walk all tiers/unloaded files; no duplicate roster.
 
@@ -68,14 +68,14 @@ Bump all pins together, resolve lock, confirm one TypeGPU identity before gates.
 
 ## Install gate
 
-Evals tools: `bun run evals/setup.ts`, `bun run evals/grade.ts`.
+Evals: `bun run evals/setup.ts` / `bun run evals/grade.ts`.
 
-`bun run test:install`: pack, not link; browser plus build. Plain-Node export/brand checks before display guards, on intended realpaths. Boot doc recipes; inspect artifact imports, not erasable markers. Controls must yield false, not absence. Brand identity, not autonaming; pnpm needs distinct versions. Native packed build manual on packaging edits; presence isn't compile proof.
+`bun run test:install`: pack; browser/build. Verify defaults full-Chromium headless; display claims use `--headed`; hardware refusal reds. Plain-Node exports/brand before guards, realpaths. Boot doc recipes; inspect imports. Controls yield false. Brand identity not autonaming; pnpm needs versions. Native packed builds manual; presence isn't compile proof.
 
 ## Release gate
 
 Cycle order: bump all `check-versions.ts` sites/deferred changelog entries; `bun run scripts/check-versions.ts --release` before pack; RC dogfood; publish engine and scaffold; then `SHALLOT_DISPLAY_REQUIRED=1 bun run test:changed --all` (every row, no green skips), then separately `bun run demos` (site builds published-package ejected consumers, verifies built distribution; failures/skips nonzero), then merge and tag. Publish/tag together.
 
-Dogfood against registry-installed tracked-pin floors, never links. Peers/dev deps first, tarball last; reread installed versions. Preserve ignored artifacts; restore manifests/locks, inspect gitlinks/shared-root installs, leave RC runnable. Human live render required: hand over command; decoded stills only support it; name absent image proof.
+Dogfood registry-installed tracked-pin floors, never links. Peers/dev deps first, tarball last; reread versions. Preserve ignored artifacts; restore manifests/locks; inspect gitlinks/shared-root installs; leave RC runnable. Human live render required: hand over command; decoded stills support it; name absent image proof.
 
-Read prose against artifacts. Migration changes only for major/minors; historical facts aren't version sites. Deploy via `site.yml`, not disabled `pages.yml`. Confirm deployed version, six archives/checksums and covered bytes. `bun run scripts/e2e-prebuilt.ts`: no-cargo proof; untraversed branches untested.
+Read prose against artifacts. Migrations only for major/minors; historical facts aren't version sites. Deploy via `site.yml`, not disabled `pages.yml`. Confirm version, six archives/checksums and bytes. `bun run scripts/e2e-prebuilt.ts`: no-cargo proof; untraversed branches untested.

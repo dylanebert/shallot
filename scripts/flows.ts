@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PNG } from "pngjs";
-import { skipReason, verify } from "./verify";
+import { verify } from "./verify";
 
 // `bun run flows` — the standalone-app engine flows, each a self-contained ejected vite app under
 // examples/flows/, driven through `shallot verify`. survive-reload self-drives a real page reload and its
@@ -10,7 +10,7 @@ import { skipReason, verify } from "./verify";
 // self-navigation by construction). ui-containment mounts a deliberately invalid `config.ui` HUD; paint
 // containment isn't observable in-page, so verify captures the screenshot and this asserts the magenta /
 // host-chrome pixels node-side. blank is the pixel-gate red-proof: a draw-nothing app verify must fail
-// with rendered:false (an expected-fail). Display-gated; with no display it skips (native hardware only).
+// with rendered:false (an expected-fail). The public verifier runs headlessly by default and refuses a non-hardware adapter without turning it green.
 
 const MAGENTA: [number, number, number] = [255, 0, 255];
 const near = (a: number, b: number, t = 40): boolean => Math.abs(a - b) <= t;
@@ -153,7 +153,8 @@ async function main(): Promise<void> {
     if (args.includes("--help") || args.includes("-h")) {
         console.log(`Usage: bun run flows [--flow <name>]
 
-Runs the standalone-app engine flows through \`shallot verify\`. Display-gated (native hardware only).
+Runs the standalone-app engine flows through \`shallot verify\` in the public headless default; a non-hardware
+adapter is a refusal, not a green skip.
 
 Options:
   --flow <name>   Run a single flow: ${FLOW_LIST}`);
@@ -165,12 +166,6 @@ Options:
     if (only && !KNOWN_FLOWS.has(only)) {
         console.error(`no flow "${only}" — one of: ${FLOW_LIST}`);
         process.exit(2);
-    }
-
-    const skip = skipReason();
-    if (skip) {
-        console.log(`bun run flows needs native hardware (${skip}). Skipping.`);
-        process.exit(0);
     }
 
     console.log("Running flows...");

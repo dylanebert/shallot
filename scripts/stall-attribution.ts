@@ -111,9 +111,10 @@ async function main(): Promise<void> {
         return;
     }
 
-    console.log(`booting ${args.dir} (--attribution, headed)…`);
+    console.log(`booting ${args.dir} (--attribution, --headed)…`);
     const result = await verify(args.dir, [
         "--attribution",
+        "--headed",
         "--timeout",
         "30000",
         ...args.query.flatMap((q) => ["--query", q]),
@@ -279,8 +280,8 @@ async function main(): Promise<void> {
 
     // S1f: headed check — the rAF-delta sampler's validity depends on a real display. A headless,
     // display-less frame clock undershoots real block durations (`rum-intake-driver.ts:31-36`:
-    // 90ms→66.7ms, 120ms→100ms, below ~90ms never reported). `verify.ts` launches headed by default,
-    // but a default is not a reading — nothing else tests that the launch actually took effect. This arm reads the
+    // 90ms→66.7ms, 120ms→100ms, below ~90ms never reported). This owner selects `--headed` explicitly;
+    // the UA assertion below makes that launch choice observable rather than inferred from a default.
     // browser's own `navigator.userAgent` back through the attribution result and asserts it does
     // not contain `HeadlessChrome` — the discriminator Playwright's headed vs headless launches
     // differ on (probed: headed = `Chrome/...`, headless = `HeadlessChrome/...`).

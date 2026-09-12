@@ -12,7 +12,7 @@ bunx shallot run [dir]
 bunx shallot verify [dir]
 ```
 
-Run `bunx tsc --noEmit` after changes. `shallot.json` names scene/plugins and optional capacity/pixel ratio; CLI supplies HTML/Vite. Native `--target windows|mac|linux` downloads a shell or compiles with Rust/system dependencies; `--portable` bundles Chromium.
+Verify defaults full-Chromium headless; display claims use `--headed`; `--connect` owns remote mode. Run `bunx tsc --noEmit` after changes. `shallot.json` names scene/plugins and optional capacity/pixel ratio; CLI supplies HTML/Vite. Native targets download or compile shells with Rust/system dependencies; `--portable` bundles Chromium.
 
 ## Philosophy
 
@@ -38,7 +38,7 @@ Mount only in `config.ui(container, state)` or `mountOverlay(canvas, state)`, sa
 
 Hard ceiling: 10 storage bindings/stage across ALL groups, including read-only. Consolidate buffers/headers/uploads, not per-entity CPU iteration. Batch async raw compilation; label raw modules/pipelines, name TypeGPU factories. Use preferred canvas format. DXC needs constant loop bounds/dynamic break, not large dynamic-loop functions.
 
-Debug CPU → labeled WGSL/API → safe fragment/compute log → resource probe → verify; no rung proves the next. Logging perturbs bindings/atomics, is bounded/delayed, excludes vertices; external-pass drains need replay. Probe if replay changes behavior; Mirror is delayed telemetry. No atomic debug buffer if logging suffices; capture last after naming pass/draw.
+Debug CPU → WGSL/API → safe log → resource probe → verify; no rung proves next. Logging perturbs bindings/atomics, is bounded/delayed, excludes vertices; external drains need replay. Probe if replay changes behavior; Mirror is delayed. No atomic debug buffer if logging suffices; capture last after naming pass/draw.
 
 ## Render, physics, assets
 
@@ -48,8 +48,8 @@ Procedural-first, no format-shaped substrate. GltfPlugin converts to mesh/materi
 
 ## Testing and verify
 
-Unit verdicts need a native adapter; real GPU gates cover compile/raster/readback. Keep permanent tests, temporary labs; derive tolerances (exact ~1e-10, f32 ~1e-6 relative, convergence from order/steps), never tune. Measure GPU timestamps, not FPS.
+Unit verdicts need a native adapter; GPU gates cover compile/raster/readback. Keep permanent tests and labs; derive tolerances (~1e-10 exact, ~1e-6 f32, convergence from order/steps). Measure GPU timestamps, not FPS.
 
-Use self-terminating verify, not lingering servers/tabs. Install: `bun add -d playwright`, `bunx playwright install chromium`. Build then verify `--dist`. COOP/COEP requires CORS/CORP or local assets; hosts without headers use single-thread physics.
+Use self-terminating verify only. Install: `bun add -d playwright`, `bunx playwright install chromium`. Build then verify `--dist`. Full-Chromium headless by default; display claims use `--headed`; hardware refusal is nonzero. COOP/COEP requires CORS/CORP or local assets; hosts without headers use single-thread physics.
 
-Without `window.__harness`, verify needs settled nonblank rendering/no page errors. Pin `{ready:false}` immediately, then installHarness from `/harness`; initialize pins, run resolves entities. Verify waits ready, calls run, requires Verdict.ok/no page errors. Queries feed run; JSON preserves checks/extras. Batch `--run k=v` isolates pages/contexts, any failure fails; perf thresholds run separately. Seed storage/exercise restore for persistence. JSDoc owns pose reads/flags; remove temporary verify plugins.
+Without `window.__harness`, verify needs settled nonblank rendering/no page errors. Pin `{ready:false}`; installHarness from `/harness`, initialize pins, run resolves entities. Verify waits ready, calls run, requires Verdict.ok/no page errors. Queries feed run; JSON keeps checks/extras. Batch `--run k=v` isolates contexts; any failure fails. Seed storage/restore; JSDoc owns pose reads/flags; remove temporary verify plugins.

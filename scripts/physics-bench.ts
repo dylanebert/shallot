@@ -1,5 +1,5 @@
 import { loadNative } from "../packages/shallot-cli/bin/bun-native";
-import { type Check, queryFlags, skipReason, verify } from "./verify";
+import { type Check, queryFlags, verify } from "./verify";
 
 // SMALL_N's module graph (avbd/step → physics/core → sear) references GPU enum constants at module
 // scope, which exist in a browser but not under bare `bun run` — install bun-webgpu's constants-only
@@ -637,11 +637,6 @@ async function audit(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-    const skip = skipReason();
-    if (skip) {
-        console.log(`physics-bench needs native hardware (${skip}). Skipping.`);
-        return;
-    }
     if (process.argv.includes("--audit")) {
         await audit();
         return;

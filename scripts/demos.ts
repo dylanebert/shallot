@@ -2,14 +2,14 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync }
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ROSTER } from "../site/roster";
-import { skipReason, type VerifyResult, verify } from "./verify";
+import { type VerifyResult, verify } from "./verify";
 
 // `bun run demos` — the site demo release gate. Builds every showcase demo as an ejected consumer of
 // the published package (via `bun run site`, which drives `scripts/build-site.ts`), then runs
-// `shallot verify --dist` over every built demo — display-gated, on real hardware. A demo that fails
-// to build or render reds the gate; a demo that skips (the display gate refuses a software adapter,
-// exit 4) reports as skipped and must not be reportable as green — a release gate that skipped is not
-// a release gate that passed.
+// `shallot verify --dist` over every built demo in the public headless default. A demo that fails
+// to build or render reds the gate; a demo whose hardware adapter is refused (exit 4) is reported as
+// skipped and must not be reportable as green — a release gate that skipped is not a release gate that
+// passed.
 //
 // The gate's unit is a built HTML entry point, not a demo directory. Per demo, the built `*.html` files
 // under its output dir are enumerated structurally, and each one that presents a `<canvas>` directly is
@@ -19,10 +19,8 @@ import { skipReason, type VerifyResult, verify } from "./verify";
 // entry points is a red, not a skip. The per-demo entry-point count is printed so a gate that silently
 // stops finding pages is visible in its own output.
 //
-// Display-gated exactly like flows and recipes: verify needs a real display + a conformant WebGPU
-// adapter, so on a display-less host it skips honestly (native hardware only). Unlike those routine
-// regression gates, a skip here exits nonzero — this is a release gate, and a skipped release gate
-// is not green. The green run is native hardware with every demo verified.
+// The public verifier refuses a software/unknown adapter without turning the release gate green. A
+// refusal here remains nonzero, so this gate still requires real hardware for its completed population.
 //
 // The roster is the single source of truth — imported from `site/roster.ts`, never duplicated. It is
 // derived from `examples/showcase/` by enumeration, so a second copy is impossible by construction
@@ -33,9 +31,10 @@ import { skipReason, type VerifyResult, verify } from "./verify";
 const root = resolve(import.meta.dir, "..");
 const outDir = resolve(root, "out/site");
 
-// The display gate's refusal message prefix — the CLI's `displayGateMessage` always opens with this,
-// so a `VerifyResult` whose `error` starts here is an exit-4 skip rather than an exit-1 fail.
-const DISPLAY_GATE_PREFIX = "shallot verify needs a real GPU adapter";
+// The hardware refusal message prefix — the CLI's `displayGateMessage` always opens with this, so a
+// `VerifyResult` whose `error` starts here is an explicit exit-4 refusal rather than an ordinary render
+// failure. It remains non-green below.
+const HARDWARE_REFUSAL_PREFIX = "shallot verify needs a real GPU adapter";
 
 interface DemoOutcome {
     slug: string;
@@ -44,8 +43,8 @@ interface DemoOutcome {
     detail?: string;
 }
 
-function isSkip(result: VerifyResult | null): boolean {
-    return result?.pass === false && !!result.error?.startsWith(DISPLAY_GATE_PREFIX);
+function isHardwareRefusal(result: VerifyResult | null): boolean {
+    return result?.pass === false && !!result.error?.startsWith(HARDWARE_REFUSAL_PREFIX);
 }
 
 // A page presents a canvas directly when its own markup contains a `<canvas>` tag. An iframe-hosted
@@ -136,8 +135,8 @@ async function runDemo(slug: string): Promise<DemoOutcome> {
                 allPass = false;
                 continue;
             }
-            if (isSkip(result)) {
-                console.log(`  SKIP: ${label} — display gate refused software adapter`);
+            if (isHardwareRefusal(result)) {
+                console.log(`  REFUSED: ${label} — hardware adapter unavailable`);
                 skipDetail = result.error;
                 continue;
             }
@@ -155,8 +154,8 @@ async function runDemo(slug: string): Promise<DemoOutcome> {
         }
     }
 
-    // A skip on any entry point means the display gate refused — the whole demo skips, since the
-    // hardware can't verify any page. A fail on any (with no skips) means the demo reds.
+    // A hardware refusal on any entry point keeps the whole demo non-green, since the adapter cannot
+    // verify any page. A fail on any (with no refusals) means the demo reds.
     if (skipDetail) {
         return { slug, result: "skip", entryPoints: entryPoints.length, detail: skipDetail };
     }
@@ -169,8 +168,8 @@ async function main(): Promise<void> {
         console.log(`Usage: bun run demos [--demo <slug>]
 
 Builds every showcase demo (via \`bun run site\`) and runs \`shallot verify --dist\` over each
-built HTML entry point that presents a canvas directly — display-gated, on real hardware. A
-release gate: a skip (exit 4) is not green.
+built HTML entry point that presents a canvas directly — public headless verification on real hardware.
+A hardware refusal (exit 4) is not green.
 
 Options:
   --demo <slug>   Build and verify a single demo by its roster slug`);
@@ -199,16 +198,8 @@ Options:
         process.exit(1);
     }
 
-    // --- display gate (pre-check) ---
-    const skip = skipReason();
-    if (skip) {
-        console.log(`\nbun run demos needs native hardware (${skip}). Skipping.`);
-        console.log("\nSKIPPED: demos gate skipped — not green (display gate)");
-        process.exit(1);
-    }
-
     // --- verify ---
-    console.log("\nVerifying site demos (display-gated)...");
+    console.log("\nVerifying site demos (public headless verifier)...");
     const outcomes: DemoOutcome[] = [];
     for (const demo of demos) {
         outcomes.push(await runDemo(demo.slug));

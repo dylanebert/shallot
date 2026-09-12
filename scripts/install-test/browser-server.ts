@@ -2,18 +2,17 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { REAL_GPU_LAUNCH } from "@dylanebert/shallot/harness/browser";
 
-// The frozen previous release's CLI hard-codes a headless launch, and a headless launch reaches only a
-// software rasterizer on a seat whose real adapter is discrete — its own display gate then refuses.
-// `--connect` is that CLI's one route to real hardware, so these flows stand up a browser server and
-// attach to it. Shared by the compatibility and output flows, which both run a `previous` label.
+// The frozen previous release owns a hard-coded browser mode, so these flows stand up its pinned browser
+// server and attach through `--connect`. The candidate is deliberately not attached: its public headless
+// default must be exercised through its own launch. Shared by the compatibility and output flows, which
+// both run a `previous` label.
 
-/** the launch options the previous release's browser server takes: the published real-GPU recipe,
- *  headed. Headless reaches only a software rasterizer on this class of seat, and 0.9.5's own verify
- *  hard-codes `headless: true`, which is exactly why it needs a server to attach to. */
+/** the launch options for the previous release's browser server: explicit headed full Chromium keeps
+ * its historical external-server route on a real display while the candidate owns its default launch. */
 export const CONNECT_LAUNCH = { ...REAL_GPU_LAUNCH, headless: false };
 
 /** the `shallot verify` argv for one label. Only `previous` attaches to a browser server: its CLI
- *  predates the headed default and can reach real hardware no other way, while `candidate` must keep
+ *  predates the candidate's public headless default and can reach real hardware through this server,
  *  exercising its own launch — that launch is part of what this flow verifies. `dir` is the project to
  *  verify, which the output flow varies and the compatibility flow leaves at the app itself. */
 export function verifyArgs(label: "previous" | "candidate", endpoint: string, dir = "."): string[] {

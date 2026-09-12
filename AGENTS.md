@@ -54,7 +54,7 @@ OS: windows/mac/linux; web build emits dist, run builds/previews; native dev run
 
 Before completion: format, check, test above. Release order: `testing.md` (all-roster AND separate demos). After AVBD/physics: `bun test ./packages/shallot/tests/avbd/*.oracle.ts`; engine/host/twin: `bun test ./examples/gym/src`; tumble fixtures from package per `tumble.md`; Rust audio: `cargo test` from `packages/shallot-runtime/rust/audio`.
 
-GPU changes owe bench; serialize/restore, config.ui/mountOverlay or dev-server changes owe flows; physics-recipe/substrate/tumble changes owe recipes. Display gates self-terminate, run headed on the seat's own display and run alone; no display refuses, never skips green. Packaging/CLI/manifest/assets/scaffold changes owe test:install; symlinks hide install defects.
+GPU changes owe bench; serialize/restore, config.ui/mountOverlay or dev-server changes owe flows; physics-recipe/substrate/tumble changes owe recipes. Display claims run alone with `--headed`; ordinary verify is full-Chromium headless and hardware refusal reds. Packaging/CLI/manifest/assets/scaffold changes owe test:install; symlinks hide install defects.
 
 ## Examples
 

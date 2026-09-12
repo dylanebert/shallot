@@ -33,7 +33,7 @@ bunx shallot dev
 
 A project is plain data plus code: a `shallot.json` manifest, a `.scene` file, and TypeScript plugins you edit in your IDE.
 
-`bunx shallot verify` boots the project in a headless browser and exits 0 or nonzero, a check you, an agent, or CI can run to catch a project that no longer boots or renders. It drives a real browser through the optional playwright peer, so install that once per project: `bun add -d playwright && bunx playwright install chromium`.
+`bunx shallot verify` boots the project in full Chromium headlessly by default and exits 0 or nonzero, a check you, an agent, or CI can run to catch a project that no longer boots or renders. Use `--headed` only for checks whose claim depends on a display or compositor; `--connect` drives an endpoint-owned browser. It drives a real browser through the optional playwright peer, so install that once per project: `bun add -d playwright && bunx playwright install chromium`.
 
 ## the repo is the docs
 

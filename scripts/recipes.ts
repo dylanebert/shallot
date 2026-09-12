@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { EXAMPLE_GATES } from "./example-gates";
-import { skipReason, verify } from "./verify";
+import { verify } from "./verify";
 
 // `bun run recipes` — the one entry every recipe row's gate runs through. A dynamic recipe installs a
 // `window.__harness` (its `src/smoke.ts`, wired only in its manifest) whose `run()` drives the scene and
@@ -9,11 +9,11 @@ import { skipReason, verify } from "./verify";
 // car advances under throttle, the profiler reports GPU time. A static recipe (one whose registry row
 // carries a `static` reason) has no runtime observable, so its verdict is verify's own boot + nonblank
 // render. Both drive the shipped `shallot verify` through `./verify`, which is what makes the row
-// attributable: that wrapper owns the display guard, while a bare `bunx shallot verify` row spawned
-// through `sh -c` reaches only a software adapter and reds.
+// attributable: that wrapper owns the public verifier invocation, while a bare `bunx shallot verify` row
+// spawned through `sh -c` exercises the same hardware refusal and reds when the adapter is unavailable.
 //
-// Display-gated exactly like flows: verify needs a real display + a conformant WebGPU adapter, so on a
-// headless box it skips honestly. The green run is native; here it proves the wiring.
+// The public verifier runs headlessly by default; a non-hardware adapter is refused and cannot produce
+// a green recipe run.
 
 interface Recipe {
     dir: string;
@@ -130,7 +130,7 @@ async function main(): Promise<void> {
         console.log(`Usage: bun run recipes [--recipe <name>]
 
 Runs every recipe through \`shallot verify\` — dynamics smoke where one exists, boot + render for a
-registered static recipe. Display-gated (native hardware only).
+registered static recipe. The public verifier runs headlessly and refuses non-hardware adapters.
 
 Options:
   --recipe <name>   Run a single recipe by its directory name (e.g. moving-platform)`);
@@ -147,12 +147,6 @@ Options:
     if (popErr) {
         console.error(popErr);
         process.exit(only ? 2 : 1);
-    }
-
-    const skip = skipReason();
-    if (skip) {
-        console.log(`bun run recipes needs native hardware (${skip}). Skipping.`);
-        process.exit(0);
     }
 
     console.log(`Running ${list.length} recipe verification(s)...`);

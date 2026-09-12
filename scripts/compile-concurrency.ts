@@ -1,6 +1,6 @@
 import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot-runtime/src/engine/runtime/gpu";
 import { compileConcurrencyRatio } from "../site/rum-compile-vitals";
-import { queryFlags, skipReason, verify } from "./verify";
+import { queryFlags, verify } from "./verify";
 
 // The permanent capture of the boot pipeline-compile chain's own concurrency: nothing else in the
 // tree reads the raw `PIPELINE_COMPILE_MEASURE_PREFIX`-filtered `performance.measure` entries out of
@@ -33,12 +33,6 @@ function parseArgs(argv: string[]): Args {
 
 async function main(): Promise<void> {
     const args = parseArgs(process.argv.slice(2));
-    const reason = skipReason();
-    if (reason) {
-        console.log(`skip: ${reason}`);
-        return;
-    }
-
     console.log(
         `booting ${args.dir} (--attribution) to read the boot pipeline-compile concurrency ratio…`,
     );

@@ -131,6 +131,8 @@ const NoWallsPlugin: Plugin = {
     },
 };
 
+window.__harness = { ready: false };
+
 const adapter = await navigator.gpu.requestAdapter();
 if (!adapter) throw new Error("no-walls: no WebGPU adapter");
 const requiredFeatures = [

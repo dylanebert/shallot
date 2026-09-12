@@ -1,4 +1,4 @@
-import { CLI, REPO_ROOT, skipReason } from "./verify";
+import { CLI, REPO_ROOT } from "./verify";
 
 // Re-runnable startup-cost measurement over `shallot verify examples/gym --timings`: phase-checkpoint
 // wall time (server boot → first page load → harness ready → run → capture → teardown, plus the
@@ -23,8 +23,8 @@ import { CLI, REPO_ROOT, skipReason } from "./verify";
 // result, so a caller reading the phases back needs the raw stdout `spawnVerify` doesn't expose. Both
 // modes use one spawn path so they stay one source of truth.
 //
-// Display-gated like every `shallot verify` run (testing.md): skips honestly when no real GPU is
-// reachable (`skipReason()`).
+// The public verifier runs headlessly by default. A refused software/unknown adapter is a failed
+// measurement, not a skip that can report a green timing table.
 //
 // A DIFFERENTIAL against a prior tag needs that tag's own `bin/verify.ts` to emit the same `--timings`
 // output this script parses — a HEAD-only reading here is a single-side number, not evidence of a
@@ -211,6 +211,7 @@ async function runTimings(args: Args): Promise<void> {
     ];
     const byPhase = new Map<string, number[]>();
     const resources: Resources[] = [];
+    let failed = false;
     for (let i = 0; i < args.runs; i++) {
         const { stdout, exitCode } = await spawnVerify(args.dir, extra, {});
         const phases = parsePhases(stdout);
@@ -218,6 +219,7 @@ async function runTimings(args: Args): Promise<void> {
         console.log(
             `run ${i + 1}/${args.runs}: exitCode=${exitCode} ${phases.length} phases parsed`,
         );
+        if (exitCode !== 0) failed = true;
         if (phases.length === 0 && exitCode === 0 && stdout.trim().length > 0) {
             throw new Error(
                 `run ${i + 1}/${args.runs} exited 0 but parsed 0 phases from non-empty stdout — the ` +
@@ -246,6 +248,10 @@ async function runTimings(args: Args): Promise<void> {
                     ? " — SATURATED on at least one run, re-read"
                     : ""),
         );
+    }
+    if (failed) {
+        console.error("\nFAIL: one or more verify timing runs refused or failed");
+        process.exitCode = 1;
     }
 }
 
@@ -322,11 +328,6 @@ async function runTransform(args: Args): Promise<void> {
 }
 
 async function main(): Promise<void> {
-    const skip = skipReason();
-    if (skip) {
-        console.log(`skipped: ${skip}`);
-        return;
-    }
     const args = parseArgs(process.argv.slice(2));
     if (args.dist) {
         const build = await runBuild(args.dir);

@@ -6,8 +6,10 @@
 // bundles), `shallot dev` (the server resolves the same + serves the wasm over /@fs), and `bun create
 // shallot` (scaffold → install → build the starter). The packaging / resolution / asset failures the
 // repo's own symlinked dev setup hides. Run: `bun run scripts/install-test.ts` (or `bun run test:install`).
+// The costly physical diagnostic arm runs by path in `scripts/install-test.probes.ts`.
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
     existsSync,
     mkdirSync,
@@ -28,7 +30,7 @@ import { outputFlow } from "./install-test/output";
 import { projectFlow } from "./install-test/project";
 import { runtimeArms } from "./install-test/runtime";
 import { projectTumble, tumbleArms } from "./install-test/tumble";
-import { type ShaderArtifactSummary, skipReason, type VerifyResult, verify } from "./verify";
+import { type ShaderArtifactSummary, type VerifyResult, verify } from "./verify";
 
 const ENGINE_DIR = resolve(import.meta.dir, "../packages/shallot");
 const WIDGET_DIR = resolve(import.meta.dir, "install-test/widget");
@@ -671,6 +673,28 @@ const check = (name: string, cond: boolean, detail = "") => {
     if (!cond) fails.push(name);
 };
 
+/** The install gate's missing-crate verdict must require a failed command and its owned diagnostic. */
+export function missingCrateDiagnosticPass(result: { ok: boolean; out: string }): boolean {
+    return (
+        !result.ok &&
+        /corrupt install/.test(result.out) &&
+        !/ENOENT|No such file or directory/.test(result.out)
+    );
+}
+
+/** Hash every file's path and bytes so a hidden packed crate must return unchanged. */
+function directoryDigest(rootDir: string): string {
+    const digest = createHash("sha256");
+    const files = [...new Bun.Glob("**/*").scanSync({ cwd: rootDir })]
+        .filter((file) => !file.endsWith("/"))
+        .sort();
+    for (const file of files) {
+        digest.update(file);
+        digest.update(readFileSync(join(rootDir, file)));
+    }
+    return digest.digest("hex");
+}
+
 /** extract the page's diagnostic from a verify result so a red is legible, or name the absence as an
  *  instrument fault. The ejected boot arm was once dismissed as a flake because its detail printed `[]`
  *  — an empty `errors` array that a future reader can wave away. This surfaces the diagnostic wherever
@@ -840,8 +864,8 @@ function createShallotFlow(work: string, engineTgz: string) {
     );
 
     // the shipped verify gate, run as an installed agent would: --help is a clean exit, and a project
-    // with no playwright gets the distinct exit 3 + the actionable install command (a browser run itself
-    // is display/GPU-gated — not asserted here).
+    // with no playwright gets the distinct exit 3 + the actionable install command. Browser refusal is
+    // a real nonzero outcome, not a display-absence skip.
     const help = run(["bun", CLI, "verify", "--help"], proj);
     check("shallot verify --help exits 0", help.ok, help.ok ? "" : help.out.slice(-200));
     const noPw = Bun.spawnSync(["bun", CLI, "verify", "."], {
@@ -1004,19 +1028,15 @@ async function recipeFlow(work: string, engineTgz: string, sandbox: string, name
     );
 
     // the copy-out of the maintained plugin recipe earns a real boot: the projection is what a user
-    // actually runs, and a broken inline would build fine and render nothing.
+    // actually runs, and a broken inline would build fine and render nothing. A hardware refusal is a
+    // failed check, never a green skip.
     if (name === "gpu-particles") {
-        const skip = skipReason();
-        if (skip) {
-            console.log(`  · copy-out verify skipped (needs native hardware: ${skip})`);
-        } else {
-            const result = await verify(dest, ["--timeout", "60000"], true);
-            check(
-                "the copied-out producer recipe boots and renders from the installed engine",
-                result?.pass === true && result.booted === true && result.rendered === true,
-                verifyDiagnostic(result),
-            );
-        }
+        const result = await verify(dest, ["--timeout", "60000"], true);
+        check(
+            "the copied-out producer recipe boots and renders from the installed engine",
+            result?.pass === true && result.booted === true && result.rendered === true,
+            verifyDiagnostic(result),
+        );
     }
 }
 
@@ -1130,12 +1150,6 @@ async function ejectedFlow(work: string, engineTgz: string) {
         identity.ok ? identity.out.trim().slice(-200) : identity.out.slice(-400),
     );
 
-    const skip = skipReason();
-    if (skip) {
-        console.log(`  · skipped (needs native hardware: ${skip})`);
-        return;
-    }
-
     console.log("real browser boot — the recipe as documented, not as known-good…");
     const green = await verify(proj, ["--timeout", "30000"], true);
     check(
@@ -1177,7 +1191,7 @@ const TRANSPILED =
 // (`shared/symbols.js`), so `isTgpuFn(x)` imported from a consumer's own resolution of `typegpu`
 // returns true for an engine-built fn iff both resolve one physical copy — the property the 0.9.0
 // break actually turned on. Pure module resolution + a symbol check, no GPU involved, so this runs (and
-// is asserted) before any `skipReason()` guard: a display-less host still exercises it (testing.md
+// is asserted) before any browser refusal: a display-less host still exercises it (testing.md
 // "Install gate", "a display-gated rung owes a display-independent sibling"). `typegpu2` is a genuine
 // second physical copy — an alias install of the identical version (`npm:typegpu@~0.12.4`) landing in
 // its own `node_modules/typegpu2`, a distinct module-graph evaluation with its own `Symbol()` calls, not
@@ -1511,14 +1525,6 @@ function checkPrebundled(label: string, result: VerifyResult | null, expect: boo
 }
 
 async function identityBrowserFlow(work: string, engineTgz: string) {
-    const skip = skipReason();
-    if (skip) {
-        console.log(
-            `typegpu peer identity (browser, both boot paths)… skipped (needs native hardware: ${skip})`,
-        );
-        return;
-    }
-
     console.log("typegpu peer identity (browser, red-proof fixture)…");
     const redProofDir = join(work, "identity-browser-red-proof");
     writeIdentityRedProof(redProofDir, engineTgz, ejectedViteConfig());
@@ -1832,7 +1838,7 @@ if (import.meta.main) {
         const widgetTgz = pack(WIDGET_DIR, join(work, "widget-pack"));
         const particlesTgz = pack(PARTICLES_DIR, join(work, "particles-pack"));
 
-        // display-independent, so it runs first: no GPU, no `skipReason()` guard anywhere above it
+        // display-independent, so it runs first: no GPU and no browser refusal anywhere above it
         projectFlow(engineTgz, join(work, "project-seam"));
         identityFlow(work, engineTgz);
         pmIdentityFlow(work, engineTgz, "npm");
@@ -2019,21 +2025,34 @@ if (import.meta.main) {
             // the crate-present check above says the file crossed the pack/install boundary; it says nothing
             // about the CLI's behavior when it hasn't. `requireRustCrate` runs before cargo is spawned, so
             // hiding the crate exercises the whole diagnostic path — resolution, message, non-zero exit —
-            // for the price of a rename, with no toolchain involved.
-            console.log("shallot build --target linux with the crate hidden (ENOENT guard fires)…");
+            // for the price of a rename, with no toolchain involved. Linux's system backend refusal runs
+            // earlier, so this invocation is portable only to reach the diagnostic boundary.
+            console.log(
+                "shallot build --target linux --portable with the crate hidden (ENOENT guard fires)…",
+            );
             const crate = join(shipped, "rust/window");
             const hidden = `${crate}.hidden`;
-            renameSync(crate, hidden);
-            const guarded = run(["bun", CLI, "build", ".", "--target", "linux"], sandbox);
-            renameSync(hidden, crate);
+            const crateDigest = directoryDigest(crate);
+            assert(!existsSync(hidden), "hidden crate destination must be absent");
+            let guarded: { ok: boolean; out: string } | null = null;
+            try {
+                renameSync(crate, hidden);
+                guarded = run(
+                    ["bun", CLI, "build", ".", "--target", "linux", "--portable"],
+                    sandbox,
+                );
+            } finally {
+                if (existsSync(hidden)) renameSync(hidden, crate);
+            }
             check(
                 "a missing crate fails with the corrupt-install diagnostic, not a raw ENOENT from cargo",
-                !guarded.ok &&
-                    /corrupt install/.test(guarded.out) &&
-                    !/ENOENT|No such file or directory/.test(guarded.out),
-                guarded.out.slice(-900),
+                guarded !== null && missingCrateDiagnosticPass(guarded),
+                guarded?.out.slice(-900) ?? "the build invocation did not return",
             );
-            check("the hidden crate is restored", existsSync(join(crate, "Cargo.toml")));
+            check(
+                "the hidden crate is restored byte-for-byte",
+                existsSync(join(crate, "Cargo.toml")) && directoryDigest(crate) === crateDigest,
+            );
 
             tgslFlow(sandbox, dist);
 
@@ -2163,22 +2182,17 @@ if (import.meta.main) {
             // registry install produces — not a symlink) is booted through a real browser and its rendered
             // pipelines are asserted, catching the 5b-2f-5 prebundle-before-transform defect the checks
             // above structurally could not (`scripts/verify.ts`'s `verify()` is the same shipped gate
-            // `bun bench` / `bun run flows` / `bun run recipes` drive; display-gated identically, native
-            // hardware only).
+            // `bun bench` / `bun run flows` / `bun run recipes` drive; it uses the public headless
+            // default and a hardware refusal is a failed check, not a skip.
             console.log(
                 "shallot verify (a real browser boot — warms the installed engine's pipelines)…",
             );
-            const skip = skipReason();
-            if (skip) {
-                console.log(`  · skipped (needs native hardware: ${skip})`);
-            } else {
-                const result = await verify(sandbox, ["--timeout", "30000"], true);
-                check(
-                    "a real browser boots the installed engine and warms its pipelines",
-                    result?.pass === true && result.booted === true && result.rendered === true,
-                    verifyDiagnostic(result),
-                );
-            }
+            const result = await verify(sandbox, ["--timeout", "30000"], true);
+            check(
+                "a real browser boots the installed engine and warms its pipelines",
+                result?.pass === true && result.booted === true && result.rendered === true,
+                verifyDiagnostic(result),
+            );
         }
 
         if (install.ok) {
