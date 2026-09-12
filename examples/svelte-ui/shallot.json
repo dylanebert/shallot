@@ -1,0 +1,10 @@
+{
+    "kind": "recipe",
+    "description": "Overlay or embed UI on the canvas with mountOverlay or run.",
+    "problem": "I want a live-game HUD that updates every frame.",
+    "scene": "scenes/svelte-ui.scene",
+    "plugins": {
+        "Orbit": true,
+        "Hud": "./src/hud"
+    }
+}

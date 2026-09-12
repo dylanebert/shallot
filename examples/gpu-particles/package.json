@@ -1,9 +1,0 @@
-{
-    "name": "gpu-particles",
-    "version": "0.0.0",
-    "private": true,
-    "type": "module",
-    "dependencies": {
-        "typegpu": "~0.12.5"
-    }
-}

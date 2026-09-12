@@ -1,0 +1,10 @@
+{
+    "kind": "recipe",
+    "description": "Render the scene to a character-cell grid with the Cells plugin.",
+    "problem": "I want my scene drawn as ASCII characters.",
+    "scene": "scenes/ascii.scene",
+    "plugins": {
+        "Orbit": true,
+        "Cells": true
+    }
+}
