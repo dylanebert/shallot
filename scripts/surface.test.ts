@@ -436,6 +436,56 @@ check(
 );
 
 check(
+    "named oracle paths are launched as files",
+    {
+        claim: "test-runner prefixes named oracle paths so Bun loads them instead of treating them as name filters",
+        size: "integration",
+    },
+    () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-surface-oracle-runner-"));
+        mkdirSync(join(tree, "tests"), { recursive: true });
+        const checkModule = resolve(ROOT, "src/harness/check");
+        writeFileSync(
+            join(tree, "tests/named.oracle.ts"),
+            `import { check } from ${JSON.stringify(checkModule)};\ncheck("named oracle", { claim: "named oracle runs", size: "integration" }, () => { console.log("NAMED_ORACLE_RAN"); });\n`,
+        );
+        writeFileSync(
+            join(tree, "shallot.json"),
+            JSON.stringify({ check: [{ file: "tests/named.oracle.ts" }] }),
+        );
+        git(tree, "init", "-q");
+        git(tree, "config", "user.email", "surface@example.test");
+        git(tree, "config", "user.name", "surface");
+        git(tree, "add", ".");
+        git(tree, "commit", "-qm", "oracle");
+        const head = git(tree, "rev-parse", "HEAD");
+        try {
+            const proc = Bun.spawnSync(
+                [
+                    "bun",
+                    resolve(ROOT, "scripts/test-runner.ts"),
+                    "--root",
+                    tree,
+                    "--integration",
+                    "--base",
+                    head,
+                    "--diff",
+                    head,
+                    "--oracle",
+                    "named oracle runs",
+                ],
+                { cwd: ROOT, stdout: "pipe", stderr: "pipe" },
+            );
+            expect(proc.exitCode).toBe(0);
+            expect(proc.stdout.toString()).toContain("NAMED_ORACLE_RAN");
+            expect(proc.stdout.toString()).toContain('"result":"pass"');
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
     "an undeclared check file reds the reader",
     {
         claim: "check-surface.ts reds on a test-suffix file that registers no check() declaration",

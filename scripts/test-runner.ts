@@ -33,7 +33,13 @@ function run(files: string[], environment: NodeJS.ProcessEnv): number {
         return 0;
     }
     const proc = Bun.spawnSync(
-        [process.execPath, "test", "--max-concurrency=1", "--pass-with-no-tests", ...files],
+        [
+            process.execPath,
+            "test",
+            "--max-concurrency=1",
+            "--pass-with-no-tests",
+            ...files.map((file) => `./${file}`),
+        ],
         { cwd: root, env: environment, stdout: "inherit", stderr: "inherit" },
     );
     return proc.exitCode ?? 1;
