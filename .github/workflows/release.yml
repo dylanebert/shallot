@@ -259,7 +259,7 @@ jobs:
       contents: write # needed only by the tag-gated release-upload step below
     steps:
       # First-party actions on major tags, deliberately (see comment at top of file).
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: archives
           pattern: shallot-native-*.tar.gz
