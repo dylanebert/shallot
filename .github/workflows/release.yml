@@ -246,7 +246,7 @@ jobs:
 
       # Always upload as a run artifact — both tag and dispatch runs do this.
       - name: Upload archive artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.archive }}
           path: ${{ matrix.archive }}
@@ -272,7 +272,7 @@ jobs:
           cat ../SHA256SUMS
 
       - name: Upload SHA256SUMS artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SHA256SUMS
           path: SHA256SUMS
