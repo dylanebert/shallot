@@ -1,7 +1,7 @@
 import { check } from "@dylanebert/shallot/harness/check";
 import { runCargoTest } from "../../scripts/cargo-test";
 
-// Warm run measured 0.79s on macOS arm64 (cargo test --no-run is an untimed requirement step).
+// Warm run measured 0.67s on macOS arm64 for lib plus stages (cargo test --no-run is an untimed requirement step).
 check(
     "physics unit tests",
     {
@@ -11,5 +11,5 @@ check(
         subject: ["crates/physics"],
         requires: ["cargo"],
     },
-    () => runCargoTest("shallot-physics", "--lib"),
+    () => runCargoTest("shallot-physics", "--lib", "--test", "stages"),
 );

@@ -27,14 +27,19 @@ const ROOT = resolve(import.meta.dir, "..");
 const FIXTURES = resolve(ROOT, "scripts/fixtures/surface");
 
 check(
-    "physics Rust integration targets stay declared",
+    "physics Rust test targets stay partitioned",
     {
-        claim: "the physics Cargo row runs every existing integration test target, including stages, so a non-gold target cannot silently leave the declared population",
+        claim: "the physics unit and gold Cargo rows partition every current Rust test target exactly once, keeping non-gold stages out of the C-reference gold population",
         size: "integration",
     },
     () => {
-        const declaration = readFileSync(resolve(ROOT, "crates/physics/gold.test.ts"), "utf8");
-        expect(declaration).toContain('runCargoTest("shallot-physics", "--tests")');
+        const unitDeclaration = readFileSync(resolve(ROOT, "crates/physics/unit.test.ts"), "utf8");
+        const goldDeclaration = readFileSync(resolve(ROOT, "crates/physics/gold.test.ts"), "utf8");
+        expect(unitDeclaration).toMatch(
+            /runCargoTest\("shallot-physics",\s*"--lib",\s*"--test",\s*"stages"\)/,
+        );
+        expect(unitDeclaration.match(/"--lib"/g)?.length).toBe(1);
+        expect(goldDeclaration).not.toContain('"--lib"');
         const metadata = Bun.spawnSync(
             ["cargo", "metadata", "--no-deps", "--format-version", "1"],
             {
@@ -47,9 +52,27 @@ check(
         const physics = JSON.parse(metadata.stdout.toString()).packages.find(
             (pkg: { name: string }) => pkg.name === "shallot-physics",
         );
-        expect(physics.targets).toContainEqual(
-            expect.objectContaining({ name: "stages", kind: ["test"] }),
-        );
+        const targets = physics.targets
+            .filter((target: { kind: string[] }) => target.kind.includes("test"))
+            .map((target: { name: string }) => target.name)
+            .sort();
+        const goldTargets = targets.filter((target: string) => target.endsWith("_gold"));
+        const unitTargets = targets.filter((target: string) => !target.endsWith("_gold"));
+        expect(unitTargets).toEqual(["stages"]);
+        expect(goldTargets).toHaveLength(11);
+        for (const target of targets) {
+            const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const occurrences = [unitDeclaration, goldDeclaration].reduce(
+                (count, declaration) =>
+                    count +
+                    (declaration.match(new RegExp(`"--test"\\s*,\\s*"${escaped}"`, "g"))?.length ??
+                        0),
+                0,
+            );
+            expect(occurrences).toBe(1);
+            const owner = target.endsWith("_gold") ? goldDeclaration : unitDeclaration;
+            expect(owner).toMatch(new RegExp(`"--test"\\s*,\\s*"${escaped}"`));
+        }
     },
 );
 
