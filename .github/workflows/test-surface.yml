@@ -51,4 +51,4 @@ jobs:
       - run: bunx playwright install --with-deps chromium
       - run: bun run check
       - run: bun run test
-      - run: bun run test:integration -- --base $SHALLOT_SURFACE_BASE --diff $SHALLOT_SURFACE_DIFF
+      - run: bun run test -- --integration --base $SHALLOT_SURFACE_BASE --diff $SHALLOT_SURFACE_DIFF

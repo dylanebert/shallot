@@ -47,9 +47,13 @@ function seed(name: string): string {
     return tree;
 }
 
-function run(script: string, tree: string): { code: number; out: string; err: string } {
+function run(
+    script: string,
+    tree: string,
+    ...args: string[]
+): { code: number; out: string; err: string } {
     const proc = Bun.spawnSync(
-        ["bun", resolve(ROOT, "scripts", script), "--list", "--root", tree],
+        ["bun", resolve(ROOT, "scripts", script), "--list", ...args, "--root", tree],
         {
             cwd: ROOT,
         },
@@ -108,6 +112,74 @@ function subjectTree(): {
 }
 
 check(
+    "selectors filter integration rows and refuse empty matches",
+    {
+        claim: "surface selectors select only matching integration rows and refuse an empty match",
+        size: "integration",
+    },
+    () => {
+        const tree = seed("selectors");
+        try {
+            const all = run("surface.ts", tree, "--integration", "--all");
+            expect(all.code).toBe(0);
+            expect(all.out).toContain("browser selector row");
+            expect(all.out).toContain("display selector row");
+            expect(all.out).not.toContain("unit selector exclusion");
+            expect(all.out).not.toContain("oracle selector exclusion");
+
+            const requires = run("surface.ts", tree, "--integration", "--requires", "chromium");
+            expect(requires.code).toBe(0);
+            expect(requires.out).toContain("browser selector row");
+            expect(requires.out).not.toContain("display selector row");
+
+            const subject = run("surface.ts", tree, "--integration", "--subject", "src/browser");
+            expect(subject.code).toBe(0);
+            expect(subject.out).toContain("browser selector row");
+            expect(subject.out).not.toContain("display selector row");
+
+            const composed = run(
+                "surface.ts",
+                tree,
+                "--integration",
+                "--requires",
+                "chromium",
+                "--subject",
+                "src/browser",
+            );
+            expect(composed.code).toBe(0);
+            expect(composed.out).toContain("browser selector row");
+            expect(composed.out).not.toContain("display selector row");
+
+            const conflict = run(
+                "surface.ts",
+                tree,
+                "--integration",
+                "--all",
+                "--base",
+                "base",
+                "--diff",
+                "diff",
+            );
+            expect(conflict.code).toBe(1);
+            expect(conflict.err).toContain("selectors cannot be combined");
+
+            for (const args of [["--all"], ["--requires", "gpu"], ["--subject", "missing"]]) {
+                const emptyTree = seed("unit-only");
+                try {
+                    const empty = run("surface.ts", emptyTree, "--integration", ...args);
+                    expect(empty.code).toBe(1);
+                    expect(empty.err).toContain("selector matched no integration rows");
+                } finally {
+                    rmSync(emptyTree, { recursive: true, force: true });
+                }
+            }
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
     "--list prints exactly the declared population",
     {
         claim: "surface.ts --list prints one row per declared check in the tree, from files and manifests, and nothing else",
@@ -122,7 +194,7 @@ check(
                 "claim             size         requires  budget   file",
                 "alpha holds       unit         -         250ms    src/alpha.test.ts",
                 "alpha refuses     unit         -         250ms    src/alpha.test.ts",
-                "beta builds       integration  -         20000ms  scripts/beta.tier.ts",
+                "beta builds       integration  -         20000ms  scripts/beta.test.ts",
                 "demo recipe runs  integration  chromium  20000ms  examples/demo/check.test.ts",
                 "4 checks (parsed 4; 0 quarantined)",
             ]);

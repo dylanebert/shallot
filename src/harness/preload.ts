@@ -1,12 +1,12 @@
 import { resolve } from "node:path";
 import { plugin } from "bun";
 
-// Bun test preload: every `.test.ts`, `.tier.ts` and `.oracle.ts` file must declare its checks
+// Bun test preload: every `.test.ts` and `.oracle.ts` file must declare its checks
 // through `check()`. A file that reaches for `bun:test` directly, or that declares nothing at all,
 // refuses at load rather than running undeclared.
 
 const CHECK_MODULE = resolve(import.meta.dir, "check.ts");
-const SUFFIX = /\.(test|tier|oracle)\.ts$/;
+const SUFFIX = /\.(test|oracle)\.ts$/;
 const BUN_TEST_IMPORT = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*["']bun:test["']/g;
 const REGISTRARS = new Set(["test", "it", "describe"]);
 

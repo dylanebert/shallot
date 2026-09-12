@@ -13,7 +13,18 @@ function run(command: string[]): number {
 
 const started = performance.now();
 if (run([process.execPath, "run", "scripts/test-runner.ts", "--unit"]) !== 0) process.exit(1);
-if (run([process.execPath, "run", "scripts/test-runner.ts", "--integration"]) !== 0)
+if (
+    run([
+        process.execPath,
+        "run",
+        "scripts/test-runner.ts",
+        "--integration",
+        "--base",
+        base,
+        "--diff",
+        diff,
+    ]) !== 0
+)
     process.exit(1);
 
 const changed = all

@@ -49,7 +49,15 @@ export interface Population {
     files: string[];
 }
 
-const SUFFIX = /\.(test|tier|oracle)\.ts$/;
+export interface IntegrationSelection {
+    all?: boolean;
+    requires?: string;
+    subject?: string;
+    base?: string;
+    diff?: string;
+}
+
+const SUFFIX = /\.(test|oracle)\.ts$/;
 const ORACLE_SUFFIX = /\.oracle\.ts$/;
 const SKIP = new Set([".git", ".cache", "node_modules", "fixtures", "target", "dist", "coverage"]);
 const BUN_TEST_IMPORT = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*["']bun:test["']/g;
@@ -321,7 +329,7 @@ export function readCheckDeclarations(
 
 function discoveredFiles(root: string): string[] {
     const files: string[] = [];
-    for (const match of new Glob("**/*.{test,tier,oracle}.ts").scanSync({
+    for (const match of new Glob("**/*.{test,oracle}.ts").scanSync({
         cwd: root,
         dot: false,
     })) {
@@ -421,8 +429,9 @@ export function readQuarantine(root: string): QuarantineFile {
 export function formatPopulation(
     population: Population,
     quarantines: readonly QuarantineRow[] = readQuarantine(population.root).rows,
+    rows: readonly SurfaceRow[] = population.rows,
 ): string {
-    const cells = population.rows.map((row) => [
+    const cells = rows.map((row) => [
         row.claim,
         row.size,
         row.requires.join(" ") || "-",
@@ -440,7 +449,7 @@ export function formatPopulation(
     return [
         line(COLUMNS),
         ...cells.map(line),
-        `${population.rows.length} checks (parsed ${population.rows.length}; ${quarantines.length} quarantined)`,
+        `${rows.length} checks (parsed ${population.rows.length}; ${quarantines.length} quarantined)`,
     ].join("\n");
 }
 
@@ -487,15 +496,35 @@ export function subjectChanged(
 
 export function selectIntegrationRows(
     population: Population,
+    selection: IntegrationSelection,
+): SurfaceRow[];
+export function selectIntegrationRows(
+    population: Population,
     base: string,
     diff: string,
+): SurfaceRow[];
+export function selectIntegrationRows(
+    population: Population,
+    selectionOrBase: IntegrationSelection | string,
+    legacyDiff?: string,
 ): SurfaceRow[] {
-    return population.rows.filter(
-        (row) =>
-            row.size === "integration" &&
-            !ORACLE_SUFFIX.test(row.file) &&
-            subjectChanged(population.root, row.subjects, base, diff),
-    );
+    const selection: IntegrationSelection =
+        typeof selectionOrBase === "string"
+            ? { base: selectionOrBase, diff: legacyDiff }
+            : selectionOrBase;
+    return population.rows.filter((row) => {
+        if (row.size !== "integration" || ORACLE_SUFFIX.test(row.file)) return false;
+        if (selection.requires !== undefined && !row.requires.includes(selection.requires))
+            return false;
+        if (
+            selection.subject !== undefined &&
+            !row.subjects.some((subject) => subject.startsWith(selection.subject as string))
+        )
+            return false;
+        if (selection.base !== undefined && selection.diff !== undefined)
+            return subjectChanged(population.root, row.subjects, selection.base, selection.diff);
+        return true;
+    });
 }
 
 function workflowRows(population: Population): SurfaceRow[] {
@@ -562,7 +591,7 @@ export function renderWorkflow(population: Population): string {
     steps.push(
         "      - run: bun run check",
         "      - run: bun run test",
-        "      - run: bun run test:integration -- --base $SHALLOT_SURFACE_BASE --diff $SHALLOT_SURFACE_DIFF",
+        "      - run: bun run test -- --integration --base $SHALLOT_SURFACE_BASE --diff $SHALLOT_SURFACE_DIFF",
         "",
     );
     return [

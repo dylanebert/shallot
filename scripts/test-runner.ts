@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { resolve } from "node:path";
 import {
+    CHECK_REQUIREMENTS,
     collectPopulation,
     discoverTestFiles,
     selectIntegrationRows,
@@ -12,8 +13,7 @@ const root = resolve(
     rootIndex === -1 ? resolve(import.meta.dir, "..") : (args[rootIndex + 1] ?? process.cwd()),
 );
 const integration = args.includes("--integration");
-const base = valueAfter("--base");
-const diff = valueAfter("--diff");
+const all = args.includes("--all");
 const oracle = valueAfter("--oracle");
 const envBase = { ...process.env, SHALLOT_PROJECT_ROOT: root };
 
@@ -45,6 +45,24 @@ function run(files: string[], environment: NodeJS.ProcessEnv): number {
     return proc.exitCode ?? 1;
 }
 
+const base = valueAfter("--base");
+const diff = valueAfter("--diff");
+const requires = valueAfter("--requires");
+const subject = valueAfter("--subject");
+const selectorRequested = all || args.includes("--requires") || args.includes("--subject");
+if (args.includes("--requires") && (requires === undefined || requires.startsWith("--")))
+    refuse("--requires needs a requirement tag");
+if (args.includes("--subject") && (subject === undefined || subject.startsWith("--")))
+    refuse("--subject needs a path prefix");
+if (requires !== undefined && !CHECK_REQUIREMENTS.includes(requires as never))
+    refuse(`unknown requirement tag: ${requires}`);
+if (subject !== undefined && subject.trim() === "") refuse("--subject needs a path prefix");
+if (selectorRequested && !integration) refuse("integration selectors require --integration");
+if (selectorRequested && (base !== undefined || diff !== undefined))
+    refuse("selectors cannot be combined with --base/--diff");
+if (integration && !selectorRequested && (base === undefined || diff === undefined))
+    refuse("integration test requires --base <ref> and --diff <ref>");
+
 const population = collectPopulation(root);
 if (population.invalid.length > 0 || population.undeclared.length > 0) {
     refuse(
@@ -59,9 +77,6 @@ if (!integration) {
     const environment = { ...envBase, SHALLOT_UNIT_ONLY: "1" };
     process.exit(run(files, environment));
 }
-if (base === undefined || diff === undefined || base === "" || diff === "") {
-    refuse("test:integration requires --base <ref> and --diff <ref>");
-}
 function isCommitObject(ref: string): boolean {
     const resolved = Bun.spawnSync(
         ["git", "rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`],
@@ -70,13 +85,21 @@ function isCommitObject(ref: string): boolean {
     return resolved.success && resolved.stdout.toString().trim() !== "";
 }
 
-if (!isCommitObject(base) || !isCommitObject(diff))
+if (
+    base === "" ||
+    diff === "" ||
+    (base !== undefined && diff === undefined) ||
+    (base === undefined && diff !== undefined)
+)
+    refuse("integration test requires --base <ref> and --diff <ref>");
+if (base !== undefined && diff !== undefined && (!isCommitObject(base) || !isCommitObject(diff)))
     refuse(`integration refs must be existing commit objects: base=${base} diff=${diff}`);
 const selected =
     oracle === undefined
-        ? selectIntegrationRows(population, base, diff)
+        ? selectIntegrationRows(population, { all, requires, subject, base, diff })
         : population.rows.filter((row) => row.claim === oracle);
 if (oracle !== undefined && selected.length === 0) refuse(`named oracle not found: ${oracle}`);
+if (selectorRequested && selected.length === 0) refuse("selector matched no integration rows");
 if (selected.length === 0) {
     // Unit rows still get their normal hermetic proof, but no integration/no-op command is claimed.
     process.exit(run(files, { ...envBase, SHALLOT_UNIT_ONLY: "1" }));

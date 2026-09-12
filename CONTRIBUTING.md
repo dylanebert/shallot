@@ -27,7 +27,10 @@ This page is for anyone changing the engine itself, person or agent. Using Shall
 bun run build          # regenerate committed audio WASM, dist/vite.js, physics kernel
 bun run check          # tsc, biome, every scripts/check-*.ts, examples index, scene format, cargo fmt
 bun run test           # hermetic unit rows discovered from the project root
-bun run test:integration -- --base <ref> --diff <ref> # selected integration rows
+bun run test -- --integration --base <ref> --diff <ref> # selected integration rows
+bun run test -- --integration --all                  # every non-oracle integration row
+bun run test -- --integration --requires chromium    # integration rows carrying a requirement
+bun run test -- --integration --subject <prefix>     # integration rows under a subject prefix
 bun run list            # the discovered carrier population
 bun run workflow        # render the portable hosted workflow (none for an empty population)
 bun run format         # biome and the scene formatter, writing
@@ -35,7 +38,7 @@ bun run assets         # fetch assets.json entries, linking each into the exampl
 bun run prepack        # compile the Node-reachable tooling
 ```
 
-The same `list`, `check`, `test`, `test:integration` and `workflow` verbs are installed by
+The same `list`, `check`, `test` and `workflow` verbs are installed by
 `shallot`. They operate from the caller's project root and do not assume Rust, a package name,
 or a branch. A project with another Bun preload composes it with the carrier preload instead of
 replacing it. In `bunfig.toml`, compose the entries as
@@ -43,7 +46,7 @@ replacing it. In `bunfig.toml`, compose the entries as
 
 A root `shallot.json` may admit one check entry or an array of `{ "file": "..." }` entries.
 When its `check` field is present, that list is the complete project population: every visible
-`.test.ts`, `.tier.ts` and `.oracle.ts` file must appear exactly once, and an omitted file refuses.
+`.test.ts` and `.oracle.ts` file must appear exactly once, and an omitted file refuses.
 Every admitted file must use `check()`; malformed, duplicate, missing and moved entries refuse.
 Without a root `check` field, project-rooted discovery remains in force, including nested recipe
 manifests. `.oracle.ts` files are named evidence and stay out of ordinary `test` and
@@ -63,7 +66,7 @@ A check declares its claim, optional size and requirements in the runner call:
 check("the body settles", { claim: "Body settles on the floor" }, body);
 ```
 
-Use `bun scripts/surface.ts --list` to inspect claim, size, requirements, budget and file. Rust suites use Cargo with `#[test]` as their declaration and stay outside this list. Retire a unit by tag, add its row to [`ARCHIVE.md`](ARCHIVE.md), then delete it.
+Use `bun scripts/surface.ts --list` to inspect claim, size, requirements, budget and file. Add `--integration` with `--all`, `--requires <tag>`, `--subject <prefix>`, or a `--base`/`--diff` pair to inspect the rows that selector would run. Rust suites use Cargo with `#[test]` as their declaration and stay outside this list. Retire a unit by tag, add its row to [`ARCHIVE.md`](ARCHIVE.md), then delete it.
 
 ## Pins and freshness
 

@@ -1,0 +1,7 @@
+import { check } from "@dylanebert/shallot/harness/check";
+
+check(
+    "oracle selector exclusion",
+    { claim: "oracle selector exclusion", size: "integration", subject: "src/browser/app.ts" },
+    () => {},
+);

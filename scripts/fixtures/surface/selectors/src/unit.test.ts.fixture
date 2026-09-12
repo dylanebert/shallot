@@ -1,0 +1,3 @@
+import { check } from "@dylanebert/shallot/harness/check";
+
+check("unit selector exclusion", { claim: "unit selector exclusion" }, () => {});
