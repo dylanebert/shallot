@@ -4,6 +4,7 @@ import {
     mkdirSync,
     mkdtempSync,
     readdirSync,
+    readFileSync,
     renameSync,
     rmSync,
     statSync,
@@ -24,6 +25,33 @@ import {
 
 const ROOT = resolve(import.meta.dir, "..");
 const FIXTURES = resolve(ROOT, "scripts/fixtures/surface");
+
+check(
+    "physics Rust integration targets stay declared",
+    {
+        claim: "the physics Cargo row runs every existing integration test target, including stages, so a non-gold target cannot silently leave the declared population",
+        size: "integration",
+    },
+    () => {
+        const declaration = readFileSync(resolve(ROOT, "crates/physics/gold.test.ts"), "utf8");
+        expect(declaration).toContain('runCargoTest("shallot-physics", "--tests")');
+        const metadata = Bun.spawnSync(
+            ["cargo", "metadata", "--no-deps", "--format-version", "1"],
+            {
+                cwd: ROOT,
+                stdout: "pipe",
+                stderr: "pipe",
+            },
+        );
+        expect(metadata.exitCode).toBe(0);
+        const physics = JSON.parse(metadata.stdout.toString()).packages.find(
+            (pkg: { name: string }) => pkg.name === "shallot-physics",
+        );
+        expect(physics.targets).toContainEqual(
+            expect.objectContaining({ name: "stages", kind: ["test"] }),
+        );
+    },
+);
 
 // Fixture check files are stored with a trailing `.fixture` so the real discovery and the real
 // runner never see them; materializing strips it, giving the production readers a real tree.
