@@ -30,6 +30,111 @@ leaf.args.push("consumer-owned-option");
 type Protocol = [Check, Verdict, PoseState, HarnessTarget, PixelProbe, PixelProbeResult];
 `;
 
+export const CANONICAL_OUTPUT_FILES = [
+    "assets/icon-1024.png",
+    "bin/build.ts",
+    "bin/bun-native.ts",
+    "bin/cli.ts",
+    "bin/dev.ts",
+    "bin/features.ts",
+    "bin/gpu-globals.ts",
+    "bin/native.ts",
+    "bin/recipe.ts",
+    "bin/run.ts",
+    "bin/scaffold.ts",
+    "bin/toolchain.ts",
+    "bin/tui.ts",
+    "bin/tui/color-support.ts",
+    "bin/tui/cursor.ts",
+    "bin/tui/diff.ts",
+    "bin/tui/encoder.ts",
+    "bin/tui/index.ts",
+    "bin/tui/resize.ts",
+    "bin/tui/screen.ts",
+    "bin/tui/sgr.ts",
+    "bin/tui/terminal-model.ts",
+    "bin/tui/types.ts",
+    "bin/verify.ts",
+    "dist/bun-webgpu-LICENSE",
+    "dist/bun-webgpu-NOTICE",
+    "dist/harness-browser.js",
+    "dist/native.js",
+    "dist/vite.js",
+    "rust/window/.cargo/config.toml",
+    "rust/window/Cargo.lock",
+    "rust/window/Cargo.toml",
+    "rust/window/build.rs",
+    "rust/window/icon.ico",
+    "rust/window/icon.rc",
+    "rust/window/src/cef_backend.rs",
+    "rust/window/src/helper.rs",
+    "rust/window/src/mac.rs",
+    "rust/window/src/main.rs",
+    "rust/window/src/wry_backend.rs",
+    "src/harness/browser.ts",
+    "src/project/assets.ts",
+    "src/project/command.ts",
+    "src/project/engine.ts",
+    "src/project/generate.ts",
+    "src/project/host.ts",
+    "src/project/manifest.ts",
+    "src/project/vite.ts",
+].sort();
+
+export function canonicalInputFiles(tracked: readonly string[]): string[] {
+    return tracked
+        .map((file) => file.replace("packages/shallot-cli/", ""))
+        .filter((file) =>
+            /^(bin\/|src\/project\/|src\/harness\/browser\.ts$|rust\/window\/|assets\/|scripts\/build\.ts$|package\.json$)/.test(
+                file,
+            ),
+        )
+        .filter(
+            (file) =>
+                !file.endsWith(".test.ts") &&
+                !file.endsWith(".probes.ts") &&
+                !file.endsWith(".tier.ts") &&
+                !file.endsWith("/.gitignore"),
+        )
+        .sort();
+}
+
+export function canonicalProjectionArm(
+    project: string,
+    owner: string,
+    tracked: readonly string[],
+): { inputCount: number; outputCount: number } {
+    const shipped = join(project, "node_modules/@dylanebert/shallot");
+    const record = JSON.parse(readFileSync(join(shipped, "dist/cli-inputs.json"), "utf8")) as {
+        inputs: Record<string, string>;
+        outputs: Record<string, string>;
+    };
+    const hash = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
+    const expectedInputs = [
+        ...canonicalInputFiles(tracked),
+        "../shallot/scripts/projections.ts",
+    ].sort();
+    assert(expectedInputs.length > 40, "nonempty tooling source population");
+    assert.deepEqual(
+        Object.keys(record.inputs).sort(),
+        expectedInputs,
+        "two-way canonical projection population",
+    );
+    assert.deepEqual(
+        Object.keys(record.outputs).sort(),
+        CANONICAL_OUTPUT_FILES,
+        "two-way installed projection population",
+    );
+    for (const [file, expected] of Object.entries(record.inputs))
+        assert.equal(hash(join(owner, file)), expected, `canonical input ${file}`);
+    for (const [file, expected] of Object.entries(record.outputs))
+        assert.equal(hash(join(shipped, file)), expected, `installed projection ${file}`);
+    return {
+        inputCount: Object.keys(record.inputs).length,
+        outputCount: Object.keys(record.outputs).length,
+    };
+}
+
 /** Exercise the raw public composition and its independent Node/type leaves in a physical install. */
 export function harnessArms(project: string): void {
     const shipped = join(project, "node_modules/@dylanebert/shallot");
@@ -137,39 +242,18 @@ console.log("NODE_LEAF_OK");\n`,
         },
         () => exec("compiled aggregate replacement", raw, false, /HARNESS_SURFACE/),
     );
-    const record = JSON.parse(readFileSync(join(shipped, "dist/cli-inputs.json"), "utf8"));
-    const hash = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
     const owner = resolve(import.meta.dir, "../../packages/shallot-cli");
     const tracked = Bun.spawnSync(["git", "ls-files", "--", "packages/shallot-cli"], {
         cwd: resolve(import.meta.dir, "../.."),
     });
     assert.equal(tracked.exitCode, 0, "canonical source inventory");
-    const expectedInputs = tracked.stdout
-        .toString()
-        .trim()
-        .split("\n")
-        .map((file) => file.replace("packages/shallot-cli/", ""))
-        .filter((file) =>
-            /^(bin\/|src\/project\/|src\/harness\/browser\.ts$|rust\/window\/|assets\/|scripts\/build\.ts$|package\.json$)/.test(
-                file,
-            ),
-        )
-        .filter((file) => !/\.(test|probes)\.ts$|\/\.gitignore$/.test(file))
-        .sort();
-    expectedInputs.push("../shallot/scripts/projections.ts");
-    expectedInputs.sort();
-    assert(expectedInputs.length > 40, "nonempty tooling source population");
-    assert.deepEqual(
-        Object.keys(record.inputs).sort(),
-        expectedInputs,
-        "two-way canonical projection population",
+    const projection = canonicalProjectionArm(
+        project,
+        owner,
+        tracked.stdout.toString().trim().split("\n"),
     );
-    for (const [file, expected] of Object.entries(record.inputs))
-        assert.equal(hash(join(owner, file)), expected, `canonical input ${file}`);
-    for (const [file, expected] of Object.entries(record.outputs))
-        assert.equal(hash(join(shipped, file)), expected, `installed projection ${file}`);
     exec("restored raw surface", raw, true, /HARNESS_CONTRACT_OK/);
     console.log(
-        `harness: ${Object.keys(record.inputs).length} canonical hashes, ${Object.keys(record.outputs).length} installed projections`,
+        `harness: ${projection.inputCount} canonical hashes, ${projection.outputCount} installed projections`,
     );
 }

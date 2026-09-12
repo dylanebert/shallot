@@ -84,9 +84,9 @@ packages/shallot/assets/
 test-results/
 playwright-report/
 
-# Gym local asset mounts (symlinks into reference/ — see .claude/rules/testing.md)
-examples/gym/public/sponza
-examples/gym/public/gltf-samples
+# Bench local asset mounts (symlinks into reference/ — see .claude/rules/testing.md)
+bench/public/sponza
+bench/public/gltf-samples
 scripts/install-test/compat-0.9.5/tarballs/
 
 # Recordings

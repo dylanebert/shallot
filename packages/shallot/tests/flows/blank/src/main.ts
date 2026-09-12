@@ -1,6 +1,8 @@
 import { run } from "@dylanebert/shallot";
 import { installHarness } from "@dylanebert/shallot/harness";
 
+window.__harness = { ready: false };
+
 // The red-proof fixture. A truly blank app: the default camera + renderer clear to background, no
 // geometry, no UI. Its harness reports ok:true, so the only thing that can fail the run is verify's
 // pixel gate reading the blank canvas as rendered:false. scripts/flows.ts asserts exactly that FAILURE

@@ -22,8 +22,11 @@ import {
     registerSurface,
     surfaceLayout,
 } from "@dylanebert/shallot/sear/core";
+
 import tgpu, { type StorageFlag, type TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
+
+window.__harness = { ready: false };
 
 // The extension escape is intentionally end-to-end, not a collection of isolated API calls: an adopted
 // raw device creates a raw buffer, TypeGPU wraps it with the draw schema, raw WGSL resolved through

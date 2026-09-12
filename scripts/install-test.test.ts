@@ -46,6 +46,7 @@ test("install-test — the free-port probe is used for the dev server port", () 
 // verifies — so the two labels must differ here, and asserting only the `previous` shape would pass
 // just as well if both carried the flag.
 
+import { missingCrateDiagnosticPass } from "./install-test";
 import { readEndpoint, verifyArgs } from "./install-test/browser-server";
 
 test("only the previous label attaches to a browser server, at any verified directory", () => {
@@ -78,4 +79,18 @@ test("the endpoint reader refuses output with no ws:// line, naming the log", ()
     for (const output of ["", "Error: browser server crashed\n", "listening\n"]) {
         expect(() => readEndpoint(output, "/tmp/server.log")).toThrow("/tmp/server.log");
     }
+});
+
+test("the missing-crate consumer requires its named diagnostic and a nonzero exit", () => {
+    expect(
+        missingCrateDiagnosticPass({ ok: false, out: "corrupt install: rust/window is missing" }),
+    ).toBe(true);
+    expect(
+        missingCrateDiagnosticPass({
+            ok: false,
+            out: "Cannot build linux: the system webview lacks required WebGPU base floor",
+        }),
+    ).toBe(false);
+    expect(missingCrateDiagnosticPass({ ok: true, out: "corrupt install" })).toBe(false);
+    expect(missingCrateDiagnosticPass({ ok: false, out: "ENOENT: rust/window" })).toBe(false);
 });

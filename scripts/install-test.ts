@@ -51,6 +51,14 @@ function run(cmd: string[], cwd: string): { ok: boolean; out: string } {
     return { ok: p.exitCode === 0, out: `${p.stdout.toString()}\n${p.stderr.toString()}` };
 }
 
+export function missingCrateDiagnosticPass(result: { ok: boolean; out: string }): boolean {
+    return (
+        !result.ok &&
+        /corrupt install/.test(result.out) &&
+        !/ENOENT|No such file or directory/.test(result.out)
+    );
+}
+
 function pack(dir: string, dest: string): string {
     const r = run(["bun", "pm", "pack", "--destination", dest], dir);
     if (!r.ok) throw new Error(`pack ${dir} failed:\n${r.out}`);
@@ -2020,20 +2028,47 @@ if (import.meta.main) {
             // about the CLI's behavior when it hasn't. `requireRustCrate` runs before cargo is spawned, so
             // hiding the crate exercises the whole diagnostic path — resolution, message, non-zero exit —
             // for the price of a rename, with no toolchain involved.
-            console.log("shallot build --target linux with the crate hidden (ENOENT guard fires)…");
+            console.log(
+                "shallot build --target linux --portable with the crate hidden (ENOENT guard fires)…",
+            );
             const crate = join(shipped, "rust/window");
             const hidden = `${crate}.hidden`;
+            const crateFiles = ["Cargo.toml", "Cargo.lock"];
+            const crateBytes = new Map(
+                crateFiles.map((file) => [file, readFileSync(join(crate, file))]),
+            );
+            assert(!existsSync(hidden), "the diagnostic arm owns its hidden-crate path");
             renameSync(crate, hidden);
-            const guarded = run(["bun", CLI, "build", ".", "--target", "linux"], sandbox);
-            renameSync(hidden, crate);
+            let guarded: { ok: boolean; out: string };
+            let restored = false;
+            try {
+                // Linux's system-webview backend is refused before native build; portable isolates this arm
+                // on the missing-crate diagnostic without weakening the backend gate itself.
+                guarded = run(
+                    ["bun", CLI, "build", ".", "--target", "linux", "--portable"],
+                    sandbox,
+                );
+            } finally {
+                if (!existsSync(crate)) {
+                    renameSync(hidden, crate);
+                    restored = true;
+                }
+            }
+            if (!restored) throw new Error("the diagnostic arm changed its crate path");
+            for (const file of crateFiles)
+                assert.deepEqual(readFileSync(join(crate, file)), crateBytes.get(file), file);
+            assert(!existsSync(hidden), "the diagnostic arm restored its hidden-crate path");
             check(
                 "a missing crate fails with the corrupt-install diagnostic, not a raw ENOENT from cargo",
-                !guarded.ok &&
-                    /corrupt install/.test(guarded.out) &&
-                    !/ENOENT|No such file or directory/.test(guarded.out),
+                missingCrateDiagnosticPass(guarded),
                 guarded.out.slice(-900),
             );
-            check("the hidden crate is restored", existsSync(join(crate, "Cargo.toml")));
+            check(
+                "the hidden crate is restored with its original bytes",
+                crateFiles.every((file) =>
+                    readFileSync(join(crate, file)).equals(crateBytes.get(file)!),
+                ),
+            );
 
             tgslFlow(sandbox, dist);
 

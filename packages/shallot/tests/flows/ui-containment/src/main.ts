@@ -2,6 +2,8 @@ import { run } from "@dylanebert/shallot";
 import { installHarness } from "@dylanebert/shallot/harness";
 import { config } from "./lib";
 
+window.__harness = { ready: false };
+
 // Boot the standalone run() app and install a minimal published harness: run() reports the mount succeeded.
 // `shallot verify --screenshot` drives it and captures the frame; the pixel containment assertion lives in
 // scripts/flows.ts (paint containment isn't observable in-page).

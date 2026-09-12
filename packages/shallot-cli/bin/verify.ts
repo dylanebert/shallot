@@ -1546,7 +1546,8 @@ async function readHardware(page: Page): Promise<string> {
 
 // one CDP Performance metric by name, 0 if absent.
 type Metrics = { metrics: { name: string; value: number }[] };
-const metricOf = (m: Metrics, name: string): number =>
+/** @internal exported for the allocation-observation witness and its production-call test. */
+export const metricOf = (m: Metrics, name: string): number =>
     m.metrics.find((x) => x.name === name)?.value ?? 0;
 
 /** a running --memory sampler; `stop()` ends sampling and resolves the fitted stats (null on any failure). */
@@ -1655,7 +1656,8 @@ function topAllocators(node: HeapNode | undefined, n: number): Allocator[] {
 // allocation is visible, not collected away), and returns heap growth + GC count + the top allocators by
 // sampled self-size. A harness `run()` ramps a work knob between calls and reads the slope. Salvaged
 // verbatim from harness/core/page.ts. Best-effort: a CDP/HeapProfiler failure leaves the binding uninstalled.
-async function installAllocProbe(page: Page): Promise<void> {
+/** @internal exported for the allocation-observation composition witness. */
+export async function installAllocProbe(page: Page): Promise<void> {
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Performance.enable");
     await page.exposeFunction("__probeAlloc", async (windowMs: number) => {
