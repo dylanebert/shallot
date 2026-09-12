@@ -39,10 +39,29 @@ if (files.length === 0) {
 const packageFiles = JSON.parse(readFileSync(resolve(pkgDir, "package.json"), "utf8"))
     .files as string[];
 const negated = packageFiles
-    .filter((entry) => entry.startsWith("!**/"))
+    .filter((entry) => entry.startsWith("!"))
     .map((entry) => new Glob(entry.slice(1)));
+const carriers = ["scripts/check-surface.ts", "scripts/surface.ts", "scripts/test-runner.ts"];
+const requiredNegations = [
+    "!scripts/check.ts",
+    "!scripts/check-pack.ts",
+    "!scripts/check-reference-pin.ts",
+    "!scripts/generate/**",
+    "!scripts/assets.ts",
+    "!scripts/png.ts",
+    "!scripts/format.ts",
+    "!scripts/examples-index.ts",
+    "!scripts/tooling.ts",
+    "!scripts/audio.ts",
+    "!scripts/wasm-opt.ts",
+];
+const missingNegations = requiredNegations.filter((entry) => !packageFiles.includes(entry));
 const forbidden: [string, (f: string) => boolean][] = [
     ["files negation", (f) => negated.some((glob) => glob.match(f))],
+    [
+        "non-carrier script",
+        (f) => f.startsWith("scripts/") && f.endsWith(".ts") && !carriers.includes(f),
+    ],
     ["build output", (f) => f.includes("/node_modules/")],
     ["site assets", (f) => f.startsWith("assets/") && f !== "assets/icon-1024.png"],
     ["repo docs", (f) => f.endsWith(".md") && f !== "README.md" && !f.startsWith("examples/")],
@@ -54,6 +73,7 @@ const violations = files.flatMap((f) =>
 const required = [
     "src/index.ts",
     "bin/shallot.ts",
+    ...carriers,
     "src/cli/index.ts",
     "dist/vite.js",
     "src/harness/browser.json",
@@ -78,6 +98,7 @@ for (const f of files.filter((f) => f.endsWith("package.json") && f !== "package
 }
 
 const missing = required.filter((f) => !files.includes(f));
+for (const entry of missingNegations) violations.push(`${entry} (missing files negation)`);
 // The shipped example set is exactly the `kind: "recipe"` manifests: `files` negates showcases by
 // name, so a new showcase that misses its negation (or a recipe caught by one) reds here.
 const examplesDir = resolve(pkgDir, "examples");

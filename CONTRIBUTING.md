@@ -77,7 +77,7 @@ A pin records what was last verified, and every freshness pass bumps it:
 - `binaryen` in `package.json`.
 - `bun-webgpu` at a `dylanebert/bun-webgpu` commit, until kommander/bun-webgpu#10 merges and it returns to upstream.
 
-A bump touches every doc and fixture site in one commit; `check-docs` reds on drift.
+A bump touches every doc and fixture site in one commit; `check-pins` reds on drift.
 
 ## Dependencies
 

@@ -5,19 +5,19 @@
     "": {
       "name": "shallot",
       "dependencies": {
+        "@babel/parser": "^8.0.4",
         "@types/node": "^26.2.0",
         "@webgpu/types": "^0.1.72",
         "unplugin-typegpu": "~0.12.3",
         "vite": "^8.3.0",
       },
       "devDependencies": {
-        "@babel/parser": "^8.0.4",
         "@biomejs/biome": "^2.5.13",
         "@dylanebert/shallot": "link:.",
-        "@playwright/test": "^1.63.0",
         "@types/bun": "^1.4.2",
         "binaryen": "132.0.0",
         "bun-webgpu": "github:dylanebert/bun-webgpu#7b75d0440d2f22e2c9a1cb383d15529652c53d98",
+        "playwright": "^1.63.0",
         "typegpu": "~0.12.5",
         "typescript": "^7.0.2",
       },
@@ -30,97 +30,6 @@
         "bun-webgpu",
         "playwright",
       ],
-    },
-    "examples/animate-with-clips": {
-      "name": "animate-with-clips",
-      "version": "0.0.0",
-    },
-    "examples/annotate-the-world": {
-      "name": "annotate-the-world",
-      "version": "0.0.0",
-    },
-    "examples/billboards-and-sprites": {
-      "name": "billboards-and-sprites",
-      "version": "0.0.0",
-    },
-    "examples/breakable-joints": {
-      "name": "breakable-joints",
-      "version": "0.0.0",
-    },
-    "examples/compute-and-readback": {
-      "name": "compute-and-readback",
-      "version": "0.0.0",
-    },
-    "examples/custom-material": {
-      "name": "custom-material",
-      "version": "0.0.0",
-    },
-    "examples/day-night-sky": {
-      "name": "day-night-sky",
-      "version": "0.0.0",
-    },
-    "examples/drive-a-vehicle": {
-      "name": "drive-a-vehicle",
-      "version": "0.0.0",
-    },
-    "examples/first-person": {
-      "name": "first-person",
-      "version": "0.0.0",
-    },
-    "examples/game-loop": {
-      "name": "game-loop",
-      "version": "0.0.0",
-    },
-    "examples/gpu-particles": {
-      "name": "gpu-particles",
-      "version": "0.0.0",
-      "dependencies": {
-        "typegpu": "~0.12.5",
-      },
-    },
-    "examples/import-a-model": {
-      "name": "import-a-model",
-      "version": "0.0.0",
-    },
-    "examples/joints": {
-      "name": "joints",
-      "version": "0.0.0",
-    },
-    "examples/moving-platform": {
-      "name": "moving-platform",
-      "version": "0.0.0",
-    },
-    "examples/overlay-ui": {
-      "name": "overlay-ui",
-      "version": "0.0.0",
-    },
-    "examples/physics-playground": {
-      "name": "physics-playground",
-      "version": "0.0.0",
-    },
-    "examples/play-sound": {
-      "name": "play-sound",
-      "version": "0.0.0",
-    },
-    "examples/ragdoll": {
-      "name": "ragdoll",
-      "version": "0.0.0",
-    },
-    "examples/render-to-a-terminal": {
-      "name": "render-to-a-terminal",
-      "version": "0.0.0",
-    },
-    "examples/respond-to-input": {
-      "name": "respond-to-input",
-      "version": "0.0.0",
-    },
-    "examples/save-and-restore": {
-      "name": "save-and-restore",
-      "version": "0.0.0",
-    },
-    "examples/surface-friction": {
-      "name": "surface-friction",
-      "version": "0.0.0",
     },
   },
   "packages": {
@@ -173,8 +82,6 @@
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.149.0", "", {}, "sha512-Efcc+iF0j3Bf67YjEqIqWXbX5XddXoK/Mw4K1/JuXwRCZ8N16VR7iT23nlCc9XrveFVh/E5Rqs2StT0V8v9LdA=="],
-
-    "@playwright/test": ["@playwright/test@1.63.0", "", { "dependencies": { "playwright": "1.63.0" }, "bin": { "playwright": "cli.js" } }, "sha512-oxMK4vllB9RK5NQ2l1pq1IfOf2AvnEuj/vYGDj0H2nMtmtZpKtCwt/l00GEO6xjGfpBNAvjovvYdCm50dRQkpQ=="],
 
     "@rolldown/binding-android-arm-eabi": ["@rolldown/binding-android-arm-eabi@1.2.8", "", { "os": "android", "cpu": "arm" }, "sha512-tN5aztYkKCte4i5SIrrz5yK/HMjEuCqCSCJa418jOV8tZ1cBY3YF2otxB1ktPxzsLA1BeTqwapK0bfjxNvHJVw=="],
 
@@ -254,17 +161,9 @@
 
     "@webgpu/types": ["@webgpu/types@0.1.72", "", {}, "sha512-0cF7RFM2edNoiIS1ODJp0/Gzv4/xSXhwoR0YCza+OWpJWtn4wmo9DvK91aLlH9+uUnwIriP7ZiC3WitmyhuzBw=="],
 
-    "animate-with-clips": ["animate-with-clips@workspace:examples/animate-with-clips"],
-
-    "annotate-the-world": ["annotate-the-world@workspace:examples/annotate-the-world"],
-
     "ast-kit": ["ast-kit@2.2.0", "", { "dependencies": { "@babel/parser": "^7.28.5", "pathe": "^2.0.3" } }, "sha512-m1Q/RaVOnTp9JxPX+F+Zn7IcLYMzM8kZofDImfsKZd8MbR+ikdOzTeztStWqfrqIxZnYWryyI9ePm3NGjnZgGw=="],
 
-    "billboards-and-sprites": ["billboards-and-sprites@workspace:examples/billboards-and-sprites"],
-
     "binaryen": ["binaryen@132.0.0", "", { "bin": { "wasm-as": "bin/wasm-as", "wasm2js": "bin/wasm2js", "wasm-dis": "bin/wasm-dis", "wasm-opt": "bin/wasm-opt", "wasm-merge": "bin/wasm-merge", "wasm-shell": "bin/wasm-shell", "wasm-reduce": "bin/wasm-reduce", "wasm-metadce": "bin/wasm-metadce", "wasm-ctor-eval": "bin/wasm-ctor-eval" } }, "sha512-4Usg7yEvwO3FMso3Oov6qkOOHSod1IEv+boKkh77kTljM+eNBouqCTbqWswGzbG+vDNO/b/v2C4gfEh1WgB9Lg=="],
-
-    "breakable-joints": ["breakable-joints@workspace:examples/breakable-joints"],
 
     "bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
@@ -278,33 +177,15 @@
 
     "bun-webgpu-win32-x64": ["bun-webgpu-win32-x64@0.1.7", "", { "os": "win32", "cpu": "x64" }, "sha512-KZktiFkBz6sN7PEm1NVdeaLP5Q5X/PlSHZqefY4nNuWtf0LNvh54NhZe7yVv/Plz/nGbv92b0KHMBY3ki/pp6g=="],
 
-    "compute-and-readback": ["compute-and-readback@workspace:examples/compute-and-readback"],
-
-    "custom-material": ["custom-material@workspace:examples/custom-material"],
-
-    "day-night-sky": ["day-night-sky@workspace:examples/day-night-sky"],
-
     "debug": ["debug@4.4.3", "", { "dependencies": { "ms": "^2.1.3" }, "peerDependencies": { "supports-color": "*" }, "optionalPeers": ["supports-color"] }, "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA=="],
 
     "defu": ["defu@6.1.7", "", {}, "sha512-7z22QmUWiQ/2d0KkdYmANbRUVABpZ9SNYyH5vx6PZ+nE5bcC0l7uFvEfHlyld/HcGBFTL536ClDt3DEcSlEJAQ=="],
 
     "detect-libc": ["detect-libc@2.1.2", "", {}, "sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ=="],
 
-    "drive-a-vehicle": ["drive-a-vehicle@workspace:examples/drive-a-vehicle"],
-
     "fdir": ["fdir@6.5.0", "", { "peerDependencies": { "picomatch": "^3 || ^4" }, "optionalPeers": ["picomatch"] }, "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg=="],
 
-    "first-person": ["first-person@workspace:examples/first-person"],
-
     "fsevents": ["fsevents@2.3.3", "", { "os": "darwin" }, "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw=="],
-
-    "game-loop": ["game-loop@workspace:examples/game-loop"],
-
-    "gpu-particles": ["gpu-particles@workspace:examples/gpu-particles"],
-
-    "import-a-model": ["import-a-model@workspace:examples/import-a-model"],
-
-    "joints": ["joints@workspace:examples/joints"],
 
     "js-tokens": ["js-tokens@4.0.0", "", {}, "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="],
 
@@ -336,23 +217,15 @@
 
     "magic-string": ["magic-string@0.30.21", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.5" } }, "sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ=="],
 
-    "moving-platform": ["moving-platform@workspace:examples/moving-platform"],
-
     "ms": ["ms@2.1.3", "", {}, "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=="],
 
     "nanoid": ["nanoid@3.3.18", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w=="],
 
-    "overlay-ui": ["overlay-ui@workspace:examples/overlay-ui"],
-
     "pathe": ["pathe@2.0.3", "", {}, "sha512-WUjGcAqP1gQacoQe+OBJsFA7Ld4DyXuUIjZ5cc75cLHvJ7dtNsTugphxIADwspS+AraAUePCKrSVtPLFj/F88w=="],
-
-    "physics-playground": ["physics-playground@workspace:examples/physics-playground"],
 
     "picocolors": ["picocolors@1.1.1", "", {}, "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="],
 
     "picomatch": ["picomatch@4.0.7", "", {}, "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA=="],
-
-    "play-sound": ["play-sound@workspace:examples/play-sound"],
 
     "playwright": ["playwright@1.63.0", "", { "dependencies": { "playwright-core": "1.63.0" }, "bin": { "playwright": "cli.js" } }, "sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg=="],
 
@@ -360,19 +233,9 @@
 
     "postcss": ["postcss@8.5.28", "", { "dependencies": { "nanoid": "^3.3.18", "picocolors": "^1.1.1", "source-map-js": "^1.2.1" } }, "sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A=="],
 
-    "ragdoll": ["ragdoll@workspace:examples/ragdoll"],
-
-    "render-to-a-terminal": ["render-to-a-terminal@workspace:examples/render-to-a-terminal"],
-
-    "respond-to-input": ["respond-to-input@workspace:examples/respond-to-input"],
-
     "rolldown": ["rolldown@1.2.8", "", { "dependencies": { "@oxc-project/types": "=0.149.0", "@rolldown/pluginutils": "^1.0.0" }, "optionalDependencies": { "@rolldown/binding-android-arm-eabi": "1.2.8", "@rolldown/binding-android-arm64": "1.2.8", "@rolldown/binding-darwin-arm64": "1.2.8", "@rolldown/binding-darwin-x64": "1.2.8", "@rolldown/binding-freebsd-x64": "1.2.8", "@rolldown/binding-linux-arm-gnueabihf": "1.2.8", "@rolldown/binding-linux-arm64-gnu": "1.2.8", "@rolldown/binding-linux-arm64-musl": "1.2.8", "@rolldown/binding-linux-ppc64-gnu": "1.2.8", "@rolldown/binding-linux-s390x-gnu": "1.2.8", "@rolldown/binding-linux-x64-gnu": "1.2.8", "@rolldown/binding-linux-x64-musl": "1.2.8", "@rolldown/binding-openharmony-arm64": "1.2.8", "@rolldown/binding-win32-arm64-msvc": "1.2.8", "@rolldown/binding-win32-x64-msvc": "1.2.8" }, "bin": { "rolldown": "./bin/cli.mjs" } }, "sha512-Z67nTmhZe7anqnM/EjI392w5i/ANUinjip7QYsOyN37oayduxt3ksdX0hf5OOamkAd53BiIHfbfSzfUmzKFQqQ=="],
 
-    "save-and-restore": ["save-and-restore@workspace:examples/save-and-restore"],
-
     "source-map-js": ["source-map-js@1.2.1", "", {}, "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA=="],
-
-    "surface-friction": ["surface-friction@workspace:examples/surface-friction"],
 
     "tinyest": ["tinyest@0.3.3", "", {}, "sha512-LUDiIzyDUQ1mGo8Bam9c7Dubid6Psx14zMzGNwwvOEmNs03FWNUtOrHVXd+TcCorzogQ24Rk0fcfdZ+9rGr1Fw=="],
 

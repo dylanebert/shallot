@@ -68,7 +68,20 @@
         "!examples/*/tsconfig.json",
         "!src/extras/gltf/fixtures",
         "!src/standard/physics/solver/fixtures",
-        "scripts",
+        "scripts/check-surface.ts",
+        "scripts/surface.ts",
+        "scripts/test-runner.ts",
+        "!scripts/check.ts",
+        "!scripts/check-pack.ts",
+        "!scripts/check-reference-pin.ts",
+        "!scripts/generate/**",
+        "!scripts/assets.ts",
+        "!scripts/png.ts",
+        "!scripts/format.ts",
+        "!scripts/examples-index.ts",
+        "!scripts/tooling.ts",
+        "!scripts/audio.ts",
+        "!scripts/wasm-opt.ts",
         "!scripts/fixtures/**",
         "shallot.schema.json",
         "!**/*.test.ts",
@@ -90,12 +103,6 @@
         "examples:index": "bun run scripts/examples-index.ts",
         "prepack": "bun run ./scripts/tooling.ts"
     },
-    "dependencies": {
-        "@types/node": "^26.2.0",
-        "@webgpu/types": "^0.1.72",
-        "unplugin-typegpu": "~0.12.3",
-        "vite": "^8.3.0"
-    },
     "peerDependencies": {
         "bun-webgpu": ">=0.1.7",
         "playwright": "^1.0.0",
@@ -109,8 +116,14 @@
             "optional": true
         }
     },
-    "devDependencies": {
+    "dependencies": {
         "@babel/parser": "^8.0.4",
+        "@types/node": "^26.2.0",
+        "@webgpu/types": "^0.1.72",
+        "unplugin-typegpu": "~0.12.3",
+        "vite": "^8.3.0"
+    },
+    "devDependencies": {
         "@biomejs/biome": "^2.5.13",
         "@dylanebert/shallot": "link:.",
         "@types/bun": "^1.4.2",
