@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { BodyType, type Body } from "../api/index";
-import { createCompound, createHeightField, createMesh, defaultFilter, defaultSurfaceMaterial, makeBoxHull, type MeshData, type Shape } from "../api/index";
+import { createCompound, createHeightField, createHull, createMesh, defaultFilter, defaultSurfaceMaterial, makeBoxHull, type HullData, type MeshData, type Shape } from "../api/index";
 import { hashWorldState } from "../world/hash";
 import { World } from "../api/world";
 
@@ -67,6 +67,7 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
     const meshes = new Map<string, MeshData>();
     const heightFields = new Map<string, ReturnType<typeof createHeightField>>();
     const compounds = new Map<string, NonNullable<ReturnType<typeof createCompound>>>();
+    const hulls = new Map<string, HullData>();
     const shapes = new Map<string, Shape>();
     const consumed: string[] = [];
     const observationIds: string[] = [];
@@ -82,7 +83,7 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
     };
     const shapeIndex = (shape: Shape): number => (shape as unknown as { id: { index1: number } }).id.index1;
     const shapeName = (shape: Shape): string => { const index = shapeIndex(shape); for (const [id, value] of shapes) if (shapeIndex(value) === index) return id; return "unknown"; };
-    const shapeDef = (command: Command): Record<string, unknown> => ({ baseMaterial: { ...defaultSurfaceMaterial(), rollingResistance: f32(String(command.rollingResistance ?? "0x00000000")) }, filter: { ...defaultFilter(), groupIndex: Number(command.groupIndex ?? 0) }, isSensor: command.isSensor === true, enableSensorEvents: command.enableSensorEvents === true });
+    const shapeDef = (command: Command): Record<string, unknown> => ({ baseMaterial: { ...defaultSurfaceMaterial(), rollingResistance: f32(String(command.rollingResistance ?? "0x00000000")) }, density: f32(String(command.density ?? "0x447a0000")), updateBodyMass: command.updateBodyMass !== false, invokeContactCreation: command.invokeContactCreation !== false, filter: { ...defaultFilter(), groupIndex: Number(command.groupIndex ?? 0) }, isSensor: command.isSensor === true, enableSensorEvents: command.enableSensorEvents === true });
     for (const command of scenario.commands) {
         if (consumed.includes(command.id)) throw new Error(`duplicate consumed command ${command.id}`);
         consumed.push(command.id);
@@ -90,16 +91,17 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
             case "world.create": {
                 if (world !== undefined) throw new Error("duplicate world.create");
                 const gravity = vec3(command.gravity as unknown[]);
-                world = new World({ gravity, enableSleep: command.enableSleep === true, enableContinuous: command.enableContinuous === true });
+                world = new World({ gravity, enableSleep: command.enableSleep === true, enableContinuous: command.enableContinuous === true, ...(command.capacity === undefined ? {} : { capacity: command.capacity }) });
                 break;
             }
-            case "body.create": {
+            case "body.create":
+            case "body.spawn": {
                 if (!world) throw new Error("body.create before world.create");
                 const position = vec3(command.position as unknown[]);
                 const linearVelocity = vec3(command.linearVelocity as unknown[]);
                 const angularVelocity = vec3(command.angularVelocity as unknown[]);
                 if (mutateAngularVelocity && bodies.size === 0) angularVelocity.z = Math.fround(angularVelocity.z + 1);
-                const body = world.createBody({ type: bodyType(command.type), isBullet: command.isBullet === true, position, rotation: quat((command.rotation ?? ["0x00000000", "0x00000000", "0x00000000", "0x3f800000"]) as unknown[]), linearVelocity, angularVelocity, ...(command.linearDamping === undefined ? {} : { linearDamping: f32(String(command.linearDamping)) }), ...(command.angularDamping === undefined ? {} : { angularDamping: f32(String(command.angularDamping)) }) });
+                const body = world.createBody({ type: bodyType(command.type), isBullet: command.isBullet === true, position, rotation: quat((command.rotation ?? ["0x00000000", "0x00000000", "0x00000000", "0x3f800000"]) as unknown[]), linearVelocity, angularVelocity, ...(command.linearDamping === undefined ? {} : { linearDamping: f32(String(command.linearDamping)) }), ...(command.angularDamping === undefined ? {} : { angularDamping: f32(String(command.angularDamping)) }), ...(command.sleepThreshold === undefined ? {} : { sleepThreshold: f32(String(command.sleepThreshold)) }) });
                 bodies.set(command.id, body);
                 break;
             }
@@ -114,6 +116,13 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
             case "resource.capsule":
                 capsules.set(command.id, { center1: vec3(command.center1 as unknown[]), center2: vec3(command.center2 as unknown[]), radius: f32(String(command.radius)) });
                 break;
+            case "resource.hull": {
+                const points = (command.points as unknown[]).map((point) => vec3(point as unknown[]));
+                const hull = createHull(points, points.length);
+                if (!hull) throw new Error(`hull resource ${command.id} could not be built`);
+                hulls.set(command.id, hull as HullData);
+                break;
+            }
             case "resource.mesh": {
                 const vertices = (command.vertices as unknown[]).map((value) => f32(String(value)));
                 const points = []; for (let i = 0; i < vertices.length; i += 3) points.push({ x: vertices[i], y: vertices[i + 1], z: vertices[i + 2] });
@@ -150,6 +159,8 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
                     const sphere = spheres.get(String(command.resource)); if (!sphere) throw new Error(`shape references unknown sphere ${String(command.resource)}`); created = body.createSphere(def, sphere);
                 } else if (command.kind === "capsule") {
                     const capsule = capsules.get(String(command.resource)); if (!capsule) throw new Error(`shape references unknown capsule ${String(command.resource)}`); created = body.createCapsule(def, capsule);
+                } else if (command.kind === "hull") {
+                    const hull = hulls.get(String(command.resource)); if (!hull) throw new Error(`shape references unknown hull ${String(command.resource)}`); created = body.createHull(def, hull);
                 } else if (command.kind === "mesh") {
                     const mesh = meshes.get(String(command.resource)); if (!mesh) throw new Error(`shape references unknown mesh ${String(command.resource)}`); created = body.createMesh(def, mesh, vec3((command.scale ?? ["0x3f800000", "0x3f800000", "0x3f800000"]) as unknown[]));
                 } else if (command.kind === "height-field") {
@@ -159,6 +170,12 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
                 } else throw new Error(`unknown shape kind ${String(command.kind)}`);
                 shapes.set(command.id, created);
                 break;
+            }
+            case "joint.filter": {
+                if (!world) throw new Error(`filter joint ${command.id} before world.create`);
+                const bodyA = bodies.get(String(command.bodyA)); const bodyB = bodies.get(String(command.bodyB));
+                if (!bodyA || !bodyB) throw new Error(`filter joint ${command.id} references an unknown body`);
+                world.createFilterJoint(bodyA, bodyB); joints.add(command.id); break;
             }
             case "joint.revolute":
             case "joint.weld":
@@ -188,6 +205,15 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
                 else world.createWheelJoint(bodyA, bodyB, config as never);
                 joints.add(command.id);
                 break;
+            }
+            case "body.apply-mass": {
+                const body = bodies.get(String(command.body)); if (!body) throw new Error(`mass action references unknown body ${String(command.body)}`); body.applyMassFromShapes(); break;
+            }
+            case "body.set-velocity": {
+                const body = bodies.get(String(command.body)); if (!body) throw new Error(`velocity action references unknown body ${String(command.body)}`); body.setLinearVelocity(vec3(command.linearVelocity as unknown[])); body.setAngularVelocity(vec3(command.angularVelocity as unknown[])); break;
+            }
+            case "body.target-transform": {
+                const body = bodies.get(String(command.body)); if (!body) throw new Error(`target action references unknown body ${String(command.body)}`); body.setTargetTransform({ p: vec3((command.target as Record<string, unknown>).p as unknown[]), q: quat((command.target as Record<string, unknown>).q as unknown[]) }, f32(String(command.timeStep)), command.wake === true); break;
             }
             case "step":
                 if (!world) throw new Error("step before world.create");
