@@ -12,6 +12,7 @@ import {
     type HullData,
     type MeshData,
     makeBoxHull,
+    makeTransformedBoxHull,
     type Shape,
 } from "../api/index";
 import { World } from "../api/world";
@@ -164,6 +165,8 @@ export function runScenario(
     const shapeDef = (command: Command): Record<string, unknown> => ({
         baseMaterial: {
             ...defaultSurfaceMaterial(),
+            friction: f32(String(command.friction ?? "0x3f19999a")),
+            restitution: f32(String(command.restitution ?? "0x00000000")),
             rollingResistance: f32(String(command.rollingResistance ?? "0x00000000")),
         },
         density: f32(String(command.density ?? "0x447a0000")),
@@ -225,8 +228,8 @@ export function runScenario(
                 break;
             }
             case "resource.box": {
-                const halfExtents = vec3(command.halfExtents as unknown[]);
-                boxes.set(command.id, makeBoxHull(halfExtents.x, halfExtents.y, halfExtents.z));
+                const halfExtents = vec3(command.halfExtents as unknown[]); const center = vec3((command.center ?? ["0x00000000", "0x00000000", "0x00000000"]) as unknown[]);
+                boxes.set(command.id, center.x === 0 && center.y === 0 && center.z === 0 ? makeBoxHull(halfExtents.x, halfExtents.y, halfExtents.z) : makeTransformedBoxHull(halfExtents.x, halfExtents.y, halfExtents.z, { p: center, q: quat(["0x00000000", "0x00000000", "0x00000000", "0x3f800000"]) }));
                 break;
             }
             case "resource.sphere":
