@@ -5,6 +5,7 @@ import {
     collectPopulation,
     discoverTestFiles,
     selectIntegrationRows,
+    selectOracleRows,
 } from "../src/harness/surface";
 
 const args = Bun.argv.slice(2);
@@ -15,6 +16,7 @@ const root = resolve(
 const integration = args.includes("--integration");
 const all = args.includes("--all");
 const oracle = valueAfter("--oracle");
+const oracleRequested = args.includes("--oracle");
 const envBase = { ...process.env, SHALLOT_PROJECT_ROOT: root };
 
 function valueAfter(flag: string): string | undefined {
@@ -50,6 +52,20 @@ const diff = valueAfter("--diff");
 const requires = valueAfter("--requires");
 const subject = valueAfter("--subject");
 const selectorRequested = all || args.includes("--requires") || args.includes("--subject");
+if (oracleRequested && args.filter((arg) => arg === "--oracle").length !== 1)
+    refuse("--oracle accepts exactly one claim");
+if (oracleRequested && (oracle === undefined || oracle.trim() === "" || oracle.startsWith("--")))
+    refuse("--oracle needs a claim");
+if (
+    oracleRequested &&
+    (integration ||
+        selectorRequested ||
+        base !== undefined ||
+        diff !== undefined ||
+        args.includes("--base") ||
+        args.includes("--diff"))
+)
+    refuse("--oracle cannot be combined with selectors or integration mode");
 if (args.includes("--requires") && (requires === undefined || requires.startsWith("--")))
     refuse("--requires needs a requirement tag");
 if (args.includes("--subject") && (subject === undefined || subject.startsWith("--")))
@@ -72,7 +88,12 @@ if (population.invalid.length > 0 || population.undeclared.length > 0) {
         ].join("; "),
     );
 }
-const files = discoverTestFiles(root, oracle !== undefined);
+if (oracle !== undefined) {
+    const selected = selectOracleRows(population, oracle);
+    if (selected.length !== 1) refuse(`named oracle not found: ${oracle}`);
+    process.exit(run([selected[0].file], { ...envBase, KEX_S3_ROW: oracle }));
+}
+const files = discoverTestFiles(root);
 if (!integration) {
     const environment = { ...envBase, SHALLOT_UNIT_ONLY: "1" };
     process.exit(run(files, environment));
@@ -94,11 +115,7 @@ if (
     refuse("integration test requires --base <ref> and --diff <ref>");
 if (base !== undefined && diff !== undefined && (!isCommitObject(base) || !isCommitObject(diff)))
     refuse(`integration refs must be existing commit objects: base=${base} diff=${diff}`);
-const selected =
-    oracle === undefined
-        ? selectIntegrationRows(population, { all, requires, subject, base, diff })
-        : population.rows.filter((row) => row.claim === oracle);
-if (oracle !== undefined && selected.length === 0) refuse(`named oracle not found: ${oracle}`);
+const selected = selectIntegrationRows(population, { all, requires, subject, base, diff });
 if (selectorRequested && selected.length === 0) refuse("selector matched no integration rows");
 if (selected.length === 0) {
     // Unit rows still get their normal hermetic proof, but no integration/no-op command is claimed.

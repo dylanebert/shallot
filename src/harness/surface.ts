@@ -495,6 +495,10 @@ export function subjectChanged(
     );
 }
 
+export function selectOracleRows(population: Population, claim: string): SurfaceRow[] {
+    return population.rows.filter((row) => ORACLE_SUFFIX.test(row.file) && row.claim === claim);
+}
+
 export function selectIntegrationRows(
     population: Population,
     selection: IntegrationSelection,

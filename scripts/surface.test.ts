@@ -1,6 +1,7 @@
 import { expect } from "bun:test";
 import {
     cpSync,
+    existsSync,
     mkdirSync,
     mkdtempSync,
     readdirSync,
@@ -589,7 +590,6 @@ check(
         git(tree, "config", "user.name", "surface");
         git(tree, "add", ".");
         git(tree, "commit", "-qm", "oracle");
-        const head = git(tree, "rev-parse", "HEAD");
         try {
             const proc = Bun.spawnSync(
                 [
@@ -597,11 +597,6 @@ check(
                     resolve(ROOT, "scripts/test-runner.ts"),
                     "--root",
                     tree,
-                    "--integration",
-                    "--base",
-                    head,
-                    "--diff",
-                    head,
                     "--oracle",
                     "named oracle runs",
                 ],
@@ -610,6 +605,69 @@ check(
             expect(proc.exitCode).toBe(0);
             expect(proc.stdout.toString()).toContain("NAMED_ORACLE_RAN");
             expect(proc.stdout.toString()).toContain('"result":"pass"');
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
+    "the oracle branch selects one declared oracle row and refuses composition or unknown claims",
+    {
+        claim: "--oracle runs exactly one declared oracle row, list prints only it, and selectors or unknown claims refuse",
+        size: "integration",
+    },
+    () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-surface-named-oracle-"));
+        const checkModule = resolve(ROOT, "src/harness/check");
+        const unitMarker = join(tree, "unit-reached");
+        mkdirSync(join(tree, "src"), { recursive: true });
+        mkdirSync(join(tree, "tests"), { recursive: true });
+        writeFileSync(
+            join(tree, "src/unit.test.ts"),
+            `import { writeFileSync } from "node:fs";\nimport { check } from ${JSON.stringify(checkModule)};\ncheck("unit", { claim: "unselected unit", }, () => { writeFileSync(${JSON.stringify(unitMarker)}, "reached"); throw new Error("UNIT_RAN"); });\n`,
+        );
+        writeFileSync(
+            join(tree, "tests/named.oracle.ts"),
+            `import { check } from ${JSON.stringify(checkModule)};\ncheck("named oracle", { claim: "named oracle claim", size: "integration" }, () => { console.log("NAMED_ORACLE_RAN"); });\n`,
+        );
+        writeFileSync(
+            join(tree, "shallot.json"),
+            JSON.stringify({
+                check: [{ file: "src/unit.test.ts" }, { file: "tests/named.oracle.ts" }],
+            }),
+        );
+        try {
+            const listed = run("surface.ts", tree, "--oracle", "named oracle claim");
+            expect(listed.code).toBe(0);
+            expect(listed.out).toContain("named oracle claim");
+            expect(listed.out).not.toContain("unselected unit");
+            expect(listed.out).toContain("1 checks (parsed 2;");
+
+            const unknown = run("surface.ts", tree, "--oracle", "no such claim");
+            expect(unknown.code).toBe(1);
+            expect(unknown.err).toContain("named oracle not found: no such claim");
+
+            const composed = run("surface.ts", tree, "--oracle", "named oracle claim", "--all");
+            expect(composed.code).toBe(1);
+            expect(composed.err).toContain("--oracle cannot be combined");
+
+            const executed = Bun.spawnSync(
+                [
+                    "bun",
+                    resolve(ROOT, "scripts/test-runner.ts"),
+                    "--root",
+                    tree,
+                    "--oracle",
+                    "named oracle claim",
+                ],
+                { cwd: ROOT, stdout: "pipe", stderr: "pipe" },
+            );
+            const output = executed.stdout.toString() + executed.stderr.toString();
+            expect(executed.exitCode).toBe(0);
+            expect(output).toContain("NAMED_ORACLE_RAN");
+            expect(output).not.toContain("UNIT_RAN");
+            expect(existsSync(unitMarker)).toBe(false);
         } finally {
             rmSync(tree, { recursive: true, force: true });
         }
@@ -719,6 +777,25 @@ check(
         const missing = reader("manifest-no-check");
         expect(missing.code).toBe(1);
         expect(missing.err).toContain("undeclared check file: examples/no-check/check.test.ts");
+    },
+);
+
+check(
+    "the installed bin refuses a retired unknown command",
+    {
+        claim: "installed shallot exits non-zero for unknown commands such as test:integration",
+        size: "integration",
+    },
+    () => {
+        const proc = Bun.spawnSync(["bun", resolve(ROOT, "bin/shallot.ts"), "test:integration"], {
+            cwd: ROOT,
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        expect(proc.exitCode).toBe(1);
+        expect(proc.stdout.toString() + proc.stderr.toString()).toContain(
+            "unknown command: test:integration",
+        );
     },
 );
 

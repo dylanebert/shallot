@@ -181,6 +181,26 @@ check(
 );
 
 check(
+    "the installed bin refuses unknown commands",
+    {
+        claim: "the installed shallot bin exits non-zero instead of silently accepting an unknown command",
+        size: "integration",
+    },
+    () => {
+        const root = resolve(import.meta.dir, "../..");
+        const proc = Bun.spawnSync(["bun", resolve(root, "bin/shallot.ts"), "test:integration"], {
+            cwd: root,
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        expect(proc.exitCode).toBe(1);
+        expect(proc.stdout.toString() + proc.stderr.toString()).toContain(
+            "unknown command: test:integration",
+        );
+    },
+);
+
+check(
     "the public import path resolves",
     {
         claim: "check() is reachable at @dylanebert/shallot/harness/check, the path an extension imports",
