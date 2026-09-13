@@ -110,7 +110,6 @@ function resolveCargo(root: string, subjects: readonly string[]): string | null 
                 try {
                     const value = JSON.parse(line) as {
                         reason?: string;
-                        package_id?: string;
                         target?: { kind?: string[]; name?: string; test?: boolean };
                         profile?: { test?: boolean };
                         executable?: string;
