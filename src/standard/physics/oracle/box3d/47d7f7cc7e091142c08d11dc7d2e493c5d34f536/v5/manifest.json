@@ -14,9 +14,9 @@
     "reachableFromChannel": true
   },
   "oracle": {
-    "memberCommit": "8560bfd2dbcf53f1da3ab23ec6d801b26255b39f",
+    "memberCommit": "ab653878e2f500953dbb0aaad5dd23f3ac89b748",
     "generator": "bin/oracle.ts",
-    "generatorSha256": "147af5c6c7f743ec169c84af36b47725b07cc0047bcd0039feb2f92563ce433a",
+    "generatorSha256": "a0e4a4d368e728ef34468de8fa3515f3d89454f9f338629fa2bee231de4a841b",
     "hookDigest": "841e2805328063a7662a2c1169a3ca89f1a184b39542f3ef5398fa68f743db29",
     "adapters": [
       "adapter/scenario_main.c",
