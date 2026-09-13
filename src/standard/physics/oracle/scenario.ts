@@ -36,7 +36,7 @@ const bits = (value: number): string => {
     return `0x${view.getUint32(0, true).toString(16).padStart(8, "0")}`;
 };
 const quat = (values: unknown[]): { v: { x: number; y: number; z: number }; s: number } => { if (!Array.isArray(values) || values.length !== 4) throw new Error("expected a four-component f32 quaternion"); return { v: vec3(values.slice(0, 3)), s: f32(String(values[3])) }; };
-const frame = (value: unknown): { p: { x: number; y: number; z: number }; q: { v: { x: number; y: number; z: number }; s: number } } => { if (!value || typeof value !== "object") throw new Error("expected a joint frame"); const record = value as Record<string, unknown>; return { p: vec3(record.p as unknown[]), q: quat(record.q as unknown[]) }; };
+const frame = (value: unknown, normalize = false): { p: { x: number; y: number; z: number }; q: { v: { x: number; y: number; z: number }; s: number } } => { if (!value || typeof value !== "object") throw new Error("expected a joint frame"); const record = value as Record<string, unknown>; const q = quat(record.q as unknown[]); return { p: vec3(record.p as unknown[]), q: normalize ? quat.normalize(q) : q }; };
 const vec3 = (values: unknown[]): { x: number; y: number; z: number } => {
     if (!Array.isArray(values) || values.length !== 3) throw new Error("expected a three-component f32 vector");
     return { x: f32(String(values[0])), y: f32(String(values[1])), z: f32(String(values[2])) };
@@ -188,9 +188,9 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
                 if (!world) throw new Error(`joint ${command.id} before world.create`);
                 const bodyA = bodies.get(String(command.bodyA)); const bodyB = bodies.get(String(command.bodyB));
                 if (!bodyA || !bodyB) throw new Error(`joint ${command.id} references an unknown body`);
-                const config: Record<string, unknown> = { localFrameA: frame(command.localFrameA), localFrameB: frame(command.localFrameB) };
+                const config: Record<string, unknown> = { localFrameA: frame(command.localFrameA, command.normalizeFrames === true), localFrameB: frame(command.localFrameB, command.normalizeFrames === true) };
                 for (const [key, value] of Object.entries(command)) {
-                    if (["op", "id", "bodyA", "bodyB", "localFrameA", "localFrameB"].includes(key)) continue;
+                    if (["op", "id", "bodyA", "bodyB", "localFrameA", "localFrameB", "normalizeFrames"].includes(key)) continue;
                     if (typeof value === "boolean") config[key] = value;
                     else if (Array.isArray(value)) config[key] = vec3(value);
                     else config[key] = f32(String(value));
