@@ -1,10 +1,11 @@
 {
-  "schema": "shallot-physics-scenario/migration-v1",
+  "schema": "shallot-physics-scenario/migration-v2",
   "target": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
   "source": "independently reproduced S1 fixture output",
-  "official": "new v4 official adapter output",
+  "official": "new v5 official adapter output",
   "compared": 53,
   "mismatches": 53,
+  "publication": "refused-pending-case-review",
   "dispositions": [
     {
       "name": "free-fall",
@@ -17,7 +18,7 @@
         "old": "0xe8bd16c68c93b4ea",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "sphere-drop",
@@ -30,7 +31,7 @@
         "old": "0x8c85b518f1c02ccb",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "box-stack",
@@ -43,7 +44,7 @@
         "old": "0x3b2abc2321c01a75",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "sphere-sleep",
@@ -56,7 +57,7 @@
         "old": "0x8c85b518f1c02ccb",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "box-sleep",
@@ -69,7 +70,7 @@
         "old": "0x3b2abc2321c01a75",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "wake-drop",
@@ -82,7 +83,7 @@
         "old": "0x7ec2fc1336a3ff62",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "split-slide",
@@ -95,7 +96,7 @@
         "old": "0xf329e88cfb26c726",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "revolute-dd",
@@ -108,7 +109,7 @@
         "old": "0x5d5c6595184aae6d",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "revolute-pendulum",
@@ -121,7 +122,7 @@
         "old": "0x6519ec065d495897",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "revolute-motor",
@@ -134,7 +135,7 @@
         "old": "0x29e7d1b9fcd070ba",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "revolute-limit",
@@ -147,7 +148,7 @@
         "old": "0x6519ec065d495897",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "revolute-chain",
@@ -160,7 +161,7 @@
         "old": "0x9b9d5d1a8da8ce25",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "weld-dd",
@@ -173,7 +174,7 @@
         "old": "0x1b1226ff65672680",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "parallel",
@@ -186,7 +187,7 @@
         "old": "0xcb710aced66b3495",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "joint-contacts",
@@ -199,7 +200,7 @@
         "old": "0xef9af1e9d02e5348",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "motor",
@@ -212,7 +213,7 @@
         "old": "0xf2c8aae56fe4fa11",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "motor-spring",
@@ -225,7 +226,7 @@
         "old": "0xe7b396a5364c8624",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "distance",
@@ -238,7 +239,7 @@
         "old": "0xc7ea6da72bda9044",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "distance-spring",
@@ -251,7 +252,7 @@
         "old": "0x95be30b6a36c64bd",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "prismatic",
@@ -264,7 +265,7 @@
         "old": "0x4c467bc03cd980c3",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "prismatic-motor",
@@ -277,7 +278,7 @@
         "old": "0xb623c6767a6e3d4b",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "spherical",
@@ -290,7 +291,7 @@
         "old": "0x6519ec065d495897",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "spherical-limits",
@@ -303,7 +304,7 @@
         "old": "0x12c2708d6ef68d5a",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "spherical-motor",
@@ -316,7 +317,7 @@
         "old": "0xa80a533675fa3b87",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "wheel",
@@ -329,7 +330,7 @@
         "old": "0x421afc0f3f2faa00",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "wheel-spin",
@@ -342,7 +343,7 @@
         "old": "0xc1d7ffa5929075a8",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "wheel-steer",
@@ -355,7 +356,7 @@
         "old": "0x62cb387fc5162a2c",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "ragdoll",
@@ -368,7 +369,7 @@
         "old": "0xaab3e5b732aa00f8",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "ccd-drop",
@@ -381,7 +382,7 @@
         "old": "0xc3af7946f221ac40",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "ccd-bullet",
@@ -394,7 +395,7 @@
         "old": "0x29e8843a2f2029fe",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "mesh-box",
@@ -407,7 +408,7 @@
         "old": "0x22b47d26b25c19b1",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "mesh-sphere",
@@ -420,7 +421,7 @@
         "old": "0x0dfbd213e6b50018",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "mesh-capsule",
@@ -433,7 +434,7 @@
         "old": "0x0dfbd213e6b50018",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "mesh-ccd",
@@ -446,7 +447,7 @@
         "old": "0x6a56136bd6d40273",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "height-box",
@@ -459,7 +460,7 @@
         "old": "0x9ee2fc26fddc19b1",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "height-sphere",
@@ -472,7 +473,7 @@
         "old": "0x6d5ffee325350018",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "height-capsule",
@@ -485,7 +486,7 @@
         "old": "0x6d5ffee325350018",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "height-ccd",
@@ -498,7 +499,7 @@
         "old": "0x782a838426540273",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "compound-hull",
@@ -511,7 +512,7 @@
         "old": "0x22b47d26b25c19b1",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "compound-capsule",
@@ -524,7 +525,7 @@
         "old": "0x8ef38032f75a44b0",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "compound-sphere",
@@ -537,7 +538,7 @@
         "old": "0x22b47d26b25c19b1",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "compound-mesh",
@@ -550,7 +551,7 @@
         "old": "0x22b47d26b25c19b1",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "compound-ccd",
@@ -563,7 +564,7 @@
         "old": "0x6a56136bd6d40273",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "sensor",
@@ -576,7 +577,7 @@
         "old": "0x18405a0b125ac13f",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "bench-pyramid",
@@ -589,7 +590,7 @@
         "old": "0xdd925c82021b7832",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "bench-many-pyramids",
@@ -602,7 +603,7 @@
         "old": "0xc568fc25a4f11404",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "bench-joint-grid",
@@ -615,7 +616,7 @@
         "old": "0x2e19829e3fae8d1d",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "bench-washer",
@@ -628,7 +629,7 @@
         "old": "0xbcfdf17cfdfb0974",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "bench-large-world",
@@ -641,7 +642,7 @@
         "old": "0x180fd436760981e5",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "bench-trees",
@@ -654,7 +655,7 @@
         "old": "0xb9d4092fb8cbe17f",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "bench-junkyard",
@@ -667,7 +668,7 @@
         "old": "0x6cdb4910b3ef6574",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "bench-rain",
@@ -680,7 +681,7 @@
         "old": "0x10b46a73d5b9e4e6",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     },
     {
       "name": "drift",
@@ -693,7 +694,7 @@
         "old": "0x3b2abc2321c01a75",
         "official": "0xac5bcddcdc8d2f89"
       },
-      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+      "disposition": "unresolved-semantic-mismatch: migration publication is refused pending case review"
     }
   ]
 }

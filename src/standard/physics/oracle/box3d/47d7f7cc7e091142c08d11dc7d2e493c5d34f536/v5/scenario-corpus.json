@@ -1,0 +1,7525 @@
+{
+  "schema": "shallot-physics-scenario/v2",
+  "authority": "official-box3d",
+  "scenarios": [
+    {
+      "id": "s1.free-fall.v1",
+      "name": "free-fall",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "free-fall",
+        "fixtureInput": {
+          "scene": "free-fall",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 60,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 60,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.sphere-drop.v1",
+      "name": "sphere-drop",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "sphere-drop",
+        "fixtureInput": {
+          "scene": "sphere-drop",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.box-stack.v1",
+      "name": "box-stack",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "box-stack",
+        "fixtureInput": {
+          "scene": "box-stack",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.sphere-sleep.v1",
+      "name": "sphere-sleep",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": true,
+        "enableContinuous": false,
+        "legacyBuilder": "sphere-sleep",
+        "fixtureInput": {
+          "scene": "sphere-sleep",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 150,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 150,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.box-sleep.v1",
+      "name": "box-sleep",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": true,
+        "enableContinuous": false,
+        "legacyBuilder": "box-sleep",
+        "fixtureInput": {
+          "scene": "box-sleep",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 150,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 150,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.wake-drop.v1",
+      "name": "wake-drop",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": true,
+        "enableContinuous": false,
+        "legacyBuilder": "wake-drop",
+        "fixtureInput": {
+          "scene": "wake-drop",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 180,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 180,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.split-slide.v1",
+      "name": "split-slide",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": true,
+        "enableContinuous": false,
+        "legacyBuilder": "split-slide",
+        "fixtureInput": {
+          "scene": "split-slide",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.revolute-dd.v1",
+      "name": "revolute-dd",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "revolute-dd",
+        "fixtureInput": {
+          "scene": "revolute-dd",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 60,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 60,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.revolute-pendulum.v1",
+      "name": "revolute-pendulum",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "revolute-pendulum",
+        "fixtureInput": {
+          "scene": "revolute-pendulum",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.revolute-motor.v1",
+      "name": "revolute-motor",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "revolute-motor",
+        "fixtureInput": {
+          "scene": "revolute-motor",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.revolute-limit.v1",
+      "name": "revolute-limit",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "revolute-limit",
+        "fixtureInput": {
+          "scene": "revolute-limit",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 150,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 150,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.revolute-chain.v1",
+      "name": "revolute-chain",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": true,
+        "enableContinuous": false,
+        "legacyBuilder": "revolute-chain",
+        "fixtureInput": {
+          "scene": "revolute-chain",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 240,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 240,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.weld-dd.v1",
+      "name": "weld-dd",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "weld-dd",
+        "fixtureInput": {
+          "scene": "weld-dd",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 90,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.parallel.v1",
+      "name": "parallel",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "parallel",
+        "fixtureInput": {
+          "scene": "parallel",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 90,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.joint-contacts.v1",
+      "name": "joint-contacts",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "joint-contacts",
+        "fixtureInput": {
+          "scene": "joint-contacts",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 90,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.motor.v1",
+      "name": "motor",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "motor",
+        "fixtureInput": {
+          "scene": "motor",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.motor-spring.v1",
+      "name": "motor-spring",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "motor-spring",
+        "fixtureInput": {
+          "scene": "motor-spring",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.distance.v1",
+      "name": "distance",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "distance",
+        "fixtureInput": {
+          "scene": "distance",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.distance-spring.v1",
+      "name": "distance-spring",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "distance-spring",
+        "fixtureInput": {
+          "scene": "distance-spring",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 150,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 150,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.prismatic.v1",
+      "name": "prismatic",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "prismatic",
+        "fixtureInput": {
+          "scene": "prismatic",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 90,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.prismatic-motor.v1",
+      "name": "prismatic-motor",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "prismatic-motor",
+        "fixtureInput": {
+          "scene": "prismatic-motor",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 90,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.spherical.v1",
+      "name": "spherical",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "spherical",
+        "fixtureInput": {
+          "scene": "spherical",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.spherical-limits.v1",
+      "name": "spherical-limits",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "spherical-limits",
+        "fixtureInput": {
+          "scene": "spherical-limits",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 150,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 150,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.spherical-motor.v1",
+      "name": "spherical-motor",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "spherical-motor",
+        "fixtureInput": {
+          "scene": "spherical-motor",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.wheel.v1",
+      "name": "wheel",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "wheel",
+        "fixtureInput": {
+          "scene": "wheel",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.wheel-spin.v1",
+      "name": "wheel-spin",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "wheel-spin",
+        "fixtureInput": {
+          "scene": "wheel-spin",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.wheel-steer.v1",
+      "name": "wheel-steer",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "wheel-steer",
+        "fixtureInput": {
+          "scene": "wheel-steer",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 150,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 150,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.ragdoll.v1",
+      "name": "ragdoll",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": true,
+        "enableContinuous": false,
+        "legacyBuilder": "ragdoll",
+        "fixtureInput": {
+          "scene": "ragdoll",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 300,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 300,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.ccd-drop.v1",
+      "name": "ccd-drop",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": true,
+        "legacyBuilder": "ccd-drop",
+        "fixtureInput": {
+          "scene": "ccd-drop",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 60,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 60,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.ccd-bullet.v1",
+      "name": "ccd-bullet",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": true,
+        "legacyBuilder": "ccd-bullet",
+        "fixtureInput": {
+          "scene": "ccd-bullet",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 40,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 40,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.mesh-box.v1",
+      "name": "mesh-box",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "mesh-box",
+        "fixtureInput": {
+          "scene": "mesh-box",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.mesh-sphere.v1",
+      "name": "mesh-sphere",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "mesh-sphere",
+        "fixtureInput": {
+          "scene": "mesh-sphere",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 90,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.mesh-capsule.v1",
+      "name": "mesh-capsule",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "mesh-capsule",
+        "fixtureInput": {
+          "scene": "mesh-capsule",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.mesh-ccd.v1",
+      "name": "mesh-ccd",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": true,
+        "legacyBuilder": "mesh-ccd",
+        "fixtureInput": {
+          "scene": "mesh-ccd",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 60,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 60,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.height-box.v1",
+      "name": "height-box",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "height-box",
+        "fixtureInput": {
+          "scene": "height-box",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.height-sphere.v1",
+      "name": "height-sphere",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "height-sphere",
+        "fixtureInput": {
+          "scene": "height-sphere",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 90,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.height-capsule.v1",
+      "name": "height-capsule",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "height-capsule",
+        "fixtureInput": {
+          "scene": "height-capsule",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.height-ccd.v1",
+      "name": "height-ccd",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": true,
+        "legacyBuilder": "height-ccd",
+        "fixtureInput": {
+          "scene": "height-ccd",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 60,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 60,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.compound-hull.v1",
+      "name": "compound-hull",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "compound-hull",
+        "fixtureInput": {
+          "scene": "compound-hull",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.compound-capsule.v1",
+      "name": "compound-capsule",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "compound-capsule",
+        "fixtureInput": {
+          "scene": "compound-capsule",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.compound-sphere.v1",
+      "name": "compound-sphere",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "compound-sphere",
+        "fixtureInput": {
+          "scene": "compound-sphere",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.compound-mesh.v1",
+      "name": "compound-mesh",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "compound-mesh",
+        "fixtureInput": {
+          "scene": "compound-mesh",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.compound-ccd.v1",
+      "name": "compound-ccd",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": true,
+        "legacyBuilder": "compound-ccd",
+        "fixtureInput": {
+          "scene": "compound-ccd",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 60,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 60,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.sensor.v1",
+      "name": "sensor",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": true,
+        "legacyBuilder": "sensor",
+        "fixtureInput": {
+          "scene": "sensor",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 90,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-pyramid.v1",
+      "name": "bench-pyramid",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "bench-pyramid",
+        "fixtureInput": {
+          "scene": "bench-pyramid",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 100,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 100,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-many-pyramids.v1",
+      "name": "bench-many-pyramids",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "bench-many-pyramids",
+        "fixtureInput": {
+          "scene": "bench-many-pyramids",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 90,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-joint-grid.v1",
+      "name": "bench-joint-grid",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "bench-joint-grid",
+        "fixtureInput": {
+          "scene": "bench-joint-grid",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 100,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 100,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-washer.v1",
+      "name": "bench-washer",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "bench-washer",
+        "fixtureInput": {
+          "scene": "bench-washer",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 120,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-large-world.v1",
+      "name": "bench-large-world",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "bench-large-world",
+        "fixtureInput": {
+          "scene": "bench-large-world",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 90,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-trees.v1",
+      "name": "bench-trees",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "bench-trees",
+        "fixtureInput": {
+          "scene": "bench-trees",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 90,
+          "gravity": [
+            0,
+            -10,
+            0
+          ],
+          "groundVertices": [
+            [
+              -12,
+              0,
+              -16
+            ],
+            [
+              -12,
+              0,
+              -15
+            ],
+            [
+              -12,
+              0,
+              -14
+            ],
+            [
+              -12,
+              0,
+              -13
+            ],
+            [
+              -12,
+              0,
+              -12
+            ],
+            [
+              -12,
+              0,
+              -11
+            ],
+            [
+              -12,
+              0,
+              -10
+            ],
+            [
+              -12,
+              0,
+              -9
+            ],
+            [
+              -12,
+              0,
+              -8
+            ],
+            [
+              -12,
+              0,
+              -7
+            ],
+            [
+              -12,
+              0,
+              -6
+            ],
+            [
+              -12,
+              0,
+              -5
+            ],
+            [
+              -12,
+              0,
+              -4
+            ],
+            [
+              -12,
+              0,
+              -3
+            ],
+            [
+              -12,
+              0,
+              -2
+            ],
+            [
+              -12,
+              0,
+              -1
+            ],
+            [
+              -12,
+              0,
+              0
+            ],
+            [
+              -12,
+              0,
+              1
+            ],
+            [
+              -12,
+              0,
+              2
+            ],
+            [
+              -12,
+              0,
+              3
+            ],
+            [
+              -12,
+              0,
+              4
+            ],
+            [
+              -12,
+              0,
+              5
+            ],
+            [
+              -12,
+              0,
+              6
+            ],
+            [
+              -12,
+              0,
+              7
+            ],
+            [
+              -12,
+              0,
+              8
+            ],
+            [
+              -12,
+              0,
+              9
+            ],
+            [
+              -12,
+              0,
+              10
+            ],
+            [
+              -12,
+              0,
+              11
+            ],
+            [
+              -12,
+              0,
+              12
+            ],
+            [
+              -12,
+              0,
+              13
+            ],
+            [
+              -12,
+              0,
+              14
+            ],
+            [
+              -12,
+              0,
+              15
+            ],
+            [
+              -12,
+              0,
+              16
+            ],
+            [
+              -11,
+              0,
+              -16
+            ],
+            [
+              -11,
+              0.0726542547,
+              -15
+            ],
+            [
+              -11,
+              0.138196602,
+              -14
+            ],
+            [
+              -11,
+              0.190211296,
+              -13
+            ],
+            [
+              -11,
+              0.223606795,
+              -12
+            ],
+            [
+              -11,
+              0.235114098,
+              -11
+            ],
+            [
+              -11,
+              0.22360678,
+              -10
+            ],
+            [
+              -11,
+              0.190211296,
+              -9
+            ],
+            [
+              -11,
+              0.138196588,
+              -8
+            ],
+            [
+              -11,
+              0.0726542026,
+              -7
+            ],
+            [
+              -11,
+              -2.0554328e-08,
+              -6
+            ],
+            [
+              -11,
+              -0.0726542473,
+              -5
+            ],
+            [
+              -11,
+              -0.138196632,
+              -4
+            ],
+            [
+              -11,
+              -0.190211326,
+              -3
+            ],
+            [
+              -11,
+              -0.22360678,
+              -2
+            ],
+            [
+              -11,
+              -0.235114098,
+              -1
+            ],
+            [
+              -11,
+              -0.22360678,
+              0
+            ],
+            [
+              -11,
+              -0.190211266,
+              1
+            ],
+            [
+              -11,
+              -0.138196528,
+              2
+            ],
+            [
+              -11,
+              -0.0726542398,
+              3
+            ],
+            [
+              -11,
+              4.1108656e-08,
+              4
+            ],
+            [
+              -11,
+              0.0726543143,
+              5
+            ],
+            [
+              -11,
+              0.138196602,
+              6
+            ],
+            [
+              -11,
+              0.190211311,
+              7
+            ],
+            [
+              -11,
+              0.22360681,
+              8
+            ],
+            [
+              -11,
+              0.235114098,
+              9
+            ],
+            [
+              -11,
+              0.223606765,
+              10
+            ],
+            [
+              -11,
+              0.190211222,
+              11
+            ],
+            [
+              -11,
+              0.138196632,
+              12
+            ],
+            [
+              -11,
+              0.0726542771,
+              13
+            ],
+            [
+              -11,
+              -5.60741498e-09,
+              14
+            ],
+            [
+              -11,
+              -0.072654292,
+              15
+            ],
+            [
+              -11,
+              -0.138196647,
+              16
+            ],
+            [
+              -10,
+              0,
+              -16
+            ],
+            [
+              -10,
+              0.117557056,
+              -15
+            ],
+            [
+              -10,
+              0.22360681,
+              -14
+            ],
+            [
+              -10,
+              0.307768375,
+              -13
+            ],
+            [
+              -10,
+              0.361803412,
+              -12
+            ],
+            [
+              -10,
+              0.380422622,
+              -11
+            ],
+            [
+              -10,
+              0.361803412,
+              -10
+            ],
+            [
+              -10,
+              0.307768375,
+              -9
+            ],
+            [
+              -10,
+              0.22360678,
+              -8
+            ],
+            [
+              -10,
+              0.117556982,
+              -7
+            ],
+            [
+              -10,
+              -3.32576029e-08,
+              -6
+            ],
+            [
+              -10,
+              -0.117557049,
+              -5
+            ],
+            [
+              -10,
+              -0.223606855,
+              -4
+            ],
+            [
+              -10,
+              -0.307768404,
+              -3
+            ],
+            [
+              -10,
+              -0.361803412,
+              -2
+            ],
+            [
+              -10,
+              -0.380422622,
+              -1
+            ],
+            [
+              -10,
+              -0.361803412,
+              0
+            ],
+            [
+              -10,
+              -0.307768315,
+              1
+            ],
+            [
+              -10,
+              -0.223606691,
+              2
+            ],
+            [
+              -10,
+              -0.117557034,
+              3
+            ],
+            [
+              -10,
+              6.65152058e-08,
+              4
+            ],
+            [
+              -10,
+              0.117557161,
+              5
+            ],
+            [
+              -10,
+              0.22360681,
+              6
+            ],
+            [
+              -10,
+              0.307768404,
+              7
+            ],
+            [
+              -10,
+              0.361803442,
+              8
+            ],
+            [
+              -10,
+              0.380422622,
+              9
+            ],
+            [
+              -10,
+              0.361803353,
+              10
+            ],
+            [
+              -10,
+              0.307768226,
+              11
+            ],
+            [
+              -10,
+              0.22360687,
+              12
+            ],
+            [
+              -10,
+              0.117557094,
+              13
+            ],
+            [
+              -10,
+              -9.07298858e-09,
+              14
+            ],
+            [
+              -10,
+              -0.117557116,
+              15
+            ],
+            [
+              -10,
+              -0.223606899,
+              16
+            ],
+            [
+              -9,
+              0,
+              -16
+            ],
+            [
+              -9,
+              0.117557049,
+              -15
+            ],
+            [
+              -9,
+              0.22360678,
+              -14
+            ],
+            [
+              -9,
+              0.307768345,
+              -13
+            ],
+            [
+              -9,
+              0.361803383,
+              -12
+            ],
+            [
+              -9,
+              0.380422592,
+              -11
+            ],
+            [
+              -9,
+              0.361803383,
+              -10
+            ],
+            [
+              -9,
+              0.307768345,
+              -9
+            ],
+            [
+              -9,
+              0.223606765,
+              -8
+            ],
+            [
+              -9,
+              0.117556967,
+              -7
+            ],
+            [
+              -9,
+              -3.32575993e-08,
+              -6
+            ],
+            [
+              -9,
+              -0.117557041,
+              -5
+            ],
+            [
+              -9,
+              -0.223606825,
+              -4
+            ],
+            [
+              -9,
+              -0.307768404,
+              -3
+            ],
+            [
+              -9,
+              -0.361803383,
+              -2
+            ],
+            [
+              -9,
+              -0.380422592,
+              -1
+            ],
+            [
+              -9,
+              -0.361803383,
+              0
+            ],
+            [
+              -9,
+              -0.307768285,
+              1
+            ],
+            [
+              -9,
+              -0.223606676,
+              2
+            ],
+            [
+              -9,
+              -0.117557026,
+              3
+            ],
+            [
+              -9,
+              6.65151987e-08,
+              4
+            ],
+            [
+              -9,
+              0.117557153,
+              5
+            ],
+            [
+              -9,
+              0.22360678,
+              6
+            ],
+            [
+              -9,
+              0.307768375,
+              7
+            ],
+            [
+              -9,
+              0.361803412,
+              8
+            ],
+            [
+              -9,
+              0.380422592,
+              9
+            ],
+            [
+              -9,
+              0.361803323,
+              10
+            ],
+            [
+              -9,
+              0.307768196,
+              11
+            ],
+            [
+              -9,
+              0.223606855,
+              12
+            ],
+            [
+              -9,
+              0.117557086,
+              13
+            ],
+            [
+              -9,
+              -9.07298769e-09,
+              14
+            ],
+            [
+              -9,
+              -0.117557108,
+              15
+            ],
+            [
+              -9,
+              -0.22360687,
+              16
+            ],
+            [
+              -8,
+              0,
+              -16
+            ],
+            [
+              -8,
+              0.0726542473,
+              -15
+            ],
+            [
+              -8,
+              0.138196588,
+              -14
+            ],
+            [
+              -8,
+              0.190211296,
+              -13
+            ],
+            [
+              -8,
+              0.22360678,
+              -12
+            ],
+            [
+              -8,
+              0.235114083,
+              -11
+            ],
+            [
+              -8,
+              0.223606765,
+              -10
+            ],
+            [
+              -8,
+              0.190211296,
+              -9
+            ],
+            [
+              -8,
+              0.138196573,
+              -8
+            ],
+            [
+              -8,
+              0.0726542026,
+              -7
+            ],
+            [
+              -8,
+              -2.05543262e-08,
+              -6
+            ],
+            [
+              -8,
+              -0.0726542398,
+              -5
+            ],
+            [
+              -8,
+              -0.138196617,
+              -4
+            ],
+            [
+              -8,
+              -0.190211326,
+              -3
+            ],
+            [
+              -8,
+              -0.223606765,
+              -2
+            ],
+            [
+              -8,
+              -0.235114083,
+              -1
+            ],
+            [
+              -8,
+              -0.223606765,
+              0
+            ],
+            [
+              -8,
+              -0.190211251,
+              1
+            ],
+            [
+              -8,
+              -0.138196513,
+              2
+            ],
+            [
+              -8,
+              -0.0726542324,
+              3
+            ],
+            [
+              -8,
+              4.11086525e-08,
+              4
+            ],
+            [
+              -8,
+              0.0726543143,
+              5
+            ],
+            [
+              -8,
+              0.138196588,
+              6
+            ],
+            [
+              -8,
+              0.190211311,
+              7
+            ],
+            [
+              -8,
+              0.223606795,
+              8
+            ],
+            [
+              -8,
+              0.235114083,
+              9
+            ],
+            [
+              -8,
+              0.22360675,
+              10
+            ],
+            [
+              -8,
+              0.190211207,
+              11
+            ],
+            [
+              -8,
+              0.138196632,
+              12
+            ],
+            [
+              -8,
+              0.0726542696,
+              13
+            ],
+            [
+              -8,
+              -5.60741453e-09,
+              14
+            ],
+            [
+              -8,
+              -0.0726542845,
+              15
+            ],
+            [
+              -8,
+              -0.138196647,
+              16
+            ],
+            [
+              -7,
+              0,
+              -16
+            ],
+            [
+              -7,
+              -1.08060503e-08,
+              -15
+            ],
+            [
+              -7,
+              -2.0554328e-08,
+              -14
+            ],
+            [
+              -7,
+              -2.82906054e-08,
+              -13
+            ],
+            [
+              -7,
+              -3.32576029e-08,
+              -12
+            ],
+            [
+              -7,
+              -3.49691121e-08,
+              -11
+            ],
+            [
+              -7,
+              -3.32575993e-08,
+              -10
+            ],
+            [
+              -7,
+              -2.82906054e-08,
+              -9
+            ],
+            [
+              -7,
+              -2.05543262e-08,
+              -8
+            ],
+            [
+              -7,
+              -1.08060432e-08,
+              -7
+            ],
+            [
+              -7,
+              3.05709691e-15,
+              -6
+            ],
+            [
+              -7,
+              1.08060494e-08,
+              -5
+            ],
+            [
+              -7,
+              2.05543316e-08,
+              -4
+            ],
+            [
+              -7,
+              2.82906107e-08,
+              -3
+            ],
+            [
+              -7,
+              3.32575993e-08,
+              -2
+            ],
+            [
+              -7,
+              3.49691121e-08,
+              -1
+            ],
+            [
+              -7,
+              3.32575993e-08,
+              0
+            ],
+            [
+              -7,
+              2.82906001e-08,
+              1
+            ],
+            [
+              -7,
+              2.05543174e-08,
+              2
+            ],
+            [
+              -7,
+              1.08060485e-08,
+              3
+            ],
+            [
+              -7,
+              -6.11419383e-15,
+              4
+            ],
+            [
+              -7,
+              -1.08060592e-08,
+              5
+            ],
+            [
+              -7,
+              -2.0554328e-08,
+              6
+            ],
+            [
+              -7,
+              -2.8290609e-08,
+              7
+            ],
+            [
+              -7,
+              -3.32576064e-08,
+              8
+            ],
+            [
+              -7,
+              -3.49691121e-08,
+              9
+            ],
+            [
+              -7,
+              -3.32575958e-08,
+              10
+            ],
+            [
+              -7,
+              -2.8290593e-08,
+              11
+            ],
+            [
+              -7,
+              -2.05543351e-08,
+              12
+            ],
+            [
+              -7,
+              -1.08060529e-08,
+              13
+            ],
+            [
+              -7,
+              8.34004998e-16,
+              14
+            ],
+            [
+              -7,
+              1.08060556e-08,
+              15
+            ],
+            [
+              -7,
+              2.05543369e-08,
+              16
+            ],
+            [
+              -6,
+              0,
+              -16
+            ],
+            [
+              -6,
+              -0.0726542696,
+              -15
+            ],
+            [
+              -6,
+              -0.138196617,
+              -14
+            ],
+            [
+              -6,
+              -0.190211341,
+              -13
+            ],
+            [
+              -6,
+              -0.22360684,
+              -12
+            ],
+            [
+              -6,
+              -0.235114142,
+              -11
+            ],
+            [
+              -6,
+              -0.223606825,
+              -10
+            ],
+            [
+              -6,
+              -0.190211341,
+              -9
+            ],
+            [
+              -6,
+              -0.138196602,
+              -8
+            ],
+            [
+              -6,
+              -0.0726542175,
+              -7
+            ],
+            [
+              -6,
+              2.05543316e-08,
+              -6
+            ],
+            [
+              -6,
+              0.0726542622,
+              -5
+            ],
+            [
+              -6,
+              0.138196647,
+              -4
+            ],
+            [
+              -6,
+              0.190211371,
+              -3
+            ],
+            [
+              -6,
+              0.223606825,
+              -2
+            ],
+            [
+              -6,
+              0.235114142,
+              -1
+            ],
+            [
+              -6,
+              0.223606825,
+              0
+            ],
+            [
+              -6,
+              0.190211296,
+              1
+            ],
+            [
+              -6,
+              0.138196558,
+              2
+            ],
+            [
+              -6,
+              0.0726542547,
+              3
+            ],
+            [
+              -6,
+              -4.11086631e-08,
+              4
+            ],
+            [
+              -6,
+              -0.0726543292,
+              5
+            ],
+            [
+              -6,
+              -0.138196617,
+              6
+            ],
+            [
+              -6,
+              -0.190211356,
+              7
+            ],
+            [
+              -6,
+              -0.223606855,
+              8
+            ],
+            [
+              -6,
+              -0.235114142,
+              9
+            ],
+            [
+              -6,
+              -0.223606795,
+              10
+            ],
+            [
+              -6,
+              -0.190211251,
+              11
+            ],
+            [
+              -6,
+              -0.138196662,
+              12
+            ],
+            [
+              -6,
+              -0.072654292,
+              13
+            ],
+            [
+              -6,
+              5.60741631e-09,
+              14
+            ],
+            [
+              -6,
+              0.0726542994,
+              15
+            ],
+            [
+              -6,
+              0.138196677,
+              16
+            ],
+            [
+              -5,
+              0,
+              -16
+            ],
+            [
+              -5,
+              -0.117557049,
+              -15
+            ],
+            [
+              -5,
+              -0.22360678,
+              -14
+            ],
+            [
+              -5,
+              -0.307768345,
+              -13
+            ],
+            [
+              -5,
+              -0.361803383,
+              -12
+            ],
+            [
+              -5,
+              -0.380422592,
+              -11
+            ],
+            [
+              -5,
+              -0.361803383,
+              -10
+            ],
+            [
+              -5,
+              -0.307768345,
+              -9
+            ],
+            [
+              -5,
+              -0.223606765,
+              -8
+            ],
+            [
+              -5,
+              -0.117556967,
+              -7
+            ],
+            [
+              -5,
+              3.32575993e-08,
+              -6
+            ],
+            [
+              -5,
+              0.117557041,
+              -5
+            ],
+            [
+              -5,
+              0.223606825,
+              -4
+            ],
+            [
+              -5,
+              0.307768404,
+              -3
+            ],
+            [
+              -5,
+              0.361803383,
+              -2
+            ],
+            [
+              -5,
+              0.380422592,
+              -1
+            ],
+            [
+              -5,
+              0.361803383,
+              0
+            ],
+            [
+              -5,
+              0.307768285,
+              1
+            ],
+            [
+              -5,
+              0.223606676,
+              2
+            ],
+            [
+              -5,
+              0.117557026,
+              3
+            ],
+            [
+              -5,
+              -6.65151987e-08,
+              4
+            ],
+            [
+              -5,
+              -0.117557153,
+              5
+            ],
+            [
+              -5,
+              -0.22360678,
+              6
+            ],
+            [
+              -5,
+              -0.307768375,
+              7
+            ],
+            [
+              -5,
+              -0.361803412,
+              8
+            ],
+            [
+              -5,
+              -0.380422592,
+              9
+            ],
+            [
+              -5,
+              -0.361803323,
+              10
+            ],
+            [
+              -5,
+              -0.307768196,
+              11
+            ],
+            [
+              -5,
+              -0.223606855,
+              12
+            ],
+            [
+              -5,
+              -0.117557086,
+              13
+            ],
+            [
+              -5,
+              9.07298769e-09,
+              14
+            ],
+            [
+              -5,
+              0.117557108,
+              15
+            ],
+            [
+              -5,
+              0.22360687,
+              16
+            ],
+            [
+              -4,
+              0,
+              -16
+            ],
+            [
+              -4,
+              -0.117557049,
+              -15
+            ],
+            [
+              -4,
+              -0.22360678,
+              -14
+            ],
+            [
+              -4,
+              -0.307768345,
+              -13
+            ],
+            [
+              -4,
+              -0.361803383,
+              -12
+            ],
+            [
+              -4,
+              -0.380422592,
+              -11
+            ],
+            [
+              -4,
+              -0.361803383,
+              -10
+            ],
+            [
+              -4,
+              -0.307768345,
+              -9
+            ],
+            [
+              -4,
+              -0.223606765,
+              -8
+            ],
+            [
+              -4,
+              -0.117556967,
+              -7
+            ],
+            [
+              -4,
+              3.32575993e-08,
+              -6
+            ],
+            [
+              -4,
+              0.117557041,
+              -5
+            ],
+            [
+              -4,
+              0.223606825,
+              -4
+            ],
+            [
+              -4,
+              0.307768404,
+              -3
+            ],
+            [
+              -4,
+              0.361803383,
+              -2
+            ],
+            [
+              -4,
+              0.380422592,
+              -1
+            ],
+            [
+              -4,
+              0.361803383,
+              0
+            ],
+            [
+              -4,
+              0.307768285,
+              1
+            ],
+            [
+              -4,
+              0.223606676,
+              2
+            ],
+            [
+              -4,
+              0.117557026,
+              3
+            ],
+            [
+              -4,
+              -6.65151987e-08,
+              4
+            ],
+            [
+              -4,
+              -0.117557153,
+              5
+            ],
+            [
+              -4,
+              -0.22360678,
+              6
+            ],
+            [
+              -4,
+              -0.307768375,
+              7
+            ],
+            [
+              -4,
+              -0.361803412,
+              8
+            ],
+            [
+              -4,
+              -0.380422592,
+              9
+            ],
+            [
+              -4,
+              -0.361803323,
+              10
+            ],
+            [
+              -4,
+              -0.307768196,
+              11
+            ],
+            [
+              -4,
+              -0.223606855,
+              12
+            ],
+            [
+              -4,
+              -0.117557086,
+              13
+            ],
+            [
+              -4,
+              9.07298769e-09,
+              14
+            ],
+            [
+              -4,
+              0.117557108,
+              15
+            ],
+            [
+              -4,
+              0.22360687,
+              16
+            ],
+            [
+              -3,
+              0,
+              -16
+            ],
+            [
+              -3,
+              -0.0726542175,
+              -15
+            ],
+            [
+              -3,
+              -0.138196528,
+              -14
+            ],
+            [
+              -3,
+              -0.190211207,
+              -13
+            ],
+            [
+              -3,
+              -0.223606691,
+              -12
+            ],
+            [
+              -3,
+              -0.235113978,
+              -11
+            ],
+            [
+              -3,
+              -0.223606676,
+              -10
+            ],
+            [
+              -3,
+              -0.190211207,
+              -9
+            ],
+            [
+              -3,
+              -0.138196513,
+              -8
+            ],
+            [
+              -3,
+              -0.0726541653,
+              -7
+            ],
+            [
+              -3,
+              2.05543174e-08,
+              -6
+            ],
+            [
+              -3,
+              0.07265421,
+              -5
+            ],
+            [
+              -3,
+              0.138196558,
+              -4
+            ],
+            [
+              -3,
+              0.190211236,
+              -3
+            ],
+            [
+              -3,
+              0.223606676,
+              -2
+            ],
+            [
+              -3,
+              0.235113978,
+              -1
+            ],
+            [
+              -3,
+              0.223606676,
+              0
+            ],
+            [
+              -3,
+              0.190211162,
+              1
+            ],
+            [
+              -3,
+              0.138196453,
+              2
+            ],
+            [
+              -3,
+              0.0726542026,
+              3
+            ],
+            [
+              -3,
+              -4.11086347e-08,
+              4
+            ],
+            [
+              -3,
+              -0.0726542771,
+              5
+            ],
+            [
+              -3,
+              -0.138196528,
+              6
+            ],
+            [
+              -3,
+              -0.190211222,
+              7
+            ],
+            [
+              -3,
+              -0.223606706,
+              8
+            ],
+            [
+              -3,
+              -0.235113978,
+              9
+            ],
+            [
+              -3,
+              -0.223606646,
+              10
+            ],
+            [
+              -3,
+              -0.190211117,
+              11
+            ],
+            [
+              -3,
+              -0.138196573,
+              12
+            ],
+            [
+              -3,
+              -0.0726542398,
+              13
+            ],
+            [
+              -3,
+              5.60741231e-09,
+              14
+            ],
+            [
+              -3,
+              0.0726542547,
+              15
+            ],
+            [
+              -3,
+              0.138196588,
+              16
+            ],
+            [
+              -2,
+              0,
+              -16
+            ],
+            [
+              -2,
+              2.16121006e-08,
+              -15
+            ],
+            [
+              -2,
+              4.1108656e-08,
+              -14
+            ],
+            [
+              -2,
+              5.65812108e-08,
+              -13
+            ],
+            [
+              -2,
+              6.65152058e-08,
+              -12
+            ],
+            [
+              -2,
+              6.99382241e-08,
+              -11
+            ],
+            [
+              -2,
+              6.65151987e-08,
+              -10
+            ],
+            [
+              -2,
+              5.65812108e-08,
+              -9
+            ],
+            [
+              -2,
+              4.11086525e-08,
+              -8
+            ],
+            [
+              -2,
+              2.16120863e-08,
+              -7
+            ],
+            [
+              -2,
+              -6.11419383e-15,
+              -6
+            ],
+            [
+              -2,
+              -2.16120988e-08,
+              -5
+            ],
+            [
+              -2,
+              -4.11086631e-08,
+              -4
+            ],
+            [
+              -2,
+              -5.65812215e-08,
+              -3
+            ],
+            [
+              -2,
+              -6.65151987e-08,
+              -2
+            ],
+            [
+              -2,
+              -6.99382241e-08,
+              -1
+            ],
+            [
+              -2,
+              -6.65151987e-08,
+              0
+            ],
+            [
+              -2,
+              -5.65812002e-08,
+              1
+            ],
+            [
+              -2,
+              -4.11086347e-08,
+              2
+            ],
+            [
+              -2,
+              -2.1612097e-08,
+              3
+            ],
+            [
+              -2,
+              1.22283877e-14,
+              4
+            ],
+            [
+              -2,
+              2.16121183e-08,
+              5
+            ],
+            [
+              -2,
+              4.1108656e-08,
+              6
+            ],
+            [
+              -2,
+              5.65812179e-08,
+              7
+            ],
+            [
+              -2,
+              6.65152129e-08,
+              8
+            ],
+            [
+              -2,
+              6.99382241e-08,
+              9
+            ],
+            [
+              -2,
+              6.65151916e-08,
+              10
+            ],
+            [
+              -2,
+              5.6581186e-08,
+              11
+            ],
+            [
+              -2,
+              4.11086702e-08,
+              12
+            ],
+            [
+              -2,
+              2.16121059e-08,
+              13
+            ],
+            [
+              -2,
+              -1.66801e-15,
+              14
+            ],
+            [
+              -2,
+              -2.16121112e-08,
+              15
+            ],
+            [
+              -2,
+              -4.11086738e-08,
+              16
+            ],
+            [
+              -1,
+              0,
+              -16
+            ],
+            [
+              -1,
+              0.0726542547,
+              -15
+            ],
+            [
+              -1,
+              0.138196602,
+              -14
+            ],
+            [
+              -1,
+              0.190211296,
+              -13
+            ],
+            [
+              -1,
+              0.223606795,
+              -12
+            ],
+            [
+              -1,
+              0.235114098,
+              -11
+            ],
+            [
+              -1,
+              0.22360678,
+              -10
+            ],
+            [
+              -1,
+              0.190211296,
+              -9
+            ],
+            [
+              -1,
+              0.138196588,
+              -8
+            ],
+            [
+              -1,
+              0.0726542026,
+              -7
+            ],
+            [
+              -1,
+              -2.0554328e-08,
+              -6
+            ],
+            [
+              -1,
+              -0.0726542473,
+              -5
+            ],
+            [
+              -1,
+              -0.138196632,
+              -4
+            ],
+            [
+              -1,
+              -0.190211326,
+              -3
+            ],
+            [
+              -1,
+              -0.22360678,
+              -2
+            ],
+            [
+              -1,
+              -0.235114098,
+              -1
+            ],
+            [
+              -1,
+              -0.22360678,
+              0
+            ],
+            [
+              -1,
+              -0.190211266,
+              1
+            ],
+            [
+              -1,
+              -0.138196528,
+              2
+            ],
+            [
+              -1,
+              -0.0726542398,
+              3
+            ],
+            [
+              -1,
+              4.1108656e-08,
+              4
+            ],
+            [
+              -1,
+              0.0726543143,
+              5
+            ],
+            [
+              -1,
+              0.138196602,
+              6
+            ],
+            [
+              -1,
+              0.190211311,
+              7
+            ],
+            [
+              -1,
+              0.22360681,
+              8
+            ],
+            [
+              -1,
+              0.235114098,
+              9
+            ],
+            [
+              -1,
+              0.223606765,
+              10
+            ],
+            [
+              -1,
+              0.190211222,
+              11
+            ],
+            [
+              -1,
+              0.138196632,
+              12
+            ],
+            [
+              -1,
+              0.0726542771,
+              13
+            ],
+            [
+              -1,
+              -5.60741498e-09,
+              14
+            ],
+            [
+              -1,
+              -0.072654292,
+              15
+            ],
+            [
+              -1,
+              -0.138196647,
+              16
+            ],
+            [
+              0,
+              0,
+              -16
+            ],
+            [
+              0,
+              0.117557071,
+              -15
+            ],
+            [
+              0,
+              0.223606825,
+              -14
+            ],
+            [
+              0,
+              0.307768404,
+              -13
+            ],
+            [
+              0,
+              0.361803442,
+              -12
+            ],
+            [
+              0,
+              0.380422652,
+              -11
+            ],
+            [
+              0,
+              0.361803442,
+              -10
+            ],
+            [
+              0,
+              0.307768404,
+              -9
+            ],
+            [
+              0,
+              0.223606795,
+              -8
+            ],
+            [
+              0,
+              0.117556989,
+              -7
+            ],
+            [
+              0,
+              -3.32576029e-08,
+              -6
+            ],
+            [
+              0,
+              -0.117557056,
+              -5
+            ],
+            [
+              0,
+              -0.22360687,
+              -4
+            ],
+            [
+              0,
+              -0.307768434,
+              -3
+            ],
+            [
+              0,
+              -0.361803442,
+              -2
+            ],
+            [
+              0,
+              -0.380422652,
+              -1
+            ],
+            [
+              0,
+              -0.361803442,
+              0
+            ],
+            [
+              0,
+              -0.307768315,
+              1
+            ],
+            [
+              0,
+              -0.223606706,
+              2
+            ],
+            [
+              0,
+              -0.117557041,
+              3
+            ],
+            [
+              0,
+              6.65152058e-08,
+              4
+            ],
+            [
+              0,
+              0.117557168,
+              5
+            ],
+            [
+              0,
+              0.223606825,
+              6
+            ],
+            [
+              0,
+              0.307768404,
+              7
+            ],
+            [
+              0,
+              0.361803472,
+              8
+            ],
+            [
+              0,
+              0.380422652,
+              9
+            ],
+            [
+              0,
+              0.361803383,
+              10
+            ],
+            [
+              0,
+              0.307768255,
+              11
+            ],
+            [
+              0,
+              0.223606884,
+              12
+            ],
+            [
+              0,
+              0.117557101,
+              13
+            ],
+            [
+              0,
+              -9.07298947e-09,
+              14
+            ],
+            [
+              0,
+              -0.117557123,
+              15
+            ],
+            [
+              0,
+              -0.223606914,
+              16
+            ],
+            [
+              1,
+              0,
+              -16
+            ],
+            [
+              1,
+              0.117557041,
+              -15
+            ],
+            [
+              1,
+              0.223606765,
+              -14
+            ],
+            [
+              1,
+              0.307768315,
+              -13
+            ],
+            [
+              1,
+              0.361803353,
+              -12
+            ],
+            [
+              1,
+              0.380422562,
+              -11
+            ],
+            [
+              1,
+              0.361803353,
+              -10
+            ],
+            [
+              1,
+              0.307768315,
+              -9
+            ],
+            [
+              1,
+              0.22360675,
+              -8
+            ],
+            [
+              1,
+              0.117556959,
+              -7
+            ],
+            [
+              1,
+              -3.32575958e-08,
+              -6
+            ],
+            [
+              1,
+              -0.117557026,
+              -5
+            ],
+            [
+              1,
+              -0.22360681,
+              -4
+            ],
+            [
+              1,
+              -0.307768375,
+              -3
+            ],
+            [
+              1,
+              -0.361803353,
+              -2
+            ],
+            [
+              1,
+              -0.380422562,
+              -1
+            ],
+            [
+              1,
+              -0.361803353,
+              0
+            ],
+            [
+              1,
+              -0.307768255,
+              1
+            ],
+            [
+              1,
+              -0.223606661,
+              2
+            ],
+            [
+              1,
+              -0.117557019,
+              3
+            ],
+            [
+              1,
+              6.65151916e-08,
+              4
+            ],
+            [
+              1,
+              0.117557146,
+              5
+            ],
+            [
+              1,
+              0.223606765,
+              6
+            ],
+            [
+              1,
+              0.307768345,
+              7
+            ],
+            [
+              1,
+              0.361803383,
+              8
+            ],
+            [
+              1,
+              0.380422562,
+              9
+            ],
+            [
+              1,
+              0.361803293,
+              10
+            ],
+            [
+              1,
+              0.307768196,
+              11
+            ],
+            [
+              1,
+              0.22360684,
+              12
+            ],
+            [
+              1,
+              0.117557071,
+              13
+            ],
+            [
+              1,
+              -9.07298769e-09,
+              14
+            ],
+            [
+              1,
+              -0.117557094,
+              15
+            ],
+            [
+              1,
+              -0.223606855,
+              16
+            ],
+            [
+              2,
+              0,
+              -16
+            ],
+            [
+              2,
+              0.0726542771,
+              -15
+            ],
+            [
+              2,
+              0.138196647,
+              -14
+            ],
+            [
+              2,
+              0.190211356,
+              -13
+            ],
+            [
+              2,
+              0.22360687,
+              -12
+            ],
+            [
+              2,
+              0.235114172,
+              -11
+            ],
+            [
+              2,
+              0.223606855,
+              -10
+            ],
+            [
+              2,
+              0.190211356,
+              -9
+            ],
+            [
+              2,
+              0.138196632,
+              -8
+            ],
+            [
+              2,
+              0.0726542249,
+              -7
+            ],
+            [
+              2,
+              -2.05543333e-08,
+              -6
+            ],
+            [
+              2,
+              -0.0726542696,
+              -5
+            ],
+            [
+              2,
+              -0.138196662,
+              -4
+            ],
+            [
+              2,
+              -0.190211385,
+              -3
+            ],
+            [
+              2,
+              -0.223606855,
+              -2
+            ],
+            [
+              2,
+              -0.235114172,
+              -1
+            ],
+            [
+              2,
+              -0.223606855,
+              0
+            ],
+            [
+              2,
+              -0.190211326,
+              1
+            ],
+            [
+              2,
+              -0.138196573,
+              2
+            ],
+            [
+              2,
+              -0.0726542622,
+              3
+            ],
+            [
+              2,
+              4.11086667e-08,
+              4
+            ],
+            [
+              2,
+              0.0726543367,
+              5
+            ],
+            [
+              2,
+              0.138196647,
+              6
+            ],
+            [
+              2,
+              0.190211371,
+              7
+            ],
+            [
+              2,
+              0.223606884,
+              8
+            ],
+            [
+              2,
+              0.235114172,
+              9
+            ],
+            [
+              2,
+              0.223606825,
+              10
+            ],
+            [
+              2,
+              0.190211281,
+              11
+            ],
+            [
+              2,
+              0.138196677,
+              12
+            ],
+            [
+              2,
+              0.0726542994,
+              13
+            ],
+            [
+              2,
+              -5.60741675e-09,
+              14
+            ],
+            [
+              2,
+              -0.0726543143,
+              15
+            ],
+            [
+              2,
+              -0.138196692,
+              16
+            ],
+            [
+              3,
+              0,
+              -16
+            ],
+            [
+              3,
+              -2.94799274e-09,
+              -15
+            ],
+            [
+              3,
+              -5.60741542e-09,
+              -14
+            ],
+            [
+              3,
+              -7.71794539e-09,
+              -13
+            ],
+            [
+              3,
+              -9.07298858e-09,
+              -12
+            ],
+            [
+              3,
+              -9.53990487e-09,
+              -11
+            ],
+            [
+              3,
+              -9.07298858e-09,
+              -10
+            ],
+            [
+              3,
+              -7.71794539e-09,
+              -9
+            ],
+            [
+              3,
+              -5.60741453e-09,
+              -8
+            ],
+            [
+              3,
+              -2.94799074e-09,
+              -7
+            ],
+            [
+              3,
+              8.34004945e-16,
+              -6
+            ],
+            [
+              3,
+              2.94799252e-09,
+              -5
+            ],
+            [
+              3,
+              5.60741631e-09,
+              -4
+            ],
+            [
+              3,
+              7.71794628e-09,
+              -3
+            ],
+            [
+              3,
+              9.07298858e-09,
+              -2
+            ],
+            [
+              3,
+              9.53990487e-09,
+              -1
+            ],
+            [
+              3,
+              9.07298858e-09,
+              0
+            ],
+            [
+              3,
+              7.71794362e-09,
+              1
+            ],
+            [
+              3,
+              5.60741231e-09,
+              2
+            ],
+            [
+              3,
+              2.94799229e-09,
+              3
+            ],
+            [
+              3,
+              -1.66800989e-15,
+              4
+            ],
+            [
+              3,
+              -2.9479954e-09,
+              5
+            ],
+            [
+              3,
+              -5.60741542e-09,
+              6
+            ],
+            [
+              3,
+              -7.71794539e-09,
+              7
+            ],
+            [
+              3,
+              -9.07298947e-09,
+              8
+            ],
+            [
+              3,
+              -9.53990487e-09,
+              9
+            ],
+            [
+              3,
+              -9.07298681e-09,
+              10
+            ],
+            [
+              3,
+              -7.71794184e-09,
+              11
+            ],
+            [
+              3,
+              -5.6074172e-09,
+              12
+            ],
+            [
+              3,
+              -2.94799363e-09,
+              13
+            ],
+            [
+              3,
+              2.27524458e-16,
+              14
+            ],
+            [
+              3,
+              2.94799429e-09,
+              15
+            ],
+            [
+              3,
+              5.60741764e-09,
+              16
+            ],
+            [
+              4,
+              0,
+              -16
+            ],
+            [
+              4,
+              -0.0726542845,
+              -15
+            ],
+            [
+              4,
+              -0.138196662,
+              -14
+            ],
+            [
+              4,
+              -0.190211385,
+              -13
+            ],
+            [
+              4,
+              -0.223606899,
+              -12
+            ],
+            [
+              4,
+              -0.235114202,
+              -11
+            ],
+            [
+              4,
+              -0.223606884,
+              -10
+            ],
+            [
+              4,
+              -0.190211385,
+              -9
+            ],
+            [
+              4,
+              -0.138196647,
+              -8
+            ],
+            [
+              4,
+              -0.0726542398,
+              -7
+            ],
+            [
+              4,
+              2.05543369e-08,
+              -6
+            ],
+            [
+              4,
+              0.0726542771,
+              -5
+            ],
+            [
+              4,
+              0.138196692,
+              -4
+            ],
+            [
+              4,
+              0.190211415,
+              -3
+            ],
+            [
+              4,
+              0.223606884,
+              -2
+            ],
+            [
+              4,
+              0.235114202,
+              -1
+            ],
+            [
+              4,
+              0.223606884,
+              0
+            ],
+            [
+              4,
+              0.190211341,
+              1
+            ],
+            [
+              4,
+              0.138196588,
+              2
+            ],
+            [
+              4,
+              0.0726542696,
+              3
+            ],
+            [
+              4,
+              -4.11086738e-08,
+              4
+            ],
+            [
+              4,
+              -0.0726543516,
+              5
+            ],
+            [
+              4,
+              -0.138196662,
+              6
+            ],
+            [
+              4,
+              -0.1902114,
+              7
+            ],
+            [
+              4,
+              -0.223606914,
+              8
+            ],
+            [
+              4,
+              -0.235114202,
+              9
+            ],
+            [
+              4,
+              -0.223606855,
+              10
+            ],
+            [
+              4,
+              -0.190211296,
+              11
+            ],
+            [
+              4,
+              -0.138196707,
+              12
+            ],
+            [
+              4,
+              -0.0726543069,
+              13
+            ],
+            [
+              4,
+              5.60741764e-09,
+              14
+            ],
+            [
+              4,
+              0.0726543218,
+              15
+            ],
+            [
+              4,
+              0.138196722,
+              16
+            ],
+            [
+              5,
+              0,
+              -16
+            ],
+            [
+              5,
+              -0.117557079,
+              -15
+            ],
+            [
+              5,
+              -0.22360684,
+              -14
+            ],
+            [
+              5,
+              -0.307768404,
+              -13
+            ],
+            [
+              5,
+              -0.361803472,
+              -12
+            ],
+            [
+              5,
+              -0.380422682,
+              -11
+            ],
+            [
+              5,
+              -0.361803442,
+              -10
+            ],
+            [
+              5,
+              -0.307768404,
+              -9
+            ],
+            [
+              5,
+              -0.22360681,
+              -8
+            ],
+            [
+              5,
+              -0.117556997,
+              -7
+            ],
+            [
+              5,
+              3.32576064e-08,
+              -6
+            ],
+            [
+              5,
+              0.117557064,
+              -5
+            ],
+            [
+              5,
+              0.223606884,
+              -4
+            ],
+            [
+              5,
+              0.307768464,
+              -3
+            ],
+            [
+              5,
+              0.361803442,
+              -2
+            ],
+            [
+              5,
+              0.380422682,
+              -1
+            ],
+            [
+              5,
+              0.361803442,
+              0
+            ],
+            [
+              5,
+              0.307768345,
+              1
+            ],
+            [
+              5,
+              0.223606721,
+              2
+            ],
+            [
+              5,
+              0.117557056,
+              3
+            ],
+            [
+              5,
+              -6.65152129e-08,
+              4
+            ],
+            [
+              5,
+              -0.117557175,
+              5
+            ],
+            [
+              5,
+              -0.22360684,
+              6
+            ],
+            [
+              5,
+              -0.307768434,
+              7
+            ],
+            [
+              5,
+              -0.361803502,
+              8
+            ],
+            [
+              5,
+              -0.380422682,
+              9
+            ],
+            [
+              5,
+              -0.361803412,
+              10
+            ],
+            [
+              5,
+              -0.307768285,
+              11
+            ],
+            [
+              5,
+              -0.223606899,
+              12
+            ],
+            [
+              5,
+              -0.117557108,
+              13
+            ],
+            [
+              5,
+              9.07299036e-09,
+              14
+            ],
+            [
+              5,
+              0.117557131,
+              15
+            ],
+            [
+              5,
+              0.223606929,
+              16
+            ],
+            [
+              6,
+              0,
+              -16
+            ],
+            [
+              6,
+              -0.117557019,
+              -15
+            ],
+            [
+              6,
+              -0.223606735,
+              -14
+            ],
+            [
+              6,
+              -0.307768285,
+              -13
+            ],
+            [
+              6,
+              -0.361803323,
+              -12
+            ],
+            [
+              6,
+              -0.380422503,
+              -11
+            ],
+            [
+              6,
+              -0.361803293,
+              -10
+            ],
+            [
+              6,
+              -0.307768285,
+              -9
+            ],
+            [
+              6,
+              -0.223606706,
+              -8
+            ],
+            [
+              6,
+              -0.117556944,
+              -7
+            ],
+            [
+              6,
+              3.32575922e-08,
+              -6
+            ],
+            [
+              6,
+              0.117557012,
+              -5
+            ],
+            [
+              6,
+              0.22360678,
+              -4
+            ],
+            [
+              6,
+              0.307768315,
+              -3
+            ],
+            [
+              6,
+              0.361803293,
+              -2
+            ],
+            [
+              6,
+              0.380422503,
+              -1
+            ],
+            [
+              6,
+              0.361803293,
+              0
+            ],
+            [
+              6,
+              0.307768196,
+              1
+            ],
+            [
+              6,
+              0.223606616,
+              2
+            ],
+            [
+              6,
+              0.117556997,
+              3
+            ],
+            [
+              6,
+              -6.65151845e-08,
+              4
+            ],
+            [
+              6,
+              -0.117557123,
+              5
+            ],
+            [
+              6,
+              -0.223606735,
+              6
+            ],
+            [
+              6,
+              -0.307768285,
+              7
+            ],
+            [
+              6,
+              -0.361803323,
+              8
+            ],
+            [
+              6,
+              -0.380422503,
+              9
+            ],
+            [
+              6,
+              -0.361803234,
+              10
+            ],
+            [
+              6,
+              -0.307768136,
+              11
+            ],
+            [
+              6,
+              -0.223606795,
+              12
+            ],
+            [
+              6,
+              -0.117557056,
+              13
+            ],
+            [
+              6,
+              9.07298592e-09,
+              14
+            ],
+            [
+              6,
+              0.117557079,
+              15
+            ],
+            [
+              6,
+              0.223606825,
+              16
+            ],
+            [
+              7,
+              0,
+              -16
+            ],
+            [
+              7,
+              -0.0726542473,
+              -15
+            ],
+            [
+              7,
+              -0.138196588,
+              -14
+            ],
+            [
+              7,
+              -0.190211296,
+              -13
+            ],
+            [
+              7,
+              -0.22360678,
+              -12
+            ],
+            [
+              7,
+              -0.235114083,
+              -11
+            ],
+            [
+              7,
+              -0.223606765,
+              -10
+            ],
+            [
+              7,
+              -0.190211296,
+              -9
+            ],
+            [
+              7,
+              -0.138196573,
+              -8
+            ],
+            [
+              7,
+              -0.0726542026,
+              -7
+            ],
+            [
+              7,
+              2.05543262e-08,
+              -6
+            ],
+            [
+              7,
+              0.0726542398,
+              -5
+            ],
+            [
+              7,
+              0.138196617,
+              -4
+            ],
+            [
+              7,
+              0.190211326,
+              -3
+            ],
+            [
+              7,
+              0.223606765,
+              -2
+            ],
+            [
+              7,
+              0.235114083,
+              -1
+            ],
+            [
+              7,
+              0.223606765,
+              0
+            ],
+            [
+              7,
+              0.190211251,
+              1
+            ],
+            [
+              7,
+              0.138196513,
+              2
+            ],
+            [
+              7,
+              0.0726542324,
+              3
+            ],
+            [
+              7,
+              -4.11086525e-08,
+              4
+            ],
+            [
+              7,
+              -0.0726543143,
+              5
+            ],
+            [
+              7,
+              -0.138196588,
+              6
+            ],
+            [
+              7,
+              -0.190211311,
+              7
+            ],
+            [
+              7,
+              -0.223606795,
+              8
+            ],
+            [
+              7,
+              -0.235114083,
+              9
+            ],
+            [
+              7,
+              -0.22360675,
+              10
+            ],
+            [
+              7,
+              -0.190211207,
+              11
+            ],
+            [
+              7,
+              -0.138196632,
+              12
+            ],
+            [
+              7,
+              -0.0726542696,
+              13
+            ],
+            [
+              7,
+              5.60741453e-09,
+              14
+            ],
+            [
+              7,
+              0.0726542845,
+              15
+            ],
+            [
+              7,
+              0.138196647,
+              16
+            ],
+            [
+              8,
+              0,
+              -16
+            ],
+            [
+              8,
+              4.32242011e-08,
+              -15
+            ],
+            [
+              8,
+              8.22173121e-08,
+              -14
+            ],
+            [
+              8,
+              1.13162422e-07,
+              -13
+            ],
+            [
+              8,
+              1.33030412e-07,
+              -12
+            ],
+            [
+              8,
+              1.39876448e-07,
+              -11
+            ],
+            [
+              8,
+              1.33030397e-07,
+              -10
+            ],
+            [
+              8,
+              1.13162422e-07,
+              -9
+            ],
+            [
+              8,
+              8.2217305e-08,
+              -8
+            ],
+            [
+              8,
+              4.32241727e-08,
+              -7
+            ],
+            [
+              8,
+              -1.22283877e-14,
+              -6
+            ],
+            [
+              8,
+              -4.32241976e-08,
+              -5
+            ],
+            [
+              8,
+              -8.22173263e-08,
+              -4
+            ],
+            [
+              8,
+              -1.13162443e-07,
+              -3
+            ],
+            [
+              8,
+              -1.33030397e-07,
+              -2
+            ],
+            [
+              8,
+              -1.39876448e-07,
+              -1
+            ],
+            [
+              8,
+              -1.33030397e-07,
+              0
+            ],
+            [
+              8,
+              -1.131624e-07,
+              1
+            ],
+            [
+              8,
+              -8.22172694e-08,
+              2
+            ],
+            [
+              8,
+              -4.3224194e-08,
+              3
+            ],
+            [
+              8,
+              2.44567753e-14,
+              4
+            ],
+            [
+              8,
+              4.32242366e-08,
+              5
+            ],
+            [
+              8,
+              8.22173121e-08,
+              6
+            ],
+            [
+              8,
+              1.13162436e-07,
+              7
+            ],
+            [
+              8,
+              1.33030426e-07,
+              8
+            ],
+            [
+              8,
+              1.39876448e-07,
+              9
+            ],
+            [
+              8,
+              1.33030383e-07,
+              10
+            ],
+            [
+              8,
+              1.13162372e-07,
+              11
+            ],
+            [
+              8,
+              8.22173405e-08,
+              12
+            ],
+            [
+              8,
+              4.32242118e-08,
+              13
+            ],
+            [
+              8,
+              -3.33601999e-15,
+              14
+            ],
+            [
+              8,
+              -4.32242224e-08,
+              15
+            ],
+            [
+              8,
+              -8.22173476e-08,
+              16
+            ],
+            [
+              9,
+              0,
+              -16
+            ],
+            [
+              9,
+              0.0726543143,
+              -15
+            ],
+            [
+              9,
+              0.138196707,
+              -14
+            ],
+            [
+              9,
+              0.19021146,
+              -13
+            ],
+            [
+              9,
+              0.223606989,
+              -12
+            ],
+            [
+              9,
+              0.235114291,
+              -11
+            ],
+            [
+              9,
+              0.223606974,
+              -10
+            ],
+            [
+              9,
+              0.19021146,
+              -9
+            ],
+            [
+              9,
+              0.138196692,
+              -8
+            ],
+            [
+              9,
+              0.0726542622,
+              -7
+            ],
+            [
+              9,
+              -2.0554344e-08,
+              -6
+            ],
+            [
+              9,
+              -0.0726543069,
+              -5
+            ],
+            [
+              9,
+              -0.138196737,
+              -4
+            ],
+            [
+              9,
+              -0.19021149,
+              -3
+            ],
+            [
+              9,
+              -0.223606974,
+              -2
+            ],
+            [
+              9,
+              -0.235114291,
+              -1
+            ],
+            [
+              9,
+              -0.223606974,
+              0
+            ],
+            [
+              9,
+              -0.190211415,
+              1
+            ],
+            [
+              9,
+              -0.138196647,
+              2
+            ],
+            [
+              9,
+              -0.0726542994,
+              3
+            ],
+            [
+              9,
+              4.1108688e-08,
+              4
+            ],
+            [
+              9,
+              0.0726543739,
+              5
+            ],
+            [
+              9,
+              0.138196707,
+              6
+            ],
+            [
+              9,
+              0.190211475,
+              7
+            ],
+            [
+              9,
+              0.223607004,
+              8
+            ],
+            [
+              9,
+              0.235114291,
+              9
+            ],
+            [
+              9,
+              0.223606944,
+              10
+            ],
+            [
+              9,
+              0.190211371,
+              11
+            ],
+            [
+              9,
+              0.138196751,
+              12
+            ],
+            [
+              9,
+              0.0726543367,
+              13
+            ],
+            [
+              9,
+              -5.60741986e-09,
+              14
+            ],
+            [
+              9,
+              -0.0726543516,
+              15
+            ],
+            [
+              9,
+              -0.138196766,
+              16
+            ],
+            [
+              10,
+              0,
+              -16
+            ],
+            [
+              10,
+              0.117557049,
+              -15
+            ],
+            [
+              10,
+              0.22360678,
+              -14
+            ],
+            [
+              10,
+              0.307768345,
+              -13
+            ],
+            [
+              10,
+              0.361803383,
+              -12
+            ],
+            [
+              10,
+              0.380422592,
+              -11
+            ],
+            [
+              10,
+              0.361803383,
+              -10
+            ],
+            [
+              10,
+              0.307768345,
+              -9
+            ],
+            [
+              10,
+              0.223606765,
+              -8
+            ],
+            [
+              10,
+              0.117556967,
+              -7
+            ],
+            [
+              10,
+              -3.32575993e-08,
+              -6
+            ],
+            [
+              10,
+              -0.117557041,
+              -5
+            ],
+            [
+              10,
+              -0.223606825,
+              -4
+            ],
+            [
+              10,
+              -0.307768404,
+              -3
+            ],
+            [
+              10,
+              -0.361803383,
+              -2
+            ],
+            [
+              10,
+              -0.380422592,
+              -1
+            ],
+            [
+              10,
+              -0.361803383,
+              0
+            ],
+            [
+              10,
+              -0.307768285,
+              1
+            ],
+            [
+              10,
+              -0.223606676,
+              2
+            ],
+            [
+              10,
+              -0.117557026,
+              3
+            ],
+            [
+              10,
+              6.65151987e-08,
+              4
+            ],
+            [
+              10,
+              0.117557153,
+              5
+            ],
+            [
+              10,
+              0.22360678,
+              6
+            ],
+            [
+              10,
+              0.307768375,
+              7
+            ],
+            [
+              10,
+              0.361803412,
+              8
+            ],
+            [
+              10,
+              0.380422592,
+              9
+            ],
+            [
+              10,
+              0.361803323,
+              10
+            ],
+            [
+              10,
+              0.307768196,
+              11
+            ],
+            [
+              10,
+              0.223606855,
+              12
+            ],
+            [
+              10,
+              0.117557086,
+              13
+            ],
+            [
+              10,
+              -9.07298769e-09,
+              14
+            ],
+            [
+              10,
+              -0.117557108,
+              15
+            ],
+            [
+              10,
+              -0.22360687,
+              16
+            ],
+            [
+              11,
+              0,
+              -16
+            ],
+            [
+              11,
+              0.117557049,
+              -15
+            ],
+            [
+              11,
+              0.22360678,
+              -14
+            ],
+            [
+              11,
+              0.307768345,
+              -13
+            ],
+            [
+              11,
+              0.361803383,
+              -12
+            ],
+            [
+              11,
+              0.380422592,
+              -11
+            ],
+            [
+              11,
+              0.361803383,
+              -10
+            ],
+            [
+              11,
+              0.307768345,
+              -9
+            ],
+            [
+              11,
+              0.223606765,
+              -8
+            ],
+            [
+              11,
+              0.117556967,
+              -7
+            ],
+            [
+              11,
+              -3.32575993e-08,
+              -6
+            ],
+            [
+              11,
+              -0.117557041,
+              -5
+            ],
+            [
+              11,
+              -0.223606825,
+              -4
+            ],
+            [
+              11,
+              -0.307768404,
+              -3
+            ],
+            [
+              11,
+              -0.361803383,
+              -2
+            ],
+            [
+              11,
+              -0.380422592,
+              -1
+            ],
+            [
+              11,
+              -0.361803383,
+              0
+            ],
+            [
+              11,
+              -0.307768285,
+              1
+            ],
+            [
+              11,
+              -0.223606676,
+              2
+            ],
+            [
+              11,
+              -0.117557026,
+              3
+            ],
+            [
+              11,
+              6.65151987e-08,
+              4
+            ],
+            [
+              11,
+              0.117557153,
+              5
+            ],
+            [
+              11,
+              0.22360678,
+              6
+            ],
+            [
+              11,
+              0.307768375,
+              7
+            ],
+            [
+              11,
+              0.361803412,
+              8
+            ],
+            [
+              11,
+              0.380422592,
+              9
+            ],
+            [
+              11,
+              0.361803323,
+              10
+            ],
+            [
+              11,
+              0.307768196,
+              11
+            ],
+            [
+              11,
+              0.223606855,
+              12
+            ],
+            [
+              11,
+              0.117557086,
+              13
+            ],
+            [
+              11,
+              -9.07298769e-09,
+              14
+            ],
+            [
+              11,
+              -0.117557108,
+              15
+            ],
+            [
+              11,
+              -0.22360687,
+              16
+            ],
+            [
+              12,
+              0,
+              -16
+            ],
+            [
+              12,
+              0.07265421,
+              -15
+            ],
+            [
+              12,
+              0.138196513,
+              -14
+            ],
+            [
+              12,
+              0.190211192,
+              -13
+            ],
+            [
+              12,
+              0.223606676,
+              -12
+            ],
+            [
+              12,
+              0.235113963,
+              -11
+            ],
+            [
+              12,
+              0.223606661,
+              -10
+            ],
+            [
+              12,
+              0.190211192,
+              -9
+            ],
+            [
+              12,
+              0.138196498,
+              -8
+            ],
+            [
+              12,
+              0.0726541653,
+              -7
+            ],
+            [
+              12,
+              -2.05543156e-08,
+              -6
+            ],
+            [
+              12,
+              -0.0726542026,
+              -5
+            ],
+            [
+              12,
+              -0.138196543,
+              -4
+            ],
+            [
+              12,
+              -0.190211222,
+              -3
+            ],
+            [
+              12,
+              -0.223606661,
+              -2
+            ],
+            [
+              12,
+              -0.235113963,
+              -1
+            ],
+            [
+              12,
+              -0.223606661,
+              0
+            ],
+            [
+              12,
+              -0.190211147,
+              1
+            ],
+            [
+              12,
+              -0.138196453,
+              2
+            ],
+            [
+              12,
+              -0.0726541951,
+              3
+            ],
+            [
+              12,
+              4.11086312e-08,
+              4
+            ],
+            [
+              12,
+              0.0726542771,
+              5
+            ],
+            [
+              12,
+              0.138196513,
+              6
+            ],
+            [
+              12,
+              0.190211207,
+              7
+            ],
+            [
+              12,
+              0.223606691,
+              8
+            ],
+            [
+              12,
+              0.235113963,
+              9
+            ],
+            [
+              12,
+              0.223606631,
+              10
+            ],
+            [
+              12,
+              0.190211117,
+              11
+            ],
+            [
+              12,
+              0.138196558,
+              12
+            ],
+            [
+              12,
+              0.0726542324,
+              13
+            ],
+            [
+              12,
+              -5.60741187e-09,
+              14
+            ],
+            [
+              12,
+              -0.0726542473,
+              15
+            ],
+            [
+              12,
+              -0.138196573,
+              16
+            ]
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-junkyard.v1",
+      "name": "bench-junkyard",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "bench-junkyard",
+        "fixtureInput": {
+          "scene": "bench-junkyard",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 150,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 150,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-rain.v1",
+      "name": "bench-rain",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "bench-rain",
+        "fixtureInput": {
+          "scene": "bench-rain",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 250,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 250,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.drift.v1",
+      "name": "drift",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "legacyBuilder": "drift",
+        "fixtureInput": {
+          "scene": "drift",
+          "timeStep": 0.0166666675,
+          "subStepCount": 4,
+          "stepCount": 2000,
+          "gravity": [
+            0,
+            -10,
+            0
+          ]
+        },
+        "authoringSource": "shallot/src/standard/physics/solver/step.fixture.ts"
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 2000,
+          "beforeStep": "legacy-step-factory"
+        }
+      ],
+      "observations": [
+        {
+          "id": "all-live-bodies.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "all-live-bodies.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    }
+  ]
+}

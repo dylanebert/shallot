@@ -1,0 +1,75 @@
+{
+  "schema": "shallot-physics-scenario/manifest-v2",
+  "bundle": {
+    "upstreamSha": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
+    "schema": "v5",
+    "identity": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v5"
+  },
+  "upstream": {
+    "url": "https://github.com/erincatto/box3d.git",
+    "ref": "refs/heads/main",
+    "channel": "official-main",
+    "sha": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
+    "tree": "0a6472d03ff61c9af28216443fba341a21cbed96",
+    "reachableFromChannel": true
+  },
+  "oracle": {
+    "memberCommit": "8560bfd2dbcf53f1da3ab23ec6d801b26255b39f",
+    "generator": "bin/oracle.ts",
+    "generatorSha256": "147af5c6c7f743ec169c84af36b47725b07cc0047bcd0039feb2f92563ce433a",
+    "hookDigest": "841e2805328063a7662a2c1169a3ca89f1a184b39542f3ef5398fa68f743db29",
+    "adapters": [
+      "adapter/scenario_main.c",
+      "adapter/scenario.c"
+    ]
+  },
+  "build": {
+    "compiler": {
+      "executable": "cc",
+      "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
+      "sha256": "ebdd1913203aebbae99a8adad363e300e6cea37bcc703a8f9506410551f809f1"
+    },
+    "cmake": [
+      "-S",
+      "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/checkouts/47d7f7cc7e091142c08d11dc7d2e493c5d34f536-patched-o5",
+      "-B",
+      "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/scenario-builds/47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
+      "-G",
+      "Ninja",
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DBOX3D_DISABLE_SIMD=ON",
+      "-DBOX3D_SAMPLES=OFF",
+      "-DBOX3D_BENCHMARKS=OFF",
+      "-DBOX3D_DOCS=OFF",
+      "-DBOX3D_UNIT_TESTS=OFF",
+      "-DBOX3D_VALIDATE=ON",
+      "-DCMAKE_C_FLAGS=-DB3_ORACLE_HOOKS"
+    ],
+    "executableSha256": "4cc079e2c83462a4ab1dde6bac146a185d7788537a1be7cc768ccffb0e4f879f",
+    "linkMapSha256": "762cf8bee911e969e76ff01bcc604e46cd5b0d85039fbdd30249c1a8ddea64e4",
+    "nmEvidenceSha256": "9c01940ef9feb2294460659cbd415f35ab9a3f88e2d281e5e2fa6e38baf21f0d"
+  },
+  "schemaDefinition": "schema.json",
+  "membership": "membership.json",
+  "provenance": "provenance.json",
+  "corpus": "scenario-corpus.json",
+  "caseFile": "cases.json",
+  "caseCount": 53,
+  "fileDigests": {
+    "schema.json": "df7a10bd242796f45265bc7c3eb856333db1b1154406a996f09a6413d38e4873",
+    "membership.json": "1829c7acaf4a41cb752aa5a764b1296202bbaadc8e6e8cb1242b7c7ab9147879",
+    "provenance.json": "511598660c38ccf3a0f7d51556183b475b409c6a684d05e396cebf41ac3660b1",
+    "scenario-corpus.json": "c446df5178f94512adfa23bc77b57a85713981651d6d6216d4f4d4fc588f7314",
+    "cases.json": "4a85c896446d0917875f8746129f2f2cc34e04ab10f765c8ff3f423baed06293"
+  },
+  "generation": {
+    "startsEmpty": true,
+    "readsShallot": false,
+    "readsGolds": false,
+    "overwrite": false,
+    "outputArithmetic": false,
+    "officialCallsOnly": true,
+    "whiteBoxSeparate": true,
+    "comparesS1": false
+  }
+}

@@ -77,7 +77,7 @@ function expectIdentityRecords(): void {
 const fround = Math.fround;
 
 type BodyDump = { p: number[]; q: number[]; v?: number[]; w?: number[] };
-type Fixture = {
+export type Fixture = {
     scene: string;
     timeStep: number;
     subStepCount: number;
@@ -1529,7 +1529,7 @@ const sceneBuilder: Record<string, string> = {
 // Scenes that spawn bodies over time drive a per-step hook, called with the loop index before each
 // world.step (mirroring gen.c's stepFn(i) → Step). Each factory returns a fresh, stateful stepper per
 // run. Mirrors fixtures/gen.c's StepBench* exactly.
-const stepFactories: Record<string, () => (world: World, step: number) => void> = {
+export const stepFactories: Record<string, () => (world: World, step: number) => void> = {
     "bench-large-world": () => {
         let dropped = 0;
         let side = 1;
@@ -1585,6 +1585,14 @@ const stepFactories: Record<string, () => (world: World, step: number) => void> 
         };
     },
 };
+
+export function buildScenario(world: World, scene: string, fixture: Fixture): void {
+    builders[sceneBuilder[scene] ?? scene](world, fixture);
+}
+
+export function createScenarioStepper(scene: string): (world: World, step: number) => void {
+    return stepFactories[scene]?.() ?? (() => {});
+}
 
 // The hashes are the C reference's, generated serially — and cross-thread-count determinism is what the
 // ported task machinery guarantees (within a color no two constraints share a body, the overflow color

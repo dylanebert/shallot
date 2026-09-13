@@ -1,0 +1,22 @@
+{
+  "schema": "shallot-physics-scenario/provenance-v2",
+  "public": [
+    "b3Body_GetPosition",
+    "b3Body_GetRotation",
+    "b3Body_GetLinearVelocity",
+    "b3Body_GetAngularVelocity"
+  ],
+  "whiteBox": [
+    "b3HashWorldState"
+  ],
+  "officialInterpreter": "adapter/scenario.c",
+  "shallotInterpreter": "src/standard/physics/oracle/scenario.ts",
+  "independentS1Comparison": "migration evidence only",
+  "inputMutation": {
+    "field": "setup.gravity[1]",
+    "reaches": [
+      "official",
+      "shallot"
+    ]
+  }
+}
