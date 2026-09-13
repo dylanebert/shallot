@@ -44,10 +44,11 @@ function compareOutputs(generic: ScenarioOutput, legacy: ReturnType<typeof legac
 const FOUNDATION_ROSTER = ["free-fall", "sphere-drop", "box-stack", "sphere-sleep", "box-sleep", "wake-drop", "split-slide"];
 const JOINT_ROSTER = ["revolute-dd", "revolute-pendulum", "revolute-motor", "revolute-limit", "revolute-chain", "weld-dd", "parallel", "joint-contacts", "motor", "motor-spring", "distance", "distance-spring", "prismatic", "prismatic-motor", "spherical", "spherical-limits", "spherical-motor", "wheel", "wheel-spin", "wheel-steer", "ragdoll"];
 const SURFACE_ROSTER = ["ccd-drop", "ccd-bullet", "mesh-box", "mesh-sphere", "mesh-capsule", "mesh-ccd", "height-box", "height-sphere", "height-capsule", "height-ccd"];
+const COMPOUND_SENSOR_ROSTER = ["compound-hull", "compound-capsule", "compound-sphere", "compound-mesh", "compound-ccd", "sensor"];
 function compareFamily(roster: string[]): void {
     const { corpus, digest } = loadScenarioCorpus();
-    const cumulative = [...FOUNDATION_ROSTER, ...JOINT_ROSTER, ...SURFACE_ROSTER];
-    if (JSON.stringify(corpus.scenarios.map((scenario) => scenario.name)) !== JSON.stringify(cumulative) || JSON.stringify(corpus.scenarios.map((scenario) => scenario.id)) !== JSON.stringify(cumulative.map((name) => `s1.${name}.v1`))) throw new Error("scenario corpus roster and IDs are not the exact cumulative O5c order");
+    const cumulative = [...FOUNDATION_ROSTER, ...JOINT_ROSTER, ...SURFACE_ROSTER, ...COMPOUND_SENSOR_ROSTER];
+    if (JSON.stringify(corpus.scenarios.map((scenario) => scenario.name)) !== JSON.stringify(cumulative) || JSON.stringify(corpus.scenarios.map((scenario) => scenario.id)) !== JSON.stringify(cumulative.map((name) => `s1.${name}.v1`))) throw new Error("scenario corpus roster and IDs are not the exact cumulative O5d order");
     const selected = corpus.scenarios.filter((scenario) => roster.includes(scenario.name));
     if (JSON.stringify(selected.map((scenario) => scenario.name)) !== JSON.stringify(roster)) throw new Error("scenario family roster is not exact");
     for (const scenario of selected) {
@@ -58,6 +59,7 @@ function compareFamily(roster: string[]): void {
 check("O5a Shallot command interpreter migration", { claim: "box3d-scenario-migration-foundation", size: "integration" }, () => compareFamily(FOUNDATION_ROSTER));
 check("O5b Shallot command interpreter migration", { claim: "box3d-scenario-migration-joints", size: "integration" }, () => compareFamily(JOINT_ROSTER));
 check("O5c Shallot command interpreter migration", { claim: "box3d-scenario-migration-surfaces", size: "integration" }, () => compareFamily(SURFACE_ROSTER));
+check("O5d Shallot command interpreter migration", { claim: "box3d-scenario-migration-compound-sensor", size: "integration" }, () => compareFamily(COMPOUND_SENSOR_ROSTER));
 
 check("O5a command receipt and adversarial gates", { claim: "box3d-scenario-command-corpus", size: "integration" }, () => {
     const { corpus, digest } = loadScenarioCorpus();
@@ -79,6 +81,15 @@ check("O5a command receipt and adversarial gates", { claim: "box3d-scenario-comm
     motorCommand.motorSpeed = "0xc0400000";
     const motorChanged = runScenario(revoluteMotor, digest);
     if (JSON.stringify(motorBaseline.observations) === JSON.stringify(motorChanged.observations) || JSON.stringify(motorBaseline.hashes) === JSON.stringify(motorChanged.hashes)) throw new Error("revolute-motor motor-speed mutation did not reach the TypeScript adapter");
+    const compoundHull = structuredClone(corpus.scenarios.find((scenario) => scenario.name === "compound-hull"));
+    if (!compoundHull) throw new Error("compound-hull mutation target is missing");
+    const compoundBaseline = runScenario(compoundHull, digest);
+    const firstChildCommand = compoundHull.commands.find((command) => command.op === "resource.compound");
+    if (!firstChildCommand || !Array.isArray(firstChildCommand.hulls) || firstChildCommand.hulls.length === 0) throw new Error("compound-hull first child is missing");
+    const firstTransform = (firstChildCommand.hulls[0] as Record<string, unknown>).transform as Record<string, unknown>;
+    (firstTransform.p as string[])[0] = "0x3f800000";
+    const compoundChanged = runScenario(compoundHull, digest);
+    if (JSON.stringify(compoundBaseline.observations) === JSON.stringify(compoundChanged.observations) || JSON.stringify(compoundBaseline.hashes) === JSON.stringify(compoundChanged.hashes)) throw new Error("compound-hull first-child transform mutation did not reach the TypeScript adapter");
     const ccdBullet = structuredClone(corpus.scenarios.find((scenario) => scenario.name === "ccd-bullet"));
     if (!ccdBullet) throw new Error("ccd-bullet mutation target is missing");
     const bulletBaseline = runScenario(ccdBullet, digest);
@@ -98,6 +109,25 @@ check("O5a command receipt and adversarial gates", { claim: "box3d-scenario-comm
     if (!missingReference) throw new Error("height-sphere reference target is missing");
     missingReference.commands = missingReference.commands.filter((command) => command.id !== "b1");
     try { runScenario(missingReference, digest); throw new Error("missing body reference unexpectedly succeeded"); } catch (error) { if (!(error instanceof Error) || !error.message.includes("unknown body")) throw error; }
+    const malformedCompound = structuredClone(compoundHull);
+    const malformedResource = malformedCompound.commands.find((command) => command.op === "resource.compound");
+    if (!malformedResource || !Array.isArray(malformedResource.hulls)) throw new Error("compound-hull malformed target is missing");
+    malformedResource.hulls = malformedResource.hulls.slice(1);
+    try { runScenario(malformedCompound, digest); throw new Error("missing compound child unexpectedly succeeded"); } catch (error) { if (!(error instanceof Error) || !error.message.includes("child order")) throw error; }
+    const reorderedCompound = structuredClone(compoundHull);
+    const reorderedResource = reorderedCompound.commands.find((command) => command.op === "resource.compound");
+    if (!reorderedResource || !Array.isArray(reorderedResource.hulls)) throw new Error("compound-hull reorder target is missing");
+    reorderedResource.hulls.reverse();
+    try { runScenario(reorderedCompound, digest); throw new Error("reordered compound child unexpectedly succeeded"); } catch (error) { if (!(error instanceof Error) || !error.message.includes("child order")) throw error; }
+    const unresolvedCompound = structuredClone(compoundHull);
+    const unresolvedResource = unresolvedCompound.commands.find((command) => command.op === "resource.compound");
+    if (!unresolvedResource || !Array.isArray(unresolvedResource.hulls) || !unresolvedResource.hulls[0]) throw new Error("compound-hull unresolved target is missing");
+    unresolvedResource.hulls[0].resource = "r999";
+    try { runScenario(unresolvedCompound, digest); throw new Error("unresolved compound resource unexpectedly succeeded"); } catch (error) { if (!(error instanceof Error) || !error.message.includes("unknown hull")) throw error; }
+    const omittedSensorEvent = structuredClone(corpus.scenarios.find((scenario) => scenario.name === "sensor"));
+    if (!omittedSensorEvent) throw new Error("sensor event target is missing");
+    omittedSensorEvent.commands = omittedSensorEvent.commands.filter((command) => command.id !== "events-000");
+    try { runScenario(omittedSensorEvent, digest); throw new Error("omitted sensor event unexpectedly succeeded"); } catch (error) { if (!(error instanceof Error) || !error.message.includes("unconsumed schedule")) throw error; }
     const unknown = structuredClone(freeFall);
     unknown.commands[0].op = "scenario-name-dispatch";
     try { runScenario(unknown, digest); throw new Error("unknown command unexpectedly succeeded"); } catch (error) { if (!(error instanceof Error) || !error.message.includes("unknown command op")) throw error; }

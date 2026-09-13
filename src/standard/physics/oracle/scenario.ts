@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { BodyType, type Body } from "../api/index";
-import { createHeightField, createMesh, defaultFilter, defaultSurfaceMaterial, makeBoxHull, type MeshData } from "../api/index";
+import { createCompound, createHeightField, createMesh, defaultFilter, defaultSurfaceMaterial, makeBoxHull, type MeshData, type Shape } from "../api/index";
 import { hashWorldState } from "../world/hash";
 import { World } from "../api/world";
 
@@ -10,7 +10,7 @@ type Command = {
     id: string;
     [key: string]: unknown;
 };
-type Scenario = { id: string; name: string; commands: Command[]; stepCount: number; requiredJointIds?: string[] };
+type Scenario = { id: string; name: string; commands: Command[]; stepCount: number; requiredJointIds?: string[]; requiredSensorEventIds?: string[] };
 type Corpus = { schema: string; corpusVersion: number; scenarios: Scenario[] };
 export type ScenarioOutput = {
     schema: "box3d-oracle/scenario-output/v1";
@@ -19,6 +19,7 @@ export type ScenarioOutput = {
     corpusDigest: string;
     observations: unknown[];
     hashes: { step: number; value: string; receiptId: string }[];
+    sensorEvents: { step: number; begin: { sensor: string; visitor: string }[]; end: { sensor: string; visitor: string }[]; receiptId: string }[];
     receipt: { corpusDigest: string; consumedCommands: string[]; observationIds: string[] };
 };
 
@@ -65,12 +66,23 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
     const capsules = new Map<string, { center1: { x: number; y: number; z: number }; center2: { x: number; y: number; z: number }; radius: number }>();
     const meshes = new Map<string, MeshData>();
     const heightFields = new Map<string, ReturnType<typeof createHeightField>>();
+    const compounds = new Map<string, NonNullable<ReturnType<typeof createCompound>>>();
+    const shapes = new Map<string, Shape>();
     const consumed: string[] = [];
     const observationIds: string[] = [];
     const observations: unknown[] = [];
     const hashes: { step: number; value: string; receiptId: string }[] = [];
+    const sensorEvents: ScenarioOutput["sensorEvents"] = [];
     let world: World | undefined;
     let observed = false;
+    const material = (value: unknown): ReturnType<typeof defaultSurfaceMaterial> => {
+        const source = (value ?? {}) as Record<string, unknown>;
+        const tangent = vec3((source.tangentVelocity ?? ["0x00000000", "0x00000000", "0x00000000"]) as unknown[]);
+        return { friction: f32(String(source.friction ?? "0x3f19999a")), restitution: f32(String(source.restitution ?? "0x00000000")), rollingResistance: f32(String(source.rollingResistance ?? "0x00000000")), tangentVelocity: tangent, userMaterialId: BigInt(String(source.userMaterialId ?? "0x0000000000000000")), customColor: Number(source.customColor ?? 0) };
+    };
+    const shapeIndex = (shape: Shape): number => (shape as unknown as { id: { index1: number } }).id.index1;
+    const shapeName = (shape: Shape): string => { const index = shapeIndex(shape); for (const [id, value] of shapes) if (shapeIndex(value) === index) return id; return "unknown"; };
+    const shapeDef = (command: Command): Record<string, unknown> => ({ baseMaterial: { ...defaultSurfaceMaterial(), rollingResistance: f32(String(command.rollingResistance ?? "0x00000000")) }, filter: { ...defaultFilter(), groupIndex: Number(command.groupIndex ?? 0) }, isSensor: command.isSensor === true, enableSensorEvents: command.enableSensorEvents === true });
     for (const command of scenario.commands) {
         if (consumed.includes(command.id)) throw new Error(`duplicate consumed command ${command.id}`);
         consumed.push(command.id);
@@ -97,7 +109,7 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
                 break;
             }
             case "resource.sphere":
-                spheres.set(command.id, { center: { x: 0, y: 0, z: 0 }, radius: f32(String(command.radius)) });
+                spheres.set(command.id, { center: vec3((command.center ?? ["0x00000000", "0x00000000", "0x00000000"]) as unknown[]), radius: f32(String(command.radius)) });
                 break;
             case "resource.capsule":
                 capsules.set(command.id, { center1: vec3(command.center1 as unknown[]), center2: vec3(command.center2 as unknown[]), radius: f32(String(command.radius)) });
@@ -116,29 +128,36 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
                 heightFields.set(command.id, field);
                 break;
             }
+            case "resource.compound": {
+                const children = (field: string): Record<string, unknown>[] => { const value = command[field]; if (value === undefined) return []; if (!Array.isArray(value)) throw new Error(`compound ${command.id} ${field} is not an array`); return value as Record<string, unknown>[]; };
+                const childIds = ["capsules", "hulls", "meshes", "spheres"].flatMap((field) => children(field).map((child) => String(child.id ?? "")));
+                if (childIds.some((id) => !id) || new Set(childIds).size !== childIds.length || JSON.stringify(childIds) !== JSON.stringify(command.childOrder ?? [])) throw new Error(`compound ${command.id} child order is missing or unconsumed`);
+                const compoundCapsules = children("capsules").map((child) => { const resource = capsules.get(String(child.resource)); if (!resource) throw new Error(`compound references unknown capsule ${String(child.resource)}`); return { capsule: resource, material: material(child.material) }; });
+                const compoundHulls = children("hulls").map((child) => { const resource = boxes.get(String(child.resource)); if (!resource) throw new Error(`compound references unknown hull ${String(child.resource)}`); return { hull: resource, transform: frame(child.transform), material: material(child.material) }; });
+                const compoundMeshes = children("meshes").map((child) => { const resource = meshes.get(String(child.resource)); if (!resource) throw new Error(`compound references unknown mesh ${String(child.resource)}`); const values = (child.materials ?? [child.material]) as unknown[]; if (!Array.isArray(values) || values.length < 1 || values.length > 4) throw new Error(`compound mesh material list is invalid for ${command.id}`); return { meshData: resource, transform: frame(child.transform), scale: vec3((child.scale ?? ["0x3f800000", "0x3f800000", "0x3f800000"]) as unknown[]), materials: values.map(material), materialCount: values.length }; });
+                const compoundSpheres = children("spheres").map((child) => { const resource = spheres.get(String(child.resource)); if (!resource) throw new Error(`compound references unknown sphere ${String(child.resource)}`); return { sphere: resource, material: material(child.material) }; });
+                const compound = createCompound({ capsules: compoundCapsules, hulls: compoundHulls, meshes: compoundMeshes, spheres: compoundSpheres }); if (!compound) throw new Error(`compound ${command.id} could not be built`); compounds.set(command.id, compound); break;
+            }
             case "shape.create": {
                 if (!world) throw new Error("shape.create before world.create");
                 const body = bodies.get(String(command.body));
                 if (!body) throw new Error(`shape references unknown body ${String(command.body)}`);
+                const def = shapeDef(command) as never;
+                let created: Shape;
                 if (command.kind === "box") {
-                    const box = boxes.get(String(command.resource));
-                    if (!box) throw new Error(`shape references unknown box ${String(command.resource)}`);
-                    body.createHull({ baseMaterial: { ...defaultSurfaceMaterial(), rollingResistance: f32(String(command.rollingResistance ?? "0x00000000")) }, filter: { ...defaultFilter(), groupIndex: Number(command.groupIndex ?? 0) } }, box);
+                    const box = boxes.get(String(command.resource)); if (!box) throw new Error(`shape references unknown box ${String(command.resource)}`); created = body.createHull(def, box);
                 } else if (command.kind === "sphere") {
-                    const sphere = spheres.get(String(command.resource));
-                    if (!sphere) throw new Error(`shape references unknown sphere ${String(command.resource)}`);
-                    body.createSphere({ baseMaterial: { ...defaultSurfaceMaterial(), rollingResistance: f32(String(command.rollingResistance ?? "0x00000000")) }, filter: { ...defaultFilter(), groupIndex: Number(command.groupIndex ?? 0) } }, sphere);
+                    const sphere = spheres.get(String(command.resource)); if (!sphere) throw new Error(`shape references unknown sphere ${String(command.resource)}`); created = body.createSphere(def, sphere);
                 } else if (command.kind === "capsule") {
-                    const capsule = capsules.get(String(command.resource));
-                    if (!capsule) throw new Error(`shape references unknown capsule ${String(command.resource)}`);
-                    body.createCapsule({ baseMaterial: { ...defaultSurfaceMaterial(), rollingResistance: f32(String(command.rollingResistance ?? "0x00000000")) }, filter: { ...defaultFilter(), groupIndex: Number(command.groupIndex ?? 0) } }, capsule);
+                    const capsule = capsules.get(String(command.resource)); if (!capsule) throw new Error(`shape references unknown capsule ${String(command.resource)}`); created = body.createCapsule(def, capsule);
                 } else if (command.kind === "mesh") {
-                    const mesh = meshes.get(String(command.resource)); if (!mesh) throw new Error(`shape references unknown mesh ${String(command.resource)}`);
-                    body.createMesh({ baseMaterial: { ...defaultSurfaceMaterial(), rollingResistance: f32(String(command.rollingResistance ?? "0x00000000")) }, filter: { ...defaultFilter(), groupIndex: Number(command.groupIndex ?? 0) } }, mesh, vec3((command.scale ?? ["0x3f800000", "0x3f800000", "0x3f800000"]) as unknown[]));
+                    const mesh = meshes.get(String(command.resource)); if (!mesh) throw new Error(`shape references unknown mesh ${String(command.resource)}`); created = body.createMesh(def, mesh, vec3((command.scale ?? ["0x3f800000", "0x3f800000", "0x3f800000"]) as unknown[]));
                 } else if (command.kind === "height-field") {
-                    const field = heightFields.get(String(command.resource)); if (!field) throw new Error(`shape references unknown height field ${String(command.resource)}`);
-                    body.createHeightField({ baseMaterial: { ...defaultSurfaceMaterial(), rollingResistance: f32(String(command.rollingResistance ?? "0x00000000")) }, filter: { ...defaultFilter(), groupIndex: Number(command.groupIndex ?? 0) } }, field);
+                    const field = heightFields.get(String(command.resource)); if (!field) throw new Error(`shape references unknown height field ${String(command.resource)}`); created = body.createHeightField(def, field);
+                } else if (command.kind === "compound") {
+                    const compound = compounds.get(String(command.resource)); if (!compound) throw new Error(`shape references unknown compound ${String(command.resource)}`); created = body.createCompound(def, compound);
                 } else throw new Error(`unknown shape kind ${String(command.kind)}`);
+                shapes.set(command.id, created);
                 break;
             }
             case "joint.revolute":
@@ -195,17 +214,26 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
                 if (!world || !observed) throw new Error(`hash ${command.id} is not after an observation`);
                 hashes.push({ step: Number(command.step), value: `0x${hashWorldState(world.state).toString(16).padStart(16, "0")}`, receiptId: command.id });
                 break;
+            case "sensor.events": {
+                if (!world) throw new Error(`sensor event ${command.id} before world.create`);
+                const sensor = shapes.get(String(command.shape)); if (!sensor || !sensor.isSensor()) throw new Error(`sensor event references unknown sensor ${String(command.shape)}`);
+                const events = world.getSensorEvents();
+                const select = (shape: Shape): boolean => shapeName(shape) === String(command.shape);
+                sensorEvents.push({ step: Number(command.step), begin: events.beginEvents.filter((event) => select(event.sensor)).map((event) => ({ sensor: shapeName(event.sensor), visitor: shapeName(event.visitor) })), end: events.endEvents.filter((event) => select(event.sensor)).map((event) => ({ sensor: shapeName(event.sensor), visitor: shapeName(event.visitor) })), receiptId: command.id });
+                break;
+            }
             default:
                 throw new Error(`unknown command op ${command.op}`);
         }
     }
     const expectedObservations = scenario.stepCount;
-    if (observations.length !== expectedObservations || hashes.length !== expectedObservations) throw new Error(`scenario ${scenario.id} has unconsumed schedule commands`);
+    const expectedEvents = scenario.commands.filter((command) => command.op === "sensor.events").map((command) => String(command.id));
+    if (observations.length !== expectedObservations || hashes.length !== expectedObservations || sensorEvents.length !== expectedEvents.length || JSON.stringify(expectedEvents) !== JSON.stringify(scenario.requiredSensorEventIds ?? [])) throw new Error(`scenario ${scenario.id} has unconsumed schedule commands`);
     const requiredJoints = scenario.requiredJointIds ?? [];
     if (new Set(requiredJoints).size !== requiredJoints.length || joints.size !== requiredJoints.length || requiredJoints.some((id) => !joints.has(id))) throw new Error(`scenario ${scenario.id} has unconsumed or missing joint commands`);
     if (!world) throw new Error(`scenario ${scenario.id} has no world`);
     world.destroy();
-    return { schema: "box3d-oracle/scenario-output/v1", id: scenario.id, name: scenario.name, corpusDigest: digest, observations, hashes, receipt: { corpusDigest: digest, consumedCommands: consumed, observationIds } };
+    return { schema: "box3d-oracle/scenario-output/v1", id: scenario.id, name: scenario.name, corpusDigest: digest, observations, hashes, sensorEvents, receipt: { corpusDigest: digest, consumedCommands: consumed, observationIds } };
 }
 
 export function runCorpus(path = process.env.BOX3D_SCENARIO_CORPUS, mutateAngularVelocity = false): ScenarioOutput[] {
