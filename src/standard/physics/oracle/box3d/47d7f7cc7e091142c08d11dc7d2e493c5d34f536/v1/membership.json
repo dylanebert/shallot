@@ -1,0 +1,42 @@
+{
+  "schema": "box3d-oracle/v1",
+  "public": {
+    "math": [
+      "b3Add",
+      "b3Dot",
+      "b3ComputeCosSin"
+    ],
+    "geometry": [
+      "b3ComputeSphereAABB",
+      "b3ComputeCapsuleMass"
+    ],
+    "distance": [
+      "b3PointToSegmentDistance",
+      "b3ShapeDistance"
+    ],
+    "tree": [
+      "b3DynamicTree_Query"
+    ],
+    "manifold": [
+      "b3CollideSpheres"
+    ],
+    "query": [
+      "b3RayCastSphere"
+    ],
+    "mover": [
+      "b3SolvePlanes",
+      "b3ClipVector"
+    ]
+  },
+  "deferredPrivateCases": [
+    "world-hash",
+    "integrate",
+    "finalize",
+    "recycle",
+    "convex-manifold",
+    "mesh-contact",
+    "convex-contact",
+    "joint"
+  ],
+  "disposition": "Named families requiring upstream private layouts or additive hooks remain deferred to O3; no private observations enter O2."
+}

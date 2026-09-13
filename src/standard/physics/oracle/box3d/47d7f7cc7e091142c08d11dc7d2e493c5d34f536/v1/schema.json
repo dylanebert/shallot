@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "box3d-oracle/v1",
+  "title": "Box3D public oracle bundle",
+  "type": "object",
+  "required": ["schema", "cases"],
+  "properties": {
+    "schema": { "const": "box3d-oracle/v1" },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "family", "symbol", "input", "output"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
+          "family": { "enum": ["math", "geometry", "distance", "tree", "manifold", "query", "mover"] },
+          "symbol": { "type": "string", "pattern": "^b3[A-Za-z0-9_]+$" },
+          "input": { "type": "object" },
+          "output": { "type": "object" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "description": "All f32 values are strings containing fixed-width lowercase u32 hexadecimal bits (0x plus 8 digits). u32 and signed i32 values use the same fixed-width representation; u64 values use 0x plus 16 lowercase hexadecimal digits. Arrays are ordered and case IDs are stable logical IDs."
+}

@@ -1,0 +1,112 @@
+{
+  "schema": "box3d-oracle/manifest-v1",
+  "bundle": {
+    "upstreamSha": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
+    "schema": "v1",
+    "identity": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v1"
+  },
+  "upstream": {
+    "url": "https://github.com/erincatto/box3d.git",
+    "ref": "refs/heads/main",
+    "channel": "official-main",
+    "sha": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
+    "tree": "0a6472d03ff61c9af28216443fba341a21cbed96",
+    "reachableFromChannel": true
+  },
+  "oracle": {
+    "memberCommit": "4250090eaffa5f6077e7268b230034060324fdb3",
+    "generator": "bin/oracle.ts",
+    "generatorSha256": "039753daeea1f1d7ffe226b92541e3b5af0e6f89ce0b8eafbd8f309162e9feaf",
+    "adapters": [
+      {
+        "path": "adapter/distance.c",
+        "sha256": "fbdda60cb089d3d587ff76c63c6219402615a5e971118d7421212086182202a7"
+      },
+      {
+        "path": "adapter/geometry.c",
+        "sha256": "564d81ccc377c6b65e8decfab69bb13f42b2c1f66e6bf622da71fd6dc913e9ac"
+      },
+      {
+        "path": "adapter/main.c",
+        "sha256": "dc478d6da4a043d2cb6012874e5e9fe02100cf852f0645cead3bb7fdc4a98eee"
+      },
+      {
+        "path": "adapter/manifold.c",
+        "sha256": "76936a36022a26ffd9843616542ed2b89cbfd9b08b532227680aaf22ec63853d"
+      },
+      {
+        "path": "adapter/math.c",
+        "sha256": "bf214a35f55220b0d845860c7fa223c7f83ba454f90b4da66a1811e50e823611"
+      },
+      {
+        "path": "adapter/mover.c",
+        "sha256": "4dcb3d9688f265d4f9d3341425d8afa31b11161daf3b309034b83326784eb9b8"
+      },
+      {
+        "path": "adapter/query.c",
+        "sha256": "4dc16b62739b841ae08490a9278a0a98f9aa842221707d5d31cdc8235f07c123"
+      },
+      {
+        "path": "adapter/tree.c",
+        "sha256": "2ed3a8f68ab64b33656061af5955c21141e095b88231468aac89713da0b640f3"
+      },
+      {
+        "path": "adapter/writer.c",
+        "sha256": "d43222900623966a6266abaf4a8b96f8c151a5f519d08b8f1d2a174beeaec76c"
+      }
+    ]
+  },
+  "build": {
+    "compiler": {
+      "executable": "cc",
+      "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
+      "sha256": "ebdd1913203aebbae99a8adad363e300e6cea37bcc703a8f9506410551f809f1"
+    },
+    "cmake": [
+      "-S",
+      "<official-source>",
+      "-B",
+      "<public-build>",
+      "-G",
+      "Ninja",
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DBOX3D_DISABLE_SIMD=ON",
+      "-DBOX3D_SAMPLES=OFF",
+      "-DBOX3D_BENCHMARKS=OFF",
+      "-DBOX3D_DOCS=OFF",
+      "-DBOX3D_UNIT_TESTS=OFF",
+      "-DBOX3D_VALIDATE=ON"
+    ],
+    "library": "official libbox3.a",
+    "publicIncludeRoot": "include/box3d",
+    "privateIncludeFirewall": "depfiles reject upstream src/ and negative mutation must fail",
+    "executableSha256": "ceafdd46447d632811b26c0b03f2508f03cd53036c221e90ad7502a9c6ddbe24"
+  },
+  "schemaDefinition": "schema.json",
+  "membership": "membership.json",
+  "caseFile": "cases.json",
+  "caseCount": 12,
+  "fileDigests": {
+    "schema.json": "2fc485074e033ce42e2c29e2cc43bc0cb08b9d2bdf22254970f135025441f867",
+    "membership.json": "fa91fe2cd77ae6d4148369746aef76d7ead4af13c3831b6445f53c9ac4831292",
+    "cases.json": "dbdd2d7c5a01a0de6b68c42a6e75ea7958cd45034257c7b94c679bfbd06fa6c7"
+  },
+  "fileDigestScope": "Generated evidence files only; manifest is the receipt and is intentionally excluded from its own digest map.",
+  "generation": {
+    "startsEmpty": true,
+    "readsShallot": false,
+    "readsGolds": false,
+    "overwrite": false,
+    "outputArithmetic": false
+  },
+  "deferredPrivateCases": [
+    "world-hash",
+    "integrate",
+    "finalize",
+    "recycle",
+    "convex-manifold",
+    "mesh-contact",
+    "convex-contact",
+    "joint"
+  ]
+}
