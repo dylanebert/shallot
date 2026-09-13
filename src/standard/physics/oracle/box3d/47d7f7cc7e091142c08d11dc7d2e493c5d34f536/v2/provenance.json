@@ -1,0 +1,66 @@
+{
+  "schema": "box3d-oracle/provenance-v1",
+  "declared": [
+    {
+      "symbol": "b3HashWorldState",
+      "file": "src/recording.c",
+      "vector": "whitebox.world-hash.v2"
+    },
+    {
+      "symbol": "b3IntegrateVelocitiesTask",
+      "file": "src/solver.c",
+      "vector": "whitebox.integrate-velocities.v2"
+    },
+    {
+      "symbol": "b3IntegratePositionsTask",
+      "file": "src/solver.c",
+      "vector": "whitebox.integrate-positions.v2"
+    },
+    {
+      "symbol": "b3FinalizeBodiesTask",
+      "file": "src/solver.c",
+      "vector": "whitebox.finalize.v2"
+    },
+    {
+      "symbol": "b3CollideTask",
+      "file": "src/physics_world.c",
+      "vector": "whitebox.recycle.v2"
+    }
+  ],
+  "nm": [
+    "000000010004edf8 t _b3CollideTask",
+    "000000010007dd30 t _b3FinalizeBodiesTask",
+    "000000010006bd08 t _b3HashWorldState",
+    "000000010007d998 t _b3IntegratePositionsTask",
+    "000000010007d210 t _b3IntegrateVelocitiesTask"
+  ],
+  "linkMapSha256": "89fc349bf8d40172b630f55d96af965f9acb41b587c2904d59fa96e22695e894",
+  "linkMap": "<whitebox-build>/o3-adapter/box3d-o3-adapter.map",
+  "sentinelMutations": [
+    {
+      "symbol": "b3HashWorldState",
+      "vector": "whitebox.world-hash.v2",
+      "watched": true
+    },
+    {
+      "symbol": "b3IntegrateVelocitiesTask",
+      "vector": "whitebox.integrate-velocities.v2",
+      "watched": true
+    },
+    {
+      "symbol": "b3IntegratePositionsTask",
+      "vector": "whitebox.integrate-positions.v2",
+      "watched": true
+    },
+    {
+      "symbol": "b3FinalizeBodiesTask",
+      "vector": "whitebox.finalize.v2",
+      "watched": true
+    },
+    {
+      "symbol": "b3CollideTask",
+      "vector": "whitebox.recycle.v2",
+      "watched": true
+    }
+  ]
+}
