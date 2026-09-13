@@ -1,0 +1,136 @@
+{
+  "schema": "box3d-oracle/manifest-v2",
+  "bundle": {
+    "upstreamSha": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
+    "schema": "v2",
+    "identity": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v2"
+  },
+  "upstream": {
+    "url": "https://github.com/erincatto/box3d.git",
+    "ref": "refs/heads/main",
+    "channel": "official-main",
+    "sha": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
+    "tree": "0a6472d03ff61c9af28216443fba341a21cbed96",
+    "reachableFromChannel": true
+  },
+  "oracle": {
+    "memberCommit": "17e297557cc98bd64806ac384d60305bedf7b548",
+    "generator": "bin/oracle.ts",
+    "generatorSha256": "89e8c551ec73eb30794163a1d963f04639daf6aea79cda6366ba31f7e5760078",
+    "hookDigest": "712a2bddb220aed81fe44cda11d46889f385fbc6276034f4ace13e54d3611b7a",
+    "patches": [
+      {
+        "file": "src/recording.c",
+        "marker": "recording.hash-world-state"
+      },
+      {
+        "file": "src/recording.c",
+        "marker": "recording.hash-world-state.sentinel"
+      },
+      {
+        "file": "src/recording.c",
+        "marker": "recording.hash-world-state.bridge"
+      },
+      {
+        "file": "src/solver.c",
+        "marker": "solver.scalar-phases"
+      },
+      {
+        "file": "src/solver.c",
+        "marker": "solver.integrate-velocities.sentinel"
+      },
+      {
+        "file": "src/solver.c",
+        "marker": "solver.integrate-positions.sentinel"
+      },
+      {
+        "file": "src/solver.c",
+        "marker": "solver.finalize.sentinel"
+      },
+      {
+        "file": "src/solver.c",
+        "marker": "solver.scalar-phases.bridges"
+      },
+      {
+        "file": "src/physics_world.c",
+        "marker": "physics.recycle"
+      },
+      {
+        "file": "src/physics_world.c",
+        "marker": "physics.recycle.sentinel"
+      },
+      {
+        "file": "src/physics_world.c",
+        "marker": "physics.recycle.bridge"
+      }
+    ],
+    "adapters": [
+      "adapter/o3_main.c",
+      "adapter/whitebox.c",
+      "adapter/distance.c",
+      "adapter/geometry.c",
+      "adapter/main.c",
+      "adapter/manifold.c",
+      "adapter/math.c",
+      "adapter/mover.c",
+      "adapter/query.c",
+      "adapter/tree.c",
+      "adapter/writer.c"
+    ]
+  },
+  "build": {
+    "compiler": {
+      "executable": "cc",
+      "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
+      "sha256": "ebdd1913203aebbae99a8adad363e300e6cea37bcc703a8f9506410551f809f1"
+    },
+    "cmake": [
+      "-S",
+      "<patched-official-source>",
+      "-B",
+      "<whitebox-build>",
+      "-G",
+      "Ninja",
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DBOX3D_DISABLE_SIMD=ON",
+      "-DBOX3D_SAMPLES=OFF",
+      "-DBOX3D_BENCHMARKS=OFF",
+      "-DBOX3D_DOCS=OFF",
+      "-DBOX3D_UNIT_TESTS=OFF",
+      "-DBOX3D_VALIDATE=ON",
+      "-DCMAKE_C_FLAGS=-DB3_ORACLE_HOOKS -DB3_ORACLE_SENTINELS"
+    ],
+    "library": "patched disposable official libbox3.a",
+    "privateIncludeRoot": "official src/ in disposable patched checkout",
+    "linkMapSha256": "89fc349bf8d40172b630f55d96af965f9acb41b587c2904d59fa96e22695e894",
+    "nmEvidenceSha256": "2b030082b43162cab44338944e7c4ebffa5750e77a877b88230bf4e497b13904",
+    "executableSha256": "72bfea35c84d07b5eedd76ce86e9853b03db5f4e007c696b08e7af22163a1358"
+  },
+  "schemaDefinition": "schema.json",
+  "membership": "membership.json",
+  "provenance": "provenance.json",
+  "caseFile": "cases.json",
+  "caseCount": 17,
+  "fileDigests": {
+    "schema.json": "9997df52f73a03d82c831bfbb20a640d8a28dadf16672f6842ca3f3af415c02f",
+    "membership.json": "dcf7c6ce77167ad0ca4c7392273f04efba329d8b1795a1ce08b3720b22dfd1f9",
+    "provenance.json": "e35a14bd0a7a4562fe872dee1c662a941818047711ce05afc41a86caf8f56306",
+    "cases.json": "53ccc4757a99b70c1b650a8ea4ad7f0ddba526e2022e619014e3ff4b84c49c58"
+  },
+  "fileDigestScope": "Generated evidence files only; manifest is the receipt and is intentionally excluded from its own digest map.",
+  "generation": {
+    "startsEmpty": true,
+    "readsShallot": false,
+    "readsGolds": false,
+    "overwrite": false,
+    "outputArithmetic": false,
+    "publicLanePristine": true,
+    "whiteBoxLaneDisposablePatch": true
+  },
+  "deferredPrivateCases": [
+    "convex-manifold",
+    "mesh-contact",
+    "convex-contact",
+    "joint"
+  ]
+}

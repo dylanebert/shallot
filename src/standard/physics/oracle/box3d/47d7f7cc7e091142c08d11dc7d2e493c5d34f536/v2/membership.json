@@ -1,0 +1,65 @@
+{
+  "schema": "box3d-oracle/v2",
+  "publicSymbols": {
+    "math": [
+      "b3Add",
+      "b3Dot",
+      "b3ComputeCosSin"
+    ],
+    "geometry": [
+      "b3ComputeSphereAABB",
+      "b3ComputeCapsuleMass"
+    ],
+    "distance": [
+      "b3PointToSegmentDistance",
+      "b3ShapeDistance"
+    ],
+    "tree": [
+      "b3DynamicTree_Query"
+    ],
+    "manifold": [
+      "b3CollideSpheres"
+    ],
+    "query": [
+      "b3RayCastSphere"
+    ],
+    "mover": [
+      "b3SolvePlanes",
+      "b3ClipVector"
+    ]
+  },
+  "whiteBox": [
+    {
+      "symbol": "b3HashWorldState",
+      "file": "src/recording.c",
+      "vector": "whitebox.world-hash.v2"
+    },
+    {
+      "symbol": "b3IntegrateVelocitiesTask",
+      "file": "src/solver.c",
+      "vector": "whitebox.integrate-velocities.v2"
+    },
+    {
+      "symbol": "b3IntegratePositionsTask",
+      "file": "src/solver.c",
+      "vector": "whitebox.integrate-positions.v2"
+    },
+    {
+      "symbol": "b3FinalizeBodiesTask",
+      "file": "src/solver.c",
+      "vector": "whitebox.finalize.v2"
+    },
+    {
+      "symbol": "b3CollideTask",
+      "file": "src/physics_world.c",
+      "vector": "whitebox.recycle.v2"
+    }
+  ],
+  "deferredPrivateCases": [
+    "convex-manifold",
+    "mesh-contact",
+    "convex-contact",
+    "joint"
+  ],
+  "disposition": "Contact, convex-manifold, and joint families are explicitly deferred to O4."
+}

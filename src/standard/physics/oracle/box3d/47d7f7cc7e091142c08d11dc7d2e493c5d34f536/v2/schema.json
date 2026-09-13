@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "box3d-oracle/v2",
+  "title": "Box3D oracle white-box bundle",
+  "type": "object",
+  "required": [
+    "schema",
+    "cases"
+  ],
+  "properties": {
+    "schema": {
+      "const": "box3d-oracle/v2"
+    },
+    "cases": {
+      "type": "array"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Generated public and white-box observations. White-box outputs are returned by actual upstream bodies through additive hooks."
+}
