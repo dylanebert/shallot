@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "box3d-oracle/v3",
+  "title": "Box3D oracle contact, manifold, and joint bundle",
+  "type": "object",
+  "required": [
+    "schema",
+    "cases"
+  ],
+  "properties": {
+    "schema": {
+      "const": "box3d-oracle/v3"
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "family",
+          "symbol",
+          "input",
+          "output",
+          "configuration"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "description": "Generated scalar and relevant SIMD observations. Producers call public upstream APIs or additive marker bridges to actual upstream bodies."
+}

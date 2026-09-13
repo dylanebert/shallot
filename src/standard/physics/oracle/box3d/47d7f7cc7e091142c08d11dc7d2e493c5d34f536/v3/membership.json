@@ -1,0 +1,28 @@
+{
+  "schema": "box3d-oracle/v3",
+  "inherited": "box3d-oracle/v2",
+  "families": {
+    "convexManifold": "b3CollideHulls",
+    "meshContact": "b3ComputeMeshManifolds",
+    "convexContact": "b3UpdateConvexContact",
+    "joint": [
+      "b3CreateParallelJoint",
+      "b3CreateDistanceJoint",
+      "b3CreateMotorJoint",
+      "b3CreateFilterJoint",
+      "b3CreatePrismaticJoint",
+      "b3CreateRevoluteJoint",
+      "b3CreateSphericalJoint",
+      "b3CreateWeldJoint",
+      "b3CreateWheelJoint"
+    ]
+  },
+  "configurations": [
+    "scalar",
+    "simd"
+  ],
+  "fakeJointProducer": {
+    "path": null,
+    "impossible": "joint cases are emitted only after public b3Create*Joint calls and getters return the observed records"
+  }
+}
