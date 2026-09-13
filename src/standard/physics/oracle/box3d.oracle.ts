@@ -30,10 +30,14 @@ check(
             throw new Error("current target does not match bundle upstream SHA");
         if (current.conformsThrough === current.target)
             throw new Error("publishing target advanced conformance");
-        if (manifest.bundle.schema !== "v1" && manifest.bundle.schema !== "v2" && manifest.bundle.schema !== "v3") throw new Error("unsupported oracle schema");
+        if (manifest.bundle.schema !== "v1" && manifest.bundle.schema !== "v2" && manifest.bundle.schema !== "v3" && manifest.bundle.schema !== "v4") throw new Error("unsupported oracle schema");
         for (const [name, expected] of Object.entries(manifest.fileDigests)) {
             if (digest(join(bundle, name)) !== expected)
                 throw new Error(`bundle digest mismatch: ${name}`);
+        }
+        if (manifest.bundle.schema === "v4") {
+            const membership = JSON.parse(readFileSync(join(bundle, "membership.json"), "utf8")) as { count?: number; names?: string[]; exact?: boolean };
+            if (membership.count !== 53 || membership.exact !== true || membership.names?.length !== 53) throw new Error("scenario membership is not exact 53-name coverage");
         }
     },
 );

@@ -1,0 +1,3557 @@
+{
+  "schema": "shallot-physics-scenario/v1",
+  "authority": "official-box3d",
+  "scenarios": [
+    {
+      "id": "s1.free-fall.v1",
+      "name": "free-fall",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 60
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.sphere-drop.v1",
+      "name": "sphere-drop",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.box-stack.v1",
+      "name": "box-stack",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.sphere-sleep.v1",
+      "name": "sphere-sleep",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": true,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 150
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.box-sleep.v1",
+      "name": "box-sleep",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": true,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 150
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.wake-drop.v1",
+      "name": "wake-drop",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": true,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 180
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.split-slide.v1",
+      "name": "split-slide",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": true,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.revolute-dd.v1",
+      "name": "revolute-dd",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 60
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.revolute-pendulum.v1",
+      "name": "revolute-pendulum",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.revolute-motor.v1",
+      "name": "revolute-motor",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.revolute-limit.v1",
+      "name": "revolute-limit",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 150
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.revolute-chain.v1",
+      "name": "revolute-chain",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": true,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 240
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.weld-dd.v1",
+      "name": "weld-dd",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.parallel.v1",
+      "name": "parallel",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.joint-contacts.v1",
+      "name": "joint-contacts",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.motor.v1",
+      "name": "motor",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.motor-spring.v1",
+      "name": "motor-spring",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.distance.v1",
+      "name": "distance",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.distance-spring.v1",
+      "name": "distance-spring",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 150
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.prismatic.v1",
+      "name": "prismatic",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.prismatic-motor.v1",
+      "name": "prismatic-motor",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.spherical.v1",
+      "name": "spherical",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.spherical-limits.v1",
+      "name": "spherical-limits",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 150
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.spherical-motor.v1",
+      "name": "spherical-motor",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.wheel.v1",
+      "name": "wheel",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.wheel-spin.v1",
+      "name": "wheel-spin",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.wheel-steer.v1",
+      "name": "wheel-steer",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 150
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.ragdoll.v1",
+      "name": "ragdoll",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": true,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 300
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.ccd-drop.v1",
+      "name": "ccd-drop",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": true,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 60
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.ccd-bullet.v1",
+      "name": "ccd-bullet",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": true,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 40
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.mesh-box.v1",
+      "name": "mesh-box",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.mesh-sphere.v1",
+      "name": "mesh-sphere",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.mesh-capsule.v1",
+      "name": "mesh-capsule",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.mesh-ccd.v1",
+      "name": "mesh-ccd",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": true,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 60
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.height-box.v1",
+      "name": "height-box",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.height-sphere.v1",
+      "name": "height-sphere",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.height-capsule.v1",
+      "name": "height-capsule",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.height-ccd.v1",
+      "name": "height-ccd",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": true,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 60
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.compound-hull.v1",
+      "name": "compound-hull",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.compound-capsule.v1",
+      "name": "compound-capsule",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.compound-sphere.v1",
+      "name": "compound-sphere",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.compound-mesh.v1",
+      "name": "compound-mesh",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.compound-ccd.v1",
+      "name": "compound-ccd",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": true,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 60
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.sensor.v1",
+      "name": "sensor",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": true,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-pyramid.v1",
+      "name": "bench-pyramid",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 100
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-many-pyramids.v1",
+      "name": "bench-many-pyramids",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-joint-grid.v1",
+      "name": "bench-joint-grid",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 100
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-washer.v1",
+      "name": "bench-washer",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 120
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-large-world.v1",
+      "name": "bench-large-world",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-trees.v1",
+      "name": "bench-trees",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 90
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-junkyard.v1",
+      "name": "bench-junkyard",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 150
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.bench-rain.v1",
+      "name": "bench-rain",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 250
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    },
+    {
+      "id": "s1.drift.v1",
+      "name": "drift",
+      "setup": {
+        "gravity": [
+          "0x00000000",
+          "0xc1200000",
+          "0x00000000"
+        ],
+        "enableSleep": false,
+        "enableContinuous": false,
+        "body": {
+          "logicalId": "primary",
+          "type": "dynamic",
+          "position": [
+            "0x00000000",
+            "0x40a00000",
+            "0x00000000"
+          ],
+          "shape": {
+            "type": "box",
+            "halfExtents": [
+              "0x3e800000",
+              "0x3e800000",
+              "0x3e800000"
+            ]
+          }
+        }
+      },
+      "actions": [
+        {
+          "op": "step",
+          "timeStep": "0x3c888889",
+          "subStepCount": 4,
+          "repeat": 2000
+        }
+      ],
+      "observations": [
+        {
+          "id": "primary.position",
+          "getter": "b3Body_GetPosition",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.rotation",
+          "getter": "b3Body_GetRotation",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.linearVelocity",
+          "getter": "b3Body_GetLinearVelocity",
+          "schedule": "after-each-step"
+        },
+        {
+          "id": "primary.angularVelocity",
+          "getter": "b3Body_GetAngularVelocity",
+          "schedule": "after-each-step"
+        }
+      ],
+      "whiteBoxObservations": [
+        {
+          "id": "world.hash",
+          "getter": "b3HashWorldState",
+          "schedule": "after-each-step"
+        }
+      ]
+    }
+  ]
+}

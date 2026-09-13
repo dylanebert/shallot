@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "shallot-physics-scenario/v1",
+  "title": "Shallot system scenario command corpus",
+  "type": "object",
+  "required": [
+    "schema",
+    "scenarios"
+  ],
+  "properties": {
+    "schema": {
+      "const": "shallot-physics-scenario/v1"
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 53,
+      "maxItems": 53
+    }
+  },
+  "additionalProperties": false
+}

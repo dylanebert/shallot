@@ -1,0 +1,699 @@
+{
+  "schema": "shallot-physics-scenario/migration-v1",
+  "target": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
+  "source": "independently reproduced S1 fixture output",
+  "official": "new v4 official adapter output",
+  "compared": 53,
+  "mismatches": 53,
+  "dispositions": [
+    {
+      "name": "free-fall",
+      "id": "s1.free-fall.v1",
+      "oldSteps": 60,
+      "officialSteps": 60,
+      "mismatchCount": 60,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xe8bd16c68c93b4ea",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "sphere-drop",
+      "id": "s1.sphere-drop.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x8c85b518f1c02ccb",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "box-stack",
+      "id": "s1.box-stack.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x3b2abc2321c01a75",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "sphere-sleep",
+      "id": "s1.sphere-sleep.v1",
+      "oldSteps": 150,
+      "officialSteps": 150,
+      "mismatchCount": 150,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x8c85b518f1c02ccb",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "box-sleep",
+      "id": "s1.box-sleep.v1",
+      "oldSteps": 150,
+      "officialSteps": 150,
+      "mismatchCount": 150,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x3b2abc2321c01a75",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "wake-drop",
+      "id": "s1.wake-drop.v1",
+      "oldSteps": 180,
+      "officialSteps": 180,
+      "mismatchCount": 180,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x7ec2fc1336a3ff62",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "split-slide",
+      "id": "s1.split-slide.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xf329e88cfb26c726",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "revolute-dd",
+      "id": "s1.revolute-dd.v1",
+      "oldSteps": 60,
+      "officialSteps": 60,
+      "mismatchCount": 60,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x5d5c6595184aae6d",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "revolute-pendulum",
+      "id": "s1.revolute-pendulum.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x6519ec065d495897",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "revolute-motor",
+      "id": "s1.revolute-motor.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x29e7d1b9fcd070ba",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "revolute-limit",
+      "id": "s1.revolute-limit.v1",
+      "oldSteps": 150,
+      "officialSteps": 150,
+      "mismatchCount": 150,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x6519ec065d495897",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "revolute-chain",
+      "id": "s1.revolute-chain.v1",
+      "oldSteps": 240,
+      "officialSteps": 240,
+      "mismatchCount": 240,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x9b9d5d1a8da8ce25",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "weld-dd",
+      "id": "s1.weld-dd.v1",
+      "oldSteps": 90,
+      "officialSteps": 90,
+      "mismatchCount": 90,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x1b1226ff65672680",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "parallel",
+      "id": "s1.parallel.v1",
+      "oldSteps": 90,
+      "officialSteps": 90,
+      "mismatchCount": 90,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xcb710aced66b3495",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "joint-contacts",
+      "id": "s1.joint-contacts.v1",
+      "oldSteps": 90,
+      "officialSteps": 90,
+      "mismatchCount": 90,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xef9af1e9d02e5348",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "motor",
+      "id": "s1.motor.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xf2c8aae56fe4fa11",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "motor-spring",
+      "id": "s1.motor-spring.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xe7b396a5364c8624",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "distance",
+      "id": "s1.distance.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xc7ea6da72bda9044",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "distance-spring",
+      "id": "s1.distance-spring.v1",
+      "oldSteps": 150,
+      "officialSteps": 150,
+      "mismatchCount": 150,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x95be30b6a36c64bd",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "prismatic",
+      "id": "s1.prismatic.v1",
+      "oldSteps": 90,
+      "officialSteps": 90,
+      "mismatchCount": 90,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x4c467bc03cd980c3",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "prismatic-motor",
+      "id": "s1.prismatic-motor.v1",
+      "oldSteps": 90,
+      "officialSteps": 90,
+      "mismatchCount": 90,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xb623c6767a6e3d4b",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "spherical",
+      "id": "s1.spherical.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x6519ec065d495897",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "spherical-limits",
+      "id": "s1.spherical-limits.v1",
+      "oldSteps": 150,
+      "officialSteps": 150,
+      "mismatchCount": 150,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x12c2708d6ef68d5a",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "spherical-motor",
+      "id": "s1.spherical-motor.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xa80a533675fa3b87",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "wheel",
+      "id": "s1.wheel.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x421afc0f3f2faa00",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "wheel-spin",
+      "id": "s1.wheel-spin.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xc1d7ffa5929075a8",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "wheel-steer",
+      "id": "s1.wheel-steer.v1",
+      "oldSteps": 150,
+      "officialSteps": 150,
+      "mismatchCount": 150,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x62cb387fc5162a2c",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "ragdoll",
+      "id": "s1.ragdoll.v1",
+      "oldSteps": 300,
+      "officialSteps": 300,
+      "mismatchCount": 300,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xaab3e5b732aa00f8",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "ccd-drop",
+      "id": "s1.ccd-drop.v1",
+      "oldSteps": 60,
+      "officialSteps": 60,
+      "mismatchCount": 60,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xc3af7946f221ac40",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "ccd-bullet",
+      "id": "s1.ccd-bullet.v1",
+      "oldSteps": 40,
+      "officialSteps": 40,
+      "mismatchCount": 40,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x29e8843a2f2029fe",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "mesh-box",
+      "id": "s1.mesh-box.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x22b47d26b25c19b1",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "mesh-sphere",
+      "id": "s1.mesh-sphere.v1",
+      "oldSteps": 90,
+      "officialSteps": 90,
+      "mismatchCount": 90,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x0dfbd213e6b50018",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "mesh-capsule",
+      "id": "s1.mesh-capsule.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x0dfbd213e6b50018",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "mesh-ccd",
+      "id": "s1.mesh-ccd.v1",
+      "oldSteps": 60,
+      "officialSteps": 60,
+      "mismatchCount": 60,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x6a56136bd6d40273",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "height-box",
+      "id": "s1.height-box.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x9ee2fc26fddc19b1",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "height-sphere",
+      "id": "s1.height-sphere.v1",
+      "oldSteps": 90,
+      "officialSteps": 90,
+      "mismatchCount": 90,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x6d5ffee325350018",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "height-capsule",
+      "id": "s1.height-capsule.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x6d5ffee325350018",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "height-ccd",
+      "id": "s1.height-ccd.v1",
+      "oldSteps": 60,
+      "officialSteps": 60,
+      "mismatchCount": 60,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x782a838426540273",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "compound-hull",
+      "id": "s1.compound-hull.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x22b47d26b25c19b1",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "compound-capsule",
+      "id": "s1.compound-capsule.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x8ef38032f75a44b0",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "compound-sphere",
+      "id": "s1.compound-sphere.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x22b47d26b25c19b1",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "compound-mesh",
+      "id": "s1.compound-mesh.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x22b47d26b25c19b1",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "compound-ccd",
+      "id": "s1.compound-ccd.v1",
+      "oldSteps": 60,
+      "officialSteps": 60,
+      "mismatchCount": 60,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x6a56136bd6d40273",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "sensor",
+      "id": "s1.sensor.v1",
+      "oldSteps": 90,
+      "officialSteps": 90,
+      "mismatchCount": 90,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x18405a0b125ac13f",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "bench-pyramid",
+      "id": "s1.bench-pyramid.v1",
+      "oldSteps": 100,
+      "officialSteps": 100,
+      "mismatchCount": 100,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xdd925c82021b7832",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "bench-many-pyramids",
+      "id": "s1.bench-many-pyramids.v1",
+      "oldSteps": 90,
+      "officialSteps": 90,
+      "mismatchCount": 90,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xc568fc25a4f11404",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "bench-joint-grid",
+      "id": "s1.bench-joint-grid.v1",
+      "oldSteps": 100,
+      "officialSteps": 100,
+      "mismatchCount": 100,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x2e19829e3fae8d1d",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "bench-washer",
+      "id": "s1.bench-washer.v1",
+      "oldSteps": 120,
+      "officialSteps": 120,
+      "mismatchCount": 120,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xbcfdf17cfdfb0974",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "bench-large-world",
+      "id": "s1.bench-large-world.v1",
+      "oldSteps": 90,
+      "officialSteps": 90,
+      "mismatchCount": 90,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x180fd436760981e5",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "bench-trees",
+      "id": "s1.bench-trees.v1",
+      "oldSteps": 90,
+      "officialSteps": 90,
+      "mismatchCount": 90,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0xb9d4092fb8cbe17f",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "bench-junkyard",
+      "id": "s1.bench-junkyard.v1",
+      "oldSteps": 150,
+      "officialSteps": 150,
+      "mismatchCount": 150,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x6cdb4910b3ef6574",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "bench-rain",
+      "id": "s1.bench-rain.v1",
+      "oldSteps": 250,
+      "officialSteps": 250,
+      "mismatchCount": 250,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x10b46a73d5b9e4e6",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    },
+    {
+      "name": "drift",
+      "id": "s1.drift.v1",
+      "oldSteps": 2000,
+      "officialSteps": 2000,
+      "mismatchCount": 2000,
+      "firstMismatch": {
+        "step": 0,
+        "old": "0x3b2abc2321c01a75",
+        "official": "0xac5bcddcdc8d2f89"
+      },
+      "disposition": "investigated-not-comparable: command corpus owns getter observations and the S1 fixture owns a different scene construction; no old output was used for generation"
+    }
+  ]
+}
