@@ -1,0 +1,1875 @@
+{
+  "schema": "box3d-oracle/v3",
+  "cases": [
+    {
+      "id": "math.add.v1.scalar",
+      "family": "math",
+      "symbol": "b3Add",
+      "input": {
+        "a": [
+          "0x3e800000",
+          "0xc0000000",
+          "0x40600000"
+        ],
+        "b": [
+          "0xbf800000",
+          "0x40800000",
+          "0x3f000000"
+        ]
+      },
+      "output": {
+        "value": [
+          "0xbf400000",
+          "0x40000000",
+          "0x40800000"
+        ]
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "math.dot.v1.scalar",
+      "family": "math",
+      "symbol": "b3Dot",
+      "input": {
+        "a": [
+          "0x3e800000",
+          "0xc0000000",
+          "0x40600000"
+        ],
+        "b": [
+          "0xbf800000",
+          "0x40800000",
+          "0x3f000000"
+        ]
+      },
+      "output": {
+        "value": "0xc0d00000"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "math.cos-sin.v1.scalar",
+      "family": "math",
+      "symbol": "b3ComputeCosSin",
+      "input": {
+        "radians": "0x3f400000"
+      },
+      "output": {
+        "cosine": "0x3f3b4dc0",
+        "sine": "0x3f2e8240"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "geometry.sphere-aabb.v1.scalar",
+      "family": "geometry",
+      "symbol": "b3ComputeSphereAABB",
+      "input": {
+        "center": [
+          "0x3e800000",
+          "0xbf000000",
+          "0x3f800000"
+        ],
+        "radius": "0x3f400000",
+        "translation": [
+          "0x40000000",
+          "0x40400000",
+          "0xbf800000"
+        ]
+      },
+      "output": {
+        "aabb": {
+          "lower": [
+            "0x3fc00000",
+            "0x3fe00000",
+            "0xbf400000"
+          ],
+          "upper": [
+            "0x40400000",
+            "0x40500000",
+            "0x3f400000"
+          ]
+        }
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "geometry.capsule-mass.v1.scalar",
+      "family": "geometry",
+      "symbol": "b3ComputeCapsuleMass",
+      "input": {
+        "center1": [
+          "0xbf800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "center2": [
+          "0x3f800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "radius": "0x3f000000",
+        "density": "0x40000000"
+      },
+      "output": {
+        "mass": "0x40860a92",
+        "center": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "inertia": [
+          "0x3efeadad",
+          "0xb4129b8f",
+          "0x00000000"
+        ]
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "distance.point-segment.v1.scalar",
+      "family": "distance",
+      "symbol": "b3PointToSegmentDistance",
+      "input": {
+        "a": [
+          "0xbf800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "b": [
+          "0x3f800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "q": [
+          "0x3e800000",
+          "0x40000000",
+          "0x00000000"
+        ]
+      },
+      "output": {
+        "closest": [
+          "0x3e800000",
+          "0x00000000",
+          "0x00000000"
+        ]
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "distance.shape.v1.scalar",
+      "family": "distance",
+      "symbol": "b3ShapeDistance",
+      "input": {
+        "proxyA": [
+          [
+            "0x00000000",
+            "0x00000000",
+            "0x00000000"
+          ]
+        ],
+        "proxyB": [
+          [
+            "0x00000000",
+            "0x00000000",
+            "0x00000000"
+          ]
+        ],
+        "translationB": [
+          "0x40000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "useRadii": true
+      },
+      "output": {
+        "pointA": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "pointB": [
+          "0x40000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "normal": [
+          "0x3f800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "distance": "0x40000000",
+        "iterations": "0x00000000",
+        "simplexCount": "0x00000002"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "tree.query.v1.scalar",
+      "family": "tree",
+      "symbol": "b3DynamicTree_Query",
+      "input": {
+        "proxies": [
+          {
+            "aabb": [
+              "0xbf800000",
+              "0xbf800000",
+              "0xbf800000",
+              "0x3f800000",
+              "0x3f800000",
+              "0x3f800000"
+            ],
+            "category": "0x0000000000000001",
+            "userData": "0x1122334455667788"
+          },
+          {
+            "aabb": [
+              "0x40000000",
+              "0xbf800000",
+              "0xbf800000",
+              "0x40800000",
+              "0x3f800000",
+              "0x3f800000"
+            ],
+            "category": "0x0000000000000001",
+            "userData": "0x8877665544332211"
+          }
+        ],
+        "queryAabb": [
+          "0xc0000000",
+          "0xc0000000",
+          "0xc0000000",
+          "0x40200000",
+          "0x40000000",
+          "0x40000000"
+        ],
+        "mask": "0x0000000000000001"
+      },
+      "output": {
+        "stats": {
+          "nodeVisits": "0x00000003",
+          "leafVisits": "0x00000002"
+        },
+        "hits": [
+          {
+            "proxyId": "0x00000001",
+            "userData": "0x8877665544332211"
+          },
+          {
+            "proxyId": "0x00000000",
+            "userData": "0x1122334455667788"
+          }
+        ]
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "manifold.spheres.v1.scalar",
+      "family": "manifold",
+      "symbol": "b3CollideSpheres",
+      "input": {
+        "sphereA": {
+          "center": [
+            "0x00000000",
+            "0x00000000",
+            "0x00000000"
+          ],
+          "radius": "0x3f800000"
+        },
+        "sphereB": {
+          "center": [
+            "0x00000000",
+            "0x00000000",
+            "0x00000000"
+          ],
+          "radius": "0x3f800000"
+        },
+        "transformBtoA": {
+          "translation": [
+            "0x3fc00000",
+            "0x00000000",
+            "0x00000000"
+          ]
+        }
+      },
+      "output": {
+        "normal": [
+          "0x3f800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "pointCount": "0x00000001",
+        "points": [
+          {
+            "point": [
+              "0x3f400000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "separation": "0xbf000000"
+          }
+        ]
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "query.ray-sphere.v1.scalar",
+      "family": "query",
+      "symbol": "b3RayCastSphere",
+      "input": {
+        "sphere": {
+          "center": [
+            "0x00000000",
+            "0x00000000",
+            "0x00000000"
+          ],
+          "radius": "0x3f800000"
+        },
+        "origin": [
+          "0xc0400000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "translation": [
+          "0x40c00000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "maxFraction": "0x3f800000"
+      },
+      "output": {
+        "hit": true,
+        "normal": [
+          "0xbf800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "point": [
+          "0xbf800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "fraction": "0x3eaaaaab",
+        "iterations": "0x00000000"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "mover.solve-planes.v1.scalar",
+      "family": "mover",
+      "symbol": "b3SolvePlanes",
+      "input": {
+        "targetDelta": [
+          "0xc0000000",
+          "0xc0400000",
+          "0x40800000"
+        ],
+        "planes": [
+          {
+            "normal": [
+              "0x3f800000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "offset": "0x00000000",
+            "pushLimit": "0x7f800000",
+            "clipVelocity": true
+          },
+          {
+            "normal": [
+              "0x00000000",
+              "0x3f800000",
+              "0x00000000"
+            ],
+            "offset": "0x00000000",
+            "pushLimit": "0x7f800000",
+            "clipVelocity": true
+          }
+        ]
+      },
+      "output": {
+        "delta": [
+          "0xbba3d700",
+          "0xbba3d800",
+          "0x40800000"
+        ],
+        "iterationCount": "0x00000001"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "mover.clip-vector.v1.scalar",
+      "family": "mover",
+      "symbol": "b3ClipVector",
+      "input": {
+        "vector": [
+          "0xc0000000",
+          "0xc0400000",
+          "0x40800000"
+        ],
+        "planeCount": "0x00000002"
+      },
+      "output": {
+        "value": [
+          "0x00000000",
+          "0x00000000",
+          "0x40800000"
+        ]
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "whitebox.world-hash.v2.scalar",
+      "family": "whitebox",
+      "symbol": "b3HashWorldState",
+      "input": {
+        "bodyCount": "0x00000001"
+      },
+      "output": {
+        "hash": "0x00c0c56e38fc4190"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "whitebox.integrate-velocities.v2.scalar",
+      "family": "whitebox",
+      "symbol": "b3IntegrateVelocitiesTask",
+      "input": {
+        "h": "0x3c83126f",
+        "body": "dynamic"
+      },
+      "output": {
+        "linearVelocity": [
+          "0x40000004",
+          "0x40400000",
+          "0xbf800000"
+        ],
+        "angularVelocity": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ]
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "whitebox.integrate-positions.v2.scalar",
+      "family": "whitebox",
+      "symbol": "b3IntegratePositionsTask",
+      "input": {
+        "h": "0x3c83126f",
+        "body": "dynamic"
+      },
+      "output": {
+        "deltaPosition": [
+          "0x3d03126f",
+          "0x3d449ca6",
+          "0xbc83126f"
+        ],
+        "deltaRotation": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x3f800000"
+        ]
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "whitebox.finalize.v2.scalar",
+      "family": "whitebox",
+      "symbol": "b3FinalizeBodiesTask",
+      "input": {
+        "dt": "0x3c83126f",
+        "body": "dynamic"
+      },
+      "output": {
+        "position": [
+          "0x3f800008",
+          "0x40000000",
+          "0x40400000"
+        ],
+        "rotation": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x3f800000"
+        ]
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "whitebox.recycle.v2.scalar",
+      "family": "whitebox",
+      "symbol": "b3CollideTask",
+      "input": {
+        "shape": "overlapping-spheres",
+        "steps": "0x00000002"
+      },
+      "output": {
+        "recycledContactCount": "0x00000001",
+        "collideTaskVisits": "0x00000001"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "o4.convex-manifold.scalar-or-simd.scalar",
+      "family": "convex-manifold",
+      "symbol": "b3CollideHulls",
+      "input": {
+        "shapes": "box-box",
+        "capacity": "0x00000020"
+      },
+      "output": {
+        "normal": [
+          "0x3f800000",
+          "0x80000000",
+          "0x80000000"
+        ],
+        "pointCount": "0x00000004",
+        "points": [
+          {
+            "point": [
+              "0x3f200000",
+              "0xbf666666",
+              "0x3f800000"
+            ],
+            "separation": "0xbf400000",
+            "triangleIndex": "0x00000000",
+            "feature": [
+              "0x01060008"
+            ]
+          },
+          {
+            "point": [
+              "0x3f200000",
+              "0xbf666666",
+              "0xbf800000"
+            ],
+            "separation": "0xbf400000",
+            "triangleIndex": "0x00000000",
+            "feature": [
+              "0x000c0106"
+            ]
+          },
+          {
+            "point": [
+              "0x3f200000",
+              "0x3f800000",
+              "0xbf800000"
+            ],
+            "separation": "0xbf400000",
+            "triangleIndex": "0x00000000",
+            "feature": [
+              "0x000e000c"
+            ]
+          },
+          {
+            "point": [
+              "0x3f200000",
+              "0x3f800000",
+              "0x3f800000"
+            ],
+            "separation": "0xbf400000",
+            "triangleIndex": "0x00000000",
+            "feature": [
+              "0x0008000e"
+            ]
+          }
+        ],
+        "cacheHit": "0x00000000",
+        "hookVisits": "0x00000001"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "o4.mesh-contact.scalar-or-simd.scalar",
+      "family": "mesh-contact",
+      "symbol": "b3ComputeMeshManifolds",
+      "input": {
+        "mesh": "box",
+        "visitor": "sphere"
+      },
+      "output": {
+        "contactCount": "0x00000001",
+        "manifolds": [
+          {
+            "manifoldCount": "0x00000001",
+            "items": [
+              {
+                "normal": [
+                  "0x00000000",
+                  "0x3f800000",
+                  "0x00000000"
+                ],
+                "pointCount": "0x00000001",
+                "points": [
+                  {
+                    "anchorA": [
+                      "0x00000000",
+                      "0x3e000000",
+                      "0x00000000"
+                    ],
+                    "anchorB": [
+                      "0x00000000",
+                      "0xbed9999a",
+                      "0x00000000"
+                    ],
+                    "separation": "0xbe1eb850",
+                    "featureId": "0x00000000",
+                    "triangleIndex": "0x00000004"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "hookVisits": "0x00000001"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "o4.convex-contact.scalar-or-simd.scalar",
+      "family": "convex-contact",
+      "symbol": "b3UpdateConvexContact",
+      "input": {
+        "shapes": "sphere-sphere",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "contactCount": "0x00000001",
+        "manifolds": [
+          {
+            "manifoldCount": "0x00000001",
+            "items": [
+              {
+                "normal": [
+                  "0xbf800000",
+                  "0x00000000",
+                  "0x00000000"
+                ],
+                "pointCount": "0x00000001",
+                "points": [
+                  {
+                    "anchorA": [
+                      "0xbf400000",
+                      "0x00000000",
+                      "0x00000000"
+                    ],
+                    "anchorB": [
+                      "0x3f400000",
+                      "0x00000000",
+                      "0x00000000"
+                    ],
+                    "separation": "0xbf000000",
+                    "featureId": "0x00000000",
+                    "triangleIndex": "0xffffffff"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "hookVisits": "0x00000002"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "o4.joint.parallel.scalar-or-simd.scalar",
+      "family": "joint",
+      "symbol": "b3CreateParallelJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000000",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x00000000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x3f800000",
+        "hookVisits": "0x00000001"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "o4.joint.distance.scalar-or-simd.scalar",
+      "family": "joint",
+      "symbol": "b3CreateDistanceJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000001",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x00000000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x3f800000",
+        "hookVisits": "0x00000002"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "o4.joint.motor.scalar-or-simd.scalar",
+      "family": "joint",
+      "symbol": "b3CreateMotorJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000003",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x00000000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x00000000",
+        "specificVector": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "hookVisits": "0x00000003"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "o4.joint.filter.scalar-or-simd.scalar",
+      "family": "joint",
+      "symbol": "b3CreateFilterJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000002",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x00000000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x00000000",
+        "hookVisits": "0x00000004"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "o4.joint.prismatic.scalar-or-simd.scalar",
+      "family": "joint",
+      "symbol": "b3CreatePrismaticJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000004",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x00000000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x3f800000",
+        "hookVisits": "0x00000005"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "o4.joint.revolute.scalar-or-simd.scalar",
+      "family": "joint",
+      "symbol": "b3CreateRevoluteJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000005",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x3f800000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x00000000",
+        "hookVisits": "0x00000006"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "o4.joint.spherical.scalar-or-simd.scalar",
+      "family": "joint",
+      "symbol": "b3CreateSphericalJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000006",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x3f800000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x00000000",
+        "specificVector": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "hookVisits": "0x00000007"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "o4.joint.weld.scalar-or-simd.scalar",
+      "family": "joint",
+      "symbol": "b3CreateWeldJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000007",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x3f800000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x00000000",
+        "hookVisits": "0x00000008"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "o4.joint.wheel.scalar-or-simd.scalar",
+      "family": "joint",
+      "symbol": "b3CreateWheelJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000008",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x00000000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x00000000",
+        "hookVisits": "0x00000009"
+      },
+      "configuration": "scalar"
+    },
+    {
+      "id": "math.add.v1.simd",
+      "family": "math",
+      "symbol": "b3Add",
+      "input": {
+        "a": [
+          "0x3e800000",
+          "0xc0000000",
+          "0x40600000"
+        ],
+        "b": [
+          "0xbf800000",
+          "0x40800000",
+          "0x3f000000"
+        ]
+      },
+      "output": {
+        "value": [
+          "0xbf400000",
+          "0x40000000",
+          "0x40800000"
+        ]
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "math.dot.v1.simd",
+      "family": "math",
+      "symbol": "b3Dot",
+      "input": {
+        "a": [
+          "0x3e800000",
+          "0xc0000000",
+          "0x40600000"
+        ],
+        "b": [
+          "0xbf800000",
+          "0x40800000",
+          "0x3f000000"
+        ]
+      },
+      "output": {
+        "value": "0xc0d00000"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "math.cos-sin.v1.simd",
+      "family": "math",
+      "symbol": "b3ComputeCosSin",
+      "input": {
+        "radians": "0x3f400000"
+      },
+      "output": {
+        "cosine": "0x3f3b4dc0",
+        "sine": "0x3f2e8240"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "geometry.sphere-aabb.v1.simd",
+      "family": "geometry",
+      "symbol": "b3ComputeSphereAABB",
+      "input": {
+        "center": [
+          "0x3e800000",
+          "0xbf000000",
+          "0x3f800000"
+        ],
+        "radius": "0x3f400000",
+        "translation": [
+          "0x40000000",
+          "0x40400000",
+          "0xbf800000"
+        ]
+      },
+      "output": {
+        "aabb": {
+          "lower": [
+            "0x3fc00000",
+            "0x3fe00000",
+            "0xbf400000"
+          ],
+          "upper": [
+            "0x40400000",
+            "0x40500000",
+            "0x3f400000"
+          ]
+        }
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "geometry.capsule-mass.v1.simd",
+      "family": "geometry",
+      "symbol": "b3ComputeCapsuleMass",
+      "input": {
+        "center1": [
+          "0xbf800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "center2": [
+          "0x3f800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "radius": "0x3f000000",
+        "density": "0x40000000"
+      },
+      "output": {
+        "mass": "0x40860a92",
+        "center": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "inertia": [
+          "0x3efeadad",
+          "0xb4129b8f",
+          "0x00000000"
+        ]
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "distance.point-segment.v1.simd",
+      "family": "distance",
+      "symbol": "b3PointToSegmentDistance",
+      "input": {
+        "a": [
+          "0xbf800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "b": [
+          "0x3f800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "q": [
+          "0x3e800000",
+          "0x40000000",
+          "0x00000000"
+        ]
+      },
+      "output": {
+        "closest": [
+          "0x3e800000",
+          "0x00000000",
+          "0x00000000"
+        ]
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "distance.shape.v1.simd",
+      "family": "distance",
+      "symbol": "b3ShapeDistance",
+      "input": {
+        "proxyA": [
+          [
+            "0x00000000",
+            "0x00000000",
+            "0x00000000"
+          ]
+        ],
+        "proxyB": [
+          [
+            "0x00000000",
+            "0x00000000",
+            "0x00000000"
+          ]
+        ],
+        "translationB": [
+          "0x40000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "useRadii": true
+      },
+      "output": {
+        "pointA": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "pointB": [
+          "0x40000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "normal": [
+          "0x3f800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "distance": "0x40000000",
+        "iterations": "0x00000000",
+        "simplexCount": "0x00000002"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "tree.query.v1.simd",
+      "family": "tree",
+      "symbol": "b3DynamicTree_Query",
+      "input": {
+        "proxies": [
+          {
+            "aabb": [
+              "0xbf800000",
+              "0xbf800000",
+              "0xbf800000",
+              "0x3f800000",
+              "0x3f800000",
+              "0x3f800000"
+            ],
+            "category": "0x0000000000000001",
+            "userData": "0x1122334455667788"
+          },
+          {
+            "aabb": [
+              "0x40000000",
+              "0xbf800000",
+              "0xbf800000",
+              "0x40800000",
+              "0x3f800000",
+              "0x3f800000"
+            ],
+            "category": "0x0000000000000001",
+            "userData": "0x8877665544332211"
+          }
+        ],
+        "queryAabb": [
+          "0xc0000000",
+          "0xc0000000",
+          "0xc0000000",
+          "0x40200000",
+          "0x40000000",
+          "0x40000000"
+        ],
+        "mask": "0x0000000000000001"
+      },
+      "output": {
+        "stats": {
+          "nodeVisits": "0x00000003",
+          "leafVisits": "0x00000002"
+        },
+        "hits": [
+          {
+            "proxyId": "0x00000001",
+            "userData": "0x8877665544332211"
+          },
+          {
+            "proxyId": "0x00000000",
+            "userData": "0x1122334455667788"
+          }
+        ]
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "manifold.spheres.v1.simd",
+      "family": "manifold",
+      "symbol": "b3CollideSpheres",
+      "input": {
+        "sphereA": {
+          "center": [
+            "0x00000000",
+            "0x00000000",
+            "0x00000000"
+          ],
+          "radius": "0x3f800000"
+        },
+        "sphereB": {
+          "center": [
+            "0x00000000",
+            "0x00000000",
+            "0x00000000"
+          ],
+          "radius": "0x3f800000"
+        },
+        "transformBtoA": {
+          "translation": [
+            "0x3fc00000",
+            "0x00000000",
+            "0x00000000"
+          ]
+        }
+      },
+      "output": {
+        "normal": [
+          "0x3f800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "pointCount": "0x00000001",
+        "points": [
+          {
+            "point": [
+              "0x3f400000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "separation": "0xbf000000"
+          }
+        ]
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "query.ray-sphere.v1.simd",
+      "family": "query",
+      "symbol": "b3RayCastSphere",
+      "input": {
+        "sphere": {
+          "center": [
+            "0x00000000",
+            "0x00000000",
+            "0x00000000"
+          ],
+          "radius": "0x3f800000"
+        },
+        "origin": [
+          "0xc0400000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "translation": [
+          "0x40c00000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "maxFraction": "0x3f800000"
+      },
+      "output": {
+        "hit": true,
+        "normal": [
+          "0xbf800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "point": [
+          "0xbf800000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "fraction": "0x3eaaaaab",
+        "iterations": "0x00000000"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "mover.solve-planes.v1.simd",
+      "family": "mover",
+      "symbol": "b3SolvePlanes",
+      "input": {
+        "targetDelta": [
+          "0xc0000000",
+          "0xc0400000",
+          "0x40800000"
+        ],
+        "planes": [
+          {
+            "normal": [
+              "0x3f800000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "offset": "0x00000000",
+            "pushLimit": "0x7f800000",
+            "clipVelocity": true
+          },
+          {
+            "normal": [
+              "0x00000000",
+              "0x3f800000",
+              "0x00000000"
+            ],
+            "offset": "0x00000000",
+            "pushLimit": "0x7f800000",
+            "clipVelocity": true
+          }
+        ]
+      },
+      "output": {
+        "delta": [
+          "0xbba3d700",
+          "0xbba3d800",
+          "0x40800000"
+        ],
+        "iterationCount": "0x00000001"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "mover.clip-vector.v1.simd",
+      "family": "mover",
+      "symbol": "b3ClipVector",
+      "input": {
+        "vector": [
+          "0xc0000000",
+          "0xc0400000",
+          "0x40800000"
+        ],
+        "planeCount": "0x00000002"
+      },
+      "output": {
+        "value": [
+          "0x00000000",
+          "0x00000000",
+          "0x40800000"
+        ]
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "whitebox.world-hash.v2.simd",
+      "family": "whitebox",
+      "symbol": "b3HashWorldState",
+      "input": {
+        "bodyCount": "0x00000001"
+      },
+      "output": {
+        "hash": "0x00c0c56e38fc4190"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "whitebox.integrate-velocities.v2.simd",
+      "family": "whitebox",
+      "symbol": "b3IntegrateVelocitiesTask",
+      "input": {
+        "h": "0x3c83126f",
+        "body": "dynamic"
+      },
+      "output": {
+        "linearVelocity": [
+          "0x40000004",
+          "0x40400000",
+          "0xbf800000"
+        ],
+        "angularVelocity": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ]
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "whitebox.integrate-positions.v2.simd",
+      "family": "whitebox",
+      "symbol": "b3IntegratePositionsTask",
+      "input": {
+        "h": "0x3c83126f",
+        "body": "dynamic"
+      },
+      "output": {
+        "deltaPosition": [
+          "0x3d03126f",
+          "0x3d449ca6",
+          "0xbc83126f"
+        ],
+        "deltaRotation": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x3f800000"
+        ]
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "whitebox.finalize.v2.simd",
+      "family": "whitebox",
+      "symbol": "b3FinalizeBodiesTask",
+      "input": {
+        "dt": "0x3c83126f",
+        "body": "dynamic"
+      },
+      "output": {
+        "position": [
+          "0x3f800008",
+          "0x40000000",
+          "0x40400000"
+        ],
+        "rotation": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x3f800000"
+        ]
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "whitebox.recycle.v2.simd",
+      "family": "whitebox",
+      "symbol": "b3CollideTask",
+      "input": {
+        "shape": "overlapping-spheres",
+        "steps": "0x00000002"
+      },
+      "output": {
+        "recycledContactCount": "0x00000001",
+        "collideTaskVisits": "0x00000001"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "o4.convex-manifold.scalar-or-simd.simd",
+      "family": "convex-manifold",
+      "symbol": "b3CollideHulls",
+      "input": {
+        "shapes": "box-box",
+        "capacity": "0x00000020"
+      },
+      "output": {
+        "normal": [
+          "0x3f800000",
+          "0x80000000",
+          "0x80000000"
+        ],
+        "pointCount": "0x00000004",
+        "points": [
+          {
+            "point": [
+              "0x3f200000",
+              "0xbf666666",
+              "0x3f800000"
+            ],
+            "separation": "0xbf400000",
+            "triangleIndex": "0x00000000",
+            "feature": [
+              "0x01060008"
+            ]
+          },
+          {
+            "point": [
+              "0x3f200000",
+              "0xbf666666",
+              "0xbf800000"
+            ],
+            "separation": "0xbf400000",
+            "triangleIndex": "0x00000000",
+            "feature": [
+              "0x000c0106"
+            ]
+          },
+          {
+            "point": [
+              "0x3f200000",
+              "0x3f800000",
+              "0xbf800000"
+            ],
+            "separation": "0xbf400000",
+            "triangleIndex": "0x00000000",
+            "feature": [
+              "0x000e000c"
+            ]
+          },
+          {
+            "point": [
+              "0x3f200000",
+              "0x3f800000",
+              "0x3f800000"
+            ],
+            "separation": "0xbf400000",
+            "triangleIndex": "0x00000000",
+            "feature": [
+              "0x0008000e"
+            ]
+          }
+        ],
+        "cacheHit": "0x00000000",
+        "hookVisits": "0x00000001"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "o4.mesh-contact.scalar-or-simd.simd",
+      "family": "mesh-contact",
+      "symbol": "b3ComputeMeshManifolds",
+      "input": {
+        "mesh": "box",
+        "visitor": "sphere"
+      },
+      "output": {
+        "contactCount": "0x00000001",
+        "manifolds": [
+          {
+            "manifoldCount": "0x00000001",
+            "items": [
+              {
+                "normal": [
+                  "0x00000000",
+                  "0x3f800000",
+                  "0x00000000"
+                ],
+                "pointCount": "0x00000001",
+                "points": [
+                  {
+                    "anchorA": [
+                      "0x00000000",
+                      "0x3e000000",
+                      "0x00000000"
+                    ],
+                    "anchorB": [
+                      "0x00000000",
+                      "0xbed9999a",
+                      "0x00000000"
+                    ],
+                    "separation": "0xbe1eb850",
+                    "featureId": "0x00000000",
+                    "triangleIndex": "0x00000004"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "hookVisits": "0x00000001"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "o4.convex-contact.scalar-or-simd.simd",
+      "family": "convex-contact",
+      "symbol": "b3UpdateConvexContact",
+      "input": {
+        "shapes": "sphere-sphere",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "contactCount": "0x00000001",
+        "manifolds": [
+          {
+            "manifoldCount": "0x00000001",
+            "items": [
+              {
+                "normal": [
+                  "0xbf800000",
+                  "0x00000000",
+                  "0x00000000"
+                ],
+                "pointCount": "0x00000001",
+                "points": [
+                  {
+                    "anchorA": [
+                      "0xbf400000",
+                      "0x00000000",
+                      "0x00000000"
+                    ],
+                    "anchorB": [
+                      "0x3f400000",
+                      "0x00000000",
+                      "0x00000000"
+                    ],
+                    "separation": "0xbf000000",
+                    "featureId": "0x00000000",
+                    "triangleIndex": "0xffffffff"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "hookVisits": "0x00000002"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "o4.joint.parallel.scalar-or-simd.simd",
+      "family": "joint",
+      "symbol": "b3CreateParallelJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000000",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x00000000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x3f800000",
+        "hookVisits": "0x00000001"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "o4.joint.distance.scalar-or-simd.simd",
+      "family": "joint",
+      "symbol": "b3CreateDistanceJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000001",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x00000000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x3f800000",
+        "hookVisits": "0x00000002"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "o4.joint.motor.scalar-or-simd.simd",
+      "family": "joint",
+      "symbol": "b3CreateMotorJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000003",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x00000000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x00000000",
+        "specificVector": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "hookVisits": "0x00000003"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "o4.joint.filter.scalar-or-simd.simd",
+      "family": "joint",
+      "symbol": "b3CreateFilterJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000002",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x00000000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x00000000",
+        "hookVisits": "0x00000004"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "o4.joint.prismatic.scalar-or-simd.simd",
+      "family": "joint",
+      "symbol": "b3CreatePrismaticJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000004",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x00000000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x3f800000",
+        "hookVisits": "0x00000005"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "o4.joint.revolute.scalar-or-simd.simd",
+      "family": "joint",
+      "symbol": "b3CreateRevoluteJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000005",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x3f800000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x00000000",
+        "hookVisits": "0x00000006"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "o4.joint.spherical.scalar-or-simd.simd",
+      "family": "joint",
+      "symbol": "b3CreateSphericalJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000006",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x3f800000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x00000000",
+        "specificVector": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "hookVisits": "0x00000007"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "o4.joint.weld.scalar-or-simd.simd",
+      "family": "joint",
+      "symbol": "b3CreateWeldJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000007",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x3f800000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x00000000",
+        "hookVisits": "0x00000008"
+      },
+      "configuration": "simd"
+    },
+    {
+      "id": "o4.joint.wheel.scalar-or-simd.simd",
+      "family": "joint",
+      "symbol": "b3CreateWheelJoint",
+      "input": {
+        "bodies": "dynamic-dynamic",
+        "steps": "0x00000001"
+      },
+      "output": {
+        "valid": "0x00000001",
+        "type": "0x00000008",
+        "force": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "torque": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000"
+        ],
+        "linearSeparation": "0x00000000",
+        "angularSeparation": "0x00000000",
+        "specific": "0x00000000",
+        "hookVisits": "0x00000009"
+      },
+      "configuration": "simd"
+    }
+  ]
+}

@@ -1,0 +1,295 @@
+{
+  "schema": "box3d-oracle/manifest-v3",
+  "bundle": {
+    "upstreamSha": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
+    "schema": "v3",
+    "identity": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v3"
+  },
+  "upstream": {
+    "url": "https://github.com/erincatto/box3d.git",
+    "ref": "refs/heads/main",
+    "channel": "official-main",
+    "sha": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
+    "tree": "0a6472d03ff61c9af28216443fba341a21cbed96",
+    "reachableFromChannel": true
+  },
+  "oracle": {
+    "memberCommit": "20186e9ba8539ce5d32cfcde80cf78864fc32351",
+    "generator": "bin/oracle.ts",
+    "generatorSha256": "0b0a73b663a1bfd189a6a89218428727eb7544e7db411c54b21a382980a56d2b",
+    "hookDigest": "841e2805328063a7662a2c1169a3ca89f1a184b39542f3ef5398fa68f743db29",
+    "patches": [
+      {
+        "file": "src/recording.c",
+        "marker": "recording.hash-world-state"
+      },
+      {
+        "file": "src/recording.c",
+        "marker": "recording.hash-world-state.sentinel"
+      },
+      {
+        "file": "src/recording.c",
+        "marker": "recording.hash-world-state.bridge"
+      },
+      {
+        "file": "src/solver.c",
+        "marker": "solver.scalar-phases"
+      },
+      {
+        "file": "src/solver.c",
+        "marker": "solver.integrate-velocities.sentinel"
+      },
+      {
+        "file": "src/solver.c",
+        "marker": "solver.integrate-positions.sentinel"
+      },
+      {
+        "file": "src/solver.c",
+        "marker": "solver.finalize.sentinel"
+      },
+      {
+        "file": "src/solver.c",
+        "marker": "solver.scalar-phases.bridges"
+      },
+      {
+        "file": "src/physics_world.c",
+        "marker": "physics.recycle"
+      },
+      {
+        "file": "src/physics_world.c",
+        "marker": "physics.recycle.sentinel"
+      },
+      {
+        "file": "src/physics_world.c",
+        "marker": "physics.recycle.bridge"
+      },
+      {
+        "file": "src/convex_manifold.c",
+        "marker": "o4.convex-manifold.hooks"
+      },
+      {
+        "file": "src/convex_manifold.c",
+        "marker": "o4.convex-manifold.visit.simd"
+      },
+      {
+        "file": "src/convex_manifold.c",
+        "marker": "o4.convex-manifold.visit.scalar"
+      },
+      {
+        "file": "src/mesh_contact.c",
+        "marker": "o4.mesh-contact.hooks"
+      },
+      {
+        "file": "src/mesh_contact.c",
+        "marker": "o4.mesh-contact.visit"
+      },
+      {
+        "file": "src/contact.c",
+        "marker": "o4.convex-contact.hooks"
+      },
+      {
+        "file": "src/contact.c",
+        "marker": "o4.convex-contact.visit"
+      },
+      {
+        "file": "src/joint.c",
+        "marker": "o4.joint.hooks"
+      },
+      {
+        "file": "src/joint.c",
+        "marker": "o4.joint.parallel.visit"
+      },
+      {
+        "file": "src/joint.c",
+        "marker": "o4.joint.distance.visit"
+      },
+      {
+        "file": "src/joint.c",
+        "marker": "o4.joint.motor.visit"
+      },
+      {
+        "file": "src/joint.c",
+        "marker": "o4.joint.filter.visit"
+      },
+      {
+        "file": "src/joint.c",
+        "marker": "o4.joint.prismatic.visit"
+      },
+      {
+        "file": "src/joint.c",
+        "marker": "o4.joint.revolute.visit"
+      },
+      {
+        "file": "src/joint.c",
+        "marker": "o4.joint.spherical.visit"
+      },
+      {
+        "file": "src/joint.c",
+        "marker": "o4.joint.weld.visit"
+      },
+      {
+        "file": "src/joint.c",
+        "marker": "o4.joint.wheel.visit"
+      }
+    ],
+    "adapters": [
+      "adapter/o4_main.c",
+      "adapter/o4.c",
+      "adapter/whitebox.c",
+      "adapter/distance.c",
+      "adapter/geometry.c",
+      "adapter/main.c",
+      "adapter/manifold.c",
+      "adapter/math.c",
+      "adapter/mover.c",
+      "adapter/query.c",
+      "adapter/tree.c",
+      "adapter/writer.c"
+    ]
+  },
+  "build": {
+    "configurations": [
+      {
+        "name": "scalar",
+        "disableSimd": true,
+        "compiler": {
+          "executable": "cc",
+          "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
+          "sha256": "ebdd1913203aebbae99a8adad363e300e6cea37bcc703a8f9506410551f809f1"
+        },
+        "cmake": [
+          "-S",
+          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/checkouts/47d7f7cc7e091142c08d11dc7d2e493c5d34f536-patched-o4",
+          "-B",
+          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/whitebox-builds/47d7f7cc7e091142c08d11dc7d2e493c5d34f536-o4-scalar",
+          "-G",
+          "Ninja",
+          "-DCMAKE_BUILD_TYPE=Release",
+          "-DBOX3D_DISABLE_SIMD=ON",
+          "-DBOX3D_SAMPLES=OFF",
+          "-DBOX3D_BENCHMARKS=OFF",
+          "-DBOX3D_DOCS=OFF",
+          "-DBOX3D_UNIT_TESTS=OFF",
+          "-DBOX3D_VALIDATE=ON",
+          "-DCMAKE_C_FLAGS=-DB3_ORACLE_HOOKS -DB3_ORACLE_SENTINELS"
+        ],
+        "executableSha256": "e7e2a1cf265fbc44b4e79852b5c98a3494471c5d2d270863ab45dbbb70c89de2",
+        "publicExecutableSha256": "ceafdd46447d632811b26c0b03f2508f03cd53036c221e90ad7502a9c6ddbe24",
+        "patchDigest": "841e2805328063a7662a2c1169a3ca89f1a184b39542f3ef5398fa68f743db29",
+        "cases": [
+          "math.add.v1.scalar",
+          "math.dot.v1.scalar",
+          "math.cos-sin.v1.scalar",
+          "geometry.sphere-aabb.v1.scalar",
+          "geometry.capsule-mass.v1.scalar",
+          "distance.point-segment.v1.scalar",
+          "distance.shape.v1.scalar",
+          "tree.query.v1.scalar",
+          "manifold.spheres.v1.scalar",
+          "query.ray-sphere.v1.scalar",
+          "mover.solve-planes.v1.scalar",
+          "mover.clip-vector.v1.scalar",
+          "whitebox.world-hash.v2.scalar",
+          "whitebox.integrate-velocities.v2.scalar",
+          "whitebox.integrate-positions.v2.scalar",
+          "whitebox.finalize.v2.scalar",
+          "whitebox.recycle.v2.scalar",
+          "o4.convex-manifold.scalar-or-simd.scalar",
+          "o4.mesh-contact.scalar-or-simd.scalar",
+          "o4.convex-contact.scalar-or-simd.scalar",
+          "o4.joint.parallel.scalar-or-simd.scalar",
+          "o4.joint.distance.scalar-or-simd.scalar",
+          "o4.joint.motor.scalar-or-simd.scalar",
+          "o4.joint.filter.scalar-or-simd.scalar",
+          "o4.joint.prismatic.scalar-or-simd.scalar",
+          "o4.joint.revolute.scalar-or-simd.scalar",
+          "o4.joint.spherical.scalar-or-simd.scalar",
+          "o4.joint.weld.scalar-or-simd.scalar",
+          "o4.joint.wheel.scalar-or-simd.scalar"
+        ]
+      },
+      {
+        "name": "simd",
+        "disableSimd": false,
+        "compiler": {
+          "executable": "cc",
+          "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
+          "sha256": "ebdd1913203aebbae99a8adad363e300e6cea37bcc703a8f9506410551f809f1"
+        },
+        "cmake": [
+          "-S",
+          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/checkouts/47d7f7cc7e091142c08d11dc7d2e493c5d34f536-patched-o4",
+          "-B",
+          "/var/folders/24/2ff01nsx7cs9005l3jbptw8c0000gp/T/box3d-oracle-cache/whitebox-builds/47d7f7cc7e091142c08d11dc7d2e493c5d34f536-o4-simd",
+          "-G",
+          "Ninja",
+          "-DCMAKE_BUILD_TYPE=Release",
+          "-DBOX3D_SAMPLES=OFF",
+          "-DBOX3D_BENCHMARKS=OFF",
+          "-DBOX3D_DOCS=OFF",
+          "-DBOX3D_UNIT_TESTS=OFF",
+          "-DBOX3D_VALIDATE=ON",
+          "-DCMAKE_C_FLAGS=-DB3_ORACLE_HOOKS -DB3_ORACLE_SENTINELS"
+        ],
+        "executableSha256": "d2d063ce3dd80c55a7385c98286a368ed71180a0f204bdc3744e360bf3d3f5e2",
+        "publicExecutableSha256": "e277452d99169ef0d90bdc79598852bb7a5929ce82bdc62e0b9cf2e15ef38026",
+        "patchDigest": "841e2805328063a7662a2c1169a3ca89f1a184b39542f3ef5398fa68f743db29",
+        "cases": [
+          "math.add.v1.simd",
+          "math.dot.v1.simd",
+          "math.cos-sin.v1.simd",
+          "geometry.sphere-aabb.v1.simd",
+          "geometry.capsule-mass.v1.simd",
+          "distance.point-segment.v1.simd",
+          "distance.shape.v1.simd",
+          "tree.query.v1.simd",
+          "manifold.spheres.v1.simd",
+          "query.ray-sphere.v1.simd",
+          "mover.solve-planes.v1.simd",
+          "mover.clip-vector.v1.simd",
+          "whitebox.world-hash.v2.simd",
+          "whitebox.integrate-velocities.v2.simd",
+          "whitebox.integrate-positions.v2.simd",
+          "whitebox.finalize.v2.simd",
+          "whitebox.recycle.v2.simd",
+          "o4.convex-manifold.scalar-or-simd.simd",
+          "o4.mesh-contact.scalar-or-simd.simd",
+          "o4.convex-contact.scalar-or-simd.simd",
+          "o4.joint.parallel.scalar-or-simd.simd",
+          "o4.joint.distance.scalar-or-simd.simd",
+          "o4.joint.motor.scalar-or-simd.simd",
+          "o4.joint.filter.scalar-or-simd.simd",
+          "o4.joint.prismatic.scalar-or-simd.simd",
+          "o4.joint.revolute.scalar-or-simd.simd",
+          "o4.joint.spherical.scalar-or-simd.simd",
+          "o4.joint.weld.scalar-or-simd.simd",
+          "o4.joint.wheel.scalar-or-simd.simd"
+        ]
+      }
+    ],
+    "library": "patched disposable official libbox3.a",
+    "privateIncludeRoot": "official src/ in disposable patched checkout"
+  },
+  "schemaDefinition": "schema.json",
+  "membership": "membership.json",
+  "provenance": "provenance.json",
+  "caseFile": "cases.json",
+  "caseCount": 58,
+  "fileDigests": {
+    "schema.json": "277b6b593869c53424a6ad16aa8bd7952e88141ac6190519f3520692d7a09298",
+    "membership.json": "6e25b4c781f999b43718289eb2aa019db083b6d4624b7e2066e7d7c316cb80c9",
+    "provenance.json": "ddc83cd7dbaff9b2db6575a4fbaabe6f5d6c71e6ddaf4c860a56733eedcc80dc",
+    "cases.json": "6863f233f68820f5130b0510e56aaab2d4d7786c6e07030d3d40fadb361562e2"
+  },
+  "fileDigestScope": "Generated evidence files only; manifest is the receipt and is intentionally excluded from its own digest map.",
+  "generation": {
+    "startsEmpty": true,
+    "readsShallot": false,
+    "readsGolds": false,
+    "overwrite": false,
+    "outputArithmetic": false,
+    "publicLanePristine": true,
+    "whiteBoxLaneDisposablePatch": true,
+    "fakeJointJson": false
+  }
+}
