@@ -5,6 +5,7 @@ import {
     formatPopulation,
     readCheckDeclarations,
     selectIntegrationRows,
+    selectOracleRows,
     writeWorkflow,
 } from "../src/harness/surface";
 
@@ -32,6 +33,8 @@ if (import.meta.main) {
         return index === -1 ? undefined : args[index + 1];
     };
     const all = args.includes("--all");
+    const oracle = valueAfter("--oracle");
+    const oracleRequested = args.includes("--oracle");
     const requires = valueAfter("--requires");
     const subject = valueAfter("--subject");
     const base = valueAfter("--base");
@@ -46,6 +49,23 @@ if (import.meta.main) {
         console.error(`surface refused: ${message}`);
         process.exit(1);
     };
+    if (oracleRequested && args.filter((arg) => arg === "--oracle").length !== 1)
+        refuse("--oracle accepts exactly one claim");
+    if (
+        oracleRequested &&
+        (oracle === undefined || oracle.trim() === "" || oracle.startsWith("--"))
+    )
+        refuse("--oracle needs a claim");
+    if (
+        oracleRequested &&
+        (integration ||
+            selectorRequested ||
+            base !== undefined ||
+            diff !== undefined ||
+            args.includes("--base") ||
+            args.includes("--diff"))
+    )
+        refuse("--oracle cannot be combined with selectors or integration mode");
     if (args.includes("--requires") && (requires === undefined || requires.startsWith("--")))
         refuse("--requires needs a requirement tag");
     if (args.includes("--subject") && (subject === undefined || subject.startsWith("--")))
@@ -81,6 +101,12 @@ if (import.meta.main) {
     if (population.invalid.length > 0 || population.undeclared.length > 0) {
         console.log(formatPopulation(population));
         process.exit(1);
+    }
+    if (oracle !== undefined) {
+        const rows = selectOracleRows(population, oracle);
+        if (rows.length !== 1) refuse(`named oracle not found: ${oracle}`);
+        console.log(formatPopulation(population, undefined, rows));
+        process.exit(0);
     }
     if (!integration) {
         console.log(formatPopulation(population));
