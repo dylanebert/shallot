@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { BodyType, type Body } from "../api/index";
-import { createCompound, createHeightField, createHull, createMesh, defaultFilter, defaultSurfaceMaterial, makeBoxHull, type HullData, type MeshData, type Shape } from "../api/index";
+import { createCompound, createHeightField, createHull, createMesh, defaultFilter, defaultSurfaceMaterial, makeBoxHull, makeTransformedBoxHull, type HullData, type MeshData, type Shape } from "../api/index";
 import { hashWorldState } from "../world/hash";
 import { World } from "../api/world";
 
@@ -83,7 +83,7 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
     };
     const shapeIndex = (shape: Shape): number => (shape as unknown as { id: { index1: number } }).id.index1;
     const shapeName = (shape: Shape): string => { const index = shapeIndex(shape); for (const [id, value] of shapes) if (shapeIndex(value) === index) return id; return "unknown"; };
-    const shapeDef = (command: Command): Record<string, unknown> => ({ baseMaterial: { ...defaultSurfaceMaterial(), rollingResistance: f32(String(command.rollingResistance ?? "0x00000000")) }, density: f32(String(command.density ?? "0x447a0000")), updateBodyMass: command.updateBodyMass !== false, invokeContactCreation: command.invokeContactCreation !== false, filter: { ...defaultFilter(), groupIndex: Number(command.groupIndex ?? 0) }, isSensor: command.isSensor === true, enableSensorEvents: command.enableSensorEvents === true });
+    const shapeDef = (command: Command): Record<string, unknown> => ({ baseMaterial: { ...defaultSurfaceMaterial(), friction: f32(String(command.friction ?? "0x3f19999a")), restitution: f32(String(command.restitution ?? "0x00000000")), rollingResistance: f32(String(command.rollingResistance ?? "0x00000000")) }, density: f32(String(command.density ?? "0x447a0000")), updateBodyMass: command.updateBodyMass !== false, invokeContactCreation: command.invokeContactCreation !== false, filter: { ...defaultFilter(), groupIndex: Number(command.groupIndex ?? 0) }, isSensor: command.isSensor === true, enableSensorEvents: command.enableSensorEvents === true });
     for (const command of scenario.commands) {
         if (consumed.includes(command.id)) throw new Error(`duplicate consumed command ${command.id}`);
         consumed.push(command.id);
@@ -106,8 +106,8 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
                 break;
             }
             case "resource.box": {
-                const halfExtents = vec3(command.halfExtents as unknown[]);
-                boxes.set(command.id, makeBoxHull(halfExtents.x, halfExtents.y, halfExtents.z));
+                const halfExtents = vec3(command.halfExtents as unknown[]); const center = vec3((command.center ?? ["0x00000000", "0x00000000", "0x00000000"]) as unknown[]);
+                boxes.set(command.id, center.x === 0 && center.y === 0 && center.z === 0 ? makeBoxHull(halfExtents.x, halfExtents.y, halfExtents.z) : makeTransformedBoxHull(halfExtents.x, halfExtents.y, halfExtents.z, { p: center, q: quat(["0x00000000", "0x00000000", "0x00000000", "0x3f800000"]) }));
                 break;
             }
             case "resource.sphere":
