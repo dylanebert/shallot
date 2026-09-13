@@ -14,9 +14,9 @@
     "reachableFromChannel": true
   },
   "oracle": {
-    "memberCommit": "17e297557cc98bd64806ac384d60305bedf7b548",
+    "memberCommit": "7ea34af0afd6d1df92c957bade0cd9ca9531c023",
     "generator": "bin/oracle.ts",
-    "generatorSha256": "89e8c551ec73eb30794163a1d963f04639daf6aea79cda6366ba31f7e5760078",
+    "generatorSha256": "d33ff29db70daaf0967ff9689283578945dce09831ca8e3c9a7eb020c9fed4a2",
     "hookDigest": "712a2bddb220aed81fe44cda11d46889f385fbc6276034f4ace13e54d3611b7a",
     "patches": [
       {
