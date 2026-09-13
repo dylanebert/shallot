@@ -55,11 +55,15 @@ export type BrowserServeCommand = (port: number) => string[];
  * Boot a project through its serve command and return the page's in-engine Verdict. The driver
  * supplies an unused port; the command owns its host-specific arguments. The page owns the
  * stepped-clock assertion; this process only waits for readiness and transports the resulting JSON
- * across the browser boundary.
+ * across the browser boundary. `headless` defaults true; a host whose headless Chromium reaches only
+ * the SwiftShader fallback adapter (Linux Wayland) passes `headless: false` to reach its real GPU.
  */
-export async function runBrowserCheck(serveCommand: BrowserServeCommand): Promise<BrowserVerdict> {
+export async function runBrowserCheck(
+    serveCommand: BrowserServeCommand,
+    opts: { headless?: boolean } = {},
+): Promise<BrowserVerdict> {
     const { chromium } = await import("playwright");
-    const browser = await chromium.launch({ headless: true, ...REAL_GPU_LAUNCH });
+    const browser = await chromium.launch({ headless: opts.headless ?? true, ...REAL_GPU_LAUNCH });
     const runtime = `bun ${Bun.version} + chromium ${browser.version()}`;
     const port = 4000 + Math.floor(Math.random() * 1000);
     const url = `http://localhost:${port}/`;

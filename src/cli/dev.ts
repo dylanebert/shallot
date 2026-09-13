@@ -1,6 +1,9 @@
-import { basename, relative, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, isAbsolute, relative, resolve } from "node:path";
 import { createServer, searchForWorkspaceRoot, type Plugin as VitePlugin } from "vite";
-import { requireProject } from "../project/host";
+import { manifestPath } from "../project/assets";
+import { plan, requireProject } from "../project/host";
+import { normalize } from "../project/manifest";
 import { composeViteConfig, loadProjectConfig } from "../project/toolchain";
 import {
     CROSS_ORIGIN_ISOLATION,
@@ -27,6 +30,23 @@ function synthIndexPlugin(name: string): VitePlugin {
             });
         },
     };
+}
+
+/** the package names of a project's plugins named by bare specifier (`@scope/pkg/sub` → `@scope/pkg`);
+ *  relative and absolute paths are project source, not dependencies. */
+export function pluginPackages(absProjectDir: string): string[] {
+    const path = manifestPath(absProjectDir);
+    const manifest = normalize(existsSync(path) ? readFileSync(path, "utf8") : null);
+    const packages = plan(manifest, absProjectDir)
+        .locals.map(({ spec }) => spec)
+        .filter((spec) => !spec.startsWith(".") && !isAbsolute(spec))
+        .map((spec) =>
+            spec
+                .split("/")
+                .slice(0, spec.startsWith("@") ? 2 : 1)
+                .join("/"),
+        );
+    return [...new Set(packages)];
 }
 
 /** the vite dev config for a manifest project. `open` defaults true: a person typing `shallot dev`
@@ -64,7 +84,12 @@ export function devConfig(
         // dies at pipeline warm with `Invalid property key 'type': Identifiers cannot start with
         // reserved keywords` inside typegpu's own `struct.js` — a different symptom than the missing-
         // metadata case above, same root cause.
-        optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] },
+        // A plugin named by package specifier (`"Grid": "@dylanebert/shallot-grid"`) needs the same
+        // exclusion for a third reason: prebundled, it carries its own copy of every engine subpath it
+        // imports, so its `Views`/`Render` singletons are empty and its systems never draw.
+        optimizeDeps: {
+            exclude: ["@dylanebert/shallot", "typegpu", ...pluginPackages(absProjectDir)],
+        },
         server: {
             port: opts.port,
             strictPort: opts.strictPort,
