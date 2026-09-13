@@ -56,7 +56,12 @@ interface RequirementContext {
     subjects?: readonly string[];
 }
 
-const cargoBuilds = new Map<string, string | null>();
+interface CargoBuild {
+    executable?: string;
+    reason?: string;
+}
+
+const cargoBuilds = new Map<string, CargoBuild>();
 
 function cargoPackage(root: string, subjects: readonly string[]): string | null {
     if (subjects.length !== 1)
@@ -78,26 +83,81 @@ function resolveCargo(root: string, subjects: readonly string[]): string | null 
     if (packageName === null || packageName.startsWith("cargo ")) return packageName;
     const key = `${root}\u0000${packageName}`;
     const cached = cargoBuilds.get(key);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) return cached.reason ?? null;
     try {
-        const proc = Bun.spawnSync(["cargo", "test", "--no-run", "-p", packageName], {
-            cwd: root,
-            stdout: "pipe",
-            stderr: "pipe",
-        });
-        if (proc.success) {
-            cargoBuilds.set(key, null);
-            return null;
+        // Keep the compiler invocation outside the check body. The JSON artifact is also the
+        // authority for the executable: guessing a target/debug/deps filename can select a stale
+        // binary after a source change.
+        const proc = Bun.spawnSync(
+            ["cargo", "test", "--no-run", "-p", packageName, "--message-format=json"],
+            {
+                cwd: root,
+                stdout: "pipe",
+                stderr: "pipe",
+            },
+        );
+        if (!proc.success) {
+            const detail = proc.stderr.toString().trim() || proc.stdout.toString().trim();
+            const reason = `cargo test --no-run -p ${packageName} failed${detail ? `: ${detail}` : ""}`;
+            cargoBuilds.set(key, { reason });
+            return reason;
         }
-        const detail = proc.stderr.toString().trim() || proc.stdout.toString().trim();
-        const reason = `cargo test --no-run -p ${packageName} failed${detail ? `: ${detail}` : ""}`;
-        cargoBuilds.set(key, reason);
-        return reason;
+        const expectedTarget = packageName.replaceAll("-", "_");
+        const artifacts = proc.stdout
+            .toString()
+            .split("\n")
+            .flatMap((line) => {
+                try {
+                    const value = JSON.parse(line) as {
+                        reason?: string;
+                        package_id?: string;
+                        target?: { kind?: string[]; name?: string; test?: boolean };
+                        profile?: { test?: boolean };
+                        executable?: string;
+                    };
+                    return value.reason === "compiler-artifact" &&
+                        value.target?.name === expectedTarget &&
+                        value.target.kind?.includes("lib") &&
+                        value.target.test === true &&
+                        value.profile?.test === true &&
+                        typeof value.executable === "string"
+                        ? [value.executable]
+                        : [];
+                } catch {
+                    return [];
+                }
+            });
+        const executables = [...new Set(artifacts)];
+        if (executables.length !== 1 || !existsSync(executables[0])) {
+            const reason =
+                executables.length === 0
+                    ? `cargo test --no-run -p ${packageName} produced no current libtest executable`
+                    : `cargo test --no-run -p ${packageName} produced multiple or missing libtest executables`;
+            cargoBuilds.set(key, { reason });
+            return reason;
+        }
+        cargoBuilds.set(key, { executable: executables[0] });
+        return null;
     } catch (error) {
         const reason = `cargo is unavailable: ${(error as Error).message}`;
-        cargoBuilds.set(key, reason);
+        cargoBuilds.set(key, { reason });
         return reason;
     }
+}
+
+/** Return the current libtest executable after the untimed Cargo requirement is resolved. */
+export function cargoTestExecutable(root: string, subject: string): string {
+    const packageName = cargoPackage(root, [subject]);
+    if (packageName === null || packageName.startsWith("cargo ")) {
+        throw new Error(packageName ?? "missing Cargo package");
+    }
+    const reason = resolveCargo(root, [subject]);
+    if (reason !== null) throw new Error(reason);
+    const build = cargoBuilds.get(`${root}\u0000${packageName}`);
+    if (build?.executable === undefined || !existsSync(build.executable)) {
+        throw new Error(`cargo test -p ${packageName} has no current libtest executable`);
+    }
+    return build.executable;
 }
 
 /** Resolve each named premise. Cargo compilation is a once-per-process, untimed prerequisite. */
