@@ -14,7 +14,7 @@
     "reachableFromChannel": true
   },
   "oracle": {
-    "memberCommit": "ab653878e2f500953dbb0aaad5dd23f3ac89b748",
+    "memberCommit": "094a874e85daae49885ec9686e04dcc303ccb567",
     "generator": "bin/oracle.ts",
     "generatorSha256": "a0e4a4d368e728ef34468de8fa3515f3d89454f9f338629fa2bee231de4a841b",
     "hookDigest": "841e2805328063a7662a2c1169a3ca89f1a184b39542f3ef5398fa68f743db29",
@@ -45,9 +45,9 @@
       "-DBOX3D_VALIDATE=ON",
       "-DCMAKE_C_FLAGS=-DB3_ORACLE_HOOKS"
     ],
-    "executableSha256": "4cc079e2c83462a4ab1dde6bac146a185d7788537a1be7cc768ccffb0e4f879f",
-    "linkMapSha256": "762cf8bee911e969e76ff01bcc604e46cd5b0d85039fbdd30249c1a8ddea64e4",
-    "nmEvidenceSha256": "9c01940ef9feb2294460659cbd415f35ab9a3f88e2d281e5e2fa6e38baf21f0d"
+    "executableSha256": "d868f674cc73d7aa4278bed2ddf332b68ad249d30b44f9b40b10acf5856fd5e3",
+    "linkMapSha256": "91795339447e3037329814fcb4bc84e52e596a37e2a4eb79e9dd0efa80cd1bcc",
+    "nmEvidenceSha256": "f2533e5ec3f4f187b25ed8b41c061c4305a84412a460ded5b15c84b663ed0462"
   },
   "schemaDefinition": "schema.json",
   "membership": "membership.json",
@@ -60,7 +60,7 @@
     "membership.json": "1829c7acaf4a41cb752aa5a764b1296202bbaadc8e6e8cb1242b7c7ab9147879",
     "provenance.json": "511598660c38ccf3a0f7d51556183b475b409c6a684d05e396cebf41ac3660b1",
     "scenario-corpus.json": "c446df5178f94512adfa23bc77b57a85713981651d6d6216d4f4d4fc588f7314",
-    "cases.json": "4a85c896446d0917875f8746129f2f2cc34e04ab10f765c8ff3f423baed06293"
+    "cases.json": "4c0ed5b2d06098a3240b7abe819fd38906f50257730c90e9066547b787fe0ec0"
   },
   "generation": {
     "startsEmpty": true,
