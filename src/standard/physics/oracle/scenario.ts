@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { BodyType, type Body } from "../api/index";
-import { defaultFilter, defaultSurfaceMaterial, makeBoxHull } from "../api/index";
+import { createHeightField, createMesh, defaultFilter, defaultSurfaceMaterial, makeBoxHull, type MeshData } from "../api/index";
 import { hashWorldState } from "../world/hash";
 import { World } from "../api/world";
 
@@ -63,6 +63,8 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
     const boxes = new Map<string, ReturnType<typeof makeBoxHull>>();
     const spheres = new Map<string, { center: { x: number; y: number; z: number }; radius: number }>();
     const capsules = new Map<string, { center1: { x: number; y: number; z: number }; center2: { x: number; y: number; z: number }; radius: number }>();
+    const meshes = new Map<string, MeshData>();
+    const heightFields = new Map<string, ReturnType<typeof createHeightField>>();
     const consumed: string[] = [];
     const observationIds: string[] = [];
     const observations: unknown[] = [];
@@ -85,7 +87,7 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
                 const linearVelocity = vec3(command.linearVelocity as unknown[]);
                 const angularVelocity = vec3(command.angularVelocity as unknown[]);
                 if (mutateAngularVelocity && bodies.size === 0) angularVelocity.z = Math.fround(angularVelocity.z + 1);
-                const body = world.createBody({ type: bodyType(command.type), position, rotation: quat((command.rotation ?? ["0x00000000", "0x00000000", "0x00000000", "0x3f800000"]) as unknown[]), linearVelocity, angularVelocity, ...(command.linearDamping === undefined ? {} : { linearDamping: f32(String(command.linearDamping)) }), ...(command.angularDamping === undefined ? {} : { angularDamping: f32(String(command.angularDamping)) }) });
+                const body = world.createBody({ type: bodyType(command.type), isBullet: command.isBullet === true, position, rotation: quat((command.rotation ?? ["0x00000000", "0x00000000", "0x00000000", "0x3f800000"]) as unknown[]), linearVelocity, angularVelocity, ...(command.linearDamping === undefined ? {} : { linearDamping: f32(String(command.linearDamping)) }), ...(command.angularDamping === undefined ? {} : { angularDamping: f32(String(command.angularDamping)) }) });
                 bodies.set(command.id, body);
                 break;
             }
@@ -100,6 +102,20 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
             case "resource.capsule":
                 capsules.set(command.id, { center1: vec3(command.center1 as unknown[]), center2: vec3(command.center2 as unknown[]), radius: f32(String(command.radius)) });
                 break;
+            case "resource.mesh": {
+                const vertices = (command.vertices as unknown[]).map((value) => f32(String(value)));
+                const points = []; for (let i = 0; i < vertices.length; i += 3) points.push({ x: vertices[i], y: vertices[i + 1], z: vertices[i + 2] });
+                const mesh = createMesh({ vertices: points, indices: command.indices as number[], useMedianSplit: command.useMedianSplit === true, identifyEdges: command.identifyEdges === true });
+                if (!mesh) throw new Error(`mesh resource ${command.id} could not be built`);
+                meshes.set(command.id, mesh);
+                break;
+            }
+            case "resource.height-field": {
+                const samples = (command.samples as unknown[]).map((value) => f32(String(value)));
+                const field = createHeightField({ heights: samples, materialIndices: (command.materialIndices as number[]) ?? null, scale: { x: f32(String(command.scaleX)), y: f32(String(command.scaleY)), z: f32(String(command.scaleZ)) }, countX: Number(command.countX), countZ: Number(command.countZ), globalMinimumHeight: f32(String(command.globalMinimumHeight)), globalMaximumHeight: f32(String(command.globalMaximumHeight)), clockwiseWinding: command.clockwiseWinding === true });
+                heightFields.set(command.id, field);
+                break;
+            }
             case "shape.create": {
                 if (!world) throw new Error("shape.create before world.create");
                 const body = bodies.get(String(command.body));
@@ -116,6 +132,12 @@ export function runScenario(scenario: Scenario, digest: string, mutateAngularVel
                     const capsule = capsules.get(String(command.resource));
                     if (!capsule) throw new Error(`shape references unknown capsule ${String(command.resource)}`);
                     body.createCapsule({ baseMaterial: { ...defaultSurfaceMaterial(), rollingResistance: f32(String(command.rollingResistance ?? "0x00000000")) }, filter: { ...defaultFilter(), groupIndex: Number(command.groupIndex ?? 0) } }, capsule);
+                } else if (command.kind === "mesh") {
+                    const mesh = meshes.get(String(command.resource)); if (!mesh) throw new Error(`shape references unknown mesh ${String(command.resource)}`);
+                    body.createMesh({ baseMaterial: { ...defaultSurfaceMaterial(), rollingResistance: f32(String(command.rollingResistance ?? "0x00000000")) }, filter: { ...defaultFilter(), groupIndex: Number(command.groupIndex ?? 0) } }, mesh, vec3((command.scale ?? ["0x3f800000", "0x3f800000", "0x3f800000"]) as unknown[]));
+                } else if (command.kind === "height-field") {
+                    const field = heightFields.get(String(command.resource)); if (!field) throw new Error(`shape references unknown height field ${String(command.resource)}`);
+                    body.createHeightField({ baseMaterial: { ...defaultSurfaceMaterial(), rollingResistance: f32(String(command.rollingResistance ?? "0x00000000")) }, filter: { ...defaultFilter(), groupIndex: Number(command.groupIndex ?? 0) } }, field);
                 } else throw new Error(`unknown shape kind ${String(command.kind)}`);
                 break;
             }

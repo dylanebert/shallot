@@ -43,10 +43,11 @@ function compareOutputs(generic: ScenarioOutput, legacy: ReturnType<typeof legac
 
 const FOUNDATION_ROSTER = ["free-fall", "sphere-drop", "box-stack", "sphere-sleep", "box-sleep", "wake-drop", "split-slide"];
 const JOINT_ROSTER = ["revolute-dd", "revolute-pendulum", "revolute-motor", "revolute-limit", "revolute-chain", "weld-dd", "parallel", "joint-contacts", "motor", "motor-spring", "distance", "distance-spring", "prismatic", "prismatic-motor", "spherical", "spherical-limits", "spherical-motor", "wheel", "wheel-spin", "wheel-steer", "ragdoll"];
+const SURFACE_ROSTER = ["ccd-drop", "ccd-bullet", "mesh-box", "mesh-sphere", "mesh-capsule", "mesh-ccd", "height-box", "height-sphere", "height-capsule", "height-ccd"];
 function compareFamily(roster: string[]): void {
     const { corpus, digest } = loadScenarioCorpus();
-    const cumulative = [...FOUNDATION_ROSTER, ...JOINT_ROSTER];
-    if (JSON.stringify(corpus.scenarios.map((scenario) => scenario.name)) !== JSON.stringify(cumulative) || JSON.stringify(corpus.scenarios.map((scenario) => scenario.id)) !== JSON.stringify(cumulative.map((name) => `s1.${name}.v1`))) throw new Error("scenario corpus roster and IDs are not the exact cumulative O5b order");
+    const cumulative = [...FOUNDATION_ROSTER, ...JOINT_ROSTER, ...SURFACE_ROSTER];
+    if (JSON.stringify(corpus.scenarios.map((scenario) => scenario.name)) !== JSON.stringify(cumulative) || JSON.stringify(corpus.scenarios.map((scenario) => scenario.id)) !== JSON.stringify(cumulative.map((name) => `s1.${name}.v1`))) throw new Error("scenario corpus roster and IDs are not the exact cumulative O5c order");
     const selected = corpus.scenarios.filter((scenario) => roster.includes(scenario.name));
     if (JSON.stringify(selected.map((scenario) => scenario.name)) !== JSON.stringify(roster)) throw new Error("scenario family roster is not exact");
     for (const scenario of selected) {
@@ -56,6 +57,7 @@ function compareFamily(roster: string[]): void {
 }
 check("O5a Shallot command interpreter migration", { claim: "box3d-scenario-migration-foundation", size: "integration" }, () => compareFamily(FOUNDATION_ROSTER));
 check("O5b Shallot command interpreter migration", { claim: "box3d-scenario-migration-joints", size: "integration" }, () => compareFamily(JOINT_ROSTER));
+check("O5c Shallot command interpreter migration", { claim: "box3d-scenario-migration-surfaces", size: "integration" }, () => compareFamily(SURFACE_ROSTER));
 
 check("O5a command receipt and adversarial gates", { claim: "box3d-scenario-command-corpus", size: "integration" }, () => {
     const { corpus, digest } = loadScenarioCorpus();
@@ -77,9 +79,25 @@ check("O5a command receipt and adversarial gates", { claim: "box3d-scenario-comm
     motorCommand.motorSpeed = "0xc0400000";
     const motorChanged = runScenario(revoluteMotor, digest);
     if (JSON.stringify(motorBaseline.observations) === JSON.stringify(motorChanged.observations) || JSON.stringify(motorBaseline.hashes) === JSON.stringify(motorChanged.hashes)) throw new Error("revolute-motor motor-speed mutation did not reach the TypeScript adapter");
+    const ccdBullet = structuredClone(corpus.scenarios.find((scenario) => scenario.name === "ccd-bullet"));
+    if (!ccdBullet) throw new Error("ccd-bullet mutation target is missing");
+    const bulletBaseline = runScenario(ccdBullet, digest);
+    const bulletBody = ccdBullet.commands.find((command) => command.op === "body.create" && command.id === "b2");
+    if (!bulletBody) throw new Error("ccd-bullet body command is missing");
+    bulletBody.linearVelocity = ["0x42c80000", "0x00000000", "0x00000000"];
+    const bulletChanged = runScenario(ccdBullet, digest);
+    if (JSON.stringify(bulletBaseline.observations) === JSON.stringify(bulletChanged.observations) || JSON.stringify(bulletBaseline.hashes) === JSON.stringify(bulletChanged.hashes)) throw new Error("ccd-bullet x-velocity mutation did not reach the TypeScript adapter");
     const deletedJoint = structuredClone(revoluteMotor);
     deletedJoint.commands = deletedJoint.commands.filter((command) => command.op !== "joint.revolute");
     try { runScenario(deletedJoint, digest); throw new Error("deleting a joint command unexpectedly succeeded"); } catch (error) { if (!(error instanceof Error) || !error.message.includes("missing joint commands")) throw error; }
+    const missingGeometry = structuredClone(corpus.scenarios.find((scenario) => scenario.name === "mesh-box"));
+    if (!missingGeometry) throw new Error("mesh-box geometry target is missing");
+    missingGeometry.commands = missingGeometry.commands.filter((command) => command.op !== "resource.mesh");
+    try { runScenario(missingGeometry, digest); throw new Error("missing geometry unexpectedly succeeded"); } catch (error) { if (!(error instanceof Error) || !error.message.includes("unknown mesh")) throw error; }
+    const missingReference = structuredClone(corpus.scenarios.find((scenario) => scenario.name === "height-sphere"));
+    if (!missingReference) throw new Error("height-sphere reference target is missing");
+    missingReference.commands = missingReference.commands.filter((command) => command.id !== "b1");
+    try { runScenario(missingReference, digest); throw new Error("missing body reference unexpectedly succeeded"); } catch (error) { if (!(error instanceof Error) || !error.message.includes("unknown body")) throw error; }
     const unknown = structuredClone(freeFall);
     unknown.commands[0].op = "scenario-name-dispatch";
     try { runScenario(unknown, digest); throw new Error("unknown command unexpectedly succeeded"); } catch (error) { if (!(error instanceof Error) || !error.message.includes("unknown command op")) throw error; }
