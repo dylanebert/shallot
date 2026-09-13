@@ -1,16 +1,119 @@
 import { resolve } from "node:path";
+import { cargoTestExecutable } from "../src/harness/verdict";
 
-const root = resolve(import.meta.dir, "..");
+const root = resolve(process.env.SHALLOT_PROJECT_ROOT ?? resolve(import.meta.dir, ".."));
+const subject = "crates/audio";
 
-/** Run one compiled Cargo test population; compilation is resolved by the cargo requirement. */
-export function runCargoTest(packageName: string, ...args: string[]): void {
-    const command = ["cargo", "test", "-p", packageName, ...args];
-    const proc = Bun.spawnSync(command, {
+export interface CargoTestPartition {
+    filter: string;
+    tests: readonly string[];
+}
+
+const partitionCache = new Map<string, readonly CargoTestPartition[]>();
+
+function listTests(executable: string): string[] {
+    const proc = Bun.spawnSync([executable, "--list"], {
+        cwd: root,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    if (!proc.success) {
+        const detail = proc.stderr.toString().trim() || proc.stdout.toString().trim();
+        throw new Error(`libtest --list failed${detail ? `: ${detail}` : ""}`);
+    }
+    const tests = proc.stdout
+        .toString()
+        .split("\n")
+        .flatMap((line) => {
+            const match = line.match(/^(.+): test$/);
+            return match === null ? [] : [match[1]];
+        });
+    if (tests.length === 0) throw new Error("libtest --list produced an empty test population");
+    if (new Set(tests).size !== tests.length) {
+        throw new Error("libtest --list produced duplicate test names");
+    }
+    return tests;
+}
+
+/**
+ * Discover the complete current libtest population and partition it by its stable Rust module
+ * prefix. A partition is admitted only when the discovered sets are non-empty, exclusive, and
+ * their union is exactly the list emitted by this executable.
+ */
+export function discoverCargoTestPartitions(packageName: string): readonly CargoTestPartition[] {
+    if (packageName !== "shallot-audio") {
+        throw new Error(`unsupported audio Cargo package: ${packageName}`);
+    }
+    const key = `${root}\u0000${packageName}`;
+    const cached = partitionCache.get(key);
+    if (cached !== undefined) return cached;
+
+    const executable = cargoTestExecutable(root, subject);
+    const tests = listTests(executable);
+    const byModule = new Map<string, string[]>();
+    for (const test of tests) {
+        const separator = test.indexOf("::");
+        if (separator <= 0) {
+            throw new Error(`libtest test has no stable module prefix: ${test}`);
+        }
+        const module = test.slice(0, separator);
+        const members = byModule.get(module) ?? [];
+        members.push(test);
+        byModule.set(module, members);
+    }
+
+    const partitions = [...byModule.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([filter, members]) => ({ filter: `${filter}::`, tests: members }));
+    const union = partitions.flatMap((partition) => partition.tests);
+    if (
+        partitions.some((partition) => partition.tests.length === 0) ||
+        union.length !== tests.length ||
+        new Set(union).size !== tests.length ||
+        [...union].sort().join("\n") !== [...tests].sort().join("\n")
+    ) {
+        throw new Error("libtest partitions are not a non-empty exclusive exact union");
+    }
+    partitionCache.set(key, partitions);
+    return partitions;
+}
+
+function killProcessGroup(pid: number): void {
+    // detached makes the direct libtest child the leader of its own POSIX process group. Kill the
+    // group first so a test that planted a descendant cannot survive the row timeout.
+    try {
+        process.kill(-pid, "SIGKILL");
+    } catch {
+        // The child may have exited between the timeout and the group signal.
+    }
+}
+
+/** Run one already-compiled, direct libtest partition; Cargo is never the timed-row parent. */
+export async function runCargoTest(packageName: string, filter: string): Promise<void> {
+    if (packageName !== "shallot-audio") {
+        throw new Error(`unsupported audio Cargo package: ${packageName}`);
+    }
+    const executable = cargoTestExecutable(root, subject);
+    const child = Bun.spawn([executable, filter], {
         cwd: root,
         stdout: "inherit",
         stderr: "inherit",
+        detached: true,
     });
-    if (!proc.success) {
-        throw new Error(`${command.join(" ")} exited with ${proc.exitCode ?? "unknown status"}`);
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+        timedOut = true;
+        killProcessGroup(child.pid);
+        try {
+            child.kill("SIGKILL");
+        } catch {
+            // The process-group signal is authoritative; this is only a race-safe fallback.
+        }
+    }, 19_500);
+    const exitCode = await child.exited;
+    clearTimeout(timeout);
+    if (timedOut) throw new Error(`libtest partition ${filter} exceeded the 20s row budget`);
+    if (exitCode !== 0) {
+        throw new Error(`libtest partition ${filter} exited with ${exitCode}`);
     }
 }
