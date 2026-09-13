@@ -16,6 +16,7 @@ import {
     type Shape,
 } from "../api/index";
 import { World } from "../api/world";
+import { quat as mathQuat } from "../common/math";
 import { hashWorldState } from "../world/hash";
 
 type Command = {
@@ -67,13 +68,15 @@ const quat = (values: unknown[]): { v: { x: number; y: number; z: number }; s: n
 };
 const frame = (
     value: unknown,
+    normalize = false,
 ): {
     p: { x: number; y: number; z: number };
     q: { v: { x: number; y: number; z: number }; s: number };
 } => {
     if (!value || typeof value !== "object") throw new Error("expected a joint frame");
     const record = value as Record<string, unknown>;
-    return { p: vec3(record.p as unknown[]), q: quat(record.q as unknown[]) };
+    const q = quat(record.q as unknown[]);
+    return { p: vec3(record.p as unknown[]), q: normalize ? mathQuat.normalize(q) : q };
 };
 const vec3 = (values: unknown[]): { x: number; y: number; z: number } => {
     if (!Array.isArray(values) || values.length !== 3)
@@ -453,11 +456,21 @@ export function runScenario(
                 if (!bodyA || !bodyB)
                     throw new Error(`joint ${command.id} references an unknown body`);
                 const config: Record<string, unknown> = {
-                    localFrameA: frame(command.localFrameA),
-                    localFrameB: frame(command.localFrameB),
+                    localFrameA: frame(command.localFrameA, command.normalizeFrames === true),
+                    localFrameB: frame(command.localFrameB, command.normalizeFrames === true),
                 };
                 for (const [key, value] of Object.entries(command)) {
-                    if (["op", "id", "bodyA", "bodyB", "localFrameA", "localFrameB"].includes(key))
+                    if (
+                        [
+                            "op",
+                            "id",
+                            "bodyA",
+                            "bodyB",
+                            "localFrameA",
+                            "localFrameB",
+                            "normalizeFrames",
+                        ].includes(key)
+                    )
                         continue;
                     if (typeof value === "boolean") config[key] = value;
                     else if (Array.isArray(value)) config[key] = vec3(value);
