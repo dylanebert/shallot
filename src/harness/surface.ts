@@ -480,6 +480,42 @@ function readAt(root: string, ref: string, path: string): string {
     return proc.exitCode === 0 ? proc.stdout.toString() : "";
 }
 
+function typeAt(root: string, ref: string, path: string): string {
+    const proc = Bun.spawnSync(["git", "cat-file", "-t", `${ref}:${path}`], {
+        cwd: root,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    return proc.exitCode === 0 ? proc.stdout.toString().trim() : "";
+}
+
+type TreeSubject = readonly (readonly [string, readonly string[]])[];
+
+function treeSubject(root: string, ref: string, path: string): TreeSubject {
+    const proc = Bun.spawnSync(["git", "ls-tree", "-r", "-z", "--full-tree", ref, "--", path], {
+        cwd: root,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    if (proc.exitCode !== 0) return [];
+    const entries: Array<readonly [string, readonly string[]]> = [];
+    for (const record of proc.stdout.toString().split("\0")) {
+        if (record === "") continue;
+        const tab = record.indexOf("\t");
+        if (tab === -1) continue;
+        const fields = record.slice(0, tab).split(" ");
+        if (fields[1] !== "blob") continue;
+        const file = record.slice(tab + 1);
+        entries.push([file, subjectTokens(readAt(root, ref, file))]);
+    }
+    return entries.sort(([left], [right]) => left.localeCompare(right));
+}
+
+function subjectValue(root: string, ref: string, path: string): readonly string[] | TreeSubject {
+    const type = typeAt(root, ref, path);
+    return type === "tree" ? treeSubject(root, ref, path) : subjectTokens(readAt(root, ref, path));
+}
+
 /** Root-law selector: comments do not select; complete pre/post subject token streams do. */
 export function subjectChanged(
     root: string,
@@ -488,11 +524,15 @@ export function subjectChanged(
     diff: string,
 ): boolean {
     if (subjects.length === 0) return true;
-    return subjects.some(
-        (subject) =>
-            JSON.stringify(subjectTokens(readAt(root, base, subject))) !==
-            JSON.stringify(subjectTokens(readAt(root, diff, subject))),
-    );
+    return subjects.some((subject) => {
+        const baseType = typeAt(root, base, subject);
+        const diffType = typeAt(root, diff, subject);
+        if (baseType !== diffType) return true;
+        return (
+            JSON.stringify(subjectValue(root, base, subject)) !==
+            JSON.stringify(subjectValue(root, diff, subject))
+        );
+    });
 }
 
 export function selectIntegrationRows(

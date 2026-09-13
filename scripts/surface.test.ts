@@ -140,7 +140,9 @@ function subjectTree(): {
 } {
     const root = mkdtempSync(join(tmpdir(), "shallot-surface-refs-"));
     mkdirSync(join(root, "src"), { recursive: true });
+    mkdirSync(join(root, "crates/audio/pkg"), { recursive: true });
     writeFileSync(join(root, "src/setup.ts"), "export const ready = true;\n");
+    writeFileSync(join(root, "crates/audio/pkg/shallot_audio.js"), "audio\n");
     git(root, "init", "-q");
     git(root, "config", "user.email", "surface@example.test");
     git(root, "config", "user.name", "surface");
@@ -150,10 +152,8 @@ function subjectTree(): {
     writeFileSync(join(root, "src/setup.ts"), "export const ready = true; // comment only\n");
     git(root, "commit", "-qam", "comment");
     const comment = git(root, "rev-parse", "HEAD");
-    mkdirSync(join(root, "crates/audio/pkg"), { recursive: true });
-    writeFileSync(join(root, "crates/audio/pkg/shallot_audio.js"), "audio\n");
-    git(root, "add", ".");
-    git(root, "commit", "-qm", "audio");
+    writeFileSync(join(root, "crates/audio/pkg/shallot_audio.js"), "audio changed\n");
+    git(root, "commit", "-qam", "audio");
     const audio = git(root, "rev-parse", "HEAD");
     writeFileSync(join(root, "src/new.ts"), "export const added = true;\n");
     git(root, "add", ".");
@@ -338,18 +338,43 @@ check(
             file: "src/add.test.ts",
             subjects: ["src/new.ts"],
         };
+        const unchangedDirectory = {
+            ...setup,
+            claim: "unchanged directory does not select",
+            file: "src/audio.test.ts",
+            subjects: ["crates/audio"],
+        };
+        const nestedEdit = {
+            ...setup,
+            claim: "nested file content edit selects",
+            file: "src/audio-edit.test.ts",
+            subjects: ["crates/audio"],
+        };
         const population = {
             root: tree.root,
-            rows: [setup, oracle, added],
+            rows: [setup, oracle, added, unchangedDirectory, nestedEdit],
             undeclared: [],
             invalid: [],
             files: [],
         };
         try {
             expect(selectIntegrationRows(population, tree.base, tree.comment)).toEqual([]);
-            expect(selectIntegrationRows(population, tree.base, tree.audio)).toEqual([]);
             expect(
-                selectIntegrationRows(population, tree.base, tree.added).map((row) => row.claim),
+                selectIntegrationRows(
+                    { ...population, rows: [unchangedDirectory] },
+                    tree.base,
+                    tree.comment,
+                ),
+            ).toEqual([]);
+            expect(
+                selectIntegrationRows(
+                    { ...population, rows: [nestedEdit] },
+                    tree.base,
+                    tree.audio,
+                ).map((row) => row.claim),
+            ).toEqual(["nested file content edit selects"]);
+            expect(
+                selectIntegrationRows(population, tree.audio, tree.added).map((row) => row.claim),
             ).toEqual(["added path selects"]);
         } finally {
             rmSync(tree.root, { recursive: true, force: true });

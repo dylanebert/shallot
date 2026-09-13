@@ -1620,9 +1620,21 @@ export async function stopKernel(): Promise<void> {
  * Rebuild one scene through the public API, step it, and assert its world-state hash equals the C
  * reference's at every step. Throws with the first divergent step and both body dumps on a mismatch.
  */
-export function buildLegacyScene(scene: string, enableSleep: boolean, enableContinuous: boolean): World {
+export function buildLegacyScene(
+    scene: string,
+    enableSleep: boolean,
+    enableContinuous: boolean,
+): World {
     const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableSleep, enableContinuous });
-    const fixture = { scene, timeStep: fround(1 / 60), subStepCount: 4, stepCount: 0, gravity: [0, -10, 0], hashes: [], states: [] } as unknown as Fixture;
+    const fixture = {
+        scene,
+        timeStep: fround(1 / 60),
+        subStepCount: 4,
+        stepCount: 0,
+        gravity: [0, -10, 0],
+        hashes: [],
+        states: [],
+    } as unknown as Fixture;
     const builder = builders[sceneBuilder[scene] ?? scene];
     if (!builder) throw new Error(`unknown legacy foundation scene ${scene}`);
     builder(world, fixture);

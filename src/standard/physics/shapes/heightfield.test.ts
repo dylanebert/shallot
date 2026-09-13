@@ -176,17 +176,35 @@ const near = (a: number, b: number, tol: number, label: string) => {
 
 // Brute force: cast the proxy against every non-hole triangle and keep the closest hit. Ground truth
 // for the grid-walked b3ShapeCastHeightField (getHeightFieldTriangle winds triangles the same way).
-function bruteForceShapeCast(hf: HeightFieldData, input: ShapeCastInput): CastOutput {
+type BruteTriangle = {
+    readonly index: number;
+    readonly vertices: Vec3[];
+};
+
+function immutableBruteTriangles(hf: HeightFieldData): readonly BruteTriangle[] {
+    const triangles: BruteTriangle[] = [];
+    for (let t = 0; t < hf.flags.length; ++t) {
+        if (hf.materialIndices[t >> 1] === HEIGHT_FIELD_HOLE) continue;
+        const vertices = Object.freeze(
+            getHeightFieldTriangle(hf, t).vertices.map((vertex) => Object.freeze({ ...vertex })),
+        ) as unknown as Vec3[];
+        triangles.push(Object.freeze({ index: t, vertices }));
+    }
+    return Object.freeze(triangles);
+}
+
+function bruteForceShapeCast(
+    input: ShapeCastInput,
+    triangles: readonly BruteTriangle[],
+    transform: ReturnType<typeof xf.identity>,
+): CastOutput {
     let best = emptyCastOutput();
     let bestFraction = input.maxFraction;
-    const triangleCount = hf.flags.length;
-    for (let t = 0; t < triangleCount; ++t) {
-        if (hf.materialIndices[t >> 1] === HEIGHT_FIELD_HOLE) continue;
-        const tri = getHeightFieldTriangle(hf, t);
+    for (const triangle of triangles) {
         const pair: ShapeCastPairInput = {
-            proxyA: { points: tri.vertices, count: 3, radius: 0 },
+            proxyA: { points: triangle.vertices, count: 3, radius: 0 },
             proxyB: input.proxy,
-            transform: xf.identity(),
+            transform,
             translationB: input.translation,
             maxFraction: bestFraction,
             canEncroach: input.canEncroach,
@@ -195,7 +213,7 @@ function bruteForceShapeCast(hf: HeightFieldData, input: ShapeCastInput): CastOu
         if (out.hit && out.fraction < bestFraction) {
             bestFraction = out.fraction;
             best = out;
-            best.triangleIndex = t;
+            best.triangleIndex = triangle.index;
         }
     }
     return best;
@@ -336,50 +354,124 @@ const waveOrigins = (): Vec3[] => {
 const label = (o: Vec3, d: Vec3) =>
     `origin (${o.x}, ${o.y}, ${o.z}) delta (${d.x}, ${d.y}, ${d.z})`;
 
-check(
-    "height field shape cast grid walk matches the brute-force cast",
-    {
-        claim: "the grid walk in shapeCastHeightField would disagree with a brute-force cast over every wave height field triangle on hit or fraction for some origin, sweep and proxy radius",
-    },
-    () => {
-        const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
-        const radii = [0.15, 0.4, 0.9];
-        const deltas: Vec3[] = [
-            { x: 0, y: -8, z: 0 },
-            { x: 0, y: -8, z: 6.4 },
-            { x: 5.1, y: -8, z: 0 },
-            { x: 0, y: -8, z: -6.4 },
-            { x: -5.1, y: -8, z: 0 },
-            { x: 6, y: -8, z: 5 },
-            { x: -7, y: -8, z: 4 },
-            { x: 9, y: -3, z: -9 },
-        ];
-        const failures: string[] = [];
-        for (const origin of waveOrigins()) {
-            for (const delta of deltas) {
-                for (const radius of radii) {
-                    const input: ShapeCastInput = {
-                        proxy: { points: [origin], count: 1, radius },
-                        translation: delta,
-                        maxFraction: 1,
-                        canEncroach: false,
-                    };
-                    const grid = shapeCastHeightField(hf, input);
-                    const brute = bruteForceShapeCast(hf, input);
-                    const where = `${label(origin, delta)} radius ${radius}`;
-                    if (grid.hit !== brute.hit) {
-                        failures.push(`${where}: grid hit ${grid.hit}, brute hit ${brute.hit}`);
-                    } else if (brute.hit && Math.abs(grid.fraction - brute.fraction) > 2e-3) {
-                        failures.push(
-                            `${where}: grid fraction ${grid.fraction}, brute ${brute.fraction}`,
-                        );
-                    }
-                }
+const shapeCastDeltas: readonly Vec3[] = Object.freeze(
+    [
+        { x: 0, y: -8, z: 0 },
+        { x: 0, y: -8, z: 6.4 },
+        { x: 5.1, y: -8, z: 0 },
+        { x: 0, y: -8, z: -6.4 },
+        { x: -5.1, y: -8, z: 0 },
+        { x: 6, y: -8, z: 5 },
+        { x: -7, y: -8, z: 4 },
+        { x: 9, y: -3, z: -9 },
+    ].map((delta) => Object.freeze(delta)),
+) as unknown as readonly Vec3[];
+const claimedShapeCastSweeps = new Set<number>();
+
+function shapeCastSweep(index: number): () => void {
+    if (!Number.isInteger(index) || index < 0 || index >= shapeCastDeltas.length)
+        throw new Error(`height field shape cast sweep ${index}: invalid index`);
+    if (claimedShapeCastSweeps.has(index))
+        throw new Error(`height field shape cast sweep ${index}: duplicate claim`);
+    const delta = shapeCastDeltas[index];
+    if (delta === undefined) throw new Error(`height field shape cast sweep ${index}: empty sweep`);
+    claimedShapeCastSweeps.add(index);
+    return () => assertShapeCastGridMatches(delta);
+}
+
+function assertShapeCastGridMatches(delta: Vec3): void {
+    const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
+    const radii = [0.15, 0.4, 0.9];
+    const triangles = immutableBruteTriangles(hf);
+    const transform = xf.identity();
+    const failures: string[] = [];
+    for (const origin of waveOrigins()) {
+        for (const radius of radii) {
+            const input: ShapeCastInput = {
+                proxy: { points: [origin], count: 1, radius },
+                translation: delta,
+                maxFraction: 1,
+                canEncroach: false,
+            };
+            const grid = shapeCastHeightField(hf, input);
+            const brute = bruteForceShapeCast(input, triangles, transform);
+            const where = `${label(origin, delta)} radius ${radius}`;
+            if (grid.hit !== brute.hit) {
+                failures.push(`${where}: grid hit ${grid.hit}, brute hit ${brute.hit}`);
+            } else if (brute.hit && Math.abs(grid.fraction - brute.fraction) > 2e-3) {
+                failures.push(`${where}: grid fraction ${grid.fraction}, brute ${brute.fraction}`);
             }
         }
-        expect(failures, "height field shape cast grid walk disagreements").toEqual([]);
+    }
+    expect(failures, "height field shape cast grid walk disagreements").toEqual([]);
+}
+
+check(
+    "height field shape cast grid walk matches vertical casts",
+    {
+        claim: "the grid walk in shapeCastHeightField would disagree with brute-force vertical casts over every wave height field triangle",
     },
+    shapeCastSweep(0),
 );
+
+check(
+    "height field shape cast grid walk matches z-positive casts",
+    {
+        claim: "the grid walk in shapeCastHeightField would disagree with brute-force z-positive casts over every wave height field triangle",
+    },
+    shapeCastSweep(1),
+);
+
+check(
+    "height field shape cast grid walk matches positive-x casts",
+    {
+        claim: "the grid walk in shapeCastHeightField would disagree with brute-force positive-x casts over every wave height field triangle",
+    },
+    shapeCastSweep(2),
+);
+
+check(
+    "height field shape cast grid walk matches z-negative casts",
+    {
+        claim: "the grid walk in shapeCastHeightField would disagree with brute-force z-negative casts over every wave height field triangle",
+    },
+    shapeCastSweep(3),
+);
+
+check(
+    "height field shape cast grid walk matches negative-x casts",
+    {
+        claim: "the grid walk in shapeCastHeightField would disagree with brute-force negative-x casts over every wave height field triangle",
+    },
+    shapeCastSweep(4),
+);
+
+check(
+    "height field shape cast grid walk matches positive diagonal casts",
+    {
+        claim: "the grid walk in shapeCastHeightField would disagree with brute-force positive diagonal casts over every wave height field triangle",
+    },
+    shapeCastSweep(5),
+);
+
+check(
+    "height field shape cast grid walk matches negative-x diagonal casts",
+    {
+        claim: "the grid walk in shapeCastHeightField would disagree with brute-force negative-x diagonal casts over every wave height field triangle",
+    },
+    shapeCastSweep(6),
+);
+
+check(
+    "height field shape cast grid walk matches long diagonal casts",
+    {
+        claim: "the grid walk in shapeCastHeightField would disagree with brute-force long diagonal casts over every wave height field triangle",
+    },
+    shapeCastSweep(7),
+);
+
+if (claimedShapeCastSweeps.size !== shapeCastDeltas.length)
+    throw new Error("height field shape cast sweeps: a sweep is omitted");
 
 check(
     "height field ray cast grid walk matches the brute-force ray",
