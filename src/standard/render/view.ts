@@ -3,6 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute, pixelRatio, type State } from "../../engine";
 import { chunk, spliceNs } from "../../engine/utils";
+import { devices, resizeViewport } from "../input";
 import { Camera, Resolution } from "./camera";
 import { Render } from "./render";
 
@@ -127,10 +128,13 @@ export interface View {
     // present, glaze, the cluster grid — reads these, so a low-res pin flows through by sizing them alone
     width: number;
     height: number;
-    // the canvas CSS display size (px), cached by the ResizeObserver. The backing above derives from it,
-    // so a runtime `Resolution` edit re-sizes the view without waiting on a resize event
+    // the canvas CSS display size (px), mirrored from the State-scoped viewport row for compatibility.
+    // The backing above reads the row directly, so a runtime `Resolution` edit re-sizes the view without
+    // waiting on a resize event.
     clientWidth: number;
     clientHeight: number;
+    /** index of this canvas's State-scoped viewport row */
+    viewportIndex: number;
     framebuffer: GPUTextureView | null;
     present: GPUTextureView | null;
     depth: GPUTextureView | null;
@@ -208,6 +212,12 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, state?: Sta
     });
 
     const rect = canvas.getBoundingClientRect();
+    const viewportIndex =
+        typeof document === "undefined"
+            ? 0
+            : Math.max(0, Array.from(document.querySelectorAll("canvas")).indexOf(canvas));
+    const dpr = (typeof window === "undefined" ? 1 : window.devicePixelRatio) || 1;
+    if (state) resizeViewport(state, viewportIndex, rect.width, rect.height, dpr);
     const view: View = {
         canvas,
         context,
@@ -215,6 +225,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, state?: Sta
         height: 0,
         clientWidth: rect.width,
         clientHeight: rect.height,
+        viewportIndex,
         framebuffer: null,
         present: null,
         depth: null,
@@ -223,13 +234,15 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, state?: Sta
         observer: null!,
         stamp: 0,
     };
-    // the observer is a pure sensor — it caches the display size and `sizeView` derives the backing from
-    // it each frame. Splitting it this way lets a runtime `Resolution` edit re-size (the observer never
-    // fires for that) and moves the backing write to frame start, off the async resize callback.
+    // the observer is the DOM producer for the State-scoped viewport row. `sizeView` derives the backing
+    // from that row each frame, so a runtime `Resolution` edit re-sizes (the observer never fires for that)
+    // and the backing write stays at frame start, off the async resize callback.
     view.observer = new ResizeObserver(() => {
         const r = canvas.getBoundingClientRect();
         view.clientWidth = r.width;
         view.clientHeight = r.height;
+        const nextDpr = (typeof window === "undefined" ? 1 : window.devicePixelRatio) || 1;
+        if (state) resizeViewport(state, viewportIndex, r.width, r.height, nextDpr);
     });
     view.observer.observe(canvas);
     Views.set(eid, view);
@@ -276,9 +289,12 @@ export function backingSize(
  */
 export function sizeView(state: State, eid: number, view: View): void {
     const canvas = view.canvas;
-    if (!canvas || view.clientWidth <= 0 || view.clientHeight <= 0) return;
-    const dpr = (typeof window === "undefined" ? 1 : window.devicePixelRatio) || 1;
-    const ratio = pixelRatio === "auto" ? Math.min(Math.max(dpr, 1), 2) : pixelRatio;
+    if (!canvas) return;
+    const viewport = devices(state).viewport.get(view.viewportIndex);
+    if (!viewport || viewport.cssWidth <= 0 || viewport.cssHeight <= 0) return;
+    view.clientWidth = viewport.cssWidth;
+    view.clientHeight = viewport.cssHeight;
+    const ratio = pixelRatio === "auto" ? Math.min(Math.max(viewport.dpr, 1), 2) : pixelRatio;
     const pinned = state.has(eid, Resolution);
     const resW = pinned ? Resolution.width.get(eid) | 0 : 0;
     const resH = pinned ? Resolution.height.get(eid) | 0 : 0;
@@ -309,6 +325,7 @@ export function attachView(eid: number): void {
         height: 1,
         clientWidth: 0,
         clientHeight: 0,
+        viewportIndex: -1,
         framebuffer: null,
         present: null,
         depth: null,

@@ -40,9 +40,11 @@ export {
     releaseKey,
     requestPointerLock,
     requirePointerLock,
+    resizeViewport,
     setInputEnabled,
     type Touch,
     touchPoint,
+    type Viewport,
     visibilityChanged,
     wheel,
 } from "./input";

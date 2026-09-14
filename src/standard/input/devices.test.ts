@@ -11,6 +11,7 @@ import {
     pressKey,
     releaseKey,
     requirePointerLock,
+    resizeViewport,
     State,
     setInputEnabled,
     Time,
@@ -18,6 +19,7 @@ import {
     visibilityChanged,
 } from "@dylanebert/shallot";
 import { check } from "@dylanebert/shallot/harness/check";
+import { sizeView, type View } from "@dylanebert/shallot/render";
 
 function inputState(): State {
     const state = new State();
@@ -315,5 +317,81 @@ check(
             throw new Error("twin release mismatch");
         a.dispose();
         b.dispose();
+    },
+);
+
+check(
+    "viewport resize sizes a headless view",
+    {
+        claim: "a State-scoped viewport row supplies CSS size and DPR to sizeView through backingSize",
+    },
+    () => {
+        const state = inputState();
+        resizeViewport(state, 0, 100, 50, 2);
+        const canvas = {
+            height: 0,
+            style: { imageRendering: "" },
+            width: 0,
+        } as unknown as HTMLCanvasElement;
+        const view = {
+            canvas,
+            clientHeight: 0,
+            clientWidth: 0,
+            context: null,
+            depth: null,
+            framebuffer: null,
+            height: 0,
+            observer: null,
+            present: null,
+            slot: 0,
+            stamp: 0,
+            tag: null,
+            viewportIndex: 0,
+            width: 0,
+        } as View;
+        sizeView(state, 1, view);
+        if (canvas.width !== 200 || canvas.height !== 100)
+            throw new Error(`expected 200x100 backing, got ${canvas.width}x${canvas.height}`);
+        state.dispose();
+    },
+);
+
+check(
+    "normalized pointer follows viewport resize",
+    {
+        claim: "the normalized pointer coordinate uses the State-scoped viewport row after resize",
+    },
+    () => {
+        const state = inputState();
+        resizeViewport(state, 0, 100, 50, 1);
+        focus(state, 0);
+        pointerMove(state, 50, 25);
+        if (devices(state).mouse.normalizedX !== 0.5 || devices(state).mouse.normalizedY !== 0.5)
+            throw new Error("initial normalized pointer coordinate was wrong");
+        resizeViewport(state, 0, 200, 100, 1);
+        if (devices(state).mouse.normalizedX !== 0.25 || devices(state).mouse.normalizedY !== 0.25)
+            throw new Error("normalized pointer coordinate did not follow resize");
+        state.dispose();
+    },
+);
+
+check(
+    "viewport rows are State-scoped",
+    {
+        claim: "two States hold independent per-canvas viewport records",
+    },
+    () => {
+        const first = inputState();
+        const second = inputState();
+        resizeViewport(first, 0, 320, 180, 1);
+        resizeViewport(second, 0, 640, 360, 2);
+        const a = devices(first).viewport.get(0);
+        const b = devices(second).viewport.get(0);
+        if (a?.cssWidth !== 320 || a?.cssHeight !== 180 || a?.dpr !== 1)
+            throw new Error("first viewport row was changed");
+        if (b?.cssWidth !== 640 || b?.cssHeight !== 360 || b?.dpr !== 2)
+            throw new Error("second viewport row was changed");
+        first.dispose();
+        second.dispose();
     },
 );
