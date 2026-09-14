@@ -2,9 +2,20 @@ import { afterEach, expect } from "bun:test";
 import { check } from "../../harness/check";
 import { DEFAULT_PLUGINS } from "../../standard/defaults";
 import { PhysicsPlugin, physicsWorld } from "../../standard/physics";
-import { Compute, State, Time } from "../index";
+import { Compute, State, stampAdapter, Time } from "../index";
 import { diagnose, load, parse } from "../scene";
 import { build, deviceTier } from "./index";
+
+const GPU_PLUGIN = { name: "GPU test", device: "required" as const };
+const fallbackAdapter = {
+    info: {
+        vendor: "google",
+        architecture: "swiftshader",
+        device: "fallback",
+        description: "SwiftShader",
+        isFallbackAdapter: true,
+    },
+} as unknown as GPUAdapter;
 
 let live: Awaited<ReturnType<typeof build>> | null = null;
 
@@ -50,6 +61,77 @@ check(
             required: ["Render", "Sear", "Glaze"],
             optional: ["Slab", "Transforms", "Part"],
         });
+    },
+);
+
+check(
+    "GPU acquisition stamps and surfaces a fallback adapter once",
+    {
+        claim: "GPU acquisition accepts a fallback adapter without stamping or surfacing its verdict, so an app can look like it has real hardware",
+        subject: ["src/engine/runtime/gpu.ts", "src/engine/app/index.ts"],
+    },
+    () => {
+        const warnings: unknown[][] = [];
+        const previousWarn = console.warn;
+        const notices: import("../runtime/adapter").AdapterVerdict[] = [];
+        console.warn = (...args: unknown[]) => warnings.push(args);
+        try {
+            stampAdapter(fallbackAdapter, (verdict) => notices.push(verdict));
+            expect(Compute.adapter.class).toBe("fallback");
+            expect(Compute.adapter.identity).toContain("SwiftShader");
+            expect(warnings).toHaveLength(1);
+            expect(warnings[0]?.[0]).toContain("fallback adapter");
+            expect(notices).toEqual([Compute.adapter]);
+        } finally {
+            console.warn = previousWarn;
+        }
+    },
+);
+
+check(
+    "an external device without its adapter is stamped unidentified",
+    {
+        claim: "an externally supplied GPU device without its adapter can be mistaken for a real adapter",
+        subject: "src/engine/runtime/gpu.ts",
+    },
+    () => {
+        const warnings: unknown[][] = [];
+        const previousWarn = console.warn;
+        console.warn = (...args: unknown[]) => warnings.push(args);
+        try {
+            stampAdapter();
+            expect(Compute.adapter.class).toBe("unidentified");
+            expect(Compute.adapter.identity).toBe("unidentified");
+            expect(warnings).toHaveLength(1);
+        } finally {
+            console.warn = previousWarn;
+        }
+    },
+);
+
+check(
+    "a real GPU seat stamps its real adapter on a GPU-tier build",
+    {
+        claim: "a GPU-tier composition can pass on a fallback or unidentified adapter while claiming the gpu seat",
+        size: "integration",
+        requires: ["gpu"],
+        host: "mac",
+        subject: ["src/engine/runtime/gpu.ts", "src/engine/app/index.ts"],
+    },
+    async () => {
+        const peer = (await new Function("return import('bun-webgpu')")()) as {
+            setupGlobals(): Promise<void>;
+        };
+        await peer.setupGlobals();
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) throw new Error("S2 GPU seat refused: no adapter");
+        const device = await adapter.requestDevice();
+        expect(device.queue).toBeDefined();
+        expect(deviceTier([GPU_PLUGIN]).tier).toBe("gpu");
+        stampAdapter(adapter);
+        expect(Compute.adapter.class).toBe("real");
+        expect(Compute.adapter.identity.length).toBeGreaterThan(0);
+        return { ok: true, hardware: Compute.adapter.identity };
     },
 );
 

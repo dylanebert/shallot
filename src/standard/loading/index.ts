@@ -8,6 +8,7 @@
 import pkg from "../../../package.json" with { type: "json" };
 import { UnsupportedError } from "../../engine";
 import type { Loading } from "../../engine/app";
+import type { AdapterVerdict } from "../../engine/runtime/adapter";
 import {
     DARK,
     HIT_TICK,
@@ -379,13 +380,15 @@ function loading(theme: Theme, container: HTMLElement | undefined, withSplash: b
     let driver: Splash | null = null;
     let reduced = false;
     let tick = 0;
+    let content: HTMLDivElement | null = null;
+    let noticeLine: HTMLDivElement | null = null;
 
     const screen: Loading = {
         show() {
             overlay = createOverlay(theme.bg, container);
             if (!overlay) return;
 
-            const content = panel(276, "center");
+            content = panel(276, "center");
 
             if (withSplash) {
                 const made = createSplash(theme);
@@ -409,7 +412,20 @@ function loading(theme: Theme, container: HTMLElement | undefined, withSplash: b
                 track = null;
                 driver = null;
                 tick = 0;
+                content = null;
+                noticeLine = null;
             };
+        },
+
+        notice(verdict: AdapterVerdict) {
+            if (!content || verdict.class === "real") return;
+            noticeLine?.remove();
+            noticeLine = document.createElement("div");
+            noticeLine.style.cssText =
+                `color:${theme.muted};font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;` +
+                "text-align:center;margin-top:10px;max-width:276px";
+            noticeLine.textContent = `${verdict.class} adapter: ${verdict.identity}`;
+            content.appendChild(noticeLine);
         },
 
         update(progress) {

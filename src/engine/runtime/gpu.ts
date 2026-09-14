@@ -1,5 +1,6 @@
 import tgpu, { type TgpuBuffer, type TgpuRoot } from "typegpu";
 import { type AnyData, u32 } from "typegpu/data";
+import { type AdapterInfoFacts, type AdapterVerdict, classifyAdapter } from "./adapter";
 import { captureGpuLog } from "./log";
 import { now } from "./platform";
 
@@ -122,6 +123,8 @@ export function checkTextureLimits(
 export interface Compute {
     /** active GPU device */
     readonly device: GPUDevice;
+    /** classification of the adapter that supplied {@link device}; fallback and masked adapters remain visible */
+    readonly adapter: AdapterVerdict;
     /**
      * TypeGPU root adopting {@link device} — the handle every typed buffer, bind group, and pipeline
      * is created through, and the reach-back out (`root.unwrap(...)`) to the raw WebGPU handle.
@@ -198,6 +201,7 @@ export const Compute: Compute = {} as Compute;
 export function resetCompute(): void {
     Object.assign(Compute, {
         device: undefined,
+        adapter: undefined,
         root: undefined,
         frame: 0,
         pending: () => 0,
@@ -1170,6 +1174,28 @@ function adopt(device: GPUDevice): TgpuRoot {
     return _root;
 }
 
+/** stamp the adapter verdict on the shared compute surface and warn once for non-real adapters. */
+export function stampAdapter(
+    adapter?: GPUAdapter,
+    notice?: (verdict: AdapterVerdict) => void,
+): AdapterVerdict {
+    const verdict =
+        adapter === undefined
+            ? classifyAdapter({ present: true })
+            : classifyAdapter({
+                  present: true,
+                  info: adapter.info as AdapterInfoFacts,
+              });
+    Object.assign(Compute, { adapter: verdict });
+    if (verdict.class !== "real") {
+        console.warn(
+            `[shallot] ${verdict.reason ?? `${verdict.class} adapter: ${verdict.identity}`}`,
+        );
+        notice?.(verdict);
+    }
+    return verdict;
+}
+
 /**
  * populate the {@link Compute} singleton. With no argument, acquires a device
  * via `navigator.gpu` and enforces shallot's feature floor (the base floor plus
@@ -1184,12 +1210,16 @@ export async function requestGPU(
     device?: GPUDevice,
     features: readonly GPUFeatureName[] = [],
     preferred: readonly GPUFeatureName[] = [],
+    adapter?: GPUAdapter,
 ): Promise<Compute> {
     // before anything resolves: typegpu binds the console method a TGSL `console.log` calls at
     // shader-generation time, so a capture installed later never sees that kernel's lines.
     captureGpuLog();
     checkTgsl();
-    const d = device ?? (await acquireDevice(features, preferred));
+    const acquired =
+        device === undefined ? await acquireDevice(features, preferred) : { device, adapter };
+    const d = acquired.device;
+    const verdict = stampAdapter(acquired.adapter);
     observeDevice(d);
     beginArtifactSession(d);
     _precompile.length = 0;
@@ -1202,6 +1232,7 @@ export async function requestGPU(
     let inFlight = 0;
     return Object.assign(Compute, {
         device: d,
+        adapter: verdict,
         root: adopt(d),
         frame: 0,
         pending: () => inFlight,
@@ -1224,7 +1255,7 @@ export async function requestGPU(
 async function acquireDevice(
     extra: readonly GPUFeatureName[],
     preferred: readonly GPUFeatureName[],
-): Promise<GPUDevice> {
+): Promise<{ device: GPUDevice; adapter: GPUAdapter }> {
     if (!navigator.gpu) throw new UnsupportedError("WebGPU not supported in this browser");
 
     const adapter = await navigator.gpu.requestAdapter();
@@ -1245,7 +1276,7 @@ async function acquireDevice(
         requiredLimits: deviceLimits(adapter.limits),
     });
 
-    return device;
+    return { device, adapter };
 }
 
 /**
