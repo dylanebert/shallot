@@ -109,6 +109,17 @@ A bump touches every doc and fixture site in one commit; `check-pins` reds on dr
 
 Retire a unit by tagging the last commit that has it, adding a row to [`ARCHIVE.md`](ARCHIVE.md) (name, tag, path at tag, why, what would rebuild it), then deleting it. There's never an archive directory.
 
+## Device tiers
+
+The plugin declaration is the one source of truth for whether composition needs a device. The generated context below is also shipped in `src/engine/app/device-tiers.generated.ts`, so packed consumers and contributors read the same classification.
+
+<!-- device-tiers:start -->
+| Plugin set | Composition tier | `required` (GPU) | `optional` (CPU/GPU) | absent declaration (CPU) |
+| --- | --- | --- | --- | --- |
+| standard | gpu | BVH, Fog, Glaze, Mirror, Render, Sear | Part, Physics, Slab, Transforms | Audio, Character, Input, Player |
+| extras | gpu | Profile | Cells, Gltf, Lines, Outline, Skin, Sky, Sprite, Text | Orbit, OrbitOverlay |
+<!-- device-tiers:end -->
+
 ## Engine shape
 
 - The ECS mutates immediately with no deferred command buffer, so the next system reads exactly what the last one wrote.

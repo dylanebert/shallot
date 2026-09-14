@@ -13,6 +13,7 @@ export {
     sample,
     sfx,
 } from "./audio";
+export { BvhPlugin } from "./bvh";
 export { Character, CharacterPlugin, CharacterSweepSystem } from "./character";
 export * from "./defaults";
 export { Fog, FogPlugin } from "./fog";
