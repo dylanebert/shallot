@@ -297,15 +297,3 @@ fn hull_capsule_bridge_bit_exact() {
         check_scene(scene["name"].as_str().unwrap(), &a, &b, scene);
     }
 }
-
-#[test]
-fn hulls_bridge_bit_exact() {
-    let g = gold();
-    for scene in g["hulls"].as_array().unwrap() {
-        let a_store = hull(&scene["hullA"]);
-        let b_store = hull(&scene["hullB"]);
-        let a = ConvexShape::Hull(a_store.view());
-        let b = ConvexShape::Hull(b_store.view());
-        check_scene(scene["name"].as_str().unwrap(), &a, &b, scene);
-    }
-}

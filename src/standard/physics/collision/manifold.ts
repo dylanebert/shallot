@@ -1762,8 +1762,9 @@ function buildFaceBContact(
     // Results are in frame B; transform them into frame A.
     const matrix = mat3.fromQuat(transformBtoA.q);
 
-    // Flip normal so it points from A to B, even though B owns the reference face.
-    manifold.normal = vec3.neg(mat3.mulV(matrix, manifold.normal));
+    // Flip normal so it points from A to B, even though B owns the reference face. The reference
+    // uses a zero-vector subtraction here; unlike unary negation it preserves its signed zero bits.
+    manifold.normal = vec3.sub(vec3.zero(), mat3.mulV(matrix, manifold.normal));
     cache.type = SeparatingFeature.FaceAxisB;
     cache.indexA = query.vertexIndex & 0xff;
     cache.indexB = query.faceIndex & 0xff;

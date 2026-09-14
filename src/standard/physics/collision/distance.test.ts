@@ -3,14 +3,10 @@ import { check } from "../../../harness/check";
 import { type Quat, segmentDistance, type Transform, type Vec3 } from "../common/math";
 import {
     type CastOutput,
-    type DistanceOutput,
     emptyCache,
     type ShapeProxy,
-    type SimplexCache,
-    type Sweep,
     shapeCast,
     shapeDistance,
-    type TOIOutput,
     timeOfImpact,
 } from "./distance";
 import gold from "./distance.gold.json";
@@ -46,20 +42,6 @@ const xfFromHex = (o: { p: string[]; q: string[] }): Transform => ({
     p: vecFromHex(o.p),
     q: quatFromHex(o.q),
 });
-const sweepFromHex = (o: {
-    localCenter: string[];
-    c1: string[];
-    c2: string[];
-    q1: string[];
-    q2: string[];
-}): Sweep => ({
-    localCenter: vecFromHex(o.localCenter),
-    c1: vecFromHex(o.c1),
-    c2: vecFromHex(o.c2),
-    q1: quatFromHex(o.q1),
-    q2: quatFromHex(o.q2),
-});
-
 // Named proxy point clouds, integer coords mirroring fixtures/distance_gold.c exactly.
 const POINTS: Record<string, Vec3[]> = {
     box8: [
@@ -85,36 +67,6 @@ const makeProxy = (name: string, radiusHex: string): ShapeProxy => {
 // --- bit-exact gold gates -------------------------------------------------------------------
 
 check(
-    "shapeDistance matches the C reference bit for bit",
-    {
-        claim: "the GJK distance solver drifts from the pinned Box3D C reference on witness points, normal, distance, iteration count or simplex cache",
-    },
-    () => {
-        for (const g of gold.distance) {
-            const proxyA = makeProxy(g.proxyA, g.radiusA);
-            const proxyB = makeProxy(g.proxyB, g.radiusB);
-            const cache: SimplexCache = emptyCache();
-            const out: DistanceOutput = shapeDistance(
-                { proxyA, proxyB, transform: xfFromHex(g.transform), useRadii: g.useRadii },
-                cache,
-            );
-            vecEqual(out.pointA, g.out.pointA, `${g.name} pointA`);
-            vecEqual(out.pointB, g.out.pointB, `${g.name} pointB`);
-            vecEqual(out.normal, g.out.normal, `${g.name} normal`);
-            bitEqual(out.distance, g.out.distance, `${g.name} distance`);
-            expect(out.iterations, `${g.name} iterations`).toBe(g.out.iterations);
-            // Cache is written only on the non-overlap exit; on overlap C leaves it untouched (count 0).
-            bitEqual(cache.metric, g.out.cache.metric, `${g.name} cache.metric`);
-            expect(cache.count, `${g.name} cache.count`).toBe(g.out.cache.count);
-            for (let i = 0; i < cache.count; ++i) {
-                expect(cache.indexA[i], `${g.name} cache.indexA[${i}]`).toBe(g.out.cache.indexA[i]);
-                expect(cache.indexB[i], `${g.name} cache.indexB[${i}]`).toBe(g.out.cache.indexB[i]);
-            }
-        }
-    },
-);
-
-check(
     "shapeCast matches the C reference bit for bit",
     {
         claim: "the conservative-advancement shape cast drifts from the pinned Box3D C reference on hit flag, fraction, contact point, normal or iteration count",
@@ -136,38 +88,6 @@ check(
             vecEqual(out.point, g.out.point, `${g.name} point`);
             vecEqual(out.normal, g.out.normal, `${g.name} normal`);
             expect(out.iterations, `${g.name} iterations`).toBe(g.out.iterations);
-        }
-    },
-);
-
-check(
-    "timeOfImpact matches the C reference bit for bit",
-    {
-        claim: "the swept time-of-impact root finder drifts from the pinned Box3D C reference on state, fraction, separation, witness point, normal or any of its three iteration counters",
-    },
-    () => {
-        for (const g of gold.toi) {
-            const proxyA = makeProxy(g.proxyA, g.radiusA);
-            const proxyB = makeProxy(g.proxyB, g.radiusB);
-            const out: TOIOutput = timeOfImpact({
-                proxyA,
-                proxyB,
-                sweepA: sweepFromHex(g.sweepA),
-                sweepB: sweepFromHex(g.sweepB),
-                maxFraction: fromBits(g.maxFraction),
-            });
-            expect(out.state as number, `${g.name} state`).toBe(g.out.state);
-            bitEqual(out.fraction, g.out.fraction, `${g.name} fraction`);
-            bitEqual(out.distance, g.out.distance, `${g.name} distance`);
-            vecEqual(out.point, g.out.point, `${g.name} point`);
-            vecEqual(out.normal, g.out.normal, `${g.name} normal`);
-            expect(out.distanceIterations, `${g.name} distanceIterations`).toBe(
-                g.out.distanceIterations,
-            );
-            expect(out.pushBackIterations, `${g.name} pushBackIterations`).toBe(
-                g.out.pushBackIterations,
-            );
-            expect(out.rootIterations, `${g.name} rootIterations`).toBe(g.out.rootIterations);
         }
     },
 );

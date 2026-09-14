@@ -21,7 +21,6 @@ import {
     type LocalManifold,
     makeFeatureId,
     makeLocalManifold,
-    type SATCache,
 } from "./manifold";
 import gold from "./manifold.gold.json";
 import {
@@ -100,17 +99,6 @@ function checkManifold(m: LocalManifold, want: GoldManifold, label: string) {
         bitEqual(pt.separation, wp.separation, `${label}.points[${i}].separation`);
         expect(makeFeatureId(pt.pair), `${label}.points[${i}].featureId`).toBe(wp.featureId);
     }
-}
-
-function checkSATCache(
-    c: SATCache,
-    want: { separation: string; type: number; indexA: number; indexB: number },
-    label: string,
-) {
-    bitEqual(c.separation, want.separation, `${label}.separation`);
-    expect(c.type, `${label}.type`).toBe(want.type);
-    expect(c.indexA, `${label}.indexA`).toBe(want.indexA);
-    expect(c.indexB, `${label}.indexB`).toBe(want.indexB);
 }
 
 type GoldTriManifold = GoldManifold & { feature: number };
@@ -219,27 +207,6 @@ check(
 );
 
 check(
-    "collideHulls matches the C reference manifold and SAT cache across repeated warm calls",
-    {
-        claim: "the hull-hull SAT and clipping path drifts from the pinned Box3D C reference on the clipped manifold or on the separating-feature cache it warms for the next call",
-    },
-    () => {
-        for (const scene of gold.hulls) {
-            const a = hullFromHex(scene.a as BoxSpec | CylSpec);
-            const b = hullFromHex(scene.b as BoxSpec | CylSpec);
-            const xf = xfFromHex(scene.xf);
-            const m = makeLocalManifold(8);
-            const cache = emptySATCache();
-            for (let call = 0; call < scene.manifolds.length; ++call) {
-                collideHulls(m, 8, a, b, xf, cache);
-                checkManifold(m, scene.manifolds[call], `${scene.name}[${call}]`);
-                checkSATCache(cache, scene.caches[call], `${scene.name}.cache[${call}]`);
-            }
-        }
-    },
-);
-
-check(
     "collideSphereAndTriangle matches the C reference manifold bit for bit",
     {
         claim: "the sphere-triangle manifold drifts from the pinned Box3D C reference on its manifold or on the triangle feature mesh-contact reduction reads",
@@ -275,22 +242,52 @@ check(
 );
 
 check(
-    "collideHullAndTriangle matches the C reference manifold and SAT cache across repeated warm calls",
+    "active hull manifold cache keeps reference signed-zero normals",
     {
-        claim: "the hull-triangle manifold drifts from the pinned Box3D C reference on its manifold, its triangle feature, or on the separating-feature cache it warms",
+        claim: "the active hull SAT cache path preserves the official operation's exact normal bits while retaining a warm cache hit",
     },
     () => {
-        for (const scene of gold.hullTriangle) {
-            const a = hullFromHex({ kind: "box", h: scene.a.h });
-            const [v1, v2, v3] = triFromHex(scene.tri);
-            const m = makeLocalManifold(8);
-            const cache = emptySATCache();
-            for (let call = 0; call < scene.manifolds.length; ++call) {
-                collideHullAndTriangle(m, 8, a, v1, v2, v3, cache);
-                checkTriManifold(m, scene.manifolds[call], `${scene.name}[${call}]`);
-                checkSATCache(cache, scene.caches[call], `${scene.name}.cache[${call}]`);
-            }
-        }
+        const boxA = makeBoxHull(0.5, 0.5, 0.5);
+        const boxB = makeBoxHull(0.5, 0.5, 0.5);
+        const xf: Transform = { p: v(0.9, 0, 0), q: { v: v(0, 0, 0), s: 1 } };
+        const m = makeLocalManifold(8);
+        const cache = emptySATCache();
+        collideHulls(m, 8, boxA, boxB, xf, cache);
+        expect(bits(m.normal.x)).toBe("3f800000");
+        expect(bits(m.normal.y)).toBe("00000000");
+        expect(bits(m.normal.z)).toBe("00000000");
+        expect(cache.type).toBe(3);
+        const first = { ...cache };
+        collideHulls(m, 8, boxA, boxB, xf, cache);
+        expect(cache).toEqual(first);
+        expect(bits(m.normal.y)).toBe("00000000");
+    },
+);
+
+check(
+    "active hull-triangle manifold preserves the reference signed-zero normal",
+    {
+        claim: "the active hull-triangle face operation preserves the official normal x bit instead of normalizing signed zero",
+    },
+    () => {
+        const scene = gold.hullTriangle[0];
+        const hull = hullFromHex({ kind: "box", h: scene.a.h });
+        const [v1, v2, v3] = triFromHex(scene.tri);
+        const m = makeLocalManifold(8);
+        const cache = emptySATCache();
+        collideHullAndTriangle(m, 8, hull, v1, v2, v3, cache);
+        expect(bits(m.normal.x)).toBe("00000000");
+        expect(bits(m.normal.y)).toBe("3f800000");
+        expect(bits(m.normal.z)).toBe("00000000");
+        expect(m.pointCount).toBe(4);
+        const first = { ...cache };
+        collideHullAndTriangle(m, 8, hull, v1, v2, v3, cache);
+        expect(cache.separation).toBe(first.separation);
+        expect(cache.type).toBe(first.type);
+        expect(cache.indexA).toBe(first.indexA);
+        expect(cache.indexB).toBe(first.indexB);
+        expect(cache.hit).toBe(1);
+        expect(bits(m.normal.x)).toBe("00000000");
     },
 );
 

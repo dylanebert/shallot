@@ -742,7 +742,9 @@ function collideHullFace(
     }
 
     manifold.pointCount = pointCount;
-    manifold.normal = vec3.neg(refPlane.normal);
+    // The reference flips this normal by subtracting it from a zero vector, which is observably
+    // different from unary negation for the manifold's exact signed-zero components.
+    manifold.normal = vec3.sub(vec3.zero(), refPlane.normal);
     manifold.feature = TriangleFeature.HullFace;
 
     cache.separation = minSeparation;
