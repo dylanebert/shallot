@@ -18,13 +18,26 @@ export * from "./defaults";
 export { Fog, FogPlugin } from "./fog";
 export { Glaze, GlazePlugin, Tonemap } from "./glaze";
 export {
+    type Devices,
+    devices,
     InputPlugin,
     Inputs,
+    type Inputs as LegacyInputs,
     inputEnabled,
+    type Keys,
     type Mouse,
+    type PointerButton,
+    pointerButton,
+    pointerButtons,
+    pointerMove,
+    pointerWheel,
+    pressKey,
+    releaseKey,
     requirePointerLock,
     setInputEnabled,
     type Touch,
+    touchPoint,
+    wheel,
 } from "./input";
 export { minimalDark, minimalLight, shallotDark, shallotLight } from "./loading";
 export { Mirror, MirrorPlugin, MirrorSystem, mirror } from "./mirror";
