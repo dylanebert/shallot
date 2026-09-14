@@ -1,7 +1,15 @@
 import { entity, f32, not, type Plugin, type State, type System, sparse } from "../../engine";
 import { clamp, lerp } from "../../engine/utils";
 import { Character, CharacterPlugin, CharacterSweepSystem, jump, move, pose } from "../character";
-import { InputPlugin, Inputs, inputEnabled, requirePointerLock } from "../input";
+import type { PointerLockStatus } from "../input";
+import {
+    devices,
+    InputPlugin,
+    inputEnabled,
+    pointerLockRefusal as readPointerLockRefusal,
+    pointerLockStatus as readPointerLockStatus,
+    requirePointerLock,
+} from "../input";
 import { Body } from "../physics";
 import { Camera, RenderPlugin } from "../render";
 import { Transform, TransformsPlugin } from "../transforms";
@@ -67,59 +75,15 @@ export const Player = {
     camera: sparse(entity),
 };
 
-interface PointerLock {
-    locked: boolean;
-    /** the canvas actually implements `requestPointerLock` (touch-only browsers and some WebViews don't) */
-    supported: boolean;
-    /** the last refusal reason, cleared when a lock engages; null while nothing has been refused */
-    refusal: string | null;
-    warned: boolean;
-    dx: number;
-    dy: number;
-    onClick: () => void;
-    onChange: () => void;
-    onMove: (e: MouseEvent) => void;
+/** Pointer-lock reads are State-scoped; the optional form keeps pre-S4 examples source-compatible. */
+export type { PointerLockStatus } from "../input";
+export function pointerLockStatus(state?: State): PointerLockStatus {
+    return state ? readPointerLockStatus(state) : readPointerLockStatus();
+}
+export function pointerLockRefusal(state?: State): string | null {
+    return state ? readPointerLockRefusal(state) : readPointerLockRefusal();
 }
 
-let lock: PointerLock | null = null;
-
-/** pointer-lock capability/refusal state, read through {@link pointerLockStatus}. `unsupported` is a canvas
- *  with no `requestPointerLock`, `refused` a request the browser rejected (permission, sandboxed frame, an
- *  exit too recent), `unlocked` a lock that simply hasn't been asked for yet, `locked` the engaged capture. */
-export type PointerLockStatus = "unsupported" | "refused" | "unlocked" | "locked";
-
-/**
- * the player's pointer-lock state, as data a consumer can read each frame to explain a dead mouse look.
- * `unsupported`/`refused` mean the look will never engage on this click; show a refusal instead of a
- * silently unaimable game. Reads `unlocked` when no player controller is set up.
- *
- * @example
- * ```
- * if (pointerLockStatus() === "refused") notice(`aim unavailable: ${pointerLockRefusal()}`);
- * ```
- */
-export function pointerLockStatus(): PointerLockStatus {
-    if (!lock) return "unlocked";
-    if (!lock.supported) return "unsupported";
-    if (lock.locked) return "locked";
-    return lock.refusal === null ? "unlocked" : "refused";
-}
-
-/** the reason the last pointer-lock request was refused (or the capability is missing); null when none. */
-export function pointerLockRefusal(): string | null {
-    return lock ? lock.refusal : null;
-}
-
-// record a refusal and warn once per controller — a missing or rejected capture is a visible product state,
-// never a thrown click handler.
-function refuse(pl: PointerLock, reason: string): void {
-    pl.refusal = reason;
-    if (pl.warned) return;
-    pl.warned = true;
-    console.warn(`[player] pointer lock unavailable (${reason}) — mouse look stays off`);
-}
-
-// exit an engaged lock where the document implements it; a browser without requestPointerLock has no exit either.
 function exitLock(): void {
     if (typeof document === "undefined") return;
     if (typeof document.exitPointerLock === "function") document.exitPointerLock();
@@ -222,77 +186,31 @@ export const PlayerControlSystem: System = {
         // query (the same one run() uses) finds it regardless of View-attach timing.
         const canvas = typeof document === "undefined" ? null : document.querySelector("canvas");
         if (!canvas) return;
-        // capability comes from the canvas, never the browser name: a canvas with no `requestPointerLock`
-        // (touch-only browsers, some WebViews) can never lock, so it must NOT take the desktop button gate —
-        // gating buttons on a lock that can't engage strands the device with every mouse button held up.
+        // Pointer lock is requested by Input's canvas click handler, so the browser effect remains behind
+        // the explicit public `requestPointerLock(state)` seam and retains the engagement gesture.
         const supported = typeof canvas.requestPointerLock === "function";
-        // gameplay is pointer-locked: hold mouse buttons up until the lock engages, so the click
-        // that captures the pointer only focuses — it never fires a gun/grab. see requirePointerLock.
-        if (supported) requirePointerLock(true);
-        const pl: PointerLock = {
-            locked: false,
-            supported,
-            refusal: null,
-            warned: false,
-            dx: 0,
-            dy: 0,
-            onClick: () => {
-                if (!inputEnabled() || !pl.supported) return;
-                // older implementations return void rather than a promise: the request is still made and
-                // lock state still follows `pointerlockchange`, there is just nothing to await or catch.
-                const request = canvas.requestPointerLock() as unknown as Promise<void> | undefined;
-                if (!request || typeof request.catch !== "function") return;
-                request.catch((e: unknown) =>
-                    refuse(pl, e instanceof Error ? e.message : String(e)),
-                );
-            },
-            onChange: () => {
-                pl.locked = document.pointerLockElement === canvas;
-                if (pl.locked) pl.refusal = null;
-            },
-            onMove: (e: MouseEvent) => {
-                if (!pl.locked) return;
-                pl.dx += e.movementX;
-                pl.dy += e.movementY;
-            },
-        };
-        // listeners ride `state.signal` — `state.dispose()` detaches them with no removal code.
-        const signal = state.signal;
-        canvas.addEventListener("click", pl.onClick, { signal });
-        document.addEventListener("pointerlockchange", pl.onChange, { signal });
-        document.addEventListener("mousemove", pl.onMove, { signal });
-        lock = pl;
-        if (!supported) refuse(pl, "canvas has no requestPointerLock");
-        // release the input gate + any live pointer lock and drop the module ref when this State tears down.
-        // Guarded so a newer build's `lock` isn't clobbered: a rebuild-then-dispose ordering (the new State's
-        // setup runs before the old one's dispose) would otherwise null out the live State's pointer-lock
-        // state out from under it — the same identity guard `standard/input`'s `setup` uses for `inputState`.
+        requirePointerLock(state, supported);
         state.onDispose(() => {
-            requirePointerLock(false);
-            if (lock === pl) {
-                if (lock.locked) exitLock();
-                lock = null;
-            }
+            requirePointerLock(state, false);
+            if (readPointerLockStatus(state) === "locked") exitLock();
         });
     },
 
     update(state: State) {
         // input suspended (a menu/cutscene): release the lock so the cursor frees + mouse-look stops, and let
         // the loop run with neutral Inputs — every key reads up, so move resolves to 0 and the player freezes.
-        const active = inputEnabled();
-        if (!active && lock?.locked) exitLock();
+        const input = devices(state);
+        const active = inputEnabled(state);
+        if (!active && input.pointer.lock.status === "locked") exitLock();
         for (const eid of state.query([Player, Body])) {
             let yaw = Player.yaw.get(eid);
             let pitch = Player.pitch.get(eid);
-            if (active && lock?.locked) {
+            if (active && input.pointer.lock.status === "locked") {
                 // Resolution-independent mouse-look. Pointer-lock movementX/Y is physical mouse motion in CSS
-                // px — independent of canvas size — so the angle per pixel must NOT scale with the canvas:
-                // dividing by clientHeight made a given flick turn further as the canvas shrank (look far too
-                // fast in the small 960×540 embed, slow at full size). Normalizing by a fixed reference height
-                // turns the same motion the same angle at every size.
+                // px — independent of canvas size — so the angle per pixel must NOT scale with the canvas.
                 const s = Player.sensitivity.get(eid) / LOOK_REFERENCE_HEIGHT;
-                yaw -= lock.dx * s;
-                pitch = clamp(pitch - lock.dy * s, -MAX_PITCH, MAX_PITCH);
+                yaw -= input.pointer.deltaX * s;
+                pitch = clamp(pitch - input.pointer.deltaY * s, -MAX_PITCH, MAX_PITCH);
                 Player.yaw.set(eid, yaw);
                 Player.pitch.set(eid, pitch);
             }
@@ -300,16 +218,16 @@ export const PlayerControlSystem: System = {
             const cy = Math.cos(yaw);
             const sy = Math.sin(yaw);
             const sprint =
-                Inputs.isKeyDown("ShiftLeft") || Inputs.isKeyDown("ShiftRight")
+                input.keys.held.has("ShiftLeft") || input.keys.held.has("ShiftRight")
                     ? Player.sprint.get(eid)
                     : 1;
 
             let lx = 0;
             let lz = 0;
-            if (Inputs.isKeyDown("KeyW")) lz -= 1;
-            if (Inputs.isKeyDown("KeyS")) lz += 1;
-            if (Inputs.isKeyDown("KeyA")) lx -= 1;
-            if (Inputs.isKeyDown("KeyD")) lx += 1;
+            if (input.keys.held.has("KeyW")) lz -= 1;
+            if (input.keys.held.has("KeyS")) lz += 1;
+            if (input.keys.held.has("KeyA")) lx -= 1;
+            if (input.keys.held.has("KeyD")) lx += 1;
             const len = Math.hypot(lx, lz);
             if (len > 0) {
                 const v = (Player.speed.get(eid) * sprint) / len;
@@ -320,7 +238,7 @@ export const PlayerControlSystem: System = {
             // one-shot: the press edge, not the held key. A held key refills the jump buffer every
             // frame, re-firing the instant the char re-grounds (a ledge, a landing); the buffer +
             // coyote forgiveness lives in the character pass.
-            if (Inputs.isKeyPressed("Space")) jump(eid);
+            if (input.keys.pressed.has("Space")) jump(eid);
 
             const cam = findCamera(state, eid);
             if (cam < 0) continue;
@@ -342,11 +260,7 @@ export const PlayerControlSystem: System = {
             setLook(cam, yaw, pitch);
         }
 
-        // consume the accumulated look delta once per frame — without this it keeps growing and the view spins
-        if (lock) {
-            lock.dx = 0;
-            lock.dy = 0;
-        }
+        // InputPlugin clears the shared pointer delta at the draw boundary.
     },
 };
 
