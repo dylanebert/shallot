@@ -87,7 +87,6 @@
         "scripts/test-runner.ts",
         "!scripts/check.ts",
         "!scripts/check-pack.ts",
-        "!scripts/check-device-tiers.ts",
         "!scripts/generate/**",
         "!scripts/assets.ts",
         "!scripts/png.ts",
