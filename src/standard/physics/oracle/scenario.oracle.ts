@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { check } from "../../../harness/check";
 import { runLegacyScenario } from "../solver/step.fixture";
 import { loadScenarioCorpus, runScenario, type ScenarioOutput } from "./scenario";
-function compareOutputs(generic: ScenarioOutput, legacy: ReturnType<typeof runLegacyScenario>): void {
+
+function compareOutputs(
+    generic: ScenarioOutput,
+    legacy: ReturnType<typeof runLegacyScenario>,
+): void {
     if (JSON.stringify(generic.hashes.map((item) => item.value)) !== JSON.stringify(legacy.hashes))
         throw new Error(`${generic.name}: world hash mismatch`);
     if (generic.observations.length !== legacy.observations.length)

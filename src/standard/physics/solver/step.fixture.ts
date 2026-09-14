@@ -39,6 +39,7 @@ const hex = (value: number): string => {
     view.setFloat32(0, value, true);
     return `0x${view.getUint32(0, true).toString(16).padStart(8, "0")}`;
 };
+
 import { B_FLAGS, B_STATE, IDENT_RECORDS, N_BODY } from "../kernel/bodycolumns";
 import { STATE_LIVE, STATE_STRIDE } from "../kernel/columns";
 import { init, kernel, sharedBytes, shutdown, threads } from "../kernel/kernel";
@@ -1650,12 +1651,37 @@ export function buildLegacyScene(
     return world;
 }
 
-export function runLegacyScenario(scene: string, enableSleep: boolean, enableContinuous: boolean, steps: number): { observations: Array<{ step: number; bodies: Array<{ p: string[]; q: string[]; v: string[]; w: string[] }> }>; hashes: string[] } {
-    const fixture = scene === "bench-trees" ? loadFixture(scene) : { scene, timeStep: fround(1 / 60), subStepCount: 4, stepCount: steps, gravity: [0, -10, 0], hashes: [], states: [] } as unknown as Fixture;
+export function runLegacyScenario(
+    scene: string,
+    enableSleep: boolean,
+    enableContinuous: boolean,
+    steps: number,
+): {
+    observations: Array<{
+        step: number;
+        bodies: Array<{ p: string[]; q: string[]; v: string[]; w: string[] }>;
+    }>;
+    hashes: string[];
+} {
+    const fixture =
+        scene === "bench-trees"
+            ? loadFixture(scene)
+            : ({
+                  scene,
+                  timeStep: fround(1 / 60),
+                  subStepCount: 4,
+                  stepCount: steps,
+                  gravity: [0, -10, 0],
+                  hashes: [],
+                  states: [],
+              } as unknown as Fixture);
     const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableSleep, enableContinuous });
     builders[sceneBuilder[scene] ?? scene](world, fixture);
     const stepFn = stepFactories[scene]?.();
-    const observations: Array<{ step: number; bodies: Array<{ p: string[]; q: string[]; v: string[]; w: string[] }> }> = [];
+    const observations: Array<{
+        step: number;
+        bodies: Array<{ p: string[]; q: string[]; v: string[]; w: string[] }>;
+    }> = [];
     const hashes: string[] = [];
     for (let step = 0; step < steps; ++step) {
         stepFn?.(world, step);
@@ -1666,7 +1692,29 @@ export function runLegacyScenario(scene: string, enableSleep: boolean, enableCon
             if (body.id !== index) continue;
             const sim = getBodySim(world.state, body);
             const state = getBodyState(world.state, body);
-            bodies.push({ p: [hex(sim.transform.p.x), hex(sim.transform.p.y), hex(sim.transform.p.z)], q: [hex(sim.transform.q.v.x), hex(sim.transform.q.v.y), hex(sim.transform.q.v.z), hex(sim.transform.q.s)], v: state ? [hex(state.linearVelocity.x), hex(state.linearVelocity.y), hex(state.linearVelocity.z)] : ["0x00000000", "0x00000000", "0x00000000"], w: state ? [hex(state.angularVelocity.x), hex(state.angularVelocity.y), hex(state.angularVelocity.z)] : ["0x00000000", "0x00000000", "0x00000000"] });
+            bodies.push({
+                p: [hex(sim.transform.p.x), hex(sim.transform.p.y), hex(sim.transform.p.z)],
+                q: [
+                    hex(sim.transform.q.v.x),
+                    hex(sim.transform.q.v.y),
+                    hex(sim.transform.q.v.z),
+                    hex(sim.transform.q.s),
+                ],
+                v: state
+                    ? [
+                          hex(state.linearVelocity.x),
+                          hex(state.linearVelocity.y),
+                          hex(state.linearVelocity.z),
+                      ]
+                    : ["0x00000000", "0x00000000", "0x00000000"],
+                w: state
+                    ? [
+                          hex(state.angularVelocity.x),
+                          hex(state.angularVelocity.y),
+                          hex(state.angularVelocity.z),
+                      ]
+                    : ["0x00000000", "0x00000000", "0x00000000"],
+            });
         }
         observations.push({ step, bodies });
         hashes.push(`0x${hashWorldState(world.state).toString(16).padStart(16, "0")}`);

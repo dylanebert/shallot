@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import {
     type Body,
     BodyType,
+    type Capacity,
     createCompound,
     createHeightField,
     createHull,
@@ -191,7 +192,9 @@ export function runScenario(
                     gravity,
                     enableSleep: command.enableSleep === true,
                     enableContinuous: command.enableContinuous === true,
-                    ...(command.capacity === undefined ? {} : { capacity: command.capacity }),
+                    ...(command.capacity === undefined
+                        ? {}
+                        : { capacity: command.capacity as Capacity }),
                 });
                 break;
             }
@@ -231,8 +234,19 @@ export function runScenario(
                 break;
             }
             case "resource.box": {
-                const halfExtents = vec3(command.halfExtents as unknown[]); const center = vec3((command.center ?? ["0x00000000", "0x00000000", "0x00000000"]) as unknown[]);
-                boxes.set(command.id, center.x === 0 && center.y === 0 && center.z === 0 ? makeBoxHull(halfExtents.x, halfExtents.y, halfExtents.z) : makeTransformedBoxHull(halfExtents.x, halfExtents.y, halfExtents.z, { p: center, q: quat(["0x00000000", "0x00000000", "0x00000000", "0x3f800000"]) }));
+                const halfExtents = vec3(command.halfExtents as unknown[]);
+                const center = vec3(
+                    (command.center ?? ["0x00000000", "0x00000000", "0x00000000"]) as unknown[],
+                );
+                boxes.set(
+                    command.id,
+                    center.x === 0 && center.y === 0 && center.z === 0
+                        ? makeBoxHull(halfExtents.x, halfExtents.y, halfExtents.z)
+                        : makeTransformedBoxHull(halfExtents.x, halfExtents.y, halfExtents.z, {
+                              p: center,
+                              q: quat(["0x00000000", "0x00000000", "0x00000000", "0x3f800000"]),
+                          }),
+                );
                 break;
             }
             case "resource.sphere":
@@ -251,7 +265,9 @@ export function runScenario(
                 });
                 break;
             case "resource.hull": {
-                const points = (command.points as unknown[]).map((point) => vec3(point as unknown[]));
+                const points = (command.points as unknown[]).map((point) =>
+                    vec3(point as unknown[]),
+                );
                 const hull = createHull(points, points.length);
                 if (!hull) throw new Error(`hull resource ${command.id} could not be built`);
                 hulls.set(command.id, hull as HullData);
@@ -438,9 +454,13 @@ export function runScenario(
             }
             case "joint.filter": {
                 if (!world) throw new Error(`filter joint ${command.id} before world.create`);
-                const bodyA = bodies.get(String(command.bodyA)); const bodyB = bodies.get(String(command.bodyB));
-                if (!bodyA || !bodyB) throw new Error(`filter joint ${command.id} references an unknown body`);
-                world.createFilterJoint(bodyA, bodyB); joints.add(command.id); break;
+                const bodyA = bodies.get(String(command.bodyA));
+                const bodyB = bodies.get(String(command.bodyB));
+                if (!bodyA || !bodyB)
+                    throw new Error(`filter joint ${command.id} references an unknown body`);
+                world.createFilterJoint(bodyA, bodyB);
+                joints.add(command.id);
+                break;
             }
             case "joint.revolute":
             case "joint.weld":
@@ -495,13 +515,37 @@ export function runScenario(
                 break;
             }
             case "body.apply-mass": {
-                const body = bodies.get(String(command.body)); if (!body) throw new Error(`mass action references unknown body ${String(command.body)}`); body.applyMassFromShapes(); break;
+                const body = bodies.get(String(command.body));
+                if (!body)
+                    throw new Error(`mass action references unknown body ${String(command.body)}`);
+                body.applyMassFromShapes();
+                break;
             }
             case "body.set-velocity": {
-                const body = bodies.get(String(command.body)); if (!body) throw new Error(`velocity action references unknown body ${String(command.body)}`); body.setLinearVelocity(vec3(command.linearVelocity as unknown[])); body.setAngularVelocity(vec3(command.angularVelocity as unknown[])); break;
+                const body = bodies.get(String(command.body));
+                if (!body)
+                    throw new Error(
+                        `velocity action references unknown body ${String(command.body)}`,
+                    );
+                body.setLinearVelocity(vec3(command.linearVelocity as unknown[]));
+                body.setAngularVelocity(vec3(command.angularVelocity as unknown[]));
+                break;
             }
             case "body.target-transform": {
-                const body = bodies.get(String(command.body)); if (!body) throw new Error(`target action references unknown body ${String(command.body)}`); body.setTargetTransform({ p: vec3((command.target as Record<string, unknown>).p as unknown[]), q: quat((command.target as Record<string, unknown>).q as unknown[]) }, f32(String(command.timeStep)), command.wake === true); break;
+                const body = bodies.get(String(command.body));
+                if (!body)
+                    throw new Error(
+                        `target action references unknown body ${String(command.body)}`,
+                    );
+                body.setTargetTransform(
+                    {
+                        p: vec3((command.target as Record<string, unknown>).p as unknown[]),
+                        q: quat((command.target as Record<string, unknown>).q as unknown[]),
+                    },
+                    f32(String(command.timeStep)),
+                    command.wake === true,
+                );
+                break;
             }
             case "step":
                 if (!world) throw new Error("step before world.create");
