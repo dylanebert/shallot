@@ -16,6 +16,10 @@ const arms: [string, string[]][] = [
     ["examples index", ["bun", resolve(import.meta.dir, "examples-index.ts"), "--check"]],
     ["scene format", ["bun", resolve(import.meta.dir, "format.ts"), "--check"]],
     ["cargo fmt", ["cargo", "fmt", "--all", "--check"]],
+    [
+        "cargo clippy (physics)",
+        ["cargo", "clippy", "-p", "shallot-physics", "--all-targets", "--", "-D", "warnings"],
+    ],
 ];
 
 for (const [name, command] of arms) {

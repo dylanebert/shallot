@@ -976,7 +976,8 @@ export function getJointAngularSeparation(world: WorldState, joint: Joint): numb
             return wj.angularHertz === 0 ? quat.getAngle(relQ) : 0;
         }
         case JointType.Wheel:
-            // Unimplemented in the C reference (b3Joint_GetAngularSeparation asserts for wheel).
-            throw new Error("physics: wheel joint angular separation is unimplemented");
+            // Wheel joints do not constrain a single angular separation. The C public getter's
+            // release path reports zero for this unconstrained diagnostic.
+            return 0;
     }
 }
