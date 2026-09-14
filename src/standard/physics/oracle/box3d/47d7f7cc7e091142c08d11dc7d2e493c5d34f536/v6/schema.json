@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "box3d-oracle/v6",
+  "title": "Cumulative Box3D oracle bundle",
+  "type": "object",
+  "required": ["schema", "cases"],
+  "properties": {
+    "schema": { "const": "box3d-oracle/v6" },
+    "cases": {
+      "type": "array",
+      "minItems": 111,
+      "maxItems": 111,
+      "items": {
+        "type": "object",
+        "required": ["id", "family", "symbol", "input", "output"],
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false,
+  "description": "The exact v3 58-case population followed by the exact ordered 53-scenario command-interpreter population. Scenario outputs contain public observations, white-box hashes, and command-consumption receipts."
+}
+\n
