@@ -22,6 +22,8 @@ import { Hulls } from "./hull";
 import { resetConstraints, resyncConstraints, syncJoints, syncSprings } from "./joints";
 import { marshalBody } from "./marshal";
 
+export { createPool, maxWorkers, type Pool, type WorkerReady } from "./kernel/pool";
+
 // Physics: the authoring components (`Body`/`Spring`/`Joint`), the CPU raycast + pick layer, and the
 // Rust/WASM rigid-body solver behind them. CPU writeback: move events become an interpolated pose written
 // into the `transforms` firehose, movers only. Storage is an eid↔solver-body map plus a capacity-sized

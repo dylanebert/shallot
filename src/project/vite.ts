@@ -4,7 +4,8 @@ import typegpu from "unplugin-typegpu/vite";
 import type { Plugin, Rollup, ViteDevServer } from "vite";
 import { contentType, manifestPath, resolveAssetPath } from "./assets";
 import { generateModuleFromPlan } from "./generate";
-import { emptyPlan, readProject } from "./host";
+import { emptyPlan, plan, readProject } from "./host";
+import { normalize } from "./manifest";
 
 // the manifest descriptor half of `assets.ts` is part of this subpath's published surface — the CLI
 // (`src/cli/build.ts`, `src/engine/runtime/floor.ts`, `toolchain.ts`) and consumers already resolve both through
@@ -44,6 +45,21 @@ export const CROSS_ORIGIN_ISOLATION = {
  */
 export function typegpuPlugin(): Plugin {
     return typegpu() as unknown as Plugin;
+}
+
+/** Package names of enabled manifest plugins. Relative and absolute specs are project source, not dependencies. */
+export function pluginPackages(projectDir?: string): string[] {
+    if (!projectDir) return [];
+    const path = manifestPath(resolve(projectDir));
+    let raw: string | null = null;
+    try {
+        raw = readFileSync(path, "utf8");
+    } catch {}
+    const packages = plan(normalize(raw), resolve(projectDir))
+        .locals.map(({ spec }) => spec)
+        .filter((spec) => !spec.startsWith(".") && !isAbsolute(spec))
+        .map((spec) => spec.split("/").slice(0, spec.startsWith("@") ? 2 : 1).join("/"));
+    return [...new Set(packages)];
 }
 
 export function findPublicDirs(projectDir: string): string[] {
@@ -177,11 +193,22 @@ export function classifyProjectFile(
 export function projectPlugin(projectDir?: string): Plugin {
     const virtualId = "virtual:project";
     const resolvedId = "\0" + virtualId;
+    const sharedDependencies = [
+        "@dylanebert/shallot",
+        "typegpu",
+        ...pluginPackages(projectDir),
+    ];
     let viteServer: ViteDevServer | undefined;
     let publicDirs: string[] = [];
 
     return {
         name: "shallot-project",
+        config() {
+            return {
+                resolve: { dedupe: sharedDependencies },
+                optimizeDeps: { exclude: sharedDependencies },
+            };
+        },
         async resolveId(id, importer) {
             if (id === virtualId) return resolvedId;
             // virtual:project is a virtual module with no location, so vite resolves its imports against
