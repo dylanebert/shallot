@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
     type Body,
     BodyType,
@@ -87,14 +88,14 @@ const vec3 = (values: unknown[]): { x: number; y: number; z: number } => {
 const corpusDigest = (bytes: Uint8Array): string =>
     createHash("sha256").update(bytes).digest("hex");
 
-export function loadScenarioCorpus(path = process.env.BOX3D_SCENARIO_CORPUS): {
+export function loadScenarioCorpus(
+    path = process.env.BOX3D_SCENARIO_CORPUS ??
+        join(import.meta.dir, "../../../../../projects/box3d-oracle/scenarios/commands-v1.json"),
+): {
     corpus: Corpus;
     digest: string;
 } {
-    if (!path)
-        throw new Error(
-            "BOX3D_SCENARIO_CORPUS is required; the TypeScript interpreter has no embedded corpus",
-        );
+    if (!path) throw new Error("scenario command corpus path is empty");
     const bytes = readFileSync(path);
     const corpus = JSON.parse(bytes.toString()) as Corpus;
     if (
@@ -658,7 +659,8 @@ export function runScenario(
 }
 
 export function runCorpus(
-    path = process.env.BOX3D_SCENARIO_CORPUS,
+    path = process.env.BOX3D_SCENARIO_CORPUS ??
+        join(import.meta.dir, "../../../../../projects/box3d-oracle/scenarios/commands-v1.json"),
     mutateAngularVelocity = false,
 ): ScenarioOutput[] {
     const { corpus, digest } = loadScenarioCorpus(path);

@@ -1,0 +1,90 @@
+{
+  "schema": "box3d-oracle/manifest-v6",
+  "bundle": {
+    "upstreamSha": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
+    "schema": "v6",
+    "identity": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v6"
+  },
+  "upstream": {
+    "url": "https://github.com/erincatto/box3d.git",
+    "ref": "refs/heads/main",
+    "channel": "official-main",
+    "sha": "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
+    "tree": "0a6472d03ff61c9af28216443fba341a21cbed96",
+    "reachableFromChannel": true
+  },
+  "oracle": {
+    "memberCommit": "07525611e8e96c82eb5b9622e95ba743c43c56cc",
+    "generator": "bin/oracle.ts",
+    "generatorSha256": "a183368831d169566262e3ef66dee060c5932443be0947e86b2df33dd1765618",
+    "hookDigest": "7ee4a67044614070552750073a18720095b0fc75d77ff31edf0c837596742a8a",
+    "adapters": [
+      "adapter/o4_main.c",
+      "adapter/o4.c",
+      "adapter/whitebox.c",
+      "adapter/scenario.c",
+      "adapter/distance.c",
+      "adapter/geometry.c",
+      "adapter/main.c",
+      "adapter/manifold.c",
+      "adapter/math.c",
+      "adapter/mover.c",
+      "adapter/query.c",
+      "adapter/tree.c",
+      "adapter/writer.c"
+    ]
+  },
+  "build": {
+    "inherited": "v3 generated in a fresh temporary directory",
+    "scenario": {
+      "compiler": {
+        "executable": "cc",
+        "version": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
+        "sha256": "ebdd1913203aebbae99a8adad363e300e6cea37bcc703a8f9506410551f809f1"
+      },
+      "cmake": [
+        "-S",
+        "<patched-official-source>",
+        "-B",
+        "<scenario-build>",
+        "-G",
+        "Ninja",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBOX3D_DISABLE_SIMD=ON",
+        "-DBOX3D_DOUBLE_PRECISION:BOOL=OFF",
+        "-DBOX3D_SAMPLES=OFF",
+        "-DBOX3D_BENCHMARKS=OFF",
+        "-DBOX3D_DOCS=OFF",
+        "-DBOX3D_UNIT_TESTS=ON",
+        "-DBOX3D_VALIDATE=ON",
+        "-DCMAKE_C_FLAGS=-DB3_ORACLE_HOOKS"
+      ],
+      "executableSha256": "6052af680f7e2b73589b1e7917635c2ba6e6f984fd37747635096f071b2a2af4",
+      "corpusDigest": "5995326750f78a6098e78823a11cb0954e256fe0b64f34b5bbe6cc5a8f5a264f"
+    }
+  },
+  "schemaDefinition": "schema.json",
+  "membership": "membership.json",
+  "provenance": "provenance.json",
+  "caseFile": "cases.json",
+  "caseCount": 111,
+  "inheritedCaseCount": 58,
+  "scenarioCaseCount": 53,
+  "corpusDigest": "5995326750f78a6098e78823a11cb0954e256fe0b64f34b5bbe6cc5a8f5a264f",
+  "fileDigests": {
+    "schema.json": "bbe4e340249bbdfac6eeb3cf125787bd4cd41d16e19b4f51224f7435249aad42",
+    "membership.json": "ddeaff2899517d6ed7e85c51ce7a1fbfd868eeef03ac3aae9798acfa43c3ea3f",
+    "provenance.json": "2b19a97339f5dbc7bee14bfadfe433c6810d775968744832f7ee9f2dea87f6c9",
+    "cases.json": "51ce4ce206096b970ec0b61ffde377c8a8b33284cdf0d746d1deb6751818c051"
+  },
+  "fileDigestScope": "Generated evidence files only; manifest is the receipt and is intentionally excluded from its own digest map.",
+  "generation": {
+    "startsEmpty": true,
+    "readsShallot": false,
+    "readsGolds": false,
+    "overwrite": false,
+    "outputArithmetic": false,
+    "inheritedV3Exact": true,
+    "scenarioRosterExact": true
+  }
+}
