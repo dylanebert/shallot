@@ -300,15 +300,66 @@ fn active_hulls_preserve_reference_signed_zero_and_warm_cache() {
     let mut cache = SatCache::empty();
     collide_hulls(&mut m, 8, &a, &b, t, &mut cache);
     assert_bits(m.normal.x, "3f800000", "active_hulls.normal.x");
-    assert_bits(m.normal.y, "00000000", "active_hulls.normal.y");
-    assert_bits(m.normal.z, "00000000", "active_hulls.normal.z");
+    assert_bits(m.normal.y, "80000000", "active_hulls.normal.y");
+    assert_bits(m.normal.z, "80000000", "active_hulls.normal.z");
     assert_eq!(cache.ty, 3);
+    assert_eq!(cache.hit, 0);
     let separation = cache.separation;
     let index_a = cache.index_a;
     let index_b = cache.index_b;
+    let feature_ids: Vec<u32> = (0..m.point_count)
+        .map(|i| make_feature_id(m.points[i].pair))
+        .collect();
+    assert_eq!(feature_ids, vec![655368, 786442, 917516, 524302]);
     collide_hulls(&mut m, 8, &a, &b, t, &mut cache);
     assert_eq!(cache.separation, separation);
     assert_eq!(cache.ty, 3);
     assert_eq!(cache.index_a, index_a);
     assert_eq!(cache.index_b, index_b);
+    assert_eq!(cache.hit, 1);
+}
+
+#[test]
+fn augmented_support_matches_c_low_seven_bits_and_padded_tail() {
+    fn store(points: Vec<Vec3>) -> HullStore {
+        HullStore {
+            center: Vec3::ZERO,
+            vertex_count: points.len(),
+            edge_count: 0,
+            face_count: 0,
+            points,
+            vertices: Vec::new(),
+            edges: Vec::new(),
+            faces: Vec::new(),
+            planes: Vec::new(),
+        }
+    }
+
+    let tie = store(vec![
+        Vec3::new(-0.00000762939453125, 0.0, 0.0),
+        Vec3::ZERO,
+        Vec3::new(-0.25, 0.0, 0.0),
+    ]);
+    let tie_view = tie.view();
+    let tie_index = tie_view.support_vertex_wide(Vec3::new(1.0, 0.0, 0.0), 2.0);
+    assert_eq!(tie_index, 0);
+    assert_bits(
+        tie_view.points[tie_index].x,
+        "b7000000",
+        "support.tie.value",
+    );
+
+    let padded = store(vec![
+        Vec3::new(-0.25, 0.0, 0.0),
+        Vec3::new(0.5, 0.0, 0.0),
+        Vec3::new(0.25, 0.0, 0.0),
+    ]);
+    let padded_view = padded.view();
+    let padded_index = padded_view.support_vertex_wide(Vec3::new(1.0, 0.0, 0.0), 2.0);
+    assert_eq!(padded_index, 1);
+    assert_bits(
+        padded_view.points[padded_index].x,
+        "3f000000",
+        "support.padded.value",
+    );
 }

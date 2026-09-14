@@ -8,7 +8,12 @@ import {
     type Vec3,
 } from "../common/math";
 import type { Capsule, Sphere } from "../shapes/geometry";
-import { createCylinder, type HullData, makeBoxHull } from "../shapes/hull";
+import {
+    createCylinder,
+    findHullSupportVertexWide,
+    type HullData,
+    makeBoxHull,
+} from "../shapes/hull";
 import { emptyCache } from "./distance";
 import {
     collideCapsuleAndSphere,
@@ -242,52 +247,99 @@ check(
 );
 
 check(
-    "active hull manifold cache keeps reference signed-zero normals",
+    "active hull cache matches C miss, hit, stale-reset and threshold transitions",
     {
-        claim: "the active hull SAT cache path preserves the official operation's exact normal bits while retaining a warm cache hit",
+        claim: "the active TypeScript DIR_CACHE path loses the official cache hit/reset/threshold transitions or face-B point order",
     },
     () => {
         const boxA = makeBoxHull(0.5, 0.5, 0.5);
         const boxB = makeBoxHull(0.5, 0.5, 0.5);
-        const xf: Transform = { p: v(0.9, 0, 0), q: { v: v(0, 0, 0), s: 1 } };
+        const pose = (x: number, y: number): Transform => ({
+            p: v(x, y, 0),
+            q: { v: v(0, 0, 0), s: 1 },
+        });
         const m = makeLocalManifold(8);
         const cache = emptySATCache();
-        collideHulls(m, 8, boxA, boxB, xf, cache);
-        expect(bits(m.normal.x)).toBe("3f800000");
-        expect(bits(m.normal.y)).toBe("00000000");
-        expect(bits(m.normal.z)).toBe("00000000");
+
+        // First call misses; the active target selects face B on the symmetric tie.
+        collideHulls(m, 8, boxA, boxB, pose(0.9, 0), cache);
+        expect(cache.hit).toBe(0);
         expect(cache.type).toBe(3);
-        const first = { ...cache };
-        collideHulls(m, 8, boxA, boxB, xf, cache);
-        expect(cache).toEqual(first);
-        expect(bits(m.normal.y)).toBe("00000000");
+        expect(cache.indexA).toBe(0);
+        expect(cache.indexB).toBe(0);
+        expect(m.points.slice(0, m.pointCount).map((p) => makeFeatureId(p.pair))).toEqual([
+            655368, 786442, 917516, 524302,
+        ]);
+        expect(bits(m.normal.x)).toBe("3f800000");
+        expect(bits(m.normal.y)).toBe("80000000");
+        expect(bits(m.normal.z)).toBe("80000000");
+
+        // The unchanged pose accepts the cached face and records a hit.
+        collideHulls(m, 8, boxA, boxB, pose(0.9, 0), cache);
+        expect(cache.hit).toBe(1);
+        expect(cache.type).toBe(3);
+
+        // A stale cached face falls through to a fresh SAT query and clears hit.
+        collideHulls(m, 8, boxA, boxB, pose(0, 0.9), cache);
+        expect(cache.hit).toBe(0);
+        expect(cache.type).toBe(3);
+        expect(cache.indexB).toBe(2);
+
+        // 0x3f828f5d is the first f32 translation whose separation is >= 0.02.
+        collideHulls(m, 8, boxA, boxB, pose(fromBits("3f828f5d"), 0), cache);
+        expect(m.pointCount).toBe(0);
+        expect(cache.hit).toBe(0);
+        expect(cache.separation).toBeGreaterThanOrEqual(0.02);
+        collideHulls(m, 8, boxA, boxB, pose(fromBits("3f828f5d"), 0), cache);
+        expect(cache.hit).toBe(1);
+        expect(m.pointCount).toBe(0);
     },
 );
 
 check(
-    "active hull-triangle manifold preserves the reference signed-zero normal",
+    "hull face negation matches C for both signed-zero operands",
     {
-        claim: "the active hull-triangle face operation preserves the official normal x bit instead of normalizing signed zero",
+        claim: "the TypeScript hull face operation normalizes a signed zero instead of applying the official component-wise unary negation",
     },
     () => {
-        const scene = gold.hullTriangle[0];
-        const hull = hullFromHex({ kind: "box", h: scene.a.h });
-        const [v1, v2, v3] = triFromHex(scene.tri);
-        const m = makeLocalManifold(8);
-        const cache = emptySATCache();
-        collideHullAndTriangle(m, 8, hull, v1, v2, v3, cache);
-        expect(bits(m.normal.x)).toBe("00000000");
-        expect(bits(m.normal.y)).toBe("3f800000");
-        expect(bits(m.normal.z)).toBe("00000000");
-        expect(m.pointCount).toBe(4);
-        const first = { ...cache };
-        collideHullAndTriangle(m, 8, hull, v1, v2, v3, cache);
-        expect(cache.separation).toBe(first.separation);
-        expect(cache.type).toBe(first.type);
-        expect(cache.indexA).toBe(first.indexA);
-        expect(cache.indexB).toBe(first.indexB);
-        expect(cache.hit).toBe(1);
-        expect(bits(m.normal.x)).toBe("00000000");
+        for (const scene of gold.hullTriangle.filter(
+            (s) => s.name === "face" || s.name === "tilted_x",
+        )) {
+            const hull = hullFromHex({ kind: "box", h: scene.a.h });
+            const [v1, v2, v3] = triFromHex(scene.tri);
+            const m = makeLocalManifold(8);
+            const cache = emptySATCache();
+            collideHullAndTriangle(m, 8, hull, v1, v2, v3, cache);
+            const want =
+                scene.name === "face"
+                    ? ["80000000", "3f800000", "00000000"]
+                    : ["80000000", "3f60439d", "3ef6e9f4"];
+            expect([bits(m.normal.x), bits(m.normal.y), bits(m.normal.z)]).toEqual(want);
+        }
+    },
+);
+
+check(
+    "augmented support reduction matches C low-seven-bit ties and padded tails",
+    {
+        claim: "the TypeScript SIMD support reduction chooses a different low-seven-mantissa winner or lets a padded tail lane escape as a hull vertex",
+    },
+    () => {
+        const makeSupportHull = (points: Vec3[]): HullData => {
+            const hull = makeBoxHull(0.5, 0.5, 0.5);
+            hull.points = points;
+            hull.vertexCount = points.length;
+            return hull;
+        };
+        const tie = makeSupportHull([v(-0.00000762939453125, 0, 0), v(0, 0, 0), v(-0.25, 0, 0)]);
+        const tied = findHullSupportVertexWide(tie, v(1, 0, 0), 2);
+        expect(tied.index).toBe(0);
+        expect(bits(tied.support)).toBe("b7000000");
+
+        const padded = makeSupportHull([v(-0.25, 0, 0), v(0.5, 0, 0), v(0.25, 0, 0)]);
+        const selected = findHullSupportVertexWide(padded, v(1, 0, 0), 2);
+        expect(selected.index).toBe(1);
+        expect(bits(selected.support)).toBe("3f000000");
     },
 );
 
