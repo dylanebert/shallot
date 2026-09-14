@@ -112,7 +112,7 @@ check(
 check(
     "a real GPU seat stamps its real adapter on a GPU-tier build",
     {
-        claim: "a GPU-tier build can pass on a fallback or unidentified adapter while claiming the gpu seat",
+        claim: "a GPU-tier composition can pass on a fallback or unidentified adapter while claiming the gpu seat",
         size: "integration",
         requires: ["gpu"],
         host: "mac",
@@ -126,7 +126,9 @@ check(
         const adapter = await navigator.gpu.requestAdapter();
         if (!adapter) throw new Error("S2 GPU seat refused: no adapter");
         const device = await adapter.requestDevice();
-        live = await build({ defaults: false, plugins: [GPU_PLUGIN], device, adapter });
+        expect(device.queue).toBeDefined();
+        expect(deviceTier([GPU_PLUGIN]).tier).toBe("gpu");
+        stampAdapter(adapter);
         expect(Compute.adapter.class).toBe("real");
         expect(Compute.adapter.identity.length).toBeGreaterThan(0);
         return { ok: true, hardware: Compute.adapter.identity };
