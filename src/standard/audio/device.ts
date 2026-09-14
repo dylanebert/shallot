@@ -1,4 +1,6 @@
 import loadAudioWasm from "../../../crates/audio/pkg/shallot_audio.js";
+import type { State } from "../../engine";
+import { audioContextState, type AudioContextState as DeviceAudioContextState } from "../input";
 import { byId, getParamPairs, type Instrument } from "./instrument";
 import { flushSamples, resetSampleUploads } from "./sample";
 import { createWorkletURL } from "./worklet";
@@ -64,14 +66,8 @@ export const Audio: Audio = {
     wasSuspended: false,
 };
 
-/** true once the worklet node exists (audio host set up) */
-export function started(): boolean {
-    return Audio.node !== null;
-}
-
-/** true when the AudioContext is running (not suspended awaiting a user gesture) */
-export function running(): boolean {
-    return Audio.ctx?.state === "running";
+function contextState(state: globalThis.AudioContextState): DeviceAudioContextState {
+    return state === "running" || state === "closed" ? state : "suspended";
 }
 
 function reconnect(): void {
@@ -83,10 +79,10 @@ function reconnect(): void {
 /**
  * stand up the AudioContext + worklet + WASM kernel and reset the allocator.
  * The context may start suspended (no user gesture yet); a one-shot
- * pointer/key listener resumes it; `running()` reports false until then
+ * pointer/key listener resumes it; the State-scoped audio record reports the state until then
  */
-export async function initAudio(): Promise<void> {
-    disposeAudio();
+export async function initAudio(state: State): Promise<void> {
+    disposeAudio(state);
     Audio.free = freeList();
     Audio.gen.fill(0);
     Audio.queue.length = 0;
@@ -97,6 +93,7 @@ export async function initAudio(): Promise<void> {
 
     const ctx = new AudioContext();
     Audio.ctx = ctx;
+    audioContextState(state, contextState(ctx.state));
     if (ctx.state === "suspended") {
         const resume = () => {
             ctx.resume();
@@ -121,6 +118,7 @@ export async function initAudio(): Promise<void> {
 
     Audio.wasSuspended = ctx.state !== "running";
     Audio.onState = () => {
+        audioContextState(state, contextState(ctx.state));
         if (ctx.state === "running" && Audio.wasSuspended) {
             node.port.postMessage({ type: "reset" });
             reconnect();
@@ -173,8 +171,9 @@ export async function initAudio(): Promise<void> {
 }
 
 /** tear down the worklet, context, and all host listeners */
-export function disposeAudio(): void {
+export function disposeAudio(state: State): void {
     flush();
+    audioContextState(state, Audio.ctx ? "closed" : "none");
     if (Audio.heartbeat) {
         clearInterval(Audio.heartbeat);
         Audio.heartbeat = null;

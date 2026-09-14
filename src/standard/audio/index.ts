@@ -1,4 +1,5 @@
 import { f32, i32, not, type Plugin, type State, type System, sparse, u8 } from "../../engine";
+import { devices } from "../input";
 import { composeTransform, Transform, TransformsPlugin } from "../transforms";
 import {
     Audio,
@@ -13,10 +14,8 @@ import {
     noteFreq,
     oneShot,
     polar,
-    running,
     setParam,
     spatialize,
-    started,
     tickAudio,
     watchIdle,
 } from "./device";
@@ -212,7 +211,8 @@ const SoundSystem: System = {
     name: "sound",
     group: "simulation",
     update(state) {
-        if (!started()) return;
+        const context = devices(state).audio.context;
+        if (context === "none" || context === "closed") return;
 
         // a loop stopped (Sound removed, Voiced kept): gate off, free after the
         // release tail. sparse fields survive remove, so Sound.voice still reads
@@ -223,7 +223,7 @@ const SoundSystem: System = {
             state.remove(eid, Voiced);
         }
 
-        const ctxRunning = running();
+        const ctxRunning = context === "running";
         const listenerEid = state.only([Listener, Transform]);
         const hasListener = listenerEid >= 0;
 
@@ -360,9 +360,9 @@ export const AudioPlugin: Plugin = {
         // the whole audio teardown (worklet + context + host listeners + heartbeat) rides the State's
         // lifetime — registered up front so a partial init that then throws still tears down; disposeAudio
         // is idempotent, so the top-of-initAudio reinit and this dispose can't double-free.
-        state.onDispose(disposeAudio);
+        state.onDispose(() => disposeAudio(state));
         try {
-            await initAudio();
+            await initAudio(state);
         } catch {
             // no AudioContext (headless / unsupported) — SoundSystem stays inert
         }

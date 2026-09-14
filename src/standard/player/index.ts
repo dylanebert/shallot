@@ -75,13 +75,13 @@ export const Player = {
     camera: sparse(entity),
 };
 
-/** Pointer-lock reads are State-scoped; the optional form keeps pre-S4 examples source-compatible. */
+/** Pointer-lock reads are State-scoped. */
 export type { PointerLockStatus } from "../input";
-export function pointerLockStatus(state?: State): PointerLockStatus {
-    return state ? readPointerLockStatus(state) : readPointerLockStatus();
+export function pointerLockStatus(state: State): PointerLockStatus {
+    return readPointerLockStatus(state);
 }
-export function pointerLockRefusal(state?: State): string | null {
-    return state ? readPointerLockRefusal(state) : readPointerLockRefusal();
+export function pointerLockRefusal(state: State): string | null {
+    return readPointerLockRefusal(state);
 }
 
 function exitLock(): void {
@@ -198,7 +198,7 @@ export const PlayerControlSystem: System = {
 
     update(state: State) {
         // input suspended (a menu/cutscene): release the lock so the cursor frees + mouse-look stops, and let
-        // the loop run with neutral Inputs — every key reads up, so move resolves to 0 and the player freezes.
+        // the loop run with neutral device data — every key reads up, so move resolves to 0 and the player freezes.
         const input = devices(state);
         const active = inputEnabled(state);
         if (!active && input.pointer.lock.status === "locked") exitLock();

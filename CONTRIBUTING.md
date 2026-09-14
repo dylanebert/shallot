@@ -128,3 +128,11 @@ The plugin declaration is the one source of truth for whether composition needs 
 - Each module has one barrel, and the subpaths in `package.json` `exports` are the extension seams; nothing deep-imports `src`.
 - Dependencies point inward, extras on standard on engine, so the core stays testable without the layers above it.
 - It's data-oriented: components are typed arrays and systems are functions over them, because that's what the GPU consumes.
+
+## Input migration
+
+Device reads are State-scoped: replace the removed `Inputs` singleton with `devices(state)` and read its `keys`, `mouse`, `touch`, `focused`, `viewport`, or `audio` rows.
+
+- `isKeyPressedWithin` was removed; use `devices(state).keys.pressedTick` with a fixed-tick window such as Character's jump/coyote timers.
+- `Mouse.canvasWidth` and `Mouse.canvasHeight` were removed; use `devices(state).viewport.get(devices(state).focused)` for the focused canvas's CSS size.
+- `setInputEnabled` now takes the State explicitly: `setInputEnabled(state, on)`.
