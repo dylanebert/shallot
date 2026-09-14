@@ -2,7 +2,11 @@ import { expect } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
-import { type CargoArtifact, selectCargoTestExecutable } from "./verdict";
+import {
+    type CargoArtifact,
+    selectCargoTestExecutable,
+    selectCargoTestTargetExecutables,
+} from "./verdict";
 
 check(
     "the Cargo carrier recognizes declared cdylib and rlib test targets",
@@ -54,6 +58,13 @@ check(
             profile: { test: true },
             executable,
         });
+        const targetArtifact = (name: string, executable: string): CargoArtifact => ({
+            target: { kind: ["test"], name, test: true },
+            profile: { test: true },
+            executable,
+        });
+        const targetReason =
+            "cargo test --no-run -p shallot-physics produced missing, stale, or ambiguous named test executables";
         try {
             expect(
                 selectCargoTestExecutable("shallot-physics", [artifact(join(root, "missing"))]),
@@ -65,6 +76,20 @@ check(
             ).toEqual({
                 reason: "cargo test --no-run -p shallot-physics produced multiple or missing libtest executables",
             });
+            expect(
+                selectCargoTestTargetExecutables(
+                    "shallot-physics",
+                    ["gold"],
+                    [targetArtifact("gold", join(root, "missing"))],
+                ),
+            ).toEqual({ reason: targetReason });
+            expect(
+                selectCargoTestTargetExecutables(
+                    "shallot-physics",
+                    ["gold"],
+                    [targetArtifact("gold", first), targetArtifact("gold", second)],
+                ),
+            ).toEqual({ reason: targetReason });
         } finally {
             rmSync(root, { recursive: true, force: true });
         }

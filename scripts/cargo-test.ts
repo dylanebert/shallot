@@ -1,8 +1,17 @@
 import { resolve } from "node:path";
-import { cargoTestExecutable } from "../src/harness/verdict";
+import { cargoTestExecutable, cargoTestTargetExecutables } from "../src/harness/verdict";
 
 const root = resolve(process.env.SHALLOT_PROJECT_ROOT ?? resolve(import.meta.dir, ".."));
-const subject = "crates/audio";
+const subjectByPackage: Record<string, string> = {
+    "shallot-audio": "crates/audio",
+    "shallot-physics": "crates/physics",
+};
+
+function subjectFor(packageName: string): string {
+    const subject = subjectByPackage[packageName];
+    if (subject === undefined) throw new Error(`unsupported Cargo package: ${packageName}`);
+    return subject;
+}
 
 export interface CargoTestPartition {
     filter: string;
@@ -44,6 +53,7 @@ export function discoverCargoTestPartitions(packageName: string): readonly Cargo
     if (packageName !== "shallot-audio") {
         throw new Error(`unsupported audio Cargo package: ${packageName}`);
     }
+    const subject = subjectFor(packageName);
     const key = `${root}\u0000${packageName}`;
     const cached = partitionCache.get(key);
     if (cached !== undefined) return cached;
@@ -88,13 +98,12 @@ function killProcessGroup(pid: number): void {
     }
 }
 
-/** Run one already-compiled, direct libtest partition; Cargo is never the timed-row parent. */
-export async function runCargoTest(packageName: string, filter: string): Promise<void> {
-    if (packageName !== "shallot-audio") {
-        throw new Error(`unsupported audio Cargo package: ${packageName}`);
-    }
-    const executable = cargoTestExecutable(root, subject);
-    const child = Bun.spawn([executable, filter], {
+async function runDirectExecutable(
+    executable: string,
+    args: readonly string[],
+    label: string,
+): Promise<void> {
+    const child = Bun.spawn([executable, ...args], {
         cwd: root,
         stdout: "inherit",
         stderr: "inherit",
@@ -112,8 +121,24 @@ export async function runCargoTest(packageName: string, filter: string): Promise
     }, 19_500);
     const exitCode = await child.exited;
     clearTimeout(timeout);
-    if (timedOut) throw new Error(`libtest partition ${filter} exceeded the 20s row budget`);
+    if (timedOut) throw new Error(`libtest partition ${label} exceeded the 20s row budget`);
     if (exitCode !== 0) {
-        throw new Error(`libtest partition ${filter} exited with ${exitCode}`);
+        throw new Error(`libtest partition ${label} exited with ${exitCode}`);
+    }
+}
+
+/** Run already-compiled direct libtest binaries; Cargo is never the timed-row parent. */
+export async function runCargoTest(packageName: string, ...args: string[]): Promise<void> {
+    const subject = subjectFor(packageName);
+    if (packageName === "shallot-audio") {
+        if (args.length !== 1)
+            throw new Error("audio Cargo test needs exactly one module partition");
+        await runDirectExecutable(cargoTestExecutable(root, subject), args, args[0]);
+        return;
+    }
+    const targets = args.flatMap((arg, index) => (arg === "--test" ? [args[index + 1] ?? ""] : []));
+    const executables = cargoTestTargetExecutables(root, subject, targets);
+    for (const [index, executable] of executables.entries()) {
+        await runDirectExecutable(executable, [], targets[index]);
     }
 }

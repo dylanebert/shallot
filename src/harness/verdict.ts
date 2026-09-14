@@ -58,6 +58,7 @@ interface RequirementContext {
 
 interface CargoBuild {
     executable?: string;
+    artifacts?: readonly CargoArtifact[];
     reason?: string;
 }
 
@@ -105,6 +106,41 @@ export function selectCargoTestExecutable(
         };
     }
     return { executable: executables[0] };
+}
+
+/** Select named current integration-test executables from the same Cargo artifact stream. */
+export function selectCargoTestTargetExecutables(
+    packageName: string,
+    targetNames: readonly string[],
+    artifacts: readonly CargoArtifact[],
+): { executables?: readonly string[]; reason?: string } {
+    const selected = targetNames.map((targetName) => {
+        const matches = [
+            ...new Set(
+                artifacts
+                    .filter(
+                        (artifact) =>
+                            artifact.target?.name === targetName &&
+                            artifact.target.kind?.includes("test") &&
+                            artifact.target.test === true &&
+                            artifact.profile?.test === true &&
+                            typeof artifact.executable === "string",
+                    )
+                    .map((artifact) => artifact.executable as string),
+            ),
+        ];
+        return { targetName, matches };
+    });
+    if (
+        targetNames.length === 0 ||
+        new Set(targetNames).size !== targetNames.length ||
+        selected.some(({ matches }) => matches.length !== 1 || !existsSync(matches[0]))
+    ) {
+        return {
+            reason: `cargo test --no-run -p ${packageName} produced missing, stale, or ambiguous named test executables`,
+        };
+    }
+    return { executables: selected.map(({ matches }) => matches[0] as string) };
 }
 
 const cargoBuilds = new Map<string, CargoBuild>();
@@ -184,7 +220,7 @@ function resolveCargo(root: string, subjects: readonly string[]): string | null 
             cargoBuilds.set(key, { reason: selected.reason });
             return selected.reason;
         }
-        cargoBuilds.set(key, { executable: selected.executable });
+        cargoBuilds.set(key, { executable: selected.executable, artifacts });
         return null;
     } catch (error) {
         const reason = `cargo is unavailable: ${(error as Error).message}`;
@@ -206,6 +242,28 @@ export function cargoTestExecutable(root: string, subject: string): string {
         throw new Error(`cargo test -p ${packageName} has no current libtest executable`);
     }
     return build.executable;
+}
+
+/** Return named current integration-test executables from the untimed Cargo requirement. */
+export function cargoTestTargetExecutables(
+    root: string,
+    subject: string,
+    targetNames: readonly string[],
+): readonly string[] {
+    const packageName = cargoPackage(root, [subject]);
+    if (packageName === null || packageName.startsWith("cargo ")) {
+        throw new Error(packageName ?? "missing Cargo package");
+    }
+    const reason = resolveCargo(root, [subject]);
+    if (reason !== null) throw new Error(reason);
+    const build = cargoBuilds.get(`${root}\u0000${packageName}`);
+    const selected = selectCargoTestTargetExecutables(
+        packageName,
+        targetNames,
+        build?.artifacts ?? [],
+    );
+    if (selected.reason !== undefined) throw new Error(selected.reason);
+    return selected.executables ?? [];
 }
 
 /** Resolve each named premise. Cargo compilation is a once-per-process, untimed prerequisite. */
