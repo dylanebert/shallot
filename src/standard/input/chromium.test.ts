@@ -10,6 +10,7 @@ check(
         claim: "a real focused-canvas keydown reaches the State-scoped keyboard record",
         size: "integration",
         requires: ["chromium"],
+        host: "mac",
         subject: ["src/standard/input/index.ts", "src/standard/input/chromium-page.fixture.ts"],
     },
     async () => runBrowserCheck((port) => [process.execPath, SERVE, "--port", String(port)]),
