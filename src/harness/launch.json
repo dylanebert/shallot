@@ -1,0 +1,14 @@
+{
+    "darwin": {
+        "adapterEvidence": "proven",
+        "note": "Authoring seat: headless Chromium with the real-GPU floor reaches the Metal adapter and the capture contract."
+    },
+    "linux": {
+        "adapterEvidence": "unproven",
+        "note": "Declared, not demonstrated: no Linux seat has run this launch, and headless Chromium there has been observed to reach only the SwiftShader fallback adapter, which refuses."
+    },
+    "win32": {
+        "adapterEvidence": "unproven",
+        "note": "Declared, not demonstrated: no Windows seat exists here; a hosted runner owns its confirmation."
+    }
+}

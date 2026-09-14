@@ -12,3 +12,4 @@ crates/*/pkg/*
 .claude/settings.local.json
 .DS_Store
 Thumbs.db
+.artifacts

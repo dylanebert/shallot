@@ -34,6 +34,9 @@
         "./harness/surface": "./src/harness/surface.ts",
         "./harness/preload": "./src/harness/preload.ts",
         "./harness/pixels": "./src/harness/pixels.ts",
+        "./harness/capture": "./src/harness/capture.ts",
+        "./harness/seat": "./src/harness/seat.ts",
+        "./harness/launch": "./src/harness/launch.ts",
         "./harness/browser": {
             "types": "./src/harness/browser.d.ts",
             "default": "./src/harness/browser.json"
@@ -66,6 +69,7 @@
         "!examples/AGENTS.md",
         "!examples/*/node_modules",
         "!examples/*/tsconfig.json",
+        "!src/harness/fixtures",
         "!src/extras/gltf/fixtures",
         "!src/standard/physics/solver/fixtures",
         "scripts/check-surface.ts",

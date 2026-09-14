@@ -1,15 +1,49 @@
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { relative, resolve } from "node:path";
+import { launchPlan } from "./launch";
+import { type AdapterFacts, resolveSeat } from "./seat";
 
 /** the result vocabulary printed by the surface reporter. */
 export type VerdictResult = "pass" | "fail" | "refused" | "unrun";
+
+/**
+ * the reproduction record that travels with an integration verdict or refusal: enough to re-run the same
+ * claim on the same seat, and enough to tell which seat it actually was. Runtime is telemetry here, never
+ * a correctness floor.
+ */
+export interface Reproduction {
+    host: string;
+    launch: string;
+    runtime: string;
+    chromium: string;
+    adapter: string;
+    adapterClass: string;
+    viewport: string;
+    capture: string;
+    engine: string;
+    /** whether a real adapter is proven on this host or only declared; never grants a seat. */
+    adapterEvidence?: string;
+    /** the stepped tick the page asserted at, when the page reports one. */
+    tick?: number;
+}
+
+/** the bounded diagnostics a failure retains. A pass retains none of them. */
+export interface VerdictDiagnostics {
+    pageErrors?: string[];
+    gpuErrors?: string[];
+    serverLog?: string;
+    checks?: Array<{ name: string; detail?: string; data?: Record<string, number> }>;
+    artifacts?: string[];
+}
 
 /** optional host measurements returned by an integration check. */
 export interface VerdictMetadata {
     runtime?: string;
     hardware?: string;
     reason?: string;
+    reproduction?: Reproduction;
+    diagnostics?: VerdictDiagnostics;
 }
 
 interface QuarantineRow {
@@ -146,23 +180,62 @@ export function selectCargoTestTargetExecutables(
 const cargoBuilds = new Map<string, CargoBuild>();
 let gpuRequirement: string | null | undefined;
 
+// The probe reports the adapter's identity fields rather than its mere existence, because the seat policy
+// has to tell a real device from a software fallback. `GPUAdapter.isFallbackAdapter` itself is not
+// implemented by the Bun peer and throws, so only `info` is read.
+const GPU_PROBE = `
+const peer = await import("bun-webgpu");
+await peer.setupGlobals();
+const adapter = await navigator.gpu?.requestAdapter();
+if (!adapter) { console.log(JSON.stringify({ present: false })); process.exit(0); }
+const info = adapter.info;
+console.log(JSON.stringify({ present: true, info: {
+    vendor: info?.vendor,
+    architecture: info?.architecture,
+    device: info?.device,
+    description: info?.description,
+    isFallbackAdapter: info?.isFallbackAdapter,
+} }));
+`;
+
 function resolveGpuRequirement(root: string): string | null {
     if (gpuRequirement !== undefined) return gpuRequirement;
-    const probe = Bun.spawnSync(
-        [
-            process.execPath,
-            "-e",
-            `const peer = await import("bun-webgpu"); await peer.setupGlobals(); const adapter = await navigator.gpu?.requestAdapter(); if (!adapter) { console.error("no WebGPU adapter"); process.exit(2); }`,
-        ],
-        { cwd: root, stdout: "pipe", stderr: "pipe" },
-    );
-    if (probe.exitCode === 0) {
-        gpuRequirement = null;
-        return null;
+    const probe = Bun.spawnSync([process.execPath, "-e", GPU_PROBE], {
+        cwd: root,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    if (probe.exitCode !== 0) {
+        const detail = `${probe.stderr.toString()}${probe.stdout.toString()}`.trim();
+        gpuRequirement = `gpu seat unavailable: the WebGPU probe failed${detail ? `: ${detail}` : ""}`;
+        return gpuRequirement;
     }
-    const detail = `${probe.stderr.toString()}${probe.stdout.toString()}`.trim();
-    gpuRequirement = `GPU seat unavailable${detail ? `: ${detail}` : ""}`;
+    let facts: AdapterFacts;
+    try {
+        facts = JSON.parse(probe.stdout.toString().trim().split("\n").at(-1) ?? "") as AdapterFacts;
+    } catch (error) {
+        gpuRequirement = `gpu seat unavailable: the WebGPU probe returned no adapter facts: ${(error as Error).message}`;
+        return gpuRequirement;
+    }
+    const seat = resolveSeat("gpu", { device: facts });
+    gpuRequirement = seat.ok ? null : seat.reason;
     return gpuRequirement;
+}
+
+/**
+ * Resolve the `display` seat. It needs a genuinely headed premise, so it is declared by the host that has
+ * one rather than inferred: a host with a window server still runs these rows headlessly, and a headless
+ * browser is not a display.
+ */
+function resolveDisplayRequirement(): string | null {
+    const declared = process.env.SHALLOT_DISPLAY_SEAT?.trim();
+    const seat = resolveSeat("display", {
+        display:
+            declared === undefined || declared === ""
+                ? undefined
+                : { headed: true, source: declared },
+    });
+    return seat.ok ? null : seat.reason;
 }
 
 function cargoPackage(root: string, subjects: readonly string[]): string | null {
@@ -285,9 +358,18 @@ export function missingRequirement(
             if (reason !== null) return reason;
             continue;
         }
+        if (requirement === "display") {
+            const reason = resolveDisplayRequirement();
+            if (reason !== null) return reason;
+            continue;
+        }
         if (requirement !== "chromium") {
             return `runner cannot supply requirement ${requirement}`;
         }
+        // The launch path is the seat's first premise: an undeclared host has no headless launch, and no
+        // amount of installed Chromium substitutes for one.
+        const plan = launchPlan(process.platform);
+        if ("refused" in plan) return `chromium seat unavailable: ${plan.refused}`;
         try {
             const module = require("playwright") as {
                 chromium?: { executablePath?: () => string };
@@ -308,6 +390,12 @@ export function defaultMetadata(): VerdictMetadata {
     return { runtime: `bun ${Bun.version}`, hardware: "none" };
 }
 
+function objectField<T>(value: unknown): T | undefined {
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+        ? (value as T)
+        : undefined;
+}
+
 function metadataFrom(value: unknown): VerdictMetadata {
     if (value === null || typeof value !== "object") return {};
     const candidate = value as Record<string, unknown>;
@@ -315,6 +403,8 @@ function metadataFrom(value: unknown): VerdictMetadata {
         runtime: typeof candidate.runtime === "string" ? candidate.runtime : undefined,
         hardware: typeof candidate.hardware === "string" ? candidate.hardware : undefined,
         reason: typeof candidate.reason === "string" ? candidate.reason : undefined,
+        reproduction: objectField<Reproduction>(candidate.reproduction),
+        diagnostics: objectField<VerdictDiagnostics>(candidate.diagnostics),
     };
 }
 
@@ -323,7 +413,10 @@ export function verdictMetadata(value: unknown): VerdictMetadata {
     return metadataFrom(value);
 }
 
-/** print the one-line, structured verdict for a non-step or refused check. */
+/**
+ * print the one-line, structured verdict for a non-step or refused check. A pass carries the compact
+ * reproduction record; a failure or refusal also carries the bounded diagnostics behind it.
+ */
 export function emitVerdict(
     claim: string,
     size: string,
@@ -340,6 +433,10 @@ export function emitVerdict(
         duration: Number((performance.now() - started).toFixed(2)),
         result,
         ...(metadata.reason === undefined ? {} : { reason: metadata.reason }),
+        ...(metadata.reproduction === undefined ? {} : { reproduction: metadata.reproduction }),
+        ...(result === "pass" || metadata.diagnostics === undefined
+            ? {}
+            : { diagnostics: metadata.diagnostics }),
     };
     console.log(`shallot verdict ${JSON.stringify(line)}`);
 }
