@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { check } from "../../../harness/check";
 import {
+    assertKnownDifferencePass,
     evaluateKnownDifferences,
     type KnownDifferenceEntry,
     type KnownDifferenceLedger,
@@ -71,6 +72,7 @@ check(
             ["expired", ledger([base("case.v1", { expires: "2026-09-14" })])],
             ["orphan", ledger([base("orphan.v1")])],
             ["timeout", ledger([base("case.v1", { mismatchKind: "timeout" })])],
+            ["skip", ledger([base("case.v1", { mismatchKind: "skip" })])],
             ["wildcard", ledger([base("case.*")])],
             ["duplicate", ledger([base("case.v1"), base("case.v1")])],
         ];
@@ -78,6 +80,13 @@ check(
             const result = evaluateKnownDifferences(report(), candidate, ids, "2026-09-15");
             if (result.errors.length === 0) throw new Error(`${name} mutation was accepted`);
         }
+        const unexecuted = evaluateKnownDifferences(
+            { ...report(), results: [] },
+            ledger([base("case.v1")]),
+            ids,
+            "2026-09-15",
+        );
+        if (unexecuted.errors.length === 0) throw new Error("unexecuted mutation was accepted");
         const xpass = evaluateKnownDifferences(
             report("pass"),
             ledger([base("case.v1")]),
@@ -97,20 +106,25 @@ check(
 );
 
 check(
-    "Box3D known differences consume the empty pre-ledger premise",
+    "Box3D known differences consume the executing ledger",
     { claim: "box3d-known-differences", size: "integration", budget: 20_000 },
     () => {
         const strict = readFrozenStrictReport();
         const known = JSON.parse(
             readFileSync(new URL("./reports/known-differences-v6.json", import.meta.url), "utf8"),
         ) as KnownDifferenceLedger;
-        if (known.entries.length !== 0)
-            throw new Error("O7 consumer must not author expected-difference rows");
-        const summary = evaluateKnownDifferences(
-            strict,
-            known,
-            strict.results.map((result) => result.id),
-        );
+        const ids = strict.results.map((result) => result.id);
+        const empty = evaluateKnownDifferences(strict, { ...known, entries: [] }, ids);
+        if (
+            empty.pass !== 45 ||
+            empty.expectedDifferences !== 0 ||
+            empty.unexpected !== 66 ||
+            empty.errors.length !== 66
+        )
+            throw new Error(
+                "empty ledger no longer exposes the complete strict mismatch population",
+            );
+        const summary = evaluateKnownDifferences(strict, known, ids);
         console.log(
             JSON.stringify({
                 pass: summary.pass,
@@ -119,10 +133,13 @@ check(
                 errors: summary.errors.length,
             }),
         );
-        if (summary.unexpected !== strict.population.mismatched)
-            throw new Error("empty ledger did not expose the complete strict mismatch population");
-        throw new Error(
-            "known differences remain red until the required following ledger-only delivery",
-        );
+        if (
+            summary.pass !== 45 ||
+            summary.expectedDifferences !== 66 ||
+            summary.unexpected !== 0 ||
+            summary.errors.length !== 0
+        )
+            throw new Error("executing ledger did not accept the exact strict mismatch population");
+        assertKnownDifferencePass(summary);
     },
 );
