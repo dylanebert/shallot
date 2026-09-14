@@ -45,7 +45,6 @@ const carriers = ["scripts/check-surface.ts", "scripts/surface.ts", "scripts/tes
 const requiredNegations = [
     "!scripts/check.ts",
     "!scripts/check-pack.ts",
-    "!scripts/check-reference-pin.ts",
     "!scripts/generate/**",
     "!scripts/assets.ts",
     "!scripts/png.ts",

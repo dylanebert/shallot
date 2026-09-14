@@ -4,7 +4,7 @@
 //! integrate serially even in the SIMD build — only the contact constraints go wide).
 //!
 //! Every arithmetic op maps one-to-one to the C, same operand order, no FMA contraction — bit-exact
-//! with the `DISABLE_SIMD` + `FORCE_OVERFLOW` reference (see `math.rs`).
+//! with the frozen historical oracle vectors; current target evidence belongs to the standalone oracle.
 
 use crate::body::flags::{
     ALLOW_FAST_ROTATION, IS_SPEED_CAPPED, LOCK_ANGULAR_X, LOCK_ANGULAR_Y, LOCK_ANGULAR_Z,

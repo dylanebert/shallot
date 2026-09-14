@@ -222,8 +222,8 @@ export function transferBody(
 
 /**
  * Move a joint's sim from one solver set to another (b3TransferJoint). The awake set holds joint sims
- * in the constraint graph (force-overflow: the single overflow color), so awake↔sleeping transfers
- * route through graph.ts; sleeping↔sleeping moves the sim between plain jointSims columns. The sim
+ * in the constraint graph (including its real overflow fallback), so awake↔sleeping transfers route
+ * through graph.ts; sleeping↔sleeping moves the sim between plain jointSims columns. The sim
  * object itself is moved (preserving warmstart impulses), never copied.
  */
 export function transferJoint(

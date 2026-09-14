@@ -11,7 +11,7 @@
 //! the shared columns and runs that tail against `[sleepVelocity, maxMotion]`.
 //!
 //! Every arithmetic op maps one-to-one to the C scalar path (no SIMD, no FMA); bit-identical to the
-//! `DISABLE_SIMD` + `FORCE_OVERFLOW` reference (see `math.rs`).
+//! the frozen historical oracle vectors; current target evidence belongs to the standalone oracle.
 
 use crate::body::{
     clear_sim_force_torque, flags::DYNAMIC, read_fin, read_sim, read_state, write_fin_center,

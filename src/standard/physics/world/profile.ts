@@ -3,10 +3,9 @@
 // back with world.getProfile(). Diagnostic only — outside the bit-exact contract, so timings keep f64
 // precision (the C struct is float, a benign truncation the port doesn't reproduce).
 //
-// The serial force-overflow port records the fields worker 0 records in the C task schedule. Two fields
-// have no serial equivalent and stay 0: `solverSetup` (the parallel graph-coloring/wide-constraint
-// build the overflow path doesn't run) and `refit` (the port folds the broad-phase re-fit into finalize,
-// so its cost lands in `transforms`).
+// The colored solver records per-phase timings around the same public step boundaries. Two fields stay
+// zero by design: `solverSetup` is not timed separately, and `refit` is folded into finalize, so its cost
+// lands in `transforms`.
 
 /** One step's phase timings in milliseconds (b3Profile). Read via {@link World.getProfile}. */
 export type Profile = {

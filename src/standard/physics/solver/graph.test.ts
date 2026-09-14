@@ -5,9 +5,9 @@ import { DYNAMIC_COLOR_COUNT, OVERFLOW_INDEX } from "../common/constants";
 import { BodyType } from "../common/types";
 import { createGraph, greedyColor } from "./graph";
 
-// The greedy graph coloring (constraint_graph.c), tested independent of the FORCE_OVERFLOW flag the
-// live path gates it behind. Assignment is the load-bearing, order-sensitive part; the full colored
-// solve is bit-exact-verified against the default-config fixtures at the wide-solver wiring stage.
+// The greedy graph coloring (constraint_graph.c) is exercised through its order-sensitive assignment
+// rules. The full colored solve is bit-exact-verified against the frozen fixtures at the wide-solver
+// wiring stage.
 const { Static, Kinematic, Dynamic } = BodyType;
 
 check(

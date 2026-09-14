@@ -1,9 +1,9 @@
 // The bit-exact fixture harness: scene builders and the replay driver. The declared checks that call
 // it live beside it in step.gold.test.ts. Each scene is rebuilt through the
-// public API, stepped, and its FNV-1a world-state hash asserted equal to the C reference's, per
-// step. The fixtures come from the Box3D C reference (branch `harness`) built scalar + force-overflow;
-// regenerate with `bun run crates/physics/scripts/gen-fixtures.ts`. On divergence the first mismatched step is reported with
-// the port's body states so the drift can be localized against the fixture's periodic dumps.
+// public API, stepped, and its FNV-1a world-state hash asserted equal to the frozen historical value, per
+// step. The 53 fixtures are retained regression evidence; current oracle updates and reproduction belong
+// to `projects/box3d-oracle`. On divergence the first mismatched step is reported with the port's body
+// states so the drift can be localized against the fixture's periodic dumps.
 //
 // The scene builders mirror fixtures/gen.c exactly (same creation order, same params). Sleep is
 // per-scene, matching the generator: stage-8 scenes run the awake path with sleep off; stage-9 scenes

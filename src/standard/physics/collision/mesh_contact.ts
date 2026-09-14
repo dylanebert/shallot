@@ -3,8 +3,8 @@
 // AABB (the two share this driver, differing only in the triangle source + material indexing). Each
 // triangle produces a local manifold; ghost-collision culling drops manifolds at internal edges and
 // vertices already covered by an adjacent face, the survivors are clustered by normal into 1..N
-// persistent manifolds, and warm-start impulses carry forward by normal + feature id. The port
-// targets the scalar force-overflow build; every op is fround-wrapped (see the README).
+// persistent manifolds, and warm-start impulses carry forward by normal + feature id. The mesh path
+// remains scalar; every op is fround-wrapped (see the README).
 
 import { NULL_INDEX, qsort } from "../common/array";
 import {

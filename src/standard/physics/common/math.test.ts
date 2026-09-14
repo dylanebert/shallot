@@ -101,7 +101,7 @@ type Gold = {
 };
 const g = gold as Gold;
 
-// --- bit-exact parity vs the C reference (BOX3D_DISABLE_SIMD + FORCE_OVERFLOW) ---------------
+// --- bit-exact parity against frozen historical oracle vectors -------------------------------
 
 check(
     "atan2 sweep is bit-exact vs the C reference",
