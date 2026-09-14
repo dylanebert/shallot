@@ -109,10 +109,18 @@ const recipes = readdirSync(examplesDir)
             "recipe",
     )
     .sort();
+const declaredExamples = packageFiles
+    .filter((entry) => /^examples\/[^/]+$/.test(entry))
+    .map((entry) => entry.slice("examples/".length))
+    .sort();
 const shipped = [
     ...new Set(files.filter((f) => f.startsWith("examples/")).map((f) => f.split("/")[1])),
 ].sort();
 if (recipes.length === 0) missing.push("examples/<recipe>/");
+if (declaredExamples.join() !== recipes.join())
+    violations.push(
+        `package files allowlist names [${declaredExamples.join(", ")}], recipes are [${recipes.join(", ")}]`,
+    );
 if (shipped.join() !== recipes.join())
     violations.push(`examples/ ships [${shipped.join(", ")}], recipes are [${recipes.join(", ")}]`);
 
