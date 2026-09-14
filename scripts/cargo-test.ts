@@ -136,6 +136,9 @@ export async function runCargoTest(packageName: string, ...args: string[]): Prom
         await runDirectExecutable(cargoTestExecutable(root, subject), args, args[0]);
         return;
     }
+    if (args.includes("--lib")) {
+        await runDirectExecutable(cargoTestExecutable(root, subject), [], "--lib");
+    }
     const targets = args.flatMap((arg, index) => (arg === "--test" ? [args[index + 1] ?? ""] : []));
     const executables = cargoTestTargetExecutables(root, subject, targets);
     for (const [index, executable] of executables.entries()) {
