@@ -1,6 +1,7 @@
 import { expect } from "bun:test";
 import {
     cpSync,
+    existsSync,
     mkdirSync,
     mkdtempSync,
     readdirSync,
@@ -592,9 +593,9 @@ check(
 );
 
 check(
-    "named oracle paths are launched as files",
+    "a named oracle runs as an exclusive file selection",
     {
-        claim: "test-runner prefixes named oracle paths so Bun loads them instead of treating them as name filters",
+        claim: "test-runner prefixes an exact named oracle claim so Bun loads only its oracle file",
         size: "integration",
     },
     () => {
@@ -609,12 +610,6 @@ check(
             join(tree, "shallot.json"),
             JSON.stringify({ check: [{ file: "tests/named.oracle.ts" }] }),
         );
-        git(tree, "init", "-q");
-        git(tree, "config", "user.email", "surface@example.test");
-        git(tree, "config", "user.name", "surface");
-        git(tree, "add", ".");
-        git(tree, "commit", "-qm", "oracle");
-        const head = git(tree, "rev-parse", "HEAD");
         try {
             const proc = Bun.spawnSync(
                 [
@@ -622,11 +617,6 @@ check(
                     resolve(ROOT, "scripts/test-runner.ts"),
                     "--root",
                     tree,
-                    "--integration",
-                    "--base",
-                    head,
-                    "--diff",
-                    head,
                     "--oracle",
                     "named oracle runs",
                 ],
@@ -635,6 +625,87 @@ check(
             expect(proc.exitCode).toBe(0);
             expect(proc.stdout.toString()).toContain("NAMED_ORACLE_RAN");
             expect(proc.stdout.toString()).toContain('"result":"pass"');
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
+    "the installed bin owns exclusive named-oracle execution and listing",
+    {
+        claim: "the installed shallot bin runs and lists exactly one selected oracle, refusing unknown and composed requests",
+        size: "integration",
+        subject: [
+            "bin/shallot.ts",
+            "scripts/test-runner.ts",
+            "scripts/surface.ts",
+            "src/harness/surface.ts",
+        ],
+    },
+    () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-surface-installed-oracle-"));
+        const checkModule = resolve(ROOT, "src/harness/check");
+        const selectedMarker = join(tree, "selected-oracle-ran");
+        const poisonOracleMarker = join(tree, "poison-oracle-ran");
+        const poisonUnitMarker = join(tree, "poison-unit-ran");
+        const claim = "fixture selected oracle runs";
+        const invoke = (...args: string[]) =>
+            Bun.spawnSync(["bun", resolve(ROOT, "bin/shallot.ts"), ...args], {
+                cwd: tree,
+                stdout: "pipe",
+                stderr: "pipe",
+            });
+        mkdirSync(join(tree, "src"), { recursive: true });
+        mkdirSync(join(tree, "tests"), { recursive: true });
+        writeFileSync(
+            join(tree, "src/poison.test.ts"),
+            `import { writeFileSync } from "node:fs";\nimport { check } from ${JSON.stringify(checkModule)};\ncheck("poison unit", { claim: "poison unit must not run" }, () => { writeFileSync(${JSON.stringify(poisonUnitMarker)}, "ran"); throw new Error("POISON_UNIT_RAN"); });\n`,
+        );
+        writeFileSync(
+            join(tree, "tests/selected.oracle.ts"),
+            `import { writeFileSync } from "node:fs";\nimport { check } from ${JSON.stringify(checkModule)};\ncheck("selected oracle", { claim: ${JSON.stringify(claim)}, size: "integration" }, () => { writeFileSync(${JSON.stringify(selectedMarker)}, "ran"); });\n`,
+        );
+        writeFileSync(
+            join(tree, "tests/poison.oracle.ts"),
+            `import { writeFileSync } from "node:fs";\nimport { check } from ${JSON.stringify(checkModule)};\ncheck("poison oracle", { claim: "poison oracle must not run", size: "integration" }, () => { writeFileSync(${JSON.stringify(poisonOracleMarker)}, "ran"); throw new Error("POISON_ORACLE_RAN"); });\n`,
+        );
+        writeFileSync(
+            join(tree, "shallot.json"),
+            JSON.stringify({
+                check: [
+                    { file: "src/poison.test.ts" },
+                    { file: "tests/selected.oracle.ts" },
+                    { file: "tests/poison.oracle.ts" },
+                ],
+            }),
+        );
+        try {
+            const listed = invoke("list", "--oracle", claim);
+            const listedOutput = listed.stdout.toString() + listed.stderr.toString();
+            expect(listed.exitCode).toBe(0);
+            expect(listedOutput).toContain(claim);
+            expect(listedOutput).not.toContain("poison oracle must not run");
+            expect(listedOutput).not.toContain("poison unit must not run");
+            expect(listedOutput).toContain("1 checks (parsed 3; 0 quarantined)");
+
+            const unknown = invoke("list", "--oracle", "unknown fixture oracle");
+            expect(unknown.exitCode).toBe(1);
+            expect(unknown.stderr.toString()).toContain(
+                "named oracle not found: unknown fixture oracle",
+            );
+
+            const composed = invoke("test", "--oracle", claim, "--all");
+            expect(composed.exitCode).toBe(1);
+            expect(composed.stderr.toString()).toContain(
+                "--oracle cannot be combined with selectors or integration mode",
+            );
+
+            const executed = invoke("test", "--oracle", claim);
+            expect(executed.exitCode).toBe(0);
+            expect(existsSync(selectedMarker)).toBe(true);
+            expect(existsSync(poisonOracleMarker)).toBe(false);
+            expect(existsSync(poisonUnitMarker)).toBe(false);
         } finally {
             rmSync(tree, { recursive: true, force: true });
         }
