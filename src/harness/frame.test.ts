@@ -55,6 +55,7 @@ check(
         claim: "the GPU probe reads the shader-authored pixel from the fixed render target, so a clear-only or stale readback defect reds",
         size: "integration",
         requires: ["gpu"],
+        host: "mac",
         subject: ["src/engine/runtime/probe.ts", "src/harness/fixtures/frame.ts"],
     },
     async () => {
