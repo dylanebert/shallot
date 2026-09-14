@@ -308,12 +308,10 @@ export class RevoluteJoint extends Joint {
         return this.data().enableMotor;
     }
 
-    /**
-     * Set the motor target speed (radians/second).
-     * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
-     */
+    /** Set the motor target speed (radians/second), waking the connected bodies. */
     setMotorSpeed(speed: number): void {
         this.data().motorSpeed = f32(speed);
+        wakeJointBodies(this.world, this.record());
     }
 
     /** @returns the motor target speed (radians/second). */
@@ -457,12 +455,10 @@ export class DistanceJoint extends Joint {
         return this.data().enableMotor;
     }
 
-    /**
-     * Set the motor target speed.
-     * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
-     */
+    /** Set the motor target speed, waking the connected bodies. */
     setMotorSpeed(speed: number): void {
         this.data().motorSpeed = f32(speed);
+        wakeJointBodies(this.world, this.record());
     }
 
     /** @returns the motor target speed. */
@@ -595,12 +591,10 @@ export class PrismaticJoint extends Joint {
         return this.data().enableMotor;
     }
 
-    /**
-     * Set the motor target speed.
-     * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
-     */
+    /** Set the motor target speed, waking the connected bodies. */
     setMotorSpeed(speed: number): void {
         this.data().motorSpeed = f32(speed);
+        wakeJointBodies(this.world, this.record());
     }
 
     /** @returns the motor target speed. */

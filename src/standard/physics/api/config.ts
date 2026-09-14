@@ -170,6 +170,20 @@ export type WheelJointConfig = BaseJointConfig & {
     upperSteeringLimit: number;
 };
 
+/** A soft joint from a body anchor to a point fixed in world space. */
+export type SoftJointConfig = BaseJointConfig & {
+    /** Spring frequency in Hz. `stiffness` is accepted as a convenient alias. */
+    hertz: number;
+    /** Spring damping ratio. `damping` is accepted as a convenient alias. */
+    dampingRatio: number;
+    /** Optional spring-frequency alias for callers that author physical stiffness. */
+    stiffness: number;
+    /** Optional damping-ratio alias. */
+    damping: number;
+    /** Rest distance from the world anchor to the body anchor. */
+    length: number;
+};
+
 /** A single ray/shape-cast hit reported to a query callback. */
 export type CastHit = {
     shape: Shape;
@@ -241,7 +255,13 @@ export type SensorTouchEvent = { sensor: Shape; visitor: Shape };
 export type SensorEvents = { beginEvents: SensorTouchEvent[]; endEvents: SensorTouchEvent[] };
 
 /** A contact begin- or end-touch event (b3ContactBeginTouchEvent / b3ContactEndTouchEvent). */
-export type ContactTouchEvent = { shapeA: Shape; shapeB: Shape; contact: Contact };
+export type ContactTouchEvent = {
+    shapeA: Shape;
+    shapeB: Shape;
+    contact: Contact;
+    /** Sum of the solved normal impulses at the contact's manifold points for the begin step. */
+    normalImpulse: number;
+};
 
 /** A contact hit event (b3ContactHitEvent): a collision faster than the world hit threshold. */
 export type ContactHitEvent = {

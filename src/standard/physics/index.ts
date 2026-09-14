@@ -17,11 +17,18 @@ import { PrepassSystem } from "../sear";
 import { SlabPlugin, slab } from "../slab";
 import { Transform } from "../transforms";
 import {
+    type ContactEvents,
     hash as hashWorld,
     init,
+    type JointEvent,
+    type ParallelJointConfig,
+    type RevoluteJointConfig,
     restore as restoreWorld,
+    type SoftJointConfig,
     type Body as SolverBody,
+    type SphericalJointConfig,
     snapshot as snapshotWorld,
+    type WheelJointConfig,
     World,
     type WorldSnapshot,
 } from "./api";
@@ -461,6 +468,87 @@ export function physicsWorld(state: State): World | null {
 export function body(state: State, eid: number): SolverBody | null {
     return runtimeFor(state).bodies.get(eid) ?? null;
 }
+
+function requireBody(state: State, eid: number): SolverBody {
+    const live = body(state, eid);
+    if (!live) throw new Error(`physics: body ${eid} is not warm`);
+    return live;
+}
+
+/** Create a wheel joint between two State-owned bodies without exposing the solver World. */
+export function createWheelJoint(
+    state: State,
+    bodyA: number,
+    bodyB: number,
+    config: Partial<WheelJointConfig> = {},
+) {
+    const world = runtimeFor(state).world;
+    if (!world) throw new Error("physics: world is not warm");
+    return world.createWheelJoint(requireBody(state, bodyA), requireBody(state, bodyB), config);
+}
+
+/** Create a parallel joint between two State-owned bodies without exposing the solver World. */
+export function createParallelJoint(
+    state: State,
+    bodyA: number,
+    bodyB: number,
+    config: Partial<ParallelJointConfig> = {},
+) {
+    const world = runtimeFor(state).world;
+    if (!world) throw new Error("physics: world is not warm");
+    return world.createParallelJoint(requireBody(state, bodyA), requireBody(state, bodyB), config);
+}
+
+/** Create a hinge (revolute) joint between two State-owned bodies. */
+export function createRevoluteJoint(
+    state: State,
+    bodyA: number,
+    bodyB: number,
+    config: Partial<RevoluteJointConfig> = {},
+) {
+    const world = runtimeFor(state).world;
+    if (!world) throw new Error("physics: world is not warm");
+    return world.createRevoluteJoint(requireBody(state, bodyA), requireBody(state, bodyB), config);
+}
+
+/** Create a cone/twist-capable spherical joint between two State-owned bodies. */
+export function createSphericalJoint(
+    state: State,
+    bodyA: number,
+    bodyB: number,
+    config: Partial<SphericalJointConfig> = {},
+) {
+    const world = runtimeFor(state).world;
+    if (!world) throw new Error("physics: world is not warm");
+    return world.createSphericalJoint(requireBody(state, bodyA), requireBody(state, bodyB), config);
+}
+
+/** Create a soft spring from a State-owned body to a world-space anchor. */
+export function createSoftJoint(
+    state: State,
+    bodyEid: number,
+    anchor: { x: number; y: number; z: number },
+    config: Partial<SoftJointConfig> = {},
+) {
+    const world = runtimeFor(state).world;
+    if (!world) throw new Error("physics: world is not warm");
+    return world.createSoftJoint(requireBody(state, bodyEid), anchor, config);
+}
+
+/** Read contact-begin/end/hit events for the last State-owned fixed step. */
+export function getContactEvents(state: State): ContactEvents {
+    const world = runtimeFor(state).world;
+    if (!world) throw new Error("physics: world is not warm");
+    return world.getContactEvents();
+}
+
+/** Read joint break-threshold events for the last State-owned fixed step. */
+export function getJointEvents(state: State): JointEvent[] {
+    const world = runtimeFor(state).world;
+    if (!world) throw new Error("physics: world is not warm");
+    return world.getJointEvents();
+}
+
 export function readBody(state: State, eid: number): BodyState | null {
     const tb = body(state, eid);
     if (!tb) return null;
@@ -771,6 +859,17 @@ export const PhysicsPlugin: Plugin = {
     },
 };
 
+export type {
+    ContactEvents,
+    ParallelJointConfig,
+    RevoluteJointConfig,
+    SoftJointConfig,
+    SphericalJointConfig,
+    WheelJointConfig,
+} from "./api";
+export { BodyType, JointType } from "./api";
+export { SoftJoint } from "./api/joints";
+export { World } from "./api/world";
 export { nlerpShortest } from "./compose";
 export { type Hull, type HullFace, Hulls, UNIT_CUBE_ID } from "./hull";
 export { bodyCandidates, cursorRay, forwardRay, grabHit, worldToLocal } from "./pick";

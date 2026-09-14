@@ -1,6 +1,21 @@
 import { expect } from "bun:test";
 import { check } from "@dylanebert/shallot/harness/check";
-import { createPool, maxWorkers, type Pool, type WorkerReady } from "@dylanebert/shallot/physics";
+import {
+    BodyType,
+    createParallelJoint,
+    createPool,
+    createRevoluteJoint,
+    createSoftJoint,
+    createSphericalJoint,
+    createWheelJoint,
+    getContactEvents,
+    getJointEvents,
+    JointType,
+    maxWorkers,
+    type Pool,
+    type WorkerReady,
+    World,
+} from "@dylanebert/shallot/physics";
 
 function poolSize(pool: Pool): number {
     return pool.size;
@@ -9,6 +24,25 @@ function poolSize(pool: Pool): number {
 function workerIndex(worker: WorkerReady): number {
     return worker.index;
 }
+
+check(
+    "physics: State-scoped physics seams are public",
+    {
+        claim: "the wheel, parallel, hinge, cone/twist, soft-anchor, contact-event and joint-event seams are absent from the published physics subpath",
+    },
+    () => {
+        expect(BodyType).toBeDefined();
+        expect(JointType).toBeDefined();
+        expect(World).toBeDefined();
+        expect(createWheelJoint).toBeFunction();
+        expect(createParallelJoint).toBeFunction();
+        expect(createRevoluteJoint).toBeFunction();
+        expect(createSphericalJoint).toBeFunction();
+        expect(createSoftJoint).toBeFunction();
+        expect(getContactEvents).toBeFunction();
+        expect(getJointEvents).toBeFunction();
+    },
+);
 
 check(
     "physics: pool helpers are public",
