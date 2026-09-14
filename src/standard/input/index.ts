@@ -47,10 +47,10 @@ export interface Mouse {
     x: number;
     /** pointer y within the focused canvas, CSS pixels from the top edge */
     y: number;
-    /** focused canvas width in CSS pixels */
-    canvasWidth: number;
-    /** focused canvas height in CSS pixels */
-    canvasHeight: number;
+    /** pointer x normalized to the viewport row, in [0, 1] */
+    normalizedX: number;
+    /** pointer y normalized to the viewport row, in [0, 1] */
+    normalizedY: number;
 }
 
 /** live multi-touch state in one device record. */
@@ -71,12 +71,21 @@ export interface Pointer extends Mouse {
     readonly lock: PointerLock;
 }
 
+/** CSS display size and device-pixel ratio for one bound canvas. */
+export interface Viewport {
+    cssWidth: number;
+    cssHeight: number;
+    dpr: number;
+}
+
 export interface Devices {
     readonly keys: Keys;
     /** pointer facts; `mouse` is the compatibility name for the same record */
     readonly pointer: Pointer;
     readonly mouse: Mouse;
     readonly touch: Touch;
+    /** viewport rows keyed by the bound canvas's document/index slot */
+    readonly viewport: ReadonlyMap<number, Viewport>;
     /** true when device producers are suspended and all reads are neutral */
     readonly suspended: boolean;
     /** when true, pointer buttons stay up until `pointer.lock.status` is locked */
@@ -98,6 +107,8 @@ interface DeviceRecord extends Devices {
     lastPointerY: number;
     activePointerId: number | null;
     activeButton: number | null;
+    pointerCanvasIndex: number;
+    readonly viewport: Map<number, Viewport>;
     pointerHover: (e: PointerEvent) => void;
     pointerEnter: (e: PointerEvent) => void;
     pointerLeave: (e: PointerEvent) => void;
@@ -131,8 +142,8 @@ const DEFAULT_MOUSE: Mouse = {
     hover: false,
     x: 0,
     y: 0,
-    canvasWidth: 0,
-    canvasHeight: 0,
+    normalizedX: 0,
+    normalizedY: 0,
 };
 
 const DEFAULT_TOUCH: Touch = { count: 0, pinchDelta: 0, deltaX: 0, deltaY: 0 };
@@ -151,6 +162,7 @@ function emptyRecord(): DeviceRecord {
         pointer,
         mouse: pointer,
         touch: { ...DEFAULT_TOUCH },
+        viewport: new Map(),
         suspended: false,
         focused: -1,
         requireLock: false,
@@ -164,6 +176,7 @@ function emptyRecord(): DeviceRecord {
         lastPointerY: 0,
         activePointerId: null,
         activeButton: null,
+        pointerCanvasIndex: -1,
         pointerHover: null!,
         pointerEnter: null!,
         pointerLeave: null!,
@@ -200,6 +213,37 @@ function record(state: State): DeviceRecord {
     return devices(state) as DeviceRecord;
 }
 
+function unit(value: number, size: number): number {
+    if (!Number.isFinite(value) || size <= 0) return 0;
+    return Math.min(Math.max(value / size, 0), 1);
+}
+
+function updateNormalized(d: DeviceRecord, index: number): void {
+    const viewport = d.viewport.get(index);
+    if (!viewport) return;
+    d.mouse.normalizedX = unit(d.mouse.x, viewport.cssWidth);
+    d.mouse.normalizedY = unit(d.mouse.y, viewport.cssHeight);
+}
+
+/** Produce the viewport row for one bound canvas/index. The DOM resize observer and headless callers use
+ * the same seam; `dpr` is read by the DOM caller at resize time rather than by the renderer per frame. */
+export function resizeViewport(
+    state: State,
+    index: number,
+    width: number,
+    height: number,
+    dpr: number,
+): void {
+    const d = record(state);
+    const viewport = {
+        cssWidth: Math.max(0, Number.isFinite(width) ? width : 0),
+        cssHeight: Math.max(0, Number.isFinite(height) ? height : 0),
+        dpr: Number.isFinite(dpr) && dpr > 0 ? dpr : 1,
+    };
+    d.viewport.set(index, viewport);
+    if (d.pointerCanvasIndex === index) updateNormalized(d, index);
+}
+
 /** Produce a keyboard press. Repeated presses do not retrigger an edge. */
 export function pressKey(state: State, code: string): void {
     const d = record(state);
@@ -231,8 +275,7 @@ export function pointerMove(
               deltaX?: number;
               deltaY?: number;
               hover?: boolean;
-              canvasWidth?: number;
-              canvasHeight?: number;
+              canvasIndex?: number;
           },
     y?: number,
     deltaX = 0,
@@ -246,8 +289,13 @@ export function pointerMove(
     d.mouse.deltaX += move.deltaX ?? 0;
     d.mouse.deltaY += move.deltaY ?? 0;
     if (move.hover !== undefined) d.mouse.hover = move.hover;
-    if (move.canvasWidth !== undefined) d.mouse.canvasWidth = move.canvasWidth;
-    if (move.canvasHeight !== undefined) d.mouse.canvasHeight = move.canvasHeight;
+    const index =
+        (typeof x === "number" ? undefined : move.canvasIndex) ??
+        (d.pointerCanvasIndex >= 0 ? d.pointerCanvasIndex : d.focused);
+    if (index >= 0) {
+        d.pointerCanvasIndex = index;
+        updateNormalized(d, index);
+    }
 }
 
 export type PointerButton = "left" | "right" | "middle" | 0 | 1 | 2;
@@ -364,6 +412,8 @@ export function focus(state: State, canvasIndex = 0): void {
     if (d.suspended) return;
     d.canvasFocused = true;
     d.focused = canvasIndex;
+    d.pointerCanvasIndex = canvasIndex;
+    updateNormalized(d, canvasIndex);
 }
 
 /** Produce a document visibility transition. Hidden visibility has the same release-edge contract as blur. */
@@ -440,8 +490,7 @@ function canvasPosition(
         x: e.clientX - rect.left,
         y: e.clientY - rect.top,
         hover,
-        canvasWidth: rect.width,
-        canvasHeight: rect.height,
+        canvasIndex: record(state).canvases.get(target),
     });
 }
 
@@ -523,6 +572,7 @@ function createHandlers(d: DeviceRecord, state: State): void {
             deltaX: e.movementX,
             deltaY: e.movementY,
             hover: true,
+            canvasIndex: d.pointerCanvasIndex,
         });
     };
     d.pointerUp = (e) => {
@@ -558,8 +608,7 @@ function createHandlers(d: DeviceRecord, state: State): void {
             deltaX: e.clientX - d.lastPointerX,
             deltaY: e.clientY - d.lastPointerY,
             hover: true,
-            canvasWidth: d.activeCanvas?.getBoundingClientRect().width,
-            canvasHeight: d.activeCanvas?.getBoundingClientRect().height,
+            canvasIndex: d.activeCanvas === null ? undefined : d.canvases.get(d.activeCanvas),
         });
         d.lastPointerX = e.clientX;
         d.lastPointerY = e.clientY;
@@ -651,8 +700,56 @@ export function requestPointerLock(state: State): void {
 
 /** Legacy read facade. It remains only until the S4 consumer migration; State-scoped code uses
  * `devices(state)` and the producer functions above. */
+interface LegacyMouse extends Mouse {
+    readonly canvasWidth: number;
+    readonly canvasHeight: number;
+}
+
+const legacyMouse: LegacyMouse = {
+    get deltaX() {
+        return currentLegacy?.mouse.deltaX ?? 0;
+    },
+    get deltaY() {
+        return currentLegacy?.mouse.deltaY ?? 0;
+    },
+    get scroll() {
+        return currentLegacy?.mouse.scroll ?? 0;
+    },
+    get left() {
+        return currentLegacy?.mouse.left ?? false;
+    },
+    get right() {
+        return currentLegacy?.mouse.right ?? false;
+    },
+    get middle() {
+        return currentLegacy?.mouse.middle ?? false;
+    },
+    get hover() {
+        return currentLegacy?.mouse.hover ?? false;
+    },
+    get x() {
+        return currentLegacy?.mouse.x ?? 0;
+    },
+    get y() {
+        return currentLegacy?.mouse.y ?? 0;
+    },
+    get normalizedX() {
+        return currentLegacy?.mouse.normalizedX ?? 0;
+    },
+    get normalizedY() {
+        return currentLegacy?.mouse.normalizedY ?? 0;
+    },
+    get canvasWidth() {
+        return currentLegacy?.viewport.get(currentLegacy.focused)?.cssWidth ?? 0;
+    },
+    get canvasHeight() {
+        return currentLegacy?.viewport.get(currentLegacy.focused)?.cssHeight ?? 0;
+    },
+};
+
 export interface Inputs {
-    readonly mouse: Readonly<Mouse>;
+    /** @deprecated use `devices(state).mouse`; dimensions now live in `devices(state).viewport`. */
+    readonly mouse: Readonly<LegacyMouse>;
     readonly touch: Readonly<Touch>;
     readonly focused: number;
     isKeyDown(code: string): boolean;
@@ -662,7 +759,7 @@ export interface Inputs {
 
 export const Inputs: Inputs = {
     get mouse() {
-        return currentLegacy?.mouse ?? DEFAULT_MOUSE;
+        return legacyMouse;
     },
     get touch() {
         return currentLegacy?.touch ?? DEFAULT_TOUCH;
