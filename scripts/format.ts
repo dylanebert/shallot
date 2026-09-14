@@ -2,22 +2,14 @@ import { resolve } from "node:path";
 import { Glob } from "bun";
 import type { Node } from "../src";
 
-const {
-    State,
-    parse,
-    stringify,
-    DEFAULT_PLUGINS,
-    LinesPlugin,
-    TextPlugin,
-    AnimationPlugin,
-    AudioPlugin,
-} = await import("../src");
+const { State, parse, stringify, DEFAULT_PLUGINS, LinesPlugin, TextPlugin, AudioPlugin } =
+    await import("../src");
 const { register } = await import("../src/engine/ecs");
 const { normalizeAttr } = await import("../src/engine/scene");
 
 // the engine defaults plus the opt-in viz extras that add scene-authorable components,
 // so normalizeAttr knows every component schema a scene can reference
-const PLUGINS = [...DEFAULT_PLUGINS, LinesPlugin, TextPlugin, AnimationPlugin, AudioPlugin];
+const PLUGINS = [...DEFAULT_PLUGINS, LinesPlugin, TextPlugin, AudioPlugin];
 
 const state = new State();
 for (const plugin of PLUGINS) {
@@ -47,8 +39,7 @@ function normalizeNodes(nodes: Node[]) {
             if (normalized !== null) {
                 // a normalization is a parse→format round trip, and a field whose parser needs
                 // runtime state the formatter doesn't have formats back to its default and drops off
-                // the line: every shipped `animator` lost its `clip:` this way, silently, and parked on a
-                // green gate. Refuse rather than write — the fix is the component's parse/format pair.
+                // the line. Refuse rather than write — the fix is the component's parse/format pair.
                 const before = attrKeys(attr.value);
                 const after = new Set(attrKeys(normalized));
                 const dropped = before.filter((k) => !after.has(k));

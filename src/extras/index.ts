@@ -1,25 +1,5 @@
 // the extras barrel lists each module's author names explicitly; extension names stay on the module.
 export {
-    AnimationPlugin,
-    AnimationState,
-    AnimationSystem,
-    Animator,
-    Composite,
-    type Easing,
-    Fill,
-    type Keyframe,
-    type KeyframeOptions,
-    keyframes,
-    mixer,
-    type Playable,
-    type PlayableEntry,
-    Playables,
-    Pose,
-    type Strip,
-    script,
-    type Track,
-} from "./animation";
-export {
     CellsPlugin,
     COLS,
     cells,
