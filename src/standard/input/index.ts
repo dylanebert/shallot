@@ -65,6 +65,13 @@ export interface Touch {
     deltaY: number;
 }
 
+/** the browser audio context state carried by one State's device record. */
+export type AudioContextState = "none" | "suspended" | "running" | "closed";
+
+export interface AudioDevice {
+    context: AudioContextState;
+}
+
 /** all device-fed facts for one State. Producers below are the single mutation seam used by both the DOM
  * path and headless callers. The record is created lazily, so a State with no DOM still has devices. */
 export interface Pointer extends Mouse {
@@ -80,7 +87,8 @@ export interface Viewport {
 
 export interface Devices {
     readonly keys: Keys;
-    /** pointer facts; `mouse` is the compatibility name for the same record */
+    readonly audio: AudioDevice;
+    /** pointer facts for the same record */
     readonly pointer: Pointer;
     readonly mouse: Mouse;
     readonly touch: Touch;
@@ -95,6 +103,7 @@ export interface Devices {
 }
 
 interface DeviceRecord extends Devices {
+    audio: AudioDevice;
     suspended: boolean;
     requireLock: boolean;
     readonly touchPoints: Map<number, { x: number; y: number }>;
@@ -147,6 +156,7 @@ const DEFAULT_MOUSE: Mouse = {
 };
 
 const DEFAULT_TOUCH: Touch = { count: 0, pinchDelta: 0, deltaX: 0, deltaY: 0 };
+const DEFAULT_AUDIO: AudioDevice = { context: "none" };
 const DEFAULT_POINTER_LOCK: PointerLock = { status: "unlocked", refusal: null };
 function emptyRecord(): DeviceRecord {
     const pointer: Pointer = { ...DEFAULT_MOUSE, lock: { ...DEFAULT_POINTER_LOCK } };
@@ -159,6 +169,7 @@ function emptyRecord(): DeviceRecord {
             tickReleased: new Set(),
             pressedTick: new Map(),
         },
+        audio: { ...DEFAULT_AUDIO },
         pointer,
         mouse: pointer,
         touch: { ...DEFAULT_TOUCH },
@@ -242,6 +253,11 @@ export function resizeViewport(
     };
     d.viewport.set(index, viewport);
     if (d.pointerCanvasIndex === index) updateNormalized(d, index);
+}
+
+/** Produce the browser audio context state for one State. */
+export function audioContextState(state: State, context: AudioContextState): void {
+    record(state).audio.context = context;
 }
 
 /** Produce a keyboard press. Repeated presses do not retrigger an edge. */
@@ -494,10 +510,6 @@ function canvasPosition(
     });
 }
 
-// The compatibility facade below is intentionally only a bridge for pre-migration consumers. New code must
-// use devices(state); the record itself is always reached through the State WeakMap.
-let currentLegacy: DeviceRecord | null = null;
-
 function createHandlers(d: DeviceRecord, state: State): void {
     d.pointerHover = (e) => {
         const target = e.target as HTMLCanvasElement;
@@ -698,106 +710,12 @@ export function requestPointerLock(state: State): void {
     }
 }
 
-/** Legacy read facade. It remains only until the S4 consumer migration; State-scoped code uses
- * `devices(state)` and the producer functions above. */
-interface LegacyMouse extends Mouse {
-    readonly canvasWidth: number;
-    readonly canvasHeight: number;
-}
-
-const legacyMouse: LegacyMouse = {
-    get deltaX() {
-        return currentLegacy?.mouse.deltaX ?? 0;
-    },
-    get deltaY() {
-        return currentLegacy?.mouse.deltaY ?? 0;
-    },
-    get scroll() {
-        return currentLegacy?.mouse.scroll ?? 0;
-    },
-    get left() {
-        return currentLegacy?.mouse.left ?? false;
-    },
-    get right() {
-        return currentLegacy?.mouse.right ?? false;
-    },
-    get middle() {
-        return currentLegacy?.mouse.middle ?? false;
-    },
-    get hover() {
-        return currentLegacy?.mouse.hover ?? false;
-    },
-    get x() {
-        return currentLegacy?.mouse.x ?? 0;
-    },
-    get y() {
-        return currentLegacy?.mouse.y ?? 0;
-    },
-    get normalizedX() {
-        return currentLegacy?.mouse.normalizedX ?? 0;
-    },
-    get normalizedY() {
-        return currentLegacy?.mouse.normalizedY ?? 0;
-    },
-    get canvasWidth() {
-        return currentLegacy?.viewport.get(currentLegacy.focused)?.cssWidth ?? 0;
-    },
-    get canvasHeight() {
-        return currentLegacy?.viewport.get(currentLegacy.focused)?.cssHeight ?? 0;
-    },
-};
-
-export interface Inputs {
-    /** @deprecated use `devices(state).mouse`; dimensions now live in `devices(state).viewport`. */
-    readonly mouse: Readonly<LegacyMouse>;
-    readonly touch: Readonly<Touch>;
-    readonly focused: number;
-    isKeyDown(code: string): boolean;
-    isKeyPressed(code: string): boolean;
-    isKeyReleased(code: string): boolean;
-}
-
-export const Inputs: Inputs = {
-    get mouse() {
-        return legacyMouse;
-    },
-    get touch() {
-        return currentLegacy?.touch ?? DEFAULT_TOUCH;
-    },
-    get focused() {
-        return currentLegacy?.focused ?? -1;
-    },
-    isKeyDown(code) {
-        return (
-            currentLegacy !== null && !currentLegacy.suspended && currentLegacy.keys.held.has(code)
-        );
-    },
-    isKeyPressed(code) {
-        return (
-            currentLegacy !== null &&
-            !currentLegacy.suspended &&
-            currentLegacy.keys.pressed.has(code)
-        );
-    },
-    isKeyReleased(code) {
-        return (
-            currentLegacy !== null &&
-            !currentLegacy.suspended &&
-            currentLegacy.keys.released.has(code)
-        );
-    },
-};
-
 /** Suspend or resume one State's device producers. Suspension releases held inputs with normal edges. */
-export function setInputEnabled(state: State, on: boolean): void;
-/** @deprecated pass the State explicitly; retained until the S4 consumer migration. */
-export function setInputEnabled(on: boolean): void;
-export function setInputEnabled(stateOrOn: State | boolean, maybeOn?: boolean): void {
-    const d = typeof stateOrOn === "boolean" ? currentLegacy : record(stateOrOn);
-    if (!d) return;
-    d.suspended = typeof stateOrOn === "boolean" ? !stateOrOn : !maybeOn;
+export function setInputEnabled(state: State, on: boolean): void {
+    const d = record(state);
+    d.suspended = !on;
     if (d.suspended) {
-        releaseAll(null, d);
+        releaseAll(state, d);
         d.keys.pressed.clear();
         d.keys.tickPressed.clear();
         d.mouse.deltaX = 0;
@@ -807,41 +725,23 @@ export function setInputEnabled(stateOrOn: State | boolean, maybeOn?: boolean): 
 }
 
 /** whether one State's device producers are live. */
-export function inputEnabled(state: State): boolean;
-/** @deprecated pass the State explicitly; retained until the S4 consumer migration. */
-export function inputEnabled(): boolean;
-export function inputEnabled(state?: State): boolean {
-    const d = state ? record(state) : currentLegacy;
-    return d ? !d.suspended : true;
+export function inputEnabled(state: State): boolean {
+    return !record(state).suspended;
 }
 
 /** Set the pointer-button gate on one State. */
-export function requirePointerLock(state: State, on: boolean): void;
-/** @deprecated pass the State explicitly; retained until the S4 consumer migration. */
-export function requirePointerLock(on: boolean): void;
-export function requirePointerLock(stateOrOn: State | boolean, maybeOn?: boolean): void {
-    const d = typeof stateOrOn === "boolean" ? currentLegacy : record(stateOrOn);
-    if (d) d.requireLock = typeof stateOrOn === "boolean" ? stateOrOn : (maybeOn ?? false);
+export function requirePointerLock(state: State, on: boolean): void {
+    record(state).requireLock = on;
 }
 
 /** read the pointer-lock status from one State's device record. */
-export function pointerLockStatus(state: State): PointerLockStatus;
-/** @deprecated pass the State explicitly; retained until the S4 consumer migration. */
-export function pointerLockStatus(): PointerLockStatus;
-export function pointerLockStatus(state?: State): PointerLockStatus {
-    return state
-        ? record(state).pointer.lock.status
-        : (currentLegacy?.pointer.lock.status ?? "unlocked");
+export function pointerLockStatus(state: State): PointerLockStatus {
+    return record(state).pointer.lock.status;
 }
 
 /** read the browser's last pointer-lock refusal from one State's device record. */
-export function pointerLockRefusal(state: State): string | null;
-/** @deprecated pass the State explicitly; retained until the S4 consumer migration. */
-export function pointerLockRefusal(): string | null;
-export function pointerLockRefusal(state?: State): string | null {
-    return state
-        ? record(state).pointer.lock.refusal
-        : (currentLegacy?.pointer.lock.refusal ?? null);
+export function pointerLockRefusal(state: State): string | null {
+    return record(state).pointer.lock.refusal;
 }
 
 const InputSystem: System = {
@@ -854,10 +754,7 @@ const InputSystem: System = {
         const elements = Array.from(document.querySelectorAll("canvas"));
         if (elements.length > 0) setup(state, elements);
     },
-    update(state: State) {
-        // Compatibility only; this is not the source of device truth.
-        currentLegacy = record(state);
-    },
+    update() {},
 };
 
 const InputTickResetSystem: System = {

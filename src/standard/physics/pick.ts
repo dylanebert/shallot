@@ -4,7 +4,7 @@
 // machines on these (the sandbox gravity gun).
 
 import type { State } from "../../engine";
-import { Inputs } from "../input";
+import { devices } from "../input";
 import { Camera } from "../render";
 import { Transform } from "../transforms";
 import { Body, type BodyState } from "./index";
@@ -90,16 +90,18 @@ export function forwardRay(state: State, cam: number): Ray | null {
     };
 }
 
-/** the screen-cursor ray for an orbit camera: `null` when the cursor is off the canvas. The god pick aims with it. The pick aspect derives from the canvas CSS box (`Inputs.mouse.canvas*`),
- *  so it can diverge from the render aspect under an aspect-distorting `Resolution` override. */
+/** the screen-cursor ray for an orbit camera: `null` when the cursor is off the canvas. The god pick aims with it. The pick aspect derives from the State-scoped viewport row,
+ * so it can diverge from the render aspect under an aspect-distorting `Resolution` override. */
 export function cursorRay(state: State, cam: number): Ray | null {
     if (cam < 0 || !state.has(cam, Camera) || !state.has(cam, Transform)) return null;
-    if (!Inputs.mouse.hover) return null;
+    const input = devices(state);
+    if (!input.mouse.hover) return null;
+    const viewport = input.viewport.get(input.focused);
     return screenToRay(
-        Inputs.mouse.x,
-        Inputs.mouse.y,
-        Inputs.mouse.canvasWidth,
-        Inputs.mouse.canvasHeight,
+        input.mouse.x,
+        input.mouse.y,
+        viewport?.cssWidth ?? 0,
+        viewport?.cssHeight ?? 0,
         Camera.fov.get(cam),
         Camera.near.get(cam),
         [Transform.pos.x.get(cam), Transform.pos.y.get(cam), Transform.pos.z.get(cam)],

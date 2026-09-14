@@ -109,6 +109,14 @@ A bump touches every doc and fixture site in one commit; `check-pins` reds on dr
 
 Retire a unit by tagging the last commit that has it, adding a row to [`ARCHIVE.md`](ARCHIVE.md) (name, tag, path at tag, why, what would rebuild it), then deleting it. There's never an archive directory.
 
+## Input migration
+
+Device reads are State-scoped: replace the removed `Inputs` singleton with `devices(state)` and read its `keys`, `mouse`, `touch`, `focused`, `viewport`, or `audio` rows.
+
+- `isKeyPressedWithin` was removed; use `devices(state).keys.pressedTick` with a fixed-tick window such as Character's jump/coyote timers.
+- `Mouse.canvasWidth` and `Mouse.canvasHeight` were removed; use `devices(state).viewport.get(devices(state).focused)` for the focused canvas's CSS size.
+- `setInputEnabled` now takes the State explicitly: `setInputEnabled(state, on)`.
+
 ## Engine shape
 
 - The ECS mutates immediately with no deferred command buffer, so the next system reads exactly what the last one wrote.

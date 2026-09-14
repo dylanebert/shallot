@@ -2,7 +2,7 @@ import {
     Body,
     body,
     Color,
-    Inputs,
+    devices,
     Part,
     type Plugin,
     physicsWorld,
@@ -174,12 +174,13 @@ const driver: System = {
             wire(state);
             return;
         }
+        const input = devices(state);
         let throttle = 0;
-        if (Inputs.isKeyDown("KeyW")) throttle -= THROTTLE;
-        if (Inputs.isKeyDown("KeyS")) throttle += THROTTLE;
+        if (input.keys.held.has("KeyW")) throttle -= THROTTLE;
+        if (input.keys.held.has("KeyS")) throttle += THROTTLE;
         let steer = 0;
-        if (Inputs.isKeyDown("KeyA")) steer += STEER;
-        if (Inputs.isKeyDown("KeyD")) steer -= STEER;
+        if (input.keys.held.has("KeyA")) steer += STEER;
+        if (input.keys.held.has("KeyD")) steer -= STEER;
         for (const j of rear) j.setSpinMotorSpeed(throttle);
         for (const j of front) j.setTargetSteeringAngle(steer);
         // a parked car sleeps, and setting a motor speed does NOT wake a sleeping body — so wake the wheels +

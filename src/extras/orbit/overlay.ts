@@ -1,5 +1,5 @@
 import { mountOverlay, type Plugin, type State, type System } from "../../engine";
-import { Inputs } from "../../standard/input";
+import { devices } from "../../standard/input";
 import { Orbit } from "./index";
 import { OrbitSmooth } from "./smooth";
 
@@ -102,7 +102,8 @@ const OrbitOverlaySystem: System = {
         }
 
         const speed = Orbit.flySpeed.get(flying);
-        const shift = Inputs.isKeyDown("ShiftLeft") || Inputs.isKeyDown("ShiftRight");
+        const input = devices(state);
+        const shift = input.keys.held.has("ShiftLeft") || input.keys.held.has("ShiftRight");
         const elapsed = state.time.elapsed;
         if (_lastSpeed < 0)
             _lastSpeed = speed; // just started flying — arm without showing

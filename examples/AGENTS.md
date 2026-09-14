@@ -14,6 +14,6 @@ From `bun run examples:index` and `examples/*/shallot.json`; edit manifests. Use
 | `import-gltf` | I want to load and place one glTF model. | `bunx shallot add import-gltf` |
 | `particles` | I want to simulate and draw many particles on the GPU. | `bunx shallot add particles` |
 | `play-sound` | I want a sound that comes from a place in the world and pans as it moves. | `bunx shallot add play-sound` |
-| `respond-to-input` | I want to move a thing with WASD and react to a click and a key press. | `bunx shallot add respond-to-input` |
+| `respond-to-input` | I want to move a thing with WASD and react to a click and a key press. (check: unit) | `bunx shallot add respond-to-input` |
 | `save-and-restore` | I want to save the game and load it back later. | `bunx shallot add save-and-restore` |
 | `svelte-ui` | I want a live-game HUD that updates every frame. | `bunx shallot add svelte-ui` |

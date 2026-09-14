@@ -18,13 +18,14 @@ export * from "./defaults";
 export { Fog, FogPlugin } from "./fog";
 export { Glaze, GlazePlugin, Tonemap } from "./glaze";
 export {
+    type AudioContextState,
+    type AudioDevice,
+    audioContextState,
     blur,
     type Devices,
     devices,
     focus,
     InputPlugin,
-    Inputs,
-    type Inputs as LegacyInputs,
     inputEnabled,
     type Keys,
     type Mouse,

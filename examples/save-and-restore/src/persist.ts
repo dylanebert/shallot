@@ -1,6 +1,6 @@
 import {
+    devices,
     diagnose,
-    Inputs,
     load,
     type Plugin,
     parse,
@@ -20,7 +20,7 @@ const save = {
     name: "save",
     group: "simulation",
     update(state: State) {
-        if (!Inputs.isKeyPressed("KeyS")) return;
+        if (!devices(state).keys.pressed.has("KeyS")) return;
         const nodes = serialize(state);
         for (const issue of diagnose(nodes)) console.warn(`[save] ${issue.message}`);
         localStorage.setItem(KEY, stringify(nodes));
@@ -38,7 +38,7 @@ const restore = {
     name: "restore",
     group: "simulation",
     update(state: State) {
-        if (!Inputs.isKeyPressed("KeyL")) return;
+        if (!devices(state).keys.pressed.has("KeyL")) return;
         const saved = localStorage.getItem(KEY);
         if (!saved) return;
         const nodes = parse(saved);

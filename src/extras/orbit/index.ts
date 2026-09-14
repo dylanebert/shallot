@@ -10,7 +10,7 @@ import {
     vec4,
 } from "../../engine";
 import { aim, angle, clamp } from "../../engine/utils";
-import { InputPlugin, Inputs, type Mouse } from "../../standard/input";
+import { devices, InputPlugin, type Mouse } from "../../standard/input";
 import { Camera, CameraMode } from "../../standard/render";
 import { Transform, TransformsPlugin } from "../../standard/transforms";
 import { OrbitSmooth } from "./smooth";
@@ -124,7 +124,7 @@ const OrbitSystem: System = {
     group: "simulation",
 
     update(state: State) {
-        const input = Inputs;
+        const input = devices(state);
         const dt = state.time.deltaTime;
 
         for (const eid of state.query([Orbit, not(OrbitSmooth)])) {
@@ -223,9 +223,10 @@ const OrbitSystem: System = {
             const keyAcceleration = Orbit.keyAcceleration.get(eid);
             const keyDamping = Orbit.keyDamping.get(eid);
             const keyYaw =
-                Number(input.isKeyDown("ArrowRight")) - Number(input.isKeyDown("ArrowLeft"));
+                Number(input.keys.held.has("ArrowRight")) -
+                Number(input.keys.held.has("ArrowLeft"));
             const keyPitch =
-                Number(input.isKeyDown("ArrowUp")) - Number(input.isKeyDown("ArrowDown"));
+                Number(input.keys.held.has("ArrowUp")) - Number(input.keys.held.has("ArrowDown"));
             const accelerate = (velocity: number, direction: number): number => {
                 if (direction === 0) return velocity * Math.exp(-keyDamping * dt);
                 const target = direction * keyRate;
@@ -254,11 +255,12 @@ const OrbitSystem: System = {
                 const upZ = -sp * cy;
 
                 const worldPerPixel = isOrtho
-                    ? (Camera.size.get(eid) * 2) / input.mouse.canvasHeight
+                    ? (Camera.size.get(eid) * 2) /
+                      (input.viewport.get(input.focused)?.cssHeight ?? 0)
                     : (2 *
                           distO *
                           Math.tan((hasCamera ? Camera.fov.get(eid) : 60) * Deg2Rad * 0.5)) /
-                      input.mouse.canvasHeight;
+                      (input.viewport.get(input.focused)?.cssHeight ?? 0);
 
                 // two-finger centroid drag while touching; single-pointer capture delta otherwise —
                 // `Touch.deltaX/deltaY` is only ever populated at two fingers (input/index.ts), so this
@@ -323,7 +325,7 @@ const OrbitSystem: System = {
                 flyActive = 1;
                 // shift boosts speed transiently — the stored base (flySpd) is unchanged
                 const boost =
-                    input.isKeyDown("ShiftLeft") || input.isKeyDown("ShiftRight")
+                    input.keys.held.has("ShiftLeft") || input.keys.held.has("ShiftRight")
                         ? Orbit.flyBoost.get(eid)
                         : 1;
                 const speed = flySpd * boost * dt;
@@ -336,12 +338,12 @@ const OrbitSystem: System = {
                 let mx = 0;
                 let my = 0;
                 let mz = 0;
-                if (input.isKeyDown("KeyW")) mz -= 1;
-                if (input.isKeyDown("KeyS")) mz += 1;
-                if (input.isKeyDown("KeyA")) mx -= 1;
-                if (input.isKeyDown("KeyD")) mx += 1;
-                if (input.isKeyDown("KeyQ")) my -= 1;
-                if (input.isKeyDown("KeyE")) my += 1;
+                if (input.keys.held.has("KeyW")) mz -= 1;
+                if (input.keys.held.has("KeyS")) mz += 1;
+                if (input.keys.held.has("KeyA")) mx -= 1;
+                if (input.keys.held.has("KeyD")) mx += 1;
+                if (input.keys.held.has("KeyQ")) my -= 1;
+                if (input.keys.held.has("KeyE")) my += 1;
 
                 // normalize the world move so a diagonal (e.g. forward + up) travels at `speed`, not faster
                 let wx = mz * sy * cp + mx * cy;
