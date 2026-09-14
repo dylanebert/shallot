@@ -1,8 +1,8 @@
 // The soft-step solver loop — Box3D's solver.c b3Solve + the body integration tasks (Erin Catto,
-// MIT). The port runs the fully serial force-overflow schedule: prepare the overflow constraints
-// once, then for each substep integrate velocities, warm-start, solve (bias), integrate positions,
-// and relax (no bias); after the substeps apply restitution and store impulses; finally advance the
-// bodies and re-fit their broad-phase AABBs.
+// MIT). The port runs the canonical colored constraint schedule, with a real overflow fallback:
+// prepare each selected color, then for each substep integrate velocities, warm-start, solve (bias),
+// integrate positions, and relax (no bias); after the substeps apply restitution and store impulses;
+// finally advance the bodies and re-fit their broad-phase AABBs.
 //
 // After finalize, a deferred island split runs (b3SplitIsland), then the bullet CCD stage sweeps any
 // fast bullet bodies, then the island-sleep pass moves islands with no still-moving body into sleeping

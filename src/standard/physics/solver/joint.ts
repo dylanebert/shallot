@@ -1,13 +1,12 @@
 // Joints — the common machinery from Box3D's joint.c (Erin Catto, MIT). A joint constrains two
 // bodies. The organizational handle (b3Joint) lives in world.joints and threads two doubly-linked
 // edges through the attached bodies; the simulation payload (b3JointSim) lives in a solver set's
-// jointSims column (the overflow graph color while awake). Per-type math lives in one file each
+// jointSims column (the selected graph color while awake). Per-type math lives in one file each
 // (revoluteJoint.ts, …); this hub holds create/destroy, the prepare/warm-start/solve dispatch, the
-// serial overflow loops, and the reaction/force/torque accessors.
+// overflow fallback loops, and the reaction/force/torque accessors.
 //
-// The port targets the force-overflow build: b3AssignJointColor always returns the overflow color,
-// so joints join contacts in colors[OVERFLOW_INDEX].jointSims. Every arithmetic op is fround-wrapped
-// in the per-type files; see the README.
+// The port uses canonical graph coloring; joints that cannot fit a real color use the overflow color.
+// Every arithmetic op is fround-wrapped in the per-type files; see the README.
 
 import { bufferMove } from "../collision/broadphase";
 import { destroyContact } from "../collision/contact";

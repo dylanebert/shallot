@@ -5,15 +5,13 @@
 // the parsed outline, `extras/text/font.ts`'s own `glyphPath`) divided by the font's em-square area,
 // sorted ascending.
 //
-// Lives beside `physics/gen-fixtures.ts` / `physics/gen-gold.ts` (`scripts/`), not under
-// `src/extras/cells/` — a generator that reaches across module boundaries (`extras/text/font.ts`) and
-// touches Node-only `readFileSync`/`writeFileSync` is exactly the shape those two carve out for
-// themselves, and the same reasoning applies here: `check-imports.ts` only walks `src/`, so a script
-// tree is where cross-module tooling lives rather than a deep import `ramp.ts`'s own barrel would have to
-// carry into the browser-importable graph. `computeRampTable` and `glyphCoverage` are exported pure
-// functions so `extras/cells/ramp-table.test.ts` can call the identical derivation the committed table
-// came from and assert they still agree — the arm that makes `ramp-table.ts` a reproducible derivation
-// rather than a hand-authored guess with a script beside it.
+// Lives under `scripts/`, not under `src/extras/cells/` — a generator that reaches across module
+// boundaries (`extras/text/font.ts`) and touches Node-only `readFileSync`/`writeFileSync` belongs in the
+// script tree. `check-imports.ts` only walks `src/`, so this keeps cross-module tooling out of the
+// browser-importable graph. `computeRampTable` and `glyphCoverage` are exported pure functions so
+// `extras/cells/ramp-table.test.ts` can call the identical derivation the committed table came from and
+// assert they still agree — the arm that makes `ramp-table.ts` a reproducible derivation rather than a
+// hand-authored guess with a script beside it.
 //
 // The directional glyphs (`CELL_DIRECTIONAL_GLYPHS`, `ramp.ts`) are excluded from the fill candidates —
 // they're selected by edge angle, not ink coverage (`ramp.ts`'s own module doc), so mixing one into the
@@ -23,9 +21,8 @@
 // (`ramp.ts`'s own docblock has the derivation for why a threshold would wrongly exclude glyphs the
 // reference itself keeps).
 //
-// Run from the shallot repo root: `bun run scripts/generate/generate-ramp.ts`. Nothing
-// regenerates `ramp-table.ts` automatically — review the diff before committing, the same discipline
-// `physics/gen-fixtures.ts` documents for its own committed output.
+// Run from the shallot repo root: `bun run scripts/generate/generate-ramp.ts`. Nothing regenerates
+// `ramp-table.ts` automatically — review the diff before committing.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

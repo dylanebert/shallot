@@ -33,11 +33,6 @@ import type { SolverSet } from "../world/solverset";
 import type { WorldState } from "../world/world";
 import { emptyJointSim, type Joint, type JointSim } from "./joint";
 
-// Route every constraint to the serial overflow color, mirroring C's `#if B3_FORCE_OVERFLOW`. The
-// default is the colored wide solve (graph coloring + the 4-lane convex path); set true only to fall
-// back to the serial overflow path (the parity knob C keeps behind `#if B3_FORCE_OVERFLOW`).
-const FORCE_OVERFLOW = false;
-
 /** One touching contact's entry in a graph color (b3ContactSpec). */
 export type ContactSpec = { contactId: number; manifoldStart: number; manifoldCount: number };
 
@@ -68,8 +63,7 @@ export function createGraph(bodyCapacity: number): ConstraintGraph {
     return { colors };
 }
 
-/** Flag-gated color assignment (the shared body of b3AddContactToGraph / b3AssignJointColor):
- * overflow under FORCE_OVERFLOW, else the greedy color. */
+/** Canonical color assignment shared by b3AddContactToGraph / b3AssignJointColor. */
 function assignColor(
     graph: ConstraintGraph,
     bodyIdA: number,
@@ -77,7 +71,7 @@ function assignColor(
     typeA: BodyType,
     typeB: BodyType,
 ): number {
-    return FORCE_OVERFLOW ? OVERFLOW_INDEX : greedyColor(graph, bodyIdA, bodyIdB, typeA, typeB);
+    return greedyColor(graph, bodyIdA, bodyIdB, typeA, typeB);
 }
 
 /** Greedy color for a dynamic-involving constraint. Sets the chosen color's body bits and @returns
