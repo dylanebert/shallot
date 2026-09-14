@@ -1,8 +1,8 @@
 import { expect } from "bun:test";
-import { Time } from "../../engine";
-import { check } from "../../harness/check";
-import { addBody, headlessPhysicsState } from "./headless.fixture";
+import { build, type State, Time } from "@dylanebert/shallot";
+import { check } from "@dylanebert/shallot/harness/check";
 import {
+    Body,
     hash,
     PhysicsPlugin,
     physicsCounters,
@@ -11,17 +11,39 @@ import {
     ShapeKind,
     setVelocity,
     snapshot,
-} from "./index";
+} from "@dylanebert/shallot/physics";
+
+function addBody(
+    state: State,
+    data: {
+        shape: number;
+        pos: [number, number, number];
+        halfExtents: [number, number, number, number];
+        mass: number;
+        friction?: number;
+        quat?: [number, number, number, number];
+    },
+): number {
+    const eid = state.create();
+    state.add(eid, Body);
+    Body.shape.set(eid, data.shape);
+    Body.halfExtents.set(eid, ...data.halfExtents);
+    Body.pos.set(eid, data.pos[0], data.pos[1], data.pos[2], 0);
+    Body.quat.set(eid, ...(data.quat ?? [0, 0, 0, 1]));
+    Body.mass.set(eid, data.mass);
+    Body.friction.set(eid, data.friction ?? 0.5);
+    return eid;
+}
 
 async function cleanState() {
-    const state = await headlessPhysicsState();
-    const body = addBody(state, {
+    const app = await build({ defaults: false, plugins: [PhysicsPlugin] });
+    const body = addBody(app.state, {
         shape: ShapeKind.Box,
         pos: [0, 2, 0],
         halfExtents: [0.5, 0.5, 0.5, 0],
         mass: 1,
     });
-    return { state, body };
+    return { app, state: app.state, body };
 }
 
 check(
@@ -68,11 +90,11 @@ check(
                 expect(hash(replay.state).toString(16)).toBe(leftAfterSaved[0]);
                 expect(hash(replay.state)).not.toBe(before);
             } finally {
-                PhysicsPlugin.dispose?.(replay.state);
+                replay.app.dispose();
             }
         } finally {
-            PhysicsPlugin.dispose?.(left.state);
-            PhysicsPlugin.dispose?.(right.state);
+            left.app.dispose();
+            right.app.dispose();
         }
     },
 );
@@ -102,7 +124,7 @@ check(
             expect(readBody(one.state, second)).not.toBeNull();
             expect(changed.bytesUploaded).toBe(0);
         } finally {
-            PhysicsPlugin.dispose?.(one.state);
+            one.app.dispose();
         }
     },
 );
