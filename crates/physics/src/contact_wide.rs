@@ -27,6 +27,9 @@ use crate::contact::{Softness, NULL_INDEX};
 use crate::manifold_abi as mabi;
 use crate::manifold_abi::{read_dir, set_hit};
 use crate::math::{Mat2, Mat3, Vec2, Vec3, FLT_EPSILON};
+
+const SPECULATIVE_DISTANCE: f32 = 0.02;
+const MIN_FRICTION_WEIGHT: f32 = 1.0e-10;
 use crate::simd::FloatW;
 use crate::wide::{
     add_v2w, add_vw, cross_w, dot_w, mul_add_mvw, mul_add_svw, mul_mv2w, mul_mvw, mul_sub_mvw,
@@ -781,6 +784,8 @@ pub fn prepare(
 
             let mut center_a = Vec3::ZERO;
             let mut center_b = Vec3::ZERO;
+            let mut total_friction_weight = 0.0f32;
+            let inv_tau = 1.0f32 / SPECULATIVE_DISTANCE;
             for pi in 0..point_count {
                 let pp = mpo + mabi::M_POINTS + pi * mabi::POOL_POINT_STRIDE;
                 let r_a = v3(pool, pp + mabi::P_ANCHOR_A);
@@ -801,12 +806,14 @@ pub fn prepare(
                 p_normal_mass[pi][lane] = if k_normal > 0.0 { 1.0 / k_normal } else { 0.0 };
                 p_rel_vel[pi][lane] = n.dot(vr_b.sub(vr_a));
 
-                center_a = center_a.add(r_a);
-                center_b = center_b.add(r_b);
+                let weight = (2.0 - separation * inv_tau).clamp(MIN_FRICTION_WEIGHT, 1.0);
+                center_a = center_a.add(r_a.scale(weight));
+                center_b = center_b.add(r_b.scale(weight));
+                total_friction_weight += weight;
             }
-            let inv_count = 1.0 / point_count as f32;
-            center_a = center_a.scale(inv_count);
-            center_b = center_b.scale(inv_count);
+            let inv_weight = 1.0 / total_friction_weight;
+            center_a = center_a.scale(inv_weight);
+            center_b = center_b.scale(inv_weight);
             origin_a[lane] = center_a;
             origin_b[lane] = center_b;
             for pi in 0..point_count {

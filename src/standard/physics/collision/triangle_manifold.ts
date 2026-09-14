@@ -28,7 +28,6 @@ import {
     clipPolygon,
     cloneClipVertex,
     type EdgeQuery,
-    edgeEdgeSeparation,
     type FaceQuery,
     FeatureOwner,
     findIncidentFace,
@@ -246,7 +245,7 @@ function clipSegmentToTriangleFace(segment: ClipVertex[], points: Vec3[], pl: Pl
             segment[vertexCount++] = p2;
         }
 
-        if (f32(distance1 * distance2) < 0) {
+        if (distance1 > 0 !== distance2 > 0) {
             const t = f32(distance1 / f32(distance1 - distance2));
             segment[vertexCount] = {
                 position: vec3.lerp(p1.position, p2.position, t),
@@ -276,43 +275,51 @@ function queryTriangleFaceAndCapsule(pl: Plane, capsule: Capsule): FaceQuery {
     return { separation: separation2, faceIndex: 0, vertexIndex: 1 };
 }
 
-function queryTriangleAndCapsuleEdges(vertices: Vec3[], capsule: Capsule): EdgeQuery {
+function queryTriangleAndCapsuleEdges(
+    vertices: Vec3[],
+    trianglePlane: Plane,
+    capsule: Capsule,
+): EdgeQuery {
     const p1 = capsule.center1;
-    const p2 = capsule.center2;
-    const capsuleEdge = vec3.sub(p2, p1);
-    const capsuleCenter = vec3.lerp(p1, p2, f32(0.5));
-
-    const triangleCenter = vec3.scale(
-        f32(1 / 3),
-        vec3.add(vertices[0], vec3.add(vertices[1], vertices[2])),
-    );
-
+    const capsuleEdge = vec3.sub(capsule.center2, p1);
+    let maxNormal = vec3.zero();
     let maxSeparation = -FLT_MAX;
-    let maxIndex1 = 0xff;
-    const maxIndex2 = 0;
+    let maxIndexA = NULL_INDEX;
+    const maxIndexB = 0;
+    const squaredTolerance = f32(0.005 * 0.005);
 
     let edgeIndex = 2;
-    let vA = vertices[2];
+    let v1 = vertices[2];
     for (let index = 0; index < 3; ++index) {
-        const vB = vertices[index];
-        const triangleEdge = vec3.sub(vB, vA);
-        const separation = edgeEdgeSeparation(
-            p1,
-            capsuleEdge,
-            capsuleCenter,
-            vA,
-            triangleEdge,
-            triangleCenter,
-        );
-        if (separation > maxSeparation) {
-            maxSeparation = separation;
-            maxIndex1 = edgeIndex;
+        const v2 = vertices[index];
+        const triangleEdge = vec3.sub(v2, v1);
+        const sideNormal = vec3.normalize(vec3.cross(triangleEdge, trianglePlane.normal));
+        const a = vec3.dot(capsuleEdge, trianglePlane.normal);
+        const b = vec3.dot(capsuleEdge, sideNormal);
+        if (f32(f32(a * a) + f32(b * b)) < f32(squaredTolerance * vec3.lengthSq(capsuleEdge))) {
+            v1 = v2;
+            edgeIndex = index;
+            continue;
         }
-        vA = vB;
+        let axis: Vec3;
+        if (f32(a * b) <= 0) {
+            const t = f32(b / f32(b - a));
+            axis = vec3.lerp(sideNormal, trianglePlane.normal, t);
+        } else {
+            const t = f32(b / f32(a + b));
+            axis = vec3.lerp(sideNormal, vec3.neg(trianglePlane.normal), t);
+        }
+        axis = vec3.normalize(axis);
+        const separation = vec3.dot(axis, vec3.sub(p1, v1));
+        if (separation > maxSeparation) {
+            maxNormal = axis;
+            maxSeparation = separation;
+            maxIndexA = edgeIndex;
+        }
+        v1 = v2;
         edgeIndex = index;
     }
-
-    return { separation: maxSeparation, indexA: maxIndex1, indexB: maxIndex2 };
+    return { normal: maxNormal, separation: maxSeparation, indexA: maxIndexA, indexB: maxIndexB };
 }
 
 function buildTriangleAndCapsuleFaceContact(
@@ -377,24 +384,12 @@ function buildTriangleAndCapsuleEdgeContact(
     query: EdgeQuery,
 ): void {
     const p1 = capsule.center1;
-    const p2 = capsule.center2;
-    const capsuleEdge = vec3.sub(p2, p1);
-
-    const triangleCenter = vec3.scale(
-        f32(1 / 3),
-        vec3.add(triangle[0], vec3.add(triangle[1], triangle[2])),
-    );
+    const capsuleEdge = vec3.sub(capsule.center2, p1);
     const vA = triangle[query.indexA];
     const vB = triangle[(query.indexA + 1) % 3];
     const triangleEdge = vec3.sub(vB, vA);
 
-    let normal = vec3.normalize(vec3.cross(capsuleEdge, triangleEdge));
-
-    // Normal should point away from triangle center
-    if (vec3.dot(normal, vec3.sub(vA, triangleCenter)) < 0) {
-        normal = vec3.neg(normal);
-    }
-
+    const normal = query.normal;
     const result = lineDistance(vA, triangleEdge, p1, capsuleEdge);
 
     if (
@@ -408,12 +403,12 @@ function buildTriangleAndCapsuleEdgeContact(
     }
 
     const point = vec3.lerp(
-        vec3.mulSub(result.point1, capsule.radius, normal),
-        result.point2,
+        result.point1,
+        vec3.mulSub(result.point2, capsule.radius, normal),
         f32(0.5),
     );
 
-    const separation = vec3.dot(normal, vec3.sub(result.point2, result.point1));
+    const separation = vec3.dot(normal, vec3.sub(p1, vA));
 
     manifold.normal = normal;
     manifold.pointCount = 1;
@@ -524,9 +519,10 @@ export function collideCapsuleAndTriangle(
         }
 
         // Create contact from closest points
-        const point = vec3.scale(
+        const point = vec3.lerp(
+            distanceOutput.pointA,
+            vec3.mulSub(distanceOutput.pointB, radius, delta),
             f32(0.5),
-            vec3.add(vec3.mulSub(distanceOutput.pointA, radius, delta), distanceOutput.pointB),
         );
 
         manifold.normal = delta;
@@ -548,7 +544,7 @@ export function collideCapsuleAndTriangle(
         return;
     }
 
-    const edgeQuery = queryTriangleAndCapsuleEdges(triangleB, capsuleA);
+    const edgeQuery = queryTriangleAndCapsuleEdges(triangleB, pl, capsuleA);
     if (edgeQuery.separation > radius) {
         return;
     }
@@ -562,13 +558,8 @@ export function collideCapsuleAndTriangle(
 
     // Face contact can be empty if it does not realize the axis of minimum penetration.
     // Create edge contact if face contact fails or edge contact is significantly better.
-    const kRelEdgeTolerance = f32(0.5);
-    const kAbsTolerance = f32(1 * LINEAR_SLOP);
     const edgeSeparation = f32(edgeQuery.separation - radius);
-    if (
-        manifold.pointCount === 0 ||
-        edgeSeparation > f32(f32(kRelEdgeTolerance * faceSeparation) + kAbsTolerance)
-    ) {
+    if (manifold.pointCount === 0 || edgeSeparation > f32(faceSeparation + LINEAR_SLOP)) {
         buildTriangleAndCapsuleEdgeContact(manifold, triangleB, capsuleA, edgeQuery);
     }
 }
@@ -625,58 +616,47 @@ function queryHullFace(triangle: TriangleData, hull: HullData): FaceQuery {
 }
 
 function testEdgePairs(triangle: TriangleData, hull: HullData): EdgeQuery {
+    let normal = vec3.zero();
     let separation = -FLT_MAX;
     let indexA = NULL_INDEX;
     let indexB = NULL_INDEX;
-
     const trianglePoints = [triangle.v1, triangle.v2, triangle.v3];
     const triangleEdges = [triangle.e1, triangle.e2, triangle.e3];
-    const triNormal = triangle.plane.normal;
-
     const hullEdges = hull.edges;
     const hullPoints = hull.points;
     const hullPlanes = hull.planes;
-    const edgeCount = hull.edgeCount;
+    const squaredTolerance = f32(0.005 * 0.005);
 
-    for (let i = 0; i < edgeCount; i += 2) {
+    for (let i = 0; i < hull.edgeCount; i += 2) {
         const edge = hullEdges[i];
         const twin = hullEdges[i + 1];
-
         const hullPoint = hullPoints[edge.origin];
         const hullEdge = vec3.sub(hullPoints[twin.origin], hullPoint);
-
         const hullNormal1 = hullPlanes[edge.face].normal;
         const hullNormal2 = hullPlanes[twin.face].normal;
-
         for (let j = 0; j < 3; ++j) {
             const triEdge = triangleEdges[j];
-
             const cab = vec3.dot(hullNormal1, triEdge);
             const dab = vec3.dot(hullNormal2, triEdge);
-            const bcd = vec3.dot(triNormal, hullEdge);
-            if (f32(cab * dab) >= 0 || f32(cab * bcd) <= 0) {
+            const bcd = vec3.dot(triangle.plane.normal, hullEdge);
+            if (f32(cab * dab) >= 0 || f32(cab * bcd) <= 0) continue;
+            if (
+                maxf(f32(cab * cab), f32(dab * dab)) <
+                f32(squaredTolerance * vec3.lengthSq(triEdge))
+            )
                 continue;
-            }
-
-            const triPoint = trianglePoints[j];
-            const sep = edgeEdgeSeparation(
-                triPoint,
-                triEdge,
-                triangle.center,
-                hullPoint,
-                hullEdge,
-                hull.center,
-            );
-
+            const t = f32(cab / f32(cab - dab));
+            const axis = vec3.normalize(vec3.lerp(hullNormal1, hullNormal2, t));
+            const sep = vec3.dot(axis, vec3.sub(trianglePoints[j], hullPoint));
             if (sep > separation) {
+                normal = vec3.neg(axis);
                 separation = sep;
                 indexA = j;
                 indexB = i;
             }
         }
     }
-
-    return { separation, indexA, indexB };
+    return { normal, separation, indexA, indexB };
 }
 
 // Reference face is the hull face; incident face is the triangle. Returns min separation.
@@ -870,12 +850,10 @@ function collideHullAndTriangleEdges(
     capacity: number,
     trianglePoint: Vec3,
     triangleEdge: Vec3,
-    triangleCenter: Vec3,
     hull: HullData,
     query: EdgeQuery,
     cache: SATCache,
 ): void {
-    const cA = triangleCenter;
     const pA = trianglePoint;
     const eA = triangleEdge;
 
@@ -887,19 +865,7 @@ function collideHullAndTriangleEdges(
     const qB = pointsB[twinB.origin];
     const eB = vec3.sub(qB, pB);
 
-    let normal = vec3.normalize(vec3.cross(eA, eB));
-
-    // Ensure normal points outward from triangle center
-    const outwardA = vec3.dot(normal, vec3.sub(pA, cA));
-    // Ensure normal points towards hull center
-    const outwardB = vec3.dot(normal, vec3.sub(hull.center, pB));
-
-    if (absf(outwardA) > absf(outwardB)) {
-        if (outwardA < 0) normal = vec3.neg(normal);
-    } else {
-        if (outwardB < 0) normal = vec3.neg(normal);
-    }
-
+    const normal = query.normal;
     const result = lineDistance(pA, eA, pB, eB);
 
     if (
@@ -914,7 +880,7 @@ function collideHullAndTriangleEdges(
         return;
     }
 
-    const separation = vec3.dot(normal, vec3.sub(result.point2, result.point1));
+    const separation = vec3.dot(normal, vec3.sub(pB, pA));
     const point = vec3.scale(f32(0.5), vec3.add(result.point1, result.point2));
 
     const pt = manifold.points[0];
@@ -930,19 +896,6 @@ function collideHullAndTriangleEdges(
     manifold.normal = normal;
     manifold.pointCount = 1;
     manifold.feature = EDGE_FEATURES[query.indexA];
-}
-
-function isTriangleMinkowskiFace(
-    triNormal: Vec3,
-    triEdge: Vec3,
-    hullNormal1: Vec3,
-    hullNormal2: Vec3,
-    hullEdge: Vec3,
-): boolean {
-    const cab = vec3.dot(hullNormal1, triEdge);
-    const dab = vec3.dot(hullNormal2, triEdge);
-    const bcd = vec3.dot(triNormal, hullEdge);
-    return f32(cab * dab) < 0 && f32(cab * bcd) > 0;
 }
 
 /**
@@ -1001,8 +954,6 @@ export function collideHullAndTriangle(
 
     const hullPlanes = hullA.planes;
     const hullPoints = hullA.points;
-    const edges = hullA.edges;
-
     const speculativeDistance = SPECULATIVE_DISTANCE;
     cache.hit = 1;
 
@@ -1085,59 +1036,27 @@ export function collideHullAndTriangle(
         }
 
         case SeparatingFeature.EdgePairAxis: {
-            const indexA = cache.indexA;
-            const triPoint = trianglePoints[indexA];
-            const triEdge = triangleEdges[indexA];
-
-            const indexB = cache.indexB;
-            const edge2 = edges[indexB];
-            const twin2 = edges[indexB + 1];
-
-            const hullPoint = hullPoints[edge2.origin];
-            const hullEdge = vec3.sub(hullPoints[twin2.origin], hullPoint);
-            const hullNormal1 = hullPlanes[edge2.face].normal;
-            const hullNormal2 = hullPlanes[twin2.face].normal;
-
-            const isMink = isTriangleMinkowskiFace(
-                trianglePlane.normal,
-                triEdge,
-                hullNormal1,
-                hullNormal2,
-                hullEdge,
-            );
-            if (isMink) {
-                const separation = edgeEdgeSeparation(
+            const edgeQuery = testEdgePairs(triangle, hullA);
+            if (
+                edgeQuery.indexA === cache.indexA &&
+                edgeQuery.indexB === cache.indexB &&
+                edgeQuery.separation <= speculativeDistance &&
+                absf(f32(cache.separation - edgeQuery.separation)) < linearSlop
+            ) {
+                const triPoint = trianglePoints[edgeQuery.indexA];
+                const triEdge = triangleEdges[edgeQuery.indexA];
+                const localCache = copyCache(cache);
+                collideHullAndTriangleEdges(
+                    manifold,
+                    capacity,
                     triPoint,
                     triEdge,
-                    triangleCenter,
-                    hullPoint,
-                    hullEdge,
-                    hullA.center,
+                    hullA,
+                    edgeQuery,
+                    localCache,
                 );
-                if (separation > speculativeDistance) {
-                    return;
-                }
-
-                if (absf(f32(cache.separation - separation)) < linearSlop) {
-                    const edgeQuery: EdgeQuery = { indexA, indexB, separation };
-                    const localCache = copyCache(cache);
-                    collideHullAndTriangleEdges(
-                        manifold,
-                        capacity,
-                        triPoint,
-                        triEdge,
-                        triangleCenter,
-                        hullA,
-                        edgeQuery,
-                        localCache,
-                    );
-
-                    if (manifold.pointCount > 0) {
-                        return;
-                    }
-                }
+                if (manifold.pointCount > 0) return;
             }
-
             resetCache(cache);
             break;
         }
@@ -1164,7 +1083,6 @@ export function collideHullAndTriangle(
                     capacity,
                     trianglePoint,
                     triangleEdge,
-                    triangleCenter,
                     hullA,
                     edgeQuery,
                     cache,
@@ -1210,10 +1128,11 @@ export function collideHullAndTriangle(
 
     let clippedFaceSeparation: number;
 
-    // Don't allow a hull face opposed to the triangle face.
+    // Don't admit a hull face significantly opposed to the triangle face. This tolerance avoids
+    // ghost contacts where a nearly opposed hull face wins by numerical noise.
     const hullNormal = hullPlanes[faceQueryB.faceIndex].normal;
-    const pushingUp = vec3.dot(hullNormal, trianglePlane.normal) < 0;
-    if (faceQueryB.separation > f32(faceQueryA.separation + linearSlop) && pushingUp) {
+    const pushingDown = vec3.dot(vec3.neg(hullNormal), trianglePlane.normal) < -0.25;
+    if (faceQueryB.separation >= faceQueryA.separation && pushingDown === false) {
         clippedFaceSeparation = collideHullFace(
             manifold,
             capacity,
@@ -1250,7 +1169,6 @@ export function collideHullAndTriangle(
                 capacity,
                 trianglePoint,
                 triangleEdge,
-                triangleCenter,
                 hullA,
                 edgeQuery,
                 cache,
@@ -1278,5 +1196,8 @@ export function collideHullAndTriangle(
             manifold.points[0].separation = output.distance;
             manifold.points[0].pair = singlePair();
         }
+
+        // The fallback has no SAT feature that can be safely persisted.
+        resetCache(cache);
     }
 }

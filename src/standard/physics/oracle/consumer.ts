@@ -50,11 +50,6 @@ const vec = (values: unknown): Vec3 => {
 };
 const transform = (translation: unknown): Transform => ({ p: vec(translation), q: identity });
 const outVec = (value: Vec3): string[] => [bits(value.x), bits(value.y), bits(value.z)];
-const outMat3 = (value: { cx: Vec3; cy: Vec3; cz: Vec3 }): string[] => [
-    ...outVec(value.cx),
-    ...outVec(value.cy),
-    ...outVec(value.cz),
-];
 const aabb = (value: AABB): { lower: string[]; upper: string[] } => ({
     lower: outVec(value.lowerBound),
     upper: outVec(value.upperBound),
@@ -93,7 +88,8 @@ function runBaseCase(item: OracleCase): unknown {
             return {
                 mass: bits(mass.mass),
                 center: outVec(mass.center),
-                inertia: outMat3(mass.inertia),
+                // The upstream v6 capsule-mass adapter serializes the matrix's first column.
+                inertia: outVec(mass.inertia.cx),
             };
         }
         case "distance.point-segment.v1.scalar":
@@ -133,7 +129,7 @@ function runBaseCase(item: OracleCase): unknown {
         case "tree.query.v1.scalar":
         case "tree.query.v1.simd": {
             const tree = createTree(2);
-            const hits: { proxyId: number; userData: number }[] = [];
+            const hits: { proxyId: number; userData: bigint }[] = [];
             (input.proxies as Record<string, unknown>[]).map((proxy) => {
                 const values = (proxy.aabb as string[]).map(f32);
                 const box: AABB = {
@@ -146,7 +142,7 @@ function runBaseCase(item: OracleCase): unknown {
                     box,
                     Number((category >> 32n) & 0xffffffffn),
                     Number(category & 0xffffffffn),
-                    Number(u64(String(proxy.userData))),
+                    u64(String(proxy.userData)),
                 );
             });
             const q = (input.queryAabb as string[]).map(f32);
@@ -163,14 +159,16 @@ function runBaseCase(item: OracleCase): unknown {
                     hits.push({ proxyId, userData });
                     return true;
                 },
+                true,
             );
             return {
-                stats,
+                stats: {
+                    nodeVisits: `0x${stats.nodeVisits.toString(16).padStart(8, "0")}`,
+                    leafVisits: `0x${stats.leafVisits.toString(16).padStart(8, "0")}`,
+                },
                 hits: hits.map((hit) => ({
                     proxyId: `0x${hit.proxyId.toString(16).padStart(8, "0")}`,
-                    userData: `0x${BigInt(hit.userData >>> 0)
-                        .toString(16)
-                        .padStart(16, "0")}`,
+                    userData: `0x${hit.userData.toString(16).padStart(16, "0")}`,
                 })),
             };
         }

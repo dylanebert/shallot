@@ -111,6 +111,7 @@ struct FaceQuery {
 /// Result of an edge-direction SAT query (b3EdgeQuery).
 #[derive(Clone, Copy)]
 struct EdgeQuery {
+    normal: Vec3,
     separation: f32,
     index_a: i32,
     index_b: i32,
@@ -376,7 +377,7 @@ fn clip_segment(segment: &mut [ClipVertex; 3], pl: Plane) -> usize {
         vertex_count += 1;
     }
 
-    if distance1 * distance2 < 0.0 {
+    if (distance1 > 0.0) != (distance2 > 0.0) {
         let t = distance1 / (distance1 - distance2);
         let position = vertex1
             .position
@@ -483,10 +484,10 @@ fn query_face_directions(
     let mut max_face_separation = -FLT_MAX;
 
     for face_index in 0..hull_a.face_count {
-        let pl = planes_a[face_index].transform(transform);
-        let vertex_index = hull_b.support_vertex(pl.normal.neg());
+        let plane = planes_a[face_index].transform(transform);
+        let vertex_index = hull_b.support_vertex(plane.normal.neg());
         let support = points_b[vertex_index];
-        let separation = pl.separation(support);
+        let separation = plane.separation(support);
         if separation > max_face_separation {
             max_face_index = face_index;
             max_vertex_index = vertex_index;
@@ -506,9 +507,10 @@ fn query_edge_direction_hull_and_capsule(
     capsule: &Capsule,
     capsule_transform: Transform,
 ) -> EdgeQuery {
+    let mut max_normal = Vec3::ZERO;
     let mut max_separation = -FLT_MAX;
-    let mut max_index1: i32 = -1;
-    let mut max_index2: i32 = -1;
+    let mut max_index_a: i32 = -1;
+    let mut max_index_b: i32 = -1;
 
     // All computations in local space of the hull.
     let p1 = capsule_transform.point(capsule.center1);
@@ -524,30 +526,35 @@ fn query_edge_direction_hull_and_capsule(
         let edge = edges[index];
         let twin = edges[index + 1];
 
-        let p2 = points[edge.origin];
-        let q2 = points[twin.origin];
-        let e2 = q2.sub(p2);
-
-        let u2 = planes[edge.face].normal;
-        let v2 = planes[twin.face].normal;
-
-        if is_minkowski_face_isolated(u2, v2, e1) {
-            let c1 = q1.add(p1).scale(0.5);
-            let c2 = hull.center;
-            let separation = edge_edge_separation(q1, e1, c1, q2, e2, c2);
+        let q_b = points[twin.origin];
+        let u_b = planes[edge.face].normal;
+        let v_b = planes[twin.face].normal;
+        let cba = u_b.dot(e1);
+        let dba = v_b.dot(e1);
+        if cba * dba < 0.0 {
+            let squared_tolerance = 0.005f32 * 0.005;
+            if maxf(cba * cba, dba * dba) < squared_tolerance * e1.length_sq() {
+                index += 2;
+                continue;
+            }
+            let t = cba / (cba - dba);
+            let axis = u_b.lerp(v_b, t).normalize();
+            let separation = axis.dot(q1.sub(q_b));
             if separation > max_separation {
+                max_normal = axis;
                 max_separation = separation;
-                max_index1 = 0;
-                max_index2 = index as i32;
+                max_index_a = 0;
+                max_index_b = index as i32;
             }
         }
         index += 2;
     }
 
     EdgeQuery {
+        normal: max_normal,
         separation: max_separation,
-        index_a: max_index1 & 0xff,
-        index_b: max_index2 & 0xff,
+        index_a: max_index_a & 0xff,
+        index_b: max_index_b & 0xff,
     }
 }
 
@@ -556,6 +563,7 @@ fn query_edge_directions(
     hull_b: &HullData,
     transform_b_to_a: Transform,
 ) -> EdgeQuery {
+    let mut max_normal = Vec3::ZERO;
     let mut max_separation = -FLT_MAX;
     let mut max_index_a: i32 = -1;
     let mut max_index_b: i32 = -1;
@@ -575,9 +583,13 @@ fn query_edge_directions(
         let edge_b = edges_b[index_b];
         let twin_b = edges_b[index_b + 1];
 
-        let mut q_b = points_b[twin_b.origin];
-        let e_b = matrix.mul_v(q_b.sub(points_b[edge_b.origin]));
-        q_b = matrix.mul_v(q_b).add(transform_b_to_a.p);
+        let p_b = matrix
+            .mul_v(points_b[edge_b.origin])
+            .add(transform_b_to_a.p);
+        let q_b = matrix
+            .mul_v(points_b[twin_b.origin])
+            .add(transform_b_to_a.p);
+        let e_b = q_b.sub(p_b);
 
         let u_b = matrix.mul_v(planes_b[edge_b.face].normal);
         let v_b = matrix.mul_v(planes_b[twin_b.face].normal);
@@ -587,8 +599,9 @@ fn query_edge_directions(
             let edge_a = edges_a[index_a];
             let twin_a = edges_a[index_a + 1];
 
+            let p_a = points_a[edge_a.origin];
             let q_a = points_a[twin_a.origin];
-            let e_a = q_a.sub(points_a[edge_a.origin]);
+            let e_a = q_a.sub(p_a);
             let u_a = planes_a[edge_a.face].normal;
             let v_a = planes_a[twin_a.face].normal;
 
@@ -599,10 +612,16 @@ fn query_edge_directions(
             let is_mink = cba * dba < 0.0 && adc * bdc < 0.0 && cba * bdc > 0.0;
 
             if is_mink {
-                let center_a = hull_a.center;
-                let center_b = transform_b_to_a.point(hull_b.center);
-                let separation = edge_edge_separation(q_a, e_a, center_a, q_b, e_b, center_b);
+                let squared_tolerance = 0.005f32 * 0.005;
+                if maxf(cba * cba, dba * dba) < squared_tolerance * e_a.length_sq() {
+                    index_a += 2;
+                    continue;
+                }
+                let t = cba / (cba - dba);
+                let axis = u_b.lerp(v_b, t).normalize();
+                let separation = axis.dot(q_a.sub(q_b));
                 if separation > max_separation {
+                    max_normal = axis;
                     max_separation = separation;
                     max_index_a = index_a as i32;
                     max_index_b = index_b as i32;
@@ -614,6 +633,7 @@ fn query_edge_directions(
     }
 
     EdgeQuery {
+        normal: max_normal,
         separation: max_separation,
         index_a: max_index_a,
         index_b: max_index_b,
@@ -1622,7 +1642,6 @@ fn build_edge_contact(
 
     let edge_a = edges_a[query.index_a as usize];
     let twin_a = edges_a[edge_a.twin];
-    let center_a = hull_a.center;
     let p_a = points_a[edge_a.origin];
     let q_a = points_a[twin_a.origin];
     let e_a = q_a.sub(p_a);
@@ -1633,13 +1652,7 @@ fn build_edge_contact(
     let q_b = transform_b_to_a.point(points_b[twin_b.origin]);
     let e_b = q_b.sub(p_b);
 
-    let mut normal = e_a.cross(e_b);
-    normal = normal.normalize();
-
-    if normal.dot(p_a.sub(center_a)) < 0.0 {
-        normal = normal.neg();
-    }
-
+    let normal = query.normal;
     let result = line_distance(p_a, e_a, p_b, e_b);
 
     if !is_within_segments(&result) {
@@ -1669,6 +1682,202 @@ fn build_edge_contact(
     true
 }
 
+#[derive(Clone, Copy)]
+struct AxisQuery {
+    face_a: FaceQuery,
+    face_b: FaceQuery,
+    edge: EdgeQuery,
+    separated: u32,
+}
+
+#[inline]
+fn dot3_w(a: Vec3, b: Vec3) -> f32 {
+    a.x * b.x + (a.y * b.y + a.z * b.z)
+}
+
+#[inline]
+fn normalize3_w(v: Vec3) -> Vec3 {
+    let length_sq = dot3_w(v, v);
+    if length_sq > 1000.0 * FLT_MIN {
+        let inv = 1.0 / length_sq.sqrt();
+        Vec3::new(v.x * inv, v.y * inv, v.z * inv)
+    } else {
+        Vec3::ZERO
+    }
+}
+
+fn hull_aabb_center_extents(hull: &HullData) -> (Vec3, Vec3) {
+    let mut lower = hull.points[0];
+    let mut upper = hull.points[0];
+    for point in hull.points.iter().take(hull.vertex_count).skip(1) {
+        lower.x = minf(lower.x, point.x);
+        lower.y = minf(lower.y, point.y);
+        lower.z = minf(lower.z, point.z);
+        upper.x = maxf(upper.x, point.x);
+        upper.y = maxf(upper.y, point.y);
+        upper.z = maxf(upper.z, point.z);
+    }
+    (lower.add(upper).scale(0.5), upper.sub(lower).scale(0.5))
+}
+
+#[inline]
+fn negative_transform_w(matrix: Mat3, translation: Vec3, value: Vec3, point: bool) -> Vec3 {
+    let mut result = Vec3::new(
+        dot3_w(Vec3::new(matrix.cx.x, matrix.cy.x, matrix.cz.x), value),
+        dot3_w(Vec3::new(matrix.cx.y, matrix.cy.y, matrix.cz.y), value),
+        dot3_w(Vec3::new(matrix.cx.z, matrix.cy.z, matrix.cz.z), value),
+    );
+    if point {
+        result = result.add(translation);
+    }
+    result.neg()
+}
+
+fn compute_separating_axis(
+    hull_a: &HullData,
+    hull_b: &HullData,
+    transform_b_to_a: Transform,
+    early_return: bool,
+) -> AxisQuery {
+    let rotation = Mat3::from_quat(transform_b_to_a.q);
+    let inverse_rotation = rotation.transpose();
+    let (center_b, extent_b) = hull_aabb_center_extents(hull_b);
+    let (center_a, extent_a) = hull_aabb_center_extents(hull_a);
+    let mut result = AxisQuery {
+        face_a: FaceQuery {
+            separation: -f32::INFINITY,
+            face_index: 0,
+            vertex_index: 0,
+        },
+        face_b: FaceQuery {
+            separation: -f32::INFINITY,
+            face_index: 0,
+            vertex_index: 0,
+        },
+        edge: EdgeQuery {
+            normal: Vec3::ZERO,
+            separation: -f32::INFINITY,
+            index_a: -1,
+            index_b: -1,
+        },
+        separated: separating_feature::INVALID,
+    };
+
+    for i in 0..hull_a.face_count {
+        let plane = hull_a.planes[i];
+        let direction = inverse_rotation.mul_v(plane.normal).neg();
+        let plane_separation = plane.normal.dot(transform_b_to_a.p) - plane.offset;
+        let bias = direction.dot(center_b) + 1.0625 * direction.abs().dot(extent_b);
+        let vertex = hull_b.support_vertex_wide(direction, bias);
+        let p = hull_b.points[vertex];
+        let support = dot3_w(direction, p);
+        let separation = plane_separation - support;
+        if separation > result.face_a.separation {
+            result.face_a = FaceQuery {
+                separation,
+                face_index: i,
+                vertex_index: vertex,
+            };
+            if early_return && separation > SPECULATIVE_DISTANCE {
+                result.separated = separating_feature::FACE_AXIS_A;
+                return result;
+            }
+        }
+    }
+
+    for i in 0..hull_b.face_count {
+        let plane = hull_b.planes[i];
+        let direction = rotation.mul_v(plane.normal).neg();
+        let plane_separation = direction.dot(transform_b_to_a.p) - plane.offset;
+        let bias = direction.dot(center_a) + 1.0625 * direction.abs().dot(extent_a);
+        let vertex = hull_a.support_vertex_wide(direction, bias);
+        let support = dot3_w(direction, hull_a.points[vertex]);
+        let separation = plane_separation - support;
+        if separation > result.face_b.separation {
+            result.face_b = FaceQuery {
+                separation,
+                face_index: i,
+                vertex_index: vertex,
+            };
+            if early_return && separation > SPECULATIVE_DISTANCE {
+                result.separated = separating_feature::FACE_AXIS_B;
+                return result;
+            }
+        }
+    }
+
+    let squared_tol = 0.005 * 0.005;
+    let edge_count_b = hull_b.edge_count / 2;
+    for edge_b_index in 0..edge_count_b {
+        let index_b = edge_b_index * 2;
+        let edge_b = hull_b.edges[index_b];
+        let twin_b = hull_b.edges[index_b + 1];
+        let c = negative_transform_w(
+            rotation,
+            transform_b_to_a.p,
+            hull_b.planes[edge_b.face].normal,
+            false,
+        );
+        let d = negative_transform_w(
+            rotation,
+            transform_b_to_a.p,
+            hull_b.planes[twin_b.face].normal,
+            false,
+        );
+        let v0 = negative_transform_w(
+            rotation,
+            transform_b_to_a.p,
+            hull_b.points[edge_b.origin],
+            true,
+        );
+        let v1 = negative_transform_w(
+            rotation,
+            transform_b_to_a.p,
+            hull_b.points[twin_b.origin],
+            true,
+        );
+        let dc = v1.sub(v0);
+
+        for edge_a_index in 0..(hull_a.edge_count / 2) {
+            let index_a = edge_a_index * 2;
+            let edge_a = hull_a.edges[index_a];
+            let twin_a = hull_a.edges[index_a + 1];
+            let n0 = hull_a.planes[edge_a.face].normal;
+            let n1 = hull_a.planes[twin_a.face].normal;
+            let av0 = hull_a.points[edge_a.origin];
+            let av1 = hull_a.points[twin_a.origin];
+            let da = av1.sub(av0);
+            let cba = dot3_w(c, da);
+            let dba = dot3_w(d, da);
+            let adc = dot3_w(n0, dc);
+            let bdc = dot3_w(n1, dc);
+            if cba * dba >= -0.0001 || adc * bdc >= -0.0001 || cba * bdc >= -0.0001 {
+                continue;
+            }
+            if maxf(cba * cba, dba * dba) <= squared_tol * dot3_w(da, da) {
+                continue;
+            }
+            let t = -cba / (dba - cba);
+            let axis = normalize3_w(c.add(d.sub(c).scale(t)));
+            let support = dot3_w(av0.add(v0), axis);
+            let separation = -support;
+            if separation > result.edge.separation {
+                result.edge = EdgeQuery {
+                    normal: axis,
+                    separation,
+                    index_a: index_a as i32,
+                    index_b: index_b as i32,
+                };
+                if early_return && separation > SPECULATIVE_DISTANCE {
+                    result.separated = separating_feature::EDGE_PAIR_AXIS;
+                    return result;
+                }
+            }
+        }
+    }
+    result
+}
+
 /// b3CollideHulls — up to four-point manifold for two convex hulls, in frame A, with SAT cache.
 pub fn collide_hulls(
     manifold: &mut LocalManifold,
@@ -1693,6 +1902,8 @@ pub fn collide_hulls(
     let planes_b = &hull_b.planes;
     let points_b = &hull_b.points;
 
+    cache.hit = 0;
+
     // Attempt to use the cache to speed up collision.
     match cache.ty {
         separating_feature::INVALID => {
@@ -1707,6 +1918,7 @@ pub fn collide_hulls(
             let separation = pl.separation(support);
 
             if separation >= speculative_distance {
+                cache.hit = 1;
                 return;
             }
 
@@ -1726,6 +1938,7 @@ pub fn collide_hulls(
                 &mut local_cache,
             );
             if touching && absf(cache.separation - local_cache.separation) < linear_slop {
+                cache.hit = 1;
                 return;
             }
         }
@@ -1738,6 +1951,7 @@ pub fn collide_hulls(
             let separation = pl.separation(support);
 
             if separation >= speculative_distance {
+                cache.hit = 1;
                 return;
             }
 
@@ -1757,6 +1971,7 @@ pub fn collide_hulls(
                 &mut local_cache,
             );
             if touching && absf(cache.separation - local_cache.separation) < linear_slop {
+                cache.hit = 1;
                 return;
             }
         }
@@ -1786,30 +2001,42 @@ pub fn collide_hulls(
 
             let is_mink = is_minkowski_face(u1, v1, e1, u2.neg(), v2.neg(), e2);
             if is_mink {
-                let c1 = hull_a.center;
-                let c2 = transform_b_to_a.point(hull_b.center);
-
-                let separation = edge_edge_separation(p1, e1, c1, p2, e2, c2);
-                if separation > speculative_distance {
-                    return;
-                }
-
-                let edge_query = EdgeQuery {
-                    index_a: cache.index_a as i32,
-                    index_b: cache.index_b as i32,
-                    separation: 0.0,
-                };
-                let mut local_cache = SatCache::empty();
-                let touching = build_edge_contact(
-                    manifold,
-                    hull_a,
-                    hull_b,
-                    transform_b_to_a,
-                    edge_query,
-                    &mut local_cache,
-                );
-                if touching && absf(cache.separation - local_cache.separation) < linear_slop {
-                    return;
+                let cba = u2.dot(e1);
+                let dba = v2.dot(e1);
+                let adc = -u1.dot(e2);
+                let bdc = -v1.dot(e2);
+                if cba * dba >= 0.0 || adc * bdc >= 0.0 || cba * bdc <= 0.0 {
+                    // The cached edge pair is no longer a Minkowski edge.
+                } else {
+                    let squared_tolerance = 0.005f32 * 0.005;
+                    if maxf(cba * cba, dba * dba) >= squared_tolerance * e1.length_sq() {
+                        let t = cba / (cba - dba);
+                        let normal = u2.lerp(v2, t).normalize();
+                        let separation = normal.dot(q1.sub(q2));
+                        if separation <= speculative_distance {
+                            let edge_query = EdgeQuery {
+                                normal: normal.neg(),
+                                index_a: cache.index_a as i32,
+                                index_b: cache.index_b as i32,
+                                separation,
+                            };
+                            let mut local_cache = SatCache::empty();
+                            let touching = build_edge_contact(
+                                manifold,
+                                hull_a,
+                                hull_b,
+                                transform_b_to_a,
+                                edge_query,
+                                &mut local_cache,
+                            );
+                            if touching
+                                && absf(cache.separation - local_cache.separation) < linear_slop
+                            {
+                                cache.hit = 1;
+                                return;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1864,91 +2091,80 @@ pub fn collide_hulls(
     manifold.point_count = 0;
     cache.reset();
 
-    // Find axis of minimum penetration.
-    let face_query_a = query_face_directions(hull_a, hull_b, transform_b_to_a);
-    if face_query_a.separation > speculative_distance {
-        cache.separation = face_query_a.separation;
-        cache.ty = separating_feature::FACE_AXIS_A;
-        cache.index_a = face_query_a.face_index & 0xff;
-        cache.index_b = face_query_a.vertex_index & 0xff;
+    let axis_query = compute_separating_axis(hull_a, hull_b, transform_b_to_a, true);
+    if axis_query.separated != separating_feature::INVALID {
+        cache.ty = axis_query.separated;
+        match axis_query.separated {
+            separating_feature::FACE_AXIS_A => {
+                cache.separation = axis_query.face_a.separation;
+                cache.index_a = axis_query.face_a.face_index & 0xff;
+                cache.index_b = axis_query.face_a.vertex_index & 0xff;
+            }
+            separating_feature::FACE_AXIS_B => {
+                cache.separation = axis_query.face_b.separation;
+                cache.index_a = axis_query.face_b.vertex_index & 0xff;
+                cache.index_b = axis_query.face_b.face_index & 0xff;
+            }
+            _ => {
+                cache.separation = axis_query.edge.separation;
+                cache.index_a = (axis_query.edge.index_a & 0xff) as usize;
+                cache.index_b = (axis_query.edge.index_b & 0xff) as usize;
+            }
+        }
         return;
     }
 
-    let face_query_b = query_face_directions(hull_b, hull_a, transform_b_to_a.invert());
-    if face_query_b.separation > speculative_distance {
-        cache.separation = face_query_b.separation;
-        cache.ty = separating_feature::FACE_AXIS_B;
-        cache.index_a = face_query_b.vertex_index & 0xff;
-        cache.index_b = face_query_b.face_index & 0xff;
-        return;
-    }
-
-    let edge_query = query_edge_directions(hull_a, hull_b, transform_b_to_a);
-    if edge_query.separation > speculative_distance {
-        cache.separation = edge_query.separation;
-        cache.ty = separating_feature::EDGE_PAIR_AXIS;
-        cache.index_a = (edge_query.index_a & 0xff) as usize;
-        cache.index_b = (edge_query.index_b & 0xff) as usize;
-        return;
-    }
-
-    // Always build a face contact (e.g. Jenga problem).
-    let face_separation_a = face_query_a.separation;
-    let face_separation_b = face_query_b.separation;
-
-    if face_separation_b > face_separation_a + 0.5 * linear_slop {
-        build_face_b_contact(
-            manifold,
-            capacity,
-            hull_a,
-            hull_b,
-            transform_b_to_a,
-            face_query_b,
-            cache,
-        );
+    let face_query = if axis_query.face_a.separation > axis_query.face_b.separation {
+        axis_query.face_a
     } else {
+        // The active target chooses face B on an exact tie.
+        axis_query.face_b
+    };
+    if axis_query.face_a.separation > axis_query.face_b.separation {
         build_face_a_contact(
             manifold,
             capacity,
             hull_a,
             hull_b,
             transform_b_to_a,
-            face_query_a,
+            face_query,
+            cache,
+        );
+    } else {
+        build_face_b_contact(
+            manifold,
+            capacity,
+            hull_a,
+            hull_b,
+            transform_b_to_a,
+            face_query,
             cache,
         );
     }
 
-    if edge_query.index_a == -1 {
-        // No valid edge pairs (all edges parallel).
+    if axis_query.edge.index_a == -1 {
         return;
     }
 
     let clipped_face_separation = cache.separation;
-
-    // Create edge contact if face contact fails or edge contact is significantly better.
-    let k_rel_edge_tolerance: f32 = 0.9;
-    let k_abs_tolerance = 0.5 * linear_slop;
-
     if manifold.point_count == 0
-        || edge_query.separation > k_rel_edge_tolerance * clipped_face_separation + k_abs_tolerance
+        || axis_query.edge.separation > clipped_face_separation + linear_slop
     {
         let mut edge_manifold = LocalManifold::new();
-        edge_manifold.point_count = 0;
-
+        let mut edge_cache = SatCache::empty();
         build_edge_contact(
             &mut edge_manifold,
             hull_a,
             hull_b,
             transform_b_to_a,
-            edge_query,
-            cache,
+            axis_query.edge,
+            &mut edge_cache,
         );
-
         if edge_manifold.point_count == 1 {
-            // Copy the edge manifold out, preserving the caller's point buffer.
             manifold.normal = edge_manifold.normal;
-            manifold.point_count = edge_manifold.point_count;
+            manifold.point_count = 1;
             manifold.points[0] = edge_manifold.points[0];
+            *cache = edge_cache;
         }
     }
 }

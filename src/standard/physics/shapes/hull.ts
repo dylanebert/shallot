@@ -1525,6 +1525,37 @@ export function findHullSupportVertex(hull: HullData, direction: Vec3): number {
     return bestIndex;
 }
 
+/** SIMD support reduction used by b3GetSupportWide, including padded SoA lanes. */
+export function findHullSupportVertexWide(
+    hull: HullData,
+    direction: Vec3,
+    bias: number,
+): { index: number; support: number } {
+    const soaCount = (hull.vertexCount + 3) & ~3;
+    let bestValue = Number.POSITIVE_INFINITY;
+    let bestLane = 0;
+    for (let lane = 0; lane < soaCount; ++lane) {
+        const index = lane < hull.vertexCount ? lane : 0;
+        const p = hull.points[index];
+        const dot = f32(
+            f32(direction.x * p.x) + f32(f32(direction.y * p.y) + f32(direction.z * p.z)),
+        );
+        const value = f32(bias - dot);
+        const bits = (new Uint32Array(new Float32Array([value]).buffer)[0] & ~0x7f) | lane;
+        const augmented = new Float32Array(new Uint32Array([bits]).buffer)[0];
+        if (augmented < bestValue) {
+            bestValue = augmented;
+            bestLane = lane;
+        }
+    }
+    const index = bestLane < hull.vertexCount ? bestLane : 0;
+    const p = hull.points[index];
+    const support = f32(
+        f32(f32(direction.x * p.x) + f32(direction.y * p.y)) + f32(direction.z * p.z),
+    );
+    return { index, support };
+}
+
 /** Index of the hull face whose normal is most aligned with `direction` (b3FindHullSupportFace). */
 export function findHullSupportFace(hull: HullData, direction: Vec3): number {
     let bestIndex = NULL_INDEX;
