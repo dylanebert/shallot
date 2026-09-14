@@ -1,29 +1,55 @@
-import { afterAll, afterEach, expect } from "bun:test";
-import { Time } from "../../engine";
-import { check } from "../../harness/check";
-import { hashWorldState, shutdown } from "./api";
-import { addBody, headlessPhysicsState } from "./headless.fixture";
-import { body, PhysicsPlugin, physicsWorld, ShapeKind } from "./index";
+import { afterEach, expect } from "bun:test";
+import { build, type State, Time } from "@dylanebert/shallot";
+import { check } from "@dylanebert/shallot/harness/check";
+import {
+    Body,
+    body,
+    hash,
+    PhysicsPlugin,
+    physicsWorld,
+    ShapeKind,
+} from "@dylanebert/shallot/physics";
 
-// The premise every other physics check rests on: the solver is CPU-native wasm, so a `State` with
-// `PhysicsPlugin` warms and steps in Bun with no GPU device and no browser.
+// The solver is CPU-native wasm: the public PhysicsPlugin composition warms and steps in Bun with no
+// GPU device. Keep authoring in this check so it proves the public component writes rather than a fixture seam.
 
-let live: Awaited<ReturnType<typeof headlessPhysicsState>> | null = null;
+function addBody(
+    state: State,
+    data: {
+        shape: number;
+        pos: [number, number, number];
+        halfExtents: [number, number, number, number];
+        mass: number;
+        friction?: number;
+        quat?: [number, number, number, number];
+    },
+): number {
+    const eid = state.create();
+    state.add(eid, Body);
+    Body.shape.set(eid, data.shape);
+    Body.halfExtents.set(eid, ...data.halfExtents);
+    Body.pos.set(eid, data.pos[0], data.pos[1], data.pos[2], 0);
+    Body.quat.set(eid, ...(data.quat ?? [0, 0, 0, 1]));
+    Body.mass.set(eid, data.mass);
+    Body.friction.set(eid, data.friction ?? 0.5);
+    return eid;
+}
+
+let live: Awaited<ReturnType<typeof build>> | null = null;
 
 afterEach(() => {
-    if (live) PhysicsPlugin.dispose?.(live);
+    live?.dispose();
     live = null;
 });
-afterAll(shutdown);
-
 check(
     "a headless State warms PhysicsPlugin and steps it with no GPU",
     {
         claim: "physics stops stepping without a GPU device, so every step-tier physics check would be unrunnable in Bun",
     },
     async () => {
-        const state = await headlessPhysicsState();
-        live = state;
+        expect(globalThis.navigator?.gpu).toBeUndefined();
+        live = await build({ defaults: false, plugins: [PhysicsPlugin] });
+        const { state } = live;
         expect(physicsWorld(state)).not.toBeNull();
 
         addBody(state, {
@@ -42,7 +68,7 @@ check(
         const hashes: bigint[] = [];
         for (let i = 0; i < 30; i++) {
             state.step(Time.FIXED_DT);
-            hashes.push(hashWorldState(physicsWorld(state)!.state));
+            hashes.push(hash(state));
         }
 
         // the world advanced: 30 distinct states, and the dynamic body fell under gravity while the

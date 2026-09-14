@@ -1,7 +1,14 @@
 import { afterEach, expect } from "bun:test";
 import { check } from "../../harness/check";
 import { DEFAULT_PLUGINS } from "../../standard/defaults";
-import { PhysicsPlugin, physicsWorld } from "../../standard/physics";
+import {
+    Body,
+    hash as hashPhysics,
+    PhysicsPlugin,
+    physicsWorld,
+    ShapeKind,
+} from "../../standard/physics";
+import { Slab } from "../../standard/slab";
 import { Compute, State, stampAdapter, Time } from "../index";
 import { diagnose, load, parse } from "../scene";
 import { build, deviceTier } from "./index";
@@ -35,6 +42,38 @@ check(
         expect(Compute.device).toBeUndefined();
         expect(physicsWorld(live.state)).not.toBeNull();
         live.state.step(Time.FIXED_DT);
+    },
+);
+
+check(
+    "a sequential Physics build re-enters with the same world hash",
+    {
+        claim: "disposing a CPU Physics build leaves slab or solver state behind, so a sequential re-entry produces a different fixed-step world",
+    },
+    async () => {
+        const author = (state: State) => {
+            const eid = state.create();
+            state.add(eid, Body);
+            Body.shape.set(eid, ShapeKind.Box);
+            Body.pos.set(eid, 0, 2, 0, 0);
+            Body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
+            Body.mass.set(eid, 1);
+            return eid;
+        };
+        const stepAndHash = (state: State): bigint => {
+            for (let i = 0; i < 8; i++) state.step(Time.FIXED_DT);
+            return hashPhysics(state);
+        };
+
+        const first = await build({ defaults: false, plugins: [PhysicsPlugin] });
+        author(first.state);
+        const firstHash = stepAndHash(first.state);
+        first.dispose();
+        expect((Slab as unknown as { _all: unknown[] })._all).toHaveLength(0);
+
+        live = await build({ defaults: false, plugins: [PhysicsPlugin] });
+        author(live.state);
+        expect(stepAndHash(live.state)).toBe(firstHash);
     },
 );
 
