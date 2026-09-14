@@ -231,8 +231,9 @@ check(
     () => {
         expect(dependencyViolations("link:../shallot").join("\\n")).toContain("link");
         expect(dependencyViolations("file:../shallot").join("\\n")).toContain("file");
-        for (const tag of ["latest", "next", "beta"])
+        for (const tag of ["latest", "next", "beta", "candidate", "custom-release"])
             expect(dependencyViolations(tag).join("\\n")).toContain("mutable dist-tag");
+        expect(dependencyViolations("^0.10.0")).toEqual([]);
     },
 );
 

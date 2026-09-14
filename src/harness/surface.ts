@@ -693,7 +693,7 @@ function shallotPackage(name: string): boolean {
 
 type ForbiddenSpecifier = "link" | "file" | "git" | "github" | "URL" | "workspace" | "portal";
 const FULL_COMMIT = /^[0-9a-f]{40}$/i;
-const MUTABLE_TAG = /^(?:latest|next|beta|alpha|canary|dev|nightly)$/i;
+const PUBLISHED_RANGE = /^(?:[vV]?\d|[~^<>=*|])/;
 const REMOTE_TARBALL = /^https?:\/\/[^\s]+\.(?:tgz|tar\.gz)(?:[?#].*)?$/i;
 const LOCAL_TARBALL = /\.(?:tgz|tar\.gz)$/i;
 
@@ -811,7 +811,7 @@ function dependencyViolations(root: string): string[] {
                         );
                     continue;
                 }
-                if (MUTABLE_TAG.test(value))
+                if (!PUBLISHED_RANGE.test(value))
                     violations.push(
                         `${file}: ${table}.${name} uses mutable dist-tag ${JSON.stringify(value)}`,
                     );
