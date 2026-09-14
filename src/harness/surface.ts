@@ -599,7 +599,7 @@ function workflowPath(root: string): string {
 export function renderWorkflow(population: Population): string {
     if (workflowRows(population).length === 0) return "";
     const steps = [
-        "      - uses: actions/checkout@v4",
+        "      - uses: actions/checkout@v7",
         "        with:",
         "          fetch-depth: 0",
         "      - uses: oven-sh/setup-bun@v2",
@@ -607,7 +607,7 @@ export function renderWorkflow(population: Population): string {
     if (workflowNeedsCargo(population))
         steps.push(
             "      - uses: dtolnay/rust-toolchain@stable",
-            "      - uses: actions/cache@v4",
+            "      - uses: actions/cache@v6",
             "        with:",
             "          path: target",
             "          key: $" +

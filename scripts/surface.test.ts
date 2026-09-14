@@ -569,6 +569,8 @@ check(
             files: [],
         };
         const rendered = renderWorkflow(ordinary);
+        expect(rendered).toContain("actions/checkout@v7");
+        expect(rendered).toContain("oven-sh/setup-bun@v2");
         expect(rendered).toContain("fetch-depth: 0");
         expect(rendered).toContain("github.event.pull_request.base.sha");
         expect(rendered).toContain("github.event.before");
@@ -599,6 +601,7 @@ check(
             rows: [{ ...ordinary.rows[0], claim: "cargo runs", requires: ["cargo"] }],
         };
         expect(renderWorkflow(cargo)).toContain("dtolnay/rust-toolchain@stable");
+        expect(renderWorkflow(cargo)).toContain("actions/cache@v6");
         expect(renderWorkflow(cargo)).toContain("path: target");
         const oracleOnly = {
             ...ordinary,
