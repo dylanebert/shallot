@@ -1,8 +1,9 @@
 import { version as engineVersion } from "../../package.json" with { type: "json" };
+import { type AdapterFacts, classifyAdapter } from "../engine/runtime/adapter";
 import { CAPTURE_CONTRACT, type CaptureIdentity, captureIdentityLabel } from "./capture";
 import { launchOptions, launchPlan } from "./launch";
 import type { Verdict } from "./runtime";
-import { type AdapterFacts, classifyAdapter, resolveSeat } from "./seat";
+import { resolveSeat } from "./seat";
 import type { Reproduction, VerdictDiagnostics } from "./verdict";
 
 /** the verdict a browser row returns: the page's own verdict plus the reproduction record behind it. */

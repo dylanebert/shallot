@@ -1,5 +1,6 @@
 import { type Component, entries, fields, register, State, type System, type Traits } from "../ecs";
 import {
+    type AdapterVerdict,
     Compute,
     deviceLost,
     now,
@@ -99,6 +100,8 @@ export interface Loading {
      * it resolves. the engine awaits it, then one frame, then the cleanup. omit to dismiss at once
      */
     complete?(): Promise<void> | void;
+    /** show a non-blocking adapter notice while the app continues on a fallback or unidentified adapter */
+    notice?(verdict: AdapterVerdict): void;
     /** render the thrown value; the default screen branches on `UnsupportedError` */
     error?(error: unknown): void;
 }
@@ -124,6 +127,8 @@ export interface Config {
     ui?: (container: HTMLElement, state: State) => () => void;
     /** externally-acquired GPU device; if omitted, the engine acquires one */
     device?: GPUDevice;
+    /** adapter that supplied an externally-acquired {@link device}; omitted devices are stamped unidentified */
+    adapter?: GPUAdapter;
     /** entity capacity; fixed at app construction. defaults to 65536. */
     capacity?: number;
     /**
@@ -286,7 +291,8 @@ export async function build(config: Config): Promise<App> {
             const features = [...new Set(sorted.flatMap((p) => p.features ?? []))];
             const preferred = [...new Set(sorted.flatMap((p) => p.preferredFeatures ?? []))];
             try {
-                await requestGPU(config.device, features, preferred);
+                await requestGPU(config.device, features, preferred, config.adapter);
+                if (Compute.adapter.class !== "real") loading?.notice?.(Compute.adapter);
             } catch (error) {
                 const detail = error instanceof Error ? error.message : String(error);
                 const required = tier.required.join(", ");

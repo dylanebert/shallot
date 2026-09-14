@@ -73,6 +73,7 @@ export {
     requestGPU,
     resetCompute,
     type ShaderArtifact,
+    stampAdapter,
     type TextureProbe,
     type TextureProbeOptions,
     tgslCanary,

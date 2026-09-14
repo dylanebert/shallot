@@ -1,4 +1,12 @@
 export {
+    type AdapterClass,
+    type AdapterFacts,
+    type AdapterInfoFacts,
+    type AdapterVerdict,
+    adapterIdentity,
+    classifyAdapter,
+} from "./adapter";
+export {
     Compute,
     checkStorageBinding,
     checkTextureLimits,
@@ -12,6 +20,7 @@ export {
     requestGPU,
     resetCompute,
     type ShaderArtifact,
+    stampAdapter,
     tgslCanary,
     UnsupportedError,
     validateGpu,
