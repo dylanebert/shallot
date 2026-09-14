@@ -22,6 +22,7 @@ import type { EntityId } from "../common/ids";
 import { type AABB, f32, froundConfig, type Pos, type Vec3 } from "../common/math";
 import {
     type BodyDef,
+    BodyType,
     defaultBodyDef,
     defaultQueryFilter,
     defaultWorldDef,
@@ -95,12 +96,20 @@ import {
     type RevoluteJointConfig,
     type SensorEvents,
     type SensorTouchEvent,
+    type SoftJointConfig,
     type SphericalJointConfig,
     type WeldJointConfig,
     type WheelJointConfig,
 } from "./config";
 import { DistanceJoint, Joint, PrismaticJoint, RevoluteJoint } from "./joint";
-import { MotorJoint, ParallelJoint, SphericalJoint, WeldJoint, WheelJoint } from "./joints";
+import {
+    MotorJoint,
+    ParallelJoint,
+    SoftJoint,
+    SphericalJoint,
+    WeldJoint,
+    WheelJoint,
+} from "./joints";
 import { Contact, Shape } from "./shape";
 import { restore as restoreWorld, snapshot as snapshotWorld, type WorldSnapshot } from "./snapshot";
 
@@ -208,10 +217,12 @@ export class World {
             shapeIdA: EntityId;
             shapeIdB: EntityId;
             contactId: EntityId;
+            normalImpulse: number;
         }): ContactTouchEvent => ({
             shapeA: new Shape(state, e.shapeIdA),
             shapeB: new Shape(state, e.shapeIdB),
             contact: new Contact(state, e.contactId),
+            normalImpulse: e.normalImpulse,
         });
         // Careful to read the previous end-event buffer (the swap already happened this step).
         const endEvents = state.contactEndEvents[1 - state.endEventArrayIndex];
@@ -404,6 +415,47 @@ export class World {
         };
         const { joint } = createDistanceJoint(this.state, def);
         return new DistanceJoint(this.state, makeJointId(this.state, joint));
+    }
+
+    /**
+     * Attach a body to a fixed world point with a soft distance spring.
+     * The implementation owns an unshaped static anchor body; callers move the anchor with
+     * {@link SoftJoint.setAnchor} and never need to manufacture a second body.
+     * @example world.createSoftJoint(body, { x: 0, y: 3, z: 0 }, { hertz: 5, dampingRatio: 0.7 })
+     */
+    createSoftJoint(body: Body, anchor: Pos, cfg: Partial<SoftJointConfig> = {}): SoftJoint {
+        cfg = froundConfig(cfg);
+        const anchorBody = this.createBody({
+            type: BodyType.Static,
+            position: froundConfig(anchor),
+        });
+        const bodyAnchor = body.getLocalPoint(anchor);
+        const bodyPosition = body.getPosition();
+        const restLength =
+            cfg.length ??
+            Math.hypot(
+                bodyPosition.x + bodyAnchor.x - anchor.x,
+                bodyPosition.y + bodyAnchor.y - anchor.y,
+                bodyPosition.z + bodyAnchor.z - anchor.z,
+            );
+        const d = defaultDistanceJointDef(defaultJointDef());
+        const def: DistanceJointDef = {
+            base: baseJointDef(anchorBody, body, cfg, d.base),
+            length: f32(restLength),
+            enableSpring: true,
+            hertz: cfg.hertz ?? cfg.stiffness ?? 4,
+            dampingRatio: cfg.dampingRatio ?? cfg.damping ?? 1,
+            lowerSpringForce: d.lowerSpringForce,
+            upperSpringForce: d.upperSpringForce,
+            enableLimit: false,
+            minLength: d.minLength,
+            maxLength: d.maxLength,
+            enableMotor: false,
+            maxMotorForce: 0,
+            motorSpeed: 0,
+        };
+        const { joint } = createDistanceJoint(this.state, def);
+        return new SoftJoint(this.state, makeJointId(this.state, joint), anchorBody);
     }
 
     /**

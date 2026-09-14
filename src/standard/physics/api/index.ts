@@ -109,10 +109,18 @@ export type {
     RevoluteJointConfig,
     SensorEvents,
     SensorTouchEvent,
+    SoftJointConfig,
     SphericalJointConfig,
     WeldJointConfig,
     WheelJointConfig,
 } from "./config";
 export { DistanceJoint, Joint, PrismaticJoint, RevoluteJoint } from "./joint";
-export { MotorJoint, ParallelJoint, SphericalJoint, WeldJoint, WheelJoint } from "./joints";
+export {
+    MotorJoint,
+    ParallelJoint,
+    SoftJoint,
+    SphericalJoint,
+    WeldJoint,
+    WheelJoint,
+} from "./joints";
 export { Contact, Shape } from "./shape";

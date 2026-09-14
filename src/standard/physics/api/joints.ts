@@ -1,4 +1,14 @@
-import { clampf, f32, froundConfig, PI, type Quat, type Vec3, vec3 } from "../common/math";
+import {
+    clampf,
+    f32,
+    froundConfig,
+    PI,
+    type Pos,
+    type Quat,
+    type Vec3,
+    vec3,
+} from "../common/math";
+import { wakeJointBodies } from "../solver/joint";
 import type { MotorJoint as MotorJointData } from "../solver/motorJoint";
 import type { ParallelJoint as ParallelJointData } from "../solver/parallelJoint";
 import {
@@ -12,8 +22,41 @@ import {
     wheelJointSpinSpeed,
     wheelJointSteeringAngle,
 } from "../solver/wheelJoint";
+import type { Body } from "./body";
 import { cloneQuat } from "./config";
-import { Joint } from "./joint";
+import { DistanceJoint, Joint } from "./joint";
+
+/** A spring joint from a body anchor to a point fixed in world space. */
+export class SoftJoint extends DistanceJoint {
+    private readonly _anchorBody: Body;
+
+    /** @internal use World.createSoftJoint */
+    constructor(
+        world: import("../world/world").WorldState,
+        id: import("../common/ids").EntityId,
+        anchorBody: Body,
+    ) {
+        super(world, id);
+        this._anchorBody = anchorBody;
+    }
+
+    /** @returns the current world-space anchor. */
+    getAnchor(): Pos {
+        return this._anchorBody.getPosition();
+    }
+
+    /** Move the fixed anchor and wake the connected dynamic body. */
+    setAnchor(anchor: Pos): void {
+        this._anchorBody.setTransform(anchor, { v: { x: 0, y: 0, z: 0 }, s: 1 });
+        this.wakeBodies();
+    }
+
+    override destroy(wakeBodies = true): void {
+        if (!this.isValid()) return;
+        super.destroy(wakeBodies);
+        this._anchorBody.destroy();
+    }
+}
 
 /** A spherical (ball-and-socket) joint handle. */
 export class SphericalJoint extends Joint {
@@ -153,12 +196,10 @@ export class SphericalJoint extends Joint {
         return this.data().enableMotor;
     }
 
-    /**
-     * Set the motor target angular velocity.
-     * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
-     */
+    /** Set the motor target angular velocity, waking the connected bodies. */
     setMotorVelocity(velocity: Vec3): void {
         this.data().motorVelocity = froundConfig(velocity);
+        wakeJointBodies(this.world, this.record());
     }
 
     /** @returns the motor target angular velocity. */
@@ -238,12 +279,10 @@ export class MotorJoint extends Joint {
         return this.sim().data as MotorJointData;
     }
 
-    /**
-     * Set the target relative linear velocity.
-     * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
-     */
+    /** Set the target relative linear velocity, waking the connected bodies. */
     setLinearVelocity(velocity: Vec3): void {
         this.data().linearVelocity = froundConfig(velocity);
+        wakeJointBodies(this.world, this.record());
     }
 
     /** @returns the target relative linear velocity. */
@@ -251,12 +290,10 @@ export class MotorJoint extends Joint {
         return { ...this.data().linearVelocity };
     }
 
-    /**
-     * Set the target relative angular velocity.
-     * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
-     */
+    /** Set the target relative angular velocity, waking the connected bodies. */
     setAngularVelocity(velocity: Vec3): void {
         this.data().angularVelocity = froundConfig(velocity);
+        wakeJointBodies(this.world, this.record());
     }
 
     /** @returns the target relative angular velocity. */
@@ -485,12 +522,10 @@ export class WheelJoint extends Joint {
         return this.data().enableSpinMotor;
     }
 
-    /**
-     * Set the spin motor target speed.
-     * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
-     */
+    /** Set the spin motor target speed, waking the connected bodies. */
     setSpinMotorSpeed(speed: number): void {
         this.data().spinSpeed = f32(speed);
+        wakeJointBodies(this.world, this.record());
     }
 
     /** @returns the spin motor target speed. */

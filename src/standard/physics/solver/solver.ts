@@ -388,6 +388,22 @@ function finalizeBodies(
 // --- Event build passes ----------------------------------------------------------------------
 
 /** Emit a joint event for each joint flagged over its threshold, in ascending id order (b3Solve). */
+/** Fill begin events after the solve has written the per-point normal impulses. */
+function updateBeginContactImpulses(world: WorldState): void {
+    for (const event of world.contactBeginEvents) {
+        const contact = world.contacts[event.contactId.index1 - 1];
+        if (!contact || contact.generation !== event.contactId.generation) continue;
+        let impulse = 0;
+        for (let m = 0; m < contact.manifoldCount; ++m) {
+            const manifold = contact.manifolds[m];
+            for (let p = 0; p < manifold.pointCount; ++p) {
+                impulse = f32(impulse + manifold.points[p].totalNormalImpulse);
+            }
+        }
+        event.normalImpulse = impulse;
+    }
+}
+
 function buildJointEvents(context: StepContext): void {
     if (context.jointEventFlags.size === 0) {
         return;
@@ -478,6 +494,7 @@ export function solve(world: WorldState, context: StepContext): void {
     const awakeSet = world.solverSets[SetType.Awake];
     const awakeBodyCount = awakeSet.bodySims.length;
     if (awakeBodyCount === 0) {
+        updateBeginContactImpulses(world);
         return;
     }
 
@@ -783,6 +800,10 @@ export function solve(world: WorldState, context: StepContext): void {
 
     finalizeBodies(context, cols, persistentStates, pool !== null);
     profile.transforms = elapsed(transformStart);
+
+    // The contact-begin records are created during collision detection, but their normal impulses are
+    // only authoritative after the velocity solve has stored the warm-start columns.
+    updateBeginContactImpulses(world);
 
     // Report joint and hit events (b3Solve, after finalize, before the bullet stage).
     const jointEventStart = ticks();

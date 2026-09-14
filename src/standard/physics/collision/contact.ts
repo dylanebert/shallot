@@ -514,6 +514,7 @@ export function destroyContact(world: WorldState, contact: Contact, wakeBodies: 
                 world0: worldId,
                 generation: contact.generation,
             },
+            normalImpulse: 0,
         });
     }
 

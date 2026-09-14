@@ -1112,6 +1112,7 @@ export function collide(context: StepContext): void {
                         world0: worldId,
                         generation: contact.generation,
                     },
+                    normalImpulse: 0,
                 });
             }
 
@@ -1144,6 +1145,7 @@ export function collide(context: StepContext): void {
                         world0: worldId,
                         generation: contact.generation,
                     },
+                    normalImpulse: 0,
                 });
             }
 

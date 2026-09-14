@@ -38,7 +38,12 @@ export type WorldId = { index1: number; generation: number };
  * are resolved to public {@link Shape}/{@link Contact} handles at getter time; end events read from
  * the previous double buffer, so they survive one step.
  */
-export type ContactTouchEvent = { shapeIdA: EntityId; shapeIdB: EntityId; contactId: EntityId };
+export type ContactTouchEvent = {
+    shapeIdA: EntityId;
+    shapeIdB: EntityId;
+    contactId: EntityId;
+    normalImpulse: number;
+};
 
 /** A contact hit event (b3ContactHitEvent): a collision faster than the world hit threshold. */
 export type ContactHitEvent = {
