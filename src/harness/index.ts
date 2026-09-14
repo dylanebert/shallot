@@ -6,3 +6,4 @@ export type { RealGpuLaunch };
 export const REAL_GPU_LAUNCH: RealGpuLaunch = launch as RealGpuLaunch;
 export * from "./driver";
 export * from "./runtime";
+export { compileWgsl } from "./wgsl";

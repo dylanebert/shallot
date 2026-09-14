@@ -62,6 +62,26 @@ interface CargoBuild {
 }
 
 const cargoBuilds = new Map<string, CargoBuild>();
+let gpuRequirement: string | null | undefined;
+
+function resolveGpuRequirement(root: string): string | null {
+    if (gpuRequirement !== undefined) return gpuRequirement;
+    const probe = Bun.spawnSync(
+        [
+            process.execPath,
+            "-e",
+            `const peer = await import("bun-webgpu"); await peer.setupGlobals(); const adapter = await navigator.gpu?.requestAdapter(); if (!adapter) { console.error("no WebGPU adapter"); process.exit(2); }`,
+        ],
+        { cwd: root, stdout: "pipe", stderr: "pipe" },
+    );
+    if (probe.exitCode === 0) {
+        gpuRequirement = null;
+        return null;
+    }
+    const detail = `${probe.stderr.toString()}${probe.stdout.toString()}`.trim();
+    gpuRequirement = `GPU seat unavailable${detail ? `: ${detail}` : ""}`;
+    return gpuRequirement;
+}
 
 function cargoPackage(root: string, subjects: readonly string[]): string | null {
     if (subjects.length !== 1)
@@ -170,6 +190,11 @@ export function missingRequirement(
                 resolve(context.root ?? process.cwd()),
                 context.subjects ?? [],
             );
+            if (reason !== null) return reason;
+            continue;
+        }
+        if (requirement === "gpu") {
+            const reason = resolveGpuRequirement(resolve(context.root ?? process.cwd()));
             if (reason !== null) return reason;
             continue;
         }
