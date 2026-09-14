@@ -670,6 +670,54 @@ export function renderWorkflow(population: Population): string {
     ].join("\n");
 }
 
+function shallotPackage(name: string): boolean {
+    return name === "@dylanebert/shallot" || name.startsWith("@dylanebert/shallot-");
+}
+
+function forbiddenSpecifier(spec: string): "link" | "file" | "git" | "github" | "URL" | null {
+    if (spec.startsWith("link:")) return "link";
+    if (spec.startsWith("file:")) return "file";
+    if (spec.startsWith("github:")) return "github";
+    if (spec.startsWith("git")) return "git";
+    try {
+        if (new URL(spec).protocol) return "URL";
+    } catch {}
+    return null;
+}
+
+function dependencyViolations(root: string): string[] {
+    const violations: string[] = [];
+    const files = [...new Glob("**/package.json").scanSync({ cwd: root, dot: false })]
+        .filter((file) => !file.split("/").some((part) => SKIP.has(part)))
+        .sort();
+    for (const file of files) {
+        const path = resolve(root, file);
+        let manifest: Record<string, unknown>;
+        try {
+            const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+            if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+            manifest = parsed as Record<string, unknown>;
+        } catch (error) {
+            violations.push(`invalid package manifest: ${file}: ${(error as Error).message}`);
+            continue;
+        }
+        const packageName = typeof manifest.name === "string" ? manifest.name : null;
+        for (const [table, raw] of Object.entries(manifest)) {
+            if (!/dependencies$/i.test(table) || raw === null || typeof raw !== "object") continue;
+            for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+                if (!shallotPackage(name) || typeof value !== "string") continue;
+                if (name === packageName && value.startsWith("link:")) continue;
+                const kind = forbiddenSpecifier(value);
+                if (kind !== null)
+                    violations.push(
+                        `${file}: ${table}.${name} uses forbidden ${kind} specifier ${JSON.stringify(value)}`,
+                    );
+            }
+        }
+    }
+    return violations;
+}
+
 export function readSurface(root: string): string[] {
     const population = collectPopulation(root);
     const violations = [
@@ -677,6 +725,7 @@ export function readSurface(root: string): string[] {
         ...population.undeclared.map(
             (file) => `undeclared check file: ${file.file} ${file.reason}`,
         ),
+        ...dependencyViolations(root),
     ];
     const seen = new Map<string, string>();
     for (const row of population.rows) {

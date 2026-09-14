@@ -1,9 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { basename, relative, resolve } from "node:path";
 import { createServer, searchForWorkspaceRoot, type Plugin as VitePlugin } from "vite";
-import { manifestPath } from "../project/assets";
-import { plan, requireProject } from "../project/host";
-import { normalize } from "../project/manifest";
+import { requireProject } from "../project/host";
 import { composeViteConfig, loadProjectConfig } from "../project/toolchain";
 import {
     CROSS_ORIGIN_ISOLATION,
@@ -32,23 +29,6 @@ function synthIndexPlugin(name: string): VitePlugin {
     };
 }
 
-/** the package names of a project's plugins named by bare specifier (`@scope/pkg/sub` → `@scope/pkg`);
- *  relative and absolute paths are project source, not dependencies. */
-export function pluginPackages(absProjectDir: string): string[] {
-    const path = manifestPath(absProjectDir);
-    const manifest = normalize(existsSync(path) ? readFileSync(path, "utf8") : null);
-    const packages = plan(manifest, absProjectDir)
-        .locals.map(({ spec }) => spec)
-        .filter((spec) => !spec.startsWith(".") && !isAbsolute(spec))
-        .map((spec) =>
-            spec
-                .split("/")
-                .slice(0, spec.startsWith("@") ? 2 : 1)
-                .join("/"),
-        );
-    return [...new Set(packages)];
-}
-
 /** the vite dev config for a manifest project. `open` defaults true: a person typing `shallot dev`
  *  wants the page. A driver that brings its own browser passes `--no-open` (a gate that opened a tab in
  *  the operator's browser on every start is the defect this default earns), and every non-interactive
@@ -65,31 +45,6 @@ export function devConfig(
         // typegpu transpiles TGSL function bodies at build time — there is no runtime fallback, and
         // the engine's own kernels live in node_modules, so the transform must reach there too
         plugins: [typegpuPlugin(), projectPlugin(absProjectDir), synthIndexPlugin(name)],
-        // a registry install resolves the engine inside node_modules (never a symlink, unlike a local
-        // dev checkout), so Vite's dep scanner esbuild-prebundles it ahead of the typegpu transform on
-        // first real page load — the bundled TGSL carries no build metadata, and TypeGPU's metadata-
-        // free resolution fallback derives wrong WGSL for anything past a trivial body (a struct-output
-        // cast is where it broke: `Cannot resolve struct cast from 'vertexVsOut' to 'vertexVs_Output'`
-        // at pipeline warm; 5b-2f-5 reproduced this against a genuine `@dylanebert/shallot@0.9.0`
-        // registry install). The bare specifier is enough for the engine's own subpaths: Vite's scanner
-        // never descends into an excluded package to discover its own subpath imports, so every
-        // `@dylanebert/shallot/*` subpath rides this one entry (verified empirically against the
-        // registry-installed package; toolchain.test.ts pins that an ejected project's own
-        // `optimizeDeps` still carries this exclusion through the merge). `typegpu` needs its own entry
-        // though, not coverage-by-association: a consumer's own source commonly imports `typegpu/data`
-        // directly (a consumer project importing a typegpu subpath on its own), a second,
-        // independent entry into the scanner distinct from the engine's. Verified empirically: without
-        // this line, that shape produces a genuine same-version duplicate typegpu module (typegpu's own
-        // "Found duplicate TypeGPU version. First was 0.11.9, this one is 0.11.9" warning fires) and
-        // dies at pipeline warm with `Invalid property key 'type': Identifiers cannot start with
-        // reserved keywords` inside typegpu's own `struct.js` — a different symptom than the missing-
-        // metadata case above, same root cause.
-        // A plugin named by package specifier (`"Grid": "@dylanebert/shallot-grid"`) needs the same
-        // exclusion for a third reason: prebundled, it carries its own copy of every engine subpath it
-        // imports, so its `Views`/`Render` singletons are empty and its systems never draw.
-        optimizeDeps: {
-            exclude: ["@dylanebert/shallot", "typegpu", ...pluginPackages(absProjectDir)],
-        },
         server: {
             port: opts.port,
             strictPort: opts.strictPort,

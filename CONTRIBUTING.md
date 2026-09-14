@@ -86,7 +86,7 @@ A bump touches every doc and fixture site in one commit; `check-pins` reds on dr
 
 - The root links itself (`"@dylanebert/shallot": "link:."`), so examples import the package by name.
 - Examples declare no engine dependency; `add` writes the version into the copy.
-- An outside project on a local engine uses `bun link`. That doesn't prove the published shape: a `bun pm pack` installed into a scratch project does, and CLI, manifest, dependency, runtime and native changes owe one.
+- Satellite consumers stay on a published package range and iterate locally with `bun link`; a `file:` directory dependency uses hardlinks, so editor writes can detach the checkout from the installed copy. That doesn't prove the published shape: a `bun pm pack` installed into a scratch project does, and CLI, manifest, dependency, runtime and native changes owe one.
 - `@types/node` and `@webgpu/types` are runtime dependencies, because `types` points at source.
 
 ## Archive

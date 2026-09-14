@@ -126,6 +126,76 @@ function reader(name: string): { code: number; out: string; err: string } {
     }
 }
 
+function dependencyViolations(spec: string, packageName = "consumer"): string[] {
+    const tree = mkdtempSync(join(tmpdir(), "shallot-surface-dependency-"));
+    try {
+        writeFileSync(
+            join(tree, "package.json"),
+            JSON.stringify({
+                name: packageName,
+                dependencies: { "@dylanebert/shallot-grid": spec },
+            }),
+        );
+        return readSurface(tree);
+    } finally {
+        rmSync(tree, { recursive: true, force: true });
+    }
+}
+
+check(
+    "surface: link Shallot specs refuse",
+    { claim: "the surface gate refuses link Shallot package specs" },
+    () => {
+        expect(dependencyViolations("link:../shallot").join("\\n")).toContain("link:");
+    },
+);
+
+check(
+    "surface: file Shallot specs refuse",
+    { claim: "the surface gate refuses file Shallot package specs" },
+    () => {
+        expect(dependencyViolations("file:../shallot").join("\\n")).toContain("file:");
+    },
+);
+
+check(
+    "surface: git Shallot specs refuse",
+    { claim: "the surface gate refuses git Shallot package specs" },
+    () => {
+        expect(
+            dependencyViolations("git+https://github.com/dylanebert/shallot.git").join("\\n"),
+        ).toContain("git");
+    },
+);
+
+check(
+    "surface: github Shallot specs refuse",
+    { claim: "the surface gate refuses github Shallot package specs" },
+    () => {
+        expect(dependencyViolations("github:dylanebert/shallot#main").join("\\n")).toContain(
+            "github:",
+        );
+    },
+);
+
+check(
+    "surface: URL Shallot specs refuse",
+    { claim: "the surface gate refuses URL Shallot package specs" },
+    () => {
+        expect(
+            dependencyViolations("https://github.com/dylanebert/shallot-grid.git").join("\\n"),
+        ).toContain("URL");
+    },
+);
+
+check(
+    "surface: self-link Shallot spec passes",
+    { claim: "the surface gate permits a package's own self-link" },
+    () => {
+        expect(dependencyViolations("link:.", "@dylanebert/shallot-grid")).toEqual([]);
+    },
+);
+
 function git(root: string, ...args: string[]): string {
     const proc = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
     expect(proc.exitCode).toBe(0);
