@@ -30,6 +30,8 @@ use crate::math::{blend2, clampf, maxf, Mat2, Mat3, Quat, Vec2, Vec3, FLT_EPSILO
 
 /// Sentinel body index for a static body (no solver state), mirroring box3d's `B3_NULL_INDEX`.
 pub const NULL_INDEX: u32 = u32::MAX;
+const SPECULATIVE_DISTANCE: f32 = 0.02;
+const MIN_FRICTION_WEIGHT: f32 = 1.0e-10;
 
 /// Soft-constraint coefficients (b3Softness), a per-step scalar the solver reads from the context.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -191,6 +193,8 @@ pub fn prepare(
 
             let mut center_a = Vec3::ZERO;
             let mut center_b = Vec3::ZERO;
+            let mut total_friction_weight = 0.0f32;
+            let inv_tau = 1.0f32 / SPECULATIVE_DISTANCE;
 
             for pi in 0..point_count {
                 let pp = mpo + M_POINTS + pi * POOL_POINT_STRIDE; // pool point record
@@ -221,13 +225,15 @@ pub fn prepare(
                 cols.mcp.set(po + 10, relative_velocity);
                 cols.mcp.set(po + 11, 0.0); // leverArm, filled below
 
-                center_a = center_a.add(r_a);
-                center_b = center_b.add(r_b);
+                let weight = clampf(2.0 - separation * inv_tau, MIN_FRICTION_WEIGHT, 1.0);
+                center_a = center_a.add(r_a.scale(weight));
+                center_b = center_b.add(r_b.scale(weight));
+                total_friction_weight += weight;
             }
 
-            let inv_count = 1.0 / point_count as f32;
-            center_a = center_a.scale(inv_count);
-            center_b = center_b.scale(inv_count);
+            let inv_weight = 1.0 / total_friction_weight;
+            center_a = center_a.scale(inv_weight);
+            center_b = center_b.scale(inv_weight);
 
             for p in point_start..point_start + point_count {
                 let po = p * MCP_STRIDE;

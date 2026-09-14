@@ -773,6 +773,10 @@ export function shapeDistance(input: DistanceInput, cache: SimplexCache): Distan
     }
 
     let backup = emptySimplex();
+    // The official implementation records the initial simplex and every solved simplex. The
+    // diagnostic count is observable in the public distance oracle, even though the cache only
+    // retains the final simplex.
+    let simplexIndex = 1;
 
     const output: DistanceOutput = {
         pointA: vec3.zero(),
@@ -810,10 +814,16 @@ export function shapeDistance(input: DistanceInput, cache: SimplexCache): Distan
             break;
         }
 
+        simplexIndex += 1;
+
         if (simplex.count === MAX_SIMPLEX_VERTICES) {
             const w = computeWitnessPoints(simplex);
             output.pointA = w.vertexA;
             output.pointB = w.vertexB;
+            output.normal = vec3.zero();
+            output.distance = 0;
+            output.iterations = iteration;
+            output.simplexCount = simplexIndex;
             return output;
         }
 
@@ -869,6 +879,10 @@ export function shapeDistance(input: DistanceInput, cache: SimplexCache): Distan
             const w = computeWitnessPoints(simplex);
             output.pointA = w.vertexA;
             output.pointB = w.vertexB;
+            output.normal = vec3.zero();
+            output.distance = 0;
+            output.iterations = iteration;
+            output.simplexCount = simplexIndex;
             return output;
         }
 
@@ -901,20 +915,23 @@ export function shapeDistance(input: DistanceInput, cache: SimplexCache): Distan
         simplex.count += 1;
     }
 
+    const w = computeWitnessPoints(simplex);
+    output.pointA = w.vertexA;
+    output.pointB = w.vertexB;
+    output.iterations = iteration;
+    output.simplexCount = simplexIndex;
+
     normal = vec3.normalize(normal);
     if (vec3.isNormalized(normal) === false) {
         // Treat as overlap.
+        output.distance = 0;
+        output.normal = vec3.zero();
         return output;
     }
 
-    const w = computeWitnessPoints(simplex);
-    writeCache(cache, simplex);
-
-    output.pointA = w.vertexA;
-    output.pointB = w.vertexB;
     output.distance = vec3.distance(w.vertexA, w.vertexB);
     output.normal = normal;
-    output.iterations = iteration;
+    // Simplex is useful, cache it, but only after all overlap exits above.
 
     if (input.useRadii) {
         const rA = input.proxyA.radius;
@@ -925,6 +942,7 @@ export function shapeDistance(input: DistanceInput, cache: SimplexCache): Distan
         output.pointB = vec3.mulSub(output.pointB, rB, normal);
     }
 
+    writeCache(cache, simplex);
     return output;
 }
 
@@ -1469,6 +1487,10 @@ export function timeOfImpact(input: TOIInput): TOIOutput {
         if (distanceOutput.distance <= 0) {
             output.state = TOIState.Overlapped;
             output.fraction = 0;
+            const pA = vec3.mulAdd(worldPointA, proxyA.radius, worldNormal);
+            const pB = vec3.mulAdd(worldPointB, -proxyB.radius, worldNormal);
+            output.point = vec3.add(vec3.lerp(pA, pB, f32(0.5)), origin);
+            output.normal = worldNormal;
             break;
         }
 

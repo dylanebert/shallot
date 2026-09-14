@@ -6,7 +6,7 @@ import {
     type KnownDifferenceEntry,
     type KnownDifferenceLedger,
 } from "./known-differences";
-import { readFrozenStrictReport, type StrictReport, type StrictResult } from "./strict";
+import { executeStrictReport, type StrictReport, type StrictResult } from "./strict";
 
 const fingerprint = "a".repeat(64);
 const base = (
@@ -109,17 +109,17 @@ check(
     "Box3D known differences consume the executing ledger",
     { claim: "box3d-known-differences", size: "integration", budget: 20_000 },
     () => {
-        const strict = readFrozenStrictReport();
+        const strict = executeStrictReport();
         const known = JSON.parse(
             readFileSync(new URL("./reports/known-differences-v6.json", import.meta.url), "utf8"),
         ) as KnownDifferenceLedger;
         const ids = strict.results.map((result) => result.id);
         const empty = evaluateKnownDifferences(strict, { ...known, entries: [] }, ids);
         if (
-            empty.pass !== 45 ||
+            empty.pass !== 77 ||
             empty.expectedDifferences !== 0 ||
-            empty.unexpected !== 66 ||
-            empty.errors.length !== 66
+            empty.unexpected !== 34 ||
+            empty.errors.length !== 34
         )
             throw new Error(
                 "empty ledger no longer exposes the complete strict mismatch population",
@@ -134,8 +134,8 @@ check(
             }),
         );
         if (
-            summary.pass !== 45 ||
-            summary.expectedDifferences !== 66 ||
+            summary.pass !== 77 ||
+            summary.expectedDifferences !== 34 ||
             summary.unexpected !== 0 ||
             summary.errors.length !== 0
         )

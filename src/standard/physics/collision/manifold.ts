@@ -14,6 +14,7 @@ import {
     getLengthAndNormalize,
     isWithinSegments,
     lineDistance,
+    type Mat3,
     mat3,
     maxf,
     minf,
@@ -30,7 +31,11 @@ import {
 } from "../common/math";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HullData } from "../shapes/hull";
-import { findHullSupportFace, findHullSupportVertex } from "../shapes/hull";
+import {
+    findHullSupportFace,
+    findHullSupportVertex,
+    findHullSupportVertexWide,
+} from "../shapes/hull";
 import type { DistanceInput, SimplexCache } from "./distance";
 import { getPointSupport, shapeDistance } from "./distance";
 
@@ -98,7 +103,13 @@ export type LocalManifold = {
 export type FaceQuery = { separation: number; faceIndex: number; vertexIndex: number };
 
 /** Result of an edge-direction SAT query (b3EdgeQuery). */
-export type EdgeQuery = { separation: number; indexA: number; indexB: number };
+export type EdgeQuery = {
+    /** Separating axis, oriented from shape A to shape B. */
+    normal: Vec3;
+    separation: number;
+    indexA: number;
+    indexB: number;
+};
 
 /** Cached triangle feature (b3TriangleFeature). Indexes into a triangle's vertices/edges/face. */
 export const TriangleFeature = {
@@ -446,20 +457,6 @@ export function clipPolygon(
 
 // --- convex_manifold.c: Gauss-map / clip helpers -----------------------------------------------
 
-function isMinkowskiFaceIsolated(a: Vec3, b: Vec3, n: Vec3): boolean {
-    const an = vec3.dot(a, n);
-    const bn = vec3.dot(b, n);
-    return f32(an * bn) <= 0;
-}
-
-function isMinkowskiFace(a: Vec3, b: Vec3, bxa: Vec3, c: Vec3, d: Vec3, dxc: Vec3): boolean {
-    const cba = vec3.dot(c, bxa);
-    const dba = vec3.dot(d, bxa);
-    const adc = vec3.dot(a, dxc);
-    const bdc = vec3.dot(b, dxc);
-    return f32(cba * dba) < 0 && f32(adc * bdc) < 0 && f32(cba * bdc) > 0;
-}
-
 // b3ClipSegment — clip a 2-vertex segment against `plane`, in place. Returns the vertex count.
 function clipSegment(segment: ClipVertex[], pl: Plane): number {
     const vertex1 = cloneClipVertex(segment[0]);
@@ -591,47 +588,43 @@ function queryEdgeDirectionHullAndCapsule(
     capsule: Capsule,
     capsuleTransform: Transform,
 ): EdgeQuery {
+    let maxNormal = vec3.zero();
     let maxSeparation = -FLT_MAX;
-    let maxIndex1 = -1;
-    let maxIndex2 = -1;
+    let maxIndexA = NULL_INDEX;
+    let maxIndexB = NULL_INDEX;
 
-    // All computations in local space of the hull.
-    const p1 = xf.point(capsuleTransform, capsule.center1);
-    const q1 = xf.point(capsuleTransform, capsule.center2);
-    const e1 = vec3.sub(q1, p1);
-
+    const pA = xf.point(capsuleTransform, capsule.center1);
+    const qA = xf.point(capsuleTransform, capsule.center2);
+    const eA = vec3.sub(qA, pA);
     const edges = hull.edges;
     const points = hull.points;
     const planes = hull.planes;
+    const squaredTolerance = f32(0.005 * 0.005);
 
     for (let index = 0; index < hull.edgeCount; index += 2) {
         const edge = edges[index];
         const twin = edges[index + 1];
-
-        const p2 = points[edge.origin];
-        const q2 = points[twin.origin];
-        const e2 = vec3.sub(q2, p2);
-
-        const u2 = planes[edge.face].normal;
-        const v2 = planes[twin.face].normal;
-
-        if (isMinkowskiFaceIsolated(u2, v2, e1)) {
-            const c1 = vec3.scale(0.5, vec3.add(q1, p1));
-            const c2 = hull.center;
-            const separation = edgeEdgeSeparation(q1, e1, c1, q2, e2, c2);
+        const qB = points[twin.origin];
+        const uB = planes[edge.face].normal;
+        const vB = planes[twin.face].normal;
+        const cba = vec3.dot(uB, eA);
+        const dba = vec3.dot(vB, eA);
+        if (f32(cba * dba) < 0) {
+            if (maxf(f32(cba * cba), f32(dba * dba)) < f32(squaredTolerance * vec3.lengthSq(eA)))
+                continue;
+            const t = f32(cba / f32(cba - dba));
+            const axis = vec3.normalize(vec3.lerp(uB, vB, t));
+            const separation = vec3.dot(axis, vec3.sub(qA, qB));
             if (separation > maxSeparation) {
+                maxNormal = axis;
                 maxSeparation = separation;
-                maxIndex1 = 0;
-                maxIndex2 = index;
+                maxIndexA = 0;
+                maxIndexB = index;
             }
         }
     }
 
-    return {
-        separation: maxSeparation,
-        indexA: maxIndex1 & 0xff,
-        indexB: maxIndex2 & 0xff,
-    };
+    return { normal: maxNormal, separation: maxSeparation, indexA: maxIndexA, indexB: maxIndexB };
 }
 
 function queryEdgeDirections(
@@ -639,60 +632,197 @@ function queryEdgeDirections(
     hullB: HullData,
     transformBtoA: Transform,
 ): EdgeQuery {
+    let maxNormal = vec3.zero();
     let maxSeparation = -FLT_MAX;
     let maxIndexA = NULL_INDEX;
     let maxIndexB = NULL_INDEX;
-
     const edgesA = hullA.edges;
     const pointsA = hullA.points;
     const planesA = hullA.planes;
     const edgesB = hullB.edges;
     const pointsB = hullB.points;
     const planesB = hullB.planes;
-
-    // Work in frame A.
     const matrix = mat3.fromQuat(transformBtoA.q);
+    const squaredTolerance = f32(0.005 * 0.005);
 
     for (let indexB = 0; indexB < hullB.edgeCount; indexB += 2) {
         const edgeB = edgesB[indexB];
         const twinB = edgesB[indexB + 1];
-
-        let qB = pointsB[twinB.origin];
-        const eB = mat3.mulV(matrix, vec3.sub(qB, pointsB[edgeB.origin]));
-        qB = vec3.add(mat3.mulV(matrix, qB), transformBtoA.p);
-
+        const pB = vec3.add(mat3.mulV(matrix, pointsB[edgeB.origin]), transformBtoA.p);
+        const qB = vec3.add(mat3.mulV(matrix, pointsB[twinB.origin]), transformBtoA.p);
+        const eB = vec3.sub(qB, pB);
         const uB = mat3.mulV(matrix, planesB[edgeB.face].normal);
         const vB = mat3.mulV(matrix, planesB[twinB.face].normal);
 
         for (let indexA = 0; indexA < hullA.edgeCount; indexA += 2) {
             const edgeA = edgesA[indexA];
             const twinA = edgesA[indexA + 1];
-
+            const pA = pointsA[edgeA.origin];
             const qA = pointsA[twinA.origin];
-            const eA = vec3.sub(qA, pointsA[edgeA.origin]);
+            const eA = vec3.sub(qA, pA);
             const uA = planesA[edgeA.face].normal;
             const vA = planesA[twinA.face].normal;
-
             const cba = vec3.dot(uB, eA);
             const dba = vec3.dot(vB, eA);
-            const adc = -vec3.dot(uA, eB);
-            const bdc = -vec3.dot(vA, eB);
-            const isMink = f32(cba * dba) < 0 && f32(adc * bdc) < 0 && f32(cba * bdc) > 0;
+            const adc = f32(-vec3.dot(uA, eB));
+            const bdc = f32(-vec3.dot(vA, eB));
+            if (!(f32(cba * dba) < 0 && f32(adc * bdc) < 0 && f32(cba * bdc) > 0)) continue;
+            if (maxf(f32(cba * cba), f32(dba * dba)) < f32(squaredTolerance * vec3.lengthSq(eA)))
+                continue;
+            const t = f32(cba / f32(cba - dba));
+            const axis = vec3.normalize(vec3.lerp(uB, vB, t));
+            const separation = vec3.dot(axis, vec3.sub(qA, qB));
+            if (separation > maxSeparation) {
+                maxNormal = vec3.neg(axis);
+                maxSeparation = separation;
+                maxIndexA = indexA;
+                maxIndexB = indexB;
+            }
+        }
+    }
+    return { normal: maxNormal, separation: maxSeparation, indexA: maxIndexA, indexB: maxIndexB };
+}
 
-            if (isMink) {
-                const centerA = hullA.center;
-                const centerB = xf.point(transformBtoA, hullB.center);
-                const separation = edgeEdgeSeparation(qA, eA, centerA, qB, eB, centerB);
-                if (separation > maxSeparation) {
-                    maxSeparation = separation;
-                    maxIndexA = indexA;
-                    maxIndexB = indexB;
-                }
+type AxisQuery = {
+    faceA: FaceQuery;
+    faceB: FaceQuery;
+    edge: EdgeQuery;
+    separated: number;
+};
+
+const dot3W = (a: Vec3, b: Vec3): number =>
+    f32(f32(a.x * b.x) + f32(f32(a.y * b.y) + f32(a.z * b.z)));
+
+const normalize3W = (v: Vec3): Vec3 => {
+    const lengthSq = dot3W(v, v);
+    if (lengthSq <= f32(1000 * FLT_MIN)) return vec3.zero();
+    const inv = f32(1 / Math.sqrt(lengthSq));
+    return { x: f32(v.x * inv), y: f32(v.y * inv), z: f32(v.z * inv) };
+};
+
+const negativeTransformW = (
+    matrix: Mat3,
+    translation: Vec3,
+    value: Vec3,
+    isPoint: boolean,
+): Vec3 => {
+    let out = {
+        x: dot3W({ x: matrix.cx.x, y: matrix.cy.x, z: matrix.cz.x }, value),
+        y: dot3W({ x: matrix.cx.y, y: matrix.cy.y, z: matrix.cz.y }, value),
+        z: dot3W({ x: matrix.cx.z, y: matrix.cy.z, z: matrix.cz.z }, value),
+    };
+    if (isPoint) out = vec3.add(out, translation);
+    return vec3.neg(out);
+};
+
+function computeSeparatingAxis(
+    hullA: HullData,
+    hullB: HullData,
+    transformBtoA: Transform,
+    earlyReturn: boolean,
+): AxisQuery {
+    const rotation = mat3.fromQuat(transformBtoA.q);
+    const inverseRotation = mat3.transpose(rotation);
+    const centerB = vec3.scale(0.5, vec3.add(hullB.aabb.lowerBound, hullB.aabb.upperBound));
+    const extentB = vec3.scale(0.5, vec3.sub(hullB.aabb.upperBound, hullB.aabb.lowerBound));
+    const centerA = vec3.scale(0.5, vec3.add(hullA.aabb.lowerBound, hullA.aabb.upperBound));
+    const extentA = vec3.scale(0.5, vec3.sub(hullA.aabb.upperBound, hullA.aabb.lowerBound));
+    const result: AxisQuery = {
+        faceA: { separation: -Infinity, faceIndex: 0, vertexIndex: 0 },
+        faceB: { separation: -Infinity, faceIndex: 0, vertexIndex: 0 },
+        edge: {
+            normal: vec3.zero(),
+            separation: -Infinity,
+            indexA: NULL_INDEX,
+            indexB: NULL_INDEX,
+        },
+        separated: SeparatingFeature.Invalid,
+    };
+
+    for (let i = 0; i < hullA.faceCount; ++i) {
+        const pl = hullA.planes[i];
+        const direction = vec3.neg(mat3.mulV(inverseRotation, pl.normal));
+        const planeSeparation = f32(vec3.dot(pl.normal, transformBtoA.p) - pl.offset);
+        const bias = f32(
+            vec3.dot(direction, centerB) + f32(1.0625 * vec3.dot(vec3.abs(direction), extentB)),
+        );
+        const support = findHullSupportVertexWide(hullB, direction, bias);
+        const separation = f32(planeSeparation - support.support);
+        if (separation > result.faceA.separation) {
+            result.faceA = { separation, faceIndex: i, vertexIndex: support.index };
+            if (earlyReturn && separation > SPECULATIVE_DISTANCE) {
+                result.separated = SeparatingFeature.FaceAxisA;
+                return result;
             }
         }
     }
 
-    return { separation: maxSeparation, indexA: maxIndexA, indexB: maxIndexB };
+    for (let i = 0; i < hullB.faceCount; ++i) {
+        const pl = hullB.planes[i];
+        const direction = vec3.neg(mat3.mulV(rotation, pl.normal));
+        const planeSeparation = f32(vec3.dot(direction, transformBtoA.p) - pl.offset);
+        const bias = f32(
+            vec3.dot(direction, centerA) + f32(1.0625 * vec3.dot(vec3.abs(direction), extentA)),
+        );
+        const support = findHullSupportVertexWide(hullA, direction, bias);
+        const separation = f32(planeSeparation - support.support);
+        if (separation > result.faceB.separation) {
+            result.faceB = { separation, faceIndex: i, vertexIndex: support.index };
+            if (earlyReturn && separation > SPECULATIVE_DISTANCE) {
+                result.separated = SeparatingFeature.FaceAxisB;
+                return result;
+            }
+        }
+    }
+
+    const squaredTolerance = f32(0.005 * 0.005);
+    for (let edgeBIndex = 0; edgeBIndex < hullB.edgeCount; edgeBIndex += 2) {
+        const edgeB = hullB.edges[edgeBIndex];
+        const twinB = hullB.edges[edgeBIndex + 1];
+        const c = negativeTransformW(
+            rotation,
+            transformBtoA.p,
+            hullB.planes[edgeB.face].normal,
+            false,
+        );
+        const d = negativeTransformW(
+            rotation,
+            transformBtoA.p,
+            hullB.planes[twinB.face].normal,
+            false,
+        );
+        const v0 = negativeTransformW(rotation, transformBtoA.p, hullB.points[edgeB.origin], true);
+        const v1 = negativeTransformW(rotation, transformBtoA.p, hullB.points[twinB.origin], true);
+        const dc = vec3.sub(v1, v0);
+
+        for (let edgeAIndex = 0; edgeAIndex < hullA.edgeCount; edgeAIndex += 2) {
+            const edgeA = hullA.edges[edgeAIndex];
+            const twinA = hullA.edges[edgeAIndex + 1];
+            const n0 = hullA.planes[edgeA.face].normal;
+            const n1 = hullA.planes[twinA.face].normal;
+            const av0 = hullA.points[edgeA.origin];
+            const da = vec3.sub(hullA.points[twinA.origin], av0);
+            const cba = dot3W(c, da);
+            const dba = dot3W(d, da);
+            const adc = dot3W(n0, dc);
+            const bdc = dot3W(n1, dc);
+            if (f32(cba * dba) >= -0.0001 || f32(adc * bdc) >= -0.0001 || f32(cba * bdc) >= -0.0001)
+                continue;
+            if (maxf(f32(cba * cba), f32(dba * dba)) <= f32(squaredTolerance * dot3W(da, da)))
+                continue;
+            const t = f32(-cba / f32(dba - cba));
+            const axis = normalize3W(vec3.add(c, vec3.scale(f32(t), vec3.sub(d, c))));
+            const separation = f32(-dot3W(vec3.add(av0, v0), axis));
+            if (separation > result.edge.separation) {
+                result.edge = { normal: axis, separation, indexA: edgeAIndex, indexB: edgeBIndex };
+                if (earlyReturn && separation > SPECULATIVE_DISTANCE) {
+                    result.separated = SeparatingFeature.EdgePairAxis;
+                    return result;
+                }
+            }
+        }
+    }
+    return result;
 }
 
 // b3ReduceManifoldPoints — reduce a clipped point set to at most 4 points using a biased extremum
@@ -1632,8 +1762,9 @@ function buildFaceBContact(
     // Results are in frame B; transform them into frame A.
     const matrix = mat3.fromQuat(transformBtoA.q);
 
-    // Flip normal so it points from A to B, even though B owns the reference face.
-    manifold.normal = vec3.neg(mat3.mulV(matrix, manifold.normal));
+    // Flip normal so it points from A to B, even though B owns the reference face. The reference
+    // uses a zero-vector subtraction here; unlike unary negation it preserves its signed zero bits.
+    manifold.normal = vec3.sub(vec3.zero(), mat3.mulV(matrix, manifold.normal));
     cache.type = SeparatingFeature.FaceAxisB;
     cache.indexA = query.vertexIndex & 0xff;
     cache.indexB = query.faceIndex & 0xff;
@@ -1662,7 +1793,6 @@ function buildEdgeContact(
 
     const edgeA = edgesA[query.indexA];
     const twinA = edgesA[edgeA.twin];
-    const centerA = hullA.center;
     const pA = pointsA[edgeA.origin];
     const qA = pointsA[twinA.origin];
     const eA = vec3.sub(qA, pA);
@@ -1673,13 +1803,7 @@ function buildEdgeContact(
     const qB = xf.point(transformBtoA, pointsB[twinB.origin]);
     const eB = vec3.sub(qB, pB);
 
-    let normal = vec3.cross(eA, eB);
-    normal = vec3.normalize(normal);
-
-    if (vec3.dot(normal, vec3.sub(pA, centerA)) < 0) {
-        normal = vec3.neg(normal);
-    }
-
+    const normal = query.normal;
     const result = lineDistance(pA, eA, pB, eB);
 
     if (isWithinSegments(result) === false) {
@@ -1834,21 +1958,25 @@ export function collideHulls(
             const u2 = quat.rotate(transformBtoA.q, planesB[edge2.face].normal);
             const v2 = quat.rotate(transformBtoA.q, planesB[twin2.face].normal);
 
-            const isMink = isMinkowskiFace(u1, v1, e1, vec3.neg(u2), vec3.neg(v2), e2);
-            if (isMink === true) {
-                const c1 = hullA.center;
-                const c2 = xf.point(transformBtoA, hullB.center);
-
-                const separation = edgeEdgeSeparation(p1, e1, c1, p2, e2, c2);
-                if (separation > speculativeDistance) {
-                    return;
-                }
-
-                {
+            const cba = vec3.dot(u2, e1);
+            const dba = vec3.dot(v2, e1);
+            const adc = f32(-vec3.dot(u1, e2));
+            const bdc = f32(-vec3.dot(v1, e2));
+            if (f32(cba * dba) < 0 && f32(adc * bdc) < 0 && f32(cba * bdc) > 0) {
+                const squaredTolerance = f32(0.005 * 0.005);
+                if (
+                    maxf(f32(cba * cba), f32(dba * dba)) >=
+                    f32(squaredTolerance * vec3.lengthSq(e1))
+                ) {
+                    const t = f32(cba / f32(cba - dba));
+                    const axis = vec3.normalize(vec3.lerp(u2, v2, t));
+                    const separation = vec3.dot(axis, vec3.sub(q1, q2));
+                    if (separation > speculativeDistance) return;
                     const edgeQuery: EdgeQuery = {
+                        normal: vec3.neg(axis),
                         indexA: cache.indexA,
                         indexB: cache.indexB,
-                        separation: 0,
+                        separation,
                     };
                     const localCache = emptySATCache();
                     const touching = buildEdgeContact(
@@ -1862,9 +1990,8 @@ export function collideHulls(
                     if (
                         touching &&
                         absf(f32(cache.separation - localCache.separation)) < linearSlop
-                    ) {
+                    )
                         return;
-                    }
                 }
             }
             break;
@@ -1898,70 +2025,51 @@ export function collideHulls(
     manifold.pointCount = 0;
     resetSATCache(cache);
 
-    // Find axis of minimum penetration.
-    const faceQueryA = queryFaceDirections(hullA, hullB, transformBtoA);
-    if (faceQueryA.separation > speculativeDistance) {
-        cache.separation = faceQueryA.separation;
-        cache.type = SeparatingFeature.FaceAxisA;
-        cache.indexA = faceQueryA.faceIndex & 0xff;
-        cache.indexB = faceQueryA.vertexIndex & 0xff;
+    const axisQuery = computeSeparatingAxis(hullA, hullB, transformBtoA, true);
+    if (axisQuery.separated !== SeparatingFeature.Invalid) {
+        cache.type = axisQuery.separated;
+        if (axisQuery.separated === SeparatingFeature.FaceAxisA) {
+            cache.separation = axisQuery.faceA.separation;
+            cache.indexA = axisQuery.faceA.faceIndex & 0xff;
+            cache.indexB = axisQuery.faceA.vertexIndex & 0xff;
+        } else if (axisQuery.separated === SeparatingFeature.FaceAxisB) {
+            cache.separation = axisQuery.faceB.separation;
+            cache.indexA = axisQuery.faceB.vertexIndex & 0xff;
+            cache.indexB = axisQuery.faceB.faceIndex & 0xff;
+        } else {
+            cache.separation = axisQuery.edge.separation;
+            cache.indexA = axisQuery.edge.indexA & 0xff;
+            cache.indexB = axisQuery.edge.indexB & 0xff;
+        }
         return;
     }
 
-    const faceQueryB = queryFaceDirections(hullB, hullA, xf.invert(transformBtoA));
-    if (faceQueryB.separation > speculativeDistance) {
-        cache.separation = faceQueryB.separation;
-        cache.type = SeparatingFeature.FaceAxisB;
-        cache.indexA = faceQueryB.vertexIndex & 0xff;
-        cache.indexB = faceQueryB.faceIndex & 0xff;
-        return;
-    }
-
-    const edgeQuery = queryEdgeDirections(hullA, hullB, transformBtoA);
-    if (edgeQuery.separation > speculativeDistance) {
-        cache.separation = edgeQuery.separation;
-        cache.type = SeparatingFeature.EdgePairAxis;
-        cache.indexA = edgeQuery.indexA & 0xff;
-        cache.indexB = edgeQuery.indexB & 0xff;
-        return;
-    }
-
-    // Always build a face contact (e.g. Jenga problem).
-    const faceSeparationA = faceQueryA.separation;
-    const faceSeparationB = faceQueryB.separation;
-
-    if (faceSeparationB > f32(faceSeparationA + f32(0.5 * linearSlop))) {
-        buildFaceBContact(manifold, capacity, hullA, hullB, transformBtoA, faceQueryB, cache);
+    // The active target chooses face B on an exact tie.
+    if (axisQuery.faceA.separation > axisQuery.faceB.separation) {
+        buildFaceAContact(manifold, capacity, hullA, hullB, transformBtoA, axisQuery.faceA, cache);
     } else {
-        buildFaceAContact(manifold, capacity, hullA, hullB, transformBtoA, faceQueryA, cache);
+        buildFaceBContact(manifold, capacity, hullA, hullB, transformBtoA, axisQuery.faceB, cache);
     }
 
-    if (edgeQuery.indexA === NULL_INDEX) {
-        // No valid edge pairs (all edges parallel).
-        return;
-    }
+    if (axisQuery.edge.indexA === NULL_INDEX) return;
 
     const clippedFaceSeparation = cache.separation;
-
-    // Create edge contact if face contact fails or edge contact is significantly better.
-    const kRelEdgeTolerance = f32(0.9);
-    const kAbsTolerance = f32(0.5 * linearSlop);
-
     if (
         manifold.pointCount === 0 ||
-        edgeQuery.separation > f32(f32(kRelEdgeTolerance * clippedFaceSeparation) + kAbsTolerance)
+        axisQuery.edge.separation > f32(clippedFaceSeparation + linearSlop)
     ) {
         const edgeManifold = scratchEdgeManifold;
-        // buildEdgeContact leaves pointCount untouched on its miss path, so clear the reused buffer.
         edgeManifold.pointCount = 0;
-
-        buildEdgeContact(edgeManifold, hullA, hullB, transformBtoA, edgeQuery, cache);
-
+        const edgeCache = emptySATCache();
+        buildEdgeContact(edgeManifold, hullA, hullB, transformBtoA, axisQuery.edge, edgeCache);
         if (edgeManifold.pointCount === 1) {
-            // Copy the edge manifold out, preserving the caller's point buffer.
             manifold.normal = edgeManifold.normal;
-            manifold.pointCount = edgeManifold.pointCount;
+            manifold.pointCount = 1;
             copyManifoldPointInto(manifold.points[0], edgeManifold.points[0]);
+            cache.separation = edgeCache.separation;
+            cache.type = edgeCache.type;
+            cache.indexA = edgeCache.indexA;
+            cache.indexB = edgeCache.indexB;
         }
     }
 }

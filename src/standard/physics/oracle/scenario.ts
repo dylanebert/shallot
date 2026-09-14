@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import {
     type Body,
     BodyType,
@@ -88,8 +89,11 @@ const vec3 = (values: unknown[]): { x: number; y: number; z: number } => {
 const corpusDigest = (bytes: Uint8Array): string =>
     createHash("sha256").update(bytes).digest("hex");
 
+// The compressed copy is the immutable in-repository authority; the sibling paths remain useful for
+// local oracle generation and are only fallbacks when an explicit corpus is not vendored.
 const defaultCorpusPaths = [
     process.env.BOX3D_SCENARIO_CORPUS,
+    join(import.meta.dir, "scenario-command-v1.json.gz"),
     join(import.meta.dir, "../../../../../projects/box3d-oracle/scenarios/commands-v1.json"),
     join(import.meta.dir, "../../../../../../kex/projects/box3d-oracle/scenarios/commands-v1.json"),
 ].filter((candidate): candidate is string => candidate !== undefined);
@@ -101,7 +105,8 @@ export function loadScenarioCorpus(
     digest: string;
 } {
     if (!path) throw new Error("scenario command corpus path is empty");
-    const bytes = readFileSync(path);
+    const compressed = readFileSync(path);
+    const bytes = path.endsWith(".gz") ? gunzipSync(compressed) : compressed;
     const corpus = JSON.parse(bytes.toString()) as Corpus;
     if (
         corpus.schema !== "box3d-oracle/scenario-command/v1" ||

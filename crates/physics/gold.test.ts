@@ -1,7 +1,9 @@
 import { check } from "@dylanebert/shallot/harness/check";
 import { runCargoTest } from "../../scripts/cargo-test";
 
-// Warm run measured 0.93s on macOS arm64 for the C-reference targets (cargo test --no-run is an untimed requirement step).
+// The retained low-level gold suites cover mechanisms that remain active. The old hull manifold and
+// convex-manifold scene vectors stay committed as migration evidence; active hull parity is covered
+// by the official immutable command/bundle corpus instead of those predecessor vectors.
 check(
     "physics gold tests",
     {

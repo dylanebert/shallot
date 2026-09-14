@@ -89,6 +89,7 @@ export type BoxCastInput = { box: AABB; translation: Vec3; maxFraction: number }
 
 // Query callbacks close over their context (idiomatic TS); the C void* context is dropped.
 export type QueryCallback = (proxyId: number, userData: number) => boolean;
+export type Query64Callback = (proxyId: number, userData: bigint) => boolean;
 export type RayCastCallback = (input: RayCastInput, proxyId: number, userData: number) => number;
 export type BoxCastCallback = (input: BoxCastInput, proxyId: number, userData: number) => number;
 export type QueryClosestCallback = (
@@ -735,14 +736,16 @@ export function createProxy(
     box: AABB,
     categoryHi: number,
     categoryLo: number,
-    userData: number,
+    userData: number | bigint,
 ): number {
     const proxyId = allocateNode(tree);
     const nf = tree.nf;
     const ni = tree.ni;
     const n = proxyId * STRIDE;
     writeAABB(nf, proxyId, box);
-    ni[n + 8] = userData; // leaf: slot 8 is userData
+    const packedUserData = typeof userData === "bigint" ? userData : BigInt(userData >>> 0);
+    ni[n + 8] = Number(packedUserData & 0xffffffffn); // leaf: slots 8/9 are uint64 userData
+    ni[n + 9] = Number((packedUserData >> 32n) & 0xffffffffn);
     ni[n + 6] = categoryHi;
     ni[n + 7] = categoryLo;
     setHeight(ni, proxyId, 0);
@@ -876,6 +879,24 @@ export function query(
     maskLo: number,
     requireAllBits: boolean,
     callback: QueryCallback,
+): Readonly<TreeStats>;
+export function query(
+    tree: DynamicTree,
+    box: AABB,
+    maskHi: number,
+    maskLo: number,
+    requireAllBits: boolean,
+    callback: Query64Callback,
+    wideUserData: true,
+): Readonly<TreeStats>;
+export function query(
+    tree: DynamicTree,
+    box: AABB,
+    maskHi: number,
+    maskLo: number,
+    requireAllBits: boolean,
+    callback: QueryCallback | Query64Callback,
+    wideUserData = false,
 ): Readonly<TreeStats> {
     if (tree.nodeCount === 0) return NO_VISITS;
 
@@ -928,7 +949,14 @@ export function query(
 
             if (match && overlaps) {
                 if ((ni[n + 11] & LEAF) !== 0) {
-                    const proceed = callback(nodeId, ni[n + 8]);
+                    const userData = wideUserData
+                        ? BigInt(ni[n + 8] >>> 0) | (BigInt(ni[n + 9] >>> 0) << 32n)
+                        : ni[n + 8] >>> 0;
+                    const invoke = callback as (
+                        proxyId: number,
+                        userData: number | bigint,
+                    ) => boolean;
+                    const proceed = invoke(nodeId, userData);
                     result.leafVisits += 1;
                     if (proceed === false) return result;
                 } else if (stackCount < STACK_SIZE - 1) {

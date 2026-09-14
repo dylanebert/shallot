@@ -66,6 +66,32 @@ impl HullData<'_> {
         best_index
     }
 
+    /// SIMD hull support reduction used by Box3D's `b3GetSupportWide`.
+    ///
+    /// The candidate is `bias - dot` with the low seven mantissa bits replaced by the
+    /// vertex index.  The stored SoA stream repeats vertex zero in padded lanes; iterating
+    /// those lanes here is intentional because the embedded index is what prevents a tail
+    /// lane from winning.
+    #[inline]
+    pub fn support_vertex_wide(&self, direction: Vec3, bias: f32) -> usize {
+        let soa_count = (self.vertex_count + 3) & !3;
+        let mut best_value = f32::INFINITY;
+        let mut best_index = 0usize;
+        for lane in 0..soa_count {
+            let index = if lane < self.vertex_count { lane } else { 0 };
+            let p = self.points[index];
+            let dot = direction.x * p.x + (direction.y * p.y + direction.z * p.z);
+            let value = bias - dot;
+            let bits = (value.to_bits() & !0x7f) | lane as u32;
+            let augmented = f32::from_bits(bits);
+            if augmented < best_value {
+                best_value = augmented;
+                best_index = lane;
+            }
+        }
+        best_index.min(self.vertex_count.saturating_sub(1))
+    }
+
     /// Index of the hull face whose normal is most aligned with `direction` (b3FindHullSupportFace).
     pub fn support_face(&self, direction: Vec3) -> usize {
         let mut best_index = 0;
