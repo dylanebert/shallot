@@ -1,13 +1,13 @@
 import {
     Character,
     mountOverlay,
-    Physics,
     Player,
     type Plugin,
     pointerLockRefusal,
     pointerLockStatus,
     type State,
     type System,
+    setKinematic,
 } from "@dylanebert/shallot";
 
 // move/look tuning lives on `Player`; walk physics (jump height, gravity, walkable slope) lives on
@@ -32,10 +32,9 @@ const slide: System = {
     name: "slide",
     group: "fixed",
     update(state: State) {
-        const backend = Physics;
         const x = -4 + Math.sin(state.time.elapsed) * 3;
         for (const eid of state.query([Moving])) {
-            backend.setKinematic(eid, [x, 0.75, 0], [0, 0, 0, 1]);
+            setKinematic(state, eid, [x, 0.75, 0], [0, 0, 0, 1]);
         }
     },
 };

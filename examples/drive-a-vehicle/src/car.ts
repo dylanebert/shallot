@@ -1,10 +1,11 @@
 import {
     Body,
+    body,
     Color,
     Inputs,
     Part,
-    Physics,
     type Plugin,
+    physicsWorld,
     ShapeKind,
     type State,
     type System,
@@ -22,7 +23,7 @@ import {
 // this recipe rides the escape hatch.
 
 type V3 = { x: number; y: number; z: number };
-type Wheel = ReturnType<NonNullable<typeof Physics.world>["createWheelJoint"]>;
+type Wheel = ReturnType<NonNullable<ReturnType<typeof physicsWorld>>["createWheelJoint"]>;
 
 const THROTTLE = 14; // rad/s spin speed at full throttle
 const STEER = Math.PI / 5; // rad steering lock
@@ -103,12 +104,12 @@ function build(state: State): void {
 
 // wire the four wheel joints + the parallel upright joint once every body has marshaled. the front two
 // (indices 0, 1) steer; the rear two (2, 3) carry the spin motor.
-function wire(): void {
-    const world = Physics.world;
+function wire(state: State): void {
+    const world = physicsWorld(state);
     if (!world || wired) return;
-    const ground = Physics.body(groundEid);
-    const chassis = Physics.body(chassisEid);
-    const wheels = wheelEids.map((e) => Physics.body(e));
+    const ground = body(state, groundEid);
+    const chassis = body(state, chassisEid);
+    const wheels = wheelEids.map((e) => body(state, e));
     if (!ground || !chassis || wheels.some((w) => !w)) return;
 
     rear = [];
@@ -168,9 +169,9 @@ function wire(): void {
 const driver: System = {
     name: "car-driver",
     group: "simulation",
-    update() {
+    update(state) {
         if (!wired) {
-            wire();
+            wire(state);
             return;
         }
         let throttle = 0;
@@ -184,8 +185,8 @@ const driver: System = {
         // a parked car sleeps, and setting a motor speed does NOT wake a sleeping body — so wake the wheels +
         // chassis on any driver input, or the first throttle after the car settles would be ignored.
         if (throttle !== 0 || steer !== 0) {
-            Physics.body(chassisEid)?.setAwake(true);
-            for (const e of wheelEids) Physics.body(e)?.setAwake(true);
+            body(state, chassisEid)?.setAwake(true);
+            for (const e of wheelEids) body(state, e)?.setAwake(true);
         }
     },
 };

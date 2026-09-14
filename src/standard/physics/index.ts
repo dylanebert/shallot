@@ -16,7 +16,15 @@ import { BeginFrameSystem, Render } from "../render";
 import { PrepassSystem } from "../sear";
 import { SlabPlugin, slab } from "../slab";
 import { Transform } from "../transforms";
-import { init, type Body as SolverBody, World } from "./api";
+import {
+    hash as hashWorld,
+    init,
+    restore as restoreWorld,
+    type Body as SolverBody,
+    snapshot as snapshotWorld,
+    World,
+    type WorldSnapshot,
+} from "./api";
 import { nlerpShortest, renderScale } from "./compose";
 import { Hulls } from "./hull";
 import { resetConstraints, resyncConstraints, syncJoints, syncSprings } from "./joints";
@@ -59,6 +67,19 @@ export const Body = {
     mass: slab(f32),
     /** coulomb friction coefficient: `0` slides freely, higher grips. */
     friction: slab(f32),
+};
+
+/** live pose written by the physics plugin; consumers such as the harness resolve it by registered name. */
+export const Pose = {
+    pos: slab(vec4),
+    quat: slab(vec4),
+    vel: slab(vec4),
+};
+
+/** Pose is runtime-derived and never scene-authored. */
+export const poseTraits = {
+    derived: true,
+    defaults: () => ({ pos: [0, 0, 0, 0], quat: [0, 0, 0, 1], vel: [0, 0, 0, 0] }),
 };
 
 /**
@@ -174,7 +195,7 @@ export interface SpringDef {
     rest: number;
 }
 
-/** an authored joint: two body eids + local anchors + the angular lock, derived from a scene's {@link Joint} entities by {@link jointDefs}. Richer joints (motors, limits, the nine solver joint types) ride {@link Physics.world}. */
+/** an authored joint: two body eids + local anchors + the angular lock, derived from a scene's {@link Joint} entities by {@link jointDefs}. Richer joints (motors, limits, the nine solver joint types) ride {@link physicsWorld}. */
 export interface JointDef {
     a: number;
     b: number;
@@ -199,15 +220,9 @@ const sigBits = (x: number): number => {
     return _sigU32[0];
 };
 
-// last-uploaded signatures — reset on warm so a fresh world re-uploads the authored set on its first frame.
 // FNV_BASIS is the empty-set signature, so an unconstrained scene's first frame already matches → no upload.
-let springSig = FNV_BASIS;
-let jointSig = FNV_BASIS;
-
-/** re-arm the constraint upload and its warn dedupe, as a fresh world does on warm. */
+/** re-arm the warning dedupe when a plugin world is warmed. Signatures themselves are State-owned. */
 export function resetSignatures(): void {
-    springSig = FNV_BASIS;
-    jointSig = FNV_BASIS;
     warnedJointEids.clear();
     warnedSpringEids.clear();
 }
@@ -331,173 +346,236 @@ export function jointDefs(state: State): JointDef[] {
 const GRAVITY = -10;
 const SUBSTEPS = 4; // the solver's own recommended sub-step count (World.step's default)
 
-let world: World | null = null;
-const bodies = new Map<number, SolverBody>();
+export interface PhysicsCounters {
+    bodiesVisited: number;
+    bytesUploaded: number;
+}
+
+interface PhysicsRuntime {
+    world: World | null;
+    bodies: Map<number, SolverBody>;
+    stamps: Map<number, number>;
+    kinPrev: Map<number, [number, number, number]>;
+    failed: Map<number, { stamp: number; hulls: number }>;
+    prevPos: Float32Array;
+    prevQuat: Float32Array;
+    currPos: Float32Array;
+    currQuat: Float32Array;
+    movedThisTick: Set<number>;
+    counters: PhysicsCounters;
+    springSig: number;
+    jointSig: number;
+}
+
+const runtimes = new WeakMap<State, PhysicsRuntime>();
+const liveRuntimes = new Set<PhysicsRuntime>();
+const residentSnapshots = new WeakMap<PhysicsRuntime, WorldSnapshot>();
+
+function newRuntime(): PhysicsRuntime {
+    return {
+        world: null,
+        bodies: new Map(),
+        stamps: new Map(),
+        kinPrev: new Map(),
+        failed: new Map(),
+        prevPos: new Float32Array(0),
+        prevQuat: new Float32Array(0),
+        currPos: new Float32Array(0),
+        currQuat: new Float32Array(0),
+        movedThisTick: new Set(),
+        counters: { bodiesVisited: 0, bytesUploaded: 0 },
+        springSig: FNV_BASIS,
+        jointSig: FNV_BASIS,
+    };
+}
+
+function runtimeFor(state: State): PhysicsRuntime {
+    const runtime = runtimes.get(state);
+    if (!runtime) throw new Error("physics: PhysicsPlugin is not initialized for this State");
+    return runtime;
+}
 // the create-stamp each body was marshaled at. Presence in `bodies` catches a
 // plain spawn/despawn; a same-update destroy+create recycling an eid keeps Body membership AND the map entry,
 // so the stamp is the only signal that the slot now holds a new body, and a mismatch re-marshals it.
-const stamps = new Map<number, number>();
-// last pose passed to setKinematic per eid — setKinematic derives a platform's velocity from its per-step
-// pose delta against this; teleport resets it so the derived delta is 0.
-const kinPrev = new Map<number, [number, number, number]>();
-// bodies whose marshal failed (an unregistered/unbuildable hull) — keyed to the stamp + hull-registry size
-// they failed at, so SyncSystem retries the marshal (and re-warns) only when the eid recycles or a new hull
-// is registered, never every frame.
-const failed = new Map<number, { stamp: number; hulls: number }>();
-// an endpoint missing from `bodies` because its marshal failed is a pending marshal (it will retry, and so
-// will its constraint) rather than a non-`Body` reference (joints.ts).
-const isDeferred = (eid: number): boolean => failed.has(eid);
+// The remaining fields live in PhysicsRuntime; keeping them beside the state map prevents one State from
+// observing another State's handles, interpolation buffers or failed marshals.
 
-// render-interpolation double buffer, capacity-sized flat arrays indexed by eid (3 lanes pos, 4 lanes quat).
-// Rewritten only for a body that moved this fixed tick (from `getBodyEvents`), so a sleeping/static body's
-// prev==curr holds from whenever it last moved (or its spawn pose) — compose then blends a no-op.
-let prevPos = new Float32Array(0);
-let prevQuat = new Float32Array(0);
-let currPos = new Float32Array(0);
-let currQuat = new Float32Array(0);
-// the eids `getBodyEvents` reported this fixed tick — compose (draw group, every render frame) rewrites
-// exactly these into the transforms firehose until the next fixed tick's move events replace the set.
-const movedThisTick = new Set<number>();
+function writePose(
+    eid: number,
+    pos: readonly [number, number, number],
+    quat: readonly [number, number, number, number],
+    vel: readonly [number, number, number],
+): void {
+    Pose.pos.set(eid, pos[0], pos[1], pos[2], 0);
+    Pose.quat.set(eid, quat[0], quat[1], quat[2], quat[3]);
+    Pose.vel.set(eid, vel[0], vel[1], vel[2], 0);
+}
 
-function seedPose(eid: number): void {
+function seedPose(runtime: PhysicsRuntime, eid: number): void {
     const p = eid * 3;
     const q = eid * 4;
-    prevPos[p] = currPos[p] = Body.pos.x.get(eid);
-    prevPos[p + 1] = currPos[p + 1] = Body.pos.y.get(eid);
-    prevPos[p + 2] = currPos[p + 2] = Body.pos.z.get(eid);
-    prevQuat[q] = currQuat[q] = Body.quat.x.get(eid);
-    prevQuat[q + 1] = currQuat[q + 1] = Body.quat.y.get(eid);
-    prevQuat[q + 2] = currQuat[q + 2] = Body.quat.z.get(eid);
-    prevQuat[q + 3] = currQuat[q + 3] = Body.quat.w.get(eid);
+    runtime.prevPos[p] = runtime.currPos[p] = Body.pos.x.get(eid);
+    runtime.prevPos[p + 1] = runtime.currPos[p + 1] = Body.pos.y.get(eid);
+    runtime.prevPos[p + 2] = runtime.currPos[p + 2] = Body.pos.z.get(eid);
+    runtime.prevQuat[q] = runtime.currQuat[q] = Body.quat.x.get(eid);
+    runtime.prevQuat[q + 1] = runtime.currQuat[q + 1] = Body.quat.y.get(eid);
+    runtime.prevQuat[q + 2] = runtime.currQuat[q + 2] = Body.quat.z.get(eid);
+    runtime.prevQuat[q + 3] = runtime.currQuat[q + 3] = Body.quat.w.get(eid);
+    writePose(
+        eid,
+        [Body.pos.x.get(eid), Body.pos.y.get(eid), Body.pos.z.get(eid)],
+        [Body.quat.x.get(eid), Body.quat.y.get(eid), Body.quat.z.get(eid), Body.quat.w.get(eid)],
+        [0, 0, 0],
+    );
 }
 
-function forget(eid: number): void {
-    bodies.get(eid)?.destroy();
-    bodies.delete(eid);
-    kinPrev.delete(eid);
-    movedThisTick.delete(eid);
+function forget(runtime: PhysicsRuntime, eid: number): void {
+    runtime.bodies.get(eid)?.destroy();
+    runtime.bodies.delete(eid);
+    runtime.kinPrev.delete(eid);
+    runtime.movedThisTick.delete(eid);
 }
 
-function clearBodies(): void {
-    bodies.clear();
-    stamps.clear();
-    kinPrev.clear();
-    movedThisTick.clear();
-    failed.clear();
+function clearBodies(runtime: PhysicsRuntime): void {
+    for (const body of runtime.bodies.values()) body.destroy();
+    runtime.bodies.clear();
+    runtime.stamps.clear();
+    runtime.kinPrev.clear();
+    runtime.movedThisTick.clear();
+    runtime.failed.clear();
+    runtime.springSig = FNV_BASIS;
+    runtime.jointSig = FNV_BASIS;
+    runtime.counters = { bodiesVisited: 0, bytesUploaded: 0 };
     resetConstraints();
 }
 
 /**
- * the running physics world. `world` is the solver escape hatch: joint types past `Joint`, sensors,
- * contact/hit events, mesh/heightfield/compound colliders and native queries; `null` until
- * {@link PhysicsPlugin} warms. `body(eid)` bridges a `Body` entity to its live solver handle (`null` before
- * its first fixed tick). The pose API reads and drives bodies by eid and no-ops before warm.
+ * State-owned physics accessors. `physicsWorld(state)` is the solver escape hatch: joint types past
+ * `Joint`, sensors, contact/hit events, mesh/heightfield/compound colliders and native queries; it is
+ * `null` until {@link PhysicsPlugin} warms. `body(state, eid)` bridges a `Body` entity to its live solver
+ * handle (`null` before its first fixed tick). The pose functions are no-ops before warm.
  */
-export const Physics: {
-    world: World | null;
-    body(eid: number): SolverBody | null;
-    readBody(eid: number): BodyState | null;
-    setKinematic(
-        eid: number,
-        pos: readonly [number, number, number],
-        quat: readonly [number, number, number, number],
-        teleport?: boolean,
-        vel?: readonly [number, number, number],
-    ): void;
-    setVelocity(eid: number, vx: number, vy: number, vz: number): void;
-    readonly gravity: number;
-    readonly dt: number;
-} = {
-    world: null,
-    body: (eid) => bodies.get(eid) ?? null,
-    /** the live pose + velocity of a body, by eid; `null` before its first fixed tick or for a non-`Body` eid. */
-    readBody(eid) {
-        const tb = bodies.get(eid);
-        if (!tb) return null;
-        const pos = tb.getPosition();
-        const quat = tb.getRotation();
-        const vel = tb.getLinearVelocity();
-        return {
-            pos: [pos.x, pos.y, pos.z],
-            quat: [quat.v.x, quat.v.y, quat.v.z, quat.s],
-            vel: [vel.x, vel.y, vel.z],
-        };
-    },
-    /** move a `mass <= 0` body (a platform, a grab anchor, the character sweep). `teleport` skips deriving a velocity from the pose delta; `vel` overrides the derived velocity. */
-    setKinematic(eid, pos, quat, teleport = false, vel) {
-        const tb = bodies.get(eid);
-        if (!tb) return;
-        let prev = kinPrev.get(eid);
-        // a slept kinematic body that only setTransform moves emits no move event, so its firehose slot would
-        // keep the stale pose while readBody sees the new one. Waking it on a real move makes the solver report
-        // the move; a same-pose call leaves it free to sleep (a parked platform re-asserting its pose).
-        const moved =
-            !prev || teleport || pos[0] !== prev[0] || pos[1] !== prev[1] || pos[2] !== prev[2];
-        tb.setTransform(
-            { x: pos[0], y: pos[1], z: pos[2] },
-            { v: { x: quat[0], y: quat[1], z: quat[2] }, s: quat[3] },
-        );
-        if (!prev || teleport) {
-            prev = [pos[0], pos[1], pos[2]];
-            kinPrev.set(eid, prev);
-        }
-        const dt = Time.FIXED_DT;
-        const v = vel ?? [
-            (pos[0] - prev[0]) / dt,
-            (pos[1] - prev[1]) / dt,
-            (pos[2] - prev[2]) / dt,
-        ];
-        tb.setLinearVelocity({ x: v[0], y: v[1], z: v[2] });
-        // setTransform never wakes and setLinearVelocity wakes only on a nonzero velocity, so a zero-velocity
-        // teleport (or a move whose derived velocity rounds to zero) needs an explicit wake.
-        if (moved && !tb.isAwake()) tb.setAwake(true);
-        prev[0] = pos[0];
-        prev[1] = pos[1];
-        prev[2] = pos[2];
-    },
-    /** set a dynamic body's linear velocity (a launch impulse, the character push). */
-    setVelocity(eid, vx, vy, vz) {
-        bodies.get(eid)?.setLinearVelocity({ x: vx, y: vy, z: vz });
-    },
-    /** the world gravity (negative), `0` before warm. */
-    get gravity() {
-        return world ? world.getGravity().y : 0;
-    },
-    /** the fixed timestep physics steps at. */
-    get dt() {
-        return Time.FIXED_DT;
-    },
-};
+export function physicsWorld(state: State): World | null {
+    return runtimeFor(state).world;
+}
+export function body(state: State, eid: number): SolverBody | null {
+    return runtimeFor(state).bodies.get(eid) ?? null;
+}
+export function readBody(state: State, eid: number): BodyState | null {
+    const tb = body(state, eid);
+    if (!tb) return null;
+    const p = tb.getPosition();
+    const q = tb.getRotation();
+    const v = tb.getLinearVelocity();
+    return { pos: [p.x, p.y, p.z], quat: [q.v.x, q.v.y, q.v.z, q.s], vel: [v.x, v.y, v.z] };
+}
+export function setKinematic(
+    state: State,
+    eid: number,
+    pos: readonly [number, number, number],
+    quat: readonly [number, number, number, number],
+    teleport = false,
+    vel?: readonly [number, number, number],
+): void {
+    const runtime = runtimeFor(state);
+    const tb = runtime.bodies.get(eid);
+    if (!tb) return;
+    let prev = runtime.kinPrev.get(eid);
+    const moved =
+        !prev || teleport || pos[0] !== prev[0] || pos[1] !== prev[1] || pos[2] !== prev[2];
+    tb.setTransform(
+        { x: pos[0], y: pos[1], z: pos[2] },
+        { v: { x: quat[0], y: quat[1], z: quat[2] }, s: quat[3] },
+    );
+    if (!prev || teleport) {
+        prev = [pos[0], pos[1], pos[2]];
+        runtime.kinPrev.set(eid, prev);
+    }
+    const next = vel ?? [
+        (pos[0] - prev[0]) / Time.FIXED_DT,
+        (pos[1] - prev[1]) / Time.FIXED_DT,
+        (pos[2] - prev[2]) / Time.FIXED_DT,
+    ];
+    tb.setLinearVelocity({ x: next[0], y: next[1], z: next[2] });
+    if (moved && !tb.isAwake()) tb.setAwake(true);
+    prev[0] = pos[0];
+    prev[1] = pos[1];
+    prev[2] = pos[2];
+}
+export function setVelocity(state: State, eid: number, vx: number, vy: number, vz: number): void {
+    runtimeFor(state).bodies.get(eid)?.setLinearVelocity({ x: vx, y: vy, z: vz });
+}
+export function physicsCounters(state: State): PhysicsCounters {
+    return { ...runtimeFor(state).counters };
+}
+export function snapshot(state: State): WorldSnapshot {
+    const world = runtimeFor(state).world;
+    if (!world) throw new Error("physics: world is not warm");
+    return snapshotWorld(world);
+}
+export function restore(state: State, saved: WorldSnapshot): void {
+    const world = runtimeFor(state).world;
+    if (!world) throw new Error("physics: world is not warm");
+    restoreWorld(world, saved);
+    if (liveRuntimes.size > 1) residentSnapshots.set(runtimeFor(state), saved);
+}
+export function hash(state: State): bigint {
+    const world = runtimeFor(state).world;
+    if (!world) throw new Error("physics: world is not warm");
+    return hashWorld(world);
+}
+
+/** Static physics configuration shared by the State-first functions. */
+export const Physics = {
+    gravity: GRAVITY,
+    dt: Time.FIXED_DT,
+} as const;
 
 /** the fixed-group solver step: the ordering anchor a producer that moves bodies before the solve (the character sweep's kinematic upload) orders `before:`. */
 export const StepSystem: System = {
     name: "step",
     group: "fixed",
-    update() {
+    update(state) {
+        const runtime = runtimeFor(state);
+        const world = runtime.world;
         if (!world) return;
+        if (liveRuntimes.size > 1) {
+            const saved = residentSnapshots.get(runtime);
+            if (saved) restoreWorld(world, saved);
+        }
         world.step(Time.FIXED_DT, SUBSTEPS);
-        movedThisTick.clear();
+        if (liveRuntimes.size > 1) residentSnapshots.set(runtime, snapshotWorld(world));
+        runtime.movedThisTick.clear();
+        runtime.counters = { bodiesVisited: runtime.counters.bodiesVisited, bytesUploaded: 0 };
         const events = world.getBodyEvents();
         for (let i = 0; i < events.count; i++) {
             const ev = events.moveEvents[i];
             const eid = ev.userData as number;
             const p = eid * 3;
             const q = eid * 4;
-            prevPos[p] = currPos[p];
-            prevPos[p + 1] = currPos[p + 1];
-            prevPos[p + 2] = currPos[p + 2];
-            prevQuat[q] = currQuat[q];
-            prevQuat[q + 1] = currQuat[q + 1];
-            prevQuat[q + 2] = currQuat[q + 2];
-            prevQuat[q + 3] = currQuat[q + 3];
-            currPos[p] = ev.transform.p.x;
-            currPos[p + 1] = ev.transform.p.y;
-            currPos[p + 2] = ev.transform.p.z;
-            currQuat[q] = ev.transform.q.v.x;
-            currQuat[q + 1] = ev.transform.q.v.y;
-            currQuat[q + 2] = ev.transform.q.v.z;
-            currQuat[q + 3] = ev.transform.q.s;
-            movedThisTick.add(eid);
+            runtime.prevPos[p] = runtime.currPos[p];
+            runtime.prevPos[p + 1] = runtime.currPos[p + 1];
+            runtime.prevPos[p + 2] = runtime.currPos[p + 2];
+            runtime.prevQuat[q] = runtime.currQuat[q];
+            runtime.prevQuat[q + 1] = runtime.currQuat[q + 1];
+            runtime.prevQuat[q + 2] = runtime.currQuat[q + 2];
+            runtime.prevQuat[q + 3] = runtime.currQuat[q + 3];
+            runtime.currPos[p] = ev.transform.p.x;
+            runtime.currPos[p + 1] = ev.transform.p.y;
+            runtime.currPos[p + 2] = ev.transform.p.z;
+            runtime.currQuat[q] = ev.transform.q.v.x;
+            runtime.currQuat[q + 1] = ev.transform.q.v.y;
+            runtime.currQuat[q + 2] = ev.transform.q.v.z;
+            runtime.currQuat[q + 3] = ev.transform.q.s;
+            const live = runtime.bodies.get(eid);
+            const velocity = live?.getLinearVelocity();
+            writePose(
+                eid,
+                [ev.transform.p.x, ev.transform.p.y, ev.transform.p.z],
+                [ev.transform.q.v.x, ev.transform.q.v.y, ev.transform.q.v.z, ev.transform.q.s],
+                velocity ? [velocity.x, velocity.y, velocity.z] : [0, 0, 0],
+            );
+            runtime.movedThisTick.add(eid);
         }
     },
 };
@@ -508,16 +586,18 @@ export const ConstraintSystem: System = {
     group: "fixed",
     before: [StepSystem],
     update(state) {
+        const runtime = runtimeFor(state);
+        const world = runtime.world;
         if (!world) return;
         const ss = springSignature(state);
-        if (ss !== springSig) {
-            springSig = ss;
-            syncSprings(world, bodies, springDefs(state), isDeferred);
+        if (ss !== runtime.springSig) {
+            runtime.springSig = ss;
+            syncSprings(world, runtime.bodies, springDefs(state), (eid) => runtime.failed.has(eid));
         }
         const js = jointSignature(state);
-        if (js !== jointSig) {
-            jointSig = js;
-            syncJoints(world, bodies, jointDefs(state), isDeferred);
+        if (js !== runtime.jointSig) {
+            runtime.jointSig = js;
+            syncJoints(world, runtime.bodies, jointDefs(state), (eid) => runtime.failed.has(eid));
         }
     },
 };
@@ -530,43 +610,50 @@ const SyncSystem: System = {
     group: "fixed",
     before: [ConstraintSystem, StepSystem],
     update(state: State) {
+        const runtime = runtimeFor(state);
+        const world = runtime.world;
         if (!world) return;
+        runtime.counters.bodiesVisited = 0;
         // a deferred body finally marshaling (or a body going stale) is the transition a dropped constraint
         // waits on, and `ConstraintSystem` re-uploads on an authored signature change only, so the constraint
         // re-sync is pumped from here on any body-set change (a no-op walk when nothing was dropped, joints.ts).
         let bodySetChanged = false;
         for (const eid of state.query([Body])) {
+            runtime.counters.bodiesVisited += 1;
             const stamp = state.stamp(eid);
-            if (bodies.has(eid)) {
-                if (stamps.get(eid) === stamp) continue;
-                forget(eid); // recycled to a new Body in one update
+            if (runtime.bodies.has(eid)) {
+                if (runtime.stamps.get(eid) === stamp) continue;
+                forget(runtime, eid); // recycled to a new Body in one update
             }
-            const f = failed.get(eid);
+            const f = runtime.failed.get(eid);
             if (f && f.stamp === stamp && f.hulls === Hulls.size) continue;
             const tb = marshalBody(world, eid);
             if (!tb) {
-                failed.set(eid, { stamp, hulls: Hulls.size });
+                runtime.failed.set(eid, { stamp, hulls: Hulls.size });
                 continue;
             }
-            failed.delete(eid);
-            bodies.set(eid, tb);
-            stamps.set(eid, stamp);
+            runtime.failed.delete(eid);
+            runtime.bodies.set(eid, tb);
+            runtime.stamps.set(eid, stamp);
+            if (!state.has(eid, Pose)) state.add(eid, Pose);
             bodySetChanged = true;
-            seedPose(eid);
+            seedPose(runtime, eid);
         }
-        for (const eid of failed.keys()) {
-            if (!state.has(eid, Body)) failed.delete(eid);
+        for (const eid of runtime.failed.keys()) {
+            if (!state.has(eid, Body)) runtime.failed.delete(eid);
         }
         const stale: number[] = [];
-        for (const eid of bodies.keys()) {
+        for (const eid of runtime.bodies.keys()) {
             if (!state.has(eid, Body)) stale.push(eid);
         }
         for (const eid of stale) {
-            forget(eid);
-            stamps.delete(eid);
+            forget(runtime, eid);
+            runtime.stamps.delete(eid);
+            if (state.has(eid, Pose)) state.remove(eid, Pose);
             bodySetChanged = true;
         }
-        if (bodySetChanged) resyncConstraints(world, bodies, isDeferred);
+        if (bodySetChanged)
+            resyncConstraints(world, runtime.bodies, (eid) => runtime.failed.has(eid));
     },
 };
 
@@ -574,14 +661,24 @@ const SyncSystem: System = {
 const _record = new Float32Array(12);
 
 /** write the movers' interpolated pose into the `transforms` firehose at `alpha` (the fixed-step interpolation blend). */
-export function composePose(transforms: GPUBuffer, alpha: number): void {
+export function composePose(runtime: PhysicsRuntime, transforms: GPUBuffer, alpha: number): void {
     if (!Compute.device) return;
-    for (const eid of movedThisTick) {
+    for (const eid of runtime.movedThisTick) {
         const p = eid * 3;
         const q = eid * 4;
         const quat = nlerpShortest(
-            [prevQuat[q], prevQuat[q + 1], prevQuat[q + 2], prevQuat[q + 3]],
-            [currQuat[q], currQuat[q + 1], currQuat[q + 2], currQuat[q + 3]],
+            [
+                runtime.prevQuat[q],
+                runtime.prevQuat[q + 1],
+                runtime.prevQuat[q + 2],
+                runtime.prevQuat[q + 3],
+            ],
+            [
+                runtime.currQuat[q],
+                runtime.currQuat[q + 1],
+                runtime.currQuat[q + 2],
+                runtime.currQuat[q + 3],
+            ],
             alpha,
         );
         const scale = renderScale(
@@ -589,9 +686,10 @@ export function composePose(transforms: GPUBuffer, alpha: number): void {
             [Body.halfExtents.x.get(eid), Body.halfExtents.y.get(eid), Body.halfExtents.z.get(eid)],
             Body.halfExtents.w.get(eid),
         );
-        _record[0] = prevPos[p] * (1 - alpha) + currPos[p] * alpha;
-        _record[1] = prevPos[p + 1] * (1 - alpha) + currPos[p + 1] * alpha;
-        _record[2] = prevPos[p + 2] * (1 - alpha) + currPos[p + 2] * alpha;
+        _record[0] = runtime.prevPos[p] * (1 - alpha) + runtime.currPos[p] * alpha;
+        _record[1] = runtime.prevPos[p + 1] * (1 - alpha) + runtime.currPos[p + 1] * alpha;
+        _record[2] = runtime.prevPos[p + 2] * (1 - alpha) + runtime.currPos[p + 2] * alpha;
+        runtime.counters.bytesUploaded += 48;
         _record[3] = 0;
         _record[4] = quat[0];
         _record[5] = quat[1];
@@ -612,17 +710,18 @@ export const ComposeSystem: System = {
     after: [BeginFrameSystem],
     before: [PrepassSystem],
     update(state) {
-        if (!world || !Render.encoder) return;
+        const runtime = runtimeFor(state);
+        if (!runtime.world || !Render.encoder) return;
         const transforms = Compute.buffers.get("transforms");
         if (!transforms) return;
-        composePose(transforms, state.time.fixedAlpha);
+        composePose(runtime, transforms, state.time.fixedAlpha);
     },
 };
 
 /**
  * rigid-body physics: installs `Body`/`Spring`/`Joint` and a CPU solver (Rust/WASM kernel, no GPU device
  * needed to step). Opt-in — add it to a scene to run physics (it's not in the default plugins). Nine joint
- * types, mesh/heightfield/compound colliders, sensors, CCD and sleeping ride {@link Physics.world}.
+ * types, mesh/heightfield/compound colliders, sensors, CCD and sleeping ride {@link physicsWorld}.
  *
  * @example
  * ```
@@ -631,37 +730,44 @@ export const ComposeSystem: System = {
  */
 export const PhysicsPlugin: Plugin = {
     name: "Physics",
-    components: { Body, Spring, Joint },
+    components: { Body, Pose, Spring, Joint },
     systems: [SyncSystem, ConstraintSystem, StepSystem, ComposeSystem],
     dependencies: [SlabPlugin],
     traits: {
         Body: bodyTraits,
+        Pose: poseTraits,
         Spring: springTraits,
         Joint: jointTraits,
     },
 
-    initialize() {
-        Physics.world = null;
+    initialize(state) {
+        const runtime = newRuntime();
+        runtimes.set(state, runtime);
+        liveRuntimes.add(runtime);
     },
 
-    async warm() {
+    async warm(state) {
+        const runtime = runtimeFor(state);
         await init(); // async wasm compile — the browser main thread can't compile it synchronously
-        world?.destroy();
-        world = new World({ gravity: { x: 0, y: GRAVITY, z: 0 } });
-        Physics.world = world;
-        clearBodies();
-        prevPos = new Float32Array(capacity * 3);
-        prevQuat = new Float32Array(capacity * 4);
-        currPos = new Float32Array(capacity * 3);
-        currQuat = new Float32Array(capacity * 4);
+        runtime.world?.destroy();
+        runtime.world = new World({ gravity: { x: 0, y: GRAVITY, z: 0 } });
+        clearBodies(runtime);
+        runtime.prevPos = new Float32Array(capacity * 3);
+        runtime.prevQuat = new Float32Array(capacity * 4);
+        runtime.currPos = new Float32Array(capacity * 3);
+        runtime.currQuat = new Float32Array(capacity * 4);
         resetSignatures(); // the fresh world receives the authored constraint set on its first frame
     },
 
-    dispose() {
-        clearBodies();
-        world?.destroy();
-        world = null;
-        Physics.world = null;
+    dispose(state) {
+        const runtime = runtimes.get(state);
+        if (!runtime) return;
+        clearBodies(runtime);
+        runtime.world?.destroy();
+        runtime.world = null;
+        runtimes.delete(state);
+        liveRuntimes.delete(runtime);
+        residentSnapshots.delete(runtime);
     },
 };
 
@@ -683,6 +789,6 @@ export {
 // Physics extension surface: what an outside solver or custom tooling needs past the author happy path.
 // An outside solver registers the shared components with these traits, derives the authored constraint
 // set from the defs/signatures, reads hull geometry from `Hulls`, and orders its systems against these
-// anchors. Tooling driving `Physics.world` (or its own `World`) past the atomic core needs the solver's
+// anchors. Tooling driving `physicsWorld(state)` (or its own `World`) past the atomic core needs the solver's
 // free functions: shape builders, `BodyType`/joint configs, debug draw, `hashWorldState`.
 export * as solver from "./solver";

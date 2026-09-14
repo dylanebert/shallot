@@ -102,6 +102,7 @@ import {
 import { DistanceJoint, Joint, PrismaticJoint, RevoluteJoint } from "./joint";
 import { MotorJoint, ParallelJoint, SphericalJoint, WeldJoint, WheelJoint } from "./joints";
 import { Contact, Shape } from "./shape";
+import { restore as restoreWorld, snapshot as snapshotWorld, type WorldSnapshot } from "./snapshot";
 
 /** A simulation world: bodies, shapes, and the broad-phase. */
 export class World {
@@ -137,6 +138,16 @@ export class World {
     /** Destroy this world and every body and shape in it. */
     destroy(): void {
         destroyWorld(this.state);
+    }
+
+    /** Capture the complete wasm-backed state for deterministic resimulation. */
+    snapshot(): WorldSnapshot {
+        return snapshotWorld(this);
+    }
+
+    /** Restore a snapshot previously captured from this world. */
+    restore(snapshot: WorldSnapshot): void {
+        restoreWorld(this, snapshot);
     }
 
     /** Create a body from a (partial) definition. */

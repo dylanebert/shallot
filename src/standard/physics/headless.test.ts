@@ -3,7 +3,7 @@ import { Time } from "../../engine";
 import { check } from "../../harness/check";
 import { hashWorldState, shutdown } from "./api";
 import { addBody, headlessPhysicsState } from "./headless.fixture";
-import { Physics, PhysicsPlugin, ShapeKind } from "./index";
+import { body, PhysicsPlugin, physicsWorld, ShapeKind } from "./index";
 
 // The premise every other physics check rests on: the solver is CPU-native wasm, so a `State` with
 // `PhysicsPlugin` warms and steps in Bun with no GPU device and no browser.
@@ -24,7 +24,7 @@ check(
     async () => {
         const state = await headlessPhysicsState();
         live = state;
-        expect(Physics.world).not.toBeNull();
+        expect(physicsWorld(state)).not.toBeNull();
 
         addBody(state, {
             shape: ShapeKind.Box,
@@ -42,13 +42,13 @@ check(
         const hashes: bigint[] = [];
         for (let i = 0; i < 30; i++) {
             state.step(Time.FIXED_DT);
-            hashes.push(hashWorldState(Physics.world!.state));
+            hashes.push(hashWorldState(physicsWorld(state)!.state));
         }
 
         // the world advanced: 30 distinct states, and the dynamic body fell under gravity while the
         // static floor held.
         expect(new Set(hashes.map(String)).size).toBe(30);
-        const handle = Physics.body(falling);
+        const handle = body(state, falling);
         expect(handle).not.toBeNull();
         const y = handle!.getPosition().y;
         expect(y).toBeLessThan(5);
