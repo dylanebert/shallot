@@ -516,6 +516,10 @@ function subjectValue(root: string, ref: string, path: string): readonly string[
     return type === "tree" ? treeSubject(root, ref, path) : subjectTokens(readAt(root, ref, path));
 }
 
+export function selectOracleRows(population: Population, claim: string): SurfaceRow[] {
+    return population.rows.filter((row) => ORACLE_SUFFIX.test(row.file) && row.claim === claim);
+}
+
 /** Root-law selector: comments do not select; complete pre/post subject token streams do. */
 export function subjectChanged(
     root: string,
