@@ -146,6 +146,7 @@ const LinesSystem: System = {
  */
 export const LinesPlugin: Plugin = {
     name: "Lines",
+    device: "optional",
     components: { Line, Arrow },
     systems: [LinesSystem],
     dependencies: [RenderPlugin, TransformsPlugin],

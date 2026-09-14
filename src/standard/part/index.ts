@@ -20,6 +20,7 @@ export { Color, Part } from "./part";
  */
 export const PartPlugin: Plugin = {
     name: "Part",
+    device: "optional",
     systems: [PartSystem],
     components: { Part, Color },
     traits: {

@@ -21,6 +21,11 @@ interface Registered {
     traits?: Traits;
 }
 
+/** result of loading authored nodes, including attrs omitted by the active composition. */
+export interface LoadResult extends Map<Node, number> {
+    readonly dropped: readonly string[];
+}
+
 function lookup(rawName: string): Registered | undefined {
     const component = getComponent(rawName);
     if (!component) return undefined;
@@ -105,10 +110,11 @@ function findClosestMatch(input: string, candidates: string[]): string | null {
  * @example
  * const map = load(parse(xml), state);
  */
-export function load(nodes: Node[], state: State): Map<Node, number> {
+export function load(nodes: Node[], state: State): LoadResult {
     const nameToEntity = new Map<string, number>();
     const nodeToEntity = new Map<Node, number>();
     const errors: ParseError[] = [];
+    const droppedAttrs: string[] = [];
     const pendingFieldRefs: PendingFieldRef[] = [];
 
     for (const node of nodes) {
@@ -126,7 +132,8 @@ export function load(nodes: Node[], state: State): Map<Node, number> {
 
     for (const node of nodes) {
         const eid = nodeToEntity.get(node)!;
-        const { componentAttrs, refs } = categorizeAttrs(node.attrs);
+        const { componentAttrs, refs, dropped } = categorizeAttrs(node.attrs);
+        droppedAttrs.push(...dropped);
 
         for (const ref of refs) {
             errors.push({
@@ -152,7 +159,9 @@ export function load(nodes: Node[], state: State): Map<Node, number> {
         throw new Error(errors.map((e) => e.message).join("\n"));
     }
 
-    return nodeToEntity;
+    const result = nodeToEntity as LoadResult;
+    Object.defineProperty(result, "dropped", { value: droppedAttrs, enumerable: true });
+    return result;
 }
 
 /**
@@ -275,11 +284,13 @@ export function serialize(state: State, eids?: Iterable<number>): Node[] {
 interface CategorizedAttrs {
     componentAttrs: { name: string; value: string; def: Registered }[];
     refs: Ref[];
+    dropped: string[];
 }
 
 function categorizeAttrs(attrs: Attr[]): CategorizedAttrs {
     const componentAttrs: { name: string; value: string; def: Registered }[] = [];
     const refs: Ref[] = [];
+    const dropped: string[] = [];
 
     for (const attr of attrs) {
         if (attr.value.startsWith("@") && attr.value.length > 1) {
@@ -290,10 +301,12 @@ function categorizeAttrs(attrs: Attr[]): CategorizedAttrs {
         const registered = lookup(attr.name);
         if (registered) {
             componentAttrs.push({ name: attr.name, value: attr.value, def: registered });
+        } else {
+            dropped.push(attr.name);
         }
     }
 
-    return { componentAttrs, refs };
+    return { componentAttrs, refs, dropped };
 }
 
 function applyComponent(
@@ -899,8 +912,8 @@ export function diagnose(nodes: Node[]): Diagnostic[] {
             if (!reg) {
                 const suggestion = findClosestMatch(attr.name, registered);
                 const message = suggestion
-                    ? `"${attr.name}" is not registered, did you mean "${suggestion}"?`
-                    : `"${attr.name}" is not registered`;
+                    ? `"${attr.name}" has no active plugin registration; dropped (did you mean "${suggestion}"?)`
+                    : `"${attr.name}" has no active plugin registration; dropped`;
                 results.push({ node, attr: attr.name, kind: "unregistered", message });
                 continue;
             }

@@ -204,6 +204,7 @@ export const MirrorSystem: System = {
  */
 export const MirrorPlugin: Plugin = {
     name: "Mirror",
+    device: "required",
     systems: [MirrorSystem],
 
     initialize() {

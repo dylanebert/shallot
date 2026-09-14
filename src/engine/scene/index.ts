@@ -2,6 +2,7 @@ export {
     type Diagnostic,
     diagnose,
     formatFields,
+    type LoadResult,
     load,
     normalizeAttr,
     parseFields,

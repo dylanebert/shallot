@@ -398,7 +398,7 @@ export class Slab {
     }
 
     static flush(): void {
-        if (Slab._all.length === 0) return;
+        if (Slab._all.length === 0 || !Compute.device) return;
         const device = Compute.device;
         if (deviceLost(device)) return;
         const encoder = device.createCommandEncoder({ label: "slab-flush" });
@@ -525,15 +525,16 @@ export const SlabSystem: System = {
  */
 export const SlabPlugin: Plugin = {
     name: "Slab",
+    device: "optional",
     systems: [SlabSystem, MembershipSystem],
 
     initialize() {
         Slab.collect();
     },
 
-    // `warm` is the GPU-setup phase, so a device is assumed here — every call below allocates against
-    // it, and a headless build with a gpu-supported slab registered fails loud at the first one
+    // CPU builds still collect and prepare their canonical arrays, but skip every GPU allocation.
     warm(state) {
+        if (!Compute.device) return;
         for (const t of Slab.gpuTypes()) scatterPipeline(t);
         Slab.prepareAll();
         allocMembership(state);

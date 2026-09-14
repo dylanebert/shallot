@@ -701,6 +701,7 @@ export const LiveSkinSystem: System = {
  */
 export const SkinPlugin: Plugin = {
     name: "Skin",
+    device: "optional",
     dependencies: [RenderPlugin, SlabPlugin],
     components: { Skin },
     traits: { Skin: skinTraits },

@@ -1481,6 +1481,7 @@ async function resolveRefs(nodes: Node[], state: State): Promise<void> {
  */
 export const GltfPlugin: Plugin = {
     name: "Gltf",
+    device: "optional",
     components: { Textured, Skin },
     dependencies: [RenderPlugin, SlabPlugin],
     systems: [RouteSystem, SkinSystem, LiveSkinSystem, UnionBuildSystem],
