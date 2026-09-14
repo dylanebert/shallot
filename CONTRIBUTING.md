@@ -8,7 +8,7 @@ This page is for anyone changing the engine itself, person or agent. Using Shall
 |---|---|
 | `src/engine` | The core: app lifecycle, ECS, scenes, the runtime (device and platform admission) and utils. Imports nothing else under `src`. |
 | `src/standard` | The default plugins: render, sear (shading), glaze (post), part, physics, character, player, audio, input, transforms, loading, mirror, slab, bvh, fog. |
-| `src/extras` | Opt-in plugins (animation, cells, gltf, lines, orbit, outline, profile, skin, sky, sprite, text), published at `/extras`. A plugin starts as a satellite repo and is promoted into extras once it has proven stable across a cycle. |
+| `src/extras` | Opt-in plugins (cells, gltf, lines, orbit, outline, profile, skin, sky, sprite, text), published at `/extras`. A plugin starts as a satellite repo and is promoted into extras once it has proven stable across a cycle. |
 | `src/harness` | The in-page verdict hook a project publishes, the seat policy and capture contract, and the browser driver. |
 | `src/project` | The manifest, scene and asset generation, host toolchain resolution and the Vite plugin. |
 | `src/native` | Desktop shell resolution: the prebuilt download and the source-build fallback. |

@@ -6,7 +6,6 @@ From `bun run examples:index` and `examples/*/shallot.json`; edit manifests. Use
 
 | name | description | add |
 | --- | --- | --- |
-| `animate-with-clips` | I want an object to bounce on a loop without writing a per-frame system. | `bunx shallot add animate-with-clips` |
 | `ascii` | I want my scene drawn as ASCII characters. | `bunx shallot add ascii` |
 | `custom-material` | I want to write my own shader for a material and for the background. | `bunx shallot add custom-material` |
 | `day-night-sky` | I want a day and night cycle where the sun moves and the sky follows it. | `bunx shallot add day-night-sky` |

@@ -19,7 +19,6 @@ export const DEFAULT_PLUGIN_NAMES = [
 // warns on a `name: true` outside the union below (an unknown engine plugin, otherwise a cryptic esbuild
 // "no export named ${name}Plugin" at bundle time).
 export const EXTRA_PLUGIN_NAMES = [
-    "Animation",
     "Audio",
     "Cells",
     "Character",
