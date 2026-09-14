@@ -60,7 +60,7 @@ check(
         writeFileSync(
             file,
             `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n` +
-                'check("missing", { claim: "missing GPU refuses", requires: ["gpu"] }, () => {});\n',
+                'check("missing", { claim: "missing display refuses", requires: ["display"] }, () => {});\n',
         );
         try {
             const proc = Bun.spawnSync(["bun", "test", file], {
@@ -69,7 +69,7 @@ check(
             });
             expect(proc.exitCode).not.toBe(0);
             expect(proc.stderr.toString() + proc.stdout.toString()).toContain(
-                "refused check missing GPU refuses",
+                "refused check missing display refuses",
             );
         } finally {
             rmSync(tree, { recursive: true, force: true });
