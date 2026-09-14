@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "box3d-oracle/known-differences/v1",
+  "type": "object",
+  "required": ["schema", "target", "bundle", "entries"],
+  "properties": {
+    "schema": { "const": "box3d-oracle/known-differences/v1" },
+    "target": { "pattern": "^[0-9a-f]{40}$" },
+    "bundle": { "pattern": "^[0-9a-f]{40}/v6$" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["caseId", "mismatchKind", "fingerprint", "firstDifference", "reason", "owner", "introduced", "expires"],
+        "properties": {
+          "caseId": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]+$" },
+          "mismatchKind": { "type": "string", "enum": ["value", "execution-error"] },
+          "fingerprint": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "firstDifference": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string", "minLength": 1 },
+          "owner": { "type": "object", "required": ["spec", "stage"], "additionalProperties": false },
+          "introduced": { "type": "string", "format": "date" },
+          "expires": { "type": "string", "format": "date" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
