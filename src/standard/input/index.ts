@@ -17,6 +17,15 @@ export interface Keys {
     readonly pressedTick: Map<string, number>;
 }
 
+/** pointer-lock state reported by the browser or a headless producer. */
+export type PointerLockStatus = "unsupported" | "refused" | "unlocked" | "locked";
+
+export interface PointerLock {
+    status: PointerLockStatus;
+    /** the last browser refusal, or the reason the capability is unavailable */
+    refusal: string | null;
+}
+
 /** live mouse state in one device record. Positions and sizes are CSS pixels; deltas accumulate over a
  * frame and reset at the draw boundary. */
 export interface Mouse {
@@ -58,16 +67,26 @@ export interface Touch {
 
 /** all device-fed facts for one State. Producers below are the single mutation seam used by both the DOM
  * path and headless callers. The record is created lazily, so a State with no DOM still has devices. */
+export interface Pointer extends Mouse {
+    readonly lock: PointerLock;
+}
+
 export interface Devices {
     readonly keys: Keys;
+    /** pointer facts; `mouse` is the compatibility name for the same record */
+    readonly pointer: Pointer;
     readonly mouse: Mouse;
     readonly touch: Touch;
+    /** true when device producers are suspended and all reads are neutral */
+    readonly suspended: boolean;
+    /** when true, pointer buttons stay up until `pointer.lock.status` is locked */
+    readonly requireLock: boolean;
     /** document-order index of the canvas holding input focus, or -1 when none is focused */
     focused: number;
 }
 
 interface DeviceRecord extends Devices {
-    enabled: boolean;
+    suspended: boolean;
     requireLock: boolean;
     readonly touchPoints: Map<number, { x: number; y: number }>;
     pinchDistance: number | null;
@@ -93,6 +112,11 @@ interface DeviceRecord extends Devices {
     canvasFocused: boolean;
     windowPointerDown: (e: PointerEvent) => void;
     windowBlur: () => void;
+    visibilityChange: () => void;
+    pointerLockChange: () => void;
+    pointerLockError: () => void;
+    canvasClick: () => void;
+    lockMove: (e: MouseEvent) => void;
 }
 
 const records = new WeakMap<State, DeviceRecord>();
@@ -112,7 +136,9 @@ const DEFAULT_MOUSE: Mouse = {
 };
 
 const DEFAULT_TOUCH: Touch = { count: 0, pinchDelta: 0, deltaX: 0, deltaY: 0 };
+const DEFAULT_POINTER_LOCK: PointerLock = { status: "unlocked", refusal: null };
 function emptyRecord(): DeviceRecord {
+    const pointer: Pointer = { ...DEFAULT_MOUSE, lock: { ...DEFAULT_POINTER_LOCK } };
     return {
         keys: {
             held: new Set(),
@@ -122,10 +148,11 @@ function emptyRecord(): DeviceRecord {
             tickReleased: new Set(),
             pressedTick: new Map(),
         },
-        mouse: { ...DEFAULT_MOUSE },
+        pointer,
+        mouse: pointer,
         touch: { ...DEFAULT_TOUCH },
+        suspended: false,
         focused: -1,
-        enabled: true,
         requireLock: false,
         touchPoints: new Map(),
         pinchDistance: null,
@@ -151,6 +178,11 @@ function emptyRecord(): DeviceRecord {
         canvasFocused: true,
         windowPointerDown: null!,
         windowBlur: null!,
+        visibilityChange: null!,
+        pointerLockChange: null!,
+        pointerLockError: null!,
+        canvasClick: null!,
+        lockMove: null!,
     };
 }
 
@@ -171,7 +203,7 @@ function record(state: State): DeviceRecord {
 /** Produce a keyboard press. Repeated presses do not retrigger an edge. */
 export function pressKey(state: State, code: string): void {
     const d = record(state);
-    if (!d.enabled || d.keys.held.has(code)) return;
+    if (d.suspended || d.keys.held.has(code)) return;
     d.keys.held.add(code);
     d.keys.pressed.add(code);
     d.keys.tickPressed.add(code);
@@ -181,7 +213,7 @@ export function pressKey(state: State, code: string): void {
 /** Produce a keyboard release. */
 export function releaseKey(state: State, code: string): void {
     const d = record(state);
-    if (!d.enabled || !d.keys.held.has(code)) return;
+    if (d.suspended || !d.keys.held.has(code)) return;
     d.keys.held.delete(code);
     d.keys.released.add(code);
     d.keys.tickReleased.add(code);
@@ -207,7 +239,7 @@ export function pointerMove(
     deltaY = 0,
 ): void {
     const d = record(state);
-    if (!d.enabled) return;
+    if (d.suspended) return;
     const move = typeof x === "number" ? { x, y: y ?? 0, deltaX, deltaY } : x;
     d.mouse.x = move.x;
     d.mouse.y = move.y;
@@ -223,14 +255,14 @@ export type PointerButton = "left" | "right" | "middle" | 0 | 1 | 2;
 /** Produce one pointer-button state. Numeric buttons use DOM `button` values (0 left, 1 middle, 2 right). */
 export function pointerButton(state: State, button: PointerButton, pressed: boolean): void {
     const d = record(state);
-    if (!d.enabled) return;
+    if (d.suspended) return;
     const name =
         button === 0 || button === "left"
             ? "left"
             : button === 1 || button === "middle"
               ? "middle"
               : "right";
-    d.mouse[name] = pressed;
+    d.mouse[name] = d.requireLock && d.pointer.lock.status !== "locked" ? false : pressed;
 }
 
 /** Produce the DOM `buttons` bitmask. */
@@ -243,7 +275,7 @@ export function pointerButtons(state: State, buttons: number): void {
 /** Produce wheel movement. */
 export function pointerWheel(state: State, delta: number): void {
     const d = record(state);
-    if (d.enabled) d.mouse.scroll += delta;
+    if (!d.suspended) d.mouse.scroll += delta;
 }
 
 /** Alias for callers that name the device fact `wheel`. */
@@ -276,7 +308,7 @@ export function touchPoint(
     active = true,
 ): void {
     const d = record(state);
-    if (!d.enabled) return;
+    if (d.suspended) return;
     if (!active) {
         d.touchPoints.delete(pointerId);
         d.touch.count = d.touchPoints.size;
@@ -313,27 +345,68 @@ function releaseKeyForLegacy(d: DeviceRecord, code: string): void {
     d.keys.tickReleased.add(code);
 }
 
+function setPointerLock(d: DeviceRecord, status: PointerLockStatus, refusal: string | null): void {
+    d.pointer.lock.status = status;
+    d.pointer.lock.refusal = refusal;
+}
+
+/** Release every held input as the window loses focus. */
+export function blur(state: State): void {
+    const d = record(state);
+    d.canvasFocused = false;
+    d.focused = -1;
+    releaseAll(state, d);
+}
+
+/** Produce a focus transition for a bound canvas. */
+export function focus(state: State, canvasIndex = 0): void {
+    const d = record(state);
+    if (d.suspended) return;
+    d.canvasFocused = true;
+    d.focused = canvasIndex;
+}
+
+/** Produce a document visibility transition. Hidden visibility has the same release-edge contract as blur. */
+export function visibilityChanged(state: State, hidden: boolean): void {
+    if (hidden) blur(state);
+}
+
+/** Produce a pointer-lock transition. Exiting a lock is an input boundary and releases every held input. */
+export function pointerLockChanged(
+    state: State,
+    engaged: boolean,
+    refusal: string | null = null,
+): void {
+    const d = record(state);
+    const wasLocked = d.pointer.lock.status === "locked";
+    if (engaged) setPointerLock(d, "locked", null);
+    else setPointerLock(d, refusal === null ? "unlocked" : "refused", refusal);
+    if (wasLocked && !engaged) releaseAll(state, d);
+}
+
 function pointerButtonsForRecord(d: DeviceRecord, buttons: number): void {
     d.mouse.left = (buttons & 1) !== 0;
     d.mouse.right = (buttons & 2) !== 0;
     d.mouse.middle = (buttons & 4) !== 0;
 }
 
-function locked(d: DeviceRecord): boolean {
-    const element =
-        typeof document === "undefined"
-            ? null
-            : (document.pointerLockElement as HTMLCanvasElement | null);
-    return !!element && d.canvases.has(element);
-}
-
 function gatedButtons(d: DeviceRecord, buttons: number): number {
-    return d.requireLock && !locked(d) ? 0 : buttons;
+    return d.requireLock && d.pointer.lock.status !== "locked" ? 0 : buttons;
 }
 
-function releaseAll(state: State, d: DeviceRecord): void {
-    for (const code of [...d.keys.held]) releaseKey(state, code);
-    pointerButtons(state, 0);
+function clearTouch(d: DeviceRecord): void {
+    d.touchPoints.clear();
+    updatePinchBaseline(d);
+    d.touch.count = 0;
+    d.touch.pinchDelta = 0;
+    d.touch.deltaX = 0;
+    d.touch.deltaY = 0;
+}
+
+function releaseAll(_state: State | null, d: DeviceRecord): void {
+    for (const code of [...d.keys.held]) releaseKeyForLegacy(d, code);
+    pointerButtonsForRecord(d, 0);
+    clearTouch(d);
 }
 
 function releaseCapture(d: DeviceRecord): void {
@@ -387,13 +460,13 @@ function createHandlers(d: DeviceRecord, state: State): void {
         if (d.activePointerId === null) d.mouse.hover = false;
     };
     d.keyDown = (e) => {
-        if (!d.enabled) return;
+        if (d.suspended) return;
         const lockElement = document.pointerLockElement as HTMLCanvasElement | null;
         if (!d.canvasFocused && !(lockElement && d.canvases.has(lockElement))) return;
         pressKey(state, e.code);
     };
     d.keyUp = (e) => {
-        if (!d.enabled) return;
+        if (d.suspended) return;
         const lockElement = document.pointerLockElement as HTMLCanvasElement | null;
         if (!d.canvasFocused && !(lockElement && d.canvases.has(lockElement))) return;
         releaseKey(state, e.code);
@@ -425,20 +498,32 @@ function createHandlers(d: DeviceRecord, state: State): void {
     d.windowPointerDown = (e) => {
         if (!d.canvases.has(e.target as HTMLCanvasElement)) {
             d.canvasFocused = false;
+            d.focused = -1;
             releaseAll(state, d);
-            d.keys.pressed.clear();
-            d.keys.tickPressed.clear();
         }
     };
-    d.windowBlur = () => {
-        d.canvasFocused = false;
-        releaseAll(state, d);
-        d.touchPoints.clear();
-        updatePinchBaseline(d);
-        d.touch.count = 0;
-        d.touch.pinchDelta = 0;
-        d.touch.deltaX = 0;
-        d.touch.deltaY = 0;
+    d.windowBlur = () => blur(state);
+    d.visibilityChange = () => visibilityChanged(state, document.hidden);
+    d.pointerLockChange = () => {
+        const element = document.pointerLockElement as HTMLCanvasElement | null;
+        if (element && d.canvases.has(element)) pointerLockChanged(state, true);
+        else if (d.pointer.lock.status === "locked") pointerLockChanged(state, false);
+    };
+    d.pointerLockError = () => {
+        pointerLockChanged(state, false, "the browser rejected pointer lock");
+    };
+    d.canvasClick = () => {
+        if (d.requireLock) requestPointerLock(state);
+    };
+    d.lockMove = (e) => {
+        if (d.pointer.lock.status !== "locked") return;
+        pointerMove(state, {
+            x: d.mouse.x,
+            y: d.mouse.y,
+            deltaX: e.movementX,
+            deltaY: e.movementY,
+            hover: true,
+        });
     };
     d.pointerUp = (e) => {
         const wasTouch = d.touchPoints.has(e.pointerId);
@@ -465,7 +550,8 @@ function createHandlers(d: DeviceRecord, state: State): void {
         if (d.touchPoints.has(e.pointerId)) touchPoint(state, e.pointerId, e.clientX, e.clientY);
         if (e.pointerId !== d.activePointerId) return;
         pointerButtons(state, gatedButtons(d, e.buttons));
-        if (!(d.requireLock && locked(d))) e.preventDefault();
+        if (d.pointer.lock.status === "locked") return;
+        e.preventDefault();
         pointerMove(state, {
             x: e.clientX - (d.activeCanvas?.getBoundingClientRect().left ?? 0),
             y: e.clientY - (d.activeCanvas?.getBoundingClientRect().top ?? 0),
@@ -495,6 +581,7 @@ function attachCanvas(d: DeviceRecord, canvas: HTMLCanvasElement, signal: AbortS
     canvas.addEventListener("pointerleave", d.pointerLeave, { signal });
     canvas.addEventListener("wheel", d.wheel, { passive: false, signal });
     canvas.addEventListener("contextmenu", d.contextMenu, { signal });
+    canvas.addEventListener("click", d.canvasClick, { signal });
 }
 
 function attachGlobal(d: DeviceRecord, signal: AbortSignal): void {
@@ -505,6 +592,10 @@ function attachGlobal(d: DeviceRecord, signal: AbortSignal): void {
     window.addEventListener("pointercancel", d.pointerCancel, { signal });
     window.addEventListener("pointermove", d.pointerMove, { signal });
     window.addEventListener("blur", d.windowBlur, { signal });
+    document.addEventListener("visibilitychange", d.visibilityChange, { signal });
+    document.addEventListener("pointerlockchange", d.pointerLockChange, { signal });
+    document.addEventListener("pointerlockerror", d.pointerLockError, { signal });
+    document.addEventListener("mousemove", d.lockMove, { signal });
 }
 
 function setup(state: State, canvasElements: HTMLCanvasElement[]): void {
@@ -518,8 +609,44 @@ function setup(state: State, canvasElements: HTMLCanvasElement[]): void {
     createHandlers(d, state);
     attachGlobal(d, state.signal);
     for (const canvas of d.canvases.keys()) attachCanvas(d, canvas, state.signal);
-    d.enabled = true;
+    const supported = [...d.canvases.keys()].some(
+        (canvas) => typeof canvas.requestPointerLock === "function",
+    );
+    setPointerLock(
+        d,
+        supported ? "unlocked" : "unsupported",
+        supported ? null : "canvas has no requestPointerLock",
+    );
     d.canvasFocused = true;
+}
+
+/** Request pointer lock from an engagement gesture. This is the only browser effect in the lock seam. */
+export function requestPointerLock(state: State): void {
+    const d = record(state);
+    if (d.suspended) return;
+    if (d.pointer.lock.status === "unsupported") return;
+    const canvas =
+        d.activeCanvas ??
+        [...d.canvases.entries()].find(([, index]) => index === d.focused)?.[0] ??
+        [...d.canvases.keys()][0];
+    if (!canvas || typeof canvas.requestPointerLock !== "function") {
+        setPointerLock(d, "unsupported", "canvas has no requestPointerLock");
+        return;
+    }
+    try {
+        const result = canvas.requestPointerLock() as unknown as Promise<void> | undefined;
+        if (result && typeof result.catch === "function") {
+            result.catch((error: unknown) =>
+                pointerLockChanged(
+                    state,
+                    false,
+                    error instanceof Error ? error.message : String(error),
+                ),
+            );
+        }
+    } catch (error) {
+        pointerLockChanged(state, false, error instanceof Error ? error.message : String(error));
+    }
 }
 
 /** Legacy read facade. It remains only until the S4 consumer migration; State-scoped code uses
@@ -544,47 +671,80 @@ export const Inputs: Inputs = {
         return currentLegacy?.focused ?? -1;
     },
     isKeyDown(code) {
-        return currentLegacy?.enabled ? currentLegacy.keys.held.has(code) : false;
+        return (
+            currentLegacy !== null && !currentLegacy.suspended && currentLegacy.keys.held.has(code)
+        );
     },
     isKeyPressed(code) {
-        return currentLegacy?.enabled ? currentLegacy.keys.pressed.has(code) : false;
+        return (
+            currentLegacy !== null &&
+            !currentLegacy.suspended &&
+            currentLegacy.keys.pressed.has(code)
+        );
     },
     isKeyReleased(code) {
-        return currentLegacy?.enabled ? currentLegacy.keys.released.has(code) : false;
+        return (
+            currentLegacy !== null &&
+            !currentLegacy.suspended &&
+            currentLegacy.keys.released.has(code)
+        );
     },
 };
 
-/** Suspend or resume the legacy current input binding. New code should keep this policy on its State until
- * the S2 migration lands. */
-export function setInputEnabled(on: boolean): void {
-    if (!currentLegacy) return;
-    currentLegacy.enabled = on;
-    if (!on) {
-        // The legacy facade has no State argument; release its record directly while S2 migrates this API.
-        for (const code of [...currentLegacy.keys.held]) releaseKeyForLegacy(currentLegacy, code);
-        pointerButtonsForRecord(currentLegacy, 0);
-        currentLegacy.keys.pressed.clear();
-        currentLegacy.keys.tickPressed.clear();
-        currentLegacy.mouse.deltaX = 0;
-        currentLegacy.mouse.deltaY = 0;
-        currentLegacy.mouse.scroll = 0;
-        currentLegacy.touchPoints.clear();
-        updatePinchBaseline(currentLegacy);
-        currentLegacy.touch.count = 0;
-        currentLegacy.touch.pinchDelta = 0;
-        currentLegacy.touch.deltaX = 0;
-        currentLegacy.touch.deltaY = 0;
+/** Suspend or resume one State's device producers. Suspension releases held inputs with normal edges. */
+export function setInputEnabled(state: State, on: boolean): void;
+/** @deprecated pass the State explicitly; retained until the S4 consumer migration. */
+export function setInputEnabled(on: boolean): void;
+export function setInputEnabled(stateOrOn: State | boolean, maybeOn?: boolean): void {
+    const d = typeof stateOrOn === "boolean" ? currentLegacy : record(stateOrOn);
+    if (!d) return;
+    d.suspended = typeof stateOrOn === "boolean" ? !stateOrOn : !maybeOn;
+    if (d.suspended) {
+        releaseAll(null, d);
+        d.keys.pressed.clear();
+        d.keys.tickPressed.clear();
+        d.mouse.deltaX = 0;
+        d.mouse.deltaY = 0;
+        d.mouse.scroll = 0;
     }
 }
 
-/** whether the legacy current input binding is live. */
-export function inputEnabled(): boolean {
-    return currentLegacy?.enabled ?? true;
+/** whether one State's device producers are live. */
+export function inputEnabled(state: State): boolean;
+/** @deprecated pass the State explicitly; retained until the S4 consumer migration. */
+export function inputEnabled(): boolean;
+export function inputEnabled(state?: State): boolean {
+    const d = state ? record(state) : currentLegacy;
+    return d ? !d.suspended : true;
 }
 
-/** Legacy pointer-lock button gate. S2 moves this producer to the State record. */
-export function requirePointerLock(on: boolean): void {
-    if (currentLegacy) currentLegacy.requireLock = on;
+/** Set the pointer-button gate on one State. */
+export function requirePointerLock(state: State, on: boolean): void;
+/** @deprecated pass the State explicitly; retained until the S4 consumer migration. */
+export function requirePointerLock(on: boolean): void;
+export function requirePointerLock(stateOrOn: State | boolean, maybeOn?: boolean): void {
+    const d = typeof stateOrOn === "boolean" ? currentLegacy : record(stateOrOn);
+    if (d) d.requireLock = typeof stateOrOn === "boolean" ? stateOrOn : (maybeOn ?? false);
+}
+
+/** read the pointer-lock status from one State's device record. */
+export function pointerLockStatus(state: State): PointerLockStatus;
+/** @deprecated pass the State explicitly; retained until the S4 consumer migration. */
+export function pointerLockStatus(): PointerLockStatus;
+export function pointerLockStatus(state?: State): PointerLockStatus {
+    return state
+        ? record(state).pointer.lock.status
+        : (currentLegacy?.pointer.lock.status ?? "unlocked");
+}
+
+/** read the browser's last pointer-lock refusal from one State's device record. */
+export function pointerLockRefusal(state: State): string | null;
+/** @deprecated pass the State explicitly; retained until the S4 consumer migration. */
+export function pointerLockRefusal(): string | null;
+export function pointerLockRefusal(state?: State): string | null {
+    return state
+        ? record(state).pointer.lock.refusal
+        : (currentLegacy?.pointer.lock.refusal ?? null);
 }
 
 const InputSystem: System = {

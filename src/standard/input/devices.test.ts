@@ -1,14 +1,21 @@
 import {
+    blur,
     devices,
+    focus,
     InputPlugin,
     pointerButton,
+    pointerLockChanged,
+    pointerLockStatus,
     pointerMove,
     pointerWheel,
     pressKey,
     releaseKey,
+    requirePointerLock,
     State,
+    setInputEnabled,
     Time,
     touchPoint,
+    visibilityChanged,
 } from "@dylanebert/shallot";
 import { check } from "@dylanebert/shallot/harness/check";
 
@@ -175,6 +182,116 @@ check(
             throw new Error("cadence changed edge count");
         batched.dispose();
         stepped.dispose();
+    },
+);
+
+check(
+    "blur releases held device inputs with edges",
+    { claim: "window blur releases held keys and pointer buttons with release edges" },
+    () => {
+        const state = inputState();
+        pressKey(state, "KeyW");
+        pointerButton(state, "left", true);
+        blur(state);
+        const input = devices(state);
+        if (input.keys.held.has("KeyW") || !input.keys.released.has("KeyW"))
+            throw new Error("blur did not emit a key release edge");
+        if (input.mouse.left) throw new Error("blur left a pointer button held");
+        state.dispose();
+    },
+);
+
+check(
+    "hidden visibility releases held device inputs with edges",
+    { claim: "hidden visibility releases held keys and pointer buttons with release edges" },
+    () => {
+        const state = inputState();
+        focus(state, 0);
+        pressKey(state, "KeyA");
+        pointerButton(state, "right", true);
+        visibilityChanged(state, true);
+        const input = devices(state);
+        if (input.keys.held.has("KeyA") || !input.keys.released.has("KeyA"))
+            throw new Error("hidden visibility did not emit a key release edge");
+        if (input.mouse.right) throw new Error("hidden visibility left a pointer button held");
+        state.dispose();
+    },
+);
+
+check(
+    "pointer-lock exit releases held device inputs with edges",
+    { claim: "pointer-lock exit releases held keys and pointer buttons with release edges" },
+    () => {
+        const state = inputState();
+        pointerLockChanged(state, true);
+        pressKey(state, "KeyD");
+        pointerButton(state, "middle", true);
+        pointerLockChanged(state, false);
+        const input = devices(state);
+        if (pointerLockStatus(state) !== "unlocked") throw new Error("lock status did not exit");
+        pointerLockChanged(state, true);
+        pointerLockChanged(state, false, "denied by browser");
+        if (
+            pointerLockStatus(state) !== "refused" ||
+            devices(state).pointer.lock.refusal !== "denied by browser"
+        )
+            throw new Error("lock refusal was not recorded");
+        if (input.keys.held.has("KeyD") || !input.keys.released.has("KeyD"))
+            throw new Error("lock exit did not emit a key release edge");
+        if (input.mouse.middle) throw new Error("lock exit left a pointer button held");
+        state.dispose();
+    },
+);
+
+check(
+    "require-lock gates pointer buttons",
+    { claim: "pointer buttons read up until a required pointer lock engages" },
+    () => {
+        const state = inputState();
+        requirePointerLock(state, true);
+        pointerButton(state, "left", true);
+        if (devices(state).mouse.left) throw new Error("button crossed the lock gate");
+        pointerLockChanged(state, true);
+        pointerButton(state, "left", true);
+        if (!devices(state).mouse.left) throw new Error("locked button did not engage");
+        state.dispose();
+    },
+);
+
+check(
+    "suspension neutralizes device reads with release edges",
+    { claim: "a suspended State reads neutral device data and releases held keys" },
+    () => {
+        const state = inputState();
+        pressKey(state, "KeyS");
+        pointerButton(state, "left", true);
+        setInputEnabled(state, false);
+        const input = devices(state);
+        if (!input.suspended || input.keys.held.has("KeyS") || !input.keys.released.has("KeyS"))
+            throw new Error("suspension did not neutralize the key with an edge");
+        if (input.mouse.left || input.mouse.deltaX !== 0 || input.touch.count !== 0)
+            throw new Error("suspension did not neutralize pointer/touch reads");
+        pressKey(state, "KeyQ");
+        if (input.keys.held.has("KeyQ")) throw new Error("suspended producer changed the record");
+        state.dispose();
+    },
+);
+
+check(
+    "suspension is State-scoped",
+    { claim: "suspending one State leaves a second State's device record live" },
+    () => {
+        const first = inputState();
+        const second = inputState();
+        pressKey(first, "KeyW");
+        pressKey(second, "KeyW");
+        setInputEnabled(first, false);
+        if (!devices(first).suspended || devices(first).keys.held.has("KeyW"))
+            throw new Error("first State did not suspend");
+        if (devices(second).suspended || !devices(second).keys.held.has("KeyW"))
+            throw new Error("second State was affected by suspension");
+        first.dispose();
+        second.dispose();
     },
 );
 
