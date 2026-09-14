@@ -2,11 +2,15 @@
 export const CHECK_SIZES = ["unit", "integration"] as const;
 /** Environment tags a runner may require. */
 export const CHECK_REQUIREMENTS = ["chromium", "gpu", "display", "deploy", "cargo"] as const;
+/** Hosts a check may be declared for. A row declared for one host is skipped and reported on another,
+ *  never run and never refused: a host that cannot hold the premise is not evidence against the claim. */
+export const CHECK_HOSTS = ["mac", "omarchy"] as const;
 export const UNIT_BUDGET_MS = 250;
 export const INTEGRATION_BUDGET_MS = 20_000;
 
 export type CheckSize = (typeof CHECK_SIZES)[number];
 export type CheckRequirement = (typeof CHECK_REQUIREMENTS)[number];
+export type CheckHost = (typeof CHECK_HOSTS)[number];
 
 export interface CheckDeclaration {
     /** unique sentence naming the defect this check would catch. */
@@ -17,6 +21,8 @@ export interface CheckDeclaration {
     requires?: readonly CheckRequirement[];
     /** project-rooted source path(s) whose token changes select an integration row. */
     subject?: string | readonly string[];
+    /** the one host that can hold this row's premise; other hosts skip and report it. */
+    host?: CheckHost;
     /** wall-clock budget in milliseconds; defaults to the size ceiling. */
     budget?: number;
 }
@@ -26,6 +32,7 @@ export interface ResolvedCheckDeclaration {
     size: CheckSize;
     requires: readonly CheckRequirement[];
     subject?: string | readonly string[];
+    host?: CheckHost;
     budget: number;
 }
 
@@ -75,6 +82,11 @@ export function validateDeclaration(where: string, value: unknown): ResolvedChec
             `invalid declaration: ${where} needs a non-empty string \`subject\` or array of strings`,
         );
     }
+    if (decl.host !== undefined && !CHECK_HOSTS.includes(decl.host as CheckHost)) {
+        throw new Error(
+            `invalid declaration: ${where} has host \`${String(decl.host)}\`, not one of ${CHECK_HOSTS.join(", ")}`,
+        );
+    }
     if (
         decl.budget !== undefined &&
         (typeof decl.budget !== "number" || !Number.isFinite(decl.budget) || decl.budget <= 0)
@@ -97,6 +109,7 @@ export function validateDeclaration(where: string, value: unknown): ResolvedChec
         ...(decl.subject === undefined
             ? {}
             : { subject: decl.subject as string | readonly string[] }),
+        ...(decl.host === undefined ? {} : { host: decl.host as CheckHost }),
         budget,
     };
 }

@@ -209,3 +209,60 @@ check(
         expect(typeof check).toBe("function");
     },
 );
+
+check(
+    "a row declared for another host is skipped and reported, never refused",
+    {
+        claim: "a row declared for one host refuses or runs on another, so a host that cannot hold its premise reports a failure against the claim",
+        size: "integration",
+        subject: ["src/harness/declaration.ts", "src/harness/check.ts"],
+    },
+    () => {
+        expect(validateDeclaration("here", { claim: "seat", host: "mac" }).host).toBe("mac");
+        expect(validateDeclaration("here", { claim: "seat" }).host).toBeUndefined();
+        expect(() => validateDeclaration("here", { claim: "seat", host: "windows" })).toThrow(
+            "has host `windows`",
+        );
+
+        const root = resolve(import.meta.dir, "../..");
+        const tree = mkdtempSync(join(root, ".surface-host-"));
+        const file = join(tree, "elsewhere.test.ts");
+        const reached = join(tree, "body-reached");
+        const claim = "a row declared for the omarchy seat";
+        writeFileSync(
+            file,
+            `import { appendFileSync } from "node:fs";\n` +
+                `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n` +
+                `check("elsewhere", { claim: ${JSON.stringify(claim)}, size: "integration", host: "omarchy", requires: ["chromium"] }, () => {\n` +
+                `    appendFileSync(${JSON.stringify(reached)}, "reached");\n` +
+                `    throw new Error("the other host's body ran here");\n` +
+                `});\n`,
+        );
+        try {
+            const environment = { ...process.env };
+            delete environment.KEX_S3_ROW;
+            const proc = Bun.spawnSync(["bun", "test", "--pass-with-no-tests", file], {
+                cwd: root,
+                env: { ...environment, SHALLOT_HOST: "mac", SHALLOT_UNIT_ONLY: "" },
+            });
+            const output = proc.stdout.toString() + proc.stderr.toString();
+            // Skipped and reported: the verdict names the declared host and the reason, the run stays
+            // green, and the body never executes.
+            expect(proc.exitCode).toBe(0);
+            expect(output).toContain('"result":"unrun"');
+            expect(output).toContain("declared for host omarchy; this host is mac");
+            expect(output).not.toContain('"result":"refused"');
+            expect(output).not.toContain("launchable Chromium is unavailable");
+            expect(existsSync(reached)).toBe(false);
+            // Non-vacuity: the same row on its own host runs its body and fails there.
+            const here = Bun.spawnSync(["bun", "test", "--pass-with-no-tests", file], {
+                cwd: root,
+                env: { ...environment, SHALLOT_HOST: "omarchy", SHALLOT_UNIT_ONLY: "" },
+            });
+            expect(here.exitCode).not.toBe(0);
+            expect(existsSync(reached)).toBe(true);
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);

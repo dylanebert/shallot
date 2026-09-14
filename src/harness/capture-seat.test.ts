@@ -24,6 +24,7 @@ check(
         claim: "the browser seat runs on an unidentified or fallback adapter, at an implicit viewport, or disagrees with itself across repeated captures of one stepped state",
         size: "integration",
         requires: ["chromium"],
+        host: "mac",
         subject: [
             "src/harness/driver.ts",
             "src/harness/capture.ts",
@@ -66,6 +67,7 @@ check(
         claim: "a failing browser row reports only that it failed, discarding the page errors, serve-command output, failing sub-check data and the actual frame",
         size: "integration",
         requires: ["chromium"],
+        host: "mac",
         subject: ["src/harness/driver.ts", "src/harness/verdict.ts"],
     },
     async () => {

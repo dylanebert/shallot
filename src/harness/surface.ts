@@ -20,6 +20,8 @@ export interface SurfaceRow {
     file: string;
     /** Source file(s) whose token changes select this integration row. */
     subjects: string[];
+    /** the one host that can hold this row's premise, when it declares one. */
+    host?: string;
 }
 
 export interface QuarantineRow {
@@ -218,6 +220,7 @@ export function readFileDeclarations(root: string, path: string, population: Pop
                 budget: valid.budget,
                 file,
                 subjects: subjectList(parsedDeclaration.value?.subject),
+                ...(valid.host === undefined ? {} : { host: valid.host }),
             });
         } catch (error) {
             population.invalid.push((error as Error).message);
@@ -577,7 +580,11 @@ function workflowRows(population: Population): SurfaceRow[] {
 }
 
 function workflowNeedsChromium(population: Population): boolean {
-    return workflowRows(population).some((row) => row.requires.includes("chromium"));
+    // A row declared for one host is skipped on the hosted runner, so installing a browser for it would
+    // provision a premise nothing there uses.
+    return workflowRows(population).some(
+        (row) => row.requires.includes("chromium") && row.host === undefined,
+    );
 }
 
 function workflowNeedsCargo(population: Population): boolean {

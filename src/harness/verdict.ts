@@ -223,6 +223,28 @@ function resolveGpuRequirement(root: string): string | null {
 }
 
 /**
+ * The host this process is running on, in the declaration's vocabulary, or `other` for a host that holds
+ * no declared row. `SHALLOT_HOST` lets a host name itself; otherwise only macOS is identifiable, because a
+ * Linux kernel alone does not make a runner the Omarchy seat.
+ */
+export function currentHost(): string {
+    const declared = process.env.SHALLOT_HOST?.trim();
+    if (declared !== undefined && declared !== "") return declared;
+    return process.platform === "darwin" ? "mac" : "other";
+}
+
+/**
+ * Why a row declared for one host does not run on this one, or null when it does. A host mismatch is not a
+ * refusal: the premise is absent by design, so the row is skipped and reported rather than counted against
+ * the claim.
+ */
+export function hostMismatch(host: string | undefined): string | null {
+    if (host === undefined) return null;
+    const here = currentHost();
+    return host === here ? null : `declared for host ${host}; this host is ${here}`;
+}
+
+/**
  * Resolve the `display` seat. It needs a genuinely headed premise, so it is declared by the host that has
  * one rather than inferred: a host with a window server still runs these rows headlessly, and a headless
  * browser is not a display.
