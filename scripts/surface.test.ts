@@ -547,7 +547,7 @@ check(
 check(
     "workflow refs and requirement setup are portable and conditional",
     {
-        claim: "workflow rendering materializes full history, derives event-correct refs, and installs only declared ordinary Chromium requirements",
+        claim: "workflow rendering runs once per pull-request revision and landed-main commit, cancels superseded revisions, materializes full history, derives event-correct refs, and installs only declared ordinary Chromium requirements",
         size: "integration",
     },
     () => {
@@ -569,6 +569,15 @@ check(
             files: [],
         };
         const rendered = renderWorkflow(ordinary);
+        expect(rendered).toContain("push:\n    branches:\n      - main");
+        expect(rendered).toContain("pull_request:\n    branches:\n      - main");
+        expect(rendered).toContain(
+            "group: test-surface-${{ github.event.pull_request.number || github.sha }}",
+        );
+        expect(rendered).toContain(
+            "cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
+        );
+        expect(rendered).not.toContain("on: [push, pull_request]");
         expect(rendered).toContain("actions/checkout@v7");
         expect(rendered).toContain("oven-sh/setup-bun@v2");
         expect(rendered).toContain("fetch-depth: 0");
