@@ -8,6 +8,10 @@ import {
     watchStrictProgress,
 } from "./strict";
 
+const current = JSON.parse(
+    readFileSync(new URL("./box3d/current.json", import.meta.url), "utf8"),
+) as { target: string; conformsThrough: string; bundle: string };
+
 check(
     "Box3D strict parity executes the complete frozen v6 mapped surface",
     { claim: "box3d-strict-parity", size: "integration", budget: 20_000 },
@@ -18,6 +22,14 @@ check(
             throw new Error("strict parity did not execute every immutable v6 case");
         if (actual.target !== frozen.target || actual.bundle !== frozen.bundle)
             throw new Error("strict parity did not execute the selected immutable bundle");
+        if (
+            actual.target !== current.target ||
+            actual.bundle !== current.bundle ||
+            actual.conformsThrough !== current.conformsThrough
+        )
+            throw new Error("strict parity report disagrees with the selected current receipt");
+        if (actual.population.mismatched === 0 && actual.conformsThrough !== actual.target)
+            throw new Error("zero-mismatch 111/111 strict parity did not close conformance");
 
         // O7 is audit evidence only. Keep both digests visible, but never compare the live physics
         // result to O7's predecessor output: a newly passing case is the expected delivery signal.
