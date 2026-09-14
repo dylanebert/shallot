@@ -2,6 +2,7 @@ import { test } from "bun:test";
 import { type CheckDeclaration, validateDeclaration } from "./declaration";
 import {
     emitVerdict,
+    hostMismatch,
     missingRequirement,
     quarantineReason,
     type VerdictMetadata,
@@ -61,6 +62,16 @@ export function check(
             emitVerdict(decl.claim, decl.size, performance.now(), "refused", {
                 reason: quarantine,
             });
+        }
+        test.skip(name, () => {}, decl.budget);
+        return;
+    }
+    // A host mismatch comes before requirement resolution: another host must not probe for a premise this
+    // row never claimed there, and must not refuse for lacking it.
+    const elsewhere = hostMismatch(decl.host);
+    if (elsewhere !== null) {
+        if (decl.size === "integration") {
+            emitVerdict(decl.claim, decl.size, performance.now(), "unrun", { reason: elsewhere });
         }
         test.skip(name, () => {}, decl.budget);
         return;

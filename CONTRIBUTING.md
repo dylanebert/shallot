@@ -9,7 +9,7 @@ This page is for anyone changing the engine itself, person or agent. Using Shall
 | `src/engine` | The core: app lifecycle, ECS, scenes, the runtime (device and platform admission) and utils. Imports nothing else under `src`. |
 | `src/standard` | The default plugins: render, sear (shading), glaze (post), part, physics, character, player, audio, input, transforms, loading, mirror, slab, bvh, fog. |
 | `src/extras` | Opt-in plugins (animation, cells, gltf, lines, orbit, outline, profile, skin, sky, sprite, text), published at `/extras`. A plugin starts as a satellite repo and is promoted into extras once it has proven stable across a cycle. |
-| `src/harness` | The in-page verdict hook a project publishes, and the browser driver's data. |
+| `src/harness` | The in-page verdict hook a project publishes, the seat policy and capture contract, and the browser driver. |
 | `src/project` | The manifest, scene and asset generation, host toolchain resolution and the Vite plugin. |
 | `src/native` | Desktop shell resolution: the prebuilt download and the source-build fallback. |
 | `src/cli` | The verbs and their dispatcher. |
@@ -70,6 +70,22 @@ check("the body settles", { claim: "Body settles on the floor" }, body);
 ```
 
 Use `bun run list` with the same selectors to inspect claim, size, requirements, budget and file. Integration selectors compose with each other but refuse with `--base`/`--diff`; a selector matching no row refuses. Retire a unit by tag, add its row to [`ARCHIVE.md`](ARCHIVE.md), then delete it.
+
+## Seats and captures
+
+A requirement tag names a capability, and a host that lacks it refuses rather than passing on a weaker one. No
+requirement is CPU only. `gpu` is a real in-process WebGPU device. `chromium` is headless Chromium on a
+positively identified real adapter at the capture contract; a software adapter, an adapter with no identity
+and an undeclared host each refuse with their own reason, and the launch is always headless — there is no
+headed escape, because a windowed run proves a different seat. `display` is a genuinely headed premise and
+refuses unless the host declares one in `SHALLOT_DISPLAY_SEAT`.
+
+`captureFrame` from `@dylanebert/shallot/harness/capture` is the one capture: it fixes the viewport, device
+scale, surface, presentation boundary and tightly packed RGBA semantics, and refuses a surface at any other
+geometry. Read pixels through it rather than writing a local `toDataURL` pipeline, so semantic checks,
+artifacts and human frames all describe the same frame. Assertions stay in the page on the stepped clock;
+the driver fixes the seat and carries the reproduction record, and a failure retains bounded page, GPU,
+server and sub-check evidence with one actual frame under `.artifacts/`.
 
 ## Pins and freshness
 
