@@ -194,6 +194,27 @@ export interface Compute {
 /** active GPU compute singleton, populated by {@link requestGPU} */
 export const Compute: Compute = {} as Compute;
 
+/** clear the active device between CPU builds without probing or acquiring WebGPU. */
+export function resetCompute(): void {
+    Object.assign(Compute, {
+        device: undefined,
+        root: undefined,
+        frame: 0,
+        pending: () => 0,
+        sync: () => Promise.resolve(),
+        buffers: new Map<string, GPUBuffer>(),
+        textures: new Map<string, GPUTexture>(),
+        samplers: new Map<string, GPUSampler>(),
+        typed: new Map<string, TgpuBuffer<AnyData>>(),
+        span: undefined,
+        indirect: undefined,
+        precompiled: undefined,
+    });
+    _precompile.length = 0;
+    _precompileLabels.clear();
+    _precompileScopes.clear();
+}
+
 /** a generated shader record, for debugging. @internal */
 export interface ShaderArtifact {
     label: string;

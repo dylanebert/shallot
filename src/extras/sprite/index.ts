@@ -180,6 +180,7 @@ const SpriteSystem: System = {
  */
 export const SpritePlugin: Plugin = {
     name: "Sprite",
+    device: "optional",
     components: { Sprite },
     systems: [SpriteSystem],
     dependencies: [RenderPlugin, TransformsPlugin],

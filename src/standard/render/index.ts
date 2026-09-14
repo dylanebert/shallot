@@ -349,6 +349,7 @@ async function initRender(): Promise<void> {
  */
 export const RenderPlugin: Plugin = {
     name: "Render",
+    device: "required",
     systems: [BeginFrameSystem, ClusterSystem, LightCullSystem, OverlaySystem, EndFrameSystem],
     components: {
         Camera,

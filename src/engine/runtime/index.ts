@@ -10,6 +10,7 @@ export {
     precompileAll,
     precompileScope,
     requestGPU,
+    resetCompute,
     type ShaderArtifact,
     tgslCanary,
     UnsupportedError,

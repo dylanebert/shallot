@@ -818,6 +818,7 @@ export const ComposeSystem: System = {
  */
 export const PhysicsPlugin: Plugin = {
     name: "Physics",
+    device: "optional",
     components: { Body, Pose, Spring, Joint },
     systems: [SyncSystem, ConstraintSystem, StepSystem, ComposeSystem],
     dependencies: [SlabPlugin],

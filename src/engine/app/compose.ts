@@ -12,6 +12,27 @@ export interface PluginComposition {
     readonly missing: readonly MissingPluginDependency[];
 }
 
+/** the device tier selected by a plugin composition. */
+export interface DeviceTier {
+    readonly tier: "cpu" | "gpu";
+    readonly required: readonly string[];
+    readonly optional: readonly string[];
+}
+
+/**
+ * classify a plugin list without acquiring a device or touching engine state. Required device plugins
+ * make the composition GPU-bound; optional plugins retain their CPU truth and mirror it when available.
+ */
+export function deviceTier(plugins: readonly Plugin[]): DeviceTier {
+    const required: string[] = [];
+    const optional: string[] = [];
+    for (const plugin of plugins) {
+        if (plugin.device === "required") required.push(plugin.name);
+        else if (plugin.device === "optional") optional.push(plugin.name);
+    }
+    return { tier: required.length > 0 ? "gpu" : "cpu", required, optional };
+}
+
 /**
  * resolve required plugin edges without acquiring a device or mutating engine registries.
  * Ordering and missing-edge reporting are stable relative to the supplied plugin order.

@@ -426,6 +426,7 @@ const ASCII_CACHE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456
  */
 export const TextPlugin: Plugin = {
     name: "Text",
+    device: "optional",
     components: { Text },
     systems: [TextSystem],
     dependencies: [RenderPlugin, TransformsPlugin],

@@ -82,6 +82,7 @@ const SkySystem: System = {
  */
 export const SkyPlugin: Plugin = {
     name: "Sky",
+    device: "optional",
     components: { Sky },
     traits: {
         Sky: {
