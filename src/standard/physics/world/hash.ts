@@ -25,7 +25,16 @@ function mixFloat(hash: bigint, value: number): bigint {
 
 /** @returns the FNV-1a hash of every live body's transform + velocity (b3HashWorldState). */
 export function hashWorldState(world: WorldState): bigint {
-    let hash = FNV_INIT;
+    return hashWorldStateWithSeed(world, FNV_INIT);
+}
+
+/** Hash the whitebox lane with the additive B3_ORACLE_SENTINELS diagnostic seed. */
+export function hashWorldStateOracleSentinel(world: WorldState): bigint {
+    return hashWorldStateWithSeed(world, FNV_INIT ^ 0x9e3779b97f4a7c15n);
+}
+
+function hashWorldStateWithSeed(world: WorldState, initial: bigint): bigint {
+    let hash = initial;
 
     const bodyCount = world.bodies.length;
     for (let i = 0; i < bodyCount; ++i) {

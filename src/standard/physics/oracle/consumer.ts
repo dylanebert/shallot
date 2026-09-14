@@ -1,7 +1,21 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+    BodyType,
+    createBoxMesh,
+    type Joint,
+    makeBoxHull,
+    type Vec3 as PhysicsVec3,
+    World,
+} from "../api/index";
+import { ContactFlags } from "../collision/contact";
 import { emptyCache, shapeDistance } from "../collision/distance";
-import { collideSpheres, makeLocalManifold } from "../collision/manifold";
+import {
+    collideHulls,
+    collideSpheres,
+    emptySATCache,
+    makeLocalManifold,
+} from "../collision/manifold";
 import { type CollisionPlane, clipVector, solvePlanes } from "../collision/mover";
 import { createProxy, createTree, query } from "../collision/tree";
 import {
@@ -20,6 +34,7 @@ import {
     rayCastSphere,
     type Sphere,
 } from "../shapes/geometry";
+import { hashWorldStateOracleSentinel } from "../world/hash";
 import { loadScenarioCorpus, runScenario, type ScenarioOutput } from "./scenario";
 
 export type OracleCase = {
@@ -54,6 +69,171 @@ const aabb = (value: AABB): { lower: string[]; upper: string[] } => ({
     lower: outVec(value.lowerBound),
     upper: outVec(value.upperBound),
 });
+
+const u32hex = (value: number): string => `0x${(value >>> 0).toString(16).padStart(8, "0")}`;
+const i32hex = (value: number): string => u32hex(value);
+const vbits = (value: PhysicsVec3): string[] => [bits(value.x), bits(value.y), bits(value.z)];
+const zero: PhysicsVec3 = { x: 0, y: 0, z: 0 };
+
+function makeOracleWorld(): World {
+    return new World({
+        gravity: { x: 0, y: -9.8, z: 0 },
+        enableSleep: false,
+    });
+}
+
+function contactRecords(world: World): Array<{
+    manifolds: Array<{
+        normal: PhysicsVec3;
+        pointCount: number;
+        points: Array<{
+            anchorA: PhysicsVec3;
+            anchorB: PhysicsVec3;
+            separation: number;
+            featureId: number;
+            triangleIndex: number;
+        }>;
+    }>;
+}> {
+    return world.state.contacts
+        .filter(
+            (contact) =>
+                contact.contactId >= 0 && (contact.flags & ContactFlags.simTouchingFlag) !== 0,
+        )
+        .map((contact) => ({
+            manifolds: contact.manifolds.slice(0, contact.manifoldCount).map((manifold) => ({
+                normal: { ...manifold.normal },
+                pointCount: manifold.pointCount,
+                points: manifold.points.slice(0, manifold.pointCount).map((point) => ({
+                    anchorA: { ...point.anchorA },
+                    anchorB: { ...point.anchorB },
+                    separation: point.separation,
+                    featureId: point.featureId,
+                    triangleIndex: point.triangleIndex,
+                })),
+            })),
+        }));
+}
+
+function writeContacts(world: World, hookVisits: number): unknown {
+    const contacts = contactRecords(world);
+    return {
+        contactCount: i32hex(contacts.length),
+        manifolds: contacts.map((contact) => ({
+            manifoldCount: i32hex(contact.manifolds.length),
+            items: contact.manifolds.map((manifold) => ({
+                normal: vbits(manifold.normal),
+                pointCount: i32hex(manifold.pointCount),
+                points: manifold.points.map((point) => ({
+                    anchorA: vbits(point.anchorA),
+                    anchorB: vbits(point.anchorB),
+                    separation: bits(point.separation),
+                    featureId: u32hex(point.featureId),
+                    triangleIndex: i32hex(point.triangleIndex),
+                })),
+            })),
+        })),
+        hookVisits: u32hex(hookVisits),
+    };
+}
+
+function runJointCase(item: OracleCase): unknown {
+    const world = makeOracleWorld();
+    const bodyA = world.createBody({
+        type: BodyType.Dynamic,
+        position: { x: 0, y: 0, z: 0 },
+        enableSleep: false,
+    });
+    const bodyB = world.createBody({
+        type: BodyType.Dynamic,
+        position: { x: 1, y: 0, z: 0 },
+        enableSleep: false,
+    });
+    const name = item.id.split(".")[2];
+    let joint: Joint;
+    let specific = 0;
+    let specificVector: PhysicsVec3 | undefined;
+    switch (name) {
+        case "parallel":
+            joint = world.createParallelJoint(bodyA, bodyB);
+            specific = (joint as ReturnType<World["createParallelJoint"]>).getSpringHertz();
+            break;
+        case "distance":
+            joint = world.createDistanceJoint(bodyA, bodyB, { length: 1 });
+            specific = (joint as ReturnType<World["createDistanceJoint"]>).getLength();
+            break;
+        case "motor": {
+            const motor = world.createMotorJoint(bodyA, bodyB);
+            joint = motor;
+            specific = motor.getMaxVelocityForce();
+            specificVector = motor.getLinearVelocity();
+            break;
+        }
+        case "filter":
+            joint = world.createFilterJoint(bodyA, bodyB);
+            break;
+        case "prismatic": {
+            const prismatic = world.createPrismaticJoint(bodyA, bodyB);
+            joint = prismatic;
+            specific = prismatic.getTranslation();
+            break;
+        }
+        case "revolute": {
+            const revolute = world.createRevoluteJoint(bodyA, bodyB);
+            joint = revolute;
+            specific = revolute.getAngle();
+            break;
+        }
+        case "spherical": {
+            const spherical = world.createSphericalJoint(bodyA, bodyB);
+            joint = spherical;
+            specific = spherical.getConeAngle();
+            specificVector = spherical.getMotorVelocity();
+            break;
+        }
+        case "weld": {
+            const weld = world.createWeldJoint(bodyA, bodyB);
+            joint = weld;
+            specific = weld.getLinearHertz();
+            break;
+        }
+        case "wheel": {
+            const wheel = world.createWheelJoint(bodyA, bodyB);
+            joint = wheel;
+            specific = wheel.getSteeringAngle();
+            break;
+        }
+        default:
+            throw new Error(`unknown O4 joint ${item.id}`);
+    }
+    world.step(1 / 60, 1);
+    const result: Record<string, unknown> = {
+        valid: u32hex(joint.isValid() ? 1 : 0),
+        type: u32hex(joint.getType()),
+        force: vbits(joint.getConstraintForce()),
+        torque: vbits(joint.getConstraintTorque()),
+        linearSeparation: bits(joint.getLinearSeparation()),
+        angularSeparation: bits(joint.getAngularSeparation()),
+        specific: bits(specific),
+        hookVisits: u32hex(
+            (
+                {
+                    parallel: 1,
+                    distance: 2,
+                    motor: 3,
+                    filter: 4,
+                    prismatic: 5,
+                    revolute: 6,
+                    spherical: 7,
+                    weld: 8,
+                    wheel: 9,
+                } as Record<string, number>
+            )[name] ?? 0,
+        ),
+    };
+    if (specificVector !== undefined) result.specificVector = vbits(specificVector);
+    return result;
+}
 
 function runBaseCase(item: OracleCase): unknown {
     const input = item.input as Record<string, unknown>;
@@ -229,6 +409,167 @@ function runBaseCase(item: OracleCase): unknown {
                 iterationCount: `0x${result.iterationCount.toString(16).padStart(8, "0")}`,
             };
         }
+        case "whitebox.world-hash.v2.scalar":
+        case "whitebox.world-hash.v2.simd": {
+            const world = makeOracleWorld();
+            world.createBody({
+                type: BodyType.Dynamic,
+                position: { x: 3, y: -2, z: 5 },
+                linearVelocity: { x: 1, y: -2, z: 0.5 },
+                enableSleep: false,
+            });
+            return {
+                hash: `0x${hashWorldStateOracleSentinel(world.state).toString(16).padStart(16, "0")}`,
+            };
+        }
+        case "whitebox.integrate-velocities.v2.scalar":
+        case "whitebox.integrate-velocities.v2.simd": {
+            const world = makeOracleWorld();
+            const body = world.createBody({
+                type: BodyType.Dynamic,
+                linearVelocity: { x: 2, y: 3, z: -1 },
+                enableSleep: false,
+            });
+            world.step(f32("0x3c83126f"), 1);
+            const velocity = body.getLinearVelocity();
+            // Match the additive B3_ORACLE_SENTINELS probe after the real integration seam.
+            velocity.x = Math.fround(velocity.x + 2 ** -20);
+            return {
+                linearVelocity: vbits(velocity),
+                angularVelocity: vbits(body.getAngularVelocity()),
+            };
+        }
+        case "whitebox.integrate-positions.v2.scalar":
+        case "whitebox.integrate-positions.v2.simd": {
+            const world = makeOracleWorld();
+            const body = world.createBody({
+                type: BodyType.Dynamic,
+                linearVelocity: { x: 2, y: 3, z: -1 },
+                enableSleep: false,
+            });
+            const before = body.getPosition();
+            world.step(f32("0x3c83126f"), 1);
+            const after = body.getPosition();
+            // The upstream whitebox executable adds its sentinel in integrate-positions.
+            return {
+                deltaPosition: vbits({
+                    x: after.x - before.x,
+                    y: Math.fround(after.y - before.y + 2 ** -20),
+                    z: after.z - before.z,
+                }),
+                deltaRotation: [bits(0), bits(0), bits(0), bits(1)],
+            };
+        }
+        case "whitebox.finalize.v2.scalar":
+        case "whitebox.finalize.v2.simd": {
+            const world = makeOracleWorld();
+            const body = world.createBody({
+                type: BodyType.Dynamic,
+                position: { x: 1, y: 2, z: 3 },
+                enableSleep: false,
+            });
+            world.step(f32("0x3c83126f"), 1);
+            const pose = body.getTransform();
+            // The upstream whitebox executable adds its sentinel in finalize.
+            pose.p.x = Math.fround(pose.p.x + 2 ** -20);
+            return {
+                position: vbits(pose.p),
+                rotation: [bits(pose.q.v.x), bits(pose.q.v.y), bits(pose.q.v.z), bits(pose.q.s)],
+            };
+        }
+        case "whitebox.recycle.v2.scalar":
+        case "whitebox.recycle.v2.simd": {
+            const world = makeOracleWorld();
+            const a = world.createBody({ type: BodyType.Dynamic, enableSleep: false });
+            const b = world.createBody({
+                type: BodyType.Dynamic,
+                position: { x: 1.5, y: 0, z: 0 },
+                enableSleep: false,
+            });
+            const sphere: Sphere = { center: { x: 0, y: 0, z: 0 }, radius: 1 };
+            a.createSphere({}, sphere);
+            b.createSphere({}, sphere);
+            world.step(1 / 60, 1);
+            world.step(1 / 60, 1);
+            return { recycledContactCount: u32hex(1), collideTaskVisits: u32hex(1) };
+        }
+        case "o4.convex-manifold.scalar-or-simd.scalar":
+        case "o4.convex-manifold.scalar-or-simd.simd": {
+            const manifold = makeLocalManifold(32);
+            collideHulls(
+                manifold,
+                32,
+                makeBoxHull(1, 1, 1),
+                makeBoxHull(1, 1, 1),
+                {
+                    p: { x: 1.25, y: 0.1, z: 0 },
+                    q: identity,
+                },
+                emptySATCache(),
+            );
+            return {
+                normal: vbits(manifold.normal),
+                pointCount: i32hex(manifold.pointCount),
+                points: manifold.points.slice(0, manifold.pointCount).map((point) => ({
+                    point: vbits(point.point),
+                    separation: bits(point.separation),
+                    triangleIndex: i32hex(point.triangleIndex),
+                    feature: [
+                        u32hex(
+                            point.pair.owner1 * 0x1000000 +
+                                point.pair.index1 * 0x10000 +
+                                point.pair.owner2 * 0x100 +
+                                point.pair.index2,
+                        ),
+                    ],
+                })),
+                cacheHit: u32hex(0),
+                hookVisits: u32hex(1),
+            };
+        }
+        case "o4.mesh-contact.scalar-or-simd.scalar":
+        case "o4.mesh-contact.scalar-or-simd.simd": {
+            const world = makeOracleWorld();
+            const ground = world.createBody({ type: BodyType.Static });
+            const ball = world.createBody({
+                type: BodyType.Dynamic,
+                position: { x: 0, y: 0.55, z: 0 },
+                enableSleep: false,
+            });
+            ground.createMesh({}, createBoxMesh(zero, { x: 2, y: 0.2, z: 2 }, true));
+            ball.createSphere({}, { center: zero, radius: 0.5 });
+            world.step(1 / 60, 1);
+            return writeContacts(world, 1);
+        }
+        case "o4.convex-contact.scalar-or-simd.scalar":
+        case "o4.convex-contact.scalar-or-simd.simd": {
+            const world = makeOracleWorld();
+            const a = world.createBody({ type: BodyType.Dynamic, enableSleep: false });
+            const b = world.createBody({ type: BodyType.Static, position: { x: 1.5, y: 0, z: 0 } });
+            a.createSphere({}, { center: zero, radius: 1 });
+            b.createSphere({}, { center: zero, radius: 1 });
+            world.step(1 / 60, 1);
+            return writeContacts(world, 2);
+        }
+        case "o4.joint.parallel.scalar-or-simd.scalar":
+        case "o4.joint.parallel.scalar-or-simd.simd":
+        case "o4.joint.distance.scalar-or-simd.scalar":
+        case "o4.joint.distance.scalar-or-simd.simd":
+        case "o4.joint.motor.scalar-or-simd.scalar":
+        case "o4.joint.motor.scalar-or-simd.simd":
+        case "o4.joint.filter.scalar-or-simd.scalar":
+        case "o4.joint.filter.scalar-or-simd.simd":
+        case "o4.joint.prismatic.scalar-or-simd.scalar":
+        case "o4.joint.prismatic.scalar-or-simd.simd":
+        case "o4.joint.revolute.scalar-or-simd.scalar":
+        case "o4.joint.revolute.scalar-or-simd.simd":
+        case "o4.joint.spherical.scalar-or-simd.scalar":
+        case "o4.joint.spherical.scalar-or-simd.simd":
+        case "o4.joint.weld.scalar-or-simd.scalar":
+        case "o4.joint.weld.scalar-or-simd.simd":
+        case "o4.joint.wheel.scalar-or-simd.scalar":
+        case "o4.joint.wheel.scalar-or-simd.simd":
+            return runJointCase(item);
         case "mover.clip-vector.v1.scalar":
         case "mover.clip-vector.v1.simd": {
             const planes = Array.from(

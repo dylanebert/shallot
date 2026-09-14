@@ -9,6 +9,17 @@
 // The FloatW fallback methods that only the tests touch today are the solver's foundation; the
 // wide-solver port consumes them. Remove when it lands.
 #![allow(dead_code)]
+// These lints are intentionally allowed for the C-reference port: argument-heavy phase entry
+// points, explicit index loops, named f32 constants, and method names mirror the upstream seams
+// and preserve operation order/bit behavior rather than following idiomatic Rust rewrites.
+#![allow(clippy::approx_constant)]
+#![allow(clippy::doc_lazy_continuation)]
+#![allow(clippy::excessive_precision)]
+#![allow(clippy::manual_memcpy)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::should_implement_trait)]
+#![allow(clippy::too_many_arguments)]
 
 pub mod body;
 pub mod col;

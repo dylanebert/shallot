@@ -9,6 +9,19 @@ description = "wasm-simd128 contact-solve + integration kernel for upstream"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+# C-reference parity tests intentionally preserve upstream index loops, exact constants, and
+# phase signatures; these lint exceptions keep clippy from requiring bit-affecting rewrites.
+[lints.clippy]
+approx_constant = "allow"
+doc_lazy_continuation = "allow"
+excessive_precision = "allow"
+manual_is_multiple_of = "allow"
+manual_memcpy = "allow"
+needless_borrow = "allow"
+needless_range_loop = "allow"
+should_implement_trait = "allow"
+too_many_arguments = "allow"
+
 # The staged multithreaded solve (src/solve.rs + its stage/block tables). Only the shared-memory
 # artifact enables it — a single-thread consumer has no pool to run it, and the tables are ~37 KB of
 # data section it would otherwise carry (scripts/build-kernel.ts).
