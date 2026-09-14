@@ -1,64 +1,12 @@
 import { readFileSync } from "node:fs";
 import { check } from "../../../harness/check";
-import { buildLegacyScene } from "../solver/step.fixture";
-import { getBodySim, getBodyState } from "../world/body";
-import { hashWorldState } from "../world/hash";
+import { runLegacyScenario } from "../solver/step.fixture";
 import { loadScenarioCorpus, runScenario, type ScenarioOutput } from "./scenario";
 
-type NumberBody = { p: string[]; q: string[]; v?: string[]; w?: string[] };
-const hex = (value: number): string => {
-    const view = new DataView(new ArrayBuffer(4));
-    view.setFloat32(0, value, true);
-    return `0x${view.getUint32(0, true).toString(16).padStart(8, "0")}`;
-};
-function legacyOutput(
-    name: string,
-    enableSleep: boolean,
-    enableContinuous: boolean,
-    steps: number,
-): { observations: Array<{ step: number; bodies: NumberBody[] }>; hashes: string[] } {
-    const world = buildLegacyScene(name, enableSleep, enableContinuous);
-    const observations: Array<{ step: number; bodies: NumberBody[] }> = [];
-    const hashes: string[] = [];
-    for (let step = 0; step < steps; step++) {
-        world.step(Math.fround(1 / 60), 4);
-        const bodies: NumberBody[] = [];
-        for (let index = 0; index < world.state.bodies.length; index++) {
-            const body = world.state.bodies[index];
-            if (body.id !== index) continue;
-            const sim = getBodySim(world.state, body);
-            const state = getBodyState(world.state, body);
-            bodies.push({
-                p: [hex(sim.transform.p.x), hex(sim.transform.p.y), hex(sim.transform.p.z)],
-                q: [
-                    hex(sim.transform.q.v.x),
-                    hex(sim.transform.q.v.y),
-                    hex(sim.transform.q.v.z),
-                    hex(sim.transform.q.s),
-                ],
-                v: state
-                    ? [
-                          hex(state.linearVelocity.x),
-                          hex(state.linearVelocity.y),
-                          hex(state.linearVelocity.z),
-                      ]
-                    : ["0x00000000", "0x00000000", "0x00000000"],
-                w: state
-                    ? [
-                          hex(state.angularVelocity.x),
-                          hex(state.angularVelocity.y),
-                          hex(state.angularVelocity.z),
-                      ]
-                    : ["0x00000000", "0x00000000", "0x00000000"],
-            });
-        }
-        observations.push({ step, bodies });
-        hashes.push(`0x${hashWorldState(world.state).toString(16).padStart(16, "0")}`);
-    }
-    world.destroy();
-    return { observations, hashes };
-}
-function compareOutputs(generic: ScenarioOutput, legacy: ReturnType<typeof legacyOutput>): void {
+function compareOutputs(
+    generic: ScenarioOutput,
+    legacy: ReturnType<typeof runLegacyScenario>,
+): void {
     if (JSON.stringify(generic.hashes.map((item) => item.value)) !== JSON.stringify(legacy.hashes))
         throw new Error(`${generic.name}: world hash mismatch`);
     if (generic.observations.length !== legacy.observations.length)
@@ -123,6 +71,17 @@ const COMPOUND_SENSOR_ROSTER = [
     "compound-ccd",
     "sensor",
 ];
+const BENCHMARK_ROSTER = [
+    "bench-pyramid",
+    "bench-many-pyramids",
+    "bench-joint-grid",
+    "bench-washer",
+    "bench-large-world",
+    "bench-trees",
+    "bench-junkyard",
+    "bench-rain",
+    "drift",
+];
 function compareFamily(roster: string[]): void {
     const { corpus, digest } = loadScenarioCorpus();
     const cumulative = [
@@ -130,6 +89,7 @@ function compareFamily(roster: string[]): void {
         ...JOINT_ROSTER,
         ...SURFACE_ROSTER,
         ...COMPOUND_SENSOR_ROSTER,
+        ...BENCHMARK_ROSTER,
     ];
     if (
         JSON.stringify(corpus.scenarios.map((scenario) => scenario.name)) !==
@@ -145,7 +105,7 @@ function compareFamily(roster: string[]): void {
         const world = scenario.commands.find((command) => command.op === "world.create");
         compareOutputs(
             runScenario(scenario, digest),
-            legacyOutput(
+            runLegacyScenario(
                 scenario.name,
                 world?.enableSleep === true,
                 world?.enableContinuous === true,
@@ -173,6 +133,65 @@ check(
     "O5d Shallot command interpreter migration",
     { claim: "box3d-scenario-migration-compound-sensor", size: "integration" },
     () => compareFamily(COMPOUND_SENSOR_ROSTER),
+);
+check(
+    "O5e Shallot benchmark command interpreter migration",
+    { claim: "box3d-scenario-migration-benchmarks", size: "integration" },
+    () => compareFamily(BENCHMARK_ROSTER),
+);
+check(
+    "O5e Shallot benchmark timing mutations",
+    { claim: "box3d-scenario-migration-benchmark-timing", size: "integration" },
+    () => {
+        const { corpus, digest } = loadScenarioCorpus();
+        const moveCommands = (
+            name: string,
+            predicate: (command: (typeof corpus.scenarios)[number]["commands"][number]) => boolean,
+            count: number,
+            afterStep: string,
+        ): void => {
+            const scenario = structuredClone(corpus.scenarios.find((item) => item.name === name));
+            if (!scenario) throw new Error(`${name} timing target is missing`);
+            const index = scenario.commands.findIndex(predicate);
+            const stepIndex = scenario.commands.findIndex(
+                (command) => command.id === afterStep && command.op === "step",
+            );
+            if (
+                index < 0 ||
+                stepIndex < 0 ||
+                index > stepIndex ||
+                index + count > scenario.commands.length
+            )
+                throw new Error(`${name} timing command is not before its scheduled step`);
+            const moved = scenario.commands.splice(index, count);
+            const newStepIndex = scenario.commands.findIndex(
+                (command) => command.id === afterStep && command.op === "step",
+            );
+            scenario.commands.splice(newStepIndex + 1, 0, ...moved);
+            const baseline = runScenario(
+                corpus.scenarios.find((item) => item.name === name)!,
+                digest,
+            );
+            const changed = runScenario(scenario, digest);
+            if (
+                JSON.stringify(baseline.observations) === JSON.stringify(changed.observations) ||
+                JSON.stringify(baseline.hashes) === JSON.stringify(changed.hashes)
+            )
+                throw new Error(`${name} timing mutation did not change the replay`);
+        };
+        moveCommands(
+            "bench-large-world",
+            (command) => command.op === "body.spawn" && command.id === "b144",
+            2,
+            "step-005",
+        );
+        moveCommands(
+            "bench-junkyard",
+            (command) => command.op === "body.target-transform" && command.id === "target-000",
+            1,
+            "step-000",
+        );
+    },
 );
 
 check(
