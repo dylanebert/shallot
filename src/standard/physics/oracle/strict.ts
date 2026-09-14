@@ -169,11 +169,14 @@ export function executeStrictReport(): StrictReport {
         population: { suiteCount: number; caseCount: number };
         source: { sha: string; tree: string };
     };
+    const receipt = JSON.parse(
+        readFileSync(join(import.meta.dir, "box3d", "current.json"), "utf8"),
+    ) as Pick<StrictReport, "target" | "conformsThrough" | "bundle">;
     return {
         schema: "box3d-oracle/strict-report/v1",
-        target: "47d7f7cc7e091142c08d11dc7d2e493c5d34f536",
-        conformsThrough: "29bf523ce7bc4590aba9f17c9db791cdc5c4397e",
-        bundle: "47d7f7cc7e091142c08d11dc7d2e493c5d34f536/v6",
+        target: receipt.target,
+        conformsThrough: receipt.conformsThrough,
+        bundle: receipt.bundle,
         inventory: {
             suiteCount: inventory.population.suiteCount,
             caseCount: inventory.population.caseCount,

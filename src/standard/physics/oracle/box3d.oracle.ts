@@ -85,14 +85,14 @@ function digest(path: string): string {
 check(
     "immutable Box3D public oracle bundle is selected and intact",
     {
-        claim: "Box3D public oracle bundle records target separately from conformance and all generated evidence digests match",
+        claim: "Box3D public oracle bundle records the fully conformed target and all generated evidence digests match",
         size: "integration",
     },
     () => {
         if (current.target !== manifest.bundle.upstreamSha)
             throw new Error("current target does not match bundle upstream SHA");
-        if (current.conformsThrough === current.target)
-            throw new Error("publishing target advanced conformance");
+        if (current.conformsThrough !== current.target)
+            throw new Error("selected immutable target is not fully conformed");
         if (manifest.bundle.schema !== "v6")
             throw new Error("current oracle must select immutable v6");
         if (
