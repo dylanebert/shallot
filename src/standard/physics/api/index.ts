@@ -76,7 +76,12 @@ export {
 } from "../shapes/mesh";
 export { JointType } from "../solver/joint";
 export { DebugColor, type DebugDraw, defaultDebugDraw } from "../world/draw";
-export { hashWorldState } from "../world/hash";
+import { hashWorldState } from "../world/hash";
+export { hashWorldState };
+export { restore, snapshot, type WorldSnapshot } from "./snapshot";
+export function hash(world: import("./world").World): bigint {
+    return hashWorldState(world.state);
+}
 export type { Profile } from "../world/profile";
 export type { Counters, WorldState } from "../world/world";
 export { Body } from "./body";

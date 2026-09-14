@@ -1,6 +1,5 @@
 import type { State } from "../engine";
-import { Physics } from "../standard/physics";
-import { Transform } from "../standard/transforms";
+import { getComponent } from "../engine/ecs";
 import type { PixelProbe } from "./pixels";
 
 export { type PixelProbe, type PixelProbeResult, pixelProbePass, probePixels } from "./pixels";
@@ -118,17 +117,49 @@ export function installHarness(state: State): HarnessTarget {
             return state.time.elapsed > 0;
         },
         read(eid: number): PoseState | null {
-            const body = Physics.readBody(eid);
-            if (body) {
+            // Physics registers this runtime-derived component under the stable `pose` name. Resolving
+            // the registration through engine ECS keeps harness independent of every standard module.
+            const pose = getComponent("pose") as
+                | {
+                      pos: {
+                          x: { get(eid: number): number };
+                          y: { get(eid: number): number };
+                          z: { get(eid: number): number };
+                      };
+                      quat: {
+                          x: { get(eid: number): number };
+                          y: { get(eid: number): number };
+                          z: { get(eid: number): number };
+                          w: { get(eid: number): number };
+                      };
+                      vel: {
+                          x: { get(eid: number): number };
+                          y: { get(eid: number): number };
+                          z: { get(eid: number): number };
+                      };
+                  }
+                | undefined;
+            if (pose && state.has(eid, pose)) {
                 return {
-                    pos: [body.pos[0], body.pos[1], body.pos[2]],
-                    quat: [body.quat[0], body.quat[1], body.quat[2], body.quat[3]],
-                    vel: [body.vel[0], body.vel[1], body.vel[2]],
+                    pos: [pose.pos.x.get(eid), pose.pos.y.get(eid), pose.pos.z.get(eid)],
+                    quat: [
+                        pose.quat.x.get(eid),
+                        pose.quat.y.get(eid),
+                        pose.quat.z.get(eid),
+                        pose.quat.w.get(eid),
+                    ],
+                    vel: [pose.vel.x.get(eid), pose.vel.y.get(eid), pose.vel.z.get(eid)],
                 };
             }
-            if (state.has(eid, Transform)) {
-                const p = Transform.pos.read(eid, new Float32Array(4));
-                const r = Transform.rot.read(eid, new Float32Array(4));
+            const transform = getComponent("transform") as
+                | {
+                      pos: { read(eid: number, out: Float32Array): Float32Array };
+                      rot: { read(eid: number, out: Float32Array): Float32Array };
+                  }
+                | undefined;
+            if (transform && state.has(eid, transform)) {
+                const p = transform.pos.read(eid, new Float32Array(4));
+                const r = transform.rot.read(eid, new Float32Array(4));
                 return { pos: [p[0], p[1], p[2]], quat: [r[0], r[1], r[2], r[3]] };
             }
             return null;

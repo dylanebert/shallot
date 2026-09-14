@@ -29,7 +29,23 @@ export {
 export { minimalDark, minimalLight, shallotDark, shallotLight } from "./loading";
 export { Mirror, MirrorPlugin, MirrorSystem, mirror } from "./mirror";
 export { Color, Part, PartPlugin } from "./part";
-export { Body, Joint, Physics, PhysicsPlugin, ShapeKind, Spring } from "./physics";
+export {
+    Body,
+    body,
+    hash,
+    Joint,
+    Physics,
+    PhysicsPlugin,
+    physicsCounters,
+    physicsWorld,
+    readBody,
+    restore,
+    ShapeKind,
+    Spring,
+    setKinematic,
+    setVelocity,
+    snapshot,
+} from "./physics";
 export {
     Player,
     PlayerControlSystem,

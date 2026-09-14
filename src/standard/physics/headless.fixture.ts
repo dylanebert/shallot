@@ -1,7 +1,17 @@
 import { type Plugin, type State, State as StateClass } from "../../engine";
 import { clear, register } from "../../engine/ecs/traits";
 import { Slab } from "../slab";
-import { Body, bodyTraits, Joint, jointTraits, PhysicsPlugin, Spring, springTraits } from "./index";
+import {
+    Body,
+    bodyTraits,
+    Joint,
+    jointTraits,
+    PhysicsPlugin,
+    Pose,
+    poseTraits,
+    Spring,
+    springTraits,
+} from "./index";
 
 // Shared build-up for the physics checks: a headless `State` carrying `PhysicsPlugin`, with no GPU
 // device and no `app()`. Not a check itself and never published (`*.fixture.ts` is excluded from the
@@ -20,6 +30,7 @@ export async function headlessPhysicsState(): Promise<State> {
     clear();
     const state = new StateClass();
     register("body", Body, bodyTraits);
+    register("pose", Pose, poseTraits);
     register("spring", Spring, springTraits);
     register("joint", Joint, jointTraits);
     Slab.collect();

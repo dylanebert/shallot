@@ -585,12 +585,9 @@ const evicted = new WeakSet<object>();
  * later world taking the region over — its resident body state is gone. */
 export function claimResident(token: object): void {
     if (owner === token) return;
-    if (evicted.has(token)) {
-        throw new Error(
-            "physics: this world's physics state was overwritten by another world; two live worlds " +
-                "cannot be stepped interleaved (destroy one before stepping the other)",
-        );
-    }
+    // A State-owned physics runtime restores its last snapshot before claiming the shared resident
+    // columns. The old throw made two clean States impossible to twin-step; the snapshot boundary is the
+    // ownership transfer and keeps the wasm columns deterministic for both worlds.
     if (owner !== null) evicted.add(owner);
     owner = token;
 }

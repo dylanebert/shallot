@@ -1,5 +1,16 @@
 import { f32, type Plugin, type State, type System, sparse } from "../../engine";
-import { Body, type Hull, Hulls, Physics, ShapeKind, StepSystem } from "../physics";
+import {
+    Body,
+    type Hull,
+    Hulls,
+    Physics,
+    physicsWorld,
+    readBody,
+    ShapeKind,
+    StepSystem,
+    setKinematic,
+    setVelocity,
+} from "../physics";
 import { jumped, moves, resetDrive, states } from "./drive";
 import { type CharState, type SweepBody, sweepCharacter } from "./sweep";
 
@@ -7,12 +18,10 @@ import { type CharState, type SweepBody, sweepCharacter } from "./sweep";
 // first-person Player) composes. The Character entity IS a capsule Body (mass <= 0) whose pose the CPU
 // SWEEP owns: each fixed tick `CharacterSweepSystem` runs the collide-and-slide (`sweep.ts`, the f32-tier
 // twin of an f64 controller oracle) on the CPU, BEFORE the physics solve, then uploads the
-// swept pose as a kinematic body (`Physics.backend.setKinematic`). So the player's input → pose → camera is
-// a same-frame CPU path with no GPU readback, and the backend's dynamics collide against the CURRENT-tick
-// player. The coupling is one-way: the CPU writes the player's fresh pose (the backend reads it to push
-// dynamics + carry riders), and the CPU sweep reads every other body's live pose through the installed
-// backend's pose-read seam (`Physics.backend.readBody`, up to one fixed tick stale for a GPU backend — a
-// frame-old dynamic pose is fine for the sweep; the static collision world doesn't move).
+// swept pose as a kinematic body (`setKinematic(state, ...)`). So the player's input → pose → camera is
+// a same-frame CPU path with no GPU readback, and the solver's dynamics collide against the CURRENT-tick
+// player. The coupling is one-way: the CPU writes the player's fresh pose (the solver reads it to push
+// dynamics + carry riders), and the CPU sweep reads every other body's live pose through `readBody(state, ...)`.
 //
 // This module is the authoring + driving surface: the tuning component, the per-tick sweep system, the
 // eid-keyed drive (move/jump) + the swept-pose / grounded readback a follower (a camera) reads from the
@@ -193,7 +202,7 @@ function sweepEid(eid: number, st: CharState, state: State): void {
             sb.radius = hw;
             sb.hull = undefined;
         }
-        const live = Physics.readBody(b);
+        const live = readBody(state, b);
         if (live) {
             sb.pos[0] = live.pos[0];
             sb.pos[1] = live.pos[1];
@@ -230,7 +239,7 @@ function sweepEid(eid: number, st: CharState, state: State): void {
     const m = moves.get(eid);
     const input: [number, number, number] = [m ? m[0] : 0, 0, m ? m[1] : 0];
     const g = Character.gravity.get(eid);
-    const gravity = g !== 0 ? g : Physics.gravity;
+    const gravity = g !== 0 ? g : (physicsWorld(state)?.getGravity().y ?? Physics.gravity);
 
     // snapshot the dynamics' velocities so we can tell which the sweep actually shoved (the push loop only
     // mutates a touched dynamic's `vel`) — a no-op velocity rewrite would wake every nearby resting body.
@@ -245,7 +254,7 @@ function sweepEid(eid: number, st: CharState, state: State): void {
 
     // kinematic upload — the swept pose, with the realized velocity (snap excluded) as the explicit
     // velocity so the carry-of-riders + broadphase pad read the swept motion, not the cosmetic ground snap.
-    Physics.setKinematic(eid, st.pos, st.quat, false, st.realizedVel);
+    setKinematic(state, eid, st.pos, st.quat, false, st.realizedVel);
 
     // full-speed push (variant A): write each shoved dynamic's new velocity straight through the backend.
     // setVelocity wakes the body, so apply it only to the ones the sweep changed.
@@ -256,7 +265,7 @@ function sweepEid(eid: number, st: CharState, state: State): void {
             v[1] !== _pushVel0[3 * i + 1] ||
             v[2] !== _pushVel0[3 * i + 2]
         ) {
-            Physics.setVelocity(_pushEids[i], v[0], v[1], v[2]);
+            setVelocity(state, _pushEids[i], v[0], v[1], v[2]);
         }
     }
 }
@@ -273,7 +282,7 @@ export const CharacterSweepSystem: System = {
     group: "fixed",
     before: [StepSystem],
     update(state: State) {
-        if (!Physics.world) return;
+        if (!physicsWorld(state)) return;
         syncStates(state);
         if (states.size === 0) return;
         for (const [eid, st] of states) sweepEid(eid, st, state);
