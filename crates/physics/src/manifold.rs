@@ -1611,9 +1611,8 @@ fn build_face_b_contact(
     // Results are in frame B; transform them into frame A.
     let matrix = Mat3::from_quat(transform_b_to_a.q);
 
-    // Flip normal so it points from A to B, even though B owns the reference face. The reference
-    // uses a zero-vector subtraction here; unlike unary negation it preserves its signed zero bits.
-    manifold.normal = Vec3::ZERO.sub(matrix.mul_v(manifold.normal));
+    // Flip normal so it points from A to B, even though B owns the reference face.
+    manifold.normal = matrix.mul_v(manifold.normal).neg();
     cache.ty = separating_feature::FACE_AXIS_B;
     cache.index_a = query.vertex_index & 0xff;
     cache.index_b = query.face_index & 0xff;
@@ -1692,8 +1691,9 @@ struct AxisQuery {
 }
 
 #[inline]
+// b3Dot3W evaluates z + (y + x); this association is part of the active SIMD producer.
 fn dot3_w(a: Vec3, b: Vec3) -> f32 {
-    a.x * b.x + (a.y * b.y + a.z * b.z)
+    a.z * b.z + (a.y * b.y + a.x * b.x)
 }
 
 #[inline]

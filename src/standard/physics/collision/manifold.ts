@@ -690,8 +690,9 @@ type AxisQuery = {
     separated: number;
 };
 
+// b3Dot3W evaluates z + (y + x); this association is part of the active SIMD producer.
 const dot3W = (a: Vec3, b: Vec3): number =>
-    f32(f32(a.x * b.x) + f32(f32(a.y * b.y) + f32(a.z * b.z)));
+    f32(f32(a.z * b.z) + f32(f32(a.y * b.y) + f32(a.x * b.x)));
 
 const normalize3W = (v: Vec3): Vec3 => {
     const lengthSq = dot3W(v, v);
@@ -1762,9 +1763,8 @@ function buildFaceBContact(
     // Results are in frame B; transform them into frame A.
     const matrix = mat3.fromQuat(transformBtoA.q);
 
-    // Flip normal so it points from A to B, even though B owns the reference face. The reference
-    // uses a zero-vector subtraction here; unlike unary negation it preserves its signed zero bits.
-    manifold.normal = vec3.sub(vec3.zero(), mat3.mulV(matrix, manifold.normal));
+    // Flip normal so it points from A to B, even though B owns the reference face.
+    manifold.normal = vec3.neg(mat3.mulV(matrix, manifold.normal));
     cache.type = SeparatingFeature.FaceAxisB;
     cache.indexA = query.vertexIndex & 0xff;
     cache.indexB = query.faceIndex & 0xff;
@@ -1855,6 +1855,9 @@ export function collideHulls(
     const planesB = hullB.planes;
     const pointsB = hullB.points;
 
+    // The active official route clears hit before trying the persistent DIR_CACHE entry.
+    cache.hit = 0;
+
     // Attempt to use the cache to speed up collision.
     switch (cache.type) {
         case SeparatingFeature.Invalid:
@@ -1869,6 +1872,7 @@ export function collideHulls(
             const separation = plane.separation(pl, support);
 
             if (separation >= speculativeDistance) {
+                cache.hit = 1;
                 return;
             }
 
@@ -1892,6 +1896,7 @@ export function collideHulls(
                     touching === true &&
                     absf(f32(cache.separation - localCache.separation)) < linearSlop
                 ) {
+                    cache.hit = 1;
                     return;
                 }
             }
@@ -1906,6 +1911,7 @@ export function collideHulls(
             const separation = plane.separation(pl, support);
 
             if (separation >= speculativeDistance) {
+                cache.hit = 1;
                 return;
             }
 
@@ -1929,6 +1935,7 @@ export function collideHulls(
                     touching === true &&
                     absf(f32(cache.separation - localCache.separation)) < linearSlop
                 ) {
+                    cache.hit = 1;
                     return;
                 }
             }
@@ -1971,7 +1978,10 @@ export function collideHulls(
                     const t = f32(cba / f32(cba - dba));
                     const axis = vec3.normalize(vec3.lerp(u2, v2, t));
                     const separation = vec3.dot(axis, vec3.sub(q1, q2));
-                    if (separation > speculativeDistance) return;
+                    if (separation > speculativeDistance) {
+                        cache.hit = 1;
+                        return;
+                    }
                     const edgeQuery: EdgeQuery = {
                         normal: vec3.neg(axis),
                         indexA: cache.indexA,
@@ -1990,8 +2000,10 @@ export function collideHulls(
                     if (
                         touching &&
                         absf(f32(cache.separation - localCache.separation)) < linearSlop
-                    )
+                    ) {
+                        cache.hit = 1;
                         return;
+                    }
                 }
             }
             break;

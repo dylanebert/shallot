@@ -80,7 +80,8 @@ impl HullData<'_> {
         for lane in 0..soa_count {
             let index = if lane < self.vertex_count { lane } else { 0 };
             let p = self.points[index];
-            let dot = direction.x * p.x + (direction.y * p.y + direction.z * p.z);
+            // Match b3Dot3W's SIMD association: z + (y + x).
+            let dot = direction.z * p.z + (direction.y * p.y + direction.x * p.x);
             let value = bias - dot;
             let bits = (value.to_bits() & !0x7f) | lane as u32;
             let augmented = f32::from_bits(bits);
@@ -89,7 +90,11 @@ impl HullData<'_> {
                 best_index = lane;
             }
         }
-        best_index.min(self.vertex_count.saturating_sub(1))
+        if best_index < self.vertex_count {
+            best_index
+        } else {
+            0
+        }
     }
 
     /// Index of the hull face whose normal is most aligned with `direction` (b3FindHullSupportFace).

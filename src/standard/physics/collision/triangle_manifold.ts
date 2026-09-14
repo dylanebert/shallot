@@ -742,9 +742,8 @@ function collideHullFace(
     }
 
     manifold.pointCount = pointCount;
-    // The reference flips this normal by subtracting it from a zero vector, which is observably
-    // different from unary negation for the manifold's exact signed-zero components.
-    manifold.normal = vec3.sub(vec3.zero(), refPlane.normal);
+    // Flip the hull reference normal component-wise, as b3Neg does in the C target.
+    manifold.normal = vec3.neg(refPlane.normal);
     manifold.feature = TriangleFeature.HullFace;
 
     cache.separation = minSeparation;

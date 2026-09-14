@@ -27,7 +27,7 @@ type Command = {
     id: string;
     [key: string]: unknown;
 };
-type Scenario = {
+export type Scenario = {
     id: string;
     name: string;
     commands: Command[];
@@ -35,6 +35,9 @@ type Scenario = {
     requiredJointIds?: string[];
     requiredSensorEventIds?: string[];
 };
+
+/** Read-only white-box evidence hook; omitted by the normal scenario oracle. */
+export type ScenarioDiagnostic = (world: World, step: number) => void;
 type Corpus = { schema: string; corpusVersion: number; scenarios: Scenario[] };
 export type ScenarioOutput = {
     schema: "box3d-oracle/scenario-output/v1";
@@ -128,6 +131,7 @@ export function runScenario(
     scenario: Scenario,
     digest: string,
     mutateAngularVelocity = false,
+    diagnostic?: ScenarioDiagnostic,
 ): ScenarioOutput {
     const bodies = new Map<string, Body>();
     const joints = new Set<string>();
@@ -155,6 +159,7 @@ export function runScenario(
     const hashes: { step: number; value: string; receiptId: string }[] = [];
     const sensorEvents: ScenarioOutput["sensorEvents"] = [];
     let world: World | undefined;
+    let simulationStep = 0;
     let observed = false;
     const material = (value: unknown): ReturnType<typeof defaultSurfaceMaterial> => {
         const source = (value ?? {}) as Record<string, unknown>;
@@ -561,6 +566,7 @@ export function runScenario(
             case "step":
                 if (!world) throw new Error("step before world.create");
                 world.step(f32(String(command.timeStep)), Number(command.subStepCount));
+                diagnostic?.(world, simulationStep++);
                 break;
             case "observe": {
                 if (!world) throw new Error("observe before world.create");

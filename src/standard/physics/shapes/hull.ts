@@ -1537,8 +1537,9 @@ export function findHullSupportVertexWide(
     for (let lane = 0; lane < soaCount; ++lane) {
         const index = lane < hull.vertexCount ? lane : 0;
         const p = hull.points[index];
+        // Match b3Dot3W's SIMD association: z + (y + x), then round once at the lane result.
         const dot = f32(
-            f32(direction.x * p.x) + f32(f32(direction.y * p.y) + f32(direction.z * p.z)),
+            f32(direction.z * p.z) + f32(f32(direction.y * p.y) + f32(direction.x * p.x)),
         );
         const value = f32(bias - dot);
         const bits = (new Uint32Array(new Float32Array([value]).buffer)[0] & ~0x7f) | lane;
