@@ -45,6 +45,7 @@ const carriers = ["scripts/check-surface.ts", "scripts/surface.ts", "scripts/tes
 const requiredNegations = [
     "!scripts/check.ts",
     "!scripts/check-pack.ts",
+    "!scripts/check-device-tiers.ts",
     "!scripts/generate/**",
     "!scripts/assets.ts",
     "!scripts/png.ts",
@@ -71,6 +72,7 @@ const violations = files.flatMap((f) =>
 
 const required = [
     "src/index.ts",
+    "src/engine/app/device-tiers.generated.ts",
     "bin/shallot.ts",
     ...carriers,
     "src/cli/index.ts",

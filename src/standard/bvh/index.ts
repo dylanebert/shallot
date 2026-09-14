@@ -15,7 +15,7 @@
 // build + refit both live in {@link createBuild} (build.ts) — the bounds relaxation
 // doubles as the refit, so there is no separate refit stage to derive parents for.
 
-import { checkStorageBinding } from "../../engine";
+import { checkStorageBinding, type Plugin } from "../../engine";
 import { createSceneBounds } from "./bounds";
 import { createBuild } from "./build";
 import { createMorton } from "./morton";
@@ -48,6 +48,12 @@ export {
  * `Plugin.preferredFeatures` so a `subgroups`-less device (WebKit) still loads it, on the LDS arm.
  */
 export const BVH_FEATURES: readonly GPUFeatureName[] = ["subgroups"];
+
+/** The BVH extension owns GPU-only builders and therefore must be present in a GPU composition. */
+export const BvhPlugin: Plugin = {
+    name: "BVH",
+    device: "required",
+};
 
 /**
  * an LBVH BVH2 builder sized for `maxPrims`. Write primitive AABBs into {@link
