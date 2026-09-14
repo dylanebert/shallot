@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
     type Body,
@@ -88,9 +88,14 @@ const vec3 = (values: unknown[]): { x: number; y: number; z: number } => {
 const corpusDigest = (bytes: Uint8Array): string =>
     createHash("sha256").update(bytes).digest("hex");
 
+const defaultCorpusPaths = [
+    process.env.BOX3D_SCENARIO_CORPUS,
+    join(import.meta.dir, "../../../../../projects/box3d-oracle/scenarios/commands-v1.json"),
+    join(import.meta.dir, "../../../../../../kex/projects/box3d-oracle/scenarios/commands-v1.json"),
+].filter((candidate): candidate is string => candidate !== undefined);
+
 export function loadScenarioCorpus(
-    path = process.env.BOX3D_SCENARIO_CORPUS ??
-        join(import.meta.dir, "../../../../../projects/box3d-oracle/scenarios/commands-v1.json"),
+    path = defaultCorpusPaths.find((candidate) => existsSync(candidate)) ?? defaultCorpusPaths[0],
 ): {
     corpus: Corpus;
     digest: string;
