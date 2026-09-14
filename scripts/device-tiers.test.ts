@@ -39,6 +39,8 @@ check(
     "device declaration gate: shipped tree is green",
     {
         claim: "every shipped standard and extras module that reads Compute.device, Compute.root or Compute.buffers belongs to a plugin with a device declaration",
+        size: "integration",
+        subject: "src/standard",
     },
     () => {
         expect(readDeviceTierViolations(ROOT)).toEqual([]);
