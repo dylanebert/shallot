@@ -61,6 +61,52 @@ interface CargoBuild {
     reason?: string;
 }
 
+export interface CargoArtifact {
+    target?: { kind?: string[]; name?: string; test?: boolean };
+    profile?: { test?: boolean };
+    executable?: string;
+}
+
+const CARGO_LIBRARY_TARGET_KINDS = new Set(["lib", "rlib", "cdylib", "staticlib", "proc-macro"]);
+
+/** Select the one current libtest executable reported by Cargo's JSON artifact stream. */
+export function selectCargoTestExecutable(
+    packageName: string,
+    artifacts: readonly CargoArtifact[],
+): { executable?: string; reason?: string } {
+    const expectedTarget = packageName.replaceAll("-", "_");
+    const executables = [
+        ...new Set(
+            artifacts
+                .filter(
+                    (artifact) =>
+                        artifact.target?.name === expectedTarget &&
+                        artifact.target.test === true &&
+                        artifact.profile?.test === true &&
+                        artifact.target.kind?.some((kind) =>
+                            CARGO_LIBRARY_TARGET_KINDS.has(kind),
+                        ) &&
+                        typeof artifact.executable === "string",
+                )
+                .map((artifact) => artifact.executable as string),
+        ),
+    ];
+    if (executables.length !== 1) {
+        return {
+            reason:
+                executables.length === 0
+                    ? `cargo test --no-run -p ${packageName} produced no current libtest executable`
+                    : `cargo test --no-run -p ${packageName} produced multiple or missing libtest executables`,
+        };
+    }
+    if (!existsSync(executables[0])) {
+        return {
+            reason: `cargo test --no-run -p ${packageName} produced multiple or missing libtest executables`,
+        };
+    }
+    return { executable: executables[0] };
+}
+
 const cargoBuilds = new Map<string, CargoBuild>();
 let gpuRequirement: string | null | undefined;
 
@@ -122,40 +168,23 @@ function resolveCargo(root: string, subjects: readonly string[]): string | null 
             cargoBuilds.set(key, { reason });
             return reason;
         }
-        const expectedTarget = packageName.replaceAll("-", "_");
         const artifacts = proc.stdout
             .toString()
             .split("\n")
-            .flatMap((line) => {
+            .flatMap((line): CargoArtifact[] => {
                 try {
-                    const value = JSON.parse(line) as {
-                        reason?: string;
-                        target?: { kind?: string[]; name?: string; test?: boolean };
-                        profile?: { test?: boolean };
-                        executable?: string;
-                    };
-                    return value.reason === "compiler-artifact" &&
-                        value.target?.name === expectedTarget &&
-                        value.target.kind?.includes("lib") &&
-                        value.target.test === true &&
-                        value.profile?.test === true &&
-                        typeof value.executable === "string"
-                        ? [value.executable]
-                        : [];
+                    const value = JSON.parse(line) as { reason?: string } & CargoArtifact;
+                    return value.reason === "compiler-artifact" ? [value] : [];
                 } catch {
                     return [];
                 }
             });
-        const executables = [...new Set(artifacts)];
-        if (executables.length !== 1 || !existsSync(executables[0])) {
-            const reason =
-                executables.length === 0
-                    ? `cargo test --no-run -p ${packageName} produced no current libtest executable`
-                    : `cargo test --no-run -p ${packageName} produced multiple or missing libtest executables`;
-            cargoBuilds.set(key, { reason });
-            return reason;
+        const selected = selectCargoTestExecutable(packageName, artifacts);
+        if (selected.reason !== undefined) {
+            cargoBuilds.set(key, { reason: selected.reason });
+            return selected.reason;
         }
-        cargoBuilds.set(key, { executable: executables[0] });
+        cargoBuilds.set(key, { executable: selected.executable });
         return null;
     } catch (error) {
         const reason = `cargo is unavailable: ${(error as Error).message}`;
