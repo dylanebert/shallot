@@ -89,6 +89,8 @@ const vec3 = (values: unknown[]): { x: number; y: number; z: number } => {
 const corpusDigest = (bytes: Uint8Array): string =>
     createHash("sha256").update(bytes).digest("hex");
 
+// The compressed copy is the immutable in-repository authority; the sibling paths remain useful for
+// local oracle generation and are only fallbacks when an explicit corpus is not vendored.
 const defaultCorpusPaths = [
     process.env.BOX3D_SCENARIO_CORPUS,
     join(import.meta.dir, "scenario-command-v1.json.gz"),
