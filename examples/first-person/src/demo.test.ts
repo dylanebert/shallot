@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
     Body,
@@ -14,6 +15,7 @@ import { check } from "@dylanebert/shallot/harness/check";
 import { Demo } from "./demo";
 
 const SCENE = resolve(import.meta.dir, "../public/scenes/first-person.scene");
+const MANIFEST = resolve(import.meta.dir, "../shallot.json");
 const TRAVEL = 1.5;
 const RATE = 0.65;
 
@@ -59,6 +61,13 @@ function tangentGap(player: number, lift: number): number {
     return capsuleBottom - liftTop;
 }
 
+function extent(eid: number, axis: "x" | "z", radius = 0): readonly [number, number] {
+    const center = axis === "x" ? Body.pos.x.get(eid) : Body.pos.z.get(eid);
+    const half =
+        (axis === "x" ? Body.halfExtents.x.get(eid) : Body.halfExtents.z.get(eid)) + radius;
+    return [center - half, center + half];
+}
+
 function authoredStepRise(app: Ascent, player: number, lift: number): number {
     const heights = [...app.state.query([Body])]
         .filter((eid) => eid !== player && eid !== lift && Body.mass.get(eid) <= 0)
@@ -69,6 +78,88 @@ function authoredStepRise(app: Ascent, player: number, lift: number): number {
         throw new Error(`actual ascent scene has only ${heights.length} authored step heights`);
     return heights[heights.length - 1] - heights[0];
 }
+
+check(
+    "first-person presentation geometry remains relationally valid",
+    {
+        claim: "the actual first-person scene gives the player a tangent spawn, a contained route, a clear lift, and an adjacent upper tower stop",
+    },
+    async () => {
+        const app = await ascent();
+        try {
+            const player = entity(app, "player");
+            const ground = entity(app, "ground");
+            const step1 = entity(app, "step-1");
+            const step3 = entity(app, "step-3");
+            const lift = entity(app, "lift");
+            const tower1 = entity(app, "tower-1");
+            const groundTop = Body.pos.y.get(ground) + Body.halfExtents.y.get(ground);
+            const playerBottom =
+                Body.pos.y.get(player) -
+                Body.halfExtents.y.get(player) -
+                Body.halfExtents.w.get(player);
+            if (Math.abs(playerBottom - groundTop) > 0.0001)
+                throw new Error(
+                    `player was not tangent to ground: bottom=${playerBottom} top=${groundTop}`,
+                );
+            const spawnGap =
+                Body.pos.z.get(player) -
+                Body.halfExtents.w.get(player) -
+                (Body.pos.z.get(step1) + Body.halfExtents.z.get(step1));
+            if (!(spawnGap > 0)) throw new Error(`spawn-to-first-step gap was ${spawnGap}`);
+            const route = [
+                player,
+                step1,
+                entity(app, "step-2"),
+                step3,
+                lift,
+                tower1,
+                entity(app, "tower-2"),
+                entity(app, "tower-3"),
+            ];
+            for (const routeEntity of route) {
+                for (const axis of ["x", "z"] as const) {
+                    const radius = routeEntity === player ? Body.halfExtents.w.get(player) : 0;
+                    const [min, max] = extent(routeEntity, axis, radius);
+                    const [groundMin, groundMax] = extent(ground, axis);
+                    if (min < groundMin || max > groundMax)
+                        throw new Error(
+                            `ground did not contain ${axis} route footprint ${min}..${max}`,
+                        );
+                }
+            }
+            const liftTop = Body.pos.y.get(lift) + Body.halfExtents.y.get(lift);
+            const finalStepTop = Body.pos.y.get(step3) + Body.halfExtents.y.get(step3);
+            if (Math.abs(liftTop - finalStepTop) > 0.0001)
+                throw new Error(`lift lower stop missed final step: ${liftTop} vs ${finalStepTop}`);
+            const liftBottom = Body.pos.y.get(lift) - Body.halfExtents.y.get(lift);
+            if (!(liftBottom > groundTop))
+                throw new Error(
+                    `lift lower stop entered ground: bottom=${liftBottom} top=${groundTop}`,
+                );
+            const upperLiftNear = Body.pos.z.get(lift) - Body.halfExtents.z.get(lift);
+            const towerNear = Body.pos.z.get(tower1) + Body.halfExtents.z.get(tower1);
+            const towerGap = upperLiftNear - towerNear;
+            if (!(towerGap > 0 && towerGap < 1))
+                throw new Error(`lift upper stop was not adjacent to tower: gap=${towerGap}`);
+            const scene = readFileSync(SCENE, "utf8");
+            const manifest = JSON.parse(readFileSync(MANIFEST, "utf8")) as {
+                plugins?: Record<string, unknown>;
+            };
+            if (/\btext\s*=/.test(scene))
+                throw new Error("first-person scene still authors a Text entity");
+            if (manifest.plugins && "Text" in manifest.plugins)
+                throw new Error("first-person manifest still selects Text");
+            const playerBlock = scene.match(/id="player"[\s\S]*?\/>/)?.[0] ?? "";
+            if (/\b(speed|sprint|sensitivity|yaw|pitch)\s*:/.test(playerBlock))
+                throw new Error("first-person player entity authors movement/look tuning");
+            if (!/id="eye"[^>]*pos: 0 2\.1 12/.test(scene))
+                throw new Error("first-person eye was not authored at the default-height spawn");
+        } finally {
+            app.dispose();
+        }
+    },
+);
 
 check(
     "first-person lift carries the actual character upward",
@@ -91,7 +182,7 @@ check(
             const before = readBody(app.state, player);
             const liftBefore = readBody(app.state, lift);
             if (!before || !liftBefore) throw new Error("actual ascent bodies never became live");
-            step(app, 60);
+            step(app, 100);
             const after = readBody(app.state, player);
             const liftAfter = readBody(app.state, lift);
             if (!after || !liftAfter) throw new Error("actual ascent bodies disappeared");
@@ -145,7 +236,7 @@ check(
 check(
     "first-person exact project composes its selected scene and plugin",
     {
-        claim: "the exact first-person manifest builds its selected scene and local Demo role plugin before disposal",
+        claim: "the exact first-person manifest swaps to a separately evaluated local Demo plugin, preserves the lift phase and one overlay, and disposes its recipe state",
         size: "integration",
         requires: ["chromium"],
         host: "mac",
@@ -187,9 +278,9 @@ check(
                 // setKinematic writes the current target before the four production solver substeps; the
                 // live pose is therefore one fixed integration step ahead while its velocity is the
                 // derivative of the authored target phase.
-                const expected =
-                    base[1] + Math.sin((app.state.time.elapsed + Time.FIXED_DT) * RATE) * TRAVEL;
-                const expectedVelocity = Math.cos(phase) * RATE * TRAVEL;
+                const expectedPhase = (app.state.time.elapsed + Time.FIXED_DT) * RATE;
+                const expected = base[1] + 0.5 * TRAVEL * (1 - Math.cos(2 * expectedPhase));
+                const expectedVelocity = RATE * TRAVEL * Math.sin(2 * phase);
                 if (Math.abs(phase) > 0.05) observedPhases.push(phase);
                 const positionError = Math.abs(pose.pos[1] - expected);
                 const derivativeError = Math.abs(pose.vel[1] - expectedVelocity);

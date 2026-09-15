@@ -5,6 +5,7 @@ import {
     createWheelJoint,
     devices,
     InputPlugin,
+    mountOverlay,
     PhysicsPlugin,
     type Plugin,
     type State,
@@ -105,7 +106,27 @@ export type VehicleObservation = Readonly<{
     }> | null;
 }>;
 
-const runtimes = new WeakMap<State, VehicleRuntime>();
+const RECIPE_STATE = Symbol.for("shallot.examples.drive-a-vehicle.state");
+type CarState = State & {
+    [RECIPE_STATE]?: { runtime: VehicleRuntime | null; panel: HTMLDivElement | null };
+};
+
+type CarBag = NonNullable<CarState[typeof RECIPE_STATE]>;
+
+function stateBag(state: State): CarBag {
+    const owner = state as CarState;
+    const existing = owner[RECIPE_STATE];
+    if (existing) return existing;
+    const bag: CarBag = { runtime: null, panel: null };
+    owner[RECIPE_STATE] = bag;
+    state.onDispose(() => {
+        if (owner[RECIPE_STATE] !== bag) return;
+        bag.runtime = null;
+        bag.panel = null;
+        delete owner[RECIPE_STATE];
+    });
+    return bag;
+}
 
 function role(state: State, wanted: number): number {
     for (const eid of state.query([Vehicle, Body])) {
@@ -177,7 +198,7 @@ function copyFrame(frame: VehicleFrame): VehicleFrame {
 
 /** Read-only effective vehicle wiring and command state for bounded recipe evidence. */
 export function readVehicle(state: State): VehicleObservation | null {
-    const runtime = runtimes.get(state);
+    const runtime = stateBag(state).runtime;
     if (!runtime?.wired) return null;
     const joints = [
         ...runtime.frontJoints.map((joint, index) => ({
@@ -240,11 +261,51 @@ export function readVehicle(state: State): VehicleObservation | null {
     };
 }
 
+function mountControls(state: State): void {
+    if (typeof document === "undefined") return;
+    const bag = stateBag(state);
+    if (bag.panel) return;
+    const overlay = mountOverlay(document.querySelector("canvas"), state);
+    const panel = document.createElement("div");
+    panel.dataset.recipeControls = "";
+    panel.style.cssText =
+        "position:absolute;top:20px;left:20px;pointer-events:none;padding:10px 12px;" +
+        "display:grid;row-gap:6px;column-gap:16px;border:1px solid rgba(255,255,255,0.12);" +
+        "border-radius:6px;background:rgba(14,17,20,0.72);color:#ffffff;" +
+        "font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
+    for (const [control, action] of [
+        ["W / S", "Throttle"],
+        ["A / D", "Steer"],
+    ] as const) {
+        const row = document.createElement("div");
+        row.dataset.controlRow = "";
+        row.style.cssText =
+            "display:grid;grid-template-columns:max-content max-content;column-gap:16px";
+        for (const text of [control, action]) {
+            const cell = document.createElement("span");
+            cell.textContent = text;
+            cell.style.color = "#ffffff";
+            row.append(cell);
+        }
+        panel.append(row);
+    }
+    overlay.append(panel);
+    bag.panel = panel;
+}
+
+const controls: System = {
+    name: "vehicle-controls",
+    group: "draw",
+    update(state) {
+        mountControls(state);
+    },
+};
+
 const driver: System = {
     name: "vehicle-driver",
     group: "simulation",
     update(state) {
-        const runtime = runtimes.get(state);
+        const runtime = stateBag(state).runtime;
         if (!runtime || !wire(state, runtime)) return;
 
         const keys = devices(state).keys.held;
@@ -272,9 +333,9 @@ export const Car = {
         },
     },
     dependencies: [InputPlugin, PhysicsPlugin],
-    systems: [driver],
+    systems: [driver, controls],
     warm(state: State) {
-        runtimes.set(state, {
+        stateBag(state).runtime = {
             ground: role(state, VehicleRole.Ground),
             chassis: role(state, VehicleRole.Chassis),
             front: [...state.query([Vehicle, Body])].filter(
@@ -288,7 +349,7 @@ export const Car = {
             upright: null,
             steer: 0,
             wired: false,
-        });
+        };
     },
 } satisfies Plugin;
 

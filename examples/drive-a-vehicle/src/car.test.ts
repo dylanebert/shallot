@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
     Body,
@@ -26,6 +27,7 @@ import {
 } from "./car";
 
 const SCENE = resolve(import.meta.dir, "../public/scenes/drive-a-vehicle.scene");
+const MANIFEST = resolve(import.meta.dir, "../shallot.json");
 const HORIZON = 120;
 const BOX3D_LINEAR_SLOP = 0.005;
 
@@ -777,6 +779,23 @@ function causalDelta(trace: Trace, idle: Trace, index: number): Vec3 {
 }
 
 check(
+    "drive-a-vehicle presentation artifact has no world control text",
+    {
+        claim: "the actual drive-a-vehicle scene and manifest select no Text entity or Text plugin because controls live in the canvas overlay",
+    },
+    () => {
+        const scene = readFileSync(SCENE, "utf8");
+        const manifest = JSON.parse(readFileSync(MANIFEST, "utf8")) as {
+            plugins?: Record<string, unknown>;
+        };
+        if (/\btext\s*=/.test(scene))
+            throw new Error("drive-a-vehicle scene still authors a Text entity");
+        if (manifest.plugins && "Text" in manifest.plugins)
+            throw new Error("drive-a-vehicle manifest still selects Text");
+    },
+);
+
+check(
     "drive-a-vehicle authored frames and effective joints are valid",
     {
         claim: "the actual vehicle scene's authored wheel frames and production joint observations establish the semantic suspension, axle, anchor and upright premises",
@@ -949,7 +968,7 @@ check(
 check(
     "drive-a-vehicle exact project composes its selected scene and plugin",
     {
-        claim: "the exact drive-a-vehicle manifest builds its selected scene and local Car role plugin before disposal",
+        claim: "the exact drive-a-vehicle manifest swaps to a separately evaluated local Car plugin, preserves direct commands and one overlay, and disposes its recipe state",
         size: "integration",
         requires: ["chromium"],
         host: "mac",

@@ -7,7 +7,6 @@
         "Physics": true,
         "Character": true,
         "Player": true,
-        "Text": true,
         "Demo": "./src/demo"
     },
     "check": { "file": "src/demo.test.ts" }
