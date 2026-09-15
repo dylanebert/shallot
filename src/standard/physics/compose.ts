@@ -3,36 +3,62 @@ import { ShapeKind } from "./index";
 // Pure render-interpolation math for the physics backend's `compose` . Factored out so the shortest-arc nlerp + per-shape render scale are
 // unit-testable without a GPU device or a live physics World.
 
-/** shortest-arc nlerp from `prev` to `curr` at `t`: flip `prev` into `curr`'s hemisphere, lerp,
- *  renormalize. Returns the identity quat if the blend degenerates. */
-export function nlerpShortest(
-    prev: readonly [number, number, number, number],
-    curr: readonly [number, number, number, number],
+/** shortest-arc nlerp from the quaternion at `at` in `prev` to the one at `at` in `curr`, at `t`: flip
+ *  `prev` into `curr`'s hemisphere, lerp, renormalize, into `out`. Writes the identity quat if the blend
+ *  degenerates. */
+export function nlerpShortest<Out extends { [i: number]: number }>(
+    prev: ArrayLike<number>,
+    curr: ArrayLike<number>,
     t: number,
-): [number, number, number, number] {
-    const dot = prev[0] * curr[0] + prev[1] * curr[1] + prev[2] * curr[2] + prev[3] * curr[3];
+    out: Out = [0, 0, 0, 0] as unknown as Out,
+    at = 0,
+): Out {
+    const dot =
+        prev[at] * curr[at] +
+        prev[at + 1] * curr[at + 1] +
+        prev[at + 2] * curr[at + 2] +
+        prev[at + 3] * curr[at + 3];
     const flip = dot < 0 ? -1 : 1;
-    const x = prev[0] * flip * (1 - t) + curr[0] * t;
-    const y = prev[1] * flip * (1 - t) + curr[1] * t;
-    const z = prev[2] * flip * (1 - t) + curr[2] * t;
-    const w = prev[3] * flip * (1 - t) + curr[3] * t;
+    const x = prev[at] * flip * (1 - t) + curr[at] * t;
+    const y = prev[at + 1] * flip * (1 - t) + curr[at + 1] * t;
+    const z = prev[at + 2] * flip * (1 - t) + curr[at + 2] * t;
+    const w = prev[at + 3] * flip * (1 - t) + curr[at + 3] * t;
     const len = Math.sqrt(x * x + y * y + z * z + w * w);
-    return len > 1e-12 ? [x / len, y / len, z / len, w / len] : [0, 0, 0, 1];
+    if (len > 1e-12) {
+        out[0] = x / len;
+        out[1] = y / len;
+        out[2] = z / len;
+        out[3] = w / len;
+    } else {
+        out[0] = 0;
+        out[1] = 0;
+        out[2] = 0;
+        out[3] = 1;
+    }
+    return out;
 }
 
-/** the render scale mapping a `Body`'s collider to its unit render mesh : box/hull → `2·halfExtents`, sphere → uniform
+/** the render scale mapping a `Body`'s collider to its unit render mesh, into `out` : box/hull → `2·halfExtents`, sphere → uniform
  *  `2·radius`, capsule → `(2·radius, halfExtents.y + radius, 2·radius)` (the caps distort under a
  *  non-proportional ratio — render-only; the collider stays exact). */
-export function renderScale(
+export function renderScale<Out extends { [i: number]: number }>(
     shape: number,
-    halfExtents: readonly [number, number, number],
+    halfExtents: ArrayLike<number>,
     radius: number,
-): [number, number, number] {
+    out: Out = [0, 0, 0] as unknown as Out,
+): Out {
     if (shape === ShapeKind.Sphere) {
-        return [2 * radius, 2 * radius, 2 * radius];
+        out[0] = 2 * radius;
+        out[1] = 2 * radius;
+        out[2] = 2 * radius;
+    } else if (shape === ShapeKind.Capsule) {
+        out[0] = 2 * radius;
+        out[1] = halfExtents[1] + radius;
+        out[2] = 2 * radius;
+    } else {
+        out[0] = 2 * halfExtents[0];
+        out[1] = 2 * halfExtents[1];
+        out[2] = 2 * halfExtents[2];
     }
-    if (shape === ShapeKind.Capsule) {
-        return [2 * radius, halfExtents[1] + radius, 2 * radius];
-    }
-    return [2 * halfExtents[0], 2 * halfExtents[1], 2 * halfExtents[2]];
+    return out;
 }

@@ -213,6 +213,8 @@ function pluginHookError(
 // is ready to present (the fullscreen-throttle judder). Per-present pacing is the double-fire `coalesce`,
 // not this; the bound engages only under sustained genuine GPU saturation.
 const MAX_FRAMES_IN_FLIGHT = 6;
+// the recent rAF-callback intervals the double-fire coalescer's median reads
+const MEDIAN_WINDOW = 20;
 
 let _defaultPlugins: readonly Plugin[] = [];
 let _defaultLoading: (() => Loading) | null = null;
@@ -528,10 +530,27 @@ export async function run(config: Config): Promise<App> {
         // a negative dt into the scheduler's throw
         let lastTime = -1;
         let pendingFenceWaitMs = 0;
-        // recent raw-callback intervals + a reused sort scratch, feeding the double-fire coalescer's median
+        // the last MEDIAN_WINDOW raw-callback intervals in a ring + an insertion scratch, feeding the
+        // double-fire coalescer's median
         let lastCallback = -1;
-        const intervals: number[] = [];
-        const scratch: number[] = [];
+        const intervals = new Float64Array(MEDIAN_WINDOW);
+        const scratch = new Float64Array(MEDIAN_WINDOW);
+        let intervalCount = 0;
+        let intervalNext = 0;
+        // the issue time of each fence still in flight, oldest at `fenceHead`: the queue settles fences in
+        // submission order, and the in-flight backstop below keeps at most MAX_FRAMES_IN_FLIGHT of them
+        const fenceIssued = new Float64Array(MAX_FRAMES_IN_FLIGHT);
+        let fenceHead = 0;
+        let fenceTail = 0;
+        const fenceSettled = (): void => {
+            pendingFenceWaitMs = now() - fenceIssued[fenceHead];
+            fenceHead = (fenceHead + 1) % MAX_FRAMES_IN_FLIGHT;
+        };
+        // A rejected fence has no timing sample. Device loss is reported once by observeDevice; the next
+        // scheduled callback stops at the original owner guard.
+        const fenceRejected = (): void => {
+            fenceHead = (fenceHead + 1) % MAX_FRAMES_IN_FLIGHT;
+        };
 
         // A method rather than a function declaration: minification keeps property names, so a production
         // build's profile still names the frame loop.
@@ -553,15 +572,16 @@ export async function run(config: Config): Promise<App> {
                 if (lastCallback >= 0) {
                     const raw = t - lastCallback;
                     if (raw > 0) {
-                        intervals.push(raw);
-                        if (intervals.length > 20) intervals.shift();
+                        intervals[intervalNext] = raw;
+                        intervalNext = (intervalNext + 1) % MEDIAN_WINDOW;
+                        if (intervalCount < MEDIAN_WINDOW) intervalCount++;
                     }
                 }
                 lastCallback = t;
                 // coalesce a Chrome rAF double-fire so the loop submits once per present (else the extra frame fills
                 // the swapchain queue → input latency). This is the present-pacing mechanism; MAX_FRAMES_IN_FLIGHT is
                 // only the runaway backstop below.
-                if (coalesce(t, lastTime, median(intervals, scratch))) return;
+                if (coalesce(t, lastTime, median(intervals, intervalCount, scratch))) return;
                 // backstop only: under genuine GPU saturation the CPU would queue unboundedly past the GPU, so cap
                 // the in-flight depth. The bound sits well above a present-throttled pipeline's depth (~3 frames),
                 // since `onSubmittedWorkDone` is present-gated and a tighter cap would drop frames Chrome is ready to
@@ -574,15 +594,9 @@ export async function run(config: Config): Promise<App> {
                 state.step(dt);
                 const fence = sync?.();
                 if (fence) {
-                    const waitStart = now();
-                    fence.then(
-                        () => {
-                            pendingFenceWaitMs = now() - waitStart;
-                        },
-                        // A rejected fence has no timing sample. Device loss is reported once by
-                        // observeDevice; the next scheduled callback stops at the original owner guard.
-                        () => {},
-                    );
+                    fenceIssued[fenceTail] = now();
+                    fenceTail = (fenceTail + 1) % MAX_FRAMES_IN_FLIGHT;
+                    fence.then(fenceSettled, fenceRejected);
                 }
             },
         };

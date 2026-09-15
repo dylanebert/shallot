@@ -1,5 +1,5 @@
 import * as d from "typegpu/data";
-import type { Plugin, System } from "../../engine";
+import type { Plugin, State, System } from "../../engine";
 import { Compute, formatHex, invert } from "../../engine";
 import { SlabPlugin } from "../slab";
 import { composeTransform, composeTransforms, Transform, TransformsPlugin } from "../transforms";
@@ -54,17 +54,99 @@ export type { Mesh } from "./mesh";
 export { mesh } from "./mesh";
 
 const _camWorld = new Float32Array(16);
+const SLOT_FLOATS = VIEW_STRIDE / 4;
+const CAMERAS = [Camera];
+// the frame encoder's descriptor and the one-buffer submit list, held so opening and closing a frame
+// mints only its WebGPU objects
+const FRAME_ENCODER: GPUCommandEncoderDescriptor = { label: "shallot-frame" };
+const _submit: GPUCommandBuffer[] = [];
+// this frame's canvas-less views in query order, packed after every shading view (explicit count)
+const _depthOnlyEids: number[] = [];
+const _depthOnlyViews: ViewSlot[] = [];
+// per-slot views over the staging buffers (each slot's viewProj and invViewProj, each shading slot's
+// world→view matrix), built with the buffers so packing a slot subarrays nothing
+let _viewProjs: Float32Array[] = [];
+let _invViewProjs: Float32Array[] = [];
+let _lightViews: Float32Array[] = [];
 
 // write a world-matrix column (base = column index * 4), normalized, into `out` at `at`
 function basisColumn(world: Float32Array, base: number, out: Float32Array, at: number): void {
     const x = world[base];
     const y = world[base + 1];
     const z = world[base + 2];
-    const inv = 1 / (Math.hypot(x, y, z) || 1);
+    const inv = 1 / (Math.sqrt(x * x + y * y + z * z) || 1);
     out[at] = x * inv;
     out[at + 1] = y * inv;
     out[at + 2] = z * inv;
     out[at + 3] = 0;
+}
+
+// viewProj + resolution + basis + frustum, the per-slot state every view carries. A shading
+// view (presenting camera) additionally packs the clustered-light state — its cluster params
+// and world→view matrix — into the same slot index; a depth-only view (a shadow light's
+// off-screen camera) never does, so the cluster substrate is sized by MAX_VIEWS while the
+// cheap slots run to MAX_SLOTS
+function packView(state: State, eid: number, view: ViewSlot, shading: boolean, slot: number): void {
+    // record the live camera's create-stamp so next frame's pruneViews detects a realias
+    view.stamp = state.stamp(eid);
+    view.slot = slot;
+    const offset = slot * SLOT_FLOATS;
+    const viewProj = _viewProjs[slot];
+    // the light cull reads each shading slot's world→view matrix to bring
+    // world-space lights into cluster space
+    computeViewProj(
+        eid,
+        view.width / view.height,
+        viewProj,
+        shading ? _lightViews[slot] : undefined,
+    );
+    // resolution (pixels) follows viewProj in the View struct — a screen-space
+    // producer (lines) reads it to size constant-pixel-width geometry
+    Render.viewStaging[offset + 16] = view.width;
+    Render.viewStaging[offset + 17] = view.height;
+    // camera basis (right at floats 20-23, up at 24-27; 18-19 pad before the vec4) —
+    // billboard surfaces orient quads from it (in a shadow pass, the light camera's, so
+    // billboards face the light). Normalized: the camera Transform may scale
+    composeTransform(eid, _camWorld);
+    basisColumn(_camWorld, 0, Render.viewStaging, offset + 20);
+    basisColumn(_camWorld, 4, Render.viewStaging, offset + 24);
+    // pack this view's frustum cull volume — the pack tests each instance's bound against
+    // cullVolumes[slot]'s 6 planes. Every view culls by frustum: cameras, the sun, and each
+    // point/spot shadow combo (its own frustum-culled depth view)
+    frustumVolume(Render.cullVolumeStaging, slot, viewProj);
+    // pack the view's cluster params from the same camera fields —
+    // ClusterSystem rebuilds the AABB grid only when they change.
+    // View.cluster: (near, far, perspective, slot) — sear's FS maps a
+    // fragment to its froxel and indexes the slot-major light grid
+    if (shading) {
+        packClusterView(eid, view.width / view.height, slot);
+        Render.viewStaging[offset + 28] = Camera.near.get(eid);
+        Render.viewStaging[offset + 29] = Camera.far.get(eid);
+        Render.viewStaging[offset + 30] = Camera.mode.get(eid) !== CameraMode.Orthographic ? 1 : 0;
+    } else {
+        Render.viewStaging[offset + 28] = 0;
+        Render.viewStaging[offset + 29] = 0;
+        Render.viewStaging[offset + 30] = 0;
+    }
+    Render.viewStaging[offset + 31] = slot;
+    // eye (floats 32-35): the camera's world-space position — viewProj's translation column —
+    // for view-dependent shading (specular V = normalize(eye - world))
+    Render.viewStaging[offset + 32] = _camWorld[12];
+    Render.viewStaging[offset + 33] = _camWorld[13];
+    Render.viewStaging[offset + 34] = _camWorld[14];
+    Render.viewStaging[offset + 35] = 1;
+    // invViewProj (floats 36-51): a screen-space pass (fog) reconstructs world position from depth
+    // via ndc → invViewProj. Only a shading view (a presenting camera) runs such a pass, so a
+    // depth-only shadow view skips the 4×4 inverse — the costliest op in the pack — and zeroes the
+    // slot. invert reads viewProj fully into locals before writing, so inverting into a sibling
+    // view of the same staging never aliases
+    if (shading) invert(viewProj, _invViewProjs[slot]);
+    else Render.viewStaging.fill(0, offset + 36, offset + 52);
+}
+
+function clearTargets(view: ViewSlot): void {
+    view.framebuffer = null;
+    view.present = null;
 }
 
 /**
@@ -80,6 +162,7 @@ export const BeginFrameSystem: System = {
     first: true,
     update(state) {
         Render.encoder = null;
+        Render.frame = null;
         const device = Compute.device;
         if (!device) return;
 
@@ -90,81 +173,18 @@ export const BeginFrameSystem: System = {
         // to a recycled eid — is dropped here.
         pruneViews(state);
 
-        Render.encoder = device.createCommandEncoder({ label: "shallot-frame" });
+        const frame = Compute.root["~unstable"].createCommandEncoder(FRAME_ENCODER);
+        Render.frame = frame;
+        Render.encoder = Compute.root.unwrap(frame);
         writeFrame(state);
         writeLighting(state);
-        composeTransforms(Render.encoder);
+        composeTransforms(frame);
 
         let count = 0;
-        const slotFloats = VIEW_STRIDE / 4;
-        // viewProj + resolution + basis + frustum, the per-slot state every view carries. A shading
-        // view (presenting camera) additionally packs the clustered-light state — its cluster params
-        // and world→view matrix — into the same slot index; a depth-only view (a shadow light's
-        // off-screen camera) never does, so the cluster substrate is sized by MAX_VIEWS while the
-        // cheap slots run to MAX_SLOTS
-        const pack = (eid: number, view: ViewSlot, shading: boolean) => {
-            // record the live camera's create-stamp so next frame's pruneViews detects a realias
-            view.stamp = state.stamp(eid);
-            view.slot = count;
-            const offset = count * slotFloats;
-            const viewProj = Render.viewStaging.subarray(offset, offset + 16);
-            // the light cull reads each shading slot's world→view matrix to bring
-            // world-space lights into cluster space
-            computeViewProj(
-                eid,
-                view.width / view.height,
-                viewProj,
-                shading ? LightCull.viewStaging.subarray(count * 16, count * 16 + 16) : undefined,
-            );
-            // resolution (pixels) follows viewProj in the View struct — a screen-space
-            // producer (lines) reads it to size constant-pixel-width geometry
-            Render.viewStaging[offset + 16] = view.width;
-            Render.viewStaging[offset + 17] = view.height;
-            // camera basis (right at floats 20-23, up at 24-27; 18-19 pad before the vec4) —
-            // billboard surfaces orient quads from it (in a shadow pass, the light camera's, so
-            // billboards face the light). Normalized: the camera Transform may scale
-            composeTransform(eid, _camWorld);
-            basisColumn(_camWorld, 0, Render.viewStaging, offset + 20);
-            basisColumn(_camWorld, 4, Render.viewStaging, offset + 24);
-            // pack this view's frustum cull volume — the pack tests each instance's bound against
-            // cullVolumes[slot]'s 6 planes. Every view culls by frustum: cameras, the sun, and each
-            // point/spot shadow combo (its own frustum-culled depth view)
-            frustumVolume(Render.cullVolumeStaging, count, viewProj);
-            // pack the view's cluster params from the same camera fields —
-            // ClusterSystem rebuilds the AABB grid only when they change.
-            // View.cluster: (near, far, perspective, slot) — sear's FS maps a
-            // fragment to its froxel and indexes the slot-major light grid
-            if (shading) {
-                const cv = packClusterView(eid, view.width / view.height, count);
-                Render.viewStaging[offset + 28] = cv.near;
-                Render.viewStaging[offset + 29] = cv.far;
-                Render.viewStaging[offset + 30] = cv.perspective ? 1 : 0;
-            } else {
-                Render.viewStaging[offset + 28] = 0;
-                Render.viewStaging[offset + 29] = 0;
-                Render.viewStaging[offset + 30] = 0;
-            }
-            Render.viewStaging[offset + 31] = count;
-            // eye (floats 32-35): the camera's world-space position — viewProj's translation column —
-            // for view-dependent shading (specular V = normalize(eye - world))
-            Render.viewStaging[offset + 32] = _camWorld[12];
-            Render.viewStaging[offset + 33] = _camWorld[13];
-            Render.viewStaging[offset + 34] = _camWorld[14];
-            Render.viewStaging[offset + 35] = 1;
-            // invViewProj (floats 36-51): a screen-space pass (fog) reconstructs world position from depth
-            // via ndc → invViewProj. Only a shading view (a presenting camera) runs such a pass, so a
-            // depth-only shadow view skips the 4×4 inverse — the costliest op in the pack — and zeroes the
-            // slot. invert reads viewProj fully into locals before writing, so inverting into a sibling
-            // subarray of the same staging never aliases
-            if (shading) invert(viewProj, Render.viewStaging.subarray(offset + 36, offset + 52));
-            else Render.viewStaging.fill(0, offset + 36, offset + 52);
-            count++;
-        };
-
+        let depthOnly = 0;
         // shading views first, so they own the low slots the cluster + light-cull substrate is
         // sized for; depth-only views stack above them out of the cheap MAX_SLOTS budget
-        const depthOnly: [number, ViewSlot][] = [];
-        for (const eid of state.query([Camera])) {
+        for (const eid of state.query(CAMERAS)) {
             // auto-bind to the first <canvas> the frame it exists; an explicitly attachCanvas'd
             // camera is already in Views, so this is a no-op for it. Retried each frame until mount
             const view = bindCamera(eid, state);
@@ -182,7 +202,9 @@ export const BeginFrameSystem: System = {
                 // packs its viewProj, but draws no framebuffer — its owner renders it to its own target
                 view.framebuffer = null;
                 view.present = null;
-                depthOnly.push([eid, view]);
+                _depthOnlyEids[depthOnly] = eid;
+                _depthOnlyViews[depthOnly] = view;
+                depthOnly++;
                 continue;
             }
             if (count >= MAX_VIEWS) {
@@ -200,15 +222,19 @@ export const BeginFrameSystem: System = {
             // draws into and the composite reads (Render.format / sRGB, decoded to linear on load).
             view.present = texture.createView();
             view.framebuffer = offscreen(eid, view.width, view.height);
-            pack(eid, view, true);
+            packView(state, eid, view, true, count);
+            count++;
         }
         Render.shadeCount = count;
-        for (const [eid, view] of depthOnly) {
+        for (let i = 0; i < depthOnly; i++) {
             if (count >= MAX_SLOTS) {
-                console.warn(`shallot: ${MAX_SLOTS} view-slot cap reached; entity ${eid} skipped`);
+                console.warn(
+                    `shallot: ${MAX_SLOTS} view-slot cap reached; entity ${_depthOnlyEids[i]} skipped`,
+                );
                 break;
             }
-            pack(eid, view, false);
+            packView(state, _depthOnlyEids[i], _depthOnlyViews[i], false, count);
+            count++;
         }
 
         Render.viewCount = count;
@@ -222,7 +248,7 @@ export const BeginFrameSystem: System = {
                 Render.viewBuffers[slot],
                 0,
                 Render.viewStaging as Float32Array<ArrayBuffer>,
-                slot * slotFloats,
+                slot * SLOT_FLOATS,
                 viewFloats,
             );
         }
@@ -245,16 +271,15 @@ const EndFrameSystem: System = {
     update() {
         const device = Compute.device;
         if (!device) return;
-        const encoder = Render.encoder;
-        if (!encoder)
+        const frame = Render.frame;
+        if (!frame)
             throw new Error("render submission requires BeginFrameSystem to open an encoder");
-        device.queue.submit([encoder.finish()]);
+        _submit[0] = frame.finish();
+        device.queue.submit(_submit);
         Compute.frame++;
         Render.encoder = null;
-        for (const view of Views.values()) {
-            view.framebuffer = null;
-            view.present = null;
-        }
+        Render.frame = null;
+        Views.forEach(clearTargets);
     },
     dispose() {
         for (const view of Views.values()) view.observer?.disconnect();
@@ -307,11 +332,22 @@ async function initRender(): Promise<void> {
         });
 
     Render.encoder = null;
+    Render.frame = null;
     for (const b of Render.viewBuffers) b.destroy();
     Render.viewBuffers = Array.from({ length: MAX_VIEWS }, (_, slot) =>
         uniform(`shallot-view-${slot}`, VIEW_BYTES),
     );
     Render.viewStaging = new Float32Array(VIEW_UNIFORM_SIZE / 4);
+    const staging = Render.viewStaging;
+    _viewProjs = Array.from({ length: MAX_SLOTS }, (_, slot) =>
+        staging.subarray(slot * SLOT_FLOATS, slot * SLOT_FLOATS + 16),
+    );
+    _invViewProjs = Array.from({ length: MAX_VIEWS }, (_, slot) =>
+        staging.subarray(slot * SLOT_FLOATS + 36, slot * SLOT_FLOATS + 52),
+    );
+    _lightViews = Array.from({ length: MAX_VIEWS }, (_, slot) =>
+        LightCull.viewStaging.subarray(slot * 16, slot * 16 + 16),
+    );
     Frame.buffer = uniform("shallot-frame", FRAME_UNIFORM_SIZE);
     Lighting.buffer = uniform("shallot-lighting", LIGHTING_UNIFORM_SIZE);
 

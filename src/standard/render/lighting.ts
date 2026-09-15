@@ -137,6 +137,11 @@ export const Lighting: Lighting = {
     staging: new Float32Array(_backing),
 };
 
+// the singleton query terms and the decoded light color, held so the per-frame pack mints nothing
+const AMBIENT_TERMS = [AmbientLight];
+const SUN_TERMS = [DirectionalLight];
+const _rgb = { r: 0, g: 0, b: 0 };
+
 /** read the singleton AmbientLight + DirectionalLight entities and pack the Lighting UBO */
 export function writeLighting(state: State): void {
     if (!Compute.device || !Lighting.buffer) return;
@@ -146,21 +151,21 @@ export function writeLighting(state: State): void {
     const s = Lighting.staging;
     s.fill(0);
 
-    const ambient = state.only([AmbientLight]);
+    const ambient = state.only(AMBIENT_TERMS);
     if (ambient >= 0) {
-        const rgb = unpackColor(AmbientLight.color.get(ambient));
+        const rgb = unpackColor(AmbientLight.color.get(ambient), _rgb);
         s[0] = rgb.r;
         s[1] = rgb.g;
         s[2] = rgb.b;
         s[3] = AmbientLight.intensity.get(ambient);
     }
 
-    const dir = state.only([DirectionalLight]);
+    const dir = state.only(SUN_TERMS);
     if (dir >= 0) {
         const dx = DirectionalLight.direction.x.get(dir);
         const dy = DirectionalLight.direction.y.get(dir);
         const dz = DirectionalLight.direction.z.get(dir);
-        const len = Math.hypot(dx, dy, dz);
+        const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (len < 1e-4) {
             s[5] = -1; // degenerate direction → straight down
         } else {
@@ -168,7 +173,7 @@ export function writeLighting(state: State): void {
             s[5] = dy / len;
             s[6] = dz / len;
         }
-        const rgb = unpackColor(DirectionalLight.color.get(dir));
+        const rgb = unpackColor(DirectionalLight.color.get(dir), _rgb);
         const i = DirectionalLight.intensity.get(dir);
         s[8] = rgb.r * i;
         s[9] = rgb.g * i;
@@ -282,6 +287,7 @@ export function spotParams(innerDeg: number, outerDeg: number): { scale: number;
 }
 
 let _overflowWarned = false;
+const POINT_LIGHT_TERMS = [PointLight, Transform];
 
 /**
  * warn once per episode when more PointLight entities exist than the list cap:
@@ -291,7 +297,7 @@ let _overflowWarned = false;
  */
 export function warnLightOverflow(state: State): void {
     let count = 0;
-    for (const _ of state.query([PointLight, Transform])) count++;
+    for (const _ of state.query(POINT_LIGHT_TERMS)) count++;
     if (count > MAX_POINT_LIGHTS) {
         if (!_overflowWarned) {
             _overflowWarned = true;

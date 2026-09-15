@@ -69,6 +69,11 @@ export class Registry<T extends { name: string }> {
         return this._values.size;
     }
 
+    /** visit every live entry in registration order without an iterator, for a per-frame walk */
+    forEach(callback: (value: T) => void): void {
+        this._values.forEach(callback);
+    }
+
     values(): IterableIterator<T> {
         return this._values.values();
     }

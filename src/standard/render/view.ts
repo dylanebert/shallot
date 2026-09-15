@@ -261,6 +261,7 @@ export function backingSize(
     clientW: number,
     clientH: number,
     ratio: number,
+    out: { w: number; h: number; pixelated: boolean } = { w: 0, h: 0, pixelated: false },
 ): { w: number; h: number; pixelated: boolean } {
     let w: number;
     let h: number;
@@ -277,8 +278,14 @@ export function backingSize(
         w = Math.max(1, Math.floor(clientW * ratio));
         h = Math.max(1, Math.floor(clientH * ratio));
     }
-    return { w, h, pixelated: w < clientW || h < clientH };
+    out.w = w;
+    out.h = h;
+    out.pixelated = w < clientW || h < clientH;
+    return out;
 }
+
+// the backing size `sizeView` resolves each frame, reused
+const _backingSize = { w: 0, h: 0, pixelated: false };
 
 /**
  * size a canvas-bound view's backing store from its cached display size + its {@link Resolution} pin (the
@@ -298,7 +305,14 @@ export function sizeView(state: State, eid: number, view: View): void {
     const pinned = state.has(eid, Resolution);
     const resW = pinned ? Resolution.width.get(eid) | 0 : 0;
     const resH = pinned ? Resolution.height.get(eid) | 0 : 0;
-    const { w, h, pixelated } = backingSize(resW, resH, view.clientWidth, view.clientHeight, ratio);
+    const { w, h, pixelated } = backingSize(
+        resW,
+        resH,
+        view.clientWidth,
+        view.clientHeight,
+        ratio,
+        _backingSize,
+    );
     const ir = pixelated ? "pixelated" : "auto";
     if (canvas.style.imageRendering !== ir) canvas.style.imageRendering = ir;
     if (canvas.width !== w) canvas.width = w;
@@ -353,10 +367,13 @@ export function detachCanvas(eid: number): void {
  * {@link BeginFrameSystem} calls it at frame start, before binding.
  */
 export function pruneViews(state: State): void {
-    for (const [eid, view] of Views) {
-        if (!state.has(eid, Camera) || (view.stamp !== 0 && state.stamp(eid) !== view.stamp))
-            detachCanvas(eid);
-    }
+    Views.forEach(pruneView, state);
+}
+
+// one View's liveness check for the `pruneViews` walk; the walk passes the State as `this`
+function pruneView(this: State, view: View, eid: number): void {
+    if (!this.has(eid, Camera) || (view.stamp !== 0 && this.stamp(eid) !== view.stamp))
+        detachCanvas(eid);
 }
 
 // per-camera offscreen scene-color target — the `view.framebuffer` a renderer draws (or resolves)

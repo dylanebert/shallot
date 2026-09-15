@@ -2,6 +2,7 @@ import type {
     StorageFlag,
     TgpuBindGroup,
     TgpuBuffer,
+    TgpuComputePassDescriptor,
     TgpuComputePipeline,
     UniformFlag,
 } from "typegpu";
@@ -92,6 +93,15 @@ let _pairCount = 0;
 // still packs into slot 0, where the cull is a no-op (`visible` returns true
 // once `slot >= viewCount`)
 let _viewDim = 1;
+// the pack pass descriptor, the raw counts buffer the pass clears (unwrapped once per buffer), and the
+// cull params last written with the buffer they went to: both scalars change only when a camera or mesh
+// arrives, so a steady frame writes nothing
+const _packPass: TgpuComputePassDescriptor = { label: "shallot-part-pack" };
+let _countsUnwrapped: AtomicU32Buffer | null = null;
+let _countsRaw: GPUBuffer | null = null;
+let _paramsTarget: (TgpuBuffer<typeof CullParams> & UniformFlag) | null = null;
+let _paramsViewCount = -1;
+let _paramsPairCount = -1;
 
 /**
  * GPU-resident Part draw publication. `drawArgs` holds `DrawIndexedIndirect` entries
@@ -143,22 +153,36 @@ export const PartSystem: System = {
         // packed unculled. Queued before EndFrameSystem submits the encoder, so
         // it lands before the pack executes
         const views = Math.max(1, Render.viewCount);
-        // a two-word uniform written once a frame: the typed write is the idiomatic path here. The
-        // "CPU truth stays typed arrays" law governs the per-entity firehoses, where the
+        // a two-word uniform written when either word changes: the typed write is the idiomatic path here.
+        // The "CPU truth stays typed arrays" law governs the per-entity firehoses, where the
         // schema serializer is orders slower than a bulk `Float32Array.set`; two scalars are not that
-        _cullParams!.write({ viewCount: Render.viewCount, pairCount: _pairCount });
+        if (
+            _paramsTarget !== _cullParams ||
+            _paramsViewCount !== Render.viewCount ||
+            _paramsPairCount !== _pairCount
+        ) {
+            _cullParams!.write({ viewCount: Render.viewCount, pairCount: _pairCount });
+            _paramsTarget = _cullParams;
+            _paramsViewCount = Render.viewCount;
+            _paramsPairCount = _pairCount;
+        }
 
-        Render.encoder.clearBuffer(Compute.root.unwrap(_counts!));
-        const pass = Render.encoder.beginComputePass({
-            label: "shallot-part-pack",
-            timestampWrites: Compute.span?.("part:pack"),
-        });
+        if (_countsUnwrapped !== _counts) {
+            _countsUnwrapped = _counts;
+            _countsRaw = Compute.root.unwrap(_counts!);
+        }
+        Render.encoder.clearBuffer(_countsRaw!);
+        _packPass.timestampWrites = Compute.span?.("part:pack");
+        const pass = Render.frame!.beginComputePass(_packPass);
         const rows = Math.ceil(capacity / 64);
-        count.with(pass).dispatchWorkgroups(rows, views);
+        pass.setPipeline(count);
+        pass.dispatchWorkgroups(rows, views);
         // one workgroup per allocated view slot (the counts buffer spans _viewDim ×
         // pairCount); slots past the active views carry zero counts → zero instanceCount
-        scan.with(pass).dispatchWorkgroups(_viewDim);
-        scatter.with(pass).dispatchWorkgroups(rows, views);
+        pass.setPipeline(scan);
+        pass.dispatchWorkgroups(_viewDim);
+        pass.setPipeline(scatter);
+        pass.dispatchWorkgroups(rows, views);
         pass.end();
     },
 };

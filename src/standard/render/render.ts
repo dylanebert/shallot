@@ -1,6 +1,11 @@
+import type { TgpuCommandEncoder } from "typegpu";
+
 /**
- * device-level render state owned by `RenderPlugin`. `encoder` is transient
- * per-frame state set by `BeginFrameSystem`; `viewBuffers` is one static
+ * device-level render state owned by `RenderPlugin`. `frame` is the per-frame
+ * typegpu command encoder `BeginFrameSystem` opens: a pass that draws or
+ * dispatches a typegpu pipeline begins on it, so the pass binds pipelines
+ * statefully. `encoder` is that encoder's raw `GPUCommandEncoder`, for raw
+ * commands and raw passes; both are transient per-frame state. `viewBuffers` is one static
  * `View`-struct uniform buffer per shading slot (`MAX_VIEWS` of them — the
  * per-slot-buffer design, replacing the old single dynamic-offset UBO: a
  * depth-only slot's shadow-atlas passes never read `view`, so only the shading
@@ -22,6 +27,7 @@
  */
 export interface Render {
     format: GPUTextureFormat;
+    frame: TgpuCommandEncoder | null;
     encoder: GPUCommandEncoder | null;
     viewBuffers: GPUBuffer[];
     viewStaging: Float32Array;
@@ -33,6 +39,7 @@ export interface Render {
 
 export const Render: Render = {
     format: "" as GPUTextureFormat,
+    frame: null,
     encoder: null,
     viewBuffers: [],
     viewStaging: null!,

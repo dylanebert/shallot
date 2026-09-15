@@ -219,15 +219,18 @@ export interface Regather {
      * shared output: earlier GPU commands in the same unsubmitted encoder must keep the buffer they captured. */
     reserve(maxDraws: number): void;
     /** upload the per-frame meta + run Pass A then Pass B on `cpass` (one compute pass, the intra-pass
-     * dispatch ordering the Part pack relies on). `comboSlots` = the view slot each dense combo packed into;
-     * `drawPairs` = the source indirect-record indices; `pairCount` = the pack's pair stride, or zero for a
+     * dispatch ordering the Part pack relies on). `comboSlots` = the view slot each dense combo packed into
+     * (the first `comboCount`); `drawPairs` = the source indirect-record indices (the first `drawCount`);
+     * `pairCount` = the pack's pair stride, or zero for a
      * view-independent producer whose direct range is duplicated across combos. */
     run(
         cpass: GPUComputePassEncoder,
         drawArgs: GPUBuffer,
         packedEids: GPUBuffer,
         comboSlots: number[],
+        comboCount: number,
         drawPairs: number[],
+        drawCount: number,
         pairCount: number,
         runIndex?: number,
     ): void;
@@ -392,9 +395,19 @@ export function createRegather(label: string): Regather {
         reserve(maxDraws: number): void {
             ensureArgs(maxDraws);
         },
-        run(cpass, drawArgs, packedEids, comboSlots, drawPairs, pairCount, runIndex = 0): void {
-            const C = comboSlots.length;
-            const D = drawPairs.length;
+        run(
+            cpass,
+            drawArgs,
+            packedEids,
+            comboSlots,
+            comboCount,
+            drawPairs,
+            drawCount,
+            pairCount,
+            runIndex = 0,
+        ): void {
+            const C = comboCount;
+            const D = drawCount;
             if (!_args || _argsCap < D) {
                 throw new Error(
                     `sear ${label} re-gather run has ${D} draws after a ${_argsCap}-draw reserve`,

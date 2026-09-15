@@ -90,6 +90,9 @@ function exitLock(): void {
 }
 // scratch for the per-tick swept-pose read (character.pose), reused across players.
 const _pose: [number, number, number] = [0, 0, 0];
+// query terms held once, so a steady frame mints no array.
+const PLAYER_BODIES = [Player, Body];
+const ORPHAN_FOLLOWS = [not(Player), PlayerFollow];
 
 // Snapshot the player's swept pose on the FIXED clock (once per tick) into prev/curr, so the camera can
 // render-interpolate it by `fixedAlpha` — standard fixed-timestep interpolation (Gaffer), the same the
@@ -102,7 +105,7 @@ const PlayerSnapshotSystem: System = {
     group: "fixed",
     after: [CharacterSweepSystem],
     update(state: State) {
-        for (const eid of state.query([Player, Body])) {
+        for (const eid of state.query(PLAYER_BODIES)) {
             if (!pose(eid, _pose)) continue; // unregistered (the sweep hasn't built its CharState) — keep the fallback pose
             const [x, y, z] = _pose;
             if (state.has(eid, PlayerFollow)) {
@@ -121,7 +124,7 @@ const PlayerSnapshotSystem: System = {
             PlayerFollow.curr.set(eid, x, y, z, 0);
         }
         // drop the follow state when a player is gone (mirrors the derived-state cleanup in orbit)
-        for (const eid of state.query([not(Player), PlayerFollow])) state.remove(eid, PlayerFollow);
+        for (const eid of state.query(ORPHAN_FOLLOWS)) state.remove(eid, PlayerFollow);
     },
 };
 
@@ -202,7 +205,7 @@ export const PlayerControlSystem: System = {
         const input = devices(state);
         const active = inputEnabled(state);
         if (!active && input.pointer.lock.status === "locked") exitLock();
-        for (const eid of state.query([Player, Body])) {
+        for (const eid of state.query(PLAYER_BODIES)) {
             let yaw = Player.yaw.get(eid);
             let pitch = Player.pitch.get(eid);
             if (active && input.pointer.lock.status === "locked") {

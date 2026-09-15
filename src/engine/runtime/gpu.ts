@@ -1230,6 +1230,10 @@ export async function requestGPU(
     _drained = false;
     _latePrecompile = Promise.resolve();
     let inFlight = 0;
+    // one settle reaction for every fence, resolved or rejected
+    const settle = (): void => {
+        inFlight--;
+    };
     return Object.assign(Compute, {
         device: d,
         adapter: verdict,
@@ -1239,10 +1243,7 @@ export async function requestGPU(
         sync: () => {
             inFlight++;
             const fence = d.queue.onSubmittedWorkDone();
-            fence.then(
-                () => inFlight--,
-                () => inFlight--,
-            );
+            fence.then(settle, settle);
             return fence;
         },
         buffers: new Map<string, GPUBuffer>(),

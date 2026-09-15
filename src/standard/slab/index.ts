@@ -1,4 +1,9 @@
-import type { TgpuBindGroup, TgpuBuffer, TgpuComputePipeline } from "typegpu";
+import type {
+    TgpuBindGroup,
+    TgpuBuffer,
+    TgpuComputePassDescriptor,
+    TgpuComputePipeline,
+} from "typegpu";
 import * as d from "typegpu/data";
 import {
     Compute,
@@ -49,6 +54,15 @@ function createStager(device: GPUDevice, bytes: number): GPUBuffer {
     };
     return device.createBuffer(desc);
 }
+
+// a pooled staging buffer and the two reactions its remap settles through, made once when the pool grows
+// so a per-frame remap allocates no closures. `epoch` is the owning slab's epoch at submit.
+type Stager = {
+    buffer: GPUBuffer;
+    epoch: number;
+    mapped: () => void;
+    rejected: (error: unknown) => void;
+};
 
 /**
  * GPU-mirrored per-entity storage. parameterized by {@link Type}: scalar
@@ -103,7 +117,10 @@ export class Slab {
     // the pipeline with this slab's bind group already bound. `.with(...)` returns a fresh wrapper each
     // call, so binding once at prepare keeps the per-frame flush to one allocation per dispatch
     private _bound: TgpuComputePipeline | null = null;
-    private readonly _stagingPool: GPUBuffer[] = [];
+    private readonly _stagingPool: Stager[] = [];
+    // this slab's stager and packed count in the current flush
+    private _flushStager: Stager | null = null;
+    private _flushCount = 0;
     // bumped by release(): a stager whose mapAsync resolves after its epoch ended belongs to a
     // torn-down build (prior size, possibly prior device) and must be destroyed, not re-pooled
     private _epoch = 0;
@@ -327,7 +344,7 @@ export class Slab {
         this.typed?.destroy();
         this._slots?.destroy();
         this._values?.destroy();
-        for (const s of this._stagingPool) s.destroy();
+        for (const s of this._stagingPool) s.buffer.destroy();
         this.gpu = null;
         this.typed = null;
         this._slots = null;
@@ -397,15 +414,25 @@ export class Slab {
         return [...seen.values()];
     }
 
+    // the slabs the current flush packed (explicit count), and the flush's encoder and pass descriptors and
+    // one-buffer submit list, held so a frame's upload mints only its WebGPU objects
+    private static readonly _used: Slab[] = [];
+    private static readonly _flushEncoder: GPUCommandEncoderDescriptor = { label: "slab-flush" };
+    private static readonly _scatterPass: TgpuComputePassDescriptor = { label: "slab-scatter" };
+    private static readonly _submit: GPUCommandBuffer[] = [];
+
     static flush(): void {
         if (Slab._all.length === 0 || !Compute.device) return;
         const device = Compute.device;
         if (deviceLost(device)) return;
-        const encoder = device.createCommandEncoder({ label: "slab-flush" });
-        const used: { slab: Slab; stager: GPUBuffer; count: number }[] = [];
+        const frame = Compute.root["~unstable"].createCommandEncoder(Slab._flushEncoder);
+        const encoder = Compute.root.unwrap(frame);
+        const used = Slab._used;
+        let usedCount = 0;
 
         try {
-            for (const slab of Slab._all) {
+            for (let i = 0; i < Slab._all.length; i++) {
+                const slab = Slab._all[i];
                 if (!slab.gpu || slab._device !== device) continue;
                 const dirty = slab.dirty;
                 let anyDirty = false;
@@ -418,14 +445,14 @@ export class Slab {
                 if (!anyDirty) continue;
                 const bytes = elementBytes(slab.type)!;
                 const stagerBytes = (capacity + 1) * 4 + capacity * bytes;
-                const stager = slab._stagingPool.pop() ?? createStager(device, stagerBytes);
-                const entry = { slab, stager, count: 0 };
-                used.push(entry);
-                const count = slab.pack(stager);
-                entry.count = count;
-                encoder.copyBufferToBuffer(stager, 0, slab._rawSlots!, 0, (count + 1) * 4);
+                const stager = slab._stagingPool.pop() ?? slab.newStager(device, stagerBytes);
+                slab._flushStager = stager;
+                used[usedCount++] = slab;
+                const count = slab.pack(stager.buffer);
+                slab._flushCount = count;
+                encoder.copyBufferToBuffer(stager.buffer, 0, slab._rawSlots!, 0, (count + 1) * 4);
                 encoder.copyBufferToBuffer(
-                    stager,
+                    stager.buffer,
                     (capacity + 1) * 4,
                     slab._rawValues!,
                     0,
@@ -433,48 +460,65 @@ export class Slab {
                 );
             }
 
-            if (used.length === 0) return;
+            if (usedCount === 0) return;
 
             // One compute pass for all slabs — each dispatch rebinds its own group; the pass is shared, which
             // saves N-1 beginComputePass/endPass round-trips.
-            const pass = encoder.beginComputePass({
-                label: "slab-scatter",
-                timestampWrites: Compute.span?.("slab:flush"),
-            });
-            for (const { slab, count } of used) {
-                slab._bound!.with(pass).dispatchWorkgroups(Math.ceil(count / 64));
+            Slab._scatterPass.timestampWrites = Compute.span?.("slab:flush");
+            const pass = frame.beginComputePass(Slab._scatterPass);
+            for (let i = 0; i < usedCount; i++) {
+                pass.setPipeline(used[i]._bound!);
+                pass.dispatchWorkgroups(Math.ceil(used[i]._flushCount / 64));
             }
             pass.end();
 
-            device.queue.submit([encoder.finish()]);
+            Slab._submit[0] = frame.finish();
+            device.queue.submit(Slab._submit);
         } catch (error) {
             // Nothing submitted: retain every dirty word, and release even a stager whose pack failed.
-            for (const { stager } of used) stager.destroy();
+            for (let i = 0; i < usedCount; i++) used[i]._flushStager!.buffer.destroy();
             throw error;
         }
-        for (const { slab, stager } of used) {
+        for (let i = 0; i < usedCount; i++) {
+            const slab = used[i];
             slab.dirty.fill(0);
-            Slab.recycleStager(slab, stager, device);
+            slab.recycle(slab._flushStager!);
         }
     }
 
-    // Remap a submitted stager and return it to its slab's pool once mapped. Its own method: the promise
-    // callbacks capture `device`, and a closure in `flush` would allocate that context on every frame's call.
-    private static recycleStager(slab: Slab, stager: GPUBuffer, device: GPUDevice): void {
-        const epoch = slab._epoch;
-        stager
-            .mapAsync(GPUMapMode.WRITE)
-            .then(() => {
-                if (slab._epoch === epoch && !deviceLost(device) && Compute.device === device) {
-                    slab._stagingPool.push(stager);
-                } else stager.destroy();
-            })
-            .catch((error) => {
-                stager.destroy();
-                if (slab._epoch === epoch && !deviceLost(device) && Compute.device === device) {
+    // a new staging buffer for this slab's pool, with the reactions its remaps settle through: mapped, it
+    // returns to the pool while its epoch and device are live, else it is destroyed
+    private newStager(device: GPUDevice, bytes: number): Stager {
+        const stager: Stager = {
+            buffer: createStager(device, bytes),
+            epoch: this._epoch,
+            mapped: () => {
+                if (
+                    this._epoch === stager.epoch &&
+                    !deviceLost(device) &&
+                    Compute.device === device
+                ) {
+                    this._stagingPool.push(stager);
+                } else stager.buffer.destroy();
+            },
+            rejected: (error) => {
+                stager.buffer.destroy();
+                if (
+                    this._epoch === stager.epoch &&
+                    !deviceLost(device) &&
+                    Compute.device === device
+                ) {
                     console.error("Slab staging mapAsync rejected:", error);
                 }
-            });
+            },
+        };
+        return stager;
+    }
+
+    // remap a submitted stager; its own reactions return it to the pool once mapped
+    private recycle(stager: Stager): void {
+        stager.epoch = this._epoch;
+        stager.buffer.mapAsync(GPUMapMode.WRITE).then(stager.mapped).catch(stager.rejected);
     }
 }
 

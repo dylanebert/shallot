@@ -1,4 +1,10 @@
-import type { StorageFlag, TgpuBuffer, TgpuComputePipeline } from "typegpu";
+import type {
+    StorageFlag,
+    TgpuBuffer,
+    TgpuCommandEncoder,
+    TgpuComputePassDescriptor,
+    TgpuComputePipeline,
+} from "typegpu";
 import * as d from "typegpu/data";
 import { Compute, capacity, type Plugin, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
@@ -56,20 +62,22 @@ export const Transform = {
     scale: slab(vec4),
 };
 
+// the compose pass descriptor; its timestamp span is re-read each frame
+const _composePass: TgpuComputePassDescriptor = { label: "shallot-transforms-compose" };
+
 /**
  * record the per-frame world-matrix compose dispatch onto `encoder`. Reads
  * the slab canonical GPU buffers (populated by the prior frame's SlabSystem
  * submit), writes the `"transforms"` firehose. Headless (no device) leaves the
  * pipeline unbuilt and the call is a no-op
  */
-export function composeTransforms(encoder: GPUCommandEncoder): void {
+export function composeTransforms(encoder: TgpuCommandEncoder): void {
     const bound = bind();
     if (!bound) return;
-    const pass = encoder.beginComputePass({
-        label: "shallot-transforms-compose",
-        timestampWrites: Compute.span?.("transforms:compose"),
-    });
-    bound.with(pass).dispatchWorkgroups(Math.ceil(capacity / 64));
+    _composePass.timestampWrites = Compute.span?.("transforms:compose");
+    const pass = encoder.beginComputePass(_composePass);
+    pass.setPipeline(bound);
+    pass.dispatchWorkgroups(Math.ceil(capacity / 64));
     pass.end();
 }
 

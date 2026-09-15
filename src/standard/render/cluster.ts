@@ -1,4 +1,9 @@
-import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuComputePipeline } from "typegpu";
+import tgpu, {
+    type StorageFlag,
+    type TgpuBuffer,
+    type TgpuComputePassDescriptor,
+    type TgpuComputePipeline,
+} from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State, System } from "../../engine";
@@ -216,19 +221,21 @@ export const Clusters: Clusters = {
 };
 
 /**
- * pack a camera's {@link ClusterView} into the staging slot, called per view by
- * `BeginFrameSystem`, which reuses the returned view for the View.cluster pack
+ * pack a camera's {@link ClusterView} fields into the staging slot, called per view by
+ * `BeginFrameSystem`: {@link clusterView}'s derivation written in place, with no record
  */
-export function packClusterView(eid: number, aspect: number, slot: number): ClusterView {
-    const v = clusterView(eid, aspect);
+export function packClusterView(eid: number, aspect: number, slot: number): void {
+    const perspective = Camera.mode.get(eid) !== CameraMode.Orthographic;
+    const halfH = perspective
+        ? Math.tan((Camera.fov.get(eid) * Math.PI) / 360)
+        : Camera.size.get(eid);
     const o = slot * CLUSTER_VIEW_FLOATS;
     const s = Clusters.staging;
-    s[o] = v.halfW;
-    s[o + 1] = v.halfH;
-    s[o + 2] = v.near;
-    s[o + 3] = v.far;
-    s[o + 4] = v.perspective ? 1 : 0;
-    return v;
+    s[o] = halfH * aspect;
+    s[o + 1] = halfH;
+    s[o + 2] = Camera.near.get(eid);
+    s[o + 3] = Camera.far.get(eid);
+    s[o + 4] = perspective ? 1 : 0;
 }
 
 const gridLayout = tgpu.bindGroupLayout({
@@ -320,16 +327,17 @@ export const ClusterSystem: System = {
             0,
             used,
         );
-        const pass = Render.encoder.beginComputePass({
-            label: "shallot-cluster-aabbs",
-            timestampWrites: Compute.span?.("cluster:aabbs"),
-        });
-        bindGrid()
-            .with(pass)
-            .dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
+        _gridPass.timestampWrites = Compute.span?.("cluster:aabbs");
+        const pass = Render.frame!.beginComputePass(_gridPass);
+        pass.setPipeline(bindGrid());
+        pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
         pass.end();
     },
 };
+
+// the grid and light-cull pass descriptors; their timestamp spans are re-read each frame
+const _gridPass: TgpuComputePassDescriptor = { label: "shallot-cluster-aabbs" };
+const _cullPass: TgpuComputePassDescriptor = { label: "shallot-light-cull" };
 
 // bound once, on the forced precompile (which drains after every plugin has warmed). Every input is
 // this module's own, allocated in `warmClusters` before the forcer is registered — so a missing one is
@@ -755,16 +763,12 @@ export const LightCullSystem: System = {
         );
         Render.encoder.clearBuffer(LightCull.lights!, 0, 16);
         Render.encoder.clearBuffer(LightCull.indices!, 0, POOL_HEADER * 4);
-        const pass = Render.encoder.beginComputePass({
-            label: "shallot-light-cull",
-            timestampWrites: Compute.span?.("light:cull"),
-        });
-        bindCompact()
-            .with(pass)
-            .dispatchWorkgroups(Math.ceil(capacity / 64));
-        bindCull()
-            .with(pass)
-            .dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
+        _cullPass.timestampWrites = Compute.span?.("light:cull");
+        const pass = Render.frame!.beginComputePass(_cullPass);
+        pass.setPipeline(bindCompact());
+        pass.dispatchWorkgroups(Math.ceil(capacity / 64));
+        pass.setPipeline(bindCull());
+        pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
         pass.end();
 
         if (_overflowPending) {
