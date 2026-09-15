@@ -148,6 +148,7 @@ check(
         claim: "the exact first-person manifest builds its selected scene and local Demo role plugin before disposal",
         size: "integration",
         requires: ["chromium"],
+        host: "mac",
         subject: ["examples/first-person"],
     },
     async () =>

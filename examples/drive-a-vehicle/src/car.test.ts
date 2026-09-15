@@ -479,6 +479,7 @@ check(
         claim: "the exact drive-a-vehicle manifest builds its selected scene and local Car role plugin before disposal",
         size: "integration",
         requires: ["chromium"],
+        host: "mac",
         subject: ["examples/drive-a-vehicle"],
     },
     async () =>
