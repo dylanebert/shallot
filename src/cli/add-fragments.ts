@@ -46,6 +46,9 @@ ${ENGINE_REFERENCE}
 `;
 }
 
+// The canonical Shallot project ignore, byte-identical to the create-shallot template.
+export const PROJECT_GITIGNORE = "node_modules/\ndist/\nbuild/\n.artifacts/\n";
+
 // A standalone tsconfig for a copied recipe: in the monorepo the recipes share a root config, so they
 // carry none of their own; copied out, they need one for `bunx tsc` to resolve the engine + webgpu types.
 export const RECIPE_TSCONFIG = `${JSON.stringify(
