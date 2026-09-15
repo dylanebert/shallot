@@ -624,6 +624,10 @@ function workflowNeedsCargo(population: Population): boolean {
     return workflowRows(population).some((row) => row.requires.includes("cargo"));
 }
 
+function workflowNeedsNode(population: Population): boolean {
+    return workflowRows(population).some((row) => row.requires.includes("node"));
+}
+
 function workflowPath(root: string): string {
     return resolve(root, ".github/workflows/test-surface.yml");
 }
@@ -648,6 +652,12 @@ export function renderWorkflow(population: Population): string {
                 "{{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}",
             "          restore-keys: |",
             "            $" + "{{ runner.os }}-cargo-",
+        );
+    if (workflowNeedsNode(population))
+        steps.push(
+            "      - uses: actions/setup-node@v6",
+            "        with:",
+            "          node-version-file: .node-version",
         );
     steps.push(
         "      - name: resolve surface refs",

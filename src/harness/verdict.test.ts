@@ -4,9 +4,30 @@ import { join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
 import {
     type CargoArtifact,
+    nodeVersionMismatch,
     selectCargoTestExecutable,
     selectCargoTestTargetExecutables,
 } from "./verdict";
+
+check(
+    "the node requirement holds Node to its exact pin",
+    {
+        claim: "the node requirement admits only the exact pinned version and refuses a loose pin or another version",
+    },
+    () => {
+        expect(nodeVersionMismatch("26.8.1", "v26.8.1\n")).toBeNull();
+        expect(nodeVersionMismatch("26.8.1", "v26.8.0\n")).toBe(
+            "node v26.8.0 does not match the pinned 26.8.1",
+        );
+        expect(nodeVersionMismatch("26.8.1", "v126.8.1")).not.toBeNull();
+        expect(nodeVersionMismatch("26.8.1", "")).toBe(
+            "node (no version) does not match the pinned 26.8.1",
+        );
+        expect(nodeVersionMismatch("26", "v26.8.1")).toBe(
+            "node pin must be an exact version, not 26",
+        );
+    },
+);
 
 check(
     "the Cargo carrier recognizes declared cdylib and rlib test targets",

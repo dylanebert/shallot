@@ -11,6 +11,7 @@ import {
     Time,
 } from "@dylanebert/shallot";
 import { runBrowserCheck } from "@dylanebert/shallot/harness";
+import { sampleAllocation, siteTable } from "@dylanebert/shallot/harness/allocation";
 import { check } from "@dylanebert/shallot/harness/check";
 import { Demo } from "./demo";
 
@@ -253,6 +254,33 @@ check(
             "--recipe",
             "first-person",
         ]),
+);
+
+check(
+    "first-person warm frame allocates nothing",
+    {
+        claim: "a warm fixed step of the actual first-person CPU composition allocates no JavaScript heap, so no periodic scavenge follows play",
+        size: "integration",
+        requires: ["node"],
+        subject: ["examples/first-person"],
+    },
+    async () => {
+        const sample = await sampleAllocation(resolve(import.meta.dir, "allocation.entry.ts"), {
+            warm: 600,
+            frames: 600,
+            input: readFileSync(SCENE, "utf8"),
+        });
+        // Premises: the sampler attributes a known literal, and an empty window moves the heap by
+        // exactly one read. Without both, an empty site set proves nothing.
+        if (sample.controlBytes <= 0)
+            throw new Error("inconclusive: the sampler attributed no bytes to its control literal");
+        if (sample.nullHeapDelta !== sample.warmReadBytes)
+            throw new Error(
+                `inconclusive: empty window moved ${sample.nullHeapDelta} bytes, a read costs ${sample.warmReadBytes}`,
+            );
+        if (sample.totalBytes !== 0 || sample.sites.length !== 0)
+            throw new Error(`warm first-person frames allocate:\n${siteTable(sample)}`);
+    },
 );
 
 check(
