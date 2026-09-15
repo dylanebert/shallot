@@ -122,9 +122,9 @@ async function steadyWindows() {
 }
 
 // The transition: a warm of paired cycles so the spawn and despawn paths tier as play would reach them,
-// then two sampled cycles at the same high-water mark whose event frames count every byte, the steady
-// windows after them, and a third cycle sampled live-only: after despawn and a full collection, what the
-// cycle allocated and still holds.
+// then two sampled cycles at the same high-water mark whose event frames and the chunk after each count
+// every byte, the steady windows after them, and a third cycle sampled live-only: after despawn and a full
+// collection, what the cycle allocated and still holds.
 async function transition() {
     for (let i = 0; i < warm; i += CHUNK) {
         spawnFrame();
@@ -132,12 +132,19 @@ async function transition() {
         despawnFrame();
     }
     const spawn = await sample(spawnFrame);
-    steps(CHUNK);
+    const afterSpawn = await sample(steps, CHUNK);
     const despawn = await sample(despawnFrame);
-    steps(CHUNK);
+    const afterDespawn = await sample(steps, CHUNK);
     const spawnAgain = await sample(spawnFrame);
-    steps(CHUNK);
+    const afterSpawnAgain = await sample(steps, CHUNK);
     const despawnAgain = await sample(despawnFrame);
+    const afterDespawnAgain = await sample(steps, CHUNK);
+    const afterEvents = [
+        { label: `${CHUNK} frames after spawn`, sites: afterSpawn },
+        { label: `${CHUNK} frames after despawn`, sites: afterDespawn },
+        { label: `${CHUNK} frames after second spawn`, sites: afterSpawnAgain },
+        { label: `${CHUNK} frames after second despawn`, sites: afterDespawnAgain },
+    ];
     const windows = await steadyWindows();
     collect();
     await session.post("HeapProfiler.startSampling", { samplingInterval: 1 });
@@ -146,7 +153,15 @@ async function transition() {
     despawnFrame();
     collect();
     const { profile } = await session.post("HeapProfiler.stopSampling");
-    return { spawn, despawn, spawnAgain, despawnAgain, windows, survivors: sites(profile) };
+    return {
+        spawn,
+        despawn,
+        spawnAgain,
+        despawnAgain,
+        afterEvents,
+        windows,
+        survivors: sites(profile),
+    };
 }
 
 try {

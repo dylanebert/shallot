@@ -34,6 +34,8 @@ export interface TransitionSample extends AllocationSample {
     spawnAgain: readonly AllocationSite[];
     /** the despawn frame of that second cycle */
     despawnAgain: readonly AllocationSite[];
+    /** every byte of the chunk of steady frames right after each of those four event frames, in order */
+    afterEvents: readonly AllocationWindow[];
     /** objects allocated from spawn through despawn still live after a full collection */
     survivors: readonly AllocationSite[];
 }
@@ -70,7 +72,7 @@ export function sampleAllocation(
 
 /**
  * As {@link sampleAllocation}, for an entry whose subject also has `spawn()` and `despawn()`: warms paired
- * cycles, samples each event frame, the steady windows after it, and one cycle's live survivors.
+ * cycles, samples each event frame and the chunk after it, the steady windows after them, and one cycle's live survivors.
  */
 export function sampleTransition(
     entry: string,

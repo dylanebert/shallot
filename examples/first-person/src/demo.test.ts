@@ -323,6 +323,7 @@ check(
             siteSetMismatch("second spawn frame", sample.spawnAgain, ECS_SPAWN_SITES),
             siteSetMismatch("despawn frame", sample.despawn, ECS_DESPAWN_SITES),
             siteSetMismatch("second despawn frame", sample.despawnAgain, ECS_DESPAWN_SITES),
+            ...sample.afterEvents.map((after) => siteSetMismatch(after.label, after.sites, [])),
             allocatesNothing(sample)
                 ? ""
                 : `frames after the transition allocate:\n${siteTable(sample)}`,
