@@ -295,8 +295,9 @@ export type BodyMoveEvent = {
 };
 
 /**
- * Body events since the last {@link World.step} (b3BodyEvents). `moveEvents` is a reused pool of
- * length `count` (only bodies that moved) — valid until the next step or the next `getBodyEvents`.
+ * Body events since the last {@link World.step} (b3BodyEvents). `moveEvents` is a reused pool that keeps
+ * its high-water length; read only entries `0..count-1` (the bodies that moved) — valid until the next
+ * step or the next `getBodyEvents`.
  */
 export type BodyEvents = { moveEvents: BodyMoveEvent[]; count: number };
 
