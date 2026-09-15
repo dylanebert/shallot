@@ -106,3 +106,72 @@ check(
         world.destroy();
     },
 );
+
+check(
+    "a sleeping wheel chassis responds to a steering target",
+    {
+        claim: "a sleeping vehicle chassis ignores a wheel steering target until the caller wakes it, so the first turn after parking is lost",
+    },
+    () => {
+        const world = new World({ gravity: { x: 0, y: 0, z: 0 }, enableContinuous: false });
+        const chassis = world.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 0, z: 0 },
+        });
+        chassis.createHull({ density: 1 }, makeBoxHull(1, 0.25, 0.5));
+        const wheel = world.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 0, z: 0 },
+        });
+        wheel.createHull({ density: 1 }, makeBoxHull(0.25, 0.25, 0.5));
+        const joint = world.createWheelJoint(chassis, wheel, {
+            enableSteering: true,
+            steeringHertz: 10,
+            steeringDampingRatio: 0.5,
+            maxSteeringTorque: 100,
+        });
+
+        chassis.setAwake(false);
+        wheel.setAwake(false);
+        expect(chassis.isAwake()).toBe(false);
+        joint.setTargetSteeringAngle(0.5);
+        expect(chassis.isAwake()).toBe(true);
+        for (let i = 0; i < 10; ++i) world.step(1 / 60, 8);
+        expect(joint.getSteeringAngle()).toBeGreaterThan(0.1);
+        world.destroy();
+    },
+);
+
+check(
+    "a sleeping wheel chassis responds to a spin motor target",
+    {
+        claim: "a sleeping vehicle chassis ignores a wheel motor target until the caller wakes it, so the first throttle input after parking is lost",
+    },
+    () => {
+        const world = new World({ gravity: { x: 0, y: 0, z: 0 }, enableContinuous: false });
+        const chassis = world.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 0, z: 0 },
+        });
+        chassis.createHull({ density: 1 }, makeBoxHull(1, 0.25, 0.5));
+        const wheel = world.createBody({
+            type: BodyType.Dynamic,
+            position: { x: 0, y: 0, z: 0 },
+        });
+        wheel.createHull({ density: 1 }, makeBoxHull(0.25, 0.25, 0.5));
+        const joint = world.createWheelJoint(chassis, wheel, {
+            enableSpinMotor: true,
+            spinSpeed: 10,
+            maxSpinTorque: 100,
+        });
+
+        chassis.setAwake(false);
+        wheel.setAwake(false);
+        expect(chassis.isAwake()).toBe(false);
+        joint.setSpinMotorSpeed(10);
+        expect(chassis.isAwake()).toBe(true);
+        for (let i = 0; i < 10; ++i) world.step(1 / 60, 8);
+        expect(joint.getSpinSpeed()).toBeGreaterThan(1);
+        world.destroy();
+    },
+);
