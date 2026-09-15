@@ -106,7 +106,27 @@ export type VehicleObservation = Readonly<{
     }> | null;
 }>;
 
-const runtimes = new WeakMap<State, VehicleRuntime>();
+const RECIPE_STATE = Symbol.for("shallot.examples.drive-a-vehicle.state");
+type CarState = State & {
+    [RECIPE_STATE]?: { runtime: VehicleRuntime | null; panel: HTMLDivElement | null };
+};
+
+type CarBag = NonNullable<CarState[typeof RECIPE_STATE]>;
+
+function stateBag(state: State): CarBag {
+    const owner = state as CarState;
+    const existing = owner[RECIPE_STATE];
+    if (existing) return existing;
+    const bag: CarBag = { runtime: null, panel: null };
+    owner[RECIPE_STATE] = bag;
+    state.onDispose(() => {
+        if (owner[RECIPE_STATE] !== bag) return;
+        bag.runtime = null;
+        bag.panel = null;
+        delete owner[RECIPE_STATE];
+    });
+    return bag;
+}
 
 function role(state: State, wanted: number): number {
     for (const eid of state.query([Vehicle, Body])) {
@@ -178,7 +198,7 @@ function copyFrame(frame: VehicleFrame): VehicleFrame {
 
 /** Read-only effective vehicle wiring and command state for bounded recipe evidence. */
 export function readVehicle(state: State): VehicleObservation | null {
-    const runtime = runtimes.get(state);
+    const runtime = stateBag(state).runtime;
     if (!runtime?.wired) return null;
     const joints = [
         ...runtime.frontJoints.map((joint, index) => ({
@@ -241,13 +261,10 @@ export function readVehicle(state: State): VehicleObservation | null {
     };
 }
 
-const CONTROL_PANEL = Symbol.for("shallot.examples.drive-a-vehicle.controls");
-type ControlState = State & { [CONTROL_PANEL]?: HTMLDivElement };
-
 function mountControls(state: State): void {
     if (typeof document === "undefined") return;
-    const owner = state as ControlState;
-    if (owner[CONTROL_PANEL]) return;
+    const bag = stateBag(state);
+    if (bag.panel) return;
     const overlay = mountOverlay(document.querySelector("canvas"), state);
     const panel = document.createElement("div");
     panel.dataset.recipeControls = "";
@@ -273,10 +290,7 @@ function mountControls(state: State): void {
         panel.append(row);
     }
     overlay.append(panel);
-    owner[CONTROL_PANEL] = panel;
-    state.onDispose(() => {
-        if (owner[CONTROL_PANEL] === panel) delete owner[CONTROL_PANEL];
-    });
+    bag.panel = panel;
 }
 
 const controls: System = {
@@ -291,7 +305,7 @@ const driver: System = {
     name: "vehicle-driver",
     group: "simulation",
     update(state) {
-        const runtime = runtimes.get(state);
+        const runtime = stateBag(state).runtime;
         if (!runtime || !wire(state, runtime)) return;
 
         const keys = devices(state).keys.held;
@@ -321,7 +335,7 @@ export const Car = {
     dependencies: [InputPlugin, PhysicsPlugin],
     systems: [driver, controls],
     warm(state: State) {
-        runtimes.set(state, {
+        stateBag(state).runtime = {
             ground: role(state, VehicleRole.Ground),
             chassis: role(state, VehicleRole.Chassis),
             front: [...state.query([Vehicle, Body])].filter(
@@ -335,7 +349,7 @@ export const Car = {
             upright: null,
             steer: 0,
             wired: false,
-        });
+        };
     },
 } satisfies Plugin;
 

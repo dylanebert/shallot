@@ -968,7 +968,7 @@ check(
 check(
     "drive-a-vehicle exact project composes its selected scene and plugin",
     {
-        claim: "the exact drive-a-vehicle manifest builds its selected scene and local Car role plugin before disposal",
+        claim: "the exact drive-a-vehicle manifest swaps to a separately evaluated local Car plugin, preserves direct commands and one overlay, and disposes its recipe state",
         size: "integration",
         requires: ["chromium"],
         host: "mac",

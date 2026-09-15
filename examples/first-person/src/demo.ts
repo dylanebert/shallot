@@ -30,21 +30,28 @@ export const Lift = {};
 
 const TRAVEL = 1.5;
 const RATE = 0.65;
-const LIFT_BASES = Symbol.for("shallot.examples.first-person.lift-bases");
-type LiftState = State & {
-    [LIFT_BASES]?: Map<number, readonly [number, number, number]>;
+const RECIPE_STATE = Symbol.for("shallot.examples.first-person.state");
+type DemoBag = {
+    liftBases: Map<number, readonly [number, number, number]>;
+    panel: HTMLDivElement | null;
+    status: HTMLDivElement | null;
 };
+type DemoState = State & { [RECIPE_STATE]?: DemoBag };
 
-function liftBases(state: State): Map<number, readonly [number, number, number]> {
-    const owner = state as LiftState;
-    const existing = owner[LIFT_BASES];
+function stateBag(state: State): DemoBag {
+    const owner = state as DemoState;
+    const existing = owner[RECIPE_STATE];
     if (existing) return existing;
-    const created = new Map<number, readonly [number, number, number]>();
-    owner[LIFT_BASES] = created;
+    const bag: DemoBag = { liftBases: new Map(), panel: null, status: null };
+    owner[RECIPE_STATE] = bag;
     state.onDispose(() => {
-        if (owner[LIFT_BASES] === created) delete owner[LIFT_BASES];
+        if (owner[RECIPE_STATE] !== bag) return;
+        bag.liftBases.clear();
+        bag.panel = null;
+        bag.status = null;
+        delete owner[RECIPE_STATE];
     });
-    return created;
+    return bag;
 }
 
 const lift: System = {
@@ -52,15 +59,11 @@ const lift: System = {
     group: "fixed",
     before: [CharacterSweepSystem],
     update(state: State): void {
-        const bases = liftBases(state);
+        const bases = stateBag(state).liftBases;
         const phase = state.time.elapsed * RATE;
         const offset = 0.5 * TRAVEL * (1 - Math.cos(2 * phase));
         const vy = RATE * TRAVEL * Math.sin(2 * phase);
-        for (const eid of state.query([Lift, Body])) {
-            const base =
-                bases.get(eid) ??
-                ([Body.pos.x.get(eid), Body.pos.y.get(eid), Body.pos.z.get(eid)] as const);
-            bases.set(eid, base);
+        for (const [eid, base] of bases) {
             setKinematic(state, eid, [base[0], base[1] + offset, base[2]], [0, 0, 0, 1], false, [
                 0,
                 vy,
@@ -70,18 +73,10 @@ const lift: System = {
     },
 };
 
-const CONTROL_PANEL = Symbol.for("shallot.examples.first-person.controls");
-type ControlPanel = { panel: HTMLDivElement; status: HTMLDivElement };
-type ControlState = State & { [CONTROL_PANEL]?: ControlPanel };
-
-function controlPanel(state: State): ControlPanel | undefined {
-    return (state as ControlState)[CONTROL_PANEL];
-}
-
 function mountControls(state: State): void {
     if (typeof document === "undefined") return;
-    const owner = state as ControlState;
-    if (owner[CONTROL_PANEL]) return;
+    const bag = stateBag(state);
+    if (bag.panel) return;
     const overlay = mountOverlay(document.querySelector("canvas"), state);
     const panel = document.createElement("div");
     panel.dataset.recipeControls = "";
@@ -112,11 +107,8 @@ function mountControls(state: State): void {
     status.style.cssText = "margin-top:4px;color:#ffffff";
     panel.append(status);
     overlay.append(panel);
-    const current = { panel, status };
-    owner[CONTROL_PANEL] = current;
-    state.onDispose(() => {
-        if (owner[CONTROL_PANEL] === current) delete owner[CONTROL_PANEL];
-    });
+    bag.panel = panel;
+    bag.status = status;
 }
 
 const controls: System = {
@@ -124,16 +116,16 @@ const controls: System = {
     group: "draw",
     update(state) {
         mountControls(state);
-        const current = controlPanel(state);
-        if (!current) return;
+        const bag = stateBag(state);
+        if (!bag.panel || !bag.status) return;
         const status = pointerLockStatus(state);
-        current.status.hidden = status === "locked";
+        bag.status.hidden = status === "locked";
         if (status === "locked") return;
         if (status === "unsupported" || status === "refused") {
             const refusal = pointerLockRefusal(state);
-            current.status.textContent = `Mouse look unavailable.${refusal ? ` ${refusal}` : ""}`;
+            bag.status.textContent = `Mouse look unavailable.${refusal ? ` ${refusal}` : ""}`;
         } else {
-            current.status.textContent = "Click the scene to enable mouse look.";
+            bag.status.textContent = "Click the scene to enable mouse look.";
         }
     },
 };
@@ -144,7 +136,14 @@ export const Demo = {
     dependencies: [CharacterPlugin, InputPlugin, PhysicsPlugin],
     warm(state: State) {
         tune(state);
-        liftBases(state);
+        const bases = stateBag(state).liftBases;
+        for (const eid of state.query([Lift, Body])) {
+            bases.set(eid, [
+                Body.pos.x.get(eid),
+                Body.pos.y.get(eid),
+                Body.pos.z.get(eid),
+            ] as const);
+        }
     },
     systems: [lift, controls],
 } satisfies Plugin;

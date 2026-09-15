@@ -8,7 +8,6 @@ import {
     InputPlugin,
     PhysicsPlugin,
     readBody,
-    swap,
     Time,
 } from "@dylanebert/shallot";
 import { runBrowserCheck } from "@dylanebert/shallot/harness";
@@ -237,7 +236,7 @@ check(
 check(
     "first-person exact project composes its selected scene and plugin",
     {
-        claim: "the exact first-person manifest builds its selected scene and local Demo role plugin before disposal",
+        claim: "the exact first-person manifest swaps to a separately evaluated local Demo plugin, preserves the lift phase and one overlay, and disposes its recipe state",
         size: "integration",
         requires: ["chromium"],
         host: "mac",
@@ -282,15 +281,6 @@ check(
                 const expectedPhase = (app.state.time.elapsed + Time.FIXED_DT) * RATE;
                 const expected = base[1] + 0.5 * TRAVEL * (1 - Math.cos(2 * expectedPhase));
                 const expectedVelocity = RATE * TRAVEL * Math.sin(2 * phase);
-                if (tick === 45) {
-                    const replacement = {
-                        ...Demo,
-                        systems: Demo.systems?.map((system) => ({ ...system })),
-                    };
-                    const result = await swap(app.state, [Demo], [replacement]);
-                    if (!result.ok)
-                        throw new Error(`same-shape Demo swap was refused: ${result.reason}`);
-                }
                 if (Math.abs(phase) > 0.05) observedPhases.push(phase);
                 const positionError = Math.abs(pose.pos[1] - expected);
                 const derivativeError = Math.abs(pose.vel[1] - expectedVelocity);
