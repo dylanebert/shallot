@@ -47,6 +47,30 @@ check(
 );
 
 check(
+    "reduced motion preserves responsive and compact grace",
+    {
+        claim: "reduced-motion responsive and compact readiness before grace never mount branded content",
+        subject: [
+            "src/standard/loading/presentation.ts",
+            "src/standard/loading/presentation.test.ts",
+        ],
+    },
+    () => {
+        for (const profile of ["responsive", "compact"] as const) {
+            let current = initialPresentation(profile, true);
+            let result = step(current, "show");
+            current = result.state;
+            expect(current.phase).toBe("grace");
+            expect(result.effects).toEqual([]);
+
+            result = step(current, "ready");
+            expect(result.state.branded).toBe(false);
+            expect(result.effects).toEqual([]);
+        }
+    },
+);
+
+check(
     "responsive exits without awaiting the canonical animation",
     {
         claim: "responsive readiness after grace starts one whole-overlay exit without waiting for animation completion",

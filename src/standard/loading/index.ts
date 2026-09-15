@@ -420,6 +420,10 @@ function loading(theme: Theme, options: SplashOptions, withSplash: boolean): Loa
         restTimer = clearTimer(restTimer);
         fadeTimer = clearTimer(fadeTimer);
         driver?.cancel();
+        if (overlay) {
+            overlay.style.transition = "none";
+            overlay.style.opacity = "1";
+        }
         completeExit();
     };
 

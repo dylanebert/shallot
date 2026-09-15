@@ -78,7 +78,7 @@ export function transitionPresentation(
 
     switch (event.type) {
         case "show":
-            if (current.reducedMotion) {
+            if (current.profile === "cinematic" && current.reducedMotion) {
                 state = { ...current, phase: "brand", branded: true };
                 effects.push("mount-static");
             } else if (current.profile === "cinematic") {
@@ -91,7 +91,7 @@ export function transitionPresentation(
         case "grace":
             if (current.ready) {
                 state = { ...current, phase: "ready" };
-            } else if (current.profile === "compact") {
+            } else if (current.profile === "compact" || current.reducedMotion) {
                 state = { ...current, phase: "brand", branded: true };
                 effects.push("mount-static");
             } else {
@@ -102,7 +102,6 @@ export function transitionPresentation(
         case "ready":
             state = { ...current, ready: true };
             if (current.profile !== "cinematic" && current.branded) exit();
-            else if (current.profile !== "cinematic" && current.reducedMotion) exit();
             else if (
                 current.profile === "cinematic" &&
                 current.animationFinished &&

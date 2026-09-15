@@ -114,6 +114,29 @@ window.__harness = {
             "overlay removed",
         );
 
+        const lateError = mount();
+        await advance(150);
+        const lateErrorDone = lateError.loading.complete?.();
+        if (!lateErrorDone) throw new Error("late-error Loading omitted complete");
+        await advance(50);
+        lateError.loading.error?.(new Error("late startup failure"));
+        record(
+            "late errors restore the fading overlay",
+            lateError.host.textContent?.includes("late startup failure") === true &&
+                (lateError.host.firstElementChild as HTMLElement).style.opacity !== "0" &&
+                (lateError.host.firstElementChild as HTMLElement).style.transition === "none",
+            "error is readable before the old fade deadline",
+        );
+        await advance(200);
+        record(
+            "late errors remain after the canceled fade deadline",
+            lateError.host.textContent?.includes("late startup failure") === true &&
+                (lateError.host.firstElementChild as HTMLElement).style.opacity !== "0",
+            "no stale fade callback removes the error",
+        );
+        await lateErrorDone;
+        lateError.cleanup();
+
         const cinematic = mount("cinematic");
         const cinematicDone = cinematic.loading.complete?.();
         if (!cinematicDone) throw new Error("cinematic Loading omitted complete");
@@ -146,20 +169,47 @@ window.__harness = {
 
         const previousMatchMedia = window.matchMedia;
         window.matchMedia = (() => ({ matches: true })) as unknown as typeof window.matchMedia;
-        const reduced = mount("responsive");
+        const reducedFast = mount("responsive");
         record(
-            "reduced motion is static",
+            "reduced responsive keeps the grace",
+            !hasBrand(reducedFast.host),
+            "reduced motion does not bypass the 150ms grace",
+        );
+        const reducedFastDone = reducedFast.loading.complete?.();
+        if (reducedFastDone) await reducedFastDone;
+        record(
+            "reduced responsive readiness before grace skips brand",
+            !hasBrand(reducedFast.host),
+            "no cached-start flash",
+        );
+        reducedFast.cleanup();
+
+        const reduced = mount("responsive");
+        await advance(150);
+        record(
+            "reduced motion is static after grace",
             hasBrand(reduced.host),
-            "finished mark mounts without grace animation",
+            "finished mark mounts without construction or typing",
         );
         const reducedDone = reduced.loading.complete?.();
         if (reducedDone) await reducedDone;
         record(
             "reduced motion has no animated fade",
-            (reduced.host.firstElementChild as HTMLElement).style.opacity !== "0",
+            (reduced.host.firstElementChild as HTMLElement).style.opacity !== "0" &&
+                (reduced.host.firstElementChild as HTMLElement).style.transition === "",
             "no decorative dwell",
         );
         reduced.cleanup();
+
+        const reducedCompact = mount("compact");
+        record(
+            "reduced compact keeps the grace",
+            !hasBrand(reducedCompact.host),
+            "compact also waits before its static mark",
+        );
+        const reducedCompactDone = reducedCompact.loading.complete?.();
+        if (reducedCompactDone) await reducedCompactDone;
+        reducedCompact.cleanup();
         window.matchMedia = previousMatchMedia;
 
         const ok = checks.every((check) => check.ok);
