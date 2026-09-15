@@ -62,7 +62,7 @@ export function frustumPlanes(viewProj: Float32Array, out: Float32Array, base = 
 
     for (let i = 0; i < 6; i++) {
         const o = base + i * 4;
-        const len = Math.hypot(out[o], out[o + 1], out[o + 2]);
+        const len = Math.sqrt(out[o] * out[o] + out[o + 1] * out[o + 1] + out[o + 2] * out[o + 2]);
         if (len > 0) {
             out[o] /= len;
             out[o + 1] /= len;

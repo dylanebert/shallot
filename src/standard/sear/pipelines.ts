@@ -41,6 +41,7 @@ import {
     pointShadowStub,
     sunVisibility,
 } from "./engine";
+import type { Recorded } from "./forward";
 import { COMBO_SHIFT, EID_MASK } from "./regather";
 import { sampleSunShadow } from "./shade";
 import { cascadeAtlasSize, pointAtlasSize, sunCascades, sunResolution } from "./shadows";
@@ -158,6 +159,17 @@ export type SurfaceGroupEntry = {
     engineCache: Map<number, GPUBindGroup>;
     atlasG0: GPUBindGroup;
     resources: BindResource[];
+    /** the layout's own binding names in `resources` order (after the four mesh streams), each with the
+     * registry it resolves from, so a steady frame compares live identities without re-resolving. */
+    names: string[];
+    registries: ReadonlyMap<string, BindResource>[];
+    /** per compiled pipeline, that pipeline with this entry's group 2 and index buffer bound, built on the
+     * entry's first draw through it (the pass binds groups 0 and 1 per draw). */
+    bound: Map<TgpuRenderPipeline<any>, TgpuRenderPipeline<any>>;
+    /** the entry's frame-draw record, rewritten in place when a steady frame re-resolves the draw. */
+    item: { draw: Draw; r: Recorded };
+    /** the material variant the entry's compiled surface was looked up at. */
+    variant: number;
 };
 const _typedGroups = new Map<string, SurfaceGroupEntry>();
 

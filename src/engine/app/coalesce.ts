@@ -1,16 +1,22 @@
 /**
- * median of the recent rAF-callback `intervals`, computed into the caller-owned `scratch` so the frame
- * loop allocates nothing per frame. The median tracks the live present cadence (~16.7ms under a 60Hz
- * throttle, ~4ms on a 240Hz desktop) and ignores the transient short intervals a double-fire injects,
- * unlike a moving average. Returns 0 for an empty window. Fills `scratch`; otherwise pure. Unit-tested.
+ * median of the first `count` recent rAF-callback `intervals` (in any order), insertion-sorted into the
+ * caller-owned `scratch` so the frame loop allocates nothing per frame. The median tracks the live present
+ * cadence (~16.7ms under a 60Hz throttle, ~4ms on a 240Hz desktop) and ignores the transient short
+ * intervals a double-fire injects, unlike a moving average. Returns 0 for an empty window. Fills
+ * `scratch`; otherwise pure. Unit-tested.
  */
-export function median(intervals: readonly number[], scratch: number[]): number {
-    const n = intervals.length;
-    if (n === 0) return 0;
-    for (let i = 0; i < n; i++) scratch[i] = intervals[i];
-    scratch.length = n;
-    scratch.sort((a, b) => a - b);
-    return scratch[n >> 1];
+export function median(intervals: Float64Array, count: number, scratch: Float64Array): number {
+    if (count === 0) return 0;
+    for (let i = 0; i < count; i++) {
+        const v = intervals[i];
+        let j = i;
+        while (j > 0 && scratch[j - 1] > v) {
+            scratch[j] = scratch[j - 1];
+            j--;
+        }
+        scratch[j] = v;
+    }
+    return scratch[count >> 1];
 }
 
 /**

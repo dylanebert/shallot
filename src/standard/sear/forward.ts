@@ -15,7 +15,13 @@
 // own shadow state directly — nothing publishes into it. Add a `Shadow` to the sun to cast; omit it for the
 // fully-lit bare path (no map allocated), exactly like a camera without a lane marker runs no prepass.
 
-import type { TgpuBindGroupLayout, TgpuBuffer } from "typegpu";
+import type {
+    TgpuBindGroupLayout,
+    TgpuBuffer,
+    TgpuRenderPass,
+    TgpuRenderPassDescriptor,
+    TgpuRenderPipeline,
+} from "typegpu";
 import tgpu, { isBuffer, isUsableAsStorage, isUsableAsUniform } from "typegpu";
 import type { AnyData } from "typegpu/data";
 import * as d from "typegpu/data";
@@ -51,6 +57,7 @@ import {
     shadowLayout,
     shadowReady,
 } from "./atlas";
+import { boundPipeline } from "./bound";
 import { COLOR_LANES, type ColorLane, DEPTH_FORMAT, laneKey, SAMPLE_COUNT, Tag } from "./codegen";
 import { engineLayout, litPbr } from "./engine";
 import {
@@ -79,6 +86,7 @@ import {
     destroyCascades,
     destroyPointShadows,
     MAX_CASCADES,
+    type PointShadowFrame,
     pointCasters,
     resetCascades,
     resetPointShadows,
@@ -251,6 +259,9 @@ type RecordedSurface = { t: CompiledSurface; g: SurfaceGroupEntry; index: MeshIn
 
 export type Recorded = RecordedSurface;
 
+// one resolved draw of the frame: the entry-owned record `record` rewrites in place
+type FrameDraw = { draw: Draw; r: Recorded };
+
 /**
  * the color + transparent + per-lane-set prepass pipelines and the bind-group state sear records a draw
  * with, or null to skip it. All pipelines share one bind group (same group-0 layout). A surface with
@@ -258,23 +269,32 @@ export type Recorded = RecordedSurface;
  * The per-slot bind groups cache per draw, rebuilt only on a resource identity change; the fixed uniforms
  * are stable, so untracked
  */
-function record(draw: Draw): Recorded | null {
+function record(draw: Draw): FrameDraw | null {
     const surface = Surfaces.get(draw.surface);
     return surface ? recordSurface(draw, surface) : null;
 }
 
 // resolve a typed layout's own bindings (never the sear-injected `vertices`) to live resources by the
-// entry's kind. Returns the createBindGroup value record + the identity list, or the missing binding's
-// name
+// entry's kind. Returns the createBindGroup value record + the identity list + each binding's name and the
+// registry it resolved from, or the missing binding's name
 function typedResources(
     entries: Record<string, object>,
     override?: Record<string, BindResource>,
-): { values: Record<string, unknown>; resources: BindResource[] } | string {
+):
+    | {
+          values: Record<string, unknown>;
+          resources: BindResource[];
+          names: string[];
+          registries: ReadonlyMap<string, BindResource>[];
+      }
+    | string {
     const values: Record<string, unknown> = {};
     const resources: BindResource[] = [];
+    const names: string[] = [];
+    const registries: ReadonlyMap<string, BindResource>[] = [];
     for (const [name, entry] of Object.entries(entries)) {
         if (name === "vertices") continue;
-        const registry =
+        const registry: ReadonlyMap<string, BindResource> =
             "texture" in entry
                 ? Compute.textures
                 : "sampler" in entry
@@ -284,6 +304,8 @@ function typedResources(
         if (!res) return name;
         if (isBuffer(res)) validateMeshBindingOverrides({ entries }, { [name]: res });
         resources.push(res);
+        names.push(name);
+        registries.push(registry);
         // a texture binds a view of the schema's own dimension
         values[name] =
             "texture" in entry
@@ -293,7 +315,58 @@ function typedResources(
                   })
                 : res;
     }
-    return { values, resources };
+    return { values, resources, names, registries };
+}
+
+// whether a cached entry still binds this frame's live resources: the identities in `resources` order (the
+// four mesh streams, the layout's own bindings looked up by their held names, then the atlas lists),
+// compared in place so a steady frame neither re-validates nor builds a list
+function sameResources(
+    g: SurfaceGroupEntry,
+    mesh: NonNullable<ReturnType<typeof Meshes.get>>,
+    pointList: GPUBuffer | null,
+    cascadeList: GPUBuffer | null,
+): boolean {
+    const res = g.resources;
+    if (
+        res[0] !== mesh.vertices ||
+        res[1] !== mesh.position ||
+        res[2] !== mesh.quant ||
+        res[3] !== mesh.indices
+    )
+        return false;
+    const override = mesh.bindings as Record<string, BindResource> | undefined;
+    let k = 4;
+    for (let i = 0; i < g.names.length; i++, k++) {
+        const name = g.names[i];
+        if ((override?.[name] ?? g.registries[i].get(name)) !== res[k]) return false;
+    }
+    if (pointList && res[k++] !== pointList) return false;
+    if (cascadeList && res[k++] !== cascadeList) return false;
+    return k === res.length;
+}
+
+// one surface bind group against `layout`: the resolved layout values, any override, and the vertex stream.
+// The two layout objects share one loose signature here — the color/depth `vertices` element split is real at
+// authoring time, but a bind group takes raw buffers either way (the `layout.$` cast class). A module function,
+// so the steady `recordSurface` path captures nothing and opens no context
+function surfaceGroup(
+    values: Record<string, unknown>,
+    layout: unknown,
+    vertices: TgpuBuffer<AnyData>,
+    override?: Record<string, BindResource>,
+): GPUBindGroup {
+    const root = Compute.root;
+    return root.unwrap(
+        root.createBindGroup(
+            layout as TgpuBindGroupLayout,
+            {
+                ...values,
+                ...override,
+                vertices,
+            } as never,
+        ),
+    );
 }
 
 /**
@@ -302,13 +375,17 @@ function typedResources(
  * depth-side groups against the full layout so cutoff sees material UVs — plus the atlas `eids` swaps
  * and the slot-0 engine group the atlas passes bind.
  */
-function recordSurface(draw: Draw, surface: Surface): Recorded | null {
+function recordSurface(draw: Draw, surface: Surface): FrameDraw | null {
     const mesh = Meshes.get(draw.mesh);
     if (!mesh) return warnSkip(draw.name, `mesh "${draw.mesh}" not registered`);
     if (!mesh.position || !mesh.quant)
         return warnSkip(draw.name, `mesh "${draw.mesh}" has no quantized position/quant stream`);
     const variant = surface.specialize ? (mesh.variant ?? 0) : 0;
-    let t = getCompiledSurface(surface.name, variant);
+    // a steady frame reuses its entry's compiled surface while the spec and variant hold, so the cache key
+    // is built only when either changes
+    const prev = getGroup(draw.name, surface);
+    const held = prev && prev.variant === variant ? prev.item.r.t : undefined;
+    let t = held ?? getCompiledSurface(surface.name, variant);
     if (!t || t.owner !== surface || t.layout !== surface.layout) {
         // registered after warm (`preparePipelines` compiles the rest) — sync, so no skip frame; a
         // throwing compile (a contract guard, or shader/device validation) must not take down the frame
@@ -320,14 +397,23 @@ function recordSurface(draw: Draw, surface: Surface): Recorded | null {
         }
     }
 
+    const pointList = pointRegather.eids();
+    const cascadeList = cascadeRegather.eids();
+    // a steady frame compares the cached entry's identities in place; only a changed resource re-resolves,
+    // re-validates the overrides and rebuilds the groups
+    if (prev && sameResources(prev, mesh, pointList, cascadeList)) {
+        prev.item.draw = draw;
+        prev.item.r.t = t;
+        prev.variant = variant;
+        return prev.item;
+    }
+
     const resolved = typedResources(
         surface.layout.entries as Record<string, object>,
         mesh.bindings as Record<string, MeshBinding> | undefined,
     );
     if (typeof resolved === "string")
         return warnSkip(draw.name, `binding "${resolved}" not published`);
-    const pointList = pointRegather.eids();
-    const cascadeList = cascadeRegather.eids();
     // geometry + the atlas packed lists join the identity check (a re-gather realloc also clears the
     // whole cache via `clearGroups` — the lists here make the entry self-consistent even without it)
     const resources: BindResource[] = [
@@ -340,33 +426,7 @@ function recordSurface(draw: Draw, surface: Surface): Recorded | null {
     if (pointList) resources.push(pointList);
     if (cascadeList) resources.push(cascadeList);
 
-    const prev = getGroup(draw.name, surface);
-    if (
-        prev &&
-        prev.resources.length === resources.length &&
-        prev.resources.every((b, k) => b === resources[k])
-    ) {
-        return { t, g: prev, index: mesh.indices };
-    }
-
     const root = Compute.root;
-    // the two layout objects share one loose signature here — the color/depth `vertices` element split
-    // is real at authoring time, but a bind group takes raw buffers either way (the `layout.$` cast class)
-    const group = (
-        lay: unknown,
-        vertices: TgpuBuffer<AnyData>,
-        override?: Record<string, BindResource>,
-    ) =>
-        root.unwrap(
-            root.createBindGroup(
-                lay as TgpuBindGroupLayout,
-                {
-                    ...resolved.values,
-                    ...override,
-                    vertices,
-                } as never,
-            ),
-        );
     const engineCache = new Map<number, GPUBindGroup>();
     const clip = surface.blend === "clip";
     const depthLayout = clip ? surface.layout : surface.layout.depthVariant;
@@ -375,16 +435,22 @@ function recordSurface(draw: Draw, surface: Surface): Recorded | null {
         owner: surface,
         layout: surface.layout,
         quant: root.unwrap(mesh.quant),
-        color: group(surface.layout, mesh.vertices),
+        color: surfaceGroup(resolved.values, surface.layout, mesh.vertices),
         // `alpha` compiles no depth-side pipelines, so it needs no depth-shape groups
-        depth: surface.blend === "alpha" ? null : group(depthLayout, depthVertices),
+        depth:
+            surface.blend === "alpha"
+                ? null
+                : surfaceGroup(resolved.values, depthLayout, depthVertices),
         // an authored tag receives the full fragment context (requested uv/localPos + custom varyings),
         // so its tag pair reads the main stream even while an opaque depth-only pass stays compact
-        tag: surface.tag ? group(surface.layout, mesh.vertices) : null,
-        point: t.point && pointList ? group(depthLayout, depthVertices, { eids: pointList }) : null,
+        tag: surface.tag ? surfaceGroup(resolved.values, surface.layout, mesh.vertices) : null,
+        point:
+            t.point && pointList
+                ? surfaceGroup(resolved.values, depthLayout, depthVertices, { eids: pointList })
+                : null,
         cascade:
             t.cascade && cascadeList
-                ? group(depthLayout, depthVertices, { eids: cascadeList })
+                ? surfaceGroup(resolved.values, depthLayout, depthVertices, { eids: cascadeList })
                 : null,
         eids: resolved.values.eids
             ? root.unwrap(resolved.values.eids as TgpuBuffer<AnyData>)
@@ -392,10 +458,22 @@ function recordSurface(draw: Draw, surface: Surface): Recorded | null {
         engineCache,
         atlasG0: engineGroup(engineCache, 0, root.unwrap(mesh.quant)),
         resources,
+        names: resolved.names,
+        registries: resolved.registries,
+        bound: new Map(),
+        item: null!,
+        variant,
     };
+    entry.item = { draw, r: { t, g: entry, index: mesh.indices } };
     setGroup(draw.name, entry);
-    return { t, g: entry, index: mesh.indices };
+    return entry.item;
 }
+
+// the frame's resolved draws (the first `_frameCount`), resolved once by PrepassSystem and shared across
+// the prepass, shadow atlases, and color pass — they all draw the same resolved records, so resolving
+// per-pass (the old 3×) was wasted work
+const _frameDraws: FrameDraw[] = [];
+let _frameCount = 0;
 
 /**
  * the frame's draw list: every registered {@link Draw} with a compiled surface + published
@@ -404,13 +482,14 @@ function recordSurface(draw: Draw, surface: Surface): Recorded | null {
  * resolves it once per frame into `_frameDraws` and the prepass, shadow map, and color pass all
  * render every camera against that one list
  */
-function resolveDraws(): { draw: Draw; r: Recorded }[] {
-    const items: { draw: Draw; r: Recorded }[] = [];
-    for (const draw of Draws.values()) {
-        const r = record(draw);
-        if (r) items.push({ draw, r });
-    }
-    return items;
+function resolveDraws(): void {
+    _frameCount = 0;
+    Draws.forEach(resolveDraw);
+}
+
+function resolveDraw(draw: Draw): void {
+    const item = record(draw);
+    if (item) _frameDraws[_frameCount++] = item;
 }
 
 const _depth = new Map<
@@ -468,32 +547,27 @@ function laneTarget(
     return entry;
 }
 
-const _colorTargets = new Map<
-    number,
-    {
-        color: GPUTexture | null;
-        colorView: GPUTextureView | null;
-        depth: GPUTexture;
-        depthView: GPUTextureView;
-        w: number;
-        h: number;
-        aa: boolean;
-    }
->();
+type ColorTargets = {
+    color: GPUTexture | null;
+    colorView: GPUTextureView | null;
+    depth: GPUTexture;
+    depthView: GPUTextureView;
+    w: number;
+    h: number;
+    aa: boolean;
+    /** the camera's color pass label */
+    label: string;
+};
+
+const _colorTargets = new Map<number, ColorTargets>();
 
 // the per-camera color-pass targets, by AA mode. AA on: a 4× MSAA color (resolved into the offscreen at
 // pass end) + a 4× depth. AA off: no MSAA color (the pass renders straight into view.framebuffer) + a 1×
 // depth. The color pass owns this depth (`less` + write, cleared each frame); the prepass + shadow map
 // keep their own 1× depth (never cross-compared). Sized to the view + keyed on AA, recreated on resize/toggle
-function colorTargets(
-    eid: number,
-    w: number,
-    h: number,
-    aa: boolean,
-): { color: GPUTextureView | null; depth: GPUTextureView } {
+function colorTargets(eid: number, w: number, h: number, aa: boolean): ColorTargets {
     const cached = _colorTargets.get(eid);
-    if (cached && cached.w === w && cached.h === h && cached.aa === aa)
-        return { color: cached.colorView, depth: cached.depthView };
+    if (cached && cached.w === w && cached.h === h && cached.aa === aa) return cached;
     cached?.color?.destroy();
     cached?.depth.destroy();
     const samples = aa ? SAMPLE_COUNT : 1;
@@ -521,45 +595,72 @@ function colorTargets(
         w,
         h,
         aa,
+        label: `sear-color/${eid}`,
     };
     _colorTargets.set(eid, entry);
-    return { color: entry.colorView, depth: entry.depthView };
+    return entry;
 }
 
-// the geometry pass (one color target — the prepass lanes ride their own pass). AA on: the opaque draws
-// clear + write `msaaColor`, the transparent draws blend over, and it resolves into the offscreen once at
-// pass end (`discard` — the resolve fires regardless and nothing reads the MSAA target after). AA off:
-// `msaaColor` is null — render straight into the offscreen, no resolve, **`store`** the result (`discard`
-// would throw away the only copy → a black frame). The depth `discard`s either way (transient)
+// the color pass's clear color, its two color attachment shapes and its descriptor, rewritten per camera so
+// opening the pass mints only its WebGPU objects
+type ViewColorAttachment = Omit<GPURenderPassColorAttachment, "view" | "resolveTarget"> & {
+    view: GPUTextureView;
+    resolveTarget?: GPUTextureView;
+};
+// the color pass's clear value, and the packed sRGB it was decoded from: a camera's clear color is
+// unpacked only on the frame it changes
+const _clearValue = { r: 0, g: 0, b: 0, a: 1 };
+let _clearPacked = -1;
+const _msaaColor: ViewColorAttachment = {
+    view: null!,
+    resolveTarget: null!,
+    loadOp: "clear",
+    storeOp: "discard",
+    clearValue: _clearValue,
+};
+const _directColor: ViewColorAttachment = {
+    view: null!,
+    loadOp: "clear",
+    storeOp: "store",
+    clearValue: _clearValue,
+};
+const _colorAttachments: ViewColorAttachment[] = [_msaaColor];
+const _colorDepth: Omit<GPURenderPassDepthStencilAttachment, "view"> & { view: GPUTextureView } = {
+    view: null!,
+    depthLoadOp: "clear",
+    depthStoreOp: "discard",
+    depthClearValue: 0,
+};
+const _colorPass: TgpuRenderPassDescriptor = {
+    label: "",
+    colorAttachments: _colorAttachments,
+    depthStencilAttachment: _colorDepth,
+};
+
+// the geometry pass (one color target — the prepass lanes ride their own pass), cleared to `_clearValue`.
+// AA on: the opaque draws clear + write `msaaColor`, the transparent draws blend over, and it resolves into
+// the offscreen once at pass end (`discard` — the resolve fires regardless and nothing reads the MSAA target
+// after). AA off: `msaaColor` is null — render straight into the offscreen, no resolve, **`store`** the
+// result (`discard` would throw away the only copy → a black frame). The depth `discard`s either way
+// (transient)
 function beginColor(
-    eid: number,
+    label: string,
     msaaColor: GPUTextureView | null,
     depth: GPUTextureView,
     framebuffer: GPUTextureView,
-    clear: ReturnType<typeof unpackColor>,
-) {
-    const clearValue = { ...clear, a: 1 };
-    return Render.encoder!.beginRenderPass({
-        label: `sear-color/${eid}`,
-        timestampWrites: Compute.span?.("sear:color"),
-        colorAttachments: [
-            msaaColor
-                ? {
-                      view: msaaColor,
-                      resolveTarget: framebuffer,
-                      loadOp: "clear",
-                      storeOp: "discard",
-                      clearValue,
-                  }
-                : { view: framebuffer, loadOp: "clear", storeOp: "store", clearValue },
-        ],
-        depthStencilAttachment: {
-            view: depth,
-            depthLoadOp: "clear",
-            depthStoreOp: "discard",
-            depthClearValue: 0,
-        },
-    });
+): TgpuRenderPass {
+    if (msaaColor) {
+        _msaaColor.view = msaaColor;
+        _msaaColor.resolveTarget = framebuffer;
+        _colorAttachments[0] = _msaaColor;
+    } else {
+        _directColor.view = framebuffer;
+        _colorAttachments[0] = _directColor;
+    }
+    _colorDepth.view = depth;
+    _colorPass.label = label;
+    _colorPass.timestampWrites = Compute.span?.("sear:color");
+    return Render.frame!.beginRenderPass(_colorPass);
 }
 
 /**
@@ -576,11 +677,12 @@ function beginColor(
 function renderPrepass(
     eid: number,
     view: View,
-    items: { draw: Draw; r: Recorded }[],
+    items: FrameDraw[],
+    count: number,
     lanes: ColorLane[],
     storeDepth: boolean,
 ): void {
-    if (!Render.encoder || !view.framebuffer) return;
+    if (!Render.frame || !view.framebuffer) return;
     const depth = depthView(eid, view.width, view.height);
     const key = laneKey(lanes);
     const colorAttachments = lanes.map((lane) => {
@@ -593,7 +695,7 @@ function renderPrepass(
             clearValue: lane.clear,
         };
     });
-    const pass = Render.encoder.beginRenderPass({
+    const pass = Render.frame.beginRenderPass({
         label: `sear-prepass/${eid}`,
         timestampWrites: Compute.span?.("sear:prepass"),
         colorAttachments,
@@ -607,22 +709,20 @@ function renderPrepass(
         },
     });
     let draws = 0;
-    for (const { draw, r } of items) {
+    const tagLane = lanes.some((lane) => lane.name === "tag");
+    const shadow = shadowGroup();
+    for (let i = 0; i < count; i++) {
+        const { draw, r } = items[i];
         const pipe = r.t.prepass.get(key);
-        const group = lanes.some((lane) => lane.name === "tag")
-            ? (r.g.tag ?? r.g.depth)
-            : r.g.depth;
+        const group = tagLane ? (r.g.tag ?? r.g.depth) : r.g.depth;
         if (pipe && group) {
-            pipe.with(pass)
-                .with(engineLayout, engineGroup(r.g.engineCache, view.slot, r.g.quant))
-                .with(shadowLayout, shadowGroup())
-                .with(r.g.layout, group)
-                .with(r.g.layout.depthVariant, group)
-                .withIndexBuffer(r.index)
-                .drawIndexedIndirect(
-                    draw.args.indirect,
-                    (draw.args.offset ?? 0) + view.slot * (draw.args.viewStride ?? 0),
-                );
+            pass.setPipeline(boundPipeline(r.g, pipe, group, true, r.index));
+            pass.setBindGroup(engineLayout, engineGroup(r.g.engineCache, view.slot, r.g.quant));
+            pass.setBindGroup(shadowLayout, shadow);
+            pass.drawIndexedIndirect(
+                Compute.root.unwrap(draw.args.indirect),
+                (draw.args.offset ?? 0) + view.slot * (draw.args.viewStride ?? 0),
+            );
             draws++;
         }
     }
@@ -683,39 +783,57 @@ function backgroundGroup(bg: Background, ct: CompiledBackground): GPUBindGroup |
  * backdrop between the opaque and blend draws: masked to far-plane pixels by the depth test, so geometry
  * overdraws it and blended draws composite over it; null leaves the flat clear color as the only backdrop
  */
+// one opaque or blended surface draw in a camera's color pass at its view slot
+function drawColor(
+    pass: TgpuRenderPass,
+    item: FrameDraw,
+    pipe: TgpuRenderPipeline<any>,
+    slot: number,
+    shadow: GPUBindGroup,
+): void {
+    const { draw, r } = item;
+    pass.setPipeline(boundPipeline(r.g, pipe, r.g.color, false, r.index));
+    pass.setBindGroup(engineLayout, engineGroup(r.g.engineCache, slot, r.g.quant));
+    pass.setBindGroup(shadowLayout, shadow);
+    pass.drawIndexedIndirect(
+        Compute.root.unwrap(draw.args.indirect),
+        (draw.args.offset ?? 0) + slot * (draw.args.viewStride ?? 0),
+    );
+}
+
 function renderColor(
     eid: number,
     view: View,
-    items: { draw: Draw; r: Recorded }[],
+    items: FrameDraw[],
+    count: number,
     bg: BackdropPick | null = null,
 ): void {
-    if (!Render.encoder || !view.framebuffer) return;
+    if (!Render.frame || !view.framebuffer) return;
     // per-camera AA: 4× MSAA when `Camera.antialias` is on (the default the Camera trait seeds), else
     // single-sample. A scene attribute or a runtime `Camera.antialias.set(eid, 0)` flips it live
     const aa = Camera.antialias.get(eid) !== 0;
-    const clear = unpackColor(Camera.clearColor.get(eid));
-    const { color: msaaColor, depth } = colorTargets(eid, view.width, view.height, aa);
-    const pass = beginColor(eid, msaaColor, depth, view.framebuffer, clear);
+    const packed = Camera.clearColor.get(eid);
+    if (packed !== _clearPacked) {
+        const clear = unpackColor(packed);
+        _clearValue.r = clear.r;
+        _clearValue.g = clear.g;
+        _clearValue.b = clear.b;
+        _clearPacked = packed;
+    }
+    const targets = colorTargets(eid, view.width, view.height, aa);
+    const pass = beginColor(targets.label, targets.colorView, targets.depthView, view.framebuffer);
+    const shadow = shadowGroup();
     // tally the indirect draws this camera issues (opaque + blend) so the profiler derives the injected
     // validation floor; the honest count is post the `if (pipe)` skip
     let draws = 0;
-    const drawTyped = (draw: Draw, r: RecordedSurface, pipe: (typeof r.t)["color"]): void => {
-        pipe!
-            .with(pass)
-            .with(engineLayout, engineGroup(r.g.engineCache, view.slot, r.g.quant))
-            .with(shadowLayout, shadowGroup())
-            .with(r.g.layout, r.g.color)
-            .withIndexBuffer(r.index)
-            .drawIndexedIndirect(
-                draw.args.indirect,
-                (draw.args.offset ?? 0) + view.slot * (draw.args.viewStride ?? 0),
-            );
-        draws++;
-    };
-    for (const { draw, r } of items) {
-        if (!aa) ensureSingle(r.t);
-        const pipe = aa ? r.t.color : r.t.single?.color;
-        if (pipe) drawTyped(draw, r, pipe);
+    for (let i = 0; i < count; i++) {
+        const item = items[i];
+        if (!aa) ensureSingle(item.r.t);
+        const pipe = aa ? item.r.t.color : item.r.t.single?.color;
+        if (pipe) {
+            drawColor(pass, item, pipe, view.slot, shadow);
+            draws++;
+        }
     }
     // the backdrop: a fullscreen triangle at the far plane, after opaque (the depth test masks it to
     // un-rendered pixels) and before blend (so transparent draws composite over it). The bg pipeline
@@ -727,27 +845,29 @@ function renderColor(
         // group-count-compatibility reason `compileBackground` documents), and its own group 2
         const group = backgroundGroup(bg.bg, bg.ct);
         if (group) {
-            const pipe = aa ? bg.ct.color : bg.ct.single;
-            let bound = pipe
-                .with(pass)
-                .with(engineLayout, engineGroup(bg.ct.engineCache, view.slot, bgQuant()))
-                .with(shadowLayout, shadowGroup());
-            if (group !== "none") bound = bound.with(bg.bg.layout, group);
-            bound.draw(3);
+            pass.setPipeline(aa ? bg.ct.color : bg.ct.single);
+            pass.setBindGroup(engineLayout, engineGroup(bg.ct.engineCache, view.slot, bgQuant()));
+            pass.setBindGroup(shadowLayout, shadow);
+            if (group !== "none") pass.setBindGroup(bg.bg.layout, group);
+            pass.draw(3);
         }
     }
-    for (const { draw, r } of items) {
-        const pipe = aa ? r.t.transparent : r.t.single?.transparent;
-        if (pipe) drawTyped(draw, r, pipe);
+    for (let i = 0; i < count; i++) {
+        const item = items[i];
+        const pipe = aa ? item.r.t.transparent : item.r.t.single?.transparent;
+        if (pipe) {
+            drawColor(pass, item, pipe, view.slot, shadow);
+            draws++;
+        }
     }
     pass.end();
     Compute.indirect?.("sear:color", draws);
 }
 
-// the frame's draw list, resolved once by PrepassSystem (the first geometry pass) and shared across the
-// prepass, shadow atlases, and color pass — they all draw the same resolved records, so resolving per-pass
-// (the old 3×) was wasted work
-let _frameDraws: { draw: Draw; r: Recorded }[] = [];
+// the Sear camera query terms, and the point caster frames `ShadowCameraSystem` ranks into (a capacity pool
+// `updatePointShadows` grows and rewrites in place)
+const SEAR_CAMERAS = [Camera, Sear];
+const _pointFrames: PointShadowFrame[] = [];
 
 /**
  * compile the forward pipelines for every registered surface, sharing one shader module: a 4× MSAA
@@ -838,10 +958,10 @@ export const PrepassSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     update(state) {
-        if (!Render.encoder) return;
+        if (!Render.frame) return;
         // resolve once for the prepass + shadow map + color pass (they all run after this)
-        _frameDraws = resolveDraws();
-        for (const eid of state.query([Camera, Sear])) {
+        resolveDraws();
+        for (const eid of state.query(SEAR_CAMERAS)) {
             const view = Views.get(eid);
             if (!view?.framebuffer) continue;
             // markers → the requested lanes. The id lane is a color attachment; depth is the
@@ -849,10 +969,20 @@ export const PrepassSystem: System = {
             // camera that drops a marker stops publishing its lane
             view.tag = null;
             view.depth = null;
-            const lanes = COLOR_LANES.filter((l) => state.has(eid, l.marker));
             const storeDepth = state.has(eid, Depth);
-            if (lanes.length === 0 && !storeDepth) continue; // no lane requested — bare path
-            renderPrepass(eid, view, _frameDraws, lanes, storeDepth);
+            let marked = false;
+            for (let l = 0; l < COLOR_LANES.length; l++) {
+                if (state.has(eid, COLOR_LANES[l].marker)) {
+                    marked = true;
+                    break;
+                }
+            }
+            if (!marked && !storeDepth) continue; // no lane requested — bare path
+            const lanes: ColorLane[] = [];
+            for (let l = 0; l < COLOR_LANES.length; l++) {
+                if (state.has(eid, COLOR_LANES[l].marker)) lanes.push(COLOR_LANES[l]);
+            }
+            renderPrepass(eid, view, _frameDraws, _frameCount, lanes, storeDepth);
         }
     },
 };
@@ -872,11 +1002,11 @@ export const ColorSystem: System = {
     after: [PrepassSystem],
     before: [GlazeSystem],
     update(state) {
-        if (!Render.encoder) return;
-        for (const eid of state.query([Camera, Sear])) {
+        if (!Render.frame) return;
+        for (const eid of state.query(SEAR_CAMERAS)) {
             const view = Views.get(eid);
             if (!view?.framebuffer) continue;
-            renderColor(eid, view, _frameDraws, backdrop(state, eid));
+            renderColor(eid, view, _frameDraws, _frameCount, backdrop(state, eid));
         }
     },
 };
@@ -893,18 +1023,18 @@ const ShadowCameraSystem: System = {
     group: "simulation",
     update(state) {
         let main = -1;
-        for (const eid of state.query([Camera, Sear])) {
+        for (const eid of state.query(SEAR_CAMERAS)) {
             main = eid;
             break;
         }
-        const frames = updatePointShadows(state, main);
-        setPointFrames(frames);
+        const casters = updatePointShadows(state, main, _pointFrames);
+        setPointFrames(_pointFrames, casters);
         updateCascades(state, main);
         // allocate each atlas's re-gather list here, before record() (PrepassSystem) builds the cast bind
         // groups that bind it — so the first casting frame's groups include it (the alloc clears the
         // resolved-bind-group cache), no one-frame delay. Idempotent once allocated; the render fns call it
         // again harmlessly
-        if (frames.length > 0 && shadowReady()) pointRegather.ensure(pointCasters() * 6);
+        if (casters > 0 && shadowReady()) pointRegather.ensure(pointCasters() * 6);
         if (cascadeCount() > 0 && shadowReady()) cascadeRegather.ensure(MAX_CASCADES);
     },
 };
@@ -922,8 +1052,8 @@ const ShadowMapSystem: System = {
     after: [PrepassSystem],
     before: [ColorSystem],
     update() {
-        renderPointShadows(_frameDraws);
-        renderCascades(_frameDraws);
+        renderPointShadows(_frameDraws, _frameCount);
+        renderCascades(_frameDraws, _frameCount);
     },
 };
 

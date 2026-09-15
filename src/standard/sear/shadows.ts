@@ -107,6 +107,16 @@ export function sunResolution(): number {
     return Math.min(4096, 1 << Math.round(Math.log2(s)));
 }
 
+// a light box placement: the light eye, its look target and up hint, the ortho half-extent (`cover`) and
+// the near-extended box depth. The fits write one in place.
+type LightFit = {
+    eye: Float64Array;
+    focus: Float64Array;
+    up: Float64Array;
+    /** `[cover, depth]`: the ortho half-extent and the near-extended box depth */
+    extent: Float64Array;
+};
+
 // from a fit center + ortho half-extent, place the light eye back toward the sun and snap it onto the light's
 // texel grid (the plane ⊥ the sun) so the shadow doesn't crawl as the box moves. `margin` extends the box's
 // near plane *toward the light* past the fit (Bevy pushes the directional near plane to ∞, three.js's finite
@@ -115,25 +125,21 @@ export function sunResolution(): number {
 // bleed). The eye moves back by `cover + margin`, the far stays at `center + dir·cover`, so the box depth is
 // `2·cover + margin`. `margin` is along the sun, ⊥ the snap plane, so the texel snap is unaffected. Shared by
 // the per-cascade slice fit ({@link cascadeFit}) and the ortho footprint fit ({@link orthoFootprintFit}).
+// It writes the placement into `out`.
 function placeFromCenter(
     cenX: number,
     cenY: number,
     cenZ: number,
     cover: number,
-    dir: readonly [number, number, number],
+    dir: ArrayLike<number>,
     resolution: number,
     margin: number,
-): {
-    eye: [number, number, number];
-    focus: [number, number, number];
-    up: [number, number, number];
-    cover: number;
-    depth: number;
-} {
+    out: LightFit,
+): LightFit {
     let dx = dir[0];
     let dy = dir[1];
     let dz = dir[2];
-    const dl = Math.hypot(dx, dy, dz) || 1;
+    const dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
     dx /= dl;
     dy /= dl;
     dz /= dl;
@@ -145,7 +151,7 @@ function placeFromCenter(
     let rx = upY * dz - upZ * dy;
     let ry = upZ * dx;
     let rz = -upY * dx;
-    const rl = Math.hypot(rx, ry, rz) || 1;
+    const rl = Math.sqrt(rx * rx + ry * ry + rz * rz) || 1;
     rx /= rl;
     ry /= rl;
     rz /= rl;
@@ -167,13 +173,18 @@ function placeFromCenter(
     ey += sr * ry + su * uy;
     ez += sr * rz + su * uz;
 
-    return {
-        eye: [ex, ey, ez],
-        focus: [ex + dx * back, ey + dy * back, ez + dz * back],
-        up: [0, upY, upZ],
-        cover,
-        depth: 2 * cover + margin,
-    };
+    out.eye[0] = ex;
+    out.eye[1] = ey;
+    out.eye[2] = ez;
+    out.focus[0] = ex + dx * back;
+    out.focus[1] = ey + dy * back;
+    out.focus[2] = ez + dz * back;
+    out.up[0] = 0;
+    out.up[1] = upY;
+    out.up[2] = upZ;
+    out.extent[0] = cover;
+    out.extent[1] = 2 * cover + margin;
+    return out;
 }
 
 /**
@@ -181,17 +192,22 @@ function placeFromCenter(
  * CSM, MJP): each bound is `lerp(uniform, logarithmic, lambda)` between a uniform split (equal world depth
  * per cascade) and a logarithmic one (equal depth *ratio*), `lambda ≈ 0.5` the three.js + Bevy default.
  * Cascade `i` covers `[splits[i-1], splits[i]]` (`splits[-1]` = `near` implicitly); the last bound is `far`
- * exactly. Pure; exported for the split test. The receiver selects a cascade by these bounds (Bevy
- * `get_cascade_index`), so they're the same numbers the fit and the FS read.
+ * exactly. Writes the `n` bounds into `out`; otherwise pure. The receiver selects a cascade by these bounds
+ * (Bevy `get_cascade_index`), so they're the same numbers the fit and the FS read.
  */
-export function cascadeSplits(near: number, far: number, n: number, lambda: number): number[] {
+export function cascadeSplits(
+    near: number,
+    far: number,
+    n: number,
+    lambda: number,
+    out: Float64Array,
+): Float64Array {
     const ratio = far / Math.max(near, 1e-6);
-    const out: number[] = [];
     for (let i = 1; i <= n; i++) {
         const p = i / n;
         const uniform = near + (far - near) * p;
         const log = near * ratio ** p;
-        out.push(uniform + (log - uniform) * lambda);
+        out[i - 1] = uniform + (log - uniform) * lambda;
     }
     return out;
 }
@@ -204,7 +220,8 @@ export function cascadeSplits(near: number, far: number, n: number, lambda: numb
  * diagonal, whichever is longer, three.js CSM), so the `cover` is rotation-stable as the camera turns
  * (no per-frame size pumping). `margin` extends the box's near plane toward the light ({@link placeFromCenter})
  * so a tight cascade still captures occluders above its slice. Reads only the camera pose + projection (the
- * perspective `fov` or the ortho `size`), never its own near/far. Pure; exported for the cascade-fit test.
+ * perspective `fov` or the ortho `size`), never its own near/far. Writes the placement into `out`,
+ * otherwise pure.
  */
 export function cascadeFit(
     camWorld: Float32Array,
@@ -212,18 +229,13 @@ export function cascadeFit(
     fov: number,
     size: number,
     aspect: number,
-    dir: readonly [number, number, number],
     nearSplit: number,
     farSplit: number,
+    dir: ArrayLike<number>,
     resolution: number,
     margin: number,
-): {
-    eye: [number, number, number];
-    focus: [number, number, number];
-    up: [number, number, number];
-    cover: number;
-    depth: number;
-} {
+    out: LightFit,
+): LightFit {
     const px = camWorld[12];
     const py = camWorld[13];
     const pz = camWorld[14];
@@ -231,54 +243,63 @@ export function cascadeFit(
     let fx = -camWorld[8];
     let fy = -camWorld[9];
     let fz = -camWorld[10];
-    const fl = Math.hypot(fx, fy, fz) || 1;
+    const fl = Math.sqrt(fx * fx + fy * fy + fz * fz) || 1;
     fx /= fl;
     fy /= fl;
     fz /= fl;
     let rx = camWorld[0];
     let ry = camWorld[1];
     let rz = camWorld[2];
-    const rl = Math.hypot(rx, ry, rz) || 1;
+    const rl = Math.sqrt(rx * rx + ry * ry + rz * rz) || 1;
     rx /= rl;
     ry /= rl;
     rz /= rl;
     let ux = camWorld[4];
     let uy = camWorld[5];
     let uz = camWorld[6];
-    const ul = Math.hypot(ux, uy, uz) || 1;
+    const ul = Math.sqrt(ux * ux + uy * uy + uz * uz) || 1;
     ux /= ul;
     uy /= ul;
     uz /= ul;
 
-    // the slice half-extents at depth d: a perspective camera's grow linearly (tan(fov/2)), an ortho
-    // camera's are constant (its `size`); aspect widens the horizontal
+    // the slice half-extents at the near and far split: a perspective camera's grow linearly (tan(fov/2)),
+    // an ortho camera's are constant (its `size`); aspect widens the horizontal
     const tanH = mode === CameraMode.Orthographic ? 0 : Math.tan((fov * Math.PI) / 360);
-    const halfH = (d: number) => (mode === CameraMode.Orthographic ? size : d * tanH);
-    const corner = (d: number, sh: number, sv: number): [number, number, number] => {
-        const hw = halfH(d) * aspect;
-        const hh = halfH(d);
-        return [
-            px + fx * d + rx * sh * hw + ux * sv * hh,
-            py + fy * d + ry * sh * hw + uy * sv * hh,
-            pz + fz * d + rz * sh * hw + uz * sv * hh,
-        ];
-    };
-    // the symmetric slice's bounding sphere: one extreme is a far corner, the other the opposite corner
-    // of whichever diagonal is longer (the far plane's, or the full slice's) — both lie on the view axis
-    const a = corner(farSplit, 1, 1);
-    const farOpp = corner(farSplit, -1, -1);
-    const nearOpp = corner(nearSplit, -1, -1);
-    const dist = (p: number[], q: number[]) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
-    const b = dist(a, nearOpp) > dist(a, farOpp) ? nearOpp : farOpp;
-    const cover = dist(a, b) / 2;
+    const farH = mode === CameraMode.Orthographic ? size : farSplit * tanH;
+    const farW = farH * aspect;
+    const nearH = mode === CameraMode.Orthographic ? size : nearSplit * tanH;
+    const nearW = nearH * aspect;
+    // the symmetric slice's bounding sphere: one extreme is the far (+right, +up) corner, the other the
+    // opposite corner of whichever diagonal is longer (the far plane's, or the full slice's) — both lie on
+    // the view axis
+    const ax = px + fx * farSplit + rx * farW + ux * farH;
+    const ay = py + fy * farSplit + ry * farW + uy * farH;
+    const az = pz + fz * farSplit + rz * farW + uz * farH;
+    const farX = px + fx * farSplit - rx * farW - ux * farH;
+    const farY = py + fy * farSplit - ry * farW - uy * farH;
+    const farZ = pz + fz * farSplit - rz * farW - uz * farH;
+    const nearX = px + fx * nearSplit - rx * nearW - ux * nearH;
+    const nearY = py + fy * nearSplit - ry * nearW - uy * nearH;
+    const nearZ = pz + fz * nearSplit - rz * nearW - uz * nearH;
+    const nearDist = Math.sqrt(
+        (ax - nearX) * (ax - nearX) + (ay - nearY) * (ay - nearY) + (az - nearZ) * (az - nearZ),
+    );
+    const farDist = Math.sqrt(
+        (ax - farX) * (ax - farX) + (ay - farY) * (ay - farY) + (az - farZ) * (az - farZ),
+    );
+    const nearWins = nearDist > farDist;
+    const bx = nearWins ? nearX : farX;
+    const by = nearWins ? nearY : farY;
+    const bz = nearWins ? nearZ : farZ;
     return placeFromCenter(
-        (a[0] + b[0]) / 2,
-        (a[1] + b[1]) / 2,
-        (a[2] + b[2]) / 2,
-        cover,
+        (ax + bx) / 2,
+        (ay + by) / 2,
+        (az + bz) / 2,
+        (nearWins ? nearDist : farDist) / 2,
         dir,
         resolution,
         margin,
+        out,
     );
 }
 
@@ -291,24 +312,19 @@ export function cascadeFit(
  * (the extra travel as `v` changes the height it must fall), so the footprint corners are `center ± Kr ± Ku`
  * and the bounding radius is the longer half-diagonal. A camera not angled at the ground (`fwd.y ≥ −1e-3`)
  * has no convergent footprint, so it falls back to a forward-distance box (`center = pos + fwd·distance`,
- * `cover = distance`). `margin` extends the near plane toward the light ({@link placeFromCenter}). Pure;
- * exported for the fit test.
+ * `cover = distance`). `margin` extends the near plane toward the light ({@link placeFromCenter}). Writes
+ * the placement into `out`, otherwise pure.
  */
 export function orthoFootprintFit(
     camWorld: Float32Array,
     size: number,
     aspect: number,
-    dir: readonly [number, number, number],
+    dir: ArrayLike<number>,
     distance: number,
     resolution: number,
     margin: number,
-): {
-    eye: [number, number, number];
-    focus: [number, number, number];
-    up: [number, number, number];
-    cover: number;
-    depth: number;
-} {
+    out: LightFit,
+): LightFit {
     const px = camWorld[12];
     const py = camWorld[13];
     const pz = camWorld[14];
@@ -316,7 +332,7 @@ export function orthoFootprintFit(
     let fx = -camWorld[8];
     let fy = -camWorld[9];
     let fz = -camWorld[10];
-    const fl = Math.hypot(fx, fy, fz) || 1;
+    const fl = Math.sqrt(fx * fx + fy * fy + fz * fz) || 1;
     fx /= fl;
     fy /= fl;
     fz /= fl;
@@ -329,14 +345,14 @@ export function orthoFootprintFit(
         let crx = camWorld[0];
         let cry = camWorld[1];
         let crz = camWorld[2];
-        const crl = Math.hypot(crx, cry, crz) || 1;
+        const crl = Math.sqrt(crx * crx + cry * cry + crz * crz) || 1;
         crx /= crl;
         cry /= crl;
         crz /= crl;
         let cux = camWorld[4];
         let cuy = camWorld[5];
         let cuz = camWorld[6];
-        const cul = Math.hypot(cux, cuy, cuz) || 1;
+        const cul = Math.sqrt(cux * cux + cuy * cuy + cuz * cuz) || 1;
         cux /= cul;
         cuy /= cul;
         cuz /= cul;
@@ -351,8 +367,8 @@ export function orthoFootprintFit(
         const krz = hw * (crz - (cry / fy) * fz);
         const kux = hh * (cux - (cuy / fy) * fx);
         const kuz = hh * (cuz - (cuy / fy) * fz);
-        const diagA = Math.hypot(krx + kux, krz + kuz);
-        const diagB = Math.hypot(krx - kux, krz - kuz);
+        const diagA = Math.sqrt((krx + kux) * (krx + kux) + (krz + kuz) * (krz + kuz));
+        const diagB = Math.sqrt((krx - kux) * (krx - kux) + (krz - kuz) * (krz - kuz));
         cover = Math.max(diagA, diagB);
     } else {
         cenX = px + fx * distance;
@@ -361,7 +377,7 @@ export function orthoFootprintFit(
         cover = distance;
     }
 
-    return placeFromCenter(cenX, cenY, cenZ, cover, dir, resolution, margin);
+    return placeFromCenter(cenX, cenY, cenZ, cover, dir, resolution, margin, out);
 }
 
 // ---- CSM: the cascade combo-camera pool (the sun's analogue of the point combo pool) ----
@@ -374,13 +390,16 @@ export function orthoFootprintFit(
 // sear re-gathers the per-cascade culled members into one indirect draw per casting mesh (the point path's
 // shared `Regather`), and the receiver selects a cascade by view-depth + blends across the overlap band.
 
-/** the atlas-UV tile rect `[u0, v0, du, dv]` for cascade `k` of `n` in the fixed cascade grid. Cascades are
- * equal-resolution, so a deterministic `ceil(√n)`-per-side grid packs them (n=1 → the whole atlas; n=2 →
- * side-by-side; n∈{3,4} → 2×2): no importance allocator. Pure; unit-pinned. */
-export function cascadeTileRect(k: number, n: number): [number, number, number, number] {
+/** the atlas-UV tile rect `[u0, v0, du, dv]` for cascade `k` of `n` in the fixed cascade grid, written into
+ * `out` at `at`. Cascades are equal-resolution, so a deterministic `ceil(√n)`-per-side grid packs them (n=1 →
+ * the whole atlas; n=2 → side-by-side; n∈{3,4} → 2×2): no importance allocator. Otherwise pure. */
+export function cascadeTileRect(k: number, n: number, out: Float32Array, at: number): void {
     const cols = Math.ceil(Math.sqrt(n));
     const d = 1 / cols;
-    return [(k % cols) * d, Math.floor(k / cols) * d, d, d];
+    out[at] = (k % cols) * d;
+    out[at + 1] = Math.floor(k / cols) * d;
+    out[at + 2] = d;
+    out[at + 3] = d;
 }
 
 /** the cascade atlas side in pixels: `ceil(√n) · resolution` (each cascade a `resolution`-square tile in the
@@ -407,14 +426,38 @@ const _cascadeMetaArr = new Uint32Array(MAX_CASCADES * 4);
 const _cascadeRectsArr = new Float32Array(MAX_CASCADES * 4);
 const _cascadeFarArr = new Float32Array(MAX_CASCADES);
 const _cascadeCoverArr = new Float32Array(MAX_CASCADES);
+// each posed cascade camera's box depth (its `Camera.far`), f32 like the field it is written to, so a
+// read-back that no longer matches identifies a pose written from outside this pass
+const _cascadeDepthArr = new Float32Array(MAX_CASCADES);
 // the casting sun's per-frame bias knobs (the receiver applies them globally across cascades) — set by
 // updateCascades, read by sear's params write (the renderer has no `state` to re-query the light)
-let _sunDepthBias = 0;
-let _sunNormalBias = 0;
+const _sunBias = new Float64Array(2);
 const _cascWorld = new Float32Array(16);
 const _cascView = new Float32Array(16);
 const _cascProj = new Float32Array(16);
 const _cascTileMat = new Float32Array(16);
+// per-frame cascade scratch: the sun direction, the split bounds, the box placement, one cascade's receiver
+// and folded viewProj before they land in the dense arrays, the posed camera's
+// quaternion
+const SUN_TERMS = [DirectionalLight];
+const _sunDir = new Float64Array(3);
+const _splits = new Float64Array(MAX_CASCADES);
+const _fit: LightFit = {
+    eye: new Float64Array(3),
+    focus: new Float64Array(3),
+    up: new Float64Array(3),
+    extent: new Float64Array(2),
+};
+const _cascRecv = new Float32Array(16);
+const _cascFolded = new Float32Array(16);
+// the inputs the cascades were last built from — the main camera's world matrix, its projection mode, fov,
+// ortho size, the view aspect, near, the max shadow distance, lambda, overlap, resolution, the cascade
+// count and the sun direction — and this frame's candidate. Every cascade output is a pure function of
+// them and lives in the retained arrays above, so a frame that changes none of them fits, projects and
+// poses nothing. NaN until the first build.
+const CASC_KEY_FLOATS = 29;
+const _cascKey = new Float64Array(CASC_KEY_FLOATS).fill(Number.NaN);
+const _cascNext = new Float64Array(CASC_KEY_FLOATS);
 
 /** the pooled cascade cameras' eids, one per active cascade (the first {@link cascadeCount} valid). Each is a
  * depth-only frustum-culled view slot: the per-cascade cull. An oracle reads each one's
@@ -465,10 +508,10 @@ export function cascadeCovers(): Float32Array {
     return _cascadeCoverArr;
 }
 
-/** the casting sun's bias knobs this frame (`depthBias` the residual clip-space lift, `normalBias` the
+/** the casting sun's bias knobs this frame, `[depthBias, normalBias]` (the residual clip-space lift, the
  * receiver normal-offset multiplier): the renderer writes them into the receiver's params. */
-export function sunBias(): { depthBias: number; normalBias: number } {
-    return { depthBias: _sunDepthBias, normalBias: _sunNormalBias };
+export function sunBias(): Float64Array {
+    return _sunBias;
 }
 
 // a pooled cascade camera: an off-screen ortho Camera (no canvas, `attachView`) posed per frame by
@@ -486,6 +529,7 @@ function createCascadeCamera(state: State): number {
 // grow/shrink the cascade-camera pool to exactly `n` (the active cascade count). The count is hysteresis-free
 // but `sunCascades()` is fixed before build, so this is effectively a one-time create
 function syncCascadePool(state: State, n: number): void {
+    if (_cascadeEids.length !== n) _cascKey.fill(Number.NaN);
     while (_cascadeEids.length < n) _cascadeEids.push(createCascadeCamera(state));
     while (_cascadeEids.length > n) {
         const eid = _cascadeEids.pop()!;
@@ -498,23 +542,17 @@ function syncCascadePool(state: State, n: number): void {
 // frustum the pack culls against. `aim` returns the lookAt orientation as a quaternion, so
 // `invert(compose(pos, rot))` equals the `lookAt(eye, eye→focus, up)` the atlas render's `_cascadeRecv` folds
 // the tile onto (the cull frustum and the render projection agree to f32 — the sun camera's guarantee)
-function poseCascade(
-    eid: number,
-    eye: readonly [number, number, number],
-    focus: readonly [number, number, number],
-    up: readonly [number, number, number],
-    cover: number,
-    depth: number,
-): void {
+function poseCascade(eid: number, fit: LightFit): void {
+    const { eye, focus, up } = fit;
     const q = aim(eye[0], eye[1], eye[2], focus[0], focus[1], focus[2], up[0], up[1], up[2]);
     Transform.pos.set(eid, eye[0], eye[1], eye[2], 1);
     Transform.rot.set(eid, q.x, q.y, q.z, q.w);
     Camera.mode.set(eid, CameraMode.Orthographic);
-    Camera.size.set(eid, cover);
     Camera.near.set(eid, 0);
-    // far = the near-extended box depth (2·cover + margin), so the cull frustum matches the render box and
-    // the toward-light occluder margin is culled in, not clipped out
-    Camera.far.set(eid, depth);
+    // size = the cover, far = the near-extended box depth (2·cover + margin), so the cull frustum matches the
+    // render box and the toward-light occluder margin is culled in, not clipped out
+    Camera.size.set(eid, fit.extent[0]);
+    Camera.far.set(eid, fit.extent[1]);
 }
 
 /** destroy the pooled cascade cameras + their views (at plugin dispose). */
@@ -524,12 +562,14 @@ export function destroyCascades(state: State): void {
         state.destroy(eid);
     }
     _cascadeEids = [];
+    _cascKey.fill(Number.NaN);
 }
 
 /** forget the cached cascade camera eids on a (re)build: the prior State owns its own teardown, a fresh one
  * recreates lazily (the same lifecycle-reset as {@link resetPointShadows}). */
 export function resetCascades(): void {
     _cascadeEids = [];
+    _cascKey.fill(Number.NaN);
     _cascadeCount = 0;
 }
 
@@ -550,20 +590,18 @@ export function resetCascades(): void {
  * slice is captured, not clipped. The boxes texel-snap per cascade so the edges don't crawl.
  */
 export function updateCascades(state: State, main: number): void {
-    const light = state.only([DirectionalLight]);
+    const light = state.only(SUN_TERMS);
     if (light < 0 || !state.has(light, Shadow) || main < 0) {
         _cascadeCount = 0;
         return;
     }
     const resolution = sunResolution();
     const maxDist = Math.max(1e-3, Shadow.distance.get(light));
-    _sunDepthBias = Shadow.depthBias.get(light);
-    _sunNormalBias = Shadow.normalBias.get(light);
-    const dir: [number, number, number] = [
-        DirectionalLight.direction.x.get(light),
-        DirectionalLight.direction.y.get(light),
-        DirectionalLight.direction.z.get(light),
-    ];
+    _sunBias[0] = Shadow.depthBias.get(light);
+    _sunBias[1] = Shadow.normalBias.get(light);
+    _sunDir[0] = DirectionalLight.direction.x.get(light);
+    _sunDir[1] = DirectionalLight.direction.y.get(light);
+    _sunDir[2] = DirectionalLight.direction.z.get(light);
     const view = Views.get(main);
     const aspect = view && view.height > 0 ? view.width / view.height : 1;
     composeTransform(main, _cascWorld);
@@ -574,65 +612,115 @@ export function updateCascades(state: State, main: number): void {
     // ortho cameras get one footprint box; perspective gets N depth slices
     const ortho = mode === CameraMode.Orthographic;
     const n = ortho ? 1 : sunCascades();
-    const splits = ortho ? [] : cascadeSplits(near, maxDist, n, SunShadows.lambda);
     const overlap = Math.max(0, SunShadows.overlap);
 
     syncCascadePool(state, n);
+
+    _cascNext.set(_cascWorld, 0);
+    _cascNext[16] = mode;
+    _cascNext[17] = fov;
+    _cascNext[18] = size;
+    _cascNext[19] = aspect;
+    _cascNext[20] = near;
+    _cascNext[21] = maxDist;
+    _cascNext[22] = SunShadows.lambda;
+    _cascNext[23] = overlap;
+    _cascNext[24] = resolution;
+    _cascNext[25] = n;
+    _cascNext[26] = _sunDir[0];
+    _cascNext[27] = _sunDir[1];
+    _cascNext[28] = _sunDir[2];
+    let changed = false;
+    for (let i = 0; i < CASC_KEY_FLOATS; i++) {
+        if (_cascKey[i] !== _cascNext[i]) {
+            changed = true;
+            break;
+        }
+    }
+    // a pooled camera whose size or far no longer reads back what this pass wrote was posed from outside
+    // it (or its eid was recycled under the pool), so the boxes are rebuilt even when the inputs agree
+    if (!changed) {
+        for (let i = 0; i < n; i++) {
+            const cam = _cascadeEids[i];
+            if (cam === undefined) continue;
+            if (
+                Camera.size.get(cam) !== _cascadeCoverArr[i] ||
+                Camera.far.get(cam) !== _cascadeDepthArr[i]
+            ) {
+                changed = true;
+                break;
+            }
+        }
+    }
+    if (!changed) {
+        _cascadeCount = n;
+        return;
+    }
+    _cascKey.set(_cascNext);
+
+    if (!ortho) cascadeSplits(near, maxDist, n, SunShadows.lambda, _splits);
     for (let i = 0; i < n; i++) {
-        let fit: ReturnType<typeof cascadeFit>;
         let farBound: number;
         if (ortho) {
-            fit = orthoFootprintFit(_cascWorld, size, aspect, dir, maxDist, resolution, maxDist);
+            orthoFootprintFit(
+                _cascWorld,
+                size,
+                aspect,
+                _sunDir,
+                maxDist,
+                resolution,
+                maxDist,
+                _fit,
+            );
             // a sentinel beyond any visible fragment's view-z, so the receiver's get_cascade_index always
             // picks this single box (no blend, count = 1)
             farBound = 1e9;
         } else {
-            const farSplit = splits[i];
+            const farSplit = _splits[i];
             // widen the near edge back over the blend band (Bevy's `next_near = (1−overlap)·this_far`), so the
             // band the receiver blends across is covered by both this cascade and its predecessor
-            const nearSplit = i === 0 ? near : (1 - overlap) * splits[i - 1];
-            fit = cascadeFit(
+            const nearSplit = i === 0 ? near : (1 - overlap) * _splits[i - 1];
+            cascadeFit(
                 _cascWorld,
                 mode,
                 fov,
                 size,
                 aspect,
-                dir,
                 nearSplit,
                 farSplit,
+                _sunDir,
                 resolution,
                 maxDist,
+                _fit,
             );
             farBound = farSplit;
         }
-        const rect = cascadeTileRect(i, n);
+        cascadeTileRect(i, n, _cascadeRectsArr, i * 4);
         // unfolded receiver viewProj (ortho × lookAt) — matches `computeViewProj` of this cascade's camera
         // (aspect 1), so the cull frustum and the render projection agree; the folded VP adds the tile placement
-        orthographic(fit.cover, 1, 0, fit.depth, _cascProj);
+        orthographic(_fit.extent[0], 1, 0, _fit.extent[1], _cascProj);
         lookAt(
-            fit.eye[0],
-            fit.eye[1],
-            fit.eye[2],
-            fit.focus[0],
-            fit.focus[1],
-            fit.focus[2],
-            fit.up[0],
-            fit.up[1],
-            fit.up[2],
+            _fit.eye[0],
+            _fit.eye[1],
+            _fit.eye[2],
+            _fit.focus[0],
+            _fit.focus[1],
+            _fit.focus[2],
+            _fit.up[0],
+            _fit.up[1],
+            _fit.up[2],
             _cascView,
         );
-        multiply(_cascProj, _cascView, _cascadeRecv.subarray(i * 16));
-        multiply(
-            tileTransform(rect, _cascTileMat),
-            _cascadeRecv.subarray(i * 16, i * 16 + 16),
-            _cascadeVP.subarray(i * 16),
-        );
+        multiply(_cascProj, _cascView, _cascRecv);
+        _cascadeRecv.set(_cascRecv, i * 16);
+        multiply(tileTransform(_cascadeRectsArr, _cascTileMat, i * 4), _cascRecv, _cascFolded);
+        _cascadeVP.set(_cascFolded, i * 16);
         _cascadeMetaArr[i * 4] = i; // tile index = cascade index (the VS reads cascadeRects[meta.x])
-        _cascadeRectsArr.set(rect, i * 4);
         _cascadeFarArr[i] = farBound;
-        _cascadeCoverArr[i] = fit.cover;
+        _cascadeCoverArr[i] = _fit.extent[0];
+        _cascadeDepthArr[i] = _fit.extent[1];
         const cam = _cascadeEids[i];
-        if (cam !== undefined) poseCascade(cam, fit.eye, fit.focus, fit.up, fit.cover, fit.depth);
+        if (cam !== undefined) poseCascade(cam, _fit);
     }
     _cascadeCount = n;
 }
@@ -670,9 +758,11 @@ export const MAX_POINT_CASTERS = 8;
 const CASCADE_RESERVE = MAX_CASCADES;
 const MAX_COMBO_SLOTS = MAX_SLOTS - MAX_VIEWS - CASCADE_RESERVE;
 
-// the active combo count for a caster set: a point spans six cube faces, a spot one cone
-function comboSlots(frames: PointShadowFrame[]): number {
-    return frames.reduce((n, f) => n + (f.spot ? 1 : 6), 0);
+// the active combo count for the first `count` casters: a point spans six cube faces, a spot one cone
+function comboSlots(frames: PointShadowFrame[], count: number): number {
+    let n = 0;
+    for (let i = 0; i < count; i++) n += frames[i].spot ? 1 : 6;
+    return n;
 }
 
 /**
@@ -730,7 +820,7 @@ export function pointTanHalf(tilePx: number): number {
     return 1 + (2 * EDGE_TEXELS) / tilePx;
 }
 
-/** the face frustum's vertical FOV in degrees (what `perspective()` takes for each face viewProj) for a
+/** the face frustum's vertical FOV in degrees (the fov `perspective()` takes for each face viewProj) for a
  * tile of `tilePx` pixels */
 export function pointFov(tilePx: number): number {
     return (Math.atan(pointTanHalf(tilePx)) * 360) / Math.PI;
@@ -859,15 +949,19 @@ export const POINT_FACES: PointFaceBasis[] = [
  * `clip.y = dv·fc.y + (1−2v0−dv)·fc.w`, z/w untouched, so `tileVP = D · faceVP` and the VS is one matrix
  * multiply. The receiver (`pointShadowOf`) reconstructs the same tile uv analytically from its rect, so it
  * reads identical depth at identical pixels: `D` changes only what the render writes, not where it samples.
- * Column-major, the layout `multiply`/the shader expect. Writes into `out` when given (so the per-frame
- * loop reuses a scratch matrix, like `perspective`/`lookAt`/`multiply`), else allocates. Pure; pinned to
- * the receiver's uv by unit test.
+ * Column-major, the layout `multiply`/the shader expect. Reads the rect at `at` in `rect`. Writes into `out`
+ * when given (so the per-frame loop reuses a scratch matrix, like `perspective`/`lookAt`/`multiply`), else
+ * allocates. Pure; pinned to the receiver's uv by unit test.
  */
 export function tileTransform(
-    rect: readonly [number, number, number, number],
+    rect: ArrayLike<number>,
     out = new Float32Array(16),
+    at = 0,
 ): Float32Array {
-    const [u0, v0, du, dv] = rect;
+    const u0 = rect[at];
+    const v0 = rect[at + 1];
+    const du = rect[at + 2];
+    const dv = rect[at + 3];
     out.fill(0);
     out[0] = du;
     out[5] = dv;
@@ -920,6 +1014,31 @@ let _comboEids: number[] = [];
 // boundary flickers its shadow on/off on a tiny move; an incumbent keeps a {@link PointShadows}.hysteresis
 // margin of priority so a challenger within the margin can't evict it. Module-cached, reset on (re)build.
 const _lastCasters = new Set<number>();
+
+// the shadowed point-light query terms and the ranked candidates, a capacity pool reused in place
+const POINT_CASTER_TERMS = [PointLight, Shadow, Transform];
+const _cands: { light: number; range: number; score: number; rank: number }[] = [];
+
+// one caster frame record for a caller's pool, written in place each frame by `updatePointShadows`
+function newPointFrame(): PointShadowFrame {
+    return {
+        light: 0,
+        slot: 0,
+        score: 0,
+        tilePx: MIN_TILE,
+        pos: [0, 0, 0],
+        near: 0,
+        far: 0,
+        depthBias: 0,
+        normalBias: 0,
+        spot: false,
+        fwd: [0, 0, -1],
+        right: [1, 0, 0],
+        up: [0, 1, 0],
+        coneTanHalf: 0,
+        coneFov: 0,
+    };
+}
 
 // the combo viewProjs the atlas VS projects by, filled densely (one per active combo: 6 per point caster,
 // 1 per spot) and uploaded by sear. Sized lazily to the worst case (6 · cap); the live count is
@@ -1045,20 +1164,24 @@ export function resetPointShadows(): void {
 // rect = atlas-UV [u0, v0, du, dv] (square, du == dv)
 type Rect = [number, number, number, number];
 
-/** size + place each caster's face tiles by importance: tile **area ∝ score** (side ∝ √score), the most
- * important the largest tile that still lets the whole set pack into the square atlas. A point requests 6
- * same-size face tiles, a spot 1. Returns the per-(caster, face) atlas-UV rects (indexed `[frame][face]`),
- * or `null` when even the smallest uniform tiling (every face MIN_TILE) overflows: the caller drops the
- * least-important caster and retries. Pure (reads only its args). Exported for the pack unit tests. */
-export function packCasters(frames: PointShadowFrame[], side: number): Rect[][] | null {
+/** size + place the first `count` casters' face tiles by importance: tile **area ∝ score** (side ∝ √score),
+ * the most important the largest tile that still lets the whole set pack into the square atlas. A point
+ * requests 6 same-size face tiles, a spot 1. Returns the per-(caster, face) atlas-UV rects (indexed
+ * `[frame][face]`), or `null` when even the smallest uniform tiling (every face MIN_TILE) overflows: the
+ * caller drops the least-important caster and retries. Pure (reads only its args). */
+export function packCasters(
+    frames: PointShadowFrame[],
+    count: number,
+    side: number,
+): Rect[][] | null {
     let maxScore = 1e-9;
-    for (const f of frames) maxScore = Math.max(maxScore, f.score);
+    for (let i = 0; i < count; i++) maxScore = Math.max(maxScore, frames[i].score);
     // halve the hero's "base" tile until the whole set packs; area ∝ score so side drops one power of two
     // per 4× score drop (0.5·log2). MIN_TILE is the floor; an over-budget set fails every base and returns null
     for (let base = side; base >= MIN_TILE; base >>= 1) {
         const packer = createPacker(side);
         const reqs: { frame: number; face: number; size: number }[] = [];
-        for (let i = 0; i < frames.length; i++) {
+        for (let i = 0; i < count; i++) {
             const drop = Math.max(
                 0,
                 Math.round(0.5 * Math.log2(maxScore / Math.max(frames[i].score, 1e-9))),
@@ -1068,7 +1191,8 @@ export function packCasters(frames: PointShadowFrame[], side: number): Rect[][] 
             for (let face = 0; face < faces; face++) reqs.push({ frame: i, face, size });
         }
         reqs.sort((a, b) => b.size - a.size); // largest first — buddy packs with no fragmentation
-        const rects: Rect[][] = frames.map(() => []);
+        const rects: Rect[][] = [];
+        for (let i = 0; i < count; i++) rects.push([]);
         let ok = true;
         for (const r of reqs) {
             const o = packer.alloc(r.size);
@@ -1092,19 +1216,21 @@ export function packCasters(frames: PointShadowFrame[], side: number): Rect[][] 
  * query order; a hysteresis margin keeps an incumbent its slot so the set doesn't flicker. {@link packCasters}
  * then sizes each caster's tiles (area ∝ score) and buddy-packs them into the square atlas; a caster that
  * won't fit even at the smallest tiling is dropped (warn). Each combo's viewProj is `tileTransform(rect) ×
- * perspective(pointFov(tilePx), 1, near, far) × lookAt(light, light+fwd, up)` (near/far = `[range/1000,
+ * perspective([pointFov(tilePx), 1, near, far]) × lookAt(light, light+fwd, up)` (near/far = `[range/1000,
  * range]`), written into the shared {@link pointFaceVP} buffer combo-major, with its rect in {@link pointTileRects}.
  * Each combo also gets a pooled depth-only camera ({@link pointComboEids}) the pack frustum-culls casters
- * into (the per-combo cull), spawned lazily at the first casting frame.
+ * into (the per-combo cull), spawned lazily at the first casting frame. The frames are written into the
+ * caller's `frames` pool (grown by one record per new high-water caster, reused in place after) and the
+ * live caster count is returned.
  */
-export function updatePointShadows(state: State, main: number): PointShadowFrame[] {
+export function updatePointShadows(state: State, main: number, frames: PointShadowFrame[]): number {
     const cap = pointCasters();
     const atlas = pointAtlasSize();
     const cx = main >= 0 ? Transform.pos.x.get(main) : 0;
     const cy = main >= 0 ? Transform.pos.y.get(main) : 0;
     const cz = main >= 0 ? Transform.pos.z.get(main) : 0;
-    const cands: { light: number; range: number; score: number; rank: number }[] = [];
-    for (const light of state.query([PointLight, Shadow, Transform])) {
+    let candCount = 0;
+    for (const light of state.query(POINT_CASTER_TERMS)) {
         const range = PointLight.range.get(light);
         if (range <= 0) continue;
         const dx = Transform.pos.x.get(light) - cx;
@@ -1117,12 +1243,35 @@ export function updatePointShadows(state: State, main: number): PointShadowFrame
         const rank = _lastCasters.has(light)
             ? score * (1 + Math.max(0, PointShadows.hysteresis))
             : score;
-        cands.push({ light, range, score, rank });
+        let cand = _cands[candCount];
+        if (!cand) {
+            cand = { light: 0, range: 0, score: 0, rank: 0 };
+            _cands[candCount] = cand;
+        }
+        cand.light = light;
+        cand.range = range;
+        cand.score = score;
+        cand.rank = rank;
+        candCount++;
     }
-    cands.sort((a, b) => b.rank - a.rank || a.light - b.light);
-    const extra = cands.length - cap;
+    // highest rank first, ties by light eid: an insertion sort over the pooled records
+    for (let i = 1; i < candCount; i++) {
+        const cand = _cands[i];
+        let j = i;
+        while (
+            j > 0 &&
+            (cand.rank > _cands[j - 1].rank ||
+                (cand.rank === _cands[j - 1].rank && cand.light < _cands[j - 1].light))
+        ) {
+            _cands[j] = _cands[j - 1];
+            j--;
+        }
+        _cands[j] = cand;
+    }
+    const extra = candCount - cap;
+    let count = candCount;
     if (extra > 0) {
-        cands.length = cap;
+        count = cap;
         if (!_capWarned) {
             _capWarned = true;
             console.warn(
@@ -1133,36 +1282,46 @@ export function updatePointShadows(state: State, main: number): PointShadowFrame
         _capWarned = false;
     }
 
-    const frames: PointShadowFrame[] = cands.map((c, slot) => ({
-        light: c.light,
-        slot,
-        score: c.score,
-        tilePx: MIN_TILE,
-        pos: [
-            Transform.pos.x.get(c.light),
-            Transform.pos.y.get(c.light),
-            Transform.pos.z.get(c.light),
-        ],
-        near: c.range / 1000,
-        far: c.range,
-        depthBias: Shadow.depthBias.get(c.light),
-        normalBias: Shadow.normalBias.get(c.light),
-        spot: state.has(c.light, Spot),
-        fwd: [0, 0, -1],
-        right: [1, 0, 0],
-        up: [0, 1, 0],
-        coneTanHalf: 0,
-        coneFov: 0,
-    }));
+    for (let slot = 0; slot < count; slot++) {
+        const c = _cands[slot];
+        let f = frames[slot];
+        if (!f) {
+            f = newPointFrame();
+            frames[slot] = f;
+        }
+        f.light = c.light;
+        f.slot = slot;
+        f.score = c.score;
+        f.tilePx = MIN_TILE;
+        f.pos[0] = Transform.pos.x.get(c.light);
+        f.pos[1] = Transform.pos.y.get(c.light);
+        f.pos[2] = Transform.pos.z.get(c.light);
+        f.near = c.range / 1000;
+        f.far = c.range;
+        f.depthBias = Shadow.depthBias.get(c.light);
+        f.normalBias = Shadow.normalBias.get(c.light);
+        f.spot = state.has(c.light, Spot);
+        f.fwd[0] = 0;
+        f.fwd[1] = 0;
+        f.fwd[2] = -1;
+        f.right[0] = 1;
+        f.right[1] = 0;
+        f.right[2] = 0;
+        f.up[0] = 0;
+        f.up[1] = 1;
+        f.up[2] = 0;
+        f.coneTanHalf = 0;
+        f.coneFov = 0;
+    }
 
     // size + pack by importance; on atlas overflow drop the least important (the tail, frames are rank-sorted)
-    // and retry, warning once per episode
-    let rects = packCasters(frames, atlas);
+    // and retry, warning once per episode. No caster packs nothing
+    let rects = count > 0 ? packCasters(frames, count, atlas) : null;
     let dropped = 0;
-    while (!rects && frames.length > 0) {
-        frames.pop();
+    while (!rects && count > 0) {
+        count--;
         dropped++;
-        rects = packCasters(frames, atlas);
+        rects = count > 0 ? packCasters(frames, count, atlas) : null;
     }
     if (dropped > 0) {
         if (!_overflowWarned) {
@@ -1179,8 +1338,8 @@ export function updatePointShadows(state: State, main: number): PointShadowFrame
     // active combos would overflow the pool — a loud warn, the shape of the atlas drop above. Unreachable
     // at the default cap (8 point casters → 48 combos ≤ MAX_COMBO_SLOTS); the guard if the cap is raised.
     let slotDropped = 0;
-    while (comboSlots(frames) > MAX_COMBO_SLOTS && frames.length > 0) {
-        frames.pop();
+    while (comboSlots(frames, count) > MAX_COMBO_SLOTS && count > 0) {
+        count--;
         slotDropped++;
     }
     if (slotDropped > 0) {
@@ -1194,11 +1353,12 @@ export function updatePointShadows(state: State, main: number): PointShadowFrame
         _slotWarned = false;
     }
     // record the surviving winners as next frame's incumbents (the hysteresis basis)
-    _lastCasters.clear();
-    for (const f of frames) _lastCasters.add(f.light);
+    if (_lastCasters.size > 0) _lastCasters.clear();
+    for (let i = 0; i < count; i++) _lastCasters.add(frames[i].light);
 
     // resolve each caster's tile pixel size + (for spots) the cone basis, now that sizes are known
-    for (const f of frames) {
+    for (let i = 0; i < count; i++) {
+        const f = frames[i];
         const rect = rects ? rects[f.slot][0] : undefined;
         f.tilePx = rect ? rect[2] * atlas : MIN_TILE;
         if (f.spot) {
@@ -1222,7 +1382,7 @@ export function updatePointShadows(state: State, main: number): PointShadowFrame
     // depth-only frustum-culled view this frame (the per-combo cull) — the pack culls casters into each
     // independently. The loop below poses each from its face/cone basis, and an empty caster set tears
     // the pool down
-    syncComboPool(state, comboSlots(frames));
+    syncComboPool(state, comboSlots(frames, count));
 
     // fill the combo tile-viewProjs densely (a point caster's 6 cube faces, a spot's 1 cone), the per-combo
     // (caster slot, face), and the per-(caster, face) rects. Each viewProj has its allocated atlas-UV rect
@@ -1232,8 +1392,11 @@ export function updatePointShadows(state: State, main: number): PointShadowFrame
     if (_tileRects.length < cap * 6 * 4) _tileRects = new Float32Array(cap * 6 * 4);
     _tileRects.fill(0);
     let ci = 0;
-    for (const frame of frames) {
-        const [px, py, pz] = frame.pos;
+    for (let k = 0; k < count; k++) {
+        const frame = frames[k];
+        const px = frame.pos[0];
+        const py = frame.pos[1];
+        const pz = frame.pos[2];
         const faceRects = rects![frame.slot];
         if (frame.spot) {
             const rect = faceRects[0];
@@ -1308,5 +1471,5 @@ export function updatePointShadows(state: State, main: number): PointShadowFrame
         }
     }
     _comboCount = ci;
-    return frames;
+    return count;
 }

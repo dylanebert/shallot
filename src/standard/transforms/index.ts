@@ -14,14 +14,14 @@ import { composeKernel, composeLayout } from "./compose";
 // render/). null until initialize (headless: stays null).
 let _typed: (TgpuBuffer<d.WgslArray<typeof Xform>> & StorageFlag) | null = null;
 let _composePipeline: TgpuComputePipeline | null = null;
-// the compose pipeline with its bind group bound, built on first use — the slab mirrors and the
-// membership buffer it reads are published by another plugin's `warm`, and `warm` hooks run
-// concurrently (`Promise.all` in `build`), so nothing may read them from inside a sibling's warm
-let _bound: TgpuComputePipeline | null = null;
+// the compose pipeline and its bind group, unwrapped for the raw dispatch and built on first use — the
+// slab mirrors and the membership buffer it reads are published by another plugin's `warm`, and `warm`
+// hooks run concurrently (`Promise.all` in `build`), so nothing may read them from inside a sibling's warm
+let _bound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null = null;
 
 // build once, on the first call that has every buffer: the forced precompile (drained after every
 // plugin has warmed) or, failing that, the first frame's dispatch.
-function bind(): TgpuComputePipeline | null {
+function bind(): { pipeline: GPUComputePipeline; group: GPUBindGroup } | null {
     if (_bound) return _bound;
     if (!_composePipeline || !_typed) return null;
     // the firehose binds typed; the slab mirrors and `membership` are raw handles their owning modules
@@ -34,7 +34,10 @@ function bind(): TgpuComputePipeline | null {
         transforms: _typed,
         membership: Compute.buffers.get("membership")!,
     });
-    _bound = _composePipeline.with(group);
+    _bound = {
+        pipeline: Compute.root.unwrap(_composePipeline),
+        group: Compute.root.unwrap(group),
+    };
     return _bound;
 }
 
@@ -56,6 +59,9 @@ export const Transform = {
     scale: slab(vec4),
 };
 
+// the compose pass descriptor; its timestamp span is re-read each frame
+const _composePass: GPUComputePassDescriptor = { label: "shallot-transforms-compose" };
+
 /**
  * record the per-frame world-matrix compose dispatch onto `encoder`. Reads
  * the slab canonical GPU buffers (populated by the prior frame's SlabSystem
@@ -65,11 +71,14 @@ export const Transform = {
 export function composeTransforms(encoder: GPUCommandEncoder): void {
     const bound = bind();
     if (!bound) return;
-    const pass = encoder.beginComputePass({
-        label: "shallot-transforms-compose",
-        timestampWrites: Compute.span?.("transforms:compose"),
-    });
-    bound.with(pass).dispatchWorkgroups(Math.ceil(capacity / 64));
+    _composePass.timestampWrites = Compute.span?.("transforms:compose");
+    // the dispatch is issued on the raw pass over the unwrapped pipeline and bind group (both resolved
+    // once by `bind`), the shape `sear/regather.ts` uses: typegpu's per-apply state work would otherwise
+    // run on every frame's single dispatch
+    const pass = encoder.beginComputePass(_composePass);
+    pass.setPipeline(bound.pipeline);
+    pass.setBindGroup(0, bound.group);
+    pass.dispatchWorkgroups(Math.ceil(capacity / 64));
     pass.end();
 }
 
@@ -179,7 +188,9 @@ export const TransformsPlugin: Plugin = {
         // plugin's warm has resolved, which is the first moment the buffers this reads are all up
         precompile("shallot-transforms-compose", () => {
             const bound = bind();
-            return bound;
+            // the raw pipeline, already unwrapped for the dispatch: the forcer's raw-pipeline shape, which
+            // Dawn compiles on the drain like any other
+            return bound && [bound.pipeline];
         });
     },
 };

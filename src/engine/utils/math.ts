@@ -426,10 +426,10 @@ export function invert(m: Float32Array, out?: Float32Array): Float32Array {
     // norms, so |det| / Hadamard ∈ [0, 1] measures relative volume. A matrix is numerically singular
     // when that ratio falls to the f32 rounding level (inputs are Float32Array, eps = 2^-23). The n
     // factor (dimension = 4) accounts for the O(n) multiplications in the determinant expansion.
-    const col0 = Math.hypot(m[0], m[1], m[2], m[3]);
-    const col1 = Math.hypot(m[4], m[5], m[6], m[7]);
-    const col2 = Math.hypot(m[8], m[9], m[10], m[11]);
-    const col3 = Math.hypot(m[12], m[13], m[14], m[15]);
+    const col0 = Math.sqrt(a00 * a00 + a01 * a01 + a02 * a02 + a03 * a03);
+    const col1 = Math.sqrt(a10 * a10 + a11 * a11 + a12 * a12 + a13 * a13);
+    const col2 = Math.sqrt(a20 * a20 + a21 * a21 + a22 * a22 + a23 * a23);
+    const col3 = Math.sqrt(a30 * a30 + a31 * a31 + a32 * a32 + a33 * a33);
     const hadamard = col0 * col1 * col2 * col3;
     if (hadamard === 0 || Math.abs(det) < 4 * 2 ** -23 * hadamard) {
         out.fill(0);

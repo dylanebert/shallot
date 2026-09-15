@@ -3,6 +3,7 @@ import { type CheckDeclaration, validateDeclaration } from "./declaration";
 import {
     emitVerdict,
     hostMismatch,
+    MissingPremise,
     missingRequirement,
     quarantineReason,
     type VerdictMetadata,
@@ -32,6 +33,11 @@ export function assertDeclared(path: string): void {
             `undeclared check file: ${path} registers no check(); declare each test with check(name, { claim, size, requires, budget }, body)`,
         );
     }
+}
+
+/** The premise a body refused on, or null when the error is an ordinary failure of the claim. */
+function refusedReason(error: unknown): string | null {
+    return error instanceof MissingPremise ? error.message : null;
 }
 
 /** Register one check. The declaration supplies the claim, cadence, requirements and timeout. */
@@ -115,7 +121,20 @@ export function check(
                 return value;
             } catch (error) {
                 if (reports) {
-                    emitVerdict(decl.claim, decl.size, started, "fail", verdictMetadata(error));
+                    // A body whose host could not supply the premise is a refusal, not a red claim: the
+                    // run never reached the predicate, so reporting it as a fail would read as product
+                    // evidence the row never gathered. Only {@link MissingPremise} says so; any other
+                    // throw, whatever it says, is the claim failing.
+                    const premise = refusedReason(error);
+                    emitVerdict(
+                        decl.claim,
+                        decl.size,
+                        started,
+                        premise === null ? "fail" : "refused",
+                        premise === null
+                            ? verdictMetadata(error)
+                            : { ...verdictMetadata(error), reason: premise },
+                    );
                 }
                 throw error;
             }

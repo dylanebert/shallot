@@ -287,3 +287,82 @@ check(
         }
     },
 );
+
+check(
+    "a refusal is classified by the missing-premise type, never by its message",
+    {
+        claim: "check() reports refused only for a body throwing the harness's missing-premise type, and reports fail for every other throw whatever its message says, so a red claim cannot relabel itself as a premise the run never reached",
+        size: "integration",
+        subject: ["src/harness/check.ts", "src/harness/verdict.ts"],
+    },
+    () => {
+        const root = resolve(import.meta.dir, "../..");
+        const tree = mkdtempSync(join(root, ".surface-refusal-"));
+        const head =
+            `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n` +
+            `import { MissingPremise } from ${JSON.stringify(resolve(import.meta.dir, "verdict.ts"))};\n`;
+        const write = (name: string, claim: string, thrown: string) => {
+            const file = join(tree, `${name}.test.ts`);
+            writeFileSync(
+                file,
+                `${head}check(${JSON.stringify(name)}, { claim: ${JSON.stringify(claim)}, size: "integration" }, () => {\n` +
+                    `    throw ${thrown};\n});\n`,
+            );
+            const environment = { ...process.env };
+            delete environment.KEX_S3_ROW;
+            const proc = Bun.spawnSync(["bun", "test", file], {
+                cwd: root,
+                env: { ...environment, SHALLOT_UNIT_ONLY: "", SHALLOT_INTEGRATION_ONLY: "" },
+            });
+            return {
+                exitCode: proc.exitCode,
+                output: proc.stdout.toString() + proc.stderr.toString(),
+            };
+        };
+        try {
+            // A body that fails its claim is a red, and stays one.
+            const claimed = write(
+                "claimed",
+                "a body that fails its claim reports fail",
+                'new Error("warm first-person page frames allocate:\\nafter warm 480: 9001 bytes")',
+            );
+            expect(claimed.exitCode).not.toBe(0);
+            expect(claimed.output).toContain('"result":"fail"');
+            expect(claimed.output).not.toContain('"result":"refused"');
+
+            // The one class that is a refusal carries its reason, and still exits nonzero.
+            const premise = write(
+                "premise",
+                "a body whose host cannot supply the premise reports refused",
+                'new MissingPremise("the page presents at 59.6 Hz under the heap sampler")',
+            );
+            expect(premise.exitCode).not.toBe(0);
+            expect(premise.output).toContain('"result":"refused"');
+            expect(premise.output).toContain(
+                '"reason":"the page presents at 59.6 Hz under the heap sampler"',
+            );
+
+            // The messages the prefix classifier used to promote: a page full of product exceptions and an
+            // oracle's own sensitivity gate are both the claim failing, whatever their text.
+            const threw = write(
+                "threw",
+                "a body reporting page errors reports fail",
+                'new Error("inconclusive: the page threw:\\nTypeError: mesh is null")',
+            );
+            expect(threw.exitCode).not.toBe(0);
+            expect(threw.output).toContain('"result":"fail"');
+            expect(threw.output).not.toContain('"result":"refused"');
+
+            const gate = write(
+                "gate",
+                "a body failing its own control gate reports fail",
+                'new Error("inconclusive: the control read 12.0/f at frame src/engine/app/index.ts:558, not above the A/A window\'s 6400.0/f")',
+            );
+            expect(gate.exitCode).not.toBe(0);
+            expect(gate.output).toContain('"result":"fail"');
+            expect(gate.output).not.toContain('"result":"refused"');
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);

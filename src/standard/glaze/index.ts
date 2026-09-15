@@ -15,6 +15,7 @@
 // transform); the grade defaults to a no-op and posterize / dither / vignette gate off, so only the
 // tonemap + linear→sRGB encode run. The rg11b10ufloat HDR offscreen is what lets the tonemap roll off
 // highlights >1 (they'd clamp at store on an LDR offscreen).
+import type { TgpuComputePassDescriptor } from "typegpu";
 import type { Plugin, State, System } from "../../engine";
 import { Compute, f32, sparse, u32, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
@@ -87,6 +88,12 @@ const DEFAULT = {
 // a shading view's slot is always < MAX_VIEWS (`render/view.ts` gates the assignment), so the slot buffer
 // `warm` allocated always exists — no guard, since the bind group that follows would throw on a missing one
 // anyway rather than skip the camera
+// the camera query terms, the composite pass descriptor, and each camera's pass label, held so the
+// per-frame composite mints only its bind group and WebGPU objects
+const CAMERAS = [Camera];
+const _pass: TgpuComputePassDescriptor = { label: "" };
+const _labels = new Map<number, string>();
+
 function uploadConfig(state: State, eid: number, slot: number): void {
     const buffer = _configs[slot];
     if (!state.has(eid, Glaze)) {
@@ -121,10 +128,10 @@ export const GlazeSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     update(state) {
-        const encoder = Render.encoder;
-        if (!encoder || !Compute.device || !_composite) return;
+        const frame = Render.frame;
+        if (!frame || !Compute.device || !_composite) return;
         const { layout, pipeline } = _composite;
-        for (const eid of state.query([Camera])) {
+        for (const eid of state.query(CAMERAS)) {
             const view = Views.get(eid);
             if (!view?.present || !view.framebuffer) continue;
             uploadConfig(state, eid, view.slot);
@@ -133,17 +140,20 @@ export const GlazeSystem: System = {
                 glaze: _configs[view.slot],
                 output: view.present,
             });
-            const pass = encoder.beginComputePass({
-                label: `glaze/${eid}`,
-                timestampWrites: Compute.span?.("glaze"),
-            });
-            pipeline
-                .with(group)
-                .with(pass)
-                .dispatchWorkgroups(
-                    Math.ceil(view.width / WORKGROUP),
-                    Math.ceil(view.height / WORKGROUP),
-                );
+            let label = _labels.get(eid);
+            if (label === undefined) {
+                label = `glaze/${eid}`;
+                _labels.set(eid, label);
+            }
+            _pass.label = label;
+            _pass.timestampWrites = Compute.span?.("glaze");
+            const pass = frame.beginComputePass(_pass);
+            pass.setPipeline(pipeline);
+            pass.setBindGroup(group);
+            pass.dispatchWorkgroups(
+                Math.ceil(view.width / WORKGROUP),
+                Math.ceil(view.height / WORKGROUP),
+            );
             pass.end();
         }
     },
