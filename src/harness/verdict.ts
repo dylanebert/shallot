@@ -9,6 +9,19 @@ import { resolveSeat } from "./seat";
 export type VerdictResult = "pass" | "fail" | "refused" | "unrun";
 
 /**
+ * The host could not supply a row's premise, so the run never reached the predicate. Thrown only where the
+ * premise itself is missing: the display seat, the page's presented rate, and a bounded call that runs out
+ * of time before that rate is proved. Every other throw is a failure of the claim. The class travels as the
+ * error's type, never as a prefix on its message, so no free-text string can promote a red to a refusal.
+ */
+export class MissingPremise extends Error {
+    constructor(reason: string) {
+        super(reason);
+        this.name = "MissingPremise";
+    }
+}
+
+/**
  * the reproduction record that travels with an integration verdict or refusal: enough to re-run the same
  * claim on the same seat, and enough to tell which seat it actually was. Runtime is telemetry here, never
  * a correctness floor.

@@ -18,6 +18,7 @@ import { CAPTURE_CONTRACT } from "./capture";
 import { adapterFacts } from "./driver";
 import { LAUNCH_MODES, launchOptions, launchPlan } from "./launch";
 import { resolveSeat } from "./seat";
+import { MissingPremise } from "./verdict";
 
 export interface AllocationSite {
     /** function name and original source line */
@@ -161,8 +162,14 @@ const FRAME_LOOP = { source: resolve(import.meta.dir, "../engine/app/index.ts"),
 /** frames the control span steps under the breakpoint. */
 const CONTROL_FRAMES = 60;
 
-/** the unsampled span the page's presented rate is read over, before any profiler is attached. */
-const RATE_SPAN_MS = 500;
+/** one span the page's presented rate is read over. Each rate is the lower of two of them. */
+const RATE_SPAN_MS = 250;
+
+/** how often a frame wait re-reads the page's frame count; each wait can overshoot by this much. */
+const ADVANCE_POLL_MS = 50;
+
+/** the control's one literal per frame, allocated where the frame loop begins and never breaking. */
+const CONTROL_CONDITION = "(globalThis.__shallotControl = { frame: 0 }), false";
 
 /**
  * Build `projectDir` for the web as `shallot run` does, with source maps, serve it in-process, and open it in
@@ -170,10 +177,11 @@ const RATE_SPAN_MS = 500;
  * frame loop is the run frame, attributed by the same rule as {@link sampleAllocation}. Once the loop runs,
  * wait `warm` frames, then sample `frames` after warm, after twice that, and an A/A repeat, each after a
  * collection. The control runs last, over {@link CONTROL_FRAMES} frames: a conditional breakpoint where the
- * frame loop begins allocates one literal per frame. The page's presented rate is read first and reported in
- * `runtime`; a page that cannot supply the whole frame budget before `deadline` refuses as inconclusive
- * rather than timing out mid-warm. Every wait ends by `deadline`, a `performance.now()` time, and the build,
- * server and browser are gone when it returns. Needs the `display` requirement resolved.
+ * frame loop begins allocates one literal per frame. Once the loop is found, the page's presented rate is
+ * read under both of those conditions and reported in `runtime`, and the calls that step no frame are timed
+ * once; a page that cannot supply the whole frame budget and that reserve before `deadline` refuses its
+ * premise rather than timing out mid-warm. Every wait ends by `deadline`, a `performance.now()` time, and
+ * the build, server and browser are gone when it returns. Needs the `display` requirement resolved.
  */
 export async function samplePage(
     projectDir: string,
@@ -182,25 +190,32 @@ export async function samplePage(
     if (!Number.isInteger(frames) || frames <= 0 || !Number.isInteger(warm) || warm < frames)
         throw new Error("page sampler: needs integer warm >= frames > 0");
     const plan = launchPlan(process.platform, "display");
-    if ("refused" in plan) throw new Error(`display seat unavailable: ${plan.refused}`);
+    if ("refused" in plan) throw new MissingPremise(`display seat unavailable: ${plan.refused}`);
     const declared = process.env.SHALLOT_DISPLAY_SEAT?.trim();
-    if (!declared) throw new Error("display seat unavailable: no headed display is declared");
+    if (!declared)
+        throw new MissingPremise("display seat unavailable: no headed display is declared");
     const app = realpathSync(FRAME_LOOP.source);
     const remaining = () => Math.max(1, deadline - performance.now());
+    // The premise is the page's measured rate, and it is proved partway through. Before it, a call that runs
+    // out of time may be a host too slow to hold the premise at all, so it refuses. After it, the row has
+    // just proved this host steps frames fast enough, so a call that then runs out of time is the page
+    // hanging: a failure of the claim, which is exactly what this row exists to notice.
+    let premiseHeld = false;
+    const outOfTime = (message: string) =>
+        premiseHeld ? new Error(message) : new MissingPremise(message);
     // Every slow call races the deadline, so a hang still reaches `finally` before the row's budget ends.
-    // Either way the refusal names the call: a call that ran out of time proves nothing about the claim, so
-    // it is inconclusive, and Playwright's own `TimeoutError` is the same refusal wearing a product-red face.
+    // Either way the error names the call.
     const bounded = <T>(what: string, work: Promise<T>): Promise<T> => {
         let timer: ReturnType<typeof setTimeout> | undefined;
         const late = new Promise<never>((_, reject) => {
             timer = setTimeout(
-                () => reject(new Error(`inconclusive: ${what} did not finish by the deadline`)),
+                () => reject(outOfTime(`${what} did not finish by the deadline`)),
                 remaining(),
             );
         });
         const named = work.catch((error: unknown) => {
             if (error instanceof Error && error.name === "TimeoutError")
-                throw new Error(`inconclusive: ${what} timed out: ${error.message.split("\n")[0]}`);
+                throw outOfTime(`${what} timed out: ${error.message.split("\n")[0]}`);
             throw error;
         });
         return Promise.race([named, late]).finally(() => clearTimeout(timer));
@@ -290,7 +305,7 @@ export async function samplePage(
         const seat = resolveSeat("display", {
             display: { source: declared, browser: { launch: plan, adapter: facts } },
         });
-        if (!seat.ok) throw new Error(seat.reason);
+        if (!seat.ok) throw new MissingPremise(seat.reason);
 
         const frameCount = () =>
             bounded(
@@ -304,44 +319,32 @@ export async function samplePage(
                 page.waitForFunction(
                     (target) => (window as unknown as FrameCount).__shallotFrames >= target,
                     now + count,
-                    { polling: 50, timeout: remaining() },
+                    { polling: ADVANCE_POLL_MS, timeout: remaining() },
                 ),
             );
         };
 
         // The page is ready once a CPU profile of its frames holds the frame loop, whose position is also
         // where the control's breakpoint goes.
+        const findFrameLoop = async (): Promise<CallFrame> => {
+            for (;;) {
+                await bounded("Profiler.start", cdp.send("Profiler.start"));
+                await advance(30);
+                const { profile } = await bounded("Profiler.stop", cdp.send("Profiler.stop"));
+                const found = profile.nodes.find((node) => isFrameLoop(node.callFrame))?.callFrame;
+                if (found !== undefined) return found;
+            }
+        };
         await bounded("Profiler.enable", cdp.send("Profiler.enable"));
-        let loop: CallFrame | undefined;
-        while (loop === undefined) {
-            await bounded("Profiler.start", cdp.send("Profiler.start"));
-            await advance(30);
-            const { profile } = await bounded("Profiler.stop", cdp.send("Profiler.stop"));
-            loop = profile.nodes.find((node) => isFrameLoop(node.callFrame))?.callFrame;
-        }
+        const loop = await findFrameLoop();
         await bounded("Profiler.disable", cdp.send("Profiler.disable"));
         const loopSite = siteOf(loop);
-        if (loopSite === undefined) throw new Error("inconclusive: the frame loop has no site");
+        if (loopSite === undefined) throw new Error("the frame loop has no site");
 
-        // The page's own presented rate is this row's premise, read over a short unsampled span before any
-        // profiler is attached. Every remaining step is counted from this function's own arguments, so a
-        // page too slow to supply them refuses here by name instead of timing out inside a wait. The warm is
-        // never shrunk to fit: its length is what makes three agreeing windows a steadiness claim.
-        const before = await frameCount();
-        const spanStart = performance.now();
-        await Bun.sleep(RATE_SPAN_MS);
-        const rate = (((await frameCount()) - before) * 1000) / (performance.now() - spanStart);
-        const budget = 2 * warm + 2 * frames + CONTROL_FRAMES;
-        const required = (budget * 1000) / remaining();
-        if (rate < required)
-            throw new Error(
-                `inconclusive: the page presents at ${rate.toFixed(1)} Hz, below the ${required.toFixed(1)} Hz needed to step this row's ${budget} frames (warm ${warm}, three ${frames}-frame windows and a ${CONTROL_FRAMES}-frame control) before the deadline`,
-            );
-
-        await bounded("HeapProfiler.enable", cdp.send("HeapProfiler.enable"));
-        const sample = async (count: number) => {
-            await bounded("collectGarbage", cdp.send("HeapProfiler.collectGarbage"));
-            await bounded(
+        // One call site per operation, so the premise probe below times exactly the calls the row repeats.
+        const collect = () => bounded("collectGarbage", cdp.send("HeapProfiler.collectGarbage"));
+        const startSampling = () =>
+            bounded(
                 "startSampling",
                 cdp.send("HeapProfiler.startSampling", {
                     samplingInterval: 1,
@@ -349,39 +352,103 @@ export async function samplePage(
                     includeObjectsCollectedByMinorGC: true,
                 }),
             );
-            await advance(count);
-            const { profile } = await bounded(
-                "stopSampling",
-                cdp.send("HeapProfiler.stopSampling"),
+        const stopSampling = () => bounded("stopSampling", cdp.send("HeapProfiler.stopSampling"));
+        const debuggerEnable = () => bounded("Debugger.enable", cdp.send("Debugger.enable"));
+        const debuggerDisable = () => bounded("Debugger.disable", cdp.send("Debugger.disable"));
+        const setLoopBreakpoint = () =>
+            bounded(
+                "setBreakpointByUrl",
+                cdp.send("Debugger.setBreakpointByUrl", {
+                    url: loop.url,
+                    lineNumber: loop.lineNumber,
+                    columnNumber: loop.columnNumber,
+                    condition: CONTROL_CONDITION,
+                }),
             );
+        const removeLoopBreakpoint = (breakpointId: string) =>
+            bounded("removeBreakpoint", cdp.send("Debugger.removeBreakpoint", { breakpointId }));
+        const sample = async (count: number) => {
+            await collect();
+            await startSampling();
+            await advance(count);
+            const { profile } = await stopSampling();
             return attribute(profile, runSite, siteOf);
         };
+        const timed = async <T>(work: () => Promise<T>): Promise<[T, number]> => {
+            const at = performance.now();
+            const value = await work();
+            return [value, performance.now() - at];
+        };
+
+        // This row's premise, and the last point at which a slow host is still a missing premise rather than
+        // a hung page. A rate read on an idle page licenses a frame budget the sampled, broken-at page cannot
+        // supply, so each rate is read under the condition its frames are spent under, and each is the lower
+        // of two spans: the same discipline the row applies to its own windows. The warm is never shrunk to
+        // fit, because its length is what makes three agreeing windows a steadiness claim.
+        const spanRate = async () => {
+            const before = await frameCount();
+            const spanStart = performance.now();
+            await Bun.sleep(RATE_SPAN_MS);
+            return (((await frameCount()) - before) * 1000) / (performance.now() - spanStart);
+        };
+        const slowerOfTwoSpans = async () => Math.min(await spanRate(), await spanRate());
+
+        await bounded("HeapProfiler.enable", cdp.send("HeapProfiler.enable"));
+        const [, collectMs] = await timed(collect);
+        const [, startMs] = await timed(startSampling);
+        const sampledRate = await slowerOfTwoSpans();
+        const [, stopMs] = await timed(stopSampling);
+        const [, enableMs] = await timed(debuggerEnable);
+        const [probed, setMs] = await timed(setLoopBreakpoint);
+        const controlRate = await slowerOfTwoSpans();
+        const [, removeMs] = await timed(() => removeLoopBreakpoint(probed.breakpointId));
+        const [, disableMs] = await timed(debuggerDisable);
+
+        // The time the row still spends on calls that step no frame, measured rather than guessed: the probe
+        // above ran one whole sampling cycle and one whole debugger cycle and timed each call in them. What
+        // remains is four sampling cycles — the three windows and the control — one more debugger cycle, and
+        // six frame waits, each of which may overshoot the target by one poll. `HeapProfiler.enable` is not
+        // in it: the probe paid it once, for the row.
+        const reserve =
+            4 * (collectMs + startMs + stopMs) +
+            enableMs +
+            setMs +
+            removeMs +
+            disableMs +
+            6 * ADVANCE_POLL_MS;
+        const budget = 2 * warm + 2 * frames + CONTROL_FRAMES;
+        const frameMs = (count: number, rate: number) => (count * 1000) / rate;
+        const needed =
+            frameMs(2 * warm + 2 * frames, sampledRate) +
+            frameMs(CONTROL_FRAMES, controlRate) +
+            reserve;
+        const left = remaining();
+        const required = (budget * 1000) / Math.max(1, left - reserve);
+        if (needed > left)
+            throw new MissingPremise(
+                `the page presents at ${sampledRate.toFixed(1)} Hz under the heap sampler and ${controlRate.toFixed(1)} Hz under the control breakpoint, so this row's ${budget} frames (warm ${warm}, three ${frames}-frame windows and a ${CONTROL_FRAMES}-frame control) need ${needed.toFixed(0)} ms, including ${reserve.toFixed(0)} ms of calls that step no frame, against the ${left.toFixed(0)} ms left before the deadline; an even ${required.toFixed(1)} Hz would be required`,
+            );
+        // Past here the host has proved it steps frames fast enough, so running out of time is the page's.
+        premiseHeld = true;
+
         await advance(warm);
         const atWarm = await sample(frames);
         await advance(warm - frames);
         const atDoubleWarm = await sample(frames);
         const repeat = await sample(frames);
 
-        await bounded("Debugger.enable", cdp.send("Debugger.enable"));
-        const { breakpointId } = await bounded(
-            "setBreakpointByUrl",
-            cdp.send("Debugger.setBreakpointByUrl", {
-                url: loop.url,
-                lineNumber: loop.lineNumber,
-                columnNumber: loop.columnNumber,
-                condition: "(globalThis.__shallotControl = { frame: 0 }), false",
-            }),
-        );
+        await debuggerEnable();
+        const { breakpointId } = await setLoopBreakpoint();
         // The breakpoint's condition runs in the debugger on every frame, which slows the page; 60 frames prove
         // the rule sees bytes under the frame loop as well as a full window would.
         const control = await sample(CONTROL_FRAMES);
-        await bounded("removeBreakpoint", cdp.send("Debugger.removeBreakpoint", { breakpointId }));
-        await bounded("Debugger.disable", cdp.send("Debugger.disable"));
+        await removeLoopBreakpoint(breakpointId);
+        await debuggerDisable();
 
         if (errors.length > 0)
-            throw new Error(`inconclusive: the page threw:\n${errors.slice(0, 20).join("\n")}`);
+            throw new Error(`the page threw:\n${errors.slice(0, 20).join("\n")}`);
         return {
-            runtime: `chromium ${browser.version()} ${LAUNCH_MODES[plan.seat]} ${tiers} at ${rate.toFixed(1)} Hz`,
+            runtime: `chromium ${browser.version()} ${LAUNCH_MODES[plan.seat]} ${tiers} at ${sampledRate.toFixed(1)} Hz sampled, ${controlRate.toFixed(1)} Hz under the control breakpoint`,
             adapter: classifyAdapter(facts).identity,
             loopSite,
             warm,
