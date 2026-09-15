@@ -1,7 +1,7 @@
 {
     "kind": "recipe",
-    "description": "Walk a first-person character controller across platforms.",
-    "problem": "I want to walk around and look with the mouse like a first-person game.",
+    "description": "Climb a first-person ascent with steps, a lift, and a block perch.",
+    "problem": "I want a first-person character to climb a route with a moving lift.",
     "scene": "scenes/first-person.scene",
     "plugins": {
         "Physics": true,
@@ -9,5 +9,6 @@
         "Player": true,
         "Text": true,
         "Demo": "./src/demo"
-    }
+    },
+    "check": { "file": "src/demo.test.ts" }
 }

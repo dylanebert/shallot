@@ -1,81 +1,58 @@
 import {
+    Body,
     Character,
-    mountOverlay,
-    Player,
+    CharacterPlugin,
+    CharacterSweepSystem,
+    PhysicsPlugin,
     type Plugin,
-    pointerLockRefusal,
-    pointerLockStatus,
     type State,
     type System,
     setKinematic,
 } from "@dylanebert/shallot";
 
-// move/look tuning lives on `Player`; walk physics (jump height, gravity, walkable slope) lives on
-// `Character`. Set both once on load.
-function tune(state: State) {
-    for (const eid of state.query([Player])) {
-        Player.speed.set(eid, 7); // walk speed, m/s
-        Player.sensitivity.set(eid, 1.5); // mouse look, radians per 1080 px of motion
-    }
+// The built-in Player keeps its default WASD, look, and jump controls. These two Character values make the
+// ascent's step rhythm and lift transfer feel deliberate without replacing the controller.
+function tune(state: State): void {
     for (const eid of state.query([Character])) {
-        Character.jumpSpeed.set(eid, 7); // jump launch speed
-        Character.gravity.set(eid, -30); // per-character gravity, snappier than the world's
+        Character.jumpSpeed.set(eid, 7);
+        Character.gravity.set(eid, -30);
     }
 }
 
-// a `mass: 0` body is kinematic: the solver never moves it, you do. Drive its pose each fixed tick with
-// `setKinematic`, and a character standing on it rides along; the scene tags it `moving` so this system
-// finds it.
-const Moving = {};
+// The scene owns the lift's size and starting height. This role only gives the small trajectory system a
+// declarative target; the lift is the sole moving object in the recipe.
+export const Lift = {};
 
-const slide: System = {
-    name: "slide",
+const TRAVEL = 1.5;
+const RATE = 0.65;
+
+const lift: System = {
+    name: "lift",
     group: "fixed",
-    update(state: State) {
-        const x = -4 + Math.sin(state.time.elapsed) * 3;
-        for (const eid of state.query([Moving])) {
-            setKinematic(state, eid, [x, 0.75, 0], [0, 0, 0, 1]);
+    before: [CharacterSweepSystem],
+    update(state: State): void {
+        const phase = state.time.elapsed * RATE;
+        for (const eid of state.query([Lift, Body])) {
+            const y = Body.pos.y.get(eid) + Math.sin(phase) * TRAVEL;
+            const vy = Math.cos(phase) * RATE * TRAVEL;
+            setKinematic(
+                state,
+                eid,
+                [Body.pos.x.get(eid), y, Body.pos.z.get(eid)],
+                [0, 0, 0, 1],
+                false,
+                [0, vy, 0],
+            );
         }
-    },
-};
-
-// mouse look needs Pointer Lock, and a browser can lack it or refuse the capture. `pointerLockStatus(state)`
-// reports that as data, so say it on screen instead of leaving a view that never turns.
-let notice: HTMLElement | null = null;
-let overlay: HTMLElement | null = null;
-
-const lockNotice: System = {
-    name: "lock-notice",
-    group: "simulation",
-    setup() {
-        notice = null;
-        overlay = null; // a rebuilt State mounts its own overlay
-    },
-    update(state: State) {
-        const status = pointerLockStatus(state);
-        const refused = status === "unsupported" || status === "refused";
-        if (refused === !!notice) return;
-        if (!refused) {
-            notice?.remove();
-            notice = null;
-            return;
-        }
-        const el = document.createElement("div");
-        el.style.cssText =
-            "position:absolute;top:16px;left:50%;transform:translateX(-50%);padding:8px 14px;" +
-            "border-radius:6px;background:rgba(0,0,0,0.7);color:#fff;font:12px system-ui;";
-        el.textContent = `Mouse look unavailable — ${pointerLockRefusal(state) ?? "pointer lock refused"}. WASD still walks.`;
-        overlay ??= mountOverlay(document.querySelector("canvas"), state);
-        overlay.appendChild(el);
-        notice = el;
     },
 };
 
 export const Demo = {
     name: "Demo",
-    components: { Moving },
+    components: { Lift },
+    dependencies: [CharacterPlugin, PhysicsPlugin],
     warm: tune,
-    systems: [slide, lockNotice],
+    systems: [lift],
 } satisfies Plugin;
 
 export default Demo;
