@@ -67,8 +67,11 @@ type VehicleBounds = {
     groundTop: number;
     wheelRadius: number;
     speedCeiling: number;
+    verticalSpeedCeiling: number;
+    totalSpeedCeiling: number;
     wheelSpeedCeiling: number;
     altitudeCeiling: number;
+    chassisGroundFloor: number;
     wheelAltitudeCeiling: number;
     suspensionExcursion: number;
     driveAcceleration: number;
@@ -167,6 +170,15 @@ function bounds(
         Math.max(0, (2 * (initialClearance - slop)) / Math.abs(stepConfig.gravity)),
     );
     const anchorDrop = Math.abs(Body.pos.y.get(chassisEid) - Body.pos.y.get(wheelEids[0]));
+    const chassisHalfHeight = Body.halfExtents.y.get(chassisEid);
+    const chassisInitialClearance = Body.pos.y.get(chassisEid) - chassisHalfHeight - groundTop;
+    const fixedStepDrop = 0.5 * Math.abs(stepConfig.gravity) * stepConfig.dt ** 2;
+    const chassisGroundFloor =
+        groundTop + wheelRadius + anchorDrop - suspensionExcursion - 4 * slop - fixedStepDrop;
+    const verticalSpeedCeiling =
+        Math.sqrt(2 * Math.abs(stepConfig.gravity) * Math.max(0, chassisInitialClearance)) +
+        Math.abs(stepConfig.gravity) * stepConfig.dt +
+        (4 * slop) / stepConfig.dt;
     const altitudeCeiling =
         Math.max(
             Body.pos.y.get(chassisEid),
@@ -189,9 +201,12 @@ function bounds(
         groundTop,
         wheelRadius,
         speedCeiling: rimSpeed + (2 * slop) / stepConfig.dt,
+        verticalSpeedCeiling,
+        totalSpeedCeiling: Math.hypot(rimSpeed + (2 * slop) / stepConfig.dt, verticalSpeedCeiling),
         wheelSpeedCeiling:
             rimSpeed + (suspensionExcursion + slop) / stepConfig.dt + (2 * slop) / stepConfig.dt,
         altitudeCeiling,
+        chassisGroundFloor,
         wheelAltitudeCeiling,
         suspensionExcursion,
         driveAcceleration,
@@ -278,6 +293,74 @@ function fail(trace: Trace, index: number, boundsValue: VehicleBounds, reason: s
     );
 }
 
+function diagnosticSample(value: TickSample): object {
+    return {
+        tick: value.tick,
+        activeKeys: value.keys,
+        bodies: value.bodies.map((bodyState, bodyIndex) => ({
+            body: bodyIndex === 0 ? "chassis" : `wheel ${bodyIndex}`,
+            pos: bodyState.pos,
+            vel: bodyState.vel,
+            quat: bodyState.quat,
+            quatNorm: Math.hypot(...bodyState.quat),
+            authored: value.authored[bodyIndex],
+            totalSpeed: value.totalSpeeds[bodyIndex],
+            horizontalSpeed: value.horizontalSpeeds[bodyIndex],
+        })),
+        wheelGroundSeparations: value.wheelGroundSeparations,
+        wheelAltitudes: value.wheelAltitudes,
+        wheelJointSeparations: value.wheelJointSeparations,
+        effectiveVehicle: value.observation,
+    };
+}
+
+function pairedDiagnostic(
+    label: string,
+    left: Trace,
+    right: Trace,
+    index: number,
+    boundsValue: VehicleBounds,
+): string {
+    const window = (trace: Trace) => {
+        const samples = [trace.initial, ...trace.samples];
+        const actualIndex = Math.min(samples.length - 1, index + 1);
+        return samples
+            .slice(Math.max(0, actualIndex - 1), Math.min(samples.length, actualIndex + 2))
+            .map(diagnosticSample);
+    };
+    return JSON.stringify({
+        firstDivergenceTick: index,
+        label,
+        bounds: boundsValue,
+        arms: { left: window(left), right: window(right) },
+    });
+}
+
+function warmupPairedDiagnostic(label: string, left: Trace, right: Trace, index: number): string {
+    const from = Math.max(0, index - 1);
+    const to = Math.min(left.warmup.length, index + 2);
+    return JSON.stringify({
+        firstDivergenceWarmup: index,
+        label,
+        arms: {
+            left: left.warmup.slice(from, to).map(diagnosticSample),
+            right: right.warmup.slice(from, to).map(diagnosticSample),
+        },
+    });
+}
+
+function firstDivergence(
+    left: Trace,
+    right: Trace,
+    differs: (left: TickSample, right: TickSample) => boolean,
+): number | null {
+    const count = Math.min(left.samples.length, right.samples.length);
+    for (let index = 0; index < count; index++) {
+        if (differs(left.samples[index], right.samples[index])) return index;
+    }
+    return null;
+}
+
 function validateTrace(trace: Trace, idle: boolean): void {
     let previous = trace.initial;
     for (const sample of trace.samples) {
@@ -318,6 +401,27 @@ function validateTrace(trace: Trace, idle: boolean): void {
                 sample.tick,
                 trace.bounds,
                 `chassis horizontal speed ${sample.horizontalSpeeds[0].toFixed(3)} exceeded ${trace.bounds.speedCeiling.toFixed(3)}`,
+            );
+        if (Math.abs(chassisState.vel[1]) > trace.bounds.verticalSpeedCeiling)
+            fail(
+                trace,
+                sample.tick,
+                trace.bounds,
+                `chassis vertical speed ${Math.abs(chassisState.vel[1]).toFixed(3)} exceeded ${trace.bounds.verticalSpeedCeiling.toFixed(3)}`,
+            );
+        if (sample.totalSpeeds[0] > trace.bounds.totalSpeedCeiling)
+            fail(
+                trace,
+                sample.tick,
+                trace.bounds,
+                `chassis total speed ${sample.totalSpeeds[0].toFixed(3)} exceeded ${trace.bounds.totalSpeedCeiling.toFixed(3)}`,
+            );
+        if (chassisState.pos[1] < trace.bounds.chassisGroundFloor)
+            fail(
+                trace,
+                sample.tick,
+                trace.bounds,
+                `chassis center altitude ${chassisState.pos[1].toFixed(3)} fell below derived ground floor ${trace.bounds.chassisGroundFloor.toFixed(3)}`,
             );
         if (chassisState.pos[1] > trace.bounds.altitudeCeiling)
             fail(
@@ -392,16 +496,8 @@ function validateTrace(trace: Trace, idle: boolean): void {
         }
         previous = sample;
     }
-    const released = trace.samples[trace.samples.length - 1];
-    for (const wheel of released.observation.wheels) {
-        if (Math.abs(wheel.spin.target) > 1e-5 || Math.abs(wheel.steering.target) > 1e-5)
-            fail(
-                trace,
-                released.tick,
-                trace.bounds,
-                "vehicle command target remained active after key release",
-            );
-    }
+    // Keep dynamic idle causality ahead of command-report checks: an uncommanded normal-speed motor
+    // must first red for motion, not merely because its target was still observable at release.
     if (idle) {
         for (const sample of trace.samples) {
             const drift = Math.hypot(
@@ -419,6 +515,16 @@ function validateTrace(trace: Trace, idle: boolean): void {
                     `idle acquired horizontal drift/speed after contact: ${drift.toFixed(4)}m / ${sample.horizontalSpeeds[0].toFixed(4)}m/s`,
                 );
         }
+    }
+    const released = trace.samples[trace.samples.length - 1];
+    for (const wheel of released.observation.wheels) {
+        if (Math.abs(wheel.spin.target) > 1e-5 || Math.abs(wheel.steering.target) > 1e-5)
+            fail(
+                trace,
+                released.tick,
+                trace.bounds,
+                "vehicle command target remained active after key release",
+            );
     }
 }
 
@@ -537,11 +643,16 @@ function assertSameWarmup(traces: readonly Trace[]): void {
                     ) > 1e-5
                 )
                     throw new Error(
-                        `fresh vehicle arms diverged before input injection at warm-up ${index}`,
+                        `fresh vehicle arms diverged before input injection at warm-up ${index}; diagnostics=${warmupPairedDiagnostic("warm-up", reference, trace, index)}`,
                     );
             }
         }
     }
+}
+
+function heading(q: Quat): number {
+    const forward = rotate(q, [1, 0, 0]);
+    return Math.atan2(forward[2], forward[0]);
 }
 
 function causalDelta(trace: Trace, idle: Trace, index: number): Vec3 {
@@ -588,22 +699,42 @@ check(
         const right = await runTrace(["KeyW", "KeyD"]);
         assertSameWarmup([idle, forward, reverse, left, right]);
         const deadline = Math.min(HORIZON - 1, idle.bounds.clearAirTicks + 10);
+        const causalMinimum = Math.max(4 * idle.bounds.slop, idle.bounds.wheelRadius * 0.1);
         const forwardDelta = causalDelta(forward, idle, deadline);
         const reverseDelta = causalDelta(reverse, idle, deadline);
-        const causalMinimum = Math.max(4 * idle.bounds.slop, idle.bounds.wheelRadius * 0.1);
+        const forwardFirst = firstDivergence(
+            forward,
+            idle,
+            (a, b) => Math.abs(a.bodies[0].pos[0] - b.bodies[0].pos[0]) > causalMinimum,
+        );
+        const reverseFirst = firstDivergence(
+            reverse,
+            idle,
+            (a, b) => Math.abs(a.bodies[0].pos[0] - b.bodies[0].pos[0]) > causalMinimum,
+        );
         if (forwardDelta[0] < causalMinimum || reverseDelta[0] > -causalMinimum)
             throw new Error(
-                `first causal divergence at tick ${deadline}: W/S deltas ${forwardDelta[0]}, ${reverseDelta[0]}`,
+                `W/S command-minus-idle causality failed by deadline ${deadline}; first divergences W=${forwardFirst ?? deadline} S=${reverseFirst ?? deadline}; W=${pairedDiagnostic("W vs idle", forward, idle, forwardFirst ?? deadline, idle.bounds)}; S=${pairedDiagnostic("S vs idle", reverse, idle, reverseFirst ?? deadline, idle.bounds)}`,
             );
         const leftDelta = causalDelta(left, forward, HORIZON - 1);
         const rightDelta = causalDelta(right, forward, HORIZON - 1);
+        const leftFirst = firstDivergence(
+            left,
+            forward,
+            (a, b) => Math.abs(a.bodies[0].pos[2] - b.bodies[0].pos[2]) > causalMinimum,
+        );
+        const rightFirst = firstDivergence(
+            right,
+            forward,
+            (a, b) => Math.abs(a.bodies[0].pos[2] - b.bodies[0].pos[2]) > causalMinimum,
+        );
         if (
             leftDelta[2] > -causalMinimum ||
             rightDelta[2] < causalMinimum ||
             leftDelta[2] * rightDelta[2] >= 0
         )
             throw new Error(
-                `first causal steering divergence at tick ${HORIZON - 1}: W+A/W+D deltas ${leftDelta[2]}, ${rightDelta[2]}`,
+                `W+A/W+D command-minus-forward steering failed by tick ${HORIZON - 1}; first divergences A=${leftFirst ?? HORIZON - 1} D=${rightFirst ?? HORIZON - 1}; A=${pairedDiagnostic("W+A vs W", left, forward, leftFirst ?? HORIZON - 1, idle.bounds)}; D=${pairedDiagnostic("W+D vs W", right, forward, rightFirst ?? HORIZON - 1, idle.bounds)}`,
             );
         const forwardRear = forward.samples[HORIZON - 1].observation.wheels.filter(
             (wheel) => wheel.role === VehicleRole.RearWheel,
@@ -621,7 +752,7 @@ check(
         );
         if (drivenDelta > idle.bounds.driveImpulse)
             throw new Error(
-                `first driven tick changed horizontal velocity by ${drivenDelta.toFixed(4)}m/s, beyond ${idle.bounds.driveImpulse.toFixed(4)}m/s`,
+                `first W-minus-idle horizontal velocity divergence exceeded ${idle.bounds.driveImpulse.toFixed(4)}m/s; diagnostics=${pairedDiagnostic("first W vs idle impulse", forward, idle, 0, idle.bounds)}`,
             );
     },
 );
@@ -652,9 +783,18 @@ check(
         const right = await runTrace(["KeyW", "KeyD"]);
         const leftVelocity = left.samples[20].bodies[0].vel[2];
         const rightVelocity = right.samples[20].bodies[0].vel[2];
-        if (leftVelocity >= -0.001 || rightVelocity <= 0.001 || leftVelocity * rightVelocity >= 0)
+        const leftHeading = heading(left.samples[HORIZON - 1].bodies[0].quat);
+        const rightHeading = heading(right.samples[HORIZON - 1].bodies[0].quat);
+        if (
+            leftVelocity >= -0.001 ||
+            rightVelocity <= 0.001 ||
+            leftVelocity * rightVelocity >= 0 ||
+            leftHeading >= -0.02 ||
+            rightHeading <= 0.02 ||
+            leftHeading * rightHeading >= 0
+        )
             throw new Error(
-                `actual steering lateral velocities were not opposite: ${leftVelocity}, ${rightVelocity}`,
+                `actual steering lateral/yaw response was not opposite: lateral=${leftVelocity},${rightVelocity} heading=${leftHeading},${rightHeading}; diagnostics=${pairedDiagnostic("opposite W+A/W+D steering", left, right, HORIZON - 1, left.bounds)}`,
             );
     },
 );

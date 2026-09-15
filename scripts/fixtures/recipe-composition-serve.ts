@@ -32,7 +32,7 @@ const roleCheck =
            const liftEntities = lift ? [...state.query([lift])] : [];
            if (liftEntities.length !== 1 || !state.has(liftEntities[0], body)) throw new Error("Lift role/body composition was incomplete");`;
 const html = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0}canvas{display:block;width:100vw;height:100vh}</style><canvas id="canvas" width="1280" height="720"></canvas><script type="module">
-import { build, Body } from "@dylanebert/shallot";
+import { build, Body, run } from "@dylanebert/shallot";
 import { getComponent } from "@dylanebert/shallot/ecs";
 import project from "virtual:project";
 let verdict;
@@ -46,7 +46,23 @@ try {
     if (!body) throw new Error("Physics did not register Body");
     ${roleCheck}
     app.dispose();
-    verdict = { ok: true, checks: [{ name: "exact manifest composition", ok: true, detail: "build completed with selected scene and local roles before dispose" }], noRender: true };
+    const childrenBeforeRunFailure = document.body.children.length;
+    let runSetupThrew = false;
+    try {
+        await run({
+            plugins: project.plugins,
+            scene: project.scene,
+            defaults: false,
+            ui: () => { throw new Error("intentional run UI setup failure"); },
+        });
+    } catch (error) {
+        runSetupThrew = String(error).includes("intentional run UI setup failure");
+    }
+    if (!runSetupThrew) throw new Error("run() did not surface its throwing UI setup hook");
+    if (document.body.children.length !== childrenBeforeRunFailure) throw new Error("run() left its overlay mounted after setup failure");
+    const recovered = await build({ plugins: project.plugins, scene: project.scene, defaults: false });
+    recovered.dispose();
+    verdict = { ok: true, checks: [{ name: "exact manifest composition", ok: true, detail: "manifest build, throwing run setup cleanup, overlay unwind, and sequential recovery completed" }], noRender: true };
 } catch (error) {
     verdict = { ok: false, checks: [{ name: "exact manifest composition", ok: false, detail: String(error) }], noRender: true };
 }

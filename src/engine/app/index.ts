@@ -502,96 +502,105 @@ export function mountOverlay(canvas: HTMLElement | null, state?: State): HTMLDiv
  */
 export async function run(config: Config): Promise<App> {
     const app = await build(config);
-    const state = app.state;
-    const { device, pending, sync } = Compute;
-    // UI teardown is State-owned: the overlay auto-registers its removal (mountOverlay above), and the
-    // ui cleanup registers beside it. Both run at state.dispose() — after the plugin dispose hooks on the
-    // App.dispose path (UI cleanup is DOM/unmount work with no dependency on plugin GPU state), and it also
-    // covers a host that calls state.dispose() directly (the flows apps).
-    if (config.ui && Runtime === "web") {
-        const overlay = mountOverlay(document.querySelector("canvas"), state);
-        const uiCleanup = config.ui(overlay, state);
-        if (uiCleanup) state.onDispose(uiCleanup);
-    }
+    try {
+        const state = app.state;
+        const { device, pending, sync } = Compute;
+        // UI teardown is State-owned: the overlay auto-registers its removal (mountOverlay above), and the
+        // ui cleanup registers beside it. Both run at state.dispose() — after the plugin dispose hooks on the
+        // App.dispose path (UI cleanup is DOM/unmount work with no dependency on plugin GPU state), and it also
+        // covers a host that calls state.dispose() directly (the flows apps).
+        if (config.ui && Runtime === "web") {
+            const overlay = mountOverlay(document.querySelector("canvas"), state);
+            const uiCleanup = config.ui(overlay, state);
+            if (uiCleanup) state.onDispose(uiCleanup);
+        }
 
-    let disposed = false;
-    // stop the rAF loop when the State tears down, so a host that calls state.dispose() directly (the
-    // flows path) halts the loop too — not only the returned App.dispose(). Without this the loop keeps
-    // stepping a torn-down State every frame (the stacked-rAF leak). App.dispose sets it first; this is
-    // idempotent with that.
-    state.onDispose(() => {
-        disposed = true;
-    });
-    // seeded by the first frame's own timestamp (`frameDelta` steps 0 there), never by `now()` here: a
-    // rAF timestamp is the frame's vsync-aligned start and can precede a wall-clock seed, which stepped
-    // a negative dt into the scheduler's throw
-    let lastTime = -1;
-    let pendingFenceWaitMs = 0;
-    // recent raw-callback intervals + a reused sort scratch, feeding the double-fire coalescer's median
-    let lastCallback = -1;
-    const intervals: number[] = [];
-    const scratch: number[] = [];
+        let disposed = false;
+        // stop the rAF loop when the State tears down, so a host that calls state.dispose() directly (the
+        // flows path) halts the loop too — not only the returned App.dispose(). Without this the loop keeps
+        // stepping a torn-down State every frame (the stacked-rAF leak). App.dispose sets it first; this is
+        // idempotent with that.
+        state.onDispose(() => {
+            disposed = true;
+        });
+        // seeded by the first frame's own timestamp (`frameDelta` steps 0 there), never by `now()` here: a
+        // rAF timestamp is the frame's vsync-aligned start and can precede a wall-clock seed, which stepped
+        // a negative dt into the scheduler's throw
+        let lastTime = -1;
+        let pendingFenceWaitMs = 0;
+        // recent raw-callback intervals + a reused sort scratch, feeding the double-fire coalescer's median
+        let lastCallback = -1;
+        const intervals: number[] = [];
+        const scratch: number[] = [];
 
-    function frame(timestamp?: number): void {
-        if (disposed || deviceLost(device) || Compute.sync !== sync) return;
-        // rAF clocks the loop and reschedules first, before any GPU work: the next frame is registered
-        // while the browser's paint deadline is still open, so frame delivery stays vsync-aligned. The
-        // alternative — scheduling the next rAF off the completion fence — slips a paint whenever the
-        // fence resolves late, and under a throttled present (fullscreen vsync) its phase drifts against
-        // the deadline, turning a steady rate into visible judder.
-        requestFrame(frame);
-        // drive dt from the rAF presentation timestamp (the frame's vsync-aligned start time the browser
-        // assigns), not now() at callback time: the callback runs after a variable event-loop delay, so
-        // now() carries that jitter into the sim timebase and misaligns the fixed-step interpolation from
-        // the actual present (Raph Levien, "Swapchains and frame pacing"). The headless setTimeout path,
-        // with no timestamp, falls back to now().
-        const t = timestamp ?? now();
-        if (lastCallback >= 0) {
-            const raw = t - lastCallback;
-            if (raw > 0) {
-                intervals.push(raw);
-                if (intervals.length > 20) intervals.shift();
+        function frame(timestamp?: number): void {
+            if (disposed || deviceLost(device) || Compute.sync !== sync) return;
+            // rAF clocks the loop and reschedules first, before any GPU work: the next frame is registered
+            // while the browser's paint deadline is still open, so frame delivery stays vsync-aligned. The
+            // alternative — scheduling the next rAF off the completion fence — slips a paint whenever the
+            // fence resolves late, and under a throttled present (fullscreen vsync) its phase drifts against
+            // the deadline, turning a steady rate into visible judder.
+            requestFrame(frame);
+            // drive dt from the rAF presentation timestamp (the frame's vsync-aligned start time the browser
+            // assigns), not now() at callback time: the callback runs after a variable event-loop delay, so
+            // now() carries that jitter into the sim timebase and misaligns the fixed-step interpolation from
+            // the actual present (Raph Levien, "Swapchains and frame pacing"). The headless setTimeout path,
+            // with no timestamp, falls back to now().
+            const t = timestamp ?? now();
+            if (lastCallback >= 0) {
+                const raw = t - lastCallback;
+                if (raw > 0) {
+                    intervals.push(raw);
+                    if (intervals.length > 20) intervals.shift();
+                }
+            }
+            lastCallback = t;
+            // coalesce a Chrome rAF double-fire so the loop submits once per present (else the extra frame fills
+            // the swapchain queue → input latency). This is the present-pacing mechanism; MAX_FRAMES_IN_FLIGHT is
+            // only the runaway backstop below.
+            if (coalesce(t, lastTime, median(intervals, scratch))) return;
+            // backstop only: under genuine GPU saturation the CPU would queue unboundedly past the GPU, so cap
+            // the in-flight depth. The bound sits well above a present-throttled pipeline's depth (~3 frames),
+            // since `onSubmittedWorkDone` is present-gated and a tighter cap would drop frames Chrome is ready to
+            // present (a 60Hz fullscreen throttle reads ~3 in flight with the GPU idle).
+            if ((pending?.() ?? 0) >= MAX_FRAMES_IN_FLIGHT) return;
+            const dt = frameDelta(t, lastTime);
+            lastTime = t;
+            state.fenceWait(pendingFenceWaitMs);
+            pendingFenceWaitMs = 0;
+            state.step(dt);
+            const fence = sync?.();
+            if (fence) {
+                const waitStart = now();
+                fence.then(
+                    () => {
+                        pendingFenceWaitMs = now() - waitStart;
+                    },
+                    // A rejected fence has no timing sample. Device loss is reported once by
+                    // observeDevice; the next scheduled callback stops at the original owner guard.
+                    () => {},
+                );
             }
         }
-        lastCallback = t;
-        // coalesce a Chrome rAF double-fire so the loop submits once per present (else the extra frame fills
-        // the swapchain queue → input latency). This is the present-pacing mechanism; MAX_FRAMES_IN_FLIGHT is
-        // only the runaway backstop below.
-        if (coalesce(t, lastTime, median(intervals, scratch))) return;
-        // backstop only: under genuine GPU saturation the CPU would queue unboundedly past the GPU, so cap
-        // the in-flight depth. The bound sits well above a present-throttled pipeline's depth (~3 frames),
-        // since `onSubmittedWorkDone` is present-gated and a tighter cap would drop frames Chrome is ready to
-        // present (a 60Hz fullscreen throttle reads ~3 in flight with the GPU idle).
-        if ((pending?.() ?? 0) >= MAX_FRAMES_IN_FLIGHT) return;
-        const dt = frameDelta(t, lastTime);
-        lastTime = t;
-        state.fenceWait(pendingFenceWaitMs);
-        pendingFenceWaitMs = 0;
-        state.step(dt);
-        const fence = sync?.();
-        if (fence) {
-            const waitStart = now();
-            fence.then(
-                () => {
-                    pendingFenceWaitMs = now() - waitStart;
-                },
-                // A rejected fence has no timing sample. Device loss is reported once by
-                // observeDevice; the next scheduled callback stops at the original owner guard.
-                () => {},
-            );
-        }
-    }
 
-    requestFrame(frame);
+        requestFrame(frame);
 
-    return {
-        state,
-        skipped: [],
-        dispose() {
-            disposed = true;
+        return {
+            state,
+            skipped: [],
+            dispose() {
+                disposed = true;
+                app.dispose();
+            },
+        };
+    } catch (error) {
+        try {
             app.dispose();
-        },
-    };
+        } catch (disposeError) {
+            console.error("run setup cleanup threw:", disposeError);
+        }
+        throw error;
+    }
 }
 
 /** outcome of a {@link swap}: `ok` when the in-place swap applied, else `reason` says why a rebuild is needed */
