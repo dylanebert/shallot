@@ -29,6 +29,7 @@
     "exports": {
         ".": "./src/index.ts",
         "./extras": "./src/extras/index.ts",
+        "./brand": "./src/brand/index.ts",
         "./harness": "./src/harness/index.ts",
         "./harness/check": "./src/harness/check.ts",
         "./harness/surface": "./src/harness/surface.ts",

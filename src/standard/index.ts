@@ -50,7 +50,15 @@ export {
     visibilityChanged,
     wheel,
 } from "./input";
-export { minimalDark, minimalLight, shallotDark, shallotLight } from "./loading";
+export {
+    type LoadingOptions,
+    minimalDark,
+    minimalLight,
+    type SplashOptions,
+    type SplashProfile,
+    shallotDark,
+    shallotLight,
+} from "./loading";
 export { Mirror, MirrorPlugin, MirrorSystem, mirror } from "./mirror";
 export { Color, Part, PartPlugin } from "./part";
 export {

@@ -6,26 +6,35 @@
 // its object as the default export only (bun synthesizes named ones). Either way a Node-side consumer of
 // this package — a Playwright driver, a vite/playwright config — dies before running.
 import pkg from "../../../package.json" with { type: "json" };
+import { DARK, END_TICK, LIGHT, type Palette, type Splash, splash, toSvg } from "../../brand";
 import { UnsupportedError } from "../../engine";
 import type { Loading } from "../../engine/app";
 import type { AdapterVerdict } from "../../engine/runtime/adapter";
 import {
-    DARK,
-    HIT_TICK,
-    LIGHT,
-    type Palette,
-    progressTick,
-    type Splash,
-    splash,
-    TICK_MS,
-    toSvg,
-} from "./mark";
+    initialPresentation,
+    type PresentationEvent,
+    type PresentationState,
+    type SplashProfile,
+    transitionPresentation,
+} from "./presentation";
 
-/** Ticks of dead air after the lockup lands, before the overlay is dismissed. */
-const HOLD_TICKS = 6;
+export type { SplashProfile } from "./presentation";
 
-/** The track fades over the hold, so the lockup is alone on screen when the overlay goes. */
-const FADE_MS = Math.round(HOLD_TICKS * TICK_MS);
+/** The grace before responsive and compact branded content is allowed to appear. */
+export const SPLASH_GRACE_MS = 150;
+/** The whole-overlay handoff after responsive and compact readiness. */
+export const SPLASH_FADE_MS = 150;
+/** The minimum finished-lockup rest for the cinematic profile. */
+export const SPLASH_LOCKUP_REST_MS = 150;
+
+export interface SplashOptions {
+    /** presentation intent; omitted means the responsive default */
+    profile?: SplashProfile;
+    /** parent for the startup overlay; omitted means the canvas parent or document body */
+    container?: HTMLElement;
+}
+
+export type LoadingOptions = SplashOptions;
 
 interface Theme {
     bg: string;
@@ -143,7 +152,7 @@ function createProgressBar(theme: Theme): { track: HTMLDivElement; bar: HTMLDivE
         height: 4px;
         background: ${theme.track};
         overflow: hidden;
-        transition: opacity ${FADE_MS}ms ease-out;
+        transition: width 0.15s ease-out;
     `;
 
     const bar = document.createElement("div");
@@ -174,32 +183,15 @@ function prefersReducedMotion(): boolean {
     );
 }
 
-// the splash the site ships, driven by progress rather than a clock: the lockup lands pixel by
-// pixel as the build advances, then `complete` plays the name typing in. Reduced motion rests on
-// the finished lockup instead. At 4px a square the 52-pixel lockup is 208px wide, just inside the
-// 228px track below it, so the two read as one thing settling into a load.
+// The canonical splash runs on the shared brand clock after its profile allows it to appear. The
+// progress bar remains independent and reports only build progress. At 4px a square the 52-pixel
+// lockup is 208px wide, just inside the 228px track below it.
 function createSplash(theme: Theme): { el: HTMLDivElement; driver: Splash; reduced: boolean } {
     const el = document.createElement("div");
     el.style.cssText = "width: 208px; max-width: 100%;";
     const reduced = prefersReducedMotion();
     const driver = splash(el, (grid) => toSvg(grid, theme.mark, 4), reduced);
     return { el, driver, reduced };
-}
-
-/** Resolves `ticks` after the call, on the same clock the splash runs on. */
-function hold(ticks: number): Promise<void> {
-    if (typeof requestAnimationFrame !== "function") return Promise.resolve();
-    const until = performance.now() + ticks * TICK_MS;
-    return new Promise<void>((resolve) => {
-        const frame = () => {
-            if (performance.now() >= until) {
-                resolve();
-                return;
-            }
-            requestAnimationFrame(frame);
-        };
-        requestAnimationFrame(frame);
-    });
 }
 
 function diagnosticText(error: Error): string {
@@ -373,47 +365,152 @@ function renderError(overlay: HTMLDivElement, error: unknown, theme: Theme): voi
     renderEngineError(overlay, wrapped, theme);
 }
 
-function loading(theme: Theme, container: HTMLElement | undefined, withSplash: boolean): Loading {
+function loading(theme: Theme, options: SplashOptions, withSplash: boolean): Loading {
     let overlay: HTMLDivElement | null = null;
     let bar: HTMLDivElement | null = null;
     let track: HTMLDivElement | null = null;
     let driver: Splash | null = null;
-    let reduced = false;
-    let tick = 0;
+    let splashElement: HTMLDivElement | null = null;
     let content: HTMLDivElement | null = null;
     let noticeLine: HTMLDivElement | null = null;
+    let state: PresentationState | null = null;
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
+    let restTimer: ReturnType<typeof setTimeout> | null = null;
+    let fadeTimer: ReturnType<typeof setTimeout> | null = null;
+    let animationToken = 0;
+    let lockupAt = 0;
+    let completion: Promise<void> | null = null;
+    let finishCompletion: (() => void) | null = null;
+
+    const clearTimer = (timer: ReturnType<typeof setTimeout> | null): null => {
+        if (timer !== null) clearTimeout(timer);
+        return null;
+    };
+
+    const completeExit = (): void => {
+        const resolve = finishCompletion;
+        finishCompletion = null;
+        resolve?.();
+    };
+
+    const startExit = (): void => {
+        if (!overlay) {
+            completeExit();
+            return;
+        }
+        if (state?.reducedMotion) {
+            completeExit();
+            return;
+        }
+        if (state?.profile !== "cinematic") {
+            animationToken++;
+            driver?.cancel();
+        }
+        overlay.style.transition = `opacity ${SPLASH_FADE_MS}ms ease-out`;
+        overlay.style.opacity = "0";
+        fadeTimer = setTimeout(() => {
+            fadeTimer = null;
+            completeExit();
+        }, SPLASH_FADE_MS);
+    };
+
+    const cancelExternal = (): void => {
+        animationToken++;
+        graceTimer = clearTimer(graceTimer);
+        restTimer = clearTimer(restTimer);
+        fadeTimer = clearTimer(fadeTimer);
+        driver?.cancel();
+        if (overlay) {
+            overlay.style.transition = "none";
+            overlay.style.opacity = "1";
+        }
+        completeExit();
+    };
+
+    const scheduleRest = (): void => {
+        if (
+            state?.profile !== "cinematic" ||
+            state?.animationFinished !== true ||
+            restTimer !== null
+        )
+            return;
+        const wait = Math.max(0, SPLASH_LOCKUP_REST_MS - (performance.now() - lockupAt));
+        restTimer = setTimeout(() => {
+            restTimer = null;
+            dispatch({ type: "rest-finished" });
+        }, wait);
+    };
+
+    const mountBrand = (animate: boolean): void => {
+        if (!content || !driver || !splashElement || state?.branded !== true) return;
+        if (!splashElement.isConnected) content.insertBefore(splashElement, track);
+        if (!animate) {
+            driver.seek(END_TICK + 1);
+            return;
+        }
+        const token = ++animationToken;
+        driver.play(0).then(() => {
+            if (token !== animationToken || state?.phase === "cleaned" || state?.phase === "error")
+                return;
+            lockupAt = performance.now();
+            dispatch({ type: "animation-finished" });
+            scheduleRest();
+        });
+    };
+
+    const dispatch = (event: PresentationEvent): void => {
+        if (!state) return;
+        const result = transitionPresentation(state, event);
+        state = result.state;
+        for (const effect of result.effects) {
+            if (effect === "cancel") cancelExternal();
+            else if (effect === "mount-static") mountBrand(false);
+            else if (effect === "mount-animation") mountBrand(true);
+            else if (effect === "start-exit") startExit();
+        }
+    };
+
+    const scheduleGrace = (): void => {
+        graceTimer = setTimeout(() => {
+            graceTimer = null;
+            dispatch({ type: "grace" });
+        }, SPLASH_GRACE_MS);
+    };
 
     const screen: Loading = {
         show() {
-            overlay = createOverlay(theme.bg, container);
+            overlay = createOverlay(theme.bg, options.container);
             if (!overlay) return;
 
             content = panel(276, "center");
-
-            if (withSplash) {
-                const made = createSplash(theme);
-                driver = made.driver;
-                reduced = made.reduced;
-                tick = 0;
-                driver.seek(0);
-                content.appendChild(made.el);
-            }
-
             const progressBar = createProgressBar(theme);
             bar = progressBar.bar;
             track = progressBar.track;
             content.appendChild(progressBar.track);
             overlay.appendChild(content);
 
+            if (withSplash) {
+                const made = createSplash(theme);
+                driver = made.driver;
+                splashElement = made.el;
+                state = initialPresentation(options.profile ?? "responsive", made.reduced);
+                dispatch({ type: "show" });
+                if (state.phase === "grace") scheduleGrace();
+            }
+
             return () => {
+                dispatch({ type: "cleanup" });
                 overlay?.remove();
                 overlay = null;
                 bar = null;
                 track = null;
                 driver = null;
-                tick = 0;
+                splashElement = null;
                 content = null;
                 noticeLine = null;
+                state = null;
+                completion = null;
+                finishCompletion = null;
             };
         },
 
@@ -429,49 +526,69 @@ function loading(theme: Theme, container: HTMLElement | undefined, withSplash: b
         },
 
         update(progress) {
-            if (bar) bar.style.width = `${progress * 100}%`;
-            // the landing only ever gains pixels: a lower progress never unlights one
-            if (driver) {
-                tick = Math.max(tick, progressTick(progress));
-                driver.seek(tick);
-            }
+            if (bar) bar.style.width = `${Math.min(1, Math.max(0, progress)) * 100}%`;
         },
 
         error(error) {
-            if (overlay) renderError(overlay, error, theme);
+            if (!overlay) return;
+            dispatch({ type: "error" });
+            renderError(overlay, error, theme);
         },
     };
 
-    // only the splash variants hold: the bar-only screens dismiss the moment the build finishes
     if (withSplash) {
-        screen.complete = async () => {
-            if (!driver) return;
-            // the bar has said all it can; it clears so the outro plays against the ground alone
-            if (track) {
-                if (reduced) track.style.transition = "none";
-                track.style.opacity = "0";
+        screen.complete = () => {
+            if (!state || state.phase === "error" || state.phase === "cleaned") return;
+            if (completion === null) {
+                completion = new Promise<void>((resolve) => {
+                    finishCompletion = resolve;
+                });
             }
-            await driver.play(HIT_TICK);
-            if (!reduced) await hold(HOLD_TICKS);
+            dispatch({ type: "ready" });
+            if (state.phase === "ready" && !state.branded) {
+                graceTimer = clearTimer(graceTimer);
+                completeExit();
+                return Promise.resolve();
+            }
+            if (state.profile === "cinematic" && state.animationFinished && !state.restFinished) {
+                const wait = Math.max(0, SPLASH_LOCKUP_REST_MS - (performance.now() - lockupAt));
+                if (restTimer === null)
+                    restTimer = setTimeout(() => {
+                        restTimer = null;
+                        dispatch({ type: "rest-finished" });
+                    }, wait);
+            }
+            return completion;
         };
     }
 
     return screen;
 }
 
-function shallotLoading(theme: Theme, container?: HTMLElement): Loading {
-    return loading(theme, container, true);
+function loadingOptions(options?: SplashOptions | HTMLElement): SplashOptions {
+    if (options === undefined) return {};
+    return typeof HTMLElement !== "undefined" && options instanceof HTMLElement
+        ? { container: options }
+        : (options as SplashOptions);
 }
 
-function minimalLoading(theme: Theme, container?: HTMLElement): Loading {
-    return loading(theme, container, false);
+function shallotLoading(theme: Theme, options?: SplashOptions | HTMLElement): Loading {
+    return loading(theme, loadingOptions(options), true);
+}
+
+function minimalLoading(theme: Theme, options?: SplashOptions | HTMLElement): Loading {
+    return loading(theme, loadingOptions(options), false);
 }
 
 /** dark-theme startup screen: the shallot splash over a progress bar. the engine default. */
-export const shallotDark = (container?: HTMLElement): Loading => shallotLoading(dark, container);
+export const shallotDark = (options?: SplashOptions | HTMLElement): Loading =>
+    shallotLoading(dark, options);
 /** light-theme startup screen: the shallot splash over a progress bar */
-export const shallotLight = (container?: HTMLElement): Loading => shallotLoading(light, container);
+export const shallotLight = (options?: SplashOptions | HTMLElement): Loading =>
+    shallotLoading(light, options);
 /** dark-theme startup screen: a bare progress bar, no splash */
-export const minimalDark = (container?: HTMLElement): Loading => minimalLoading(dark, container);
+export const minimalDark = (options?: SplashOptions | HTMLElement): Loading =>
+    minimalLoading(dark, options);
 /** light-theme startup screen: a bare progress bar, no splash */
-export const minimalLight = (container?: HTMLElement): Loading => minimalLoading(light, container);
+export const minimalLight = (options?: SplashOptions | HTMLElement): Loading =>
+    minimalLoading(light, options);
