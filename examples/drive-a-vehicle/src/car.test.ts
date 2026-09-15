@@ -395,6 +395,40 @@ function validateTrace(trace: Trace, idle: boolean): void {
                 );
         }
         const chassisState = bodies[0];
+        if (idle && sample.tick <= trace.bounds.clearAirTicks) {
+            const initialChassis = trace.initial.bodies[0];
+            const xDelta = chassisState.pos[0] - initialChassis.pos[0];
+            const zDelta = chassisState.pos[2] - initialChassis.pos[2];
+            const clearAirSpeed = trace.bounds.slop / trace.bounds.dt;
+            if (Math.abs(xDelta) > trace.bounds.slop || Math.abs(zDelta) > trace.bounds.slop)
+                fail(
+                    trace,
+                    sample.tick,
+                    trace.bounds,
+                    `clear-air chassis X/Z moved beyond slop: ${xDelta.toFixed(4)}m / ${zDelta.toFixed(4)}m`,
+                );
+            if (sample.horizontalSpeeds[0] > clearAirSpeed)
+                fail(
+                    trace,
+                    sample.tick,
+                    trace.bounds,
+                    `clear-air chassis horizontal speed ${sample.horizontalSpeeds[0].toFixed(4)} exceeded ${clearAirSpeed.toFixed(4)}`,
+                );
+            if (chassisState.pos[1] > initialChassis.pos[1] + trace.bounds.slop)
+                fail(
+                    trace,
+                    sample.tick,
+                    trace.bounds,
+                    `clear-air chassis Y increased by ${(chassisState.pos[1] - initialChassis.pos[1]).toFixed(4)}m beyond slop`,
+                );
+            if (chassisState.vel[1] > clearAirSpeed)
+                fail(
+                    trace,
+                    sample.tick,
+                    trace.bounds,
+                    `clear-air chassis upward velocity ${chassisState.vel[1].toFixed(4)} exceeded ${clearAirSpeed.toFixed(4)}`,
+                );
+        }
         if (sample.horizontalSpeeds[0] > trace.bounds.speedCeiling)
             fail(
                 trace,
