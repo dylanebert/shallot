@@ -28,8 +28,8 @@ const STEER = Math.PI / 5; // a readable steering lock for the orbit view.
 
 // These are authored vehicle frame values, not derived solver math. The wheel body pose is authored in the
 // scene; the joint's x suspension axis and z spin axis stay fixed for this recipe's four-wheel layout.
-const SUSPENSION_FRAME = { v: { x: 0, y: 0, z: 0.70710677 }, s: 0.70710677 };
-const SPIN_FRAME = { v: { x: -0.70710677, y: 0, z: 0 }, s: 0.70710677 };
+export const SUSPENSION_FRAME = { v: { x: 0, y: 0, z: 0.70710677 }, s: 0.70710677 };
+export const SPIN_FRAME = { v: { x: -0.70710677, y: 0, z: 0 }, s: 0.70710677 };
 type Wheel = ReturnType<typeof createWheelJoint>;
 type VehicleRuntime = {
     ground: number;

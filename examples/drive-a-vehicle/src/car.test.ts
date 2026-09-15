@@ -1,4 +1,6 @@
+import { resolve } from "node:path";
 import {
+    Body,
     body,
     build,
     devices,
@@ -10,19 +12,38 @@ import {
     type State,
     Time,
 } from "@dylanebert/shallot";
+import { runBrowserCheck } from "@dylanebert/shallot/harness";
 import { check } from "@dylanebert/shallot/harness/check";
-import { Car, Vehicle, VehicleRole } from "./car";
+import { Car, SPIN_FRAME, SUSPENSION_FRAME, Vehicle, VehicleRole } from "./car";
 
-const SCENE = `<scene>
-    <a id="ground" vehicle="role: ground" body="pos: 0 0 0; half-extents: 30 0.5 30; mass: 0; friction: 1" />
-    <a id="chassis" vehicle="role: chassis" body="pos: 0 2.5 0; half-extents: 2 0.5 1; mass: 4" />
-    <a vehicle="role: front-wheel" body="shape: 1; pos: 1.5 1.5 0.8; half-extents: 0 0 0 0.4; mass: 0.5; friction: 3; quat: 90 0 0" />
-    <a vehicle="role: front-wheel" body="shape: 1; pos: 1.5 1.5 -0.8; half-extents: 0 0 0 0.4; mass: 0.5; friction: 3; quat: 90 0 0" />
-    <a vehicle="role: rear-wheel" body="shape: 1; pos: -1.5 1.5 0.8; half-extents: 0 0 0 0.4; mass: 0.5; friction: 3; quat: 90 0 0" />
-    <a vehicle="role: rear-wheel" body="shape: 1; pos: -1.5 1.5 -0.8; half-extents: 0 0 0 0.4; mass: 0.5; friction: 3; quat: 90 0 0" />
-</scene>`;
+const SCENE = resolve(import.meta.dir, "../public/scenes/drive-a-vehicle.scene");
+const HORIZON = 120;
+const SUBSTEPS = 4;
+const BOX3D_LINEAR_SLOP = 0.005;
+
+type BodySnapshot = NonNullable<ReturnType<typeof readBody>>;
+type Arm = readonly string[];
+type Trace = {
+    keys: Arm;
+    chassis: number;
+    wheels: number[];
+    bounds: VehicleBounds;
+    samples: BodySnapshot[][];
+};
+
+type VehicleBounds = {
+    dt: number;
+    substepDt: number;
+    slop: number;
+    clearAirTicks: number;
+    speedCeiling: number;
+    altitudeCeiling: number;
+    driveImpulse: number;
+};
 
 async function vehicle() {
+    // This is the manifest's selected scene and local plugin, consumed with the same public build seam
+    // as the project. The exact-project Chromium row below proves the manifest selection itself.
     return build({
         defaults: false,
         plugins: [PhysicsPlugin, InputPlugin, Car],
@@ -30,19 +51,292 @@ async function vehicle() {
     });
 }
 
-function chassis(state: State): number {
-    for (const eid of state.query([Vehicle])) {
-        if (Vehicle.role.get(eid) === VehicleRole.Chassis) return eid;
+function role(state: State, wanted: number): number {
+    for (const eid of state.query([Vehicle, Body])) {
+        if (Vehicle.role.get(eid) === wanted) return eid;
     }
-    throw new Error("vehicle scene has no chassis");
+    return -1;
+}
+
+function chassis(state: State): number {
+    const eid = role(state, VehicleRole.Chassis);
+    if (eid < 0) throw new Error("actual vehicle scene has no chassis Body");
+    return eid;
+}
+
+function wheels(state: State): number[] {
+    const result = [...state.query([Vehicle, Body])].filter((eid) => {
+        const value = Vehicle.role.get(eid);
+        return value === VehicleRole.FrontWheel || value === VehicleRole.RearWheel;
+    });
+    if (result.length < 4)
+        throw new Error(`actual vehicle scene has ${result.length} live wheels; expected four`);
+    return result;
 }
 
 function step(app: Awaited<ReturnType<typeof vehicle>>, ticks: number): void {
     for (let i = 0; i < ticks; i++) app.state.step(Time.FIXED_DT);
 }
 
-function yaw(quat: readonly [number, number, number, number]): number {
-    const [x, y, z, w] = quat;
+function live(app: Awaited<ReturnType<typeof vehicle>>, eids: readonly number[]): BodySnapshot[] {
+    return eids.map((eid) => {
+        const bodyState = readBody(app.state, eid);
+        if (!bodyState) throw new Error(`vehicle body ${eid} has no live stepped pose`);
+        return bodyState;
+    });
+}
+
+function quat(value: {
+    v: { x: number; y: number; z: number };
+    s: number;
+}): [number, number, number, number] {
+    return [value.v.x, value.v.y, value.v.z, value.s];
+}
+
+function multiply(
+    a: readonly [number, number, number, number],
+    b: readonly [number, number, number, number],
+): [number, number, number, number] {
+    const [ax, ay, az, aw] = a;
+    const [bx, by, bz, bw] = b;
+    return [
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    ];
+}
+
+function rotate(
+    q: readonly [number, number, number, number],
+    v: readonly [number, number, number],
+): [number, number, number] {
+    const [x, y, z, w] = q;
+    const [vx, vy, vz] = v;
+    return [
+        (1 - 2 * (y * y + z * z)) * vx + 2 * (x * y - z * w) * vy + 2 * (x * z + y * w) * vz,
+        2 * (x * y + z * w) * vx + (1 - 2 * (x * x + z * z)) * vy + 2 * (y * z - x * w) * vz,
+        2 * (x * z - y * w) * vx + 2 * (y * z + x * w) * vy + (1 - 2 * (x * x + y * y)) * vz,
+    ];
+}
+
+function distance(
+    a: readonly [number, number, number],
+    b: readonly [number, number, number],
+): number {
+    return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
+function bounds(
+    app: Awaited<ReturnType<typeof vehicle>>,
+    chassisEid: number,
+    wheelEids: readonly number[],
+): VehicleBounds {
+    const ground = role(app.state, VehicleRole.Ground);
+    if (ground < 0) throw new Error("actual vehicle scene has no ground Body");
+    const groundTop = Body.pos.y.get(ground) + Body.halfExtents.y.get(ground);
+    const wheelRadius = Body.halfExtents.w.get(wheelEids[0]);
+    const wheelBottom = Body.pos.y.get(wheelEids[0]) - wheelRadius;
+    const initialClearance = wheelBottom - groundTop;
+    const mass = [chassisEid, ...wheelEids].reduce((sum, eid) => sum + Body.mass.get(eid), 0);
+    const drivenWheels = wheelEids.filter(
+        (eid) => Vehicle.role.get(eid) === VehicleRole.RearWheel,
+    ).length;
+    const torque = 5;
+    const targetSpin = 14;
+    const dt = Time.FIXED_DT;
+    const substepDt = dt / SUBSTEPS;
+    const slop = BOX3D_LINEAR_SLOP;
+    const clearAirSeconds = Math.sqrt(Math.max(0, (2 * (initialClearance - slop)) / 10));
+    const anchorDrop = Math.abs(Body.pos.y.get(chassisEid) - Body.pos.y.get(wheelEids[0]));
+    const upperTravel = 0.2;
+    const altitudeCeiling =
+        Math.max(Body.pos.y.get(chassisEid), groundTop + wheelRadius + anchorDrop + upperTravel) +
+        2 * wheelRadius +
+        slop;
+    const rimSpeed = Math.abs(targetSpin) * wheelRadius;
+    const driveAcceleration = (drivenWheels * torque) / (wheelRadius * mass);
+    return {
+        dt,
+        substepDt,
+        slop,
+        clearAirTicks: Math.max(0, Math.ceil(clearAirSeconds / dt) - 1),
+        // The motor target is a wheel rim speed, so the chassis must stay within that cap plus
+        // two solver slops; this is deliberately independent of the trajectory horizon.
+        speedCeiling: rimSpeed + (2 * slop) / dt,
+        altitudeCeiling,
+        driveImpulse: driveAcceleration * dt + slop / substepDt,
+    };
+}
+
+function diagnostic(trace: Trace, index: number, boundsValue: VehicleBounds): string {
+    const from = Math.max(0, index - 1);
+    const to = Math.min(trace.samples.length, index + 2);
+    const sample = trace.samples.slice(from, to).map((bodies, offset) => ({
+        tick: from + offset,
+        chassis: { pos: bodies[0].pos, vel: bodies[0].vel, quat: bodies[0].quat },
+        wheels: bodies.slice(1).map((bodyState) => ({ pos: bodyState.pos, quat: bodyState.quat })),
+    }));
+    return JSON.stringify({
+        firstFailingTick: index,
+        activeKeys: trace.keys,
+        bounds: boundsValue,
+        sample,
+    });
+}
+
+function fail(trace: Trace, index: number, boundsValue: VehicleBounds, reason: string): never {
+    throw new Error(
+        `${reason}; first failing tick ${index}; diagnostics=${diagnostic(trace, index, boundsValue)}`,
+    );
+}
+
+function assertFramePremise(chassisEid: number, wheelEids: readonly number[]): void {
+    const chassisPos = [
+        Body.pos.x.get(chassisEid),
+        Body.pos.y.get(chassisEid),
+        Body.pos.z.get(chassisEid),
+    ] as const;
+    const suspensionAxis = rotate(quat(SUSPENSION_FRAME), [1, 0, 0]);
+    const parallelAxis = rotate(quat(SPIN_FRAME), [0, 0, 1]);
+    if (distance(suspensionAxis, [0, 1, 0]) > 1e-5)
+        throw new Error(`wheel suspension frame x axis is not world Y: ${suspensionAxis}`);
+    if (distance(parallelAxis, [0, 1, 0]) > 1e-5)
+        throw new Error(`upright parallel frame z axis is not world Y: ${parallelAxis}`);
+
+    for (const eid of wheelEids) {
+        const q: [number, number, number, number] = [
+            Body.quat.x.get(eid),
+            Body.quat.y.get(eid),
+            Body.quat.z.get(eid),
+            Body.quat.w.get(eid),
+        ];
+        if (Math.abs(Math.hypot(...q) - 1) > 1e-5)
+            throw new Error(`wheel ${eid} stored a non-unit authored quaternion: ${q}`);
+        const axle = rotate(multiply(q, quat(SPIN_FRAME)), [0, 0, 1]);
+        if (distance(axle, [0, 0, 1]) > 1e-5)
+            throw new Error(`wheel ${eid} spin frame does not realize the world-Z axle: ${axle}`);
+        const anchor = [
+            Body.pos.x.get(eid) - chassisPos[0],
+            Body.pos.y.get(eid) - chassisPos[1],
+            Body.pos.z.get(eid) - chassisPos[2],
+        ] as const;
+        const expected = [
+            Vehicle.role.get(eid) === VehicleRole.FrontWheel ? 1.5 : -1.5,
+            -1,
+            Math.sign(Body.pos.z.get(eid)) * 0.8,
+        ] as const;
+        if (distance(anchor, expected) > 1e-5)
+            throw new Error(
+                `wheel ${eid} anchor is not coincident with its authored chassis frame: ${anchor}`,
+            );
+    }
+}
+
+function validateTrace(trace: Trace, boundsValue: VehicleBounds, idle: boolean): void {
+    let previous = trace.samples[0][0];
+    for (let tick = 0; tick < trace.samples.length; tick++) {
+        const bodies = trace.samples[tick];
+        for (const [index, bodyState] of bodies.entries()) {
+            const values = [...bodyState.pos, ...bodyState.vel, ...bodyState.quat];
+            if (values.some((value) => !Number.isFinite(value)))
+                fail(
+                    trace,
+                    tick,
+                    boundsValue,
+                    `${index === 0 ? "chassis" : `wheel ${index}`} has non-finite state`,
+                );
+            if (Math.abs(Math.hypot(...bodyState.quat) - 1) > 1e-5)
+                fail(
+                    trace,
+                    tick,
+                    boundsValue,
+                    `${index === 0 ? "chassis" : `wheel ${index}`} quaternion is not unit`,
+                );
+        }
+        const chassisState = bodies[0];
+        const speed = Math.hypot(...chassisState.vel);
+        if (speed > boundsValue.speedCeiling)
+            fail(
+                trace,
+                tick,
+                boundsValue,
+                `chassis speed ${speed.toFixed(3)} exceeded ${boundsValue.speedCeiling.toFixed(3)}`,
+            );
+        const up = rotate(chassisState.quat, [0, 1, 0]);
+        if (up[1] < 0.5) fail(trace, tick, boundsValue, `chassis inverted with up axis ${up}`);
+        const displacement = distance(chassisState.pos, previous.pos);
+        if (
+            tick > 0 &&
+            displacement >
+                Math.max(speed, Math.hypot(...previous.vel)) * boundsValue.dt + boundsValue.slop
+        )
+            fail(
+                trace,
+                tick,
+                boundsValue,
+                `chassis moved ${displacement.toFixed(4)}m in one tick without endpoint velocity support`,
+            );
+        if (idle && tick <= boundsValue.clearAirTicks) {
+            const horizontal = Math.hypot(chassisState.pos[0], chassisState.pos[2]);
+            const horizontalSpeed = Math.hypot(chassisState.vel[0], chassisState.vel[2]);
+            if (
+                horizontal > boundsValue.slop ||
+                horizontalSpeed > boundsValue.slop / boundsValue.dt ||
+                chassisState.pos[1] > previous.pos[1] + boundsValue.slop ||
+                chassisState.vel[1] > boundsValue.slop / boundsValue.dt
+            )
+                fail(
+                    trace,
+                    tick,
+                    boundsValue,
+                    "idle clear-air phase gained uncommanded horizontal or upward energy",
+                );
+        }
+        if (chassisState.pos[1] > boundsValue.altitudeCeiling)
+            fail(
+                trace,
+                tick,
+                boundsValue,
+                `chassis altitude ${chassisState.pos[1].toFixed(3)} exceeded ${boundsValue.altitudeCeiling.toFixed(3)}`,
+            );
+        previous = chassisState;
+    }
+}
+
+async function runTrace(keys: Arm): Promise<Trace> {
+    const app = await vehicle();
+    try {
+        const chassisEid = chassis(app.state);
+        const wheelEids = wheels(app.state);
+        assertFramePremise(chassisEid, wheelEids);
+        const bound = bounds(app, chassisEid, wheelEids);
+        step(app, 2);
+        const samples: BodySnapshot[][] = [live(app, [chassisEid, ...wheelEids])];
+        for (const key of keys) pressKey(app.state, key);
+        for (let tick = 0; tick < HORIZON; tick++) {
+            app.state.step(Time.FIXED_DT);
+            samples.push(live(app, [chassisEid, ...wheelEids]));
+        }
+        for (const key of keys) releaseKey(app.state, key);
+        app.state.step(Time.FIXED_DT);
+        samples.push(live(app, [chassisEid, ...wheelEids]));
+        const trace = {
+            keys,
+            chassis: chassisEid,
+            wheels: wheelEids.slice(),
+            bounds: bound,
+            samples,
+        };
+        validateTrace(trace, bound, keys.length === 0);
+        return trace;
+    } finally {
+        app.dispose();
+    }
+}
+
+function yaw(quatValue: readonly [number, number, number, number]): number {
+    const [x, y, z, w] = quatValue;
     return Math.atan2(2 * (w * y + x * z), 1 - 2 * (y * y + z * z));
 }
 
@@ -51,33 +345,68 @@ function angleDelta(after: number, before: number): number {
 }
 
 check(
-    "vehicle throttle displaces the chassis",
+    "drive-a-vehicle actual scene follows a bounded causal trajectory",
     {
-        claim: "the drive-a-vehicle recipe turns W into chassis displacement through its production wheel motor",
+        claim: "the actual drive-a-vehicle scene follows a finite, ground-bound, input-causal stepped trajectory rather than receiving an uncommanded launch",
     },
     async () => {
-        async function run(throttle: boolean): Promise<readonly [number, number]> {
-            const app = await vehicle();
-            try {
-                const eid = chassis(app.state);
-                step(app, 2);
-                const before = readBody(app.state, eid);
-                if (throttle) pressKey(app.state, "KeyW");
-                step(app, 12);
-                if (throttle) releaseKey(app.state, "KeyW");
-                const after = readBody(app.state, eid);
-                if (!before || !after) throw new Error("chassis never became a live body");
-                return [after.pos[0] - before.pos[0], after.pos[2] - before.pos[2]];
-            } finally {
-                app.dispose();
-            }
-        }
-        const idle = await run(false);
-        const driven = await run(true);
-        const commandDisplacement = Math.hypot(driven[0] - idle[0], driven[1] - idle[1]);
-        if (commandDisplacement < 0.0005)
+        const idle = await runTrace([]);
+        const forward = await runTrace(["KeyW"]);
+        const reverse = await runTrace(["KeyS"]);
+        const left = await runTrace(["KeyW", "KeyA"]);
+        const right = await runTrace(["KeyW", "KeyD"]);
+        const idleStart = idle.samples[0][0];
+        const idleEnd = idle.samples[idle.samples.length - 2][0];
+        const forwardEnd = forward.samples[forward.samples.length - 2][0];
+        const reverseEnd = reverse.samples[reverse.samples.length - 2][0];
+        const leftEnd = left.samples[left.samples.length - 2][0];
+        const rightEnd = right.samples[right.samples.length - 2][0];
+        const forwardDelta = forwardEnd.pos[0] - idleStart.pos[0];
+        const reverseDelta = reverseEnd.pos[0] - idleStart.pos[0];
+        if (forwardDelta < 0.25 || reverseDelta > -0.25)
             throw new Error(
-                `throttle displacement changed only ${commandDisplacement.toFixed(4)}m`,
+                `W/S did not produce opposite longitudinal displacement: ${forwardDelta}, ${reverseDelta}`,
+            );
+        const leftLateral = leftEnd.pos[2] - idleEnd.pos[2];
+        const rightLateral = rightEnd.pos[2] - idleEnd.pos[2];
+        if (leftLateral > -0.25 || rightLateral < 0.25 || leftLateral * rightLateral >= 0)
+            throw new Error(
+                `W+A/W+D did not produce opposite lateral effects: ${leftLateral}, ${rightLateral}`,
+            );
+        const drivenDelta = Math.hypot(
+            forward.samples[1][0].vel[0] - idle.samples[1][0].vel[0],
+            forward.samples[1][0].vel[2] - idle.samples[1][0].vel[2],
+        );
+        const bound = idle.bounds;
+        if (drivenDelta > bound.driveImpulse)
+            throw new Error(
+                `first driven tick changed horizontal velocity by ${drivenDelta.toFixed(4)}m/s, beyond ${bound.driveImpulse.toFixed(4)}m/s`,
+            );
+        const before = yaw(idle.samples[0][0].quat);
+        const after = yaw(forward.samples[1][0].quat);
+        if (!Number.isFinite(angleDelta(after, before)))
+            throw new Error("vehicle heading was non-finite");
+    },
+);
+
+check(
+    "vehicle throttle displaces the actual chassis",
+    {
+        claim: "the actual drive-a-vehicle recipe turns W into chassis displacement through its production wheel motor",
+    },
+    async () => {
+        const idle = await runTrace([]);
+        const driven = await runTrace(["KeyW"]);
+        const before = idle.samples[0][0];
+        const idleAfter = idle.samples[idle.samples.length - 2][0];
+        const drivenAfter = driven.samples[driven.samples.length - 2][0];
+        const commandDisplacement = Math.hypot(
+            drivenAfter.pos[0] - before.pos[0] - (idleAfter.pos[0] - before.pos[0]),
+            drivenAfter.pos[2] - before.pos[2] - (idleAfter.pos[2] - before.pos[2]),
+        );
+        if (commandDisplacement < 0.25)
+            throw new Error(
+                `actual throttle displacement changed only ${commandDisplacement.toFixed(4)}m`,
             );
     },
 );
@@ -85,36 +414,45 @@ check(
 check(
     "vehicle opposite steering gives opposite heading",
     {
-        claim: "opposite A/D steering commands produce opposite signed chassis heading through the front wheel targets",
+        claim: "opposite A/D steering commands produce opposite signed chassis heading through the actual front wheel targets",
     },
     async () => {
-        async function run(steering: "KeyA" | "KeyD" | null): Promise<number> {
-            const app = await vehicle();
-            try {
-                step(app, 2);
-                const before = readBody(app.state, chassis(app.state));
-                pressKey(app.state, "KeyW");
-                if (steering) pressKey(app.state, steering);
-                step(app, 8);
-                const result = readBody(app.state, chassis(app.state));
-                if (!before || !result) throw new Error("steering body was not live");
-                return angleDelta(yaw(result.quat), yaw(before.quat));
-            } finally {
-                app.dispose();
-            }
-        }
-        const baseline = await run(null);
-        const leftYaw = (await run("KeyA")) - baseline;
-        const rightYaw = (await run("KeyD")) - baseline;
-        if (Math.abs(leftYaw) < 0.001 || Math.abs(rightYaw) < 0.001 || leftYaw * rightYaw >= 0)
-            throw new Error(`steering headings were not opposite: ${leftYaw}, ${rightYaw}`);
+        const baseline = await runTrace(["KeyW"]);
+        const left = await runTrace(["KeyW", "KeyA"]);
+        const right = await runTrace(["KeyW", "KeyD"]);
+        const base = yaw(baseline.samples[baseline.samples.length - 2][0].quat);
+        const leftYaw = angleDelta(yaw(left.samples[left.samples.length - 2][0].quat), base);
+        const rightYaw = angleDelta(yaw(right.samples[right.samples.length - 2][0].quat), base);
+        if (Math.abs(leftYaw) < 0.02 || Math.abs(rightYaw) < 0.02 || leftYaw * rightYaw >= 0)
+            throw new Error(`actual steering headings were not opposite: ${leftYaw}, ${rightYaw}`);
     },
 );
 
 check(
-    "vehicle command wakes a sleeping chassis",
+    "drive-a-vehicle exact project composes its selected scene and plugin",
     {
-        claim: "a production throttle command moves a sleeping chassis without a recipe caller wake loop",
+        claim: "the exact drive-a-vehicle manifest builds its selected scene and local Car role plugin before disposal",
+        size: "integration",
+        requires: ["chromium"],
+        subject: ["examples/drive-a-vehicle"],
+    },
+    async () =>
+        runBrowserCheck((port) => [
+            process.execPath,
+            resolve(import.meta.dir, "../../../scripts/fixtures/recipe-composition-serve.ts"),
+            "--port",
+            String(port),
+            "--project",
+            resolve(import.meta.dir, ".."),
+            "--recipe",
+            "vehicle",
+        ]),
+);
+
+check(
+    "vehicle command wakes the actual sleeping chassis",
+    {
+        claim: "a production throttle command moves the actual sleeping chassis without a recipe caller wake loop",
     },
     async () => {
         const app = await vehicle();
@@ -122,20 +460,24 @@ check(
             const eid = chassis(app.state);
             step(app, 90);
             const parked = body(app.state, eid);
-            if (!parked) throw new Error("chassis never became a live body");
+            if (!parked) throw new Error("actual chassis never became a live body");
             parked.setAwake(false);
             const before = readBody(app.state, eid);
             pressKey(app.state, "KeyW");
             step(app, 12);
+            releaseKey(app.state, "KeyW");
             const after = readBody(app.state, eid);
-            if (!before || !after) throw new Error("sleeping chassis could not be read");
+            if (!before || !after) throw new Error("sleeping actual chassis could not be read");
             const displacement = Math.hypot(
                 after.pos[0] - before.pos[0],
                 after.pos[2] - before.pos[2],
             );
             if (displacement < 0.001)
-                throw new Error(`sleeping command produced only ${displacement.toFixed(3)}m`);
-            if (!devices(app.state).keys.held.has("KeyW")) throw new Error("W was not delivered");
+                throw new Error(
+                    `sleeping actual command produced only ${displacement.toFixed(3)}m`,
+                );
+            if (devices(app.state).keys.held.has("KeyW"))
+                throw new Error("W remained held after release");
         } finally {
             app.dispose();
         }

@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import {
     Body,
     build,
@@ -8,18 +9,17 @@ import {
     readBody,
     Time,
 } from "@dylanebert/shallot";
+import { runBrowserCheck } from "@dylanebert/shallot/harness";
 import { check } from "@dylanebert/shallot/harness/check";
 import { Demo } from "./demo";
 
-const SCENE = `<scene>
-    <a id="ground" body="pos: 0 0 -4; half-extents: 10 0.5 16; mass: 0" />
-    <a id="lower-step" body="pos: 0 0.75 3; half-extents: 3 0.25 1.5; mass: 0" />
-    <a id="upper-step" body="pos: 0 1.25 0; half-extents: 3 0.25 1.5; mass: 0" />
-    <a id="lift" body="pos: 0 1.75 -6.5; half-extents: 3 0.25 2; mass: 0" lift />
-    <a id="player" body="pos: 0 2.9 -6.5; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0" character />
-</scene>`;
+const SCENE = resolve(import.meta.dir, "../public/scenes/first-person.scene");
+const TRAVEL = 1.5;
+const RATE = 0.65;
 
 async function ascent() {
+    // The CPU rows use the actual manifest-selected scene and local Demo plugin. Player and rendering
+    // remain in the exact-project browser row because those are device-bound defaults.
     return build({
         defaults: false,
         plugins: [PhysicsPlugin, CharacterPlugin, InputPlugin, Demo],
@@ -31,7 +31,7 @@ type Ascent = Awaited<ReturnType<typeof ascent>>;
 
 function entity(app: Ascent, id: string): number {
     for (const eid of app.state.entities()) if (app.state.identity.id(eid) === id) return eid;
-    throw new Error(`ascent scene has no ${id} entity`);
+    throw new Error(`actual ascent scene has no ${id} entity`);
 }
 
 function step(app: Ascent, ticks: number): void {
@@ -42,49 +42,71 @@ function horizontalSpeed(velocity: readonly [number, number, number]): number {
     return Math.hypot(velocity[0], velocity[2]);
 }
 
+function placeRiderOnActualLift(player: number, lift: number): void {
+    const liftX = Body.pos.x.get(lift);
+    const liftY = Body.pos.y.get(lift);
+    const liftZ = Body.pos.z.get(lift);
+    const riderBottomOffset = Body.halfExtents.y.get(player) + Body.halfExtents.w.get(player);
+    Body.pos.x.set(player, liftX);
+    Body.pos.y.set(player, liftY + Body.halfExtents.y.get(lift) + riderBottomOffset);
+    Body.pos.z.set(player, liftZ);
+}
+
+function tangentGap(player: number, lift: number): number {
+    const capsuleBottom =
+        Body.pos.y.get(player) - Body.halfExtents.y.get(player) - Body.halfExtents.w.get(player);
+    const liftTop = Body.pos.y.get(lift) + Body.halfExtents.y.get(lift);
+    return capsuleBottom - liftTop;
+}
+
+function authoredStepRise(app: Ascent, player: number, lift: number): number {
+    const heights = [...app.state.query([Body])]
+        .filter((eid) => eid !== player && eid !== lift && Body.mass.get(eid) <= 0)
+        .map((eid) => Body.pos.y.get(eid))
+        .filter((y) => y > 0 && y < 1.6)
+        .sort((a, b) => a - b);
+    if (heights.length < 2)
+        throw new Error(`actual ascent scene has only ${heights.length} authored step heights`);
+    return heights[heights.length - 1] - heights[0];
+}
+
 check(
-    "first-person lift carries the character upward",
+    "first-person lift carries the actual character upward",
     {
-        claim: "a Character standing on the recipe lift rises through its public kinematic trajectory by more than one authored step",
+        claim: "a Character standing on the actual recipe lift rises through its public kinematic trajectory by more than one authored step",
     },
     async () => {
         const app = await ascent();
         try {
             const player = entity(app, "player");
             const lift = entity(app, "lift");
-            const lowerStep = entity(app, "lower-step");
-            const upperStep = entity(app, "upper-step");
-            const stepRise = Math.abs(Body.pos.y.get(upperStep) - Body.pos.y.get(lowerStep));
-            const capsuleBottom =
-                Body.pos.y.get(player) -
-                Body.halfExtents.y.get(player) -
-                Body.halfExtents.w.get(player);
-            const liftTop = Body.pos.y.get(lift) + Body.halfExtents.y.get(lift);
-            const initialGap = capsuleBottom - liftTop;
+            placeRiderOnActualLift(player, lift);
+            const stepRise = authoredStepRise(app, player, lift);
+            const initialGap = tangentGap(player, lift);
             if (initialGap < 0 || initialGap > 0.0001)
                 throw new Error(
-                    `invalid lift premise: capsule/lift vertical gap was ${initialGap.toFixed(4)}m, expected tangent`,
+                    `invalid actual lift premise: capsule/lift gap was ${initialGap.toFixed(4)}m`,
                 );
             step(app, 2);
             const before = readBody(app.state, player);
             const liftBefore = readBody(app.state, lift);
-            if (!before || !liftBefore) throw new Error("ascent bodies never became live");
+            if (!before || !liftBefore) throw new Error("actual ascent bodies never became live");
             step(app, 60);
             const after = readBody(app.state, player);
             const liftAfter = readBody(app.state, lift);
-            if (!after || !liftAfter) throw new Error("ascent bodies disappeared");
+            if (!after || !liftAfter) throw new Error("actual ascent bodies disappeared");
             const liftRise = liftAfter.pos[1] - liftBefore.pos[1];
             const riderRise = after.pos[1] - before.pos[1];
             if (liftRise <= stepRise || riderRise <= stepRise)
                 throw new Error(
-                    `lift/rider rise ${liftRise.toFixed(3)}m/${riderRise.toFixed(3)}m did not clear the authored ${stepRise.toFixed(3)}m step`,
+                    `lift/rider rise ${liftRise.toFixed(3)}m/${riderRise.toFixed(3)}m did not clear authored step ${stepRise.toFixed(3)}m`,
                 );
             if (Math.abs(riderRise - liftRise) > stepRise)
                 throw new Error(
-                    `rider lost lift carry: lift ${liftRise.toFixed(3)}m, rider ${riderRise.toFixed(3)}m`,
+                    `rider lost actual lift carry: lift ${liftRise.toFixed(3)}m, rider ${riderRise.toFixed(3)}m`,
                 );
             if (devices(app.state).keys.held.size !== 0)
-                throw new Error("lift evidence received unexpected input");
+                throw new Error("actual lift evidence received unexpected input");
         } finally {
             app.dispose();
         }
@@ -92,27 +114,98 @@ check(
 );
 
 check(
-    "first-person lift does not shove the character horizontally",
+    "first-person lift does not shove the actual character horizontally",
     {
-        claim: "the moving lift carries the Character vertically without delivering horizontal velocity",
+        claim: "the actual moving lift carries the Character vertically without delivering horizontal velocity",
     },
     async () => {
         const app = await ascent();
         try {
             const player = entity(app, "player");
             const lift = entity(app, "lift");
+            placeRiderOnActualLift(player, lift);
             step(app, 2);
             const before = readBody(app.state, lift);
-            if (!before) throw new Error("lift never became live");
+            if (!before) throw new Error("actual lift never became live");
             step(app, 50);
             const after = readBody(app.state, player);
             const liftAfter = readBody(app.state, lift);
-            if (!after || !liftAfter) throw new Error("ascent bodies disappeared");
+            if (!after || !liftAfter) throw new Error("actual ascent bodies disappeared");
             if (liftAfter.pos[1] <= before.pos[1])
-                throw new Error("lift did not move upward during the sample");
+                throw new Error("actual lift did not move upward during sample");
             const speed = horizontalSpeed(after.vel);
             if (speed > 0.001)
-                throw new Error(`lift delivered ${speed.toFixed(4)}m/s horizontal velocity`);
+                throw new Error(`actual lift delivered ${speed.toFixed(4)}m/s horizontal velocity`);
+        } finally {
+            app.dispose();
+        }
+    },
+);
+
+check(
+    "first-person exact project composes its selected scene and plugin",
+    {
+        claim: "the exact first-person manifest builds its selected scene and local Demo role plugin before disposal",
+        size: "integration",
+        requires: ["chromium"],
+        subject: ["examples/first-person"],
+    },
+    async () =>
+        runBrowserCheck((port) => [
+            process.execPath,
+            resolve(import.meta.dir, "../../../scripts/fixtures/recipe-composition-serve.ts"),
+            "--port",
+            String(port),
+            "--project",
+            resolve(import.meta.dir, ".."),
+            "--recipe",
+            "first-person",
+        ]),
+);
+
+check(
+    "first-person lift follows its authored-base sinusoid",
+    {
+        claim: "the actual lift follows authored-base plus sinusoidal Y motion with fixed X/Z and only derivative Y velocity, so live-pose accumulation reds independently",
+    },
+    async () => {
+        const app = await ascent();
+        try {
+            const lift = entity(app, "lift");
+            const base = [
+                Body.pos.x.get(lift),
+                Body.pos.y.get(lift),
+                Body.pos.z.get(lift),
+            ] as const;
+            const observedPhases: number[] = [];
+            for (let tick = 1; tick <= 90; tick++) {
+                app.state.step(Time.FIXED_DT);
+                const pose = readBody(app.state, lift);
+                if (!pose) throw new Error(`actual lift disappeared at tick ${tick}`);
+                const phase = app.state.time.elapsed * RATE;
+                // setKinematic writes the current target before the four production solver substeps; the
+                // live pose is therefore one fixed integration step ahead while its velocity is the
+                // derivative of the authored target phase.
+                const expected =
+                    base[1] + Math.sin((app.state.time.elapsed + Time.FIXED_DT) * RATE) * TRAVEL;
+                const expectedVelocity = Math.cos(phase) * RATE * TRAVEL;
+                if (Math.abs(phase) > 0.05) observedPhases.push(phase);
+                const positionError = Math.abs(pose.pos[1] - expected);
+                const derivativeError = Math.abs(pose.vel[1] - expectedVelocity);
+                if (
+                    positionError > 0.002 ||
+                    Math.abs(pose.pos[0] - base[0]) > 0.002 ||
+                    Math.abs(pose.pos[2] - base[2]) > 0.002 ||
+                    Math.abs(pose.vel[0]) > 0.002 ||
+                    Math.abs(pose.vel[2]) > 0.002 ||
+                    derivativeError > 0.02
+                )
+                    throw new Error(
+                        `authored-base lift trajectory failed at tick ${tick}: phase=${phase.toFixed(4)} expectedY=${expected.toFixed(4)} actualY=${pose.pos[1].toFixed(4)} expectedVy=${expectedVelocity.toFixed(4)} actualVy=${pose.vel[1].toFixed(4)}`,
+                    );
+            }
+            if (observedPhases.length < 3)
+                throw new Error("lift trajectory did not sample multiple nonzero phases");
         } finally {
             app.dispose();
         }
