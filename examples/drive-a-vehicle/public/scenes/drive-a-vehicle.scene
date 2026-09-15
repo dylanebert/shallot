@@ -1,6 +1,6 @@
 <scene>
-    <a ambient-light="color: 0xc8d0dc; intensity: 0.8" />
-    <a directional-light="direction: -0.4 -1 -0.55; color: 0xfff1dc; intensity: 1.15" shadow />
+    <a ambient-light="color: 0xcbd7e6; intensity: 0.72" />
+    <a directional-light="direction: -0.4 -1 -0.55; color: 0xffe6c9; intensity: 1.1" shadow />
 
     <a id="camera" camera sear transform orbit="distance: 20; yaw: 0.7; pitch: 0.4; pan: 0 1 0" />
 
@@ -10,14 +10,14 @@
         vehicle="role: ground"
         body="pos: 0 0 0; half-extents: 30 0.5 30; mass: 0; friction: 1"
         part
-        color="rgba: 0.26 0.29 0.34"
+        color="rgba: 0.18 0.22 0.27"
     />
     <a
         id="chassis"
         vehicle="role: chassis"
         body="pos: 0 2.5 0; half-extents: 2 0.5 1; mass: 4"
         part
-        color="rgba: 0.82 0.39 0.18"
+        color="rgba: 0.84 0.43 0.24"
     />
 
     <a
@@ -25,33 +25,27 @@
         vehicle="role: front-wheel"
         body="shape: 1; pos: 1.5 1.5 0.8; half-extents: 0 0 0 0.4; mass: 0.5; friction: 3; quat: 90 0 0"
         part
-        color="rgba: 0.12 0.16 0.21"
+        color="rgba: 0.055 0.07 0.09"
     />
     <a
         id="front-left"
         vehicle="role: front-wheel"
         body="shape: 1; pos: 1.5 1.5 -0.8; half-extents: 0 0 0 0.4; mass: 0.5; friction: 3; quat: 90 0 0"
         part
-        color="rgba: 0.12 0.16 0.21"
+        color="rgba: 0.055 0.07 0.09"
     />
     <a
         id="rear-right"
         vehicle="role: rear-wheel"
         body="shape: 1; pos: -1.5 1.5 0.8; half-extents: 0 0 0 0.4; mass: 0.5; friction: 3; quat: 90 0 0"
         part
-        color="rgba: 0.12 0.16 0.21"
+        color="rgba: 0.055 0.07 0.09"
     />
     <a
         id="rear-left"
         vehicle="role: rear-wheel"
         body="shape: 1; pos: -1.5 1.5 -0.8; half-extents: 0 0 0 0.4; mass: 0.5; friction: 3; quat: 90 0 0"
         part
-        color="rgba: 0.12 0.16 0.21"
-    />
-
-    <!-- Name the actual controls on the scene, where the orbit view keeps them in sight. -->
-    <a
-        text="anchor: 0.5; content: W/S  throttle     A/D  steer; font-size: 0.4; color: 0xffc46b"
-        transform="pos: 0 5 0"
+        color="rgba: 0.055 0.07 0.09"
     />
 </scene>

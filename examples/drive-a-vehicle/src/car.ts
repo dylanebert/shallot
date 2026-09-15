@@ -5,6 +5,7 @@ import {
     createWheelJoint,
     devices,
     InputPlugin,
+    mountOverlay,
     PhysicsPlugin,
     type Plugin,
     type State,
@@ -240,6 +241,47 @@ export function readVehicle(state: State): VehicleObservation | null {
     };
 }
 
+const controlPanels = new WeakMap<State, HTMLDivElement>();
+
+function mountControls(state: State): void {
+    if (typeof document === "undefined" || controlPanels.has(state)) return;
+    const overlay = mountOverlay(document.querySelector("canvas"), state);
+    const panel = document.createElement("div");
+    panel.dataset.recipeControls = "";
+    panel.style.cssText =
+        "position:absolute;top:20px;left:20px;pointer-events:none;padding:10px 12px;" +
+        "display:grid;row-gap:6px;column-gap:16px;border:1px solid rgba(255,255,255,0.12);" +
+        "border-radius:6px;background:rgba(14,17,20,0.72);color:#ffffff;" +
+        "font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
+    for (const [control, action] of [
+        ["W / S", "Throttle"],
+        ["A / D", "Steer"],
+    ] as const) {
+        const row = document.createElement("div");
+        row.dataset.controlRow = "";
+        row.style.cssText =
+            "display:grid;grid-template-columns:max-content max-content;column-gap:16px";
+        for (const text of [control, action]) {
+            const cell = document.createElement("span");
+            cell.textContent = text;
+            cell.style.color = "#ffffff";
+            row.append(cell);
+        }
+        panel.append(row);
+    }
+    overlay.append(panel);
+    controlPanels.set(state, panel);
+    state.onDispose(() => controlPanels.delete(state));
+}
+
+const controls: System = {
+    name: "vehicle-controls",
+    group: "draw",
+    update(state) {
+        mountControls(state);
+    },
+};
+
 const driver: System = {
     name: "vehicle-driver",
     group: "simulation",
@@ -272,7 +314,7 @@ export const Car = {
         },
     },
     dependencies: [InputPlugin, PhysicsPlugin],
-    systems: [driver],
+    systems: [driver, controls],
     warm(state: State) {
         runtimes.set(state, {
             ground: role(state, VehicleRole.Ground),

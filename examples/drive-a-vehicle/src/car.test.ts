@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
     Body,
@@ -26,6 +27,7 @@ import {
 } from "./car";
 
 const SCENE = resolve(import.meta.dir, "../public/scenes/drive-a-vehicle.scene");
+const MANIFEST = resolve(import.meta.dir, "../shallot.json");
 const HORIZON = 120;
 const BOX3D_LINEAR_SLOP = 0.005;
 
@@ -775,6 +777,23 @@ function causalDelta(trace: Trace, idle: Trace, index: number): Vec3 {
         trace.samples[index].bodies[0].pos[2] - idle.samples[index].bodies[0].pos[2],
     ];
 }
+
+check(
+    "drive-a-vehicle presentation artifact has no world control text",
+    {
+        claim: "the actual drive-a-vehicle scene and manifest select no Text entity or Text plugin because controls live in the canvas overlay",
+    },
+    () => {
+        const scene = readFileSync(SCENE, "utf8");
+        const manifest = JSON.parse(readFileSync(MANIFEST, "utf8")) as {
+            plugins?: Record<string, unknown>;
+        };
+        if (/\btext\s*=/.test(scene))
+            throw new Error("drive-a-vehicle scene still authors a Text entity");
+        if (manifest.plugins && "Text" in manifest.plugins)
+            throw new Error("drive-a-vehicle manifest still selects Text");
+    },
+);
 
 check(
     "drive-a-vehicle authored frames and effective joints are valid",

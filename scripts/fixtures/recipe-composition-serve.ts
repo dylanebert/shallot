@@ -32,7 +32,7 @@ const roleCheck =
            const liftEntities = lift ? [...state.query([lift])] : [];
            if (liftEntities.length !== 1 || !state.has(liftEntities[0], body)) throw new Error("Lift role/body composition was incomplete");`;
 const html = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0}canvas{display:block;width:100vw;height:100vh}</style><canvas id="canvas" width="1280" height="720"></canvas><script type="module">
-import { build, Body, run } from "@dylanebert/shallot";
+import { build, Body, pointerLockChanged, run } from "@dylanebert/shallot";
 import { getComponent } from "@dylanebert/shallot/ecs";
 import project from "virtual:project";
 let verdict;
@@ -45,7 +45,36 @@ try {
     const body = getComponent("Body");
     if (!body) throw new Error("Physics did not register Body");
     ${roleCheck}
+    state.step(1 / 60);
+    const controls = [...document.querySelectorAll("[data-recipe-controls]")];
+    if (controls.length !== 1) throw new Error("selected recipe did not mount exactly one control card");
+    const rows = [...controls[0].querySelectorAll("[data-control-row]")].map((row) => {
+        const cells = [...row.children].map((cell) => cell.textContent?.trim() ?? "");
+        if (cells.length !== 2) throw new Error("control row was not two-column");
+        for (const cell of row.children) {
+            if (getComputedStyle(cell).color !== "rgb(255, 255, 255)") throw new Error("control text was not computed white");
+        }
+        return cells.join(" | ");
+    });
+    const expectedRows = ${JSON.stringify(recipe === "vehicle" ? ["W / S | Throttle", "A / D | Steer"] : ["WASD | Move", "MOUSE | Look", "SPACE | Jump"])};
+    if (JSON.stringify(rows) !== JSON.stringify(expectedRows)) throw new Error("control rows were not exact: " + JSON.stringify(rows));
+    const text = getComponent("Text");
+    if (text && [...state.query([text])].length !== 0) throw new Error("selected scene still contains a Text entity");
+    if (project.plugins.some((plugin) => plugin.name === "Text")) throw new Error("manifest still selected TextPlugin");
+    if (${recipe === "first-person"}) {
+        const status = controls[0].querySelector("[data-pointer-lock-status]");
+        if (!status || !status.textContent?.includes("Click the scene to enable mouse look.")) throw new Error("unlocked pointer-lock status was missing");
+        if (controls[0].textContent?.includes("Click: look")) throw new Error("stale Click: look copy remained");
+        pointerLockChanged(state, true);
+        state.step(1 / 60);
+        if (!status.hidden) throw new Error("pointer-lock status remained visible while locked");
+        pointerLockChanged(state, false, "fixture refusal");
+        state.step(1 / 60);
+        if (!status.textContent?.startsWith("Mouse look unavailable.") || !status.textContent.includes("fixture refusal")) throw new Error("pointer-lock refusal status was missing");
+    }
+    if (document.querySelectorAll("[data-recipe-controls]").length !== 1) throw new Error("control card multiplicity changed before disposal");
     app.dispose();
+    if (document.querySelectorAll("[data-recipe-controls]").length !== 0) throw new Error("control card was not disposed with State");
     const childrenBeforeRunFailure = document.body.children.length;
     let runSetupThrew = false;
     try {
