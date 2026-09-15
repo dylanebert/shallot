@@ -66,6 +66,9 @@ type VehicleBounds = {
     // A count, not an inclusive final tick: admitted samples satisfy tick < clearAirTicks.
     clearAirTicks: number;
     clearAirSteps: number;
+    clearAirWheelTimes: number[];
+    clearAirWheelSeparations: number[];
+    clearAirWheelVerticalVelocities: number[];
     groundTop: number;
     wheelRadius: number;
     speedCeiling: number;
@@ -196,6 +199,9 @@ function bounds(
         slop,
         clearAirTicks: 0,
         clearAirSteps: 0,
+        clearAirWheelTimes: [],
+        clearAirWheelSeparations: [],
+        clearAirWheelVerticalVelocities: [],
         groundTop,
         wheelRadius,
         speedCeiling: rimSpeed + (2 * slop) / stepConfig.dt,
@@ -215,16 +221,49 @@ function bounds(
     };
 }
 
-function deriveClearAirBounds(bound: VehicleBounds, initial: TickSample): VehicleBounds {
-    const liveClearance = Math.min(...initial.wheelGroundSeparations);
-    const clearAirSeconds = Math.sqrt(
-        Math.max(0, (2 * (liveClearance - bound.slop)) / Math.abs(bound.gravity)),
+function earliestContactSeconds(
+    wheelGroundSeparation: number,
+    verticalVelocity: number,
+    gravity: number,
+    slop: number,
+): number {
+    const remainingClearance = wheelGroundSeparation - slop;
+    if (!(remainingClearance > 0)) return 0;
+    const downwardAcceleration = Math.abs(gravity);
+    if (!(downwardAcceleration > 0))
+        return verticalVelocity < 0
+            ? remainingClearance / -verticalVelocity
+            : Number.POSITIVE_INFINITY;
+    const discriminant =
+        verticalVelocity * verticalVelocity + 2 * downwardAcceleration * remainingClearance;
+    return Math.max(
+        0,
+        (verticalVelocity + Math.sqrt(Math.max(0, discriminant))) / downwardAcceleration,
     );
+}
+
+function deriveClearAirBounds(bound: VehicleBounds, initial: TickSample): VehicleBounds {
+    const clearAirWheelSeparations = initial.wheelGroundSeparations.slice();
+    const clearAirWheelVerticalVelocities = initial.bodies
+        .slice(1)
+        .map((bodyState) => bodyState.vel[1]);
+    const clearAirWheelTimes = clearAirWheelSeparations.map((separation, index) =>
+        earliestContactSeconds(
+            separation,
+            clearAirWheelVerticalVelocities[index],
+            bound.gravity,
+            bound.slop,
+        ),
+    );
+    const clearAirSeconds = Math.min(...clearAirWheelTimes);
     const clearAirSteps = clearAirSeconds / bound.dt;
     return {
         ...bound,
         clearAirTicks: Math.max(0, Math.ceil(clearAirSteps - 1)),
         clearAirSteps,
+        clearAirWheelTimes,
+        clearAirWheelSeparations,
+        clearAirWheelVerticalVelocities,
     };
 }
 
@@ -373,6 +412,20 @@ function firstDivergence(
 }
 
 function validateTrace(trace: Trace, idle: boolean): void {
+    const fromRestWheelTimes = trace.bounds.clearAirWheelSeparations.map((separation) =>
+        earliestContactSeconds(separation, 0, trace.bounds.gravity, trace.bounds.slop),
+    );
+    const fromRestSteps = Math.min(...fromRestWheelTimes) / trace.bounds.dt;
+    const hasLiveDownwardWheel = trace.bounds.clearAirWheelVerticalVelocities.some(
+        (velocity) => velocity < -1e-6,
+    );
+    if (idle && hasLiveDownwardWheel && !(trace.bounds.clearAirSteps < fromRestSteps))
+        fail(
+            trace,
+            -1,
+            trace.bounds,
+            `clear-air horizon ignored live downward wheel velocity: live=${trace.bounds.clearAirSteps.toFixed(4)} steps, from-rest=${fromRestSteps.toFixed(4)} steps`,
+        );
     let previous = trace.initial;
     for (const sample of trace.samples) {
         const bodies = sample.bodies;
