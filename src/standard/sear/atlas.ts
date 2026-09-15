@@ -5,12 +5,13 @@
 // sample the same shadows sear's color pass does. `forward.ts` resolves the frame's draw list and passes
 // it in; this module never reaches back into `forward.ts` at runtime (only for the `Recorded` type).
 
-import type { TgpuRenderPassDescriptor, TgpuRenderPipeline } from "typegpu";
+import type { TgpuRenderPassDescriptor } from "typegpu";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { Compute } from "../../engine";
 import type { Draw } from "../render";
 import { Render, Views } from "../render";
+import { boundPipeline } from "./bound";
 import { DEPTH_FORMAT } from "./codegen";
 import { engineLayout } from "./engine";
 import type { Recorded } from "./forward";
@@ -285,24 +286,6 @@ const _cascadeShadowPass: TgpuRenderPassDescriptor = {
     colorAttachments: [],
     depthStencilAttachment: _cascadeShadowDepth,
 };
-
-// a casting entry's atlas pipeline with its depth-shape group bound at the surface layout and its depth
-// variant, plus its index buffer: built on the entry's first atlas draw through `pipe`, then reused
-function atlasPipeline(
-    r: Recorded,
-    pipe: TgpuRenderPipeline<any>,
-    group: GPUBindGroup,
-): TgpuRenderPipeline<any> {
-    let bound = r.g.bound.get(pipe);
-    if (!bound) {
-        bound = pipe
-            .with(r.g.layout, group)
-            .with(r.g.layout.depthVariant, group)
-            .withIndexBuffer(r.index);
-        r.g.bound.set(pipe, bound);
-    }
-    return bound;
-}
 
 // warn-once (per episode — resets once a frame has zero missing combo views) for a combo view missing
 // from the pool. The combo camera pool (`createComboCamera`) attaches a view per combo, so a missing
@@ -821,7 +804,7 @@ export function renderPointShadows(
     const args = pointRegather.args()!;
     for (let i = 0; i < D; i++) {
         const { r } = _castDraws[i];
-        pass.setPipeline(atlasPipeline(r, r.t.point!, r.g.point!));
+        pass.setPipeline(boundPipeline(r.g, r.t.point!, r.g.point!, true, r.index));
         pass.setBindGroup(engineLayout, r.g.atlasG0);
         pass.setBindGroup(pointLayout, group1);
         pass.drawIndexedIndirect(args, i * SHADOW_ARG_STRIDE);
@@ -1001,7 +984,7 @@ export function renderCascades(
         const pass = commands.beginRenderPass(_cascadeShadowPass);
         for (let i = 0; i < D; i++) {
             const { r } = batch.draws[i];
-            pass.setPipeline(atlasPipeline(r, r.t.cascade!, r.g.cascade!));
+            pass.setPipeline(boundPipeline(r.g, r.t.cascade!, r.g.cascade!, true, r.index));
             pass.setBindGroup(engineLayout, r.g.atlasG0);
             pass.setBindGroup(cascadeLayout, group1);
             pass.drawIndexedIndirect(args, i * SHADOW_ARG_STRIDE);

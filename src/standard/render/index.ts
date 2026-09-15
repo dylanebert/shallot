@@ -68,6 +68,13 @@ const _depthOnlyViews: ViewSlot[] = [];
 let _viewProjs: Float32Array[] = [];
 let _invViewProjs: Float32Array[] = [];
 let _lightViews: Float32Array[] = [];
+// the inputs each slot was last packed from: the camera eid and create-stamp, whether it shades, the view's
+// pixel size, the Camera projection fields, and the camera's world matrix. Every value `packView` writes is
+// a pure function of them and lives in retained staging, so a slot whose inputs are unchanged is already
+// packed and the frame re-derives nothing for it. NaN-filled per rebuild, so the first frame always packs.
+const VIEW_KEY_FLOATS = 26;
+const _viewKeys = new Float64Array(MAX_SLOTS * VIEW_KEY_FLOATS).fill(Number.NaN);
+const _viewKeyNext = new Float64Array(VIEW_KEY_FLOATS);
 
 // write a world-matrix column (base = column index * 4), normalized, into `out` at `at`
 function basisColumn(world: Float32Array, base: number, out: Float32Array, at: number): void {
@@ -90,14 +97,17 @@ function packView(state: State, eid: number, view: ViewSlot, shading: boolean, s
     // record the live camera's create-stamp so next frame's pruneViews detects a realias
     view.stamp = state.stamp(eid);
     view.slot = slot;
+    // the camera basis (floats 20-27) and the eye (32-35) come from the world matrix, which is also what
+    // the viewProj is composed from, so it is read before the unchanged-slot test below
+    composeTransform(eid, _camWorld);
+    if (!slotInputsChanged(state, eid, view, shading, slot)) return;
     const offset = slot * SLOT_FLOATS;
     const viewProj = _viewProjs[slot];
     // the light cull reads each shading slot's world→view matrix to bring
     // world-space lights into cluster space
     computeViewProj(
         eid,
-        view.width,
-        view.height,
+        view.width / view.height,
         viewProj,
         shading ? _lightViews[slot] : undefined,
     );
@@ -108,7 +118,6 @@ function packView(state: State, eid: number, view: ViewSlot, shading: boolean, s
     // camera basis (right at floats 20-23, up at 24-27; 18-19 pad before the vec4) —
     // billboard surfaces orient quads from it (in a shadow pass, the light camera's, so
     // billboards face the light). Normalized: the camera Transform may scale
-    composeTransform(eid, _camWorld);
     basisColumn(_camWorld, 0, Render.viewStaging, offset + 20);
     basisColumn(_camWorld, 4, Render.viewStaging, offset + 24);
     // pack this view's frustum cull volume — the pack tests each instance's bound against
@@ -120,10 +129,10 @@ function packView(state: State, eid: number, view: ViewSlot, shading: boolean, s
     // View.cluster: (near, far, perspective, slot) — sear's FS maps a
     // fragment to its froxel and indexes the slot-major light grid
     if (shading) {
-        packClusterView(eid, view.width, view.height, slot);
-        Render.viewStaging[offset + 28] = Camera.near.get(eid);
-        Render.viewStaging[offset + 29] = Camera.far.get(eid);
-        Render.viewStaging[offset + 30] = Camera.mode.get(eid) !== CameraMode.Orthographic ? 1 : 0;
+        const cv = packClusterView(eid, view.width / view.height, slot);
+        Render.viewStaging[offset + 28] = cv.near;
+        Render.viewStaging[offset + 29] = cv.far;
+        Render.viewStaging[offset + 30] = cv.perspective ? 1 : 0;
     } else {
         Render.viewStaging[offset + 28] = 0;
         Render.viewStaging[offset + 29] = 0;
@@ -143,6 +152,38 @@ function packView(state: State, eid: number, view: ViewSlot, shading: boolean, s
     // view of the same staging never aliases
     if (shading) invert(viewProj, _invViewProjs[slot]);
     else Render.viewStaging.fill(0, offset + 36, offset + 52);
+}
+
+// whether this slot's pack inputs differ from the ones it was last packed with; records them when they do.
+// `_camWorld` holds the camera's world matrix, composed by the caller.
+function slotInputsChanged(
+    state: State,
+    eid: number,
+    view: ViewSlot,
+    shading: boolean,
+    slot: number,
+): boolean {
+    _viewKeyNext[0] = eid;
+    _viewKeyNext[1] = state.stamp(eid);
+    _viewKeyNext[2] = shading ? 1 : 0;
+    _viewKeyNext[3] = view.width;
+    _viewKeyNext[4] = view.height;
+    _viewKeyNext[5] = Camera.mode.get(eid);
+    _viewKeyNext[6] = Camera.fov.get(eid);
+    _viewKeyNext[7] = Camera.size.get(eid);
+    _viewKeyNext[8] = Camera.near.get(eid);
+    _viewKeyNext[9] = Camera.far.get(eid);
+    _viewKeyNext.set(_camWorld, 10);
+    const at = slot * VIEW_KEY_FLOATS;
+    let changed = false;
+    for (let i = 0; i < VIEW_KEY_FLOATS; i++) {
+        if (_viewKeys[at + i] !== _viewKeyNext[i]) {
+            changed = true;
+            break;
+        }
+    }
+    if (changed) _viewKeys.set(_viewKeyNext, at);
+    return changed;
 }
 
 function clearTargets(view: ViewSlot): void {
@@ -176,10 +217,11 @@ export const BeginFrameSystem: System = {
 
         const frame = Compute.root["~unstable"].createCommandEncoder(FRAME_ENCODER);
         Render.frame = frame;
-        Render.encoder = Compute.root.unwrap(frame);
+        const encoder = Compute.root.unwrap(frame);
+        Render.encoder = encoder;
         writeFrame(state);
         writeLighting(state);
-        composeTransforms(frame);
+        composeTransforms(encoder);
 
         let count = 0;
         let depthOnly = 0;
@@ -339,6 +381,8 @@ async function initRender(): Promise<void> {
         uniform(`shallot-view-${slot}`, VIEW_BYTES),
     );
     Render.viewStaging = new Float32Array(VIEW_UNIFORM_SIZE / 4);
+    // fresh staging: every slot repacks on its first frame against the new buffers
+    _viewKeys.fill(Number.NaN);
     const staging = Render.viewStaging;
     _viewProjs = Array.from({ length: MAX_SLOTS }, (_, slot) =>
         staging.subarray(slot * SLOT_FLOATS, slot * SLOT_FLOATS + 16),

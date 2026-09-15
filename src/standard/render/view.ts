@@ -261,7 +261,6 @@ export function backingSize(
     clientW: number,
     clientH: number,
     ratio: number,
-    out: { w: number; h: number; pixelated: boolean } = { w: 0, h: 0, pixelated: false },
 ): { w: number; h: number; pixelated: boolean } {
     let w: number;
     let h: number;
@@ -278,14 +277,14 @@ export function backingSize(
         w = Math.max(1, Math.floor(clientW * ratio));
         h = Math.max(1, Math.floor(clientH * ratio));
     }
-    out.w = w;
-    out.h = h;
-    out.pixelated = w < clientW || h < clientH;
-    return out;
+    return { w, h, pixelated: w < clientW || h < clientH };
 }
 
-// the backing size `sizeView` resolves each frame, reused
-const _backingSize = { w: 0, h: 0, pixelated: false };
+// the inputs each view's backing size was last resolved from: `[resW, resH, clientW, clientH, ratio]`. The
+// size is a pure function of them, so a frame that changes none keeps the sizes already on the view and the
+// canvas and resolves nothing. Keyed by the View object, so a re-attached camera's fresh view sizes on its
+// first frame.
+const _sizeInputs = new WeakMap<View, Float64Array>();
 
 /**
  * size a canvas-bound view's backing store from its cached display size + its {@link Resolution} pin (the
@@ -305,14 +304,26 @@ export function sizeView(state: State, eid: number, view: View): void {
     const pinned = state.has(eid, Resolution);
     const resW = pinned ? Resolution.width.get(eid) | 0 : 0;
     const resH = pinned ? Resolution.height.get(eid) | 0 : 0;
-    const { w, h, pixelated } = backingSize(
-        resW,
-        resH,
-        view.clientWidth,
-        view.clientHeight,
-        ratio,
-        _backingSize,
-    );
+    let inputs = _sizeInputs.get(view);
+    if (
+        inputs &&
+        inputs[0] === resW &&
+        inputs[1] === resH &&
+        inputs[2] === view.clientWidth &&
+        inputs[3] === view.clientHeight &&
+        inputs[4] === ratio
+    )
+        return;
+    if (!inputs) {
+        inputs = new Float64Array(5);
+        _sizeInputs.set(view, inputs);
+    }
+    inputs[0] = resW;
+    inputs[1] = resH;
+    inputs[2] = view.clientWidth;
+    inputs[3] = view.clientHeight;
+    inputs[4] = ratio;
+    const { w, h, pixelated } = backingSize(resW, resH, view.clientWidth, view.clientHeight, ratio);
     const ir = pixelated ? "pixelated" : "auto";
     if (canvas.style.imageRendering !== ir) canvas.style.imageRendering = ir;
     if (canvas.width !== w) canvas.width = w;

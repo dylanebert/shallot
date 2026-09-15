@@ -57,6 +57,7 @@ import {
     shadowLayout,
     shadowReady,
 } from "./atlas";
+import { boundPipeline } from "./bound";
 import { COLOR_LANES, type ColorLane, DEPTH_FORMAT, laneKey, SAMPLE_COUNT, Tag } from "./codegen";
 import { engineLayout, litPbr } from "./engine";
 import {
@@ -468,26 +469,6 @@ function recordSurface(draw: Draw, surface: Surface): FrameDraw | null {
     return entry.item;
 }
 
-// the compiled pipeline with this entry's own group 2 bound (at the surface layout and, for a depth-shape
-// pipeline, its depth variant) and its index buffer, built on the entry's first draw through `pipe`; the
-// pass binds groups 0 and 1 per draw
-function surfacePipeline(
-    g: SurfaceGroupEntry,
-    pipe: TgpuRenderPipeline<any>,
-    group: GPUBindGroup,
-    depthVariant: boolean,
-    index: MeshIndex,
-): TgpuRenderPipeline<any> {
-    let bound = g.bound.get(pipe);
-    if (!bound) {
-        bound = pipe.with(g.layout, group);
-        if (depthVariant) bound = bound.with(g.layout.depthVariant, group);
-        bound = bound.withIndexBuffer(index);
-        g.bound.set(pipe, bound);
-    }
-    return bound;
-}
-
 // the frame's resolved draws (the first `_frameCount`), resolved once by PrepassSystem and shared across
 // the prepass, shadow atlases, and color pass — they all draw the same resolved records, so resolving
 // per-pass (the old 3×) was wasted work
@@ -626,7 +607,10 @@ type ViewColorAttachment = Omit<GPURenderPassColorAttachment, "view" | "resolveT
     view: GPUTextureView;
     resolveTarget?: GPUTextureView;
 };
+// the color pass's clear value, and the packed sRGB it was decoded from: a camera's clear color is
+// unpacked only on the frame it changes
 const _clearValue = { r: 0, g: 0, b: 0, a: 1 };
+let _clearPacked = -1;
 const _msaaColor: ViewColorAttachment = {
     view: null!,
     resolveTarget: null!,
@@ -732,7 +716,7 @@ function renderPrepass(
         const pipe = r.t.prepass.get(key);
         const group = tagLane ? (r.g.tag ?? r.g.depth) : r.g.depth;
         if (pipe && group) {
-            pass.setPipeline(surfacePipeline(r.g, pipe, group, true, r.index));
+            pass.setPipeline(boundPipeline(r.g, pipe, group, true, r.index));
             pass.setBindGroup(engineLayout, engineGroup(r.g.engineCache, view.slot, r.g.quant));
             pass.setBindGroup(shadowLayout, shadow);
             pass.drawIndexedIndirect(
@@ -808,7 +792,7 @@ function drawColor(
     shadow: GPUBindGroup,
 ): void {
     const { draw, r } = item;
-    pass.setPipeline(surfacePipeline(r.g, pipe, r.g.color, false, r.index));
+    pass.setPipeline(boundPipeline(r.g, pipe, r.g.color, false, r.index));
     pass.setBindGroup(engineLayout, engineGroup(r.g.engineCache, slot, r.g.quant));
     pass.setBindGroup(shadowLayout, shadow);
     pass.drawIndexedIndirect(
@@ -828,7 +812,14 @@ function renderColor(
     // per-camera AA: 4× MSAA when `Camera.antialias` is on (the default the Camera trait seeds), else
     // single-sample. A scene attribute or a runtime `Camera.antialias.set(eid, 0)` flips it live
     const aa = Camera.antialias.get(eid) !== 0;
-    unpackColor(Camera.clearColor.get(eid), _clearValue);
+    const packed = Camera.clearColor.get(eid);
+    if (packed !== _clearPacked) {
+        const clear = unpackColor(packed);
+        _clearValue.r = clear.r;
+        _clearValue.g = clear.g;
+        _clearValue.b = clear.b;
+        _clearPacked = packed;
+    }
     const targets = colorTargets(eid, view.width, view.height, aa);
     const pass = beginColor(targets.label, targets.colorView, targets.depthView, view.framebuffer);
     const shadow = shadowGroup();

@@ -137,10 +137,14 @@ export const Lighting: Lighting = {
     staging: new Float32Array(_backing),
 };
 
-// the singleton query terms and the decoded light color, held so the per-frame pack mints nothing
+// the singleton query terms and each light's decoded color, held so the per-frame pack mints nothing: a
+// color is unpacked only on the frame its packed value changes, and the linear triple is read from here
 const AMBIENT_TERMS = [AmbientLight];
 const SUN_TERMS = [DirectionalLight];
-const _rgb = { r: 0, g: 0, b: 0 };
+const _ambientRgb = new Float64Array(3);
+let _ambientPacked = -1;
+const _sunRgb = new Float64Array(3);
+let _sunPacked = -1;
 
 /** read the singleton AmbientLight + DirectionalLight entities and pack the Lighting UBO */
 export function writeLighting(state: State): void {
@@ -153,10 +157,17 @@ export function writeLighting(state: State): void {
 
     const ambient = state.only(AMBIENT_TERMS);
     if (ambient >= 0) {
-        const rgb = unpackColor(AmbientLight.color.get(ambient), _rgb);
-        s[0] = rgb.r;
-        s[1] = rgb.g;
-        s[2] = rgb.b;
+        const packed = AmbientLight.color.get(ambient);
+        if (packed !== _ambientPacked) {
+            const rgb = unpackColor(packed);
+            _ambientRgb[0] = rgb.r;
+            _ambientRgb[1] = rgb.g;
+            _ambientRgb[2] = rgb.b;
+            _ambientPacked = packed;
+        }
+        s[0] = _ambientRgb[0];
+        s[1] = _ambientRgb[1];
+        s[2] = _ambientRgb[2];
         s[3] = AmbientLight.intensity.get(ambient);
     }
 
@@ -173,11 +184,18 @@ export function writeLighting(state: State): void {
             s[5] = dy / len;
             s[6] = dz / len;
         }
-        const rgb = unpackColor(DirectionalLight.color.get(dir), _rgb);
+        const packed = DirectionalLight.color.get(dir);
+        if (packed !== _sunPacked) {
+            const rgb = unpackColor(packed);
+            _sunRgb[0] = rgb.r;
+            _sunRgb[1] = rgb.g;
+            _sunRgb[2] = rgb.b;
+            _sunPacked = packed;
+        }
         const i = DirectionalLight.intensity.get(dir);
-        s[8] = rgb.r * i;
-        s[9] = rgb.g * i;
-        s[10] = rgb.b * i;
+        s[8] = _sunRgb[0] * i;
+        s[9] = _sunRgb[1] * i;
+        s[10] = _sunRgb[2] * i;
         // the sun's volumetric opt-in: a `Volumetric` marker flags the otherwise-pad sunDirection.w lane
         // (1 = scatter shafts in the fog march). The lit path reads only sunDirection.xyz, so the flag is
         // inert there — the analogue of the point light's radius-sign flag, no 4th vec4

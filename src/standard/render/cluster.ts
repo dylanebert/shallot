@@ -221,21 +221,19 @@ export const Clusters: Clusters = {
 };
 
 /**
- * pack a camera's {@link ClusterView} fields into the staging slot, called per view by
- * `BeginFrameSystem` with the view's pixel size: {@link clusterView}'s derivation written in place, with no record
+ * pack a camera's {@link ClusterView} into the staging slot, called per view by
+ * `BeginFrameSystem`, which reuses the returned view for the View.cluster pack
  */
-export function packClusterView(eid: number, width: number, height: number, slot: number): void {
-    const perspective = Camera.mode.get(eid) !== CameraMode.Orthographic;
-    const halfH = perspective
-        ? Math.tan((Camera.fov.get(eid) * Math.PI) / 360)
-        : Camera.size.get(eid);
+export function packClusterView(eid: number, aspect: number, slot: number): ClusterView {
+    const v = clusterView(eid, aspect);
     const o = slot * CLUSTER_VIEW_FLOATS;
     const s = Clusters.staging;
-    s[o] = halfH * (width / height);
-    s[o + 1] = halfH;
-    s[o + 2] = Camera.near.get(eid);
-    s[o + 3] = Camera.far.get(eid);
-    s[o + 4] = perspective ? 1 : 0;
+    s[o] = v.halfW;
+    s[o + 1] = v.halfH;
+    s[o + 2] = v.near;
+    s[o + 3] = v.far;
+    s[o + 4] = v.perspective ? 1 : 0;
+    return v;
 }
 
 const gridLayout = tgpu.bindGroupLayout({

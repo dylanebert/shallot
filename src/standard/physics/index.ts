@@ -853,10 +853,6 @@ const SyncSystem: System = {
 
 // one reused Xform-shaped record (48 B / 12 f32: pos.xyz+pad, quat.xyzw, scale.xyz+pad — the `Xform` schema).
 const _record = new Float32Array(12);
-// the interpolated quaternion, the collider half-extents and the render scale, reused per mover
-const _quat = new Float64Array(4);
-const _halfExtents = new Float64Array(3);
-const _scale = new Float64Array(3);
 
 /** write the movers' interpolated pose into the `transforms` firehose at `alpha` (the fixed-step interpolation blend). */
 export function composePose(runtime: PhysicsRuntime, transforms: GPUBuffer, alpha: number): void {
@@ -866,15 +862,25 @@ export function composePose(runtime: PhysicsRuntime, transforms: GPUBuffer, alph
         const eid = moved[i];
         const p = eid * 3;
         const q = eid * 4;
-        const quat = nlerpShortest(runtime.prevQuat, runtime.currQuat, alpha, _quat, q);
-        _halfExtents[0] = Body.halfExtents.x.get(eid);
-        _halfExtents[1] = Body.halfExtents.y.get(eid);
-        _halfExtents[2] = Body.halfExtents.z.get(eid);
+        const quat = nlerpShortest(
+            [
+                runtime.prevQuat[q],
+                runtime.prevQuat[q + 1],
+                runtime.prevQuat[q + 2],
+                runtime.prevQuat[q + 3],
+            ],
+            [
+                runtime.currQuat[q],
+                runtime.currQuat[q + 1],
+                runtime.currQuat[q + 2],
+                runtime.currQuat[q + 3],
+            ],
+            alpha,
+        );
         const scale = renderScale(
             Body.shape.get(eid),
-            _halfExtents,
+            [Body.halfExtents.x.get(eid), Body.halfExtents.y.get(eid), Body.halfExtents.z.get(eid)],
             Body.halfExtents.w.get(eid),
-            _scale,
         );
         _record[0] = runtime.prevPos[p] * (1 - alpha) + runtime.currPos[p] * alpha;
         _record[1] = runtime.prevPos[p + 1] * (1 - alpha) + runtime.currPos[p + 1] * alpha;

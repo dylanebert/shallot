@@ -10,15 +10,13 @@ export function linearToSrgb(c: number): number {
     return c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055;
 }
 
-/** unpack a 0xRRGGBB sRGB byte triple to linear-space r/g/b, into `out` when a caller holds one */
-export function unpackColor(
-    packed: number,
-    out: { r: number; g: number; b: number } = { r: 0, g: 0, b: 0 },
-): { r: number; g: number; b: number } {
-    out.r = srgbToLinear(((packed >> 16) & 0xff) / 255);
-    out.g = srgbToLinear(((packed >> 8) & 0xff) / 255);
-    out.b = srgbToLinear((packed & 0xff) / 255);
-    return out;
+/** unpack a 0xRRGGBB sRGB byte triple to linear-space r/g/b */
+export function unpackColor(packed: number): { r: number; g: number; b: number } {
+    return {
+        r: srgbToLinear(((packed >> 16) & 0xff) / 255),
+        g: srgbToLinear(((packed >> 8) & 0xff) / 255),
+        b: srgbToLinear((packed & 0xff) / 255),
+    };
 }
 
 /**

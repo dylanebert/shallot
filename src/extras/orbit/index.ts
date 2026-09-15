@@ -24,11 +24,6 @@ const Deg2Rad = Math.PI / 180;
 const FlyScrollRate = Math.log(1.15) / 100; // ≈ 0.0014
 
 /** `Free` orbits, pans, and zooms; `Locked` disables all look (orbit rotation and fly look), leaving pan and zoom. */
-// the orbit camera's eye, target and aimed rotation, reused per camera
-const _orbitEye = new Float64Array(3);
-const _orbitTarget = new Float64Array(3);
-const _orbitRot = new Float64Array(4);
-
 export const OrbitMode = { Free: 0, Locked: 1 } as const;
 
 /**
@@ -415,14 +410,8 @@ const OrbitSystem: System = {
                 const camZ = targetZ + distS * Math.cos(pitchS) * Math.cos(yawS);
 
                 Transform.pos.set(eid, camX, camY, camZ, 0);
-                _orbitEye[0] = camX;
-                _orbitEye[1] = camY;
-                _orbitEye[2] = camZ;
-                _orbitTarget[0] = targetX;
-                _orbitTarget[1] = targetY;
-                _orbitTarget[2] = targetZ;
-                const r = aim(_orbitEye, _orbitTarget, undefined, _orbitRot);
-                Transform.rot.set(eid, r[0], r[1], r[2], r[3]);
+                const r = aim(camX, camY, camZ, targetX, targetY, targetZ);
+                Transform.rot.set(eid, r.x, r.y, r.z, r.w);
             }
 
             Orbit.yaw.set(eid, yawO);
