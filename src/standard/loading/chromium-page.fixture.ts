@@ -1,8 +1,9 @@
 import { shallotDark } from "@dylanebert/shallot";
-import { END_TICK } from "@dylanebert/shallot/brand";
+import { DARK, END_TICK, lockup, toSvg } from "@dylanebert/shallot/brand";
 import type { Check, Verdict } from "@dylanebert/shallot/harness";
 
 let now = 0;
+let animationFrames = 0;
 let nextTimer = 1;
 const timers = new Map<number, { at: number; callback: () => void }>();
 
@@ -21,7 +22,10 @@ window.clearTimeout = ((id: number) => {
     timers.delete(id);
 }) as typeof window.clearTimeout;
 window.requestAnimationFrame = ((callback: FrameRequestCallback) =>
-    window.setTimeout(() => callback(now), 1000 / 60)) as typeof window.requestAnimationFrame;
+    window.setTimeout(() => {
+        animationFrames++;
+        callback(now);
+    }, 1000 / 60)) as typeof window.requestAnimationFrame;
 window.cancelAnimationFrame = window.clearTimeout;
 
 function settle(): Promise<void> {
@@ -42,7 +46,7 @@ async function advance(ms: number): Promise<void> {
     await settle();
 }
 
-function mount(profile?: "responsive" | "cinematic" | "compact") {
+function mount(profile?: "responsive" | "cinematic") {
     const host = document.createElement("div");
     host.style.position = "relative";
     document.body.append(host);
@@ -55,6 +59,14 @@ function mount(profile?: "responsive" | "cinematic" | "compact") {
 function hasBrand(host: HTMLElement): boolean {
     return host.querySelector('svg[shape-rendering="crispEdges"]') !== null;
 }
+
+function normalizedSvg(markup: string): string {
+    const holder = document.createElement("div");
+    holder.innerHTML = markup;
+    return holder.innerHTML;
+}
+
+const canonicalStaticLockup = normalizedSvg(toSvg(lockup(), DARK, 4));
 
 window.__harness = {
     ready: true,
@@ -91,7 +103,20 @@ window.__harness = {
 
         const responsive = mount("responsive");
         await advance(150);
-        record("grace mounts responsive animation", hasBrand(responsive.host), "one branded mount");
+        const responsiveSvg = responsive.host.querySelector("svg")?.outerHTML ?? "";
+        const responsiveFrameCount = animationFrames;
+        record(
+            "grace mounts the complete canonical static lockup",
+            normalizedSvg(responsiveSvg) === canonicalStaticLockup,
+            "the mark and full shallot wordmark mount once after the responsive grace",
+        );
+        await advance(1000);
+        record(
+            "responsive lockup remains unchanged without animation",
+            normalizedSvg(responsive.host.querySelector("svg")?.outerHTML ?? "") ===
+                normalizedSvg(responsiveSvg) && animationFrames === responsiveFrameCount,
+            "responsive does not start construction or typing frames",
+        );
         const responsiveDone = responsive.loading.complete?.();
         if (!responsiveDone) throw new Error("responsive Loading omitted complete");
         record(
@@ -201,15 +226,6 @@ window.__harness = {
         );
         reduced.cleanup();
 
-        const reducedCompact = mount("compact");
-        record(
-            "reduced compact keeps the grace",
-            !hasBrand(reducedCompact.host),
-            "compact also waits before its static mark",
-        );
-        const reducedCompactDone = reducedCompact.loading.complete?.();
-        if (reducedCompactDone) await reducedCompactDone;
-        reducedCompact.cleanup();
         window.matchMedia = previousMatchMedia;
 
         const ok = checks.every((check) => check.ok);

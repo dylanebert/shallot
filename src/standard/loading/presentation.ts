@@ -1,5 +1,5 @@
 /** The explicit presentation intent for a branded startup screen. */
-export type SplashProfile = "responsive" | "cinematic" | "compact";
+export type SplashProfile = "responsive" | "cinematic";
 
 export type PresentationPhase =
     | "ground"
@@ -91,12 +91,9 @@ export function transitionPresentation(
         case "grace":
             if (current.ready) {
                 state = { ...current, phase: "ready" };
-            } else if (current.profile === "compact" || current.reducedMotion) {
+            } else {
                 state = { ...current, phase: "brand", branded: true };
                 effects.push("mount-static");
-            } else {
-                state = { ...current, phase: "brand", branded: true, animated: true };
-                effects.push("mount-animation");
             }
             break;
         case "ready":

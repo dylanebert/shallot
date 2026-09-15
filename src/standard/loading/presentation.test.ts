@@ -47,33 +47,31 @@ check(
 );
 
 check(
-    "reduced motion preserves responsive and compact grace",
+    "reduced motion preserves responsive grace",
     {
-        claim: "reduced-motion responsive and compact readiness before grace never mount branded content",
+        claim: "reduced-motion responsive readiness before grace never mounts branded content",
         subject: [
             "src/standard/loading/presentation.ts",
             "src/standard/loading/presentation.test.ts",
         ],
     },
     () => {
-        for (const profile of ["responsive", "compact"] as const) {
-            let current = initialPresentation(profile, true);
-            let result = step(current, "show");
-            current = result.state;
-            expect(current.phase).toBe("grace");
-            expect(result.effects).toEqual([]);
+        let current = initialPresentation("responsive", true);
+        let result = step(current, "show");
+        current = result.state;
+        expect(current.phase).toBe("grace");
+        expect(result.effects).toEqual([]);
 
-            result = step(current, "ready");
-            expect(result.state.branded).toBe(false);
-            expect(result.effects).toEqual([]);
-        }
+        result = step(current, "ready");
+        expect(result.state.branded).toBe(false);
+        expect(result.effects).toEqual([]);
     },
 );
 
 check(
-    "responsive exits without awaiting the canonical animation",
+    "responsive mounts one complete static lockup after grace",
     {
-        claim: "responsive readiness after grace starts one whole-overlay exit without waiting for animation completion",
+        claim: "responsive grace mounts one static brand and readiness starts its whole-overlay exit without animation completion",
         subject: [
             "src/standard/loading/presentation.ts",
             "src/standard/loading/presentation.test.ts",
@@ -84,12 +82,14 @@ check(
         current = step(current, "show").state;
         const mounted = step(current, "grace");
         current = mounted.state;
-        expect(mounted.effects).toEqual(["mount-animation"]);
+        expect(mounted.effects).toEqual(["mount-static"]);
+        expect(current.branded).toBe(true);
+        expect(current.animated).toBe(false);
+        expect(current.animationFinished).toBe(false);
 
         const ready = step(current, "ready");
         expect(ready.effects).toEqual(["start-exit"]);
         expect(ready.state.phase).toBe("exiting");
-        expect(ready.state.animationFinished).toBe(false);
     },
 );
 
@@ -103,33 +103,45 @@ check(
         ],
     },
     () => {
-        let current = initialPresentation("cinematic");
-        const shown = step(current, "show");
-        current = shown.state;
-        expect(shown.effects).toEqual(["mount-animation"]);
+        const orders: ReadonlyArray<readonly ("ready" | "animation-finished" | "rest-finished")[]> =
+            [
+                ["ready", "animation-finished", "rest-finished"],
+                ["ready", "rest-finished", "animation-finished"],
+                ["animation-finished", "ready", "rest-finished"],
+                ["animation-finished", "rest-finished", "ready"],
+                ["rest-finished", "ready", "animation-finished"],
+                ["rest-finished", "animation-finished", "ready"],
+            ];
 
-        let result = step(current, "ready");
-        current = result.state;
-        expect(result.effects).toEqual([]);
-        result = step(current, "animation-finished");
-        current = result.state;
-        expect(result.effects).toEqual([]);
-        result = step(current, "rest-finished");
-        expect(result.effects).toEqual(["start-exit"]);
+        for (const order of orders) {
+            let current = initialPresentation("cinematic");
+            const shown = step(current, "show");
+            current = shown.state;
+            expect(shown.effects).toEqual(["mount-animation"]);
+
+            for (const event of order.slice(0, -1)) {
+                const result = step(current, event);
+                current = result.state;
+                expect(result.effects).toEqual([]);
+            }
+            expect(step(current, order[2] as (typeof order)[number]).effects).toEqual([
+                "start-exit",
+            ]);
+        }
     },
 );
 
 check(
-    "compact and terminal mutations cannot leave live callbacks",
+    "responsive and terminal mutations cannot leave live callbacks",
     {
-        claim: "compact never starts animation and completion, error, and cleanup transition paths cancel pending effects",
+        claim: "responsive never starts animation and completion, error, and cleanup transition paths cancel pending effects",
         subject: [
             "src/standard/loading/presentation.ts",
             "src/standard/loading/presentation.test.ts",
         ],
     },
     () => {
-        let current = initialPresentation("compact");
+        let current = initialPresentation("responsive");
         current = step(current, "show").state;
         const mounted = step(current, "grace");
         current = mounted.state;
