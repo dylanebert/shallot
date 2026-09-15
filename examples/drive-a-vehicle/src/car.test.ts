@@ -63,7 +63,9 @@ type VehicleBounds = {
     gravity: number;
     substeps: number;
     slop: number;
+    // A count, not an inclusive final tick: admitted samples satisfy tick < clearAirTicks.
     clearAirTicks: number;
+    clearAirSteps: number;
     groundTop: number;
     wheelRadius: number;
     speedCeiling: number;
@@ -151,8 +153,6 @@ function bounds(
     const stepConfig = physicsStepConfig(app.state);
     const groundTop = Body.pos.y.get(ground) + Body.halfExtents.y.get(ground);
     const wheelRadius = Body.halfExtents.w.get(wheelEids[0]);
-    const wheelBottom = Body.pos.y.get(wheelEids[0]) - wheelRadius;
-    const initialClearance = wheelBottom - groundTop;
     const mass = [chassisEid, ...wheelEids].reduce((sum, eid) => sum + Body.mass.get(eid), 0);
     const rear = observation.wheels.filter((wheel) => wheel.role === VehicleRole.RearWheel);
     if (rear.length !== 2)
@@ -166,9 +166,6 @@ function bounds(
         ...observation.wheels.map((wheel) => Math.abs(wheel.localFrameA.p.y)),
     );
     const slop = BOX3D_LINEAR_SLOP;
-    const clearAirSeconds = Math.sqrt(
-        Math.max(0, (2 * (initialClearance - slop)) / Math.abs(stepConfig.gravity)),
-    );
     const anchorDrop = Math.abs(Body.pos.y.get(chassisEid) - Body.pos.y.get(wheelEids[0]));
     const chassisHalfHeight = Body.halfExtents.y.get(chassisEid);
     const chassisInitialClearance = Body.pos.y.get(chassisEid) - chassisHalfHeight - groundTop;
@@ -197,7 +194,8 @@ function bounds(
         gravity: stepConfig.gravity,
         substeps: stepConfig.substeps,
         slop,
-        clearAirTicks: Math.max(0, Math.ceil(clearAirSeconds / stepConfig.dt) - 1),
+        clearAirTicks: 0,
+        clearAirSteps: 0,
         groundTop,
         wheelRadius,
         speedCeiling: rimSpeed + (2 * slop) / stepConfig.dt,
@@ -214,6 +212,19 @@ function bounds(
             driveAcceleration * stepConfig.dt + slop / (stepConfig.dt / stepConfig.substeps),
         effectiveTorque,
         torqueBudget: Math.abs(VEHICLE_CONFIG.maxSpinTorque),
+    };
+}
+
+function deriveClearAirBounds(bound: VehicleBounds, initial: TickSample): VehicleBounds {
+    const liveClearance = Math.min(...initial.wheelGroundSeparations);
+    const clearAirSeconds = Math.sqrt(
+        Math.max(0, (2 * (liveClearance - bound.slop)) / Math.abs(bound.gravity)),
+    );
+    const clearAirSteps = clearAirSeconds / bound.dt;
+    return {
+        ...bound,
+        clearAirTicks: Math.max(0, Math.ceil(clearAirSteps - 1)),
+        clearAirSteps,
     };
 }
 
@@ -395,8 +406,20 @@ function validateTrace(trace: Trace, idle: boolean): void {
                 );
         }
         const chassisState = bodies[0];
-        if (idle && sample.tick <= trace.bounds.clearAirTicks) {
+        // clearAirTicks is a count with a non-inclusive endpoint: sample tick t is the (t + 1)th
+        // fixed step after trace.initial, and every admitted step must remain strictly before possible
+        // wheel contact derived from the live initial wheel/ground separation.
+        if (idle && sample.tick < trace.bounds.clearAirTicks) {
+            const admittedStep = sample.tick + 1;
+            if (!(admittedStep < trace.bounds.clearAirSteps))
+                fail(
+                    trace,
+                    sample.tick,
+                    trace.bounds,
+                    `clear-air admitted step ${admittedStep} was not strictly before possible contact at ${trace.bounds.clearAirSteps.toFixed(4)}`,
+                );
             const initialChassis = trace.initial.bodies[0];
+            const precedingChassis = previous.bodies[0];
             const xDelta = chassisState.pos[0] - initialChassis.pos[0];
             const zDelta = chassisState.pos[2] - initialChassis.pos[2];
             const clearAirSpeed = trace.bounds.slop / trace.bounds.dt;
@@ -414,12 +437,12 @@ function validateTrace(trace: Trace, idle: boolean): void {
                     trace.bounds,
                     `clear-air chassis horizontal speed ${sample.horizontalSpeeds[0].toFixed(4)} exceeded ${clearAirSpeed.toFixed(4)}`,
                 );
-            if (chassisState.pos[1] > initialChassis.pos[1] + trace.bounds.slop)
+            if (chassisState.pos[1] > precedingChassis.pos[1] + trace.bounds.slop)
                 fail(
                     trace,
                     sample.tick,
                     trace.bounds,
-                    `clear-air chassis Y increased by ${(chassisState.pos[1] - initialChassis.pos[1]).toFixed(4)}m beyond slop`,
+                    `clear-air chassis Y increased by ${(chassisState.pos[1] - precedingChassis.pos[1]).toFixed(4)}m from preceding sample beyond slop`,
                 );
             if (chassisState.vel[1] > clearAirSpeed)
                 fail(
@@ -629,11 +652,14 @@ async function runTrace(keys: Arm): Promise<Trace> {
         const firstObservation = readVehicle(app.state);
         if (!firstObservation)
             throw new Error("actual vehicle did not wire after its first fixed step");
-        const bound = bounds(app, chassisEid, wheelEids, firstObservation);
-        const warmup: TickSample[] = [capture(app, eids, wheelEids, -1, [], bound.groundTop)];
+        const preliminaryBound = bounds(app, chassisEid, wheelEids, firstObservation);
+        const warmup: TickSample[] = [
+            capture(app, eids, wheelEids, -1, [], preliminaryBound.groundTop),
+        ];
         step(app, 1);
-        warmup.push(capture(app, eids, wheelEids, -0, [], bound.groundTop));
+        warmup.push(capture(app, eids, wheelEids, -0, [], preliminaryBound.groundTop));
         const initial = warmup[warmup.length - 1];
+        const bound = deriveClearAirBounds(preliminaryBound, initial);
         for (const key of keys) pressKey(app.state, key);
         const samples: TickSample[] = [];
         for (let tick = 0; tick < HORIZON; tick++) {
