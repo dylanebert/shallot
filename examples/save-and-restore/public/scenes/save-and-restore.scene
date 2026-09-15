@@ -13,7 +13,7 @@
     />
 
     <!-- the authored content the save path captures; press S to write it to localStorage -->
-    <a id="hero" part transform="rot: 0 30 0" color="rgba: 0.85 0.55 0.35" />
+    <a id="hero" part transform="rot: 0 0.258819 0 0.9659258" color="rgba: 0.85 0.55 0.35" />
     <a part transform="pos: -2.5 0.5 0; scale: 0.6" color="rgba: 0.5 0.7 0.55" />
     <a part transform="pos: 2.5 1 0; scale: 2" color="rgba: 0.45 0.55 0.7" />
 </scene>

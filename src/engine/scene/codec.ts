@@ -469,8 +469,9 @@ function splitProperties(str: string): string[] {
 }
 
 // the dotted lane key (`params.x`) a named axis of an identity-lane alias resolves to (`metallic` →
-// `params.x`). Identity = one axis per lane; euler's 3-axis-over-4-lane alias fails the length check and
-// stays positional. Drives both named parse (here) and named serialize (formatFields).
+// `params.x`). Identity = one axis per lane; non-identity aliases remain positional, but their declared
+// authoring lane count still controls the conversion (for example, Body.quat's three Euler degrees). Drives
+// both named parse (here) and named serialize (formatFields).
 function identityLaneKey(
     traits: Traits | undefined,
     component: Component,
@@ -571,6 +572,15 @@ function parsePropertyString(
         }
 
         const nums = parsed as number[];
+        const aliased = traits?.aliases?.[name];
+        if (aliased && nums.length === aliased.axes.length) {
+            const current: Record<string, number> = {};
+            for (let i = 0; i < nums.length; i++) {
+                Object.assign(current, aliased.write(i, nums[i], current));
+            }
+            for (const [field, value] of Object.entries(current)) values[field] = value;
+            continue;
+        }
 
         const direct = lanes(component[name]);
         if (direct === 4) {

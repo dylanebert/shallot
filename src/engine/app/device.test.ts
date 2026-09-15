@@ -6,6 +6,7 @@ import {
     hash as hashPhysics,
     PhysicsPlugin,
     physicsWorld,
+    readBody,
     ShapeKind,
 } from "../../standard/physics";
 import { Slab } from "../../standard/slab";
@@ -30,6 +31,106 @@ afterEach(() => {
     live?.dispose();
     live = null;
 });
+
+const BUILD_REFUSAL =
+    "build refused: another App is building or live in this process; call app.dispose() before building another";
+
+check(
+    "public build refuses overlapping in-flight and live Apps, then recovers sequentially",
+    {
+        claim: "overlapping public builds can mutate process-global registries beneath one another instead of refusing before lifecycle work",
+        subject: ["src/engine/app/index.ts", "src/engine/app/device.test.ts"],
+    },
+    async () => {
+        let release!: () => void;
+        let entered!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const started = new Promise<void>((resolve) => {
+            entered = resolve;
+        });
+        const held = {
+            name: "held build",
+            initialize: async () => {
+                entered();
+                await gate;
+            },
+        };
+
+        const firstPromise = build({ defaults: false, plugins: [held] });
+        await started;
+        await expect(build({ defaults: false, plugins: [] })).rejects.toThrow(BUILD_REFUSAL);
+        await expect(build({ defaults: false, plugins: [] })).rejects.toThrow(BUILD_REFUSAL);
+        release();
+        const first = await firstPromise;
+        first.dispose();
+
+        const recovered = await build({ defaults: false, plugins: [] });
+        recovered.state.step(Time.FIXED_DT);
+        recovered.dispose();
+    },
+);
+
+check(
+    "a live CPU Physics App refuses a second build without losing its stepped state",
+    {
+        claim: "a second public Physics build can reset the first App's slabs and world instead of refusing while the first remains live",
+        subject: ["src/engine/app/index.ts", "src/engine/app/device.test.ts"],
+    },
+    async () => {
+        const author = (state: State) => {
+            const eid = state.create();
+            state.add(eid, Body);
+            Body.shape.set(eid, ShapeKind.Box);
+            Body.pos.set(eid, 0, 2, 0, 0);
+            Body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
+            Body.mass.set(eid, 1);
+            return eid;
+        };
+        const first = await build({ defaults: false, plugins: [PhysicsPlugin] });
+        const eid = author(first.state);
+        for (let i = 0; i < 8; i++) first.state.step(Time.FIXED_DT);
+        const before = readBody(first.state, eid);
+        if (!before) throw new Error("first Physics App did not produce a live body");
+        await expect(build({ defaults: false, plugins: [PhysicsPlugin] })).rejects.toThrow(
+            BUILD_REFUSAL,
+        );
+        first.state.step(Time.FIXED_DT);
+        const after = readBody(first.state, eid);
+        expect(after).not.toBeNull();
+        expect(after?.pos[1]).toBeLessThan(before.pos[1]);
+        first.dispose();
+
+        const recovered = await build({ defaults: false, plugins: [PhysicsPlugin] });
+        author(recovered.state);
+        for (let i = 0; i < 8; i++) recovered.state.step(Time.FIXED_DT);
+        expect(hashPhysics(recovered.state)).toBeDefined();
+        recovered.dispose();
+    },
+);
+
+check(
+    "a failed public build releases only its owned lease",
+    {
+        claim: "a plugin initialize failure can strand the public build lifecycle lease and refuse every later recovery build",
+        subject: ["src/engine/app/index.ts", "src/engine/app/device.test.ts"],
+    },
+    async () => {
+        const broken = {
+            name: "broken build",
+            initialize: () => {
+                throw new Error("intentional initialize failure");
+            },
+        };
+        await expect(build({ defaults: false, plugins: [broken] })).rejects.toThrow(
+            "intentional initialize failure",
+        );
+        const recovered = await build({ defaults: false, plugins: [PhysicsPlugin] });
+        recovered.state.step(Time.FIXED_DT);
+        recovered.dispose();
+    },
+);
 
 check(
     "a CPU Physics build steps without navigator.gpu",

@@ -72,6 +72,7 @@ export {
     Physics,
     PhysicsPlugin,
     physicsCounters,
+    physicsStepConfig,
     physicsWorld,
     type RevoluteJointConfig,
     readBody,

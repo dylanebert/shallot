@@ -49,52 +49,58 @@ async function cleanState() {
 check(
     "physics: twin states and restore replay the same fixed action stream",
     {
-        claim: "two clean physics States and a restored wasm world diverge under one fixed action stream, so rollback cannot reproduce a confirmed tick",
+        claim: "sequential clean physics States and a restored wasm world replay one fixed action stream, so rollback reproduces a confirmed tick without overlapping global slabs",
     },
     async () => {
         const left = await cleanState();
-        const right = await cleanState();
+        const leftHashes: string[] = [];
+        let saved = snapshot(left.state);
+        let savedHash = hash(left.state);
+        const leftAfterSaved: string[] = [];
         try {
-            const leftHashes: string[] = [];
-            const rightHashes: string[] = [];
-            let saved = snapshot(left.state);
-            let savedHash = hash(left.state);
-            const leftAfterSaved: string[] = [];
             for (let tick = 0; tick < 6; tick++) {
                 setVelocity(left.state, left.body, 1, 0, 0);
-                setVelocity(right.state, right.body, 1, 0, 0);
                 left.state.step(Time.FIXED_DT);
-                right.state.step(Time.FIXED_DT);
                 leftHashes.push(hash(left.state).toString(16));
-                rightHashes.push(hash(right.state).toString(16));
                 if (tick === 2) {
                     saved = snapshot(left.state);
                     savedHash = hash(left.state);
                 }
                 if (tick > 2) leftAfterSaved.push(hash(left.state).toString(16));
             }
-            expect(leftHashes).toEqual(rightHashes);
-
-            const replay = await cleanState();
-            try {
-                for (let tick = 0; tick < 3; tick++) {
-                    setVelocity(replay.state, replay.body, 1, 0, 0);
-                    replay.state.step(Time.FIXED_DT);
-                }
-                const before = hash(replay.state);
-                replay.state.step(Time.FIXED_DT);
-                restore(replay.state, saved);
-                expect(hash(replay.state)).toBe(savedHash);
-                setVelocity(replay.state, replay.body, 1, 0, 0);
-                replay.state.step(Time.FIXED_DT);
-                expect(hash(replay.state).toString(16)).toBe(leftAfterSaved[0]);
-                expect(hash(replay.state)).not.toBe(before);
-            } finally {
-                replay.app.dispose();
-            }
         } finally {
             left.app.dispose();
+        }
+
+        const right = await cleanState();
+        const rightHashes: string[] = [];
+        try {
+            for (let tick = 0; tick < 6; tick++) {
+                setVelocity(right.state, right.body, 1, 0, 0);
+                right.state.step(Time.FIXED_DT);
+                rightHashes.push(hash(right.state).toString(16));
+            }
+        } finally {
             right.app.dispose();
+        }
+        expect(leftHashes).toEqual(rightHashes);
+
+        const replay = await cleanState();
+        try {
+            for (let tick = 0; tick < 3; tick++) {
+                setVelocity(replay.state, replay.body, 1, 0, 0);
+                replay.state.step(Time.FIXED_DT);
+            }
+            const before = hash(replay.state);
+            replay.state.step(Time.FIXED_DT);
+            restore(replay.state, saved);
+            expect(hash(replay.state)).toBe(savedHash);
+            setVelocity(replay.state, replay.body, 1, 0, 0);
+            replay.state.step(Time.FIXED_DT);
+            expect(hash(replay.state).toString(16)).toBe(leftAfterSaved[0]);
+            expect(hash(replay.state)).not.toBe(before);
+        } finally {
+            replay.app.dispose();
         }
     },
 );
