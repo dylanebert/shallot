@@ -34,6 +34,12 @@ export function assertDeclared(path: string): void {
     }
 }
 
+/** The premise a body refused on, or null when the error is an ordinary failure of the claim. */
+function refusedReason(error: unknown): string | null {
+    const message = error instanceof Error ? error.message : "";
+    return message.startsWith("inconclusive:") ? message : null;
+}
+
 /** Register one check. The declaration supplies the claim, cadence, requirements and timeout. */
 export function check(
     name: string,
@@ -115,7 +121,19 @@ export function check(
                 return value;
             } catch (error) {
                 if (reports) {
-                    emitVerdict(decl.claim, decl.size, started, "fail", verdictMetadata(error));
+                    // A body that names its own missing premise is a refusal, not a red claim: an
+                    // `inconclusive:` message says the run never reached the predicate, so reporting it as
+                    // a fail would read as product evidence the row never gathered.
+                    const premise = refusedReason(error);
+                    emitVerdict(
+                        decl.claim,
+                        decl.size,
+                        started,
+                        premise === null ? "fail" : "refused",
+                        premise === null
+                            ? verdictMetadata(error)
+                            : { ...verdictMetadata(error), reason: premise },
+                    );
                 }
                 throw error;
             }

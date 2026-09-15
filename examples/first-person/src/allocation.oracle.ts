@@ -29,11 +29,12 @@ check(
         budget: 20_000,
     },
     async () => {
-        // The page loop runs at the display's rate (144 to 240 Hz here), so 480 warm frames and 120-frame windows
-        // are what fit the build, the headed launch and five profiled spans inside the budget. With V8's tier
-        // thresholds lowered, a per-frame function reaches TurboFan in about 50 frames; three agreeing windows
-        // are the steadiness premise, not the warm's length. The deadline sits 4 s inside the budget, so
-        // teardown always runs before the budget ends.
+        // 480 warm frames and 120-frame windows are what fit the build, the headed launch and five profiled
+        // spans inside the budget on a page that presents at its display's rate. With V8's tier thresholds
+        // lowered, a per-frame function reaches TurboFan in about 50 frames; three agreeing windows are the
+        // steadiness premise, not the warm's length, so the sampler refuses a slow page by name rather than
+        // trimming the warm. The deadline sits 4 s inside the budget, so teardown always runs before the
+        // budget ends.
         const sample = await samplePage(resolve(import.meta.dir, ".."), {
             warm: 480,
             frames: 120,
