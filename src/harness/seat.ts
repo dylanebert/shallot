@@ -5,7 +5,7 @@
 
 import { type AdapterFacts, classifyAdapter } from "../engine/runtime/adapter";
 import { type CaptureIdentity, captureIdentityLabel, captureIdentityMatches } from "./capture";
-import type { LaunchPlan } from "./launch";
+import { LAUNCH_MODES, type LaunchPlan } from "./launch";
 
 // Keep the harness seat module's public imports stable while the engine owns adapter policy.
 export {
@@ -33,23 +33,25 @@ export interface BrowserFacts {
     capture?: CaptureFacts;
 }
 
-/** a genuinely headed premise: a real display or a physical-interaction seat, named by its source. */
+/** a declared headed display and the headed browser observed on it. */
 export interface DisplayFacts {
-    headed: boolean;
+    /** the host's own declaration of its display, from `SHALLOT_DISPLAY_SEAT`. */
     source: string;
+    /** the headed browser launched on that display: its launch plan and the adapter it reached. */
+    browser?: BrowserFacts;
 }
 
 /**
  * every fact a seat resolution may read. Each seat reads only its own field, which is what keeps one seat
- * from silently standing in for another: a real `device` adapter cannot satisfy `chromium`, and a headless
- * browser cannot satisfy `display`.
+ * from silently standing in for another: a real `device` adapter cannot satisfy `chromium`, a headless
+ * browser cannot satisfy `display`, and a headed browser cannot satisfy `chromium`.
  */
 export interface SeatFacts {
     /** the in-process (Bun) WebGPU adapter, for the `gpu` seat. */
     device?: AdapterFacts;
-    /** the browser-composited seat, for `chromium`. */
+    /** the headless browser seat, for `chromium`. */
     browser?: BrowserFacts;
-    /** the headed premise, for `display`. */
+    /** the declared display and its headed browser, for `display`. */
     display?: DisplayFacts;
 }
 
@@ -66,8 +68,9 @@ function refuse(seat: Seat, reason: string): SeatResolution {
  * - `cpu` — no requirement; always available.
  * - `gpu` — a real in-process WebGPU device. Reads no browser fact, so a browser claim never grants it.
  * - `chromium` — a declared headless launch, a positively identified real adapter inside that browser, and
- *   a capture at the one declared identity.
- * - `display` — a genuinely headed display or physical-interaction premise; headless never grants it.
+ *   a capture at the one declared identity. A headed launch never grants it.
+ * - `display` — a host-declared display and a headed launch on it that reaches a positively identified
+ *   real adapter. The declaration alone never grants it, and neither does a headed browser alone.
  *
  * @example const seat = resolveSeat("gpu", { device: { present: true, info } });
  */
@@ -85,14 +88,32 @@ export function resolveSeat(
         return { ok: true, detail: `real device ${adapter.identity}` };
     }
     if (seat === "display") {
-        if (facts.display === undefined || !facts.display.headed) {
-            return refuse(seat, "no headed display or physical-interaction premise is declared");
+        const display = facts.display;
+        if (display === undefined) return refuse(seat, "no headed display is declared");
+        const launch = display.browser?.launch;
+        if (launch === undefined || LAUNCH_MODES[launch.seat] !== "headed") {
+            return refuse(
+                seat,
+                `no headed Chromium launch was observed on the declared display ${display.source}`,
+            );
         }
-        return { ok: true, detail: `headed display via ${facts.display.source}` };
+        if (display.browser?.adapter === undefined) {
+            return refuse(seat, "the headed browser reported no adapter observation");
+        }
+        const adapter = classifyAdapter(display.browser.adapter);
+        if (adapter.class !== "real") return refuse(seat, adapter.reason ?? adapter.class);
+        return {
+            ok: true,
+            detail: `headed chromium on real adapter ${adapter.identity} via ${display.source}`,
+        };
     }
     const browser = facts.browser;
     if (browser?.launch === undefined) {
         return refuse(seat, "no declared headless Chromium launch path for this host");
+    }
+    const mode = LAUNCH_MODES[browser.launch.seat];
+    if (mode !== "headless") {
+        return refuse(seat, `a ${mode} launch never grants the chromium seat, which runs headless`);
     }
     if (browser.adapter === undefined) {
         return refuse(seat, "the browser reported no adapter observation");
@@ -112,6 +133,6 @@ export function resolveSeat(
     }
     return {
         ok: true,
-        detail: `${browser.launch.mode} chromium on real adapter ${adapter.identity}`,
+        detail: `${mode} chromium on real adapter ${adapter.identity}`,
     };
 }

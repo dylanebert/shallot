@@ -76,9 +76,11 @@ Use `bun run list` with the same selectors to inspect claim, size, requirements,
 A requirement tag names a capability, and a host that lacks it refuses rather than passing on a weaker one. No
 requirement is CPU only. `gpu` is a real in-process WebGPU device. `chromium` is headless Chromium on a
 positively identified real adapter at the capture contract; a software adapter, an adapter with no identity
-and an undeclared host each refuse with their own reason, and the launch is always headless — there is no
-headed escape, because a windowed run proves a different seat. `display` is a genuinely headed premise and
-refuses unless the host declares one in `SHALLOT_DISPLAY_SEAT`.
+and an undeclared host each refuse with their own reason, and its launch is always headless — a headed
+launch never grants it, because a windowed run proves a different seat. `display` is that seat, and the only
+one that launches headed: it refuses unless the host declares a display in `SHALLOT_DISPLAY_SEAT` and a headed
+Chromium on the shared floor there classifies a positively identified real adapter. Launch mode is policy
+keyed by seat in `src/harness/launch.ts`; `launch.json` holds only each host's headless and headed evidence.
 
 `captureFrame` from `@dylanebert/shallot/harness/capture` is the one capture: it fixes the viewport, device
 scale, surface, presentation boundary and tightly packed RGBA semantics, and refuses a surface at any other

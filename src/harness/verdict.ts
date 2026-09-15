@@ -245,22 +245,6 @@ export function hostMismatch(host: string | undefined): string | null {
     return host === here ? null : `declared for host ${host}; this host is ${here}`;
 }
 
-/**
- * Resolve the `display` seat. It needs a genuinely headed premise, so it is declared by the host that has
- * one rather than inferred: a host with a window server still runs these rows headlessly, and a headless
- * browser is not a display.
- */
-function resolveDisplayRequirement(): string | null {
-    const declared = process.env.SHALLOT_DISPLAY_SEAT?.trim();
-    const seat = resolveSeat("display", {
-        display:
-            declared === undefined || declared === ""
-                ? undefined
-                : { headed: true, source: declared },
-    });
-    return seat.ok ? null : seat.reason;
-}
-
 function cargoPackage(root: string, subjects: readonly string[]): string | null {
     if (subjects.length !== 1)
         return "cargo requirement needs exactly one subject naming a Cargo crate";
@@ -406,18 +390,20 @@ export function missingRequirement(
             if (reason !== null) return reason;
             continue;
         }
-        if (requirement === "display") {
-            const reason = resolveDisplayRequirement();
-            if (reason !== null) return reason;
-            continue;
-        }
-        if (requirement !== "chromium") {
+        if (requirement !== "chromium" && requirement !== "display") {
             return `runner cannot supply requirement ${requirement}`;
         }
-        // The launch path is the seat's first premise: an undeclared host has no headless launch, and no
-        // amount of installed Chromium substitutes for one.
-        const plan = launchPlan(process.platform);
-        if ("refused" in plan) return `chromium seat unavailable: ${plan.refused}`;
+        // `display` is declared by the host that has one rather than inferred: a host with a window server
+        // still runs every other row headlessly.
+        if (requirement === "display" && !process.env.SHALLOT_DISPLAY_SEAT?.trim()) {
+            const seat = resolveSeat("display", {});
+            if (!seat.ok) return seat.reason;
+        }
+        // The launch path is each browser seat's first premise: an undeclared host has no launch in the
+        // seat's mode, and no amount of installed Chromium substitutes for one. The seat itself resolves
+        // only on the adapter its run observes.
+        const plan = launchPlan(process.platform, requirement);
+        if ("refused" in plan) return `${requirement} seat unavailable: ${plan.refused}`;
         try {
             const module = require("playwright") as {
                 chromium?: { executablePath?: () => string };
