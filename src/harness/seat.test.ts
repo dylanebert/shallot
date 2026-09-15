@@ -1,7 +1,13 @@
 import { expect } from "bun:test";
 import { CAPTURE_CONTRACT } from "@dylanebert/shallot/harness/capture";
 import { check } from "@dylanebert/shallot/harness/check";
-import { HOST_LAUNCHES, LAUNCH_MODE, launchPlan } from "@dylanebert/shallot/harness/launch";
+import {
+    HOST_LAUNCHES,
+    LAUNCH_MODES,
+    type LaunchSeat,
+    launchOptions,
+    launchPlan,
+} from "@dylanebert/shallot/harness/launch";
 import {
     type AdapterFacts,
     adapterIdentity,
@@ -47,8 +53,8 @@ const BUN_REAL: AdapterFacts = {
     },
 };
 
-function plan(host: string) {
-    const resolved = launchPlan(host);
+function plan(host: string, seat: LaunchSeat = "chromium") {
+    const resolved = launchPlan(host, seat);
     if ("refused" in resolved) throw new Error(resolved.refused);
     return resolved;
 }
@@ -117,7 +123,7 @@ check(
 check(
     "one seat never substitutes for another",
     {
-        claim: "a real Bun device satisfies the chromium seat, a browser satisfies the gpu seat, or a headless browser satisfies display, so one seat's evidence would be reported as another's",
+        claim: "a real Bun device satisfies the chromium seat, a browser satisfies the gpu seat, a headless browser or a bare declaration satisfies display, or a headed browser satisfies chromium, so one seat's evidence would be reported as another's",
         subject: "src/harness/seat.ts",
     },
     () => {
@@ -126,12 +132,13 @@ check(
             adapter: CHROMIUM_REAL,
             capture: { identity: CAPTURE_CONTRACT },
         };
+        const headed = { launch: plan("linux", "display"), adapter: CHROMIUM_REAL };
         // The truth table: each seat is satisfied by its own facts and by nothing else.
         const facts = {
             cpu: {},
             gpu: { device: BUN_REAL },
             chromium: { browser },
-            display: { display: { headed: true, source: "attached display" } },
+            display: { display: { source: "declared display", browser: headed } },
         } as const;
         for (const seat of SEATS) {
             for (const [name, given] of Object.entries(facts)) {
@@ -146,11 +153,44 @@ check(
         });
         expect(resolveSeat("display", { browser }, CAPTURE_CONTRACT)).toEqual({
             ok: false,
-            reason: "display seat unavailable: no headed display or physical-interaction premise is declared",
+            reason: "display seat unavailable: no headed display is declared",
         });
-        expect(resolveSeat("display", { display: { headed: false, source: "none" } }).ok).toBe(
-            false,
+        // A headed browser never grants chromium, even on a real adapter at the capture contract.
+        const headedChromium = resolveSeat(
+            "chromium",
+            { browser: { ...headed, capture: { identity: CAPTURE_CONTRACT } } },
+            CAPTURE_CONTRACT,
         );
+        expect(headedChromium).toEqual({
+            ok: false,
+            reason: "chromium seat unavailable: a headed launch never grants the chromium seat, which runs headless",
+        });
+        // Display needs both the declaration and a headed launch that reaches a real adapter: headed alone,
+        // the declaration alone, a headless launch on the declaration, or a fallback adapter each refuse.
+        const displayRefusals = [
+            resolveSeat("display", { browser: headed }),
+            resolveSeat("display", { display: { source: "declared display" } }),
+            resolveSeat("display", {
+                display: { source: "declared display", browser: { ...browser } },
+            }),
+            resolveSeat("display", {
+                display: { source: "declared display", browser: { launch: headed.launch } },
+            }),
+            resolveSeat("display", {
+                display: {
+                    source: "declared display",
+                    browser: { launch: headed.launch, adapter: CHROMIUM_FALLBACK },
+                },
+            }),
+        ];
+        expect(displayRefusals.every((resolved) => !resolved.ok)).toBe(true);
+        const displayReasons = displayRefusals.map((resolved) =>
+            resolved.ok ? "" : resolved.reason,
+        );
+        // Headed-alone and declaration-alone differ; the headless and declaration-alone cases share the
+        // missing-headed-launch reason.
+        expect(new Set(displayReasons).size).toBe(4);
+        expect(displayReasons[4]).toContain("fallback adapter");
     },
 );
 
@@ -231,13 +271,40 @@ check(
             refused:
                 "no declared headless Chromium launch path for host freebsd; declared hosts are darwin, linux, win32",
         });
+        expect(LAUNCH_MODES).toEqual({ chromium: "headless", display: "headed" });
         for (const host of hosts) {
             const resolved = plan(host);
-            expect(resolved.mode).toBe(LAUNCH_MODE);
-            expect(LAUNCH_MODE).toBe("headless");
+            expect(resolved.mode).toBe("headless");
             expect(resolved.channel).toBe("chromium");
+            expect(launchOptions(resolved).headless).toBe(true);
+            const display = plan(host, "display");
+            expect(display.mode).toBe("headed");
+            expect(launchOptions(display).headless).toBe(false);
+            expect(display.args).toEqual(resolved.args);
+            // A plan's own fields cannot select headed for chromium: options read the seat's policy.
+            expect(
+                launchOptions({ ...resolved, mode: "headed", adapterEvidence: "proven" }).headless,
+            ).toBe(true);
             // No declaration carries a mode, a headless field or a capability of its own.
             expect(Object.keys(HOST_LAUNCHES[host]).sort()).toEqual(["adapterEvidence", "note"]);
+            expect(Object.keys(HOST_LAUNCHES[host].adapterEvidence).sort()).toEqual([
+                "headed",
+                "headless",
+            ]);
+            // A host's proven headed evidence never grants chromium on a headed plan.
+            expect(
+                resolveSeat(
+                    "chromium",
+                    {
+                        browser: {
+                            launch: display,
+                            adapter: CHROMIUM_REAL,
+                            capture: { identity: CAPTURE_CONTRACT },
+                        },
+                    },
+                    CAPTURE_CONTRACT,
+                ).ok,
+            ).toBe(false);
             // The declaration's own evidence never grants the seat: the fallback adapter refuses under
             // every host, including the one where a real adapter is proven.
             expect(
@@ -269,9 +336,21 @@ check(
                 ).ok,
             ).toBe(true);
         }
-        // Only the authoring seat claims proven evidence; no Windows or Linux positive claim is declared.
-        expect(HOST_LAUNCHES.darwin.adapterEvidence).toBe("proven");
-        expect(HOST_LAUNCHES.linux.adapterEvidence).toBe("unproven");
-        expect(HOST_LAUNCHES.win32.adapterEvidence).toBe("unproven");
+        // Headless evidence is proven only on the authoring seat; headed evidence only where a headed launch
+        // reached a real adapter. Neither grants a seat; they record what was observed.
+        expect(HOST_LAUNCHES.darwin.adapterEvidence).toEqual({
+            headless: "proven",
+            headed: "unproven",
+        });
+        expect(HOST_LAUNCHES.linux.adapterEvidence).toEqual({
+            headless: "unproven",
+            headed: "proven",
+        });
+        expect(HOST_LAUNCHES.win32.adapterEvidence).toEqual({
+            headless: "unproven",
+            headed: "unproven",
+        });
+        expect(plan("linux").adapterEvidence).toBe("unproven");
+        expect(plan("linux", "display").adapterEvidence).toBe("proven");
     },
 );

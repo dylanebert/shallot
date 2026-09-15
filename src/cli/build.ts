@@ -45,8 +45,15 @@ export const synthIndex = (name: string) => `<!doctype html>
 </html>
 `;
 
+/** where a web build writes and whether it emits source maps. The shipped code is the same either way: a
+ *  map is a sidecar file plus a trailing comment, so a measured build stays the build `run` serves. */
+export interface WebOutput {
+    outDir?: string;
+    sourcemap?: boolean;
+}
+
 /** the vite build config for a manifest project's synthesized entry, matching `dev.ts`'s `devConfig`. */
-export function buildConfig(projectDir: string) {
+export function buildConfig(projectDir: string, output: WebOutput = {}) {
     return {
         root: projectDir,
         base: "./",
@@ -55,14 +62,23 @@ export function buildConfig(projectDir: string) {
         // typegpu transpiles TGSL function bodies at build time — there is no runtime fallback,
         // and the engine's own kernels live in node_modules, so the transform must reach there too
         plugins: [typegpuPlugin(), projectPlugin(resolve(projectDir))],
-        build: { target: "esnext", outDir: "dist", emptyOutDir: true },
+        build: {
+            target: "esnext",
+            outDir: output.outDir ?? "dist",
+            emptyOutDir: true,
+            sourcemap: output.sourcemap ?? false,
+        },
     };
 }
 
-export async function buildWeb(projectDir: string): Promise<void> {
+export async function buildWeb(projectDir: string, output: WebOutput = {}): Promise<void> {
     // ejected shape: the project owns its index.html + vite.config, so
     // build with its own vite.
     if (existsSync(resolve(projectDir, "index.html"))) {
+        if (output.outDir !== undefined || output.sourcemap !== undefined)
+            throw new Error(
+                "an ejected project owns its vite build; web output options apply only to a manifest project",
+            );
         console.log(`\n  building ${basename(projectDir)} → dist/\n`);
         execSync("bunx vite build", { cwd: projectDir, stdio: "inherit" });
         console.log(`\n  done.\n`);
@@ -91,7 +107,7 @@ export async function buildWeb(projectDir: string): Promise<void> {
         // ejected harness; the build host provides it).
         await viteBuild(
             composeViteConfig(
-                buildConfig(projectDir),
+                buildConfig(projectDir, output),
                 project,
                 new Set(["shallot-project", "unplugin-typegpu"]),
             ),
@@ -103,7 +119,7 @@ export async function buildWeb(projectDir: string): Promise<void> {
     // vite copied the project's own public/; mirror the dev server (findPublicDirs) by also pulling a
     // shared parent public/ into the bundle, so the synthesized index's ./icon.svg (and any shared asset)
     // resolves the same as `shallot dev`. force: false keeps the project's own files + bundle output winning.
-    const dist = resolve(projectDir, "dist");
+    const dist = resolve(projectDir, output.outDir ?? "dist");
     for (const dir of findPublicDirs(resolve(projectDir))) {
         cpSync(dir, dist, { recursive: true, force: false, errorOnExist: false });
     }

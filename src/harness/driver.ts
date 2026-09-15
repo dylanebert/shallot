@@ -76,7 +76,7 @@ async function waitForServer(url: string, process: ReturnType<typeof Bun.spawn>)
  * object's fields are prototype accessors and never survive a spread — reading them as a bag is how a
  * masked identity used to arrive as an empty object and get labelled a device anyway.
  */
-async function adapterFacts(page: import("playwright").Page): Promise<AdapterFacts> {
+export async function adapterFacts(page: import("playwright").Page): Promise<AdapterFacts> {
     return page.evaluate(async () => {
         const gpu = navigator.gpu;
         if (!gpu) return { present: false };
@@ -116,9 +116,10 @@ export type BrowserServeCommand = (port: number) => string[];
  * The page owns the stepped-clock assertion; this process fixes the seat and the capture geometry, waits
  * for readiness, and transports the resulting JSON across the browser boundary.
  *
- * The launch is always headless: the mode is policy, not a caller's choice. A host whose headless Chromium
- * reaches only a fallback adapter refuses, because a software adapter is not the `chromium` seat, and
- * opening a window to pass would report one seat's result as another's.
+ * This is the `chromium` seat, whose launch is always headless: the mode is policy keyed by seat, not a
+ * caller's choice. A host whose headless Chromium reaches only a fallback adapter refuses, because a
+ * software adapter is not the `chromium` seat; a headed launch belongs to the `display` seat alone, and
+ * opening a window here to pass would report one seat's result as another's.
  *
  * @example const verdict = await runBrowserCheck((port) => ["bun", "serve.ts", "--port", String(port)]);
  */

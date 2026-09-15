@@ -1,6 +1,24 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+    existsSync,
+    mkdtempSync,
+    readdirSync,
+    readFileSync,
+    realpathSync,
+    rmSync,
+    statSync,
+    writeFileSync,
+} from "node:fs";
+import { SourceMap } from "node:module";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
+import { buildWeb } from "../cli/build";
+import { classifyAdapter } from "../engine/runtime/adapter";
+import { CROSS_ORIGIN_ISOLATION } from "../project/vite";
+import { attribute, originalPosition, subjectSite } from "./allocation-sampler.mjs";
+import { CAPTURE_CONTRACT } from "./capture";
+import { adapterFacts } from "./driver";
+import { launchOptions, launchPlan } from "./launch";
+import { resolveSeat } from "./seat";
 
 export interface AllocationSite {
     /** function name and original source line */
@@ -123,6 +141,188 @@ async function runSampler(
         return JSON.parse(stdout) as AllocationSample;
     } finally {
         rmSync(dir, { recursive: true, force: true });
+    }
+}
+
+/** a page sample: the steady windows and control of {@link AllocationSample}, and the adapter it ran on. */
+export interface PageSample extends AllocationSample {
+    /** the positively identified real adapter the display seat resolved on */
+    adapter: string;
+}
+
+type CallFrame = Parameters<typeof subjectSite>[0] & { url: string };
+type FrameCount = { __shallotFrames: number };
+
+// The page's run frame: the engine's frame loop, `run`'s `frame` method in the app module. A method keeps its
+// property name through minification, so a production build's profile still names it.
+const FRAME_LOOP = { source: resolve(import.meta.dir, "../engine/app/index.ts"), name: "frame" };
+
+/**
+ * Build `projectDir` for the web as `shallot run` does, with source maps, serve it in-process, and open it in
+ * the display seat's headed Chromium, resolving the seat on the adapter the page reaches. The page's own
+ * frame loop is the run frame, attributed by the same rule as {@link sampleAllocation}. Once the loop runs,
+ * wait `warm` frames, then sample `frames` after warm, after twice that, and an A/A repeat, each after a
+ * collection. The control runs last, over 60 frames: a conditional breakpoint where the frame loop begins
+ * allocates one literal per frame. Every wait ends by `deadline`, a `performance.now()` time, and the build, server and
+ * browser are gone when it returns. Needs the `display` requirement resolved.
+ */
+export async function samplePage(
+    projectDir: string,
+    { warm, frames, deadline }: { warm: number; frames: number; deadline: number },
+): Promise<PageSample> {
+    if (!Number.isInteger(frames) || frames <= 0 || !Number.isInteger(warm) || warm < frames)
+        throw new Error("page sampler: needs integer warm >= frames > 0");
+    const plan = launchPlan(process.platform, "display");
+    if ("refused" in plan) throw new Error(`display seat unavailable: ${plan.refused}`);
+    const declared = process.env.SHALLOT_DISPLAY_SEAT?.trim();
+    if (!declared) throw new Error("display seat unavailable: no headed display is declared");
+    const app = realpathSync(FRAME_LOOP.source);
+    const remaining = () => Math.max(1, deadline - performance.now());
+
+    const outDir = mkdtempSync(join(tmpdir(), "shallot-page-"));
+    const server = Bun.serve({
+        port: 0,
+        fetch(request) {
+            const path = new URL(request.url).pathname;
+            const file = join(outDir, path === "/" ? "index.html" : decodeURIComponent(path));
+            if (
+                !file.startsWith(`${outDir}${sep}`) ||
+                !existsSync(file) ||
+                !statSync(file).isFile()
+            )
+                return new Response("not found", { status: 404 });
+            const body = Bun.file(file);
+            return new Response(body, {
+                headers: { ...CROSS_ORIGIN_ISOLATION, "Content-Type": body.type },
+            });
+        },
+    });
+    let browser: import("playwright").Browser | undefined;
+    try {
+        await buildWeb(projectDir, { outDir, sourcemap: true });
+        const origin = `http://localhost:${server.port}`;
+        const maps = new Map<string, { map: SourceMap; base: string }>();
+        for (const file of readdirSync(outDir, { recursive: true }) as string[]) {
+            const mapFile = join(outDir, `${file}.map`);
+            if (file.endsWith(".js") && existsSync(mapFile))
+                maps.set(`${origin}/${file.split(sep).join("/")}`, {
+                    map: new SourceMap(JSON.parse(readFileSync(mapFile, "utf8"))),
+                    base: dirname(mapFile),
+                });
+        }
+        const siteOf = (frame: CallFrame) => {
+            const built = maps.get(frame.url);
+            return built && subjectSite(frame, built.map, built.base, frame.url);
+        };
+        const isFrameLoop = (frame: CallFrame) => {
+            const built = maps.get(frame.url);
+            return (
+                frame.functionName === FRAME_LOOP.name &&
+                built !== undefined &&
+                originalPosition(frame, built.map, built.base)?.source === app
+            );
+        };
+        const runSite = (frame: CallFrame) => (isFrameLoop(frame) ? siteOf(frame) : undefined);
+
+        const { chromium } = await import("playwright");
+        const options = launchOptions(plan);
+        const tiers = `--js-flags=${TIER_FLAGS.join(" ")}`;
+        browser = await chromium.launch({ ...options, args: [...options.args, tiers] });
+        const page = await browser.newPage({
+            viewport: { width: CAPTURE_CONTRACT.width, height: CAPTURE_CONTRACT.height },
+            deviceScaleFactor: CAPTURE_CONTRACT.deviceScale,
+        });
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        // The harness's frame count: its own rAF callback, outside the run frame, never wrapping the engine's.
+        await page.addInitScript(() => {
+            const counter = window as unknown as FrameCount;
+            counter.__shallotFrames = 0;
+            const tick = () => {
+                counter.__shallotFrames++;
+                requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+        });
+        const cdp = await page.context().newCDPSession(page);
+        await page.goto(`${origin}/`, { waitUntil: "load", timeout: remaining() });
+        const facts = await adapterFacts(page);
+        const seat = resolveSeat("display", {
+            display: { source: declared, browser: { launch: plan, adapter: facts } },
+        });
+        if (!seat.ok) throw new Error(seat.reason);
+
+        const advance = async (count: number) => {
+            const now = await page.evaluate(
+                () => (window as unknown as FrameCount).__shallotFrames,
+            );
+            await page.waitForFunction(
+                (target) => (window as unknown as FrameCount).__shallotFrames >= target,
+                now + count,
+                { polling: 50, timeout: remaining() },
+            );
+        };
+
+        // The page is ready once a CPU profile of its frames holds the frame loop, whose position is also
+        // where the control's breakpoint goes.
+        await cdp.send("Profiler.enable");
+        let loop: CallFrame | undefined;
+        while (loop === undefined) {
+            await cdp.send("Profiler.start");
+            await advance(30);
+            const { profile } = await cdp.send("Profiler.stop");
+            loop = profile.nodes.find((node) => isFrameLoop(node.callFrame))?.callFrame;
+        }
+        await cdp.send("Profiler.disable");
+
+        await cdp.send("HeapProfiler.enable");
+        const sample = async (count: number) => {
+            await cdp.send("HeapProfiler.collectGarbage");
+            await cdp.send("HeapProfiler.startSampling", {
+                samplingInterval: 1,
+                includeObjectsCollectedByMajorGC: true,
+                includeObjectsCollectedByMinorGC: true,
+            });
+            await advance(count);
+            const { profile } = await cdp.send("HeapProfiler.stopSampling");
+            return attribute(profile, runSite, siteOf);
+        };
+        await advance(warm);
+        const atWarm = await sample(frames);
+        await advance(warm - frames);
+        const atDoubleWarm = await sample(frames);
+        const repeat = await sample(frames);
+
+        await cdp.send("Debugger.enable");
+        const { breakpointId } = await cdp.send("Debugger.setBreakpointByUrl", {
+            url: loop.url,
+            lineNumber: loop.lineNumber,
+            columnNumber: loop.columnNumber,
+            condition: "(globalThis.__shallotControl = { frame: 0 }), false",
+        });
+        // The breakpoint's condition runs in the debugger on every frame, which slows the page; 60 frames prove
+        // the rule sees bytes under the frame loop as well as a full window would.
+        const control = await sample(60);
+        await cdp.send("Debugger.removeBreakpoint", { breakpointId });
+
+        if (errors.length > 0)
+            throw new Error(`inconclusive: the page threw:\n${errors.slice(0, 20).join("\n")}`);
+        return {
+            runtime: `chromium ${browser.version()} ${plan.mode} ${tiers}`,
+            adapter: classifyAdapter(facts).identity,
+            warm,
+            frames,
+            windows: [
+                { label: `after warm ${warm}`, sites: atWarm },
+                { label: `after warm ${2 * warm}`, sites: atDoubleWarm },
+                { label: "A/A repeat", sites: repeat },
+            ],
+            control,
+        };
+    } finally {
+        await browser?.close();
+        server.stop(true);
+        rmSync(outDir, { recursive: true, force: true });
     }
 }
 
