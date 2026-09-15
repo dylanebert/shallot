@@ -1,4 +1,11 @@
-import { build, CharacterPlugin, InputPlugin, PhysicsPlugin } from "@dylanebert/shallot";
+import {
+    Body,
+    build,
+    CharacterPlugin,
+    InputPlugin,
+    PhysicsPlugin,
+    ShapeKind,
+} from "@dylanebert/shallot";
 import { Demo } from "./demo";
 
 // A compile-time constant equal to Time.FIXED_DT: that one is an object property, so passing it
@@ -20,8 +27,27 @@ export default async function create(scene: string) {
         plugins: [PhysicsPlugin, CharacterPlugin, InputPlugin, Demo],
         scene,
     });
+    const state = app.state;
+    let crate = 0;
     return {
-        step: () => app.state.step(FIXED_DT),
+        step: () => state.step(FIXED_DT),
+        // The transition row's event frames: a dynamic box spawned far above and aside the course, so it
+        // falls free of every contact while it lives, then despawned; each steps its one frame.
+        spawn: () => {
+            crate = state.create();
+            state.add(crate, Body);
+            Body.shape.set(crate, ShapeKind.Box);
+            Body.pos.set(crate, 60, 40, 0, 0);
+            Body.quat.set(crate, 0, 0, 0, 1);
+            Body.halfExtents.set(crate, 0.5, 0.5, 0.5, 0);
+            Body.mass.set(crate, 1);
+            Body.friction.set(crate, 0.5);
+            state.step(FIXED_DT);
+        },
+        despawn: () => {
+            state.destroy(crate);
+            state.step(FIXED_DT);
+        },
         dispose: () => app.dispose(),
     };
 }

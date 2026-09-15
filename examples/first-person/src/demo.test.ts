@@ -14,6 +14,8 @@ import { runBrowserCheck } from "@dylanebert/shallot/harness";
 import {
     allocatesNothing,
     sampleAllocation,
+    sampleTransition,
+    siteSetMismatch,
     siteTable,
     windowBytes,
 } from "@dylanebert/shallot/harness/allocation";
@@ -287,6 +289,57 @@ check(
             );
         if (!allocatesNothing(sample))
             throw new Error(`warm first-person frames allocate:\n${siteTable(sample)}`);
+    },
+);
+
+// What a spawn of one dynamic box must create, by function: the solver body and collider handles the
+// sync keeps and their packed ids, the body's sim record and island, the box collider's shape record and
+// hull and its database entry, and its broadphase proxy. Membership, map entries and column slots reuse
+// storage a warm transition already sized, so they are not named.
+const SPAWN_SITES = [
+    "createBody src/standard/physics/api/world.ts:164", // the Body handle PhysicsRuntime.bodies holds
+    "makeBodyId src/standard/physics/world/body.ts:245", // that handle's id record
+    "emptyBodySim src/standard/physics/world/body.ts:727", // the body's sim record
+    "createIsland src/standard/physics/world/island.ts:49", // a dynamic body's own island
+    "Shape src/standard/physics/api/shape.ts:105", // the collider handle
+    "makeShapeId src/standard/physics/api/config.ts:12", // its id record
+    "emptyShape src/standard/physics/shapes/shape.ts:222", // the shape record
+    "makeTransformedBoxHull src/standard/physics/shapes/hull.ts:1404", // the box's hull geometry
+    "addHullToDatabase src/standard/physics/world/world.ts:215", // the hull's database entry
+    "createProxy src/standard/physics/collision/tree.ts:739", // the broadphase proxy
+];
+// A despawn releases into free lists and slots the spawn sized; it creates nothing.
+const DESPAWN_SITES: string[] = [];
+
+check(
+    "first-person body spawn and despawn allocate only their storage",
+    {
+        claim: "spawning then despawning a physics body in the actual first-person CPU composition allocates exactly its named storage, returns to zero-allocation frames, and leaves nothing live after teardown",
+        size: "integration",
+        requires: ["node"],
+        subject: ["examples/first-person"],
+    },
+    async () => {
+        // 24,000 frames with a cycle every 60: at 6,000 a body-count path still tiers inside a window.
+        const sample = await sampleTransition(resolve(import.meta.dir, "allocation.entry.ts"), {
+            warm: 24000,
+            frames: 600,
+            input: readFileSync(SCENE, "utf8"),
+        });
+        const control = { label: "control", sites: sample.control };
+        if (control.sites.length === 0 || windowBytes(control) <= 0)
+            throw new Error(
+                "inconclusive: the sampler attributed no site to the entry's control literal",
+            );
+        const failures = [
+            siteSetMismatch("spawn frame", sample.spawn, SPAWN_SITES),
+            siteSetMismatch("despawn frame", sample.despawn, DESPAWN_SITES),
+            allocatesNothing(sample)
+                ? ""
+                : `frames after the transition allocate:\n${siteTable(sample)}`,
+            siteSetMismatch("live after despawn and collection", sample.survivors, []),
+        ].filter((failure) => failure !== "");
+        if (failures.length !== 0) throw new Error(failures.join("\n\n"));
     },
 );
 

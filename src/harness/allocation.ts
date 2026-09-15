@@ -25,6 +25,15 @@ export interface AllocationSample {
     control: readonly AllocationSite[];
 }
 
+export interface TransitionSample extends AllocationSample {
+    /** every byte of the one frame that spawns, collected objects included */
+    spawn: readonly AllocationSite[];
+    /** every byte of the one frame that despawns, collected objects included */
+    despawn: readonly AllocationSite[];
+    /** objects allocated from spawn through despawn still live after a full collection */
+    survivors: readonly AllocationSite[];
+}
+
 const SAMPLER = resolve(import.meta.dir, "allocation-sampler.mjs");
 
 /**
@@ -48,13 +57,28 @@ export const allocatesNothing = (sample: AllocationSample) =>
  * Bundle `entry` for Node, build its default export with `input`, step it `warm` frames, collect,
  * then sample `frames` more under V8's sampling heap profiler. Needs the `node` requirement resolved.
  */
-export async function sampleAllocation(
+export function sampleAllocation(
     entry: string,
-    {
-        warm = 600,
-        frames = 600,
-        input = "",
-    }: { warm?: number; frames?: number; input?: string } = {},
+    options: { warm?: number; frames?: number; input?: string } = {},
+): Promise<AllocationSample> {
+    return runSampler(entry, options, []);
+}
+
+/**
+ * As {@link sampleAllocation}, for an entry whose subject also has `spawn()` and `despawn()`: warms paired
+ * cycles, samples each event frame, the steady windows after it, and one cycle's live survivors.
+ */
+export function sampleTransition(
+    entry: string,
+    options: { warm?: number; frames?: number; input?: string } = {},
+): Promise<TransitionSample> {
+    return runSampler(entry, options, ["transition"]) as Promise<TransitionSample>;
+}
+
+async function runSampler(
+    entry: string,
+    { warm = 600, frames = 600, input = "" }: { warm?: number; frames?: number; input?: string },
+    mode: string[],
 ): Promise<AllocationSample> {
     const dir = mkdtempSync(join(tmpdir(), "shallot-allocation-"));
     try {
@@ -80,6 +104,7 @@ export async function sampleAllocation(
                 String(warm),
                 String(frames),
                 join(dir, "input.txt"),
+                ...mode,
             ],
             { stdout: "pipe", stderr: "pipe" },
         );
@@ -93,6 +118,22 @@ export async function sampleAllocation(
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
+}
+
+/** Empty when `sites` names exactly `named`; otherwise the unnamed sites by bytes and the named ones absent. */
+export function siteSetMismatch(
+    label: string,
+    sites: readonly AllocationSite[],
+    named: readonly string[],
+): string {
+    const extra = sites.filter((row) => !named.includes(row.site));
+    const missing = named.filter((site) => !sites.some((row) => row.site === site));
+    if (extra.length === 0 && missing.length === 0) return "";
+    return [
+        `${label}: ${extra.length} unnamed sites, ${missing.length} named sites absent`,
+        ...extra.map((row) => `  + ${String(row.bytes).padStart(8)}  ${row.site}`),
+        ...missing.map((site) => `  - ${site}`),
+    ].join("\n");
 }
 
 /** Per-window totals, then the heaviest window's sites as a table, for a failure message. */
