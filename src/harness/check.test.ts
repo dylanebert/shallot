@@ -42,7 +42,7 @@ check(
         expect(() =>
             validateDeclaration("here", {
                 claim: "bad",
-                requires: ["gpu", "display", "deploy", "cargo"],
+                requires: ["gpu", "display", "deploy", "cargo", "node"],
             }),
         ).not.toThrow();
         expect(

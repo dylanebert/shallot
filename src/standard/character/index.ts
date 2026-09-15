@@ -1,6 +1,7 @@
-import { f32, type Plugin, type State, type System, sparse } from "../../engine";
+import { FIXED_DT, f32, type Plugin, type State, type System, sparse } from "../../engine";
 import {
     Body,
+    type BodyStateOut,
     type Hull,
     Hulls,
     Physics,
@@ -73,9 +74,12 @@ let charSig = FNV_BASIS;
 // rebuilds the controller state (a stale pose/velocity kept across the recycle is the bug this closes).
 const stamps = new Map<number, number>();
 
+// query terms held once, so a steady signature mints no array.
+const CHARACTER_TERMS = [Character, Body];
+
 function signature(state: State): number {
     let h = FNV_BASIS;
-    for (const eid of state.query([Character, Body])) {
+    for (const eid of state.query(CHARACTER_TERMS)) {
         h = fold(h, eid);
         h = fold(h, state.stamp(eid));
         h = fold(h, sigBits(Character.maxSlope.get(eid)));
@@ -151,12 +155,16 @@ function syncStates(state: State): void {
 
 // reused candidate scratch — the bodies are split into static (mass <= 0: walls / ground / platforms / other
 // characters — the carry reads their velocity) and dynamic (mass > 0 — shoved by the push) sets each tick.
-// A growing pool of SweepBody objects avoids per-tick allocation as the scan walks every Body.
+// A growing pool of SweepBody objects avoids per-tick allocation as the scan walks every Body; the lists are
+// refilled in place and trimmed only when their length changes, since a length of 0 releases the store.
 const _pool: SweepBody[] = [];
 const _statics: SweepBody[] = [];
 const _push: SweepBody[] = [];
 const _pushEids: number[] = [];
 const _pushVel0: number[] = []; // pre-sweep dynamic velocities, to detect which the push actually shoved
+const _live: BodyStateOut = { pos: [0, 0, 0], quat: [0, 0, 0, 1], vel: [0, 0, 0] };
+const _input: [number, number, number] = [0, 0, 0];
+const BODY_TERMS = [Body];
 
 function poolBody(i: number): SweepBody {
     let b = _pool[i];
@@ -182,11 +190,10 @@ const hullById = (id: number): Hull | undefined => Hulls.get(Hulls.name(id) ?? "
 // a kinematic body, and apply the full-speed push to shoved dynamics (variant A — the full-CPU apply: the
 // swept body's stale-velocity + shove is written straight through `setVelocity`, no GPU character work).
 function sweepEid(eid: number, st: CharState, state: State): void {
-    _statics.length = 0;
-    _push.length = 0;
-    _pushEids.length = 0;
     let pi = 0;
-    for (const b of state.query([Body])) {
+    let ns = 0;
+    let np = 0;
+    for (const b of state.query(BODY_TERMS)) {
         if (b === eid) continue; // the character never collides against itself (it IS `start`)
         const shape = Body.shape.get(b);
         const sb = poolBody(pi++);
@@ -202,7 +209,7 @@ function sweepEid(eid: number, st: CharState, state: State): void {
             sb.radius = hw;
             sb.hull = undefined;
         }
-        const live = readBody(state, b);
+        const live = readBody(state, b, _live);
         if (live) {
             sb.pos[0] = live.pos[0];
             sb.pos[1] = live.pos[1];
@@ -229,15 +236,19 @@ function sweepEid(eid: number, st: CharState, state: State): void {
             sb.vel[2] = 0;
         }
         if (Body.mass.get(b) > 0) {
-            _push.push(sb);
-            _pushEids.push(b);
+            _pushEids[np] = b;
+            _push[np++] = sb;
         } else {
-            _statics.push(sb);
+            _statics[ns++] = sb;
         }
     }
+    if (_statics.length !== ns) _statics.length = ns;
+    if (_push.length !== np) _push.length = np;
 
     const m = moves.get(eid);
-    const input: [number, number, number] = [m ? m[0] : 0, 0, m ? m[1] : 0];
+    const input = _input;
+    input[0] = m ? m[0] : 0;
+    input[2] = m ? m[1] : 0;
     const g = Character.gravity.get(eid);
     const gravity = g !== 0 ? g : (physicsWorld(state)?.getGravity().y ?? Physics.gravity);
 
@@ -250,7 +261,7 @@ function sweepEid(eid: number, st: CharState, state: State): void {
         _pushVel0[3 * i + 2] = v[2];
     }
 
-    sweepCharacter(st, input, _statics, gravity, Physics.dt, jumped.has(eid), _push);
+    sweepCharacter(st, input, _statics, gravity, FIXED_DT, jumped.has(eid), _push);
 
     // kinematic upload — the swept pose, with the realized velocity (snap excluded) as the explicit
     // velocity so the carry-of-riders + broadphase pad read the swept motion, not the cosmetic ground snap.
@@ -270,6 +281,11 @@ function sweepEid(eid: number, st: CharState, state: State): void {
     }
 }
 
+// the map walk's callback, given the State as its `this`, so a steady update mints no entries iterator.
+function sweepEach(this: State, st: CharState, eid: number): void {
+    sweepEid(eid, st, this);
+}
+
 // Fixed group — the deterministic dt the sweep integrates gravity over.
 /**
  * the kinematic-character sweep: runs collide-and-slide for every `[Character, Body]` each fixed step,
@@ -285,8 +301,8 @@ export const CharacterSweepSystem: System = {
         if (!physicsWorld(state)) return;
         syncStates(state);
         if (states.size === 0) return;
-        for (const [eid, st] of states) sweepEid(eid, st, state);
-        jumped.clear();
+        states.forEach(sweepEach, state);
+        if (jumped.size !== 0) jumped.clear();
     },
 };
 

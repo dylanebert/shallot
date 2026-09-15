@@ -38,7 +38,7 @@ export {
     schema,
     snapshot,
 } from "./reflection";
-export { type System, Time } from "./scheduler";
+export { FIXED_DT, type System, Time } from "./scheduler";
 export { sparse } from "./sparse";
 export { capacity, pixelRatio, State } from "./state";
 export {

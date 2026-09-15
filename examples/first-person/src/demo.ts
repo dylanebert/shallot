@@ -39,9 +39,13 @@ type DemoBag = {
 type DemoState = State & { [RECIPE_STATE]?: DemoBag };
 
 function stateBag(state: State): DemoBag {
+    return (state as DemoState)[RECIPE_STATE] ?? createBag(state);
+}
+
+// The bag's creation, apart from the per-frame lookup: its dispose closure would otherwise make every
+// lookup allocate a context.
+function createBag(state: State): DemoBag {
     const owner = state as DemoState;
-    const existing = owner[RECIPE_STATE];
-    if (existing) return existing;
     const bag: DemoBag = { liftBases: new Map(), panel: null, status: null };
     owner[RECIPE_STATE] = bag;
     state.onDispose(() => {
@@ -54,22 +58,27 @@ function stateBag(state: State): DemoBag {
     return bag;
 }
 
+// The lift's pose and velocity registers, written in place each tick; setKinematic copies them.
+const liftPos: [number, number, number] = [0, 0, 0];
+const LIFT_QUAT = [0, 0, 0, 1] as const;
+const liftVel: [number, number, number] = [0, 0, 0];
+
+// One lift's kinematic target at the State's elapsed time; the map walk passes the State as `this`.
+function moveLift(this: State, base: readonly [number, number, number], eid: number): void {
+    const phase = this.time.elapsed * RATE;
+    liftPos[0] = base[0];
+    liftPos[1] = base[1] + 0.5 * TRAVEL * (1 - Math.cos(2 * phase));
+    liftPos[2] = base[2];
+    liftVel[1] = RATE * TRAVEL * Math.sin(2 * phase);
+    setKinematic(this, eid, liftPos, LIFT_QUAT, false, liftVel);
+}
+
 const lift: System = {
     name: "lift",
     group: "fixed",
     before: [CharacterSweepSystem],
     update(state: State): void {
-        const bases = stateBag(state).liftBases;
-        const phase = state.time.elapsed * RATE;
-        const offset = 0.5 * TRAVEL * (1 - Math.cos(2 * phase));
-        const vy = RATE * TRAVEL * Math.sin(2 * phase);
-        for (const [eid, base] of bases) {
-            setKinematic(state, eid, [base[0], base[1] + offset, base[2]], [0, 0, 0, 1], false, [
-                0,
-                vy,
-                0,
-            ]);
-        }
+        stateBag(state).liftBases.forEach(moveLift, state);
     },
 };
 

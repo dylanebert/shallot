@@ -61,8 +61,8 @@ import { step as stepWorld } from "../solver/step";
 import { createWeldJoint, defaultWeldJointDef, type WeldJointDef } from "../solver/weldJoint";
 import { createWheelJoint, defaultWheelJointDef, type WheelJointDef } from "../solver/wheelJoint";
 import { createBody, makeBodyId } from "../world/body";
+import type { Profile, StepClock } from "../world/clock";
 import { type DebugDraw, worldDraw } from "../world/draw";
-import type { Profile } from "../world/profile";
 import {
     type Counters,
     createWorld,
@@ -121,6 +121,7 @@ export class World {
     // Reused wrappers over the internal move-event pool, so getBodyEvents allocates nothing in steady
     // state (matching the internal pool). Rebuilt lazily; valid until the next step or getBodyEvents.
     private readonly _moveEventPool: BodyMoveEvent[] = [];
+    private readonly _bodyEvents: BodyEvents = { moveEvents: this._moveEventPool, count: 0 };
 
     constructor(def: Partial<WorldDef> = {}) {
         this._worldId = createWorld({ ...defaultWorldDef(), ...def });
@@ -271,7 +272,9 @@ export class World {
             ev.userData = rec.userData;
             ev.fellAsleep = rec.fellAsleep;
         }
-        return { moveEvents: pool, count };
+        const events = this._bodyEvents;
+        events.count = count;
+        return events;
     }
 
     /**
@@ -564,11 +567,18 @@ export class World {
     }
 
     /**
-     * @returns the last step's per-phase timings in milliseconds (b3World_GetProfile).
-     * @example world.step(1 / 60, 4); console.log(world.getProfile().collide)
+     * @returns the last step's per-phase timings in milliseconds (b3World_GetProfile); zeros unless a
+     * timing clock is installed with {@link setClock} (the `profile` extra's `timingClock`, or its
+     * `PhysicsProfilePlugin` in a composition).
+     * @example world.setClock(timingClock()); world.step(1 / 60, 4); console.log(world.getProfile().collide)
      */
     getProfile(): Profile {
         return worldProfile(this.state);
+    }
+
+    /** Install the step's phase-timing clock; the default clock does no timing work. */
+    setClock(clock: StepClock): void {
+        this.state.clock = clock;
     }
 
     /** @returns the gravity vector. */

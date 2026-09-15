@@ -93,6 +93,7 @@ A pin records what was last verified, and every freshness pass bumps it:
 
 - Rust in `rust-toolchain.toml`.
 - Bun in `packageManager` and `.bun-version`.
+- Node in `.node-version`, the exact version `node` rows resolve.
 - `binaryen` in `package.json`.
 - `bun-webgpu` at a `dylanebert/bun-webgpu` commit, until kommander/bun-webgpu#10 merges and it returns to upstream.
 
@@ -117,7 +118,7 @@ The plugin declaration is the one source of truth for whether composition needs 
 | Plugin set | Composition tier | `required` (GPU) | `optional` (CPU/GPU) | absent declaration (CPU) |
 | --- | --- | --- | --- | --- |
 | standard | gpu | BVH, Fog, Glaze, Mirror, Render, Sear | Part, Physics, Slab, Transforms | Audio, Character, Input, Player |
-| extras | gpu | Profile | Cells, Gltf, Lines, Outline, Skin, Sky, Sprite, Text | Orbit, OrbitOverlay |
+| extras | gpu | Profile | Cells, Gltf, Lines, Outline, Skin, Sky, Sprite, Text | Orbit, OrbitOverlay, PhysicsProfile |
 <!-- device-tiers:end -->
 
 ## Engine shape

@@ -10,6 +10,6 @@ export const DEVICE_TIER_CONTEXT = {
         tier: "gpu",
         required: ["Profile"],
         optional: ["Cells", "Gltf", "Lines", "Outline", "Skin", "Sky", "Sprite", "Text"],
-        undeclared: ["Orbit", "OrbitOverlay"],
+        undeclared: ["Orbit", "OrbitOverlay", "PhysicsProfile"],
     },
 } as const;

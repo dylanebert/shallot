@@ -362,6 +362,26 @@ export function cargoTestTargetExecutables(
     return selected.executables ?? [];
 }
 
+/** Compare `node --version` output with the exact version in `.node-version`. */
+export function nodeVersionMismatch(pin: string, reported: string): string | null {
+    if (!/^\d+\.\d+\.\d+$/.test(pin)) return `node pin must be an exact version, not ${pin}`;
+    return reported.trim() === `v${pin}`
+        ? null
+        : `node ${reported.trim() || "(no version)"} does not match the pinned ${pin}`;
+}
+
+function resolveNode(root: string): string | null {
+    const pinFile = resolve(root, ".node-version");
+    if (!existsSync(pinFile)) return `node pin is unavailable at ${pinFile}`;
+    try {
+        const proc = Bun.spawnSync(["node", "--version"], { stdout: "pipe", stderr: "pipe" });
+        if (!proc.success) return `node --version failed: ${proc.stderr.toString().trim()}`;
+        return nodeVersionMismatch(readFileSync(pinFile, "utf8").trim(), proc.stdout.toString());
+    } catch (error) {
+        return `node is unavailable: ${(error as Error).message}`;
+    }
+}
+
 /** Resolve each named premise. Cargo compilation is a once-per-process, untimed prerequisite. */
 export function missingRequirement(
     requirements: readonly string[],
@@ -373,6 +393,11 @@ export function missingRequirement(
                 resolve(context.root ?? process.cwd()),
                 context.subjects ?? [],
             );
+            if (reason !== null) return reason;
+            continue;
+        }
+        if (requirement === "node") {
+            const reason = resolveNode(resolve(context.root ?? process.cwd()));
             if (reason !== null) return reason;
             continue;
         }

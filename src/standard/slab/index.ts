@@ -454,21 +454,27 @@ export class Slab {
         }
         for (const { slab, stager } of used) {
             slab.dirty.fill(0);
-            const epoch = slab._epoch;
-            stager
-                .mapAsync(GPUMapMode.WRITE)
-                .then(() => {
-                    if (slab._epoch === epoch && !deviceLost(device) && Compute.device === device) {
-                        slab._stagingPool.push(stager);
-                    } else stager.destroy();
-                })
-                .catch((error) => {
-                    stager.destroy();
-                    if (slab._epoch === epoch && !deviceLost(device) && Compute.device === device) {
-                        console.error("Slab staging mapAsync rejected:", error);
-                    }
-                });
+            Slab.recycleStager(slab, stager, device);
         }
+    }
+
+    // Remap a submitted stager and return it to its slab's pool once mapped. Its own method: the promise
+    // callbacks capture `device`, and a closure in `flush` would allocate that context on every frame's call.
+    private static recycleStager(slab: Slab, stager: GPUBuffer, device: GPUDevice): void {
+        const epoch = slab._epoch;
+        stager
+            .mapAsync(GPUMapMode.WRITE)
+            .then(() => {
+                if (slab._epoch === epoch && !deviceLost(device) && Compute.device === device) {
+                    slab._stagingPool.push(stager);
+                } else stager.destroy();
+            })
+            .catch((error) => {
+                stager.destroy();
+                if (slab._epoch === epoch && !deviceLost(device) && Compute.device === device) {
+                    console.error("Slab staging mapAsync rejected:", error);
+                }
+            });
     }
 }
 

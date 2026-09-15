@@ -22,9 +22,9 @@ import type { StepContext } from "../solver/contactsolver";
 import { type ConstraintGraph, createGraph } from "../solver/graph";
 import type { Joint } from "../solver/joint";
 import type { Body } from "./body";
+import { NO_CLOCK, type Profile, type StepClock } from "./clock";
 import type { Island } from "./island";
-import { newProfile, type Profile } from "./profile";
-import type { Sensor, SensorBeginTouchEvent } from "./sensor";
+import type { Sensor, SensorBeginTouchEvent, SensorQueryContext } from "./sensor";
 import { destroySolverSet, emptySolverSet, type SolverSet } from "./solverset";
 
 /** Maximum concurrent worlds (B3_MAX_WORLDS). */
@@ -147,6 +147,8 @@ export type WorldState = {
 
     // Dense array of sensor overlap-tracking state, one per sensor shape (b3World.sensors).
     sensors: Sensor[];
+    // The sensor pass's tree-query context, made by the first pass that runs a query.
+    sensorQuery: SensorQueryContext | null;
 
     // Event buffers. End events are double-buffered so the user needn't flush every step. The body
     // move buffer is a reused pool grown but never shrunk; bodyMoveCount is the valid prefix length.
@@ -168,8 +170,9 @@ export type WorldState = {
     // aliased across worlds. See `step()`.
     stepContext: StepContext | null;
 
-    // Per-step phase timings (b3World.profile), zeroed at the top of each step.
-    profile: Profile;
+    // The step's phase-timing seam (b3World.profile). The default clock does no timing work; a
+    // profiler installs a timing clock.
+    clock: StepClock;
 
     gravity: Vec3;
     hitEventThreshold: number;
@@ -280,6 +283,7 @@ function makeWorldState(def: WorldDef, worldId: number, generation: number): Wor
         fatAabbStore: createFatAabbStore(),
         shapeStore: createShapeStore(),
         sensors: [],
+        sensorQuery: null,
         bodyMoveEvents: [],
         bodyMoveCount: 0,
         sensorBeginEvents: [],
@@ -292,7 +296,7 @@ function makeWorldState(def: WorldDef, worldId: number, generation: number): Wor
         stepIndex: 0,
         splitIslandId: -1,
         stepContext: null,
-        profile: newProfile(),
+        clock: NO_CLOCK,
         gravity: { ...def.gravity },
         hitEventThreshold: def.hitEventThreshold,
         restitutionThreshold: def.restitutionThreshold,
@@ -416,7 +420,7 @@ export function worldCounters(world: WorldState): Counters {
     };
 }
 
-/** @returns a copy of the last step's phase timings (b3World_GetProfile). */
+/** @returns a copy of the last step's phase timings (b3World_GetProfile); zeros unless a timing clock is installed. */
 export function worldProfile(world: WorldState): Profile {
-    return { ...world.profile };
+    return world.clock.read();
 }

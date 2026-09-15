@@ -22,6 +22,7 @@ export {
     type Component,
     capacity,
     entity,
+    FIXED_DT,
     f16,
     f16x4,
     f32,

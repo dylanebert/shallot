@@ -43,14 +43,26 @@ export function reserveFatAabb(shapeCount: number): boolean {
 export class FatAabbStore {
     /** Resident fat-AABB column (`AABB_STRIDE` f32 per shape). Re-derived after every grow. */
     fatF = new Float32Array(0);
+    // The held layout header view the column view is derived from.
+    private _layout = new Uint32Array(0);
 
-    /** Re-derive the column view over the current region. No-op before the first `reserveFatAabb`. */
+    /** Re-derive the column view over the current region. No-op before the first `reserveFatAabb`, and
+     * when the buffer, offset and capacity are those the view was derived at. */
     refreshViews(): void {
         const k = kernel();
         const cap = k.fatAabbCap();
         if (cap === 0) return;
         const buf = k.memory.buffer;
-        const layout = new Uint32Array(buf, k.fatAabbLayoutPtr(), 1);
+        const ptr = k.fatAabbLayoutPtr();
+        if (this._layout.buffer !== buf || this._layout.byteOffset !== ptr)
+            this._layout = new Uint32Array(buf, ptr, 1);
+        const layout = this._layout;
+        if (
+            this.fatF.buffer === buf &&
+            this.fatF.byteOffset === layout[0] &&
+            this.fatF.length === cap * AABB_STRIDE
+        )
+            return;
         this.fatF = new Float32Array(buf, layout[0], cap * AABB_STRIDE);
     }
 

@@ -3,6 +3,7 @@ import { NULL_INDEX } from "../common/array";
 import { SetType } from "../common/constants";
 import type { EntityId } from "../common/ids";
 import {
+    f32,
     froundConfig,
     invTransformWorldPoint,
     type Pos,
@@ -18,6 +19,7 @@ import {
     type QueryFilter,
     type ShapeDef,
 } from "../common/types";
+import { readSimTransform, readStateLinearVelocity } from "../kernel/bodycolumns";
 import type { CompoundData } from "../shapes/compound";
 import type { Capsule, MassData, Sphere } from "../shapes/geometry";
 import type { HeightFieldData } from "../shapes/heightfield";
@@ -62,6 +64,12 @@ import {
 import type { WorldState } from "../world/world";
 import { type BodyCastHit, type BodyPlane, makeShapeId } from "./config";
 import { Shape } from "./shape";
+
+// Registers the pose reads stage through and the rounded writes hand the solver, which copies out of
+// them; never live across calls.
+const poseRead: WorldTransform = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+const poseWrite: WorldTransform = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+const velocityWrite: Vec3 = { x: 0, y: 0, z: 0 };
 
 /** A rigid body handle. */
 export class Body {
@@ -181,7 +189,7 @@ export class Body {
      * (the three.js `getWorldPosition(target)` idiom) for zero-allocation reads in a hot loop.
      */
     getPosition(out?: Pos): Pos {
-        const p = getBodyTransformQuick(this.world, this.record()).p;
+        const p = readSimTransform(getBodySim(this.world, this.record()), poseRead).p;
         if (out === undefined) {
             return { x: p.x, y: p.y, z: p.z };
         }
@@ -193,7 +201,7 @@ export class Body {
 
     /** @returns the body rotation. Pass `out` to fill it instead of allocating. */
     getRotation(out?: Quat): Quat {
-        const q = getBodyTransformQuick(this.world, this.record()).q;
+        const q = readSimTransform(getBodySim(this.world, this.record()), poseRead).q;
         if (out === undefined) {
             return { v: { x: q.v.x, y: q.v.y, z: q.v.z }, s: q.s };
         }
@@ -206,7 +214,7 @@ export class Body {
 
     /** @returns the body world transform. Pass `out` to fill it instead of allocating. */
     getTransform(out?: WorldTransform): WorldTransform {
-        const t = getBodyTransformQuick(this.world, this.record());
+        const t = readSimTransform(getBodySim(this.world, this.record()), poseRead);
         if (out === undefined) {
             return { p: { x: t.p.x, y: t.p.y, z: t.p.z }, q: { v: { ...t.q.v }, s: t.q.s } };
         }
@@ -233,10 +241,17 @@ export class Body {
         return invTransformWorldPoint(getBodyTransformQuick(this.world, this.record()), worldPoint);
     }
 
-    /** @returns the body's linear velocity (zero when the body is not awake). */
-    getLinearVelocity(): Vec3 {
+    /** @returns the body's linear velocity (zero when the body is not awake). Pass `out` to fill it instead of allocating. */
+    getLinearVelocity(out?: Vec3): Vec3 {
         const state = getBodyState(this.world, this.record());
-        return state === null ? { x: 0, y: 0, z: 0 } : { ...state.linearVelocity };
+        if (out === undefined) {
+            return state === null ? { x: 0, y: 0, z: 0 } : { ...state.linearVelocity };
+        }
+        if (state !== null) return readStateLinearVelocity(state, out);
+        out.x = 0;
+        out.y = 0;
+        out.z = 0;
+        return out;
     }
 
     /** @returns the body's angular velocity (zero when the body is not awake). */
@@ -247,7 +262,11 @@ export class Body {
 
     /** Set the body's linear velocity, waking it when nonzero. */
     setLinearVelocity(velocity: Vec3): void {
-        bodySetLinearVelocity(this.world, this.record(), froundConfig(velocity));
+        const v = velocityWrite;
+        v.x = f32(velocity.x);
+        v.y = f32(velocity.y);
+        v.z = f32(velocity.z);
+        bodySetLinearVelocity(this.world, this.record(), v);
     }
 
     /** Set the body's angular velocity (locked axes masked out), waking it when nonzero. */
@@ -269,7 +288,16 @@ export class Body {
      * @example body.setTransform({ x: 0, y: 5, z: 0 }, quat.identity());
      */
     setTransform(position: Pos, rotation: Quat): void {
-        bodySetTransform(this.world, this.record(), froundConfig(position), froundConfig(rotation));
+        const p = poseWrite.p;
+        const q = poseWrite.q;
+        p.x = f32(position.x);
+        p.y = f32(position.y);
+        p.z = f32(position.z);
+        q.v.x = f32(rotation.v.x);
+        q.v.y = f32(rotation.v.y);
+        q.v.z = f32(rotation.v.z);
+        q.s = f32(rotation.s);
+        bodySetTransform(this.world, this.record(), p, q);
     }
 
     /**

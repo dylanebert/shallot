@@ -696,6 +696,14 @@ check(
         expect(renderWorkflow(cargo)).toContain("dtolnay/rust-toolchain@stable");
         expect(renderWorkflow(cargo)).toContain("actions/cache@v6");
         expect(renderWorkflow(cargo)).toContain("path: target");
+        expect(renderWorkflow(cargo)).not.toContain("setup-node");
+        const node = {
+            ...ordinary,
+            rows: [{ ...ordinary.rows[0], claim: "node runs", requires: ["node"] }],
+        };
+        expect(renderWorkflow(node)).toContain("actions/setup-node@v6");
+        expect(renderWorkflow(node)).toContain("node-version-file: .node-version");
+        expect(renderWorkflow(seats)).not.toContain("setup-node");
         const oracleOnly = {
             ...ordinary,
             rows: [{ ...ordinary.rows[0], file: "tests/browser.oracle.ts" }],

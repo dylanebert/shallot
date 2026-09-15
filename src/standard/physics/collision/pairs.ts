@@ -90,6 +90,23 @@ const CAND_STRIDE = 3;
 // only — steady state emits ≈0 entries). Persisted across steps to avoid re-growing.
 let candCap = 256;
 
+// One u32 view over the kernel's linear memory, re-derived when a grow replaces the buffer, so the pair
+// pass reads and writes its slabs by index instead of minting per-step views. Kernel slab pointers are
+// u32-aligned.
+let heapU32: Uint32Array<ArrayBufferLike> = new Uint32Array(0);
+function heap(buf: ArrayBufferLike): Uint32Array {
+    if (heapU32.buffer !== buf) heapU32 = new Uint32Array(buf);
+    return heapU32;
+}
+function slot(ptr: number): number {
+    if ((ptr & 3) !== 0) throw new Error(`pairs: kernel slab pointer ${ptr} is not u32-aligned`);
+    return ptr >>> 2;
+}
+
+// Grow-only copies of the candidate slab, taken before a pair-set grow can relocate it.
+let candEndCopy = new Uint32Array(64);
+let candCopy = new Uint32Array(256 * 3);
+
 /** @returns whether shapes `a`/`b` pass every non-membership filter (self-body, sensor, category, joint). */
 function filtersPass(world: WorldState, shapeA: number, shapeB: number): boolean {
     const sa = world.shapes[shapeA];
@@ -98,6 +115,37 @@ function filtersPass(world: WorldState, shapeA: number, shapeB: number): boolean
     if (sa.sensorIndex !== NULL_INDEX || sb.sensorIndex !== NULL_INDEX) return false;
     if (shouldShapesCollide(sa.filter, sb.filter) === false) return false;
     return shouldBodiesCollide(world, world.bodies[sa.bodyId], world.bodies[sb.bodyId]);
+}
+
+/**
+ * Compound placeholder: `shapeA` is the compound shape, `shapeB` the query shape. Map the moved proxy's
+ * fat AABB into the compound's frame, walk its inner tree, and emit each overlapping child that passes
+ * membership + filters. Dedup already ran in the kernel. Its own function: the child callback's closure
+ * context is then allocated only on this path, not on every `updateBroadPhasePairs` call.
+ */
+function expandCompound(world: WorldState, shapeA: number, shapeB: number, queryKey: number): void {
+    const broadPhase = world.broadPhase;
+    const compoundShape = world.shapes[shapeA];
+    const fatAABB = tree.getAABBInto(
+        broadPhase.trees[bp.proxyType(queryKey)],
+        bp.proxyId(queryKey),
+        fatScratch,
+    );
+    const compoundTransform = getBodyTransformQuick(world, world.bodies[compoundShape.bodyId]);
+    const localAABB = aabb.transform(xf.invert(compoundTransform), fatAABB);
+    queryCompound(
+        compoundShape.compound as CompoundData,
+        localAABB,
+        (childIndex: number): boolean => {
+            if (containsKey(broadPhase.pairSet, shapeA, shapeB, childIndex)) return true;
+            if (filtersPass(world, shapeA, shapeB)) {
+                candShapeA.push(shapeA);
+                candShapeB.push(shapeB);
+                candChild.push(childIndex);
+            }
+            return true;
+        },
+    );
 }
 
 /**
@@ -142,21 +190,21 @@ export function updateBroadPhasePairs(world: WorldState): void {
     let entryCount = 0;
     for (;;) {
         k.reservePairs(moveCount, movedWords, candCap, maxProxy);
-        const buf = k.memory.buffer;
-        const state = new Uint32Array(buf, k.pairsStatePtr(), 3 * 4);
+        const mem = heap(k.memory.buffer);
+        const state = slot(k.pairsStatePtr());
         for (let t = 0; t < 3; ++t) {
             const tr = trees[t];
-            state[t * 4] = tr.root >>> 0;
-            state[t * 4 + 1] = tr.nodeCount;
-            state[t * 4 + 2] = tr.freeList >>> 0;
-            state[t * 4 + 3] = tr.proxyCount;
+            mem[state + t * 4] = tr.root >>> 0;
+            mem[state + t * 4 + 1] = tr.nodeCount;
+            mem[state + t * 4 + 2] = tr.freeList >>> 0;
+            mem[state + t * 4 + 3] = tr.proxyCount;
         }
-        const move = new Uint32Array(buf, k.pairsMovePtr(), moveCount);
-        for (let i = 0; i < moveCount; ++i) move[i] = moveArray.get(i);
+        const move = slot(k.pairsMovePtr());
+        for (let i = 0; i < moveCount; ++i) mem[move + i] = moveArray.get(i);
         if (movedWords > 0) {
-            new Uint32Array(buf, k.pairsMovedPtr(), movedWords).set(
-                movedDyn.bits.subarray(0, movedWords),
-            );
+            const moved = slot(k.pairsMovedPtr());
+            const bits = movedDyn.bits;
+            for (let w = 0; w < movedWords; ++w) mem[moved + w] = bits[w];
         }
 
         // Pass the pair-set's logical capacity — the resident region is grow-only across worlds, so
@@ -169,9 +217,17 @@ export function updateBroadPhasePairs(world: WorldState): void {
     // Copy the candidate slab out of linear memory before any pair-set grow (compound membership or a
     // later `createContact`) can relocate it — the slab lives at the solver base, above the pair-set, so
     // a `reserveBroad` grow shifts it out from under a view captured here.
-    const buf = k.memory.buffer;
-    const candEnd = new Uint32Array(buf, k.pairsCandEndPtr(), moveCount).slice();
-    const cand = new Uint32Array(buf, k.pairsCandPtr(), entryCount * CAND_STRIDE).slice();
+    const mem = heap(k.memory.buffer);
+    if (candEndCopy.length < moveCount) candEndCopy = new Uint32Array(moveCount * 2);
+    if (candCopy.length < entryCount * CAND_STRIDE) {
+        candCopy = new Uint32Array(entryCount * CAND_STRIDE * 2);
+    }
+    const candEnd = candEndCopy;
+    const cand = candCopy;
+    const candEndAt = slot(k.pairsCandEndPtr());
+    for (let i = 0; i < moveCount; ++i) candEnd[i] = mem[candEndAt + i];
+    const candAt = slot(k.pairsCandPtr());
+    for (let i = 0; i < entryCount * CAND_STRIDE; ++i) cand[i] = mem[candAt + i];
 
     // A `reservePairs` grow above detaches the tree views the compound expansion below reads.
     broadPhase.store.refreshIfStale();
@@ -200,34 +256,7 @@ export function updateBroadPhasePairs(world: WorldState): void {
                     candChild.push(0);
                 }
             } else {
-                // Compound placeholder: `shapeA` is the compound shape, `shapeB` the query shape. Map the
-                // moved proxy's fat AABB into the compound's frame, walk its inner tree, and emit each
-                // overlapping child that passes membership + filters. Dedup already ran in the kernel.
-                const compoundShape = world.shapes[shapeA];
-                const fatAABB = tree.getAABBInto(
-                    trees[bp.proxyType(queryKey)],
-                    bp.proxyId(queryKey),
-                    fatScratch,
-                );
-                const compoundTransform = getBodyTransformQuick(
-                    world,
-                    world.bodies[compoundShape.bodyId],
-                );
-                const localAABB = aabb.transform(xf.invert(compoundTransform), fatAABB);
-                queryCompound(
-                    compoundShape.compound as CompoundData,
-                    localAABB,
-                    (childIndex: number): boolean => {
-                        if (containsKey(broadPhase.pairSet, shapeA, shapeB, childIndex))
-                            return true;
-                        if (filtersPass(world, shapeA, shapeB)) {
-                            candShapeA.push(shapeA);
-                            candShapeB.push(shapeB);
-                            candChild.push(childIndex);
-                        }
-                        return true;
-                    },
-                );
+                expandCompound(world, shapeA, shapeB, queryKey);
             }
         }
         survEnd.push(candShapeA.count);
@@ -238,15 +267,13 @@ export function updateBroadPhasePairs(world: WorldState): void {
     // list back into the TS tree structs (the pool bytes are resident; these scalars are TS-side).
     k.rebuildTrees();
     broadPhase.store.refreshIfStale();
-    const rebuildOut = new Uint32Array(k.memory.buffer, k.pairsRebuildOutPtr(), 2 * 3);
-    for (const [slot, type] of [
-        [0, BodyType.Dynamic],
-        [1, BodyType.Kinematic],
-    ] as const) {
-        const tr = trees[type];
-        tr.root = rebuildOut[slot * 3] | 0;
-        tr.nodeCount = rebuildOut[slot * 3 + 1];
-        tr.freeList = rebuildOut[slot * 3 + 2] | 0;
+    const rebuilt = heap(k.memory.buffer);
+    const rebuildOut = slot(k.pairsRebuildOutPtr());
+    for (let s = 0; s < 2; ++s) {
+        const tr = trees[s === 0 ? BodyType.Dynamic : BodyType.Kinematic];
+        tr.root = rebuilt[rebuildOut + s * 3] | 0;
+        tr.nodeCount = rebuilt[rebuildOut + s * 3 + 1];
+        tr.freeList = rebuilt[rebuildOut + s * 3 + 2] | 0;
     }
 
     // Phase 3 — create contacts in deterministic order (proxies in order; candidates LIFO, so each

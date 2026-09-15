@@ -1,7 +1,14 @@
 /** The sizes that set cadence and the wall-clock ceiling for a check. */
 export const CHECK_SIZES = ["unit", "integration"] as const;
 /** Environment tags a runner may require. */
-export const CHECK_REQUIREMENTS = ["chromium", "gpu", "display", "deploy", "cargo"] as const;
+export const CHECK_REQUIREMENTS = [
+    "chromium",
+    "gpu",
+    "display",
+    "deploy",
+    "cargo",
+    "node",
+] as const;
 /** Hosts a check may be declared for. A row declared for one host is skipped and reported on another,
  *  never run and never refused: a host that cannot hold the premise is not evidence against the claim. */
 export const CHECK_HOSTS = ["mac", "omarchy"] as const;

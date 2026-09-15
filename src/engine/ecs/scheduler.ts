@@ -1,11 +1,14 @@
 import type { State } from "./state";
 
+/** the fixed simulation step in seconds; {@link Time.FIXED_DT} is this value */
+export const FIXED_DT = 1 / 60;
+
 /**
  * frame timing constants and per-frame data
  * @expand
  */
 export const Time = {
-    FIXED_DT: 1 / 60,
+    FIXED_DT,
     DEFAULT_DT: 1 / 60,
     MAX_FIXED_STEPS: 4,
 } as const;
@@ -215,7 +218,9 @@ export class Scheduler {
 
     private runGroup(state: State, group: SystemGroup): void {
         const record = this.record;
-        for (const system of this.getSorted(group)) {
+        const systems = this.getSorted(group);
+        for (let i = 0; i < systems.length; i++) {
+            const system = systems[i];
             if (this._errored.has(system)) continue;
             // quarantine, not crash: a throwing system must not kill the frame loop (a hot-reloaded
             // bug would wedge a live host). It pauses after the first throw — a failed setup stays
@@ -246,7 +251,7 @@ export class Scheduler {
 
     private getSorted(group: SystemGroup): System[] {
         if (this._systemsVersion !== this._cacheVersion) {
-            this._cache.clear();
+            if (this._cache.size !== 0) this._cache.clear();
             this._cacheVersion = this._systemsVersion;
         }
 

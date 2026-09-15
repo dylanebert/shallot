@@ -11,6 +11,12 @@ import {
     Time,
 } from "@dylanebert/shallot";
 import { runBrowserCheck } from "@dylanebert/shallot/harness";
+import {
+    allocatesNothing,
+    sampleAllocation,
+    siteTable,
+    windowBytes,
+} from "@dylanebert/shallot/harness/allocation";
 import { check } from "@dylanebert/shallot/harness/check";
 import { Demo } from "./demo";
 
@@ -253,6 +259,35 @@ check(
             "--recipe",
             "first-person",
         ]),
+);
+
+check(
+    "first-person warm frame allocates nothing",
+    {
+        claim: "a warm fixed step of the actual first-person CPU composition allocates no JavaScript heap, so no periodic scavenge follows play",
+        size: "integration",
+        requires: ["node"],
+        subject: ["examples/first-person"],
+    },
+    async () => {
+        // 6,000 frames: the once-per-escape refit path (`commitRefit`, the fat-AABB write, the tree enlarge)
+        // is called about once a frame, so it reaches TurboFan late; at 1,200 it runs Maglev code inside
+        // every window and at 2,400 it can still tier inside the first. From 3,600 all three windows agree.
+        const sample = await sampleAllocation(resolve(import.meta.dir, "allocation.entry.ts"), {
+            warm: 6000,
+            frames: 600,
+            input: readFileSync(SCENE, "utf8"),
+        });
+        // The entry's control literal, attributed as the windows are, proves the sampler sees subject
+        // allocation; without it an empty site set proves nothing.
+        const control = { label: "control", sites: sample.control };
+        if (control.sites.length === 0 || windowBytes(control) <= 0)
+            throw new Error(
+                "inconclusive: the sampler attributed no site to the entry's control literal",
+            );
+        if (!allocatesNothing(sample))
+            throw new Error(`warm first-person frames allocate:\n${siteTable(sample)}`);
+    },
 );
 
 check(

@@ -40,8 +40,8 @@ import { kernel, runPool, workers } from "../kernel/kernel";
 import { isConvexRefit, S_CAND, S_ESCAPED, SHAPE_STRIDE } from "../kernel/shapecolumns";
 import { computeFatShapeAABBOut, getShapeUserMaterialId, type Shape } from "../shapes/shape";
 import { BODY_TRANSIENT_FLAGS, BodyFlags, type BodyState, getBodySim } from "../world/body";
+import { CONSTRAINTS_SLOT, CURSOR_SLOT, SOLVE_PHASE_SLOT } from "../world/clock";
 import { splitIsland } from "../world/island";
-import { elapsed, makeTimer, reset, ticks } from "../world/profile";
 import { trySleepIsland } from "../world/solverset";
 import { setMoveTransform, type WorldState } from "../world/world";
 import {
@@ -93,6 +93,11 @@ const finTransform: WorldTransform = {
 // one synchronous `solve` and never read across steps.
 const awakeIslandsScratch: boolean[] = [];
 
+// The staged solve's crossing, hoisted: a closure in `solve` would make every call allocate its context.
+function runMt(): void {
+    kernel().runMt();
+}
+
 /** Read a Mat3 out of `col` at `o` into `out` (kernel row order cx, cy, cz — read_sim, body.rs). */
 function readMat3(col: Float32Array, o: number, out: Mat3): void {
     out.cx.x = col[o];
@@ -130,8 +135,9 @@ function setSweepBase(
  * column-backed body-state views (b3's per-color joint blocks + the overflow joint spill). */
 function hasJoints(world: WorldState, layout: SolveLayout): boolean {
     if (world.constraintGraph.colors[OVERFLOW_INDEX].jointSims.length > 0) return true;
-    for (const span of layout.colors) {
-        if (span.color.jointSims.length > 0) return true;
+    const colors = layout.colors;
+    for (let i = 0; i < colors.length; ++i) {
+        if (colors[i].color.jointSims.length > 0) return true;
     }
     return false;
 }
@@ -390,7 +396,9 @@ function finalizeBodies(
 /** Emit a joint event for each joint flagged over its threshold, in ascending id order (b3Solve). */
 /** Fill begin events after the solve has written the per-point normal impulses. */
 function updateBeginContactImpulses(world: WorldState): void {
-    for (const event of world.contactBeginEvents) {
+    const events = world.contactBeginEvents;
+    for (let i = 0; i < events.length; ++i) {
+        const event = events[i];
         const contact = world.contacts[event.contactId.index1 - 1];
         if (!contact || contact.generation !== event.contactId.generation) continue;
         let impulse = 0;
@@ -545,13 +553,13 @@ export function solve(world: WorldState, context: StepContext): void {
     const ss = context.staticSoftness;
     const warmStartScale = world.enableWarmStarting ? 1 : 0;
 
-    const profile = world.profile;
+    const clock = world.clock;
 
     // Solve constraints: the overflow prepare, the substep loop, restitution, and impulse store. In C
     // one `constraints` timer wraps this whole region (the solver task); an inner cursor accumulates
     // the per-phase split, both recorded at once.
-    const constraintsStart = ticks();
-    const timer = makeTimer();
+    clock.mark(CONSTRAINTS_SLOT);
+    clock.mark(CURSOR_SLOT);
 
     const k = kernel();
     const colors = layout.colors;
@@ -608,7 +616,7 @@ export function solve(world: WorldState, context: StepContext): void {
         // Wake, orchestrate, join. The per-phase profile split stays zero: one crossing has no phases to
         // time, and attributing the whole solve to any one of them would misread the sweep.
         // `profile.constraints` (wall clock over the region, below) is the honest number here.
-        runPool(pool, () => k.runMt());
+        runPool(pool, runMt);
         readbackHitEvents(world, layout, context);
     } else if (jointsInKernel && pool !== null) {
         // Joints-in-kernel: marshal the joints into the joint column (color spans already written), lay
@@ -646,7 +654,7 @@ export function solve(world: WorldState, context: StepContext): void {
             hitThreshold,
             world.enableContinuous ? 1 : 0,
         );
-        runPool(pool, () => k.runMt());
+        runPool(pool, runMt);
         readbackJointImpulses(world, layout, cols);
         // The joints solved in-kernel, so solveColorJoints' per-substep event-flag pass never ran.
         // Rebuild the flags from the read-back impulses (mirroring the readback's joint iteration) into
@@ -699,11 +707,11 @@ export function solve(world: WorldState, context: StepContext): void {
             ss.impulseScale,
             warmStartScale,
         );
-        profile.prepareConstraints += reset(timer);
+        clock.lap("prepareConstraints", CURSOR_SLOT);
 
         for (let subStep = 0; subStep < subStepCount; ++subStep) {
             k.integrateVelocities(gravity.x, gravity.y, gravity.z, h);
-            profile.integrateVelocities += reset(timer);
+            clock.lap("integrateVelocities", CURSOR_SLOT);
 
             // Warm start: overflow first (lower solve priority), then each color's joints → wide → mesh.
             // Jointless scenes batch the whole color loop into one kernel crossing.
@@ -718,7 +726,7 @@ export function solve(world: WorldState, context: StepContext): void {
             } else {
                 k.warmStartColors();
             }
-            profile.warmStart += reset(timer);
+            clock.lap("warmStart", CURSOR_SLOT);
 
             // Solve (biased): overflow, then per color joints → wide → mesh. ITERATIONS = 1.
             solveOverflowJoints(context, true);
@@ -732,10 +740,10 @@ export function solve(world: WorldState, context: StepContext): void {
             } else {
                 k.solveColors(1, invH, contactSpeed);
             }
-            profile.solveImpulses += reset(timer);
+            clock.lap("solveImpulses", CURSOR_SLOT);
 
             k.integratePositions(h, context.maxLinearVelocity, context.invDt);
-            profile.integratePositions += reset(timer);
+            clock.lap("integratePositions", CURSOR_SLOT);
 
             // Relax (no bias): same interleave. RELAX_ITERATIONS = 1.
             solveOverflowJoints(context, false);
@@ -749,7 +757,7 @@ export function solve(world: WorldState, context: StepContext): void {
             } else {
                 k.solveColors(0, invH, contactSpeed);
             }
-            profile.relaxImpulses += reset(timer);
+            clock.lap("relaxImpulses", CURSOR_SLOT);
         }
 
         // Restitution: overflow, then each color's wide + mesh (joints have no restitution pass).
@@ -762,7 +770,7 @@ export function solve(world: WorldState, context: StepContext): void {
         } else {
             k.restitutionColors(restThreshold);
         }
-        profile.applyRestitution += reset(timer);
+        clock.lap("applyRestitution", CURSOR_SLOT);
 
         // Store (order-independent): overflow, then the flat convex + mesh ranges.
         k.storeImpulses(layout.overflowStart, layout.overflowCount, hitThreshold);
@@ -771,7 +779,7 @@ export function solve(world: WorldState, context: StepContext): void {
         // The kernel `store` wrote the solved impulses straight back into the persistent pool manifolds
         // (next step's warm start); collect the contacts it flagged for a hit event.
         readbackHitEvents(world, layout, context);
-        profile.storeImpulses += reset(timer);
+        clock.lap("storeImpulses", CURSOR_SLOT);
     }
 
     // Split a deferred island (candidate collected in the previous step's sleep stage) before
@@ -781,12 +789,12 @@ export function solve(world: WorldState, context: StepContext): void {
         splitIsland(world, world.splitIslandId);
     }
     world.splitIslandId = NULL_INDEX;
-    profile.constraints = elapsed(constraintsStart);
+    clock.span("constraints", CONSTRAINTS_SLOT);
 
     // Finalize: advance transforms, re-fit AABBs (the port folds refit in, so its cost lands here).
     // On the fused path the kernel pose advance already ran inside the solve crossing, so
     // `profile.constraints` absorbs it and `transforms` times only the serial TS tail.
-    const transformStart = ticks();
+    clock.mark(SOLVE_PHASE_SLOT);
 
     // Reset the per-step sleep bookkeeping (the C per-worker b3TaskContext reset before finalize).
     // The island marks reuse a grow-only module buffer — valid prefix = this step's awake island
@@ -799,31 +807,31 @@ export function solve(world: WorldState, context: StepContext): void {
     context.splitSleepTime = 0;
 
     finalizeBodies(context, cols, persistentStates, pool !== null);
-    profile.transforms = elapsed(transformStart);
+    clock.span("transforms", SOLVE_PHASE_SLOT);
 
     // The contact-begin records are created during collision detection, but their normal impulses are
     // only authoritative after the velocity solve has stored the warm-start columns.
     updateBeginContactImpulses(world);
 
     // Report joint and hit events (b3Solve, after finalize, before the bullet stage).
-    const jointEventStart = ticks();
+    clock.mark(SOLVE_PHASE_SLOT);
     buildJointEvents(context);
-    profile.jointEvents = elapsed(jointEventStart);
-    const hitEventStart = ticks();
+    clock.span("jointEvents", SOLVE_PHASE_SLOT);
+    clock.mark(SOLVE_PHASE_SLOT);
     buildHitEvents(context);
-    profile.hitEvents = elapsed(hitEventStart);
+    clock.span("hitEvents", SOLVE_PHASE_SLOT);
 
     // Deferred bullet CCD: fast bullet bodies sweep the dynamic + kinematic trees, which are only
     // fully enlarged once finalize has refit every non-bullet proxy (b3World_Step's bullet stage).
     if (context.bulletBodies.length > 0) {
-        const bulletStart = ticks();
+        clock.mark(SOLVE_PHASE_SLOT);
         solveBullets(world, context.bulletBodies);
-        profile.bullets = elapsed(bulletStart);
+        clock.span("bullets", SOLVE_PHASE_SLOT);
     }
 
     // Island sleeping — must be last, because sleeping invalidates the enlarged-body bookkeeping.
     if (world.enableSleep) {
-        const sleepStart = ticks();
+        clock.mark(SOLVE_PHASE_SLOT);
         // Collect the split-island candidate for the next step (single worker → no cross-worker reduction).
         if (context.splitIslandId !== NULL_INDEX) {
             world.splitIslandId = context.splitIslandId;
@@ -837,6 +845,6 @@ export function solve(world: WorldState, context: StepContext): void {
             }
             trySleepIsland(world, islands[islandIndex].islandId);
         }
-        profile.sleepIslands = elapsed(sleepStart);
+        clock.span("sleepIslands", SOLVE_PHASE_SLOT);
     }
 }
