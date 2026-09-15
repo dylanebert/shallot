@@ -14,6 +14,8 @@ import { runBrowserCheck } from "@dylanebert/shallot/harness";
 import {
     allocatesNothing,
     sampleAllocation,
+    sampleTransition,
+    siteSetMismatch,
     siteTable,
     windowBytes,
 } from "@dylanebert/shallot/harness/allocation";
@@ -287,6 +289,47 @@ check(
             );
         if (!allocatesNothing(sample))
             throw new Error(`warm first-person frames allocate:\n${siteTable(sample)}`);
+    },
+);
+
+// What an ECS entity cycle may create, by function: nothing. Entity capacity and slab fields are sized at
+// build, membership and query sets are index writes, and the id free list keeps its high-water capacity.
+const ECS_SPAWN_SITES: string[] = [];
+const ECS_DESPAWN_SITES: string[] = [];
+
+check(
+    "first-person entity spawn and despawn allocate only their named records",
+    {
+        claim: "creating an entity with a slab component and destroying it in the actual first-person CPU composition allocates exactly its named records, returns to zero-allocation frames, and leaves nothing live after teardown",
+        size: "integration",
+        requires: ["node"],
+        subject: ["examples/first-person"],
+    },
+    async () => {
+        // 24,000 frames with a cycle every 60: at 6,000 a physics step path still tiers inside the A/A
+        // window after the event frames, at a different site each run.
+        const sample = await sampleTransition(resolve(import.meta.dir, "allocation.entry.ts"), {
+            warm: 24000,
+            frames: 600,
+            input: readFileSync(SCENE, "utf8"),
+        });
+        const control = { label: "control", sites: sample.control };
+        if (control.sites.length === 0 || windowBytes(control) <= 0)
+            throw new Error(
+                "inconclusive: the sampler attributed no site to the entry's control literal",
+            );
+        const failures = [
+            siteSetMismatch("spawn frame", sample.spawn, ECS_SPAWN_SITES),
+            siteSetMismatch("second spawn frame", sample.spawnAgain, ECS_SPAWN_SITES),
+            siteSetMismatch("despawn frame", sample.despawn, ECS_DESPAWN_SITES),
+            siteSetMismatch("second despawn frame", sample.despawnAgain, ECS_DESPAWN_SITES),
+            ...sample.afterEvents.map((after) => siteSetMismatch(after.label, after.sites, [])),
+            allocatesNothing(sample)
+                ? ""
+                : `frames after the transition allocate:\n${siteTable(sample)}`,
+            siteSetMismatch("live after despawn and collection", sample.survivors, []),
+        ].filter((failure) => failure !== "");
+        if (failures.length !== 0) throw new Error(failures.join("\n\n"));
     },
 );
 

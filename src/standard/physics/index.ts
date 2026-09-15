@@ -380,6 +380,7 @@ interface PhysicsRuntime {
     // array, releases its backing store and the next tick's adds allocate it again.
     movedThisTick: Int32Array;
     movedCount: number;
+    stale: StaleScan;
     counters: PhysicsCounters;
     springSig: number;
     jointSig: number;
@@ -404,6 +405,7 @@ function newRuntime(): PhysicsRuntime {
         currQuat: new Float32Array(0),
         movedThisTick: new Int32Array(0),
         movedCount: 0,
+        stale: { state: null, eids: [], count: 0 },
         counters: { bodiesVisited: 0, bytesUploaded: 0 },
         springSig: FNV_BASIS,
         jointSig: FNV_BASIS,
@@ -770,9 +772,16 @@ export const ConstraintSystem: System = {
     },
 };
 
-// query terms and the stale-eid list, held once so a steady sync mints neither.
+// query terms, held once so a steady sync mints none.
 const BODY_TERMS = [Body];
-const staleScratch: number[] = [];
+
+// the stale walk's context, one per runtime: the eids of despawned bodies in the first `count` slots of a
+// list that keeps its high-water capacity (truncating it releases the backing store; the next push regrows it).
+interface StaleScan {
+    state: State | null;
+    eids: number[];
+    count: number;
+}
 
 // the sync's map walks, given the State as `this`, so a steady sync mints no iterator.
 function dropDespawnedFailure(
@@ -784,8 +793,8 @@ function dropDespawnedFailure(
     if (!this.has(eid, Body)) failed.delete(eid);
 }
 
-function collectStale(this: State, _body: unknown, eid: number): void {
-    if (!this.has(eid, Body)) staleScratch.push(eid);
+function collectStale(this: StaleScan, _body: unknown, eid: number): void {
+    if (!this.state!.has(eid, Body)) this.eids[this.count++] = eid;
 }
 
 // membership-driven create/destroy, ascending eid order (state.query's natural order — creation order is
@@ -826,11 +835,13 @@ const SyncSystem: System = {
             seedPose(runtime, eid);
         }
         runtime.failed.forEach(dropDespawnedFailure, state);
-        const stale = staleScratch;
-        stale.length = 0;
-        runtime.bodies.forEach(collectStale, state);
-        for (let i = 0; i < stale.length; i++) {
-            const eid = stale[i];
+        const stale = runtime.stale;
+        stale.state = state;
+        stale.count = 0;
+        runtime.bodies.forEach(collectStale, stale);
+        stale.state = null;
+        for (let i = 0; i < stale.count; i++) {
+            const eid = stale.eids[i];
             forget(runtime, eid);
             runtime.stamps.delete(eid);
             if (state.has(eid, Pose)) state.remove(eid, Pose);
