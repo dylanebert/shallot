@@ -76,7 +76,7 @@ Anything that isn't the engine lives in its own repository and consumes the publ
 
 - [shallot-avbd-physics](https://github.com/dylanebert/shallot-avbd-physics): an AVBD solver that plugs into the physics seam.
 - [shallot-site](https://github.com/dylanebert/shallot-site): the demos at [dylanebert.com/shallot](https://dylanebert.com/shallot/), each built from a release tag and linked to its source.
-- [shallot-bench](https://github.com/dylanebert/shallot-bench): an agent benchmark that installs the engine at a pinned tag.
+- [Shallot Eval](https://github.com/dylanebert/shallot-eval): tests whether a stock agent can compose Shallot from its shipped public package and context. Shallot alone owns engine correctness and the installed harness, scheduler, observation, browser and capture mechanisms.
 - [create-shallot](https://github.com/dylanebert/create-shallot): the scaffold behind `bun create shallot`.
 
 ## Reference
