@@ -95,6 +95,8 @@ export class BodyStore {
     /** Memory size the views were derived at, on the shared (multithreaded) path; 0 single-threaded,
      * where detachment is the signal instead. See `stale`. */
     bytes = 0;
+    // The held layout header view the column views are derived from.
+    private _layout = new Uint32Array(0);
 
     /** Whether a `memory.grow` has happened since the views were derived — the guard for the reads a
      * mid-loop grow (the narrowphase's manifold `alloc`) can strand. Single-threaded that grow detaches
@@ -104,15 +106,29 @@ export class BodyStore {
         return this.simF.length === 0 || (this.bytes !== 0 && this.bytes !== sharedBytes());
     }
 
-    /** Re-derive the column views over the current region. Cheap — a handful of typed-array
-     * constructions, no copy. No-op before the first `reserveBodies` (the region has zero capacity). */
+    /** Re-derive the column views over the current region. No-op before the first `reserveBodies` (the
+     * region has zero capacity), and when the buffer, layout offsets and capacity are those the views were
+     * derived at, so a steady step mints no typed-array views. */
     refreshViews(): void {
         const k = kernel();
         const cap = k.bodyCap();
         if (cap === 0) return;
         const buf = k.memory.buffer;
         this.bytes = sharedBytes();
-        const layout = new Uint32Array(buf, k.bodyLayoutPtr(), N_BODY);
+        const ptr = k.bodyLayoutPtr();
+        if (this._layout.buffer !== buf || this._layout.byteOffset !== ptr)
+            this._layout = new Uint32Array(buf, ptr, N_BODY);
+        const layout = this._layout;
+        if (
+            this.stateF.buffer === buf &&
+            this.stateF.byteOffset === layout[B_STATE] &&
+            this.stateF.length === cap * STATE_STRIDE &&
+            this.flagsU.byteOffset === layout[B_FLAGS] &&
+            this.simF.byteOffset === layout[B_SIM] &&
+            this.finF.byteOffset === layout[B_FIN] &&
+            this.sim2F.byteOffset === layout[B_SIM2]
+        )
+            return;
         this.stateF = new Float32Array(buf, layout[B_STATE], cap * STATE_STRIDE);
         this.flagsU = new Uint32Array(buf, layout[B_FLAGS], cap);
         this.simF = new Float32Array(buf, layout[B_SIM], cap * SIM_STRIDE);

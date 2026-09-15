@@ -124,6 +124,8 @@ export class ManifoldStore {
     // Set when a mid-narrowphase `alloc` grew the region (which shifts the geometry region after it);
     // the step drains it into `world.geometryDirty` so geometry re-uploads before the next narrowphase.
     grew = false;
+    // The held layout header view the column views are derived from.
+    private _layout = new Uint32Array(0);
 
     /** Track a directory slot for a contact (b3CreateContact). Grows the directory capacity if the id
      * is past the current high-water; the block itself is allocated later, on first touch. */
@@ -207,12 +209,24 @@ export class ManifoldStore {
     }
 
     /** Re-derive the column views over the current region (after any `memory.grow`, which detaches every
-     * view). Cheap — a handful of typed-array constructions, no copy. No-op before the first reserve. */
+     * view). No-op before the first reserve, and when the buffer, layout offsets and capacities are those
+     * the views were derived at, so a steady step mints no typed-array views. */
     refreshViews(): void {
         if (this._dirCap === 0) return;
         const k = kernel();
         const buf = k.memory.buffer;
-        const layout = new Uint32Array(buf, k.manifoldLayoutPtr(), N_MANIFOLD);
+        const ptr = k.manifoldLayoutPtr();
+        if (this._layout.buffer !== buf || this._layout.byteOffset !== ptr)
+            this._layout = new Uint32Array(buf, ptr, N_MANIFOLD);
+        const layout = this._layout;
+        if (
+            this.dirU.buffer === buf &&
+            this.dirU.byteOffset === layout[DIR] &&
+            this.dirU.length === this._dirCap * DIR_STRIDE &&
+            this.poolU.byteOffset === layout[POOL] &&
+            this.poolU.length === this._poolCap * MANIFOLD_STRIDE
+        )
+            return;
         this.dirF = new Float32Array(buf, layout[DIR], this._dirCap * DIR_STRIDE);
         this.dirU = new Uint32Array(buf, layout[DIR], this._dirCap * DIR_STRIDE);
         this.poolF = new Float32Array(buf, layout[POOL], this._poolCap * MANIFOLD_STRIDE);

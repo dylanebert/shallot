@@ -763,8 +763,9 @@ const InputTickResetSystem: System = {
     last: true,
     update(state: State) {
         const keys = record(state).keys;
-        keys.tickPressed.clear();
-        keys.tickReleased.clear();
+        // `Set.prototype.clear` mints a fresh table even on an empty set, so guard on size.
+        if (keys.tickPressed.size !== 0) keys.tickPressed.clear();
+        if (keys.tickReleased.size !== 0) keys.tickReleased.clear();
     },
 };
 
@@ -774,8 +775,8 @@ const InputResetSystem: System = {
     last: true,
     update(state: State) {
         const d = record(state);
-        d.keys.pressed.clear();
-        d.keys.released.clear();
+        if (d.keys.pressed.size !== 0) d.keys.pressed.clear();
+        if (d.keys.released.size !== 0) d.keys.released.clear();
         d.mouse.deltaX = 0;
         d.mouse.deltaY = 0;
         d.mouse.scroll = 0;

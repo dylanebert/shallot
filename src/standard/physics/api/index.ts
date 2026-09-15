@@ -82,7 +82,7 @@ export { restore, snapshot, type WorldSnapshot } from "./snapshot";
 export function hash(world: import("./world").World): bigint {
     return hashWorldState(world.state);
 }
-export type { Profile } from "../world/profile";
+export type { Profile, StepClock } from "../world/clock";
 export type { Counters, WorldState } from "../world/world";
 export { Body } from "./body";
 export type {

@@ -73,9 +73,12 @@ let charSig = FNV_BASIS;
 // rebuilds the controller state (a stale pose/velocity kept across the recycle is the bug this closes).
 const stamps = new Map<number, number>();
 
+// query terms held once, so a steady signature mints no array.
+const CHARACTER_TERMS = [Character, Body];
+
 function signature(state: State): number {
     let h = FNV_BASIS;
-    for (const eid of state.query([Character, Body])) {
+    for (const eid of state.query(CHARACTER_TERMS)) {
         h = fold(h, eid);
         h = fold(h, state.stamp(eid));
         h = fold(h, sigBits(Character.maxSlope.get(eid)));
@@ -270,6 +273,13 @@ function sweepEid(eid: number, st: CharState, state: State): void {
     }
 }
 
+// the State the sweep's map walk reads; set only for the duration of one synchronous update, so the
+// walk's callback is hoisted and a steady update mints no entries iterator.
+let sweepState: State | null = null;
+function sweepEach(st: CharState, eid: number): void {
+    sweepEid(eid, st, sweepState as State);
+}
+
 // Fixed group — the deterministic dt the sweep integrates gravity over.
 /**
  * the kinematic-character sweep: runs collide-and-slide for every `[Character, Body]` each fixed step,
@@ -285,8 +295,10 @@ export const CharacterSweepSystem: System = {
         if (!physicsWorld(state)) return;
         syncStates(state);
         if (states.size === 0) return;
-        for (const [eid, st] of states) sweepEid(eid, st, state);
-        jumped.clear();
+        sweepState = state;
+        states.forEach(sweepEach);
+        sweepState = null;
+        if (jumped.size !== 0) jumped.clear();
     },
 };
 

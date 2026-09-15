@@ -1,7 +1,9 @@
 import type { LazyAlloc, Plugin, State, System } from "../../engine";
 import { Compute, mountOverlay } from "../../engine";
 import { UnsupportedError } from "../../engine/runtime";
+import { stepClocks } from "../../standard/physics/world/clock";
 import { createMeasure, foldIndirect, INDIRECT_FLOOR_US } from "./benchmark";
+import { timingClock } from "./physics";
 import { reorderRows } from "./reorder";
 
 export type {
@@ -1144,6 +1146,9 @@ export const ProfilePlugin: Plugin = {
     features: TIMESTAMP,
 
     initialize(state: State) {
+        // the physics step's phase timings (`World.getProfile`) run only under this plugin
+        stepClocks.set(state, timingClock());
+
         const compute = Compute;
         if (!compute) return;
 

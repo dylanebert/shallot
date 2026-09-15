@@ -118,6 +118,37 @@ function filtersPass(world: WorldState, shapeA: number, shapeB: number): boolean
 }
 
 /**
+ * Compound placeholder: `shapeA` is the compound shape, `shapeB` the query shape. Map the moved proxy's
+ * fat AABB into the compound's frame, walk its inner tree, and emit each overlapping child that passes
+ * membership + filters. Dedup already ran in the kernel. Its own function: the child callback's closure
+ * context is then allocated only on this path, not on every `updateBroadPhasePairs` call.
+ */
+function expandCompound(world: WorldState, shapeA: number, shapeB: number, queryKey: number): void {
+    const broadPhase = world.broadPhase;
+    const compoundShape = world.shapes[shapeA];
+    const fatAABB = tree.getAABBInto(
+        broadPhase.trees[bp.proxyType(queryKey)],
+        bp.proxyId(queryKey),
+        fatScratch,
+    );
+    const compoundTransform = getBodyTransformQuick(world, world.bodies[compoundShape.bodyId]);
+    const localAABB = aabb.transform(xf.invert(compoundTransform), fatAABB);
+    queryCompound(
+        compoundShape.compound as CompoundData,
+        localAABB,
+        (childIndex: number): boolean => {
+            if (containsKey(broadPhase.pairSet, shapeA, shapeB, childIndex)) return true;
+            if (filtersPass(world, shapeA, shapeB)) {
+                candShapeA.push(shapeA);
+                candShapeB.push(shapeB);
+                candChild.push(childIndex);
+            }
+            return true;
+        },
+    );
+}
+
+/**
  * Find new collision pairs, create contacts, rebuild the trees, and reset the move buffer. The query DFS,
  * moved-proxy dedup, pair-set-membership rejection, and the two tree rebuilds run in the kernel over the
  * resident broad-phase region (pairwork.rs); TS copies the move buffer + dynamic moved-bitset into the
@@ -225,34 +256,7 @@ export function updateBroadPhasePairs(world: WorldState): void {
                     candChild.push(0);
                 }
             } else {
-                // Compound placeholder: `shapeA` is the compound shape, `shapeB` the query shape. Map the
-                // moved proxy's fat AABB into the compound's frame, walk its inner tree, and emit each
-                // overlapping child that passes membership + filters. Dedup already ran in the kernel.
-                const compoundShape = world.shapes[shapeA];
-                const fatAABB = tree.getAABBInto(
-                    trees[bp.proxyType(queryKey)],
-                    bp.proxyId(queryKey),
-                    fatScratch,
-                );
-                const compoundTransform = getBodyTransformQuick(
-                    world,
-                    world.bodies[compoundShape.bodyId],
-                );
-                const localAABB = aabb.transform(xf.invert(compoundTransform), fatAABB);
-                queryCompound(
-                    compoundShape.compound as CompoundData,
-                    localAABB,
-                    (childIndex: number): boolean => {
-                        if (containsKey(broadPhase.pairSet, shapeA, shapeB, childIndex))
-                            return true;
-                        if (filtersPass(world, shapeA, shapeB)) {
-                            candShapeA.push(shapeA);
-                            candShapeB.push(shapeB);
-                            candChild.push(childIndex);
-                        }
-                        return true;
-                    },
-                );
+                expandCompound(world, shapeA, shapeB, queryKey);
             }
         }
         survEnd.push(candShapeA.count);

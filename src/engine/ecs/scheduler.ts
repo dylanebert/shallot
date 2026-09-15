@@ -215,7 +215,9 @@ export class Scheduler {
 
     private runGroup(state: State, group: SystemGroup): void {
         const record = this.record;
-        for (const system of this.getSorted(group)) {
+        const systems = this.getSorted(group);
+        for (let i = 0; i < systems.length; i++) {
+            const system = systems[i];
             if (this._errored.has(system)) continue;
             // quarantine, not crash: a throwing system must not kill the frame loop (a hot-reloaded
             // bug would wedge a live host). It pauses after the first throw — a failed setup stays
@@ -246,7 +248,7 @@ export class Scheduler {
 
     private getSorted(group: SystemGroup): System[] {
         if (this._systemsVersion !== this._cacheVersion) {
-            this._cache.clear();
+            if (this._cache.size !== 0) this._cache.clear();
             this._cacheVersion = this._systemsVersion;
         }
 

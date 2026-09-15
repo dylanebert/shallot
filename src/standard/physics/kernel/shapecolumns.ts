@@ -69,14 +69,26 @@ export class ShapeStore {
     shapeU = new Uint32Array(0);
     /** The same bytes as f32 — the geometry payload's natural type. */
     shapeF = new Float32Array(0);
+    // The held layout header view the column views are derived from.
+    private _layout = new Uint32Array(0);
 
-    /** Re-derive the column views over the current region. No-op before the first `reserveShapes`. */
+    /** Re-derive the column views over the current region. No-op before the first `reserveShapes`, and
+     * when the buffer, offset and capacity are those the views were derived at. */
     refreshViews(): void {
         const k = kernel();
         const cap = k.shapeCap();
         if (cap === 0) return;
         const buf = k.memory.buffer;
-        const layout = new Uint32Array(buf, k.shapeLayoutPtr(), 1);
+        const ptr = k.shapeLayoutPtr();
+        if (this._layout.buffer !== buf || this._layout.byteOffset !== ptr)
+            this._layout = new Uint32Array(buf, ptr, 1);
+        const layout = this._layout;
+        if (
+            this.shapeU.buffer === buf &&
+            this.shapeU.byteOffset === layout[0] &&
+            this.shapeU.length === cap * SHAPE_STRIDE
+        )
+            return;
         this.shapeU = new Uint32Array(buf, layout[0], cap * SHAPE_STRIDE);
         this.shapeF = new Float32Array(buf, layout[0], cap * SHAPE_STRIDE);
     }

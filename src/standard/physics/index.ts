@@ -36,6 +36,7 @@ import { nlerpShortest, renderScale } from "./compose";
 import { Hulls } from "./hull";
 import { resetConstraints, resyncConstraints, syncJoints, syncSprings } from "./joints";
 import { marshalBody } from "./marshal";
+import { stepClocks } from "./world/clock";
 
 export { createPool, maxWorkers, type Pool, type WorkerReady } from "./kernel/pool";
 
@@ -372,7 +373,11 @@ interface PhysicsRuntime {
     prevQuat: Float32Array;
     currPos: Float32Array;
     currQuat: Float32Array;
-    movedThisTick: Set<number>;
+    // the eids whose move events this tick carried, one each (a body emits at most one per step), in the
+    // first `movedCount` slots of a capacity-sized column: re-clearing a filled Set, or truncating an
+    // array, releases its backing store and the next tick's adds allocate it again.
+    movedThisTick: Int32Array;
+    movedCount: number;
     counters: PhysicsCounters;
     springSig: number;
     jointSig: number;
@@ -393,7 +398,8 @@ function newRuntime(): PhysicsRuntime {
         prevQuat: new Float32Array(0),
         currPos: new Float32Array(0),
         currQuat: new Float32Array(0),
-        movedThisTick: new Set(),
+        movedThisTick: new Int32Array(0),
+        movedCount: 0,
         counters: { bodiesVisited: 0, bytesUploaded: 0 },
         springSig: FNV_BASIS,
         jointSig: FNV_BASIS,
@@ -444,7 +450,13 @@ function forget(runtime: PhysicsRuntime, eid: number): void {
     runtime.bodies.get(eid)?.destroy();
     runtime.bodies.delete(eid);
     runtime.kinPrev.delete(eid);
-    runtime.movedThisTick.delete(eid);
+    const moved = runtime.movedThisTick;
+    for (let i = 0; i < runtime.movedCount; i++) {
+        if (moved[i] !== eid) continue;
+        runtime.movedCount -= 1;
+        moved[i] = moved[runtime.movedCount];
+        break;
+    }
 }
 
 function clearBodies(runtime: PhysicsRuntime): void {
@@ -452,7 +464,7 @@ function clearBodies(runtime: PhysicsRuntime): void {
     runtime.bodies.clear();
     runtime.stamps.clear();
     runtime.kinPrev.clear();
-    runtime.movedThisTick.clear();
+    runtime.movedCount = 0;
     runtime.failed.clear();
     runtime.springSig = FNV_BASIS;
     runtime.jointSig = FNV_BASIS;
@@ -677,6 +689,10 @@ export function physicsStepConfig(state: State): PhysicsStepConfig {
 
 // the velocity register the step reads each moved body through.
 const stepVel = { x: 0, y: 0, z: 0 };
+// the fixed step as a module constant: `Time.FIXED_DT` is an object property, and passing it across the
+// non-inlined world step boxes a double every tick.
+const STEP_DT = 1 / 60;
+if (STEP_DT !== Time.FIXED_DT) throw new Error(`physics: step ${STEP_DT} is not Time.FIXED_DT`);
 
 /** the fixed-group solver step: the ordering anchor a producer that moves bodies before the solve (the character sweep's kinematic upload) orders `before:`. */
 export const StepSystem: System = {
@@ -690,9 +706,9 @@ export const StepSystem: System = {
             const saved = residentSnapshots.get(runtime);
             if (saved) restoreWorld(world, saved);
         }
-        world.step(Time.FIXED_DT, SUBSTEPS);
+        world.step(STEP_DT, SUBSTEPS);
         if (liveRuntimes.size > 1) residentSnapshots.set(runtime, snapshotWorld(world));
-        runtime.movedThisTick.clear();
+        runtime.movedCount = 0;
         runtime.counters.bytesUploaded = 0;
         const events = world.getBodyEvents();
         for (let i = 0; i < events.count; i++) {
@@ -726,10 +742,17 @@ export const StepSystem: System = {
             );
             if (velocity) Pose.vel.set(eid, velocity.x, velocity.y, velocity.z, 0);
             else Pose.vel.set(eid, 0, 0, 0, 0);
-            runtime.movedThisTick.add(eid);
+            runtime.movedThisTick[runtime.movedCount++] = eid;
         }
     },
 };
+
+// the runtime the constraint uploads' failure predicate reads; set only for one synchronous upload, so the
+// predicate is hoisted and a steady update allocates no closure context.
+let failedRuntime: PhysicsRuntime | null = null;
+function isFailed(eid: number): boolean {
+    return (failedRuntime as PhysicsRuntime).failed.has(eid);
+}
 
 /** uploads a scene's authored {@link Spring} / {@link Joint} entities to the solver, on change only. Fixed group, `before: [StepSystem]` so a constraint authored or edited this frame lands in this frame's solve. */
 export const ConstraintSystem: System = {
@@ -741,15 +764,18 @@ export const ConstraintSystem: System = {
         const world = runtime.world;
         if (!world) return;
         const ss = springSignature(state);
+        const js = jointSignature(state);
+        if (ss === runtime.springSig && js === runtime.jointSig) return;
+        failedRuntime = runtime;
         if (ss !== runtime.springSig) {
             runtime.springSig = ss;
-            syncSprings(world, runtime.bodies, springDefs(state), (eid) => runtime.failed.has(eid));
+            syncSprings(world, runtime.bodies, springDefs(state), isFailed);
         }
-        const js = jointSignature(state);
         if (js !== runtime.jointSig) {
             runtime.jointSig = js;
-            syncJoints(world, runtime.bodies, jointDefs(state), (eid) => runtime.failed.has(eid));
+            syncJoints(world, runtime.bodies, jointDefs(state), isFailed);
         }
+        failedRuntime = null;
     },
 };
 
@@ -818,8 +844,11 @@ const SyncSystem: System = {
             if (state.has(eid, Pose)) state.remove(eid, Pose);
             bodySetChanged = true;
         }
-        if (bodySetChanged)
-            resyncConstraints(world, runtime.bodies, (eid) => runtime.failed.has(eid));
+        if (bodySetChanged) {
+            failedRuntime = runtime;
+            resyncConstraints(world, runtime.bodies, isFailed);
+            failedRuntime = null;
+        }
     },
 };
 
@@ -829,7 +858,9 @@ const _record = new Float32Array(12);
 /** write the movers' interpolated pose into the `transforms` firehose at `alpha` (the fixed-step interpolation blend). */
 export function composePose(runtime: PhysicsRuntime, transforms: GPUBuffer, alpha: number): void {
     if (!Compute.device) return;
-    for (const eid of runtime.movedThisTick) {
+    const moved = runtime.movedThisTick;
+    for (let i = 0; i < runtime.movedCount; i++) {
+        const eid = moved[i];
         const p = eid * 3;
         const q = eid * 4;
         const quat = nlerpShortest(
@@ -918,11 +949,14 @@ export const PhysicsPlugin: Plugin = {
         await init(); // async wasm compile — the browser main thread can't compile it synchronously
         runtime.world?.destroy();
         runtime.world = new World({ gravity: { x: 0, y: GRAVITY, z: 0 } });
+        const clock = stepClocks.get(state);
+        if (clock) runtime.world.setClock(clock);
         clearBodies(runtime);
         runtime.prevPos = new Float32Array(capacity * 3);
         runtime.prevQuat = new Float32Array(capacity * 4);
         runtime.currPos = new Float32Array(capacity * 3);
         runtime.currQuat = new Float32Array(capacity * 4);
+        runtime.movedThisTick = new Int32Array(capacity);
         resetSignatures(); // the fresh world receives the authored constraint set on its first frame
     },
 

@@ -11,7 +11,7 @@ import { SetType } from "../common/constants";
 import { f32, maxInt, minf } from "../common/math";
 import { claimResident, reserveBodies } from "../kernel/bodycolumns";
 import { rebuildGeometry } from "../kernel/geocolumns";
-import { elapsed, resetProfile, ticks } from "../world/profile";
+import { PHASE_SLOT, STEP_SLOT } from "../world/clock";
 import { overlapSensors } from "../world/sensor";
 import type { WorldState } from "../world/world";
 import type { StepContext } from "./contactsolver";
@@ -50,8 +50,8 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     // Claim the shared resident body region for this world — throws if another world took it over
     // (two live worlds can't be stepped interleaved over the singleton kernel memory).
     claimResident(world);
-    const profile = world.profile;
-    resetProfile(profile);
+    const clock = world.clock;
+    clock.begin(STEP_SLOT);
 
     // Reset per-step event buffers so a user never reads stale data on an early return. Truncate in
     // place (like the body move pool's valid-length reset) instead of re-minting: the API accessors map
@@ -63,12 +63,10 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     world.contactHitEvents.length = 0;
     world.jointEvents.length = 0;
 
-    const stepStart = ticks();
-
     // Update collision pairs and create contacts.
-    const pairsStart = ticks();
+    clock.mark(PHASE_SLOT);
     updateBroadPhasePairs(world);
-    profile.pairs = elapsed(pairsStart);
+    clock.span("pairs", PHASE_SLOT);
 
     const awakeSet = world.solverSets[SetType.Awake];
 
@@ -88,8 +86,9 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     context.splitIslandId = -1;
     context.splitSleepTime = 0;
     context.bulletBodies.length = 0;
-    context.hitEventContacts.clear();
-    context.jointEventFlags.clear();
+    // `Set.prototype.clear` mints a fresh table even on an empty set, so guard on size.
+    if (context.hitEventContacts.size !== 0) context.hitEventContacts.clear();
+    if (context.jointEventFlags.size !== 0) context.jointEventFlags.clear();
 
     if (timeStep > 0) {
         context.invDt = f32(1.0 / timeStep);
@@ -138,9 +137,9 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     }
 
     // Narrow phase: update contacts.
-    const collideStart = ticks();
+    clock.mark(PHASE_SLOT);
     collide(context);
-    profile.collide = elapsed(collideStart);
+    clock.span("collide", PHASE_SLOT);
 
     // A mid-narrowphase manifold-pool grow moved the geometry region (and the solver columns) that sit
     // after it past the old GEO_END. Re-upload the geometry now — before solve reserves its columns from
@@ -155,16 +154,16 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
 
     // Integrate velocities, solve velocity constraints, integrate positions.
     if (timeStep > 0) {
-        const solveStart = ticks();
+        clock.mark(PHASE_SLOT);
         solve(world, context);
-        profile.solve = elapsed(solveStart);
+        clock.span("solve", PHASE_SLOT);
     }
 
     // Refresh sensor overlaps and publish begin/end touch events (after solve, so continuous hits
     // from this step are already recorded).
-    const sensorStart = ticks();
+    clock.mark(PHASE_SLOT);
     overlapSensors(world);
-    profile.sensors = elapsed(sensorStart);
+    clock.span("sensors", PHASE_SLOT);
 
     // Swap the double-buffered end-event arrays.
     world.endEventArrayIndex = 1 - world.endEventArrayIndex;
@@ -172,6 +171,6 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     world.contactEndEvents[world.endEventArrayIndex].length = 0;
     world.sensorEndEvents[world.endEventArrayIndex].length = 0;
 
-    profile.step = elapsed(stepStart);
+    clock.span("step", STEP_SLOT);
     world.locked = false;
 }
