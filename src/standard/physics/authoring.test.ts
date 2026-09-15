@@ -1,6 +1,6 @@
-import { build } from "@dylanebert/shallot";
+import { build, Time } from "@dylanebert/shallot";
 import { check } from "@dylanebert/shallot/harness/check";
-import { Body, PhysicsPlugin } from "@dylanebert/shallot/physics";
+import { Body, PhysicsPlugin, physicsStepConfig } from "@dylanebert/shallot/physics";
 
 const EULER_SCENE = `<scene><a id="wheel" body="shape: 1; pos: 0 1.5 0; half-extents: 0 0 0 0.4; mass: 0.5; quat: 90 0 0" /></scene>`;
 
@@ -8,6 +8,24 @@ function rotateY(quat: readonly [number, number, number, number]): [number, numb
     const [x, y, z, w] = quat;
     return [2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w)];
 }
+
+check(
+    "Physics reports the fixed-step values used by its production system",
+    {
+        claim: "vehicle trajectory bounds can duplicate gravity and substeps instead of reading the initialized Physics system's fixed-step configuration",
+    },
+    async () => {
+        const app = await build({ defaults: false, plugins: [PhysicsPlugin] });
+        try {
+            const config = physicsStepConfig(app.state);
+            if (config.dt !== Time.FIXED_DT || config.gravity !== -10 || config.substeps !== 4)
+                throw new Error(`unexpected Physics step configuration: ${JSON.stringify(config)}`);
+            app.state.step(config.dt);
+        } finally {
+            app.dispose();
+        }
+    },
+);
 
 check(
     "scene Body Euler authoring produces a unit wheel rotation",

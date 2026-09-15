@@ -619,6 +619,18 @@ export const Physics = {
     dt: Time.FIXED_DT,
 } as const;
 
+export type PhysicsStepConfig = Readonly<{
+    dt: number;
+    gravity: number;
+    substeps: number;
+}>;
+
+/** The fixed-step values used by this initialized State's production physics system. */
+export function physicsStepConfig(state: State): PhysicsStepConfig {
+    runtimeFor(state);
+    return { dt: Time.FIXED_DT, gravity: GRAVITY, substeps: SUBSTEPS };
+}
+
 /** the fixed-group solver step: the ordering anchor a producer that moves bodies before the solve (the character sweep's kinematic upload) orders `before:`. */
 export const StepSystem: System = {
     name: "step",

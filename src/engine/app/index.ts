@@ -235,52 +235,76 @@ export function setDefaultLoading(factory: () => Loading): void {
 
 /**
  * build the app: collect plugins, acquire the GPU device, register, run `initialize`, load scenes, and
- * `warm`, returning a live {@link State} without starting a frame loop. drive `state.step(dt)` yourself,
- * or use {@link run} for the managed loop.
+ * `warm`, returning a live {@link State} without starting a frame loop. Only one App may be building or
+ * live in a process because component/slab/device registries are process-global; a concurrent or live
+ * contender rejects before any global mutation. Dispose the returned App before building another. Drive
+ * `state.step(dt)` yourself, or use {@link run} for the managed loop.
  * @example
  * const app = await build({ plugins: [MyPlugin], scene: "/scenes/demo.scene" });
  * app.state.step(1 / 60);
  */
+const BUILD_REFUSAL =
+    "build refused: another App is building or live in this process; call app.dispose() before building another";
+let buildOwner: object | null = null;
+
+function claimBuild(): object {
+    if (buildOwner !== null) throw new Error(BUILD_REFUSAL);
+    const token = {};
+    buildOwner = token;
+    return token;
+}
+
+function releaseBuild(token: object): void {
+    if (buildOwner === token) buildOwner = null;
+}
+
 export async function build(config: Config): Promise<App> {
-    const useDefaults = config.defaults !== false;
-    const excluded = new Set(config.exclude ?? []);
-    const pluginSet = new Set<Plugin>();
-    if (useDefaults) {
-        for (const plugin of _defaultPlugins) if (!excluded.has(plugin)) pluginSet.add(plugin);
-    }
-    for (const plugin of config.plugins) pluginSet.add(plugin);
-
-    // A public plugin selection pulls in its declared substrates. The resolver remains pure and strict;
-    // this boundary makes `build({ defaults: false, plugins: [PhysicsPlugin] })` a complete composition.
-    const requested = [...pluginSet];
-    for (let i = 0; i < requested.length; i++) {
-        for (const dependency of requested[i].dependencies ?? []) {
-            if (!pluginSet.has(dependency)) {
-                pluginSet.add(dependency);
-                requested.push(dependency);
-            }
-        }
-    }
-
-    const composition = resolvePlugins([...pluginSet]);
-    if (composition.missing.length > 0) {
-        const edges = composition.missing.map(
-            ({ plugin, dependency }) => `${plugin.name} requires ${dependency.name}`,
-        );
-        throw new Error(`Missing plugin dependencies:\n${edges.join("\n")}`);
-    }
-
-    const sorted = composition.plugins;
-    const tier = deviceTier(sorted);
-    const state = new State({
-        capacity: config.capacity,
-        pixelRatio: config.pixelRatio,
-    });
-    const loading = config.loading ?? _defaultLoading?.();
-    const cleanup = loading?.show();
+    const lease = claimBuild();
+    let state!: State;
+    let stateCreated = false;
+    let loading: Loading | undefined;
+    let cleanup: (() => void) | undefined;
     const initialized: Plugin[] = [];
 
     try {
+        const useDefaults = config.defaults !== false;
+        const excluded = new Set(config.exclude ?? []);
+        const pluginSet = new Set<Plugin>();
+        if (useDefaults) {
+            for (const plugin of _defaultPlugins) if (!excluded.has(plugin)) pluginSet.add(plugin);
+        }
+        for (const plugin of config.plugins) pluginSet.add(plugin);
+
+        // A public plugin selection pulls in its declared substrates. The resolver remains pure and strict;
+        // this boundary makes `build({ defaults: false, plugins: [PhysicsPlugin] })` a complete composition.
+        const requested = [...pluginSet];
+        for (let i = 0; i < requested.length; i++) {
+            for (const dependency of requested[i].dependencies ?? []) {
+                if (!pluginSet.has(dependency)) {
+                    pluginSet.add(dependency);
+                    requested.push(dependency);
+                }
+            }
+        }
+
+        const composition = resolvePlugins([...pluginSet]);
+        if (composition.missing.length > 0) {
+            const edges = composition.missing.map(
+                ({ plugin, dependency }) => `${plugin.name} requires ${dependency.name}`,
+            );
+            throw new Error(`Missing plugin dependencies:\n${edges.join("\n")}`);
+        }
+
+        const sorted = composition.plugins;
+        const tier = deviceTier(sorted);
+        state = new State({
+            capacity: config.capacity,
+            pixelRatio: config.pixelRatio,
+        });
+        stateCreated = true;
+        loading = config.loading ?? _defaultLoading?.();
+        cleanup = loading?.show() ?? undefined;
+
         if (tier.tier === "cpu") {
             // CPU composition is a first-class build, not a failed GPU build. Clear a prior device so
             // optional plugins cannot accidentally mirror against stale process-global handles.
@@ -338,8 +362,9 @@ export async function build(config: Config): Promise<App> {
         config.setup?.(state);
 
         for (let i = 0; i < sorted.length; i++) {
-            const onProgress = loading
-                ? (progress: number) => loading.update((i + progress) / total)
+            const currentLoading = loading;
+            const onProgress = currentLoading
+                ? (progress: number) => currentLoading.update((i + progress) / total)
                 : undefined;
             initialized.push(sorted[i]);
             try {
@@ -384,6 +409,7 @@ export async function build(config: Config): Promise<App> {
         if (cleanup) {
             await new Promise<void>((r) => requestFrame(() => r()));
             cleanup();
+            cleanup = undefined;
         }
 
         let disposed = false;
@@ -393,17 +419,21 @@ export async function build(config: Config): Promise<App> {
             dispose() {
                 if (disposed) return;
                 disposed = true;
-                for (let i = sorted.length - 1; i >= 0; i--) {
-                    try {
-                        sorted[i].dispose?.(state);
-                    } catch (err) {
-                        console.error(`Plugin "${sorted[i].name}" threw during dispose:`, err);
-                    }
-                }
                 try {
-                    state.dispose();
-                } catch (err) {
-                    console.error("State dispose threw:", err);
+                    for (let i = sorted.length - 1; i >= 0; i--) {
+                        try {
+                            sorted[i].dispose?.(state);
+                        } catch (err) {
+                            console.error(`Plugin "${sorted[i].name}" threw during dispose:`, err);
+                        }
+                    }
+                    try {
+                        state.dispose();
+                    } catch (err) {
+                        console.error("State dispose threw:", err);
+                    }
+                } finally {
+                    releaseBuild(lease);
                 }
             },
         };
@@ -411,20 +441,28 @@ export async function build(config: Config): Promise<App> {
         // a failed build leaves nothing live: plugins that started initialize dispose in
         // reverse, then the State, so a retry builds against clean module singletons. A dispose
         // throw here is reported, never allowed to mask the build error.
-        for (let i = initialized.length - 1; i >= 0; i--) {
-            try {
-                initialized[i].dispose?.(state);
-            } catch (err) {
-                console.error(`Plugin "${initialized[i].name}" threw during cleanup:`, err);
-            }
-        }
         try {
-            state.dispose();
-        } catch (err) {
-            console.error("State dispose threw during cleanup:", err);
+            for (let i = initialized.length - 1; i >= 0; i--) {
+                try {
+                    initialized[i].dispose?.(state);
+                } catch (err) {
+                    console.error(`Plugin "${initialized[i].name}" threw during cleanup:`, err);
+                }
+            }
+            try {
+                if (stateCreated) state.dispose();
+            } catch (err) {
+                console.error("State dispose threw during cleanup:", err);
+            }
+            try {
+                if (loading?.error) loading.error(e);
+                else cleanup?.();
+            } catch (err) {
+                console.error("Loading cleanup threw during build failure:", err);
+            }
+        } finally {
+            releaseBuild(lease);
         }
-        if (loading?.error) loading.error(e);
-        else cleanup?.();
         throw e;
     }
 }
