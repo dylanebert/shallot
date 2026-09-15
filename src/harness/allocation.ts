@@ -14,8 +14,14 @@ export interface AllocationSample {
     warm: number;
     frames: number;
     totalBytes: number;
-    /** allocating sites in the bundled subject, most bytes first */
+    /** allocating sites in the bundled subject, most bytes first; builtin bytes credit their caller */
     sites: readonly AllocationSite[];
+    /** the same window read after `warm` frames, the first steadiness premise */
+    atWarm: readonly AllocationSite[];
+    /** the same window read after twice `warm` frames */
+    atDoubleWarm: readonly AllocationSite[];
+    /** an A/A repeat of the window after twice `warm` frames */
+    repeat: readonly AllocationSite[];
     /** cost of one heap-statistics read */
     warmReadBytes: number;
     /** heap movement across an empty window of the same length */
@@ -25,6 +31,42 @@ export interface AllocationSample {
 }
 
 const SAMPLER = resolve(import.meta.dir, "allocation-sampler.mjs");
+
+/**
+ * Lowered V8 tier thresholds (defaults 400 and 3,000 in Node 26), so every function in a stepped loop
+ * reaches TurboFan inside the warm: warm-up boxing and Maglev-only literals are JIT transitions, not
+ * steady-state cost. A deopt loop under these would show as warm-N and warm-2N site sets that disagree.
+ */
+export const TIER_FLAGS = [
+    "--invocation-count-for-maglev=10",
+    "--invocation-count-for-turbofan=50",
+];
+
+const siteNames = (rows: readonly AllocationSite[]) => rows.map((row) => row.site).sort();
+
+/**
+ * The steadiness premise, or undefined when it holds: the warm-N and warm-2N windows allocate at the
+ * same sites, and an A/A repeat reads the same bytes at the same sites.
+ */
+export function unsteady(sample: AllocationSample): string | undefined {
+    const n = siteNames(sample.atWarm);
+    const n2 = siteNames(sample.atDoubleWarm);
+    if (n.join("\n") !== n2.join("\n")) {
+        const only = (a: string[], b: string[]) =>
+            a.filter((s) => !b.includes(s)).join(", ") || "none";
+        return `warm ${sample.warm} sites differ from warm ${2 * sample.warm}: only at ${sample.warm}: ${only(n, n2)}; only at ${2 * sample.warm}: ${only(n2, n)}`;
+    }
+    const bytes = (rows: readonly AllocationSite[]) =>
+        rows
+            .map((r) => `${r.site}=${r.bytes}`)
+            .sort()
+            .join("\n");
+    if (bytes(sample.atDoubleWarm) !== bytes(sample.repeat))
+        return `A/A repeat disagrees: ${sum(sample.atDoubleWarm)} then ${sum(sample.repeat)} bytes`;
+    return undefined;
+}
+
+const sum = (rows: readonly AllocationSite[]) => rows.reduce((total, row) => total + row.bytes, 0);
 
 /**
  * Bundle `entry` for Node, build its default export with `input`, step it `warm` frames, collect,
@@ -56,6 +98,7 @@ export async function sampleAllocation(
                 "node",
                 "--expose-gc",
                 "--enable-source-maps",
+                ...TIER_FLAGS,
                 SAMPLER,
                 join(dir, "subject.mjs"),
                 String(warm),
@@ -77,7 +120,7 @@ export async function sampleAllocation(
 }
 
 /** Render the heaviest sites as a table for a failure message. */
-export function siteTable(sample: AllocationSample, limit = 20): string {
+export function siteTable(sample: AllocationSample, limit = 30): string {
     const perFrame = (bytes: number) => (bytes / sample.frames).toFixed(1);
     const rows = sample.sites
         .slice(0, limit)

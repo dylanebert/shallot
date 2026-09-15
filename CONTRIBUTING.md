@@ -93,6 +93,7 @@ A pin records what was last verified, and every freshness pass bumps it:
 
 - Rust in `rust-toolchain.toml`.
 - Bun in `packageManager` and `.bun-version`.
+- Node in `.node-version`, the exact version `node` rows resolve.
 - `binaryen` in `package.json`.
 - `bun-webgpu` at a `dylanebert/bun-webgpu` commit, until kommander/bun-webgpu#10 merges and it returns to upstream.
 

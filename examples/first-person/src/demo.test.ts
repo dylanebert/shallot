@@ -11,7 +11,7 @@ import {
     Time,
 } from "@dylanebert/shallot";
 import { runBrowserCheck } from "@dylanebert/shallot/harness";
-import { sampleAllocation, siteTable } from "@dylanebert/shallot/harness/allocation";
+import { sampleAllocation, siteTable, unsteady } from "@dylanebert/shallot/harness/allocation";
 import { check } from "@dylanebert/shallot/harness/check";
 import { Demo } from "./demo";
 
@@ -266,12 +266,16 @@ check(
     },
     async () => {
         const sample = await sampleAllocation(resolve(import.meta.dir, "allocation.entry.ts"), {
-            warm: 600,
+            warm: 1200,
             frames: 600,
             input: readFileSync(SCENE, "utf8"),
         });
-        // Premises: the sampler attributes a known literal, and an empty window moves the heap by
-        // exactly one read. Without both, an empty site set proves nothing.
+        // Premises: the loop is steady (warm-N and warm-2N sites agree, an A/A repeat reads the same
+        // bytes), the sampler attributes a known literal, and an empty window moves the heap by exactly
+        // one read. Without all three, an empty site set proves nothing.
+        const unsteadiness = unsteady(sample);
+        if (unsteadiness !== undefined)
+            throw new Error(`inconclusive: ${unsteadiness}\n${siteTable(sample)}`);
         if (sample.controlBytes <= 0)
             throw new Error("inconclusive: the sampler attributed no bytes to its control literal");
         if (sample.nullHeapDelta !== sample.warmReadBytes)

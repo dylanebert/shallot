@@ -1,5 +1,5 @@
-// Runs under Node, never Bun: V8's heap statistics and sampling heap profiler count allocation
-// exactly, where JSC's statistics hold still between collections.
+// Runs under Node, never Bun: V8's sampling heap profiler counts allocation exactly, where JSC's
+// statistics hold still between collections.
 // argv: <bundle.mjs> <warm frames> <measured frames> <input file>. The bundle's default export takes
 // the input text and resolves to { step(), dispose() }. Prints one JSON sample on stdout.
 import { readFileSync } from "node:fs";
@@ -12,8 +12,8 @@ import { pathToFileURL } from "node:url";
 const [bundle, warmArg, framesArg, inputFile] = process.argv.slice(2);
 const warm = Number(warmArg);
 const frames = Number(framesArg);
-if (!bundle || !inputFile || !Number.isInteger(warm) || !Number.isInteger(frames) || frames <= 0)
-    throw new Error("usage: allocation-sampler.mjs <bundle> <warm> <frames> <input>");
+if (!bundle || !inputFile || !Number.isInteger(frames) || frames <= 0 || !Number.isInteger(warm) || warm < frames)
+    throw new Error("usage: allocation-sampler.mjs <bundle> <warm >= frames> <frames> <input>");
 const collect = globalThis.gc;
 if (typeof collect !== "function") throw new Error("allocation sampler needs node --expose-gc");
 
@@ -30,19 +30,25 @@ function site(frame) {
     return `${name} ${relative(process.cwd(), source)}:${entry.originalLine + 1}`;
 }
 
-// Sum sampled bytes by site, keeping only frames in `url`; the inspector's own bookkeeping lives
-// elsewhere and is not the subject's allocation.
+// Sum sampled bytes by the nearest frame in `url`. A builtin frame (a typed-array constructor, an
+// iterator `next`, `Set.prototype.clear`) has an empty url; its bytes belong to the subject frame above
+// it. Only samples with no such ancestor, the inspector's own bookkeeping, are not the subject's.
 function sites(profile, url) {
-    const bytes = new Map();
-    const visit = (node) => {
-        if (node.selfSize > 0 && node.callFrame.url === url) {
-            const key = site(node.callFrame);
-            bytes.set(key, (bytes.get(key) ?? 0) + node.selfSize);
-        }
-        for (const child of node.children) visit(child);
+    const owner = new Map();
+    const visit = (node, nearest) => {
+        const here = node.callFrame.url === url ? site(node.callFrame) : nearest;
+        if (here !== undefined) owner.set(node.id, here);
+        for (const child of node.children) visit(child, here);
     };
-    visit(profile.head);
-    return [...bytes].map(([name, size]) => ({ site: name, bytes: size }));
+    visit(profile.head, undefined);
+    const bytes = new Map();
+    for (const { nodeId, size } of profile.samples) {
+        const key = owner.get(nodeId);
+        if (key !== undefined) bytes.set(key, (bytes.get(key) ?? 0) + size);
+    }
+    return [...bytes]
+        .map(([name, size]) => ({ site: name, bytes: size }))
+        .sort((x, y) => y.bytes - x.bytes);
 }
 
 const session = new Session();
@@ -62,9 +68,21 @@ async function sample(url, body) {
 
 const { default: create } = await import(bundleUrl);
 const subject = await create(readFileSync(inputFile, "utf8"));
-try {
-    for (let i = 0; i < warm; i++) subject.step();
+const run = (n) => {
+    for (let i = 0; i < n; i++) subject.step();
+};
+const window = () => {
     collect();
+    return sample(bundleUrl, () => run(frames));
+};
+try {
+    // Steadiness premise: a window read after `warm` frames, one read after twice that, and an A/A
+    // repeat of the latter. The measured window follows the controls.
+    run(warm);
+    const atWarm = await window();
+    run(warm - frames);
+    const atDoubleWarm = await window();
+    const repeat = await window();
 
     // Controls: a read costs a stable amount, an empty window moves the heap by exactly that read,
     // and the sampler attributes a known per-frame literal, so an empty site set is not a dead probe.
@@ -78,24 +96,22 @@ try {
     const control = await sample(import.meta.url, () => {
         for (let i = 0; i < frames; i++) sink = { frame: i };
     });
-    const controlBytes = control.reduce((sum, row) => sum + row.bytes, 0);
     void sink;
 
-    collect();
-    const measured = await sample(bundleUrl, () => {
-        for (let i = 0; i < frames; i++) subject.step();
-    });
-    measured.sort((x, y) => y.bytes - x.bytes);
+    const measured = await window();
     process.stdout.write(
         `${JSON.stringify({
-            runtime: `node ${process.version}`,
+            runtime: `node ${process.version} ${process.execArgv.join(" ")}`,
             warm,
             frames,
             totalBytes: measured.reduce((sum, row) => sum + row.bytes, 0),
             sites: measured,
+            atWarm,
+            atDoubleWarm,
+            repeat,
             warmReadBytes,
             nullHeapDelta,
-            controlBytes,
+            controlBytes: control.reduce((sum, row) => sum + row.bytes, 0),
         })}\n`,
     );
 } finally {
