@@ -1,6 +1,6 @@
 {
     "kind": "recipe",
-    "description": "Drive a vehicle with W/S/A/D through the Physics escape hatch.",
+    "description": "Drive a vehicle with W/S/A/D.",
     "problem": "I want a car I can drive with WASD.",
     "scene": "scenes/drive-a-vehicle.scene",
     "plugins": {
@@ -8,5 +8,6 @@
         "Text": true,
         "Physics": true,
         "Car": "./src/car"
-    }
+    },
+    "check": { "file": "src/car.test.ts" }
 }

@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import { parse } from "@babel/parser";
 import { Glob } from "bun";
 import {
@@ -65,6 +65,8 @@ const SKIP = new Set([".git", ".cache", "node_modules", "fixtures", "target", "d
 const BUN_TEST_IMPORT = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*["']bun:test["']/g;
 const REGISTRARS = new Set(["test", "it", "describe"]);
 const COLUMNS = ["claim", "size", "requires", "subject", "budget", "file"] as const;
+const DEEP_RECIPE_IMPORT = /(?:from\s+|import\s*\(\s*)["'][^"']*\/src(?:\/|["'])/;
+const PHYSICS_WORLD_ESCAPE = /\bPhysics\.world\b|\bphysicsWorld\s*\(/;
 
 interface StaticValue {
     ok: boolean;
@@ -239,6 +241,37 @@ interface ManifestRead {
     hasCheck: boolean;
 }
 
+function recipeSourceViolations(root: string, manifestPath: string, population: Population): void {
+    let manifest: unknown;
+    try {
+        manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    } catch {
+        return;
+    }
+    if (
+        !manifest ||
+        typeof manifest !== "object" ||
+        (manifest as { kind?: unknown }).kind !== "recipe"
+    )
+        return;
+
+    const sourceRoot = resolve(dirname(manifestPath), "src");
+    if (!existsSync(sourceRoot)) return;
+    for (const match of new Glob("**/*.ts").scanSync({ cwd: sourceRoot, dot: false })) {
+        const path = resolve(sourceRoot, match);
+        const source = readFileSync(path, "utf8");
+        const file = relativeFile(root, path);
+        if (DEEP_RECIPE_IMPORT.test(source))
+            population.invalid.push(
+                `recipe source uses a deep engine import: ${file}; import only from package exports`,
+            );
+        if (PHYSICS_WORLD_ESCAPE.test(source))
+            population.invalid.push(
+                `recipe source uses Physics.world/physicsWorld: ${file}; use the State-scoped public seam`,
+            );
+    }
+}
+
 function manifestEntries(root: string, path: string, population: Population): ManifestRead {
     const label = relativeFile(root, path);
     let parsed: unknown;
@@ -357,11 +390,11 @@ export function collectPopulation(root: string): Population {
         .filter((match) => !match.split("/").some((part) => SKIP.has(part)))
         .sort();
     const manifestResults = new Map<string, ManifestRead>();
-    for (const match of manifestFiles)
-        manifestResults.set(
-            match,
-            manifestEntries(population.root, resolve(population.root, match), population),
-        );
+    for (const match of manifestFiles) {
+        const path = resolve(population.root, match);
+        manifestResults.set(match, manifestEntries(population.root, path, population));
+        recipeSourceViolations(population.root, path, population);
+    }
     const rootResult = manifestResults.get("shallot.json");
     const rootIsAuthoritative = rootResult?.hasCheck === true;
     const admitted = rootIsAuthoritative
