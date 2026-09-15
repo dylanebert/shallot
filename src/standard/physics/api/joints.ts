@@ -638,12 +638,10 @@ export class WheelJoint extends Joint {
         j.upperSteeringLimit = f32(upper);
     }
 
-    /**
-     * Set the steering spring target angle (radians).
-     * A sleeping body ignores this until `setAwake(true)`: the setter is a pure data write and does not wake the body.
-     */
+    /** Set the steering spring target angle (radians), waking the connected bodies. */
     setTargetSteeringAngle(radians: number): void {
         this.data().targetSteeringAngle = f32(radians);
+        wakeJointBodies(this.world, this.record());
     }
 
     /** @returns the steering spring target angle (radians). */
