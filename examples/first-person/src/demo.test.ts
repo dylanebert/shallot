@@ -16,7 +16,7 @@ const SCENE = `<scene>
     <a id="lower-step" body="pos: 0 0.75 3; half-extents: 3 0.25 1.5; mass: 0" />
     <a id="upper-step" body="pos: 0 1.25 0; half-extents: 3 0.25 1.5; mass: 0" />
     <a id="lift" body="pos: 0 1.75 -6.5; half-extents: 3 0.25 2; mass: 0" lift />
-    <a id="player" body="pos: 0 2.65 -6.5; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0" character />
+    <a id="player" body="pos: 0 2.9 -6.5; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0" character />
 </scene>`;
 
 async function ascent() {
@@ -55,6 +55,16 @@ check(
             const lowerStep = entity(app, "lower-step");
             const upperStep = entity(app, "upper-step");
             const stepRise = Math.abs(Body.pos.y.get(upperStep) - Body.pos.y.get(lowerStep));
+            const capsuleBottom =
+                Body.pos.y.get(player) -
+                Body.halfExtents.y.get(player) -
+                Body.halfExtents.w.get(player);
+            const liftTop = Body.pos.y.get(lift) + Body.halfExtents.y.get(lift);
+            const initialGap = capsuleBottom - liftTop;
+            if (initialGap < 0 || initialGap > 0.0001)
+                throw new Error(
+                    `invalid lift premise: capsule/lift vertical gap was ${initialGap.toFixed(4)}m, expected tangent`,
+                );
             step(app, 2);
             const before = readBody(app.state, player);
             const liftBefore = readBody(app.state, lift);
