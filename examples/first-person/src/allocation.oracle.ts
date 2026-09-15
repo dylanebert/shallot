@@ -22,7 +22,7 @@ function table(label: string, sites: readonly AllocationSite[], frames: number):
 check(
     "first-person page frames allocate nothing on a real display adapter",
     {
-        claim: "a warm frame of the production first-person web build, stepped by its own page loop in a headed browser on a real adapter, allocates JavaScript heap in the rendering, input or loop code the Node row cannot load",
+        claim: "a warm requestAnimationFrame frame of the production first-person web build, stepped by its own page loop in a headed browser on a real adapter, allocates no JavaScript heap in the rendering, loop or other browser-only code under the engine's frame callback, so no periodic scavenge follows play",
         size: "integration",
         requires: ["display"],
         subject: ["examples/first-person"],
@@ -32,11 +32,12 @@ check(
         // The page loop runs at the display's rate (144 to 240 Hz here), so 480 warm frames and 120-frame windows
         // are what fit the build, the headed launch and five profiled spans inside the budget. With V8's tier
         // thresholds lowered, a per-frame function reaches TurboFan in about 50 frames; three agreeing windows
-        // are the steadiness premise, not the warm's length.
+        // are the steadiness premise, not the warm's length. The deadline sits 4 s inside the budget, so
+        // teardown always runs before the budget ends.
         const sample = await samplePage(resolve(import.meta.dir, ".."), {
             warm: 480,
             frames: 120,
-            deadline: performance.now() + 19_000,
+            deadline: performance.now() + 16_000,
         });
         const tables = [
             `${sample.runtime} on ${sample.adapter}`,
@@ -46,11 +47,19 @@ check(
         console.log(tables);
         const metadata = { runtime: sample.runtime, hardware: sample.adapter };
         // The control literal, attributed under the run frame as the windows are, proves the sampler sees the
-        // page's frame loop; without it an empty site set proves nothing.
-        if (windowBytes({ label: "control", sites: sample.control }) <= 0)
+        // page's frame loop: the loop's own site must read more with it than the A/A window read without it.
+        // A bare nonzero total would pass on any red page's ordinary frame bytes.
+        const at = (sites: readonly AllocationSite[]) =>
+            sites.find((row) => row.site === sample.loopSite)?.bytes ?? 0;
+        const controlAt = at(sample.control) / 60;
+        const repeatAt = at(sample.windows[2].sites) / sample.frames;
+        console.log(
+            `control at ${sample.loopSite}: ${controlAt.toFixed(1)}/f against A/A ${repeatAt.toFixed(1)}/f`,
+        );
+        if (controlAt <= repeatAt)
             throw Object.assign(
                 new Error(
-                    "inconclusive: the sampler attributed no bytes to the frame-loop control",
+                    `inconclusive: the control read ${controlAt.toFixed(1)}/f at ${sample.loopSite}, not above the A/A window's ${repeatAt.toFixed(1)}/f`,
                 ),
                 metadata,
             );

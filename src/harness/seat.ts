@@ -5,7 +5,7 @@
 
 import { type AdapterFacts, classifyAdapter } from "../engine/runtime/adapter";
 import { type CaptureIdentity, captureIdentityLabel, captureIdentityMatches } from "./capture";
-import type { LaunchPlan } from "./launch";
+import { LAUNCH_MODES, type LaunchPlan } from "./launch";
 
 // Keep the harness seat module's public imports stable while the engine owns adapter policy.
 export {
@@ -91,7 +91,7 @@ export function resolveSeat(
         const display = facts.display;
         if (display === undefined) return refuse(seat, "no headed display is declared");
         const launch = display.browser?.launch;
-        if (launch === undefined || launch.mode !== "headed") {
+        if (launch === undefined || LAUNCH_MODES[launch.seat] !== "headed") {
             return refuse(
                 seat,
                 `no headed Chromium launch was observed on the declared display ${display.source}`,
@@ -111,11 +111,9 @@ export function resolveSeat(
     if (browser?.launch === undefined) {
         return refuse(seat, "no declared headless Chromium launch path for this host");
     }
-    if (browser.launch.mode !== "headless") {
-        return refuse(
-            seat,
-            `a ${browser.launch.mode} launch never grants the chromium seat, which runs headless`,
-        );
+    const mode = LAUNCH_MODES[browser.launch.seat];
+    if (mode !== "headless") {
+        return refuse(seat, `a ${mode} launch never grants the chromium seat, which runs headless`);
     }
     if (browser.adapter === undefined) {
         return refuse(seat, "the browser reported no adapter observation");
@@ -135,6 +133,6 @@ export function resolveSeat(
     }
     return {
         ok: true,
-        detail: `${browser.launch.mode} chromium on real adapter ${adapter.identity}`,
+        detail: `${mode} chromium on real adapter ${adapter.identity}`,
     };
 }

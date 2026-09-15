@@ -31,11 +31,11 @@ export const HOST_LAUNCHES: Readonly<Record<string, HostLaunchDeclaration>> = ho
 /** the real-GPU launch floor every host and seat shares. */
 export const LAUNCH_FLOOR: RealGpuLaunch = launchFloor as RealGpuLaunch;
 
-/** a resolved launch: one seat's fixed mode plus the shared floor, for one declared host. */
+/** a resolved launch: one seat plus the shared floor, for one declared host. Its mode is always
+ *  `LAUNCH_MODES[seat]`, never a field of its own, so no plan can disagree with its seat. */
 export interface LaunchPlan {
     host: string;
     seat: LaunchSeat;
-    mode: LaunchMode;
     channel: RealGpuLaunch["channel"];
     args: readonly string[];
     /** the host's evidence in this seat's mode. */
@@ -57,7 +57,6 @@ export function launchPlan(
     return {
         host,
         seat,
-        mode,
         channel: LAUNCH_FLOOR.channel,
         args: LAUNCH_FLOOR.args,
         adapterEvidence: declaration.adapterEvidence[mode],
@@ -65,7 +64,7 @@ export function launchPlan(
 }
 
 /** the Playwright launch options for a plan. `headless` comes from the seat's policy, never from host
- *  data or the plan's own fields. */
+ *  data. */
 export function launchOptions(plan: LaunchPlan): {
     headless: boolean;
     channel: RealGpuLaunch["channel"];

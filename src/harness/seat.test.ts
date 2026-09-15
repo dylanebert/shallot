@@ -274,17 +274,14 @@ check(
         expect(LAUNCH_MODES).toEqual({ chromium: "headless", display: "headed" });
         for (const host of hosts) {
             const resolved = plan(host);
-            expect(resolved.mode).toBe("headless");
             expect(resolved.channel).toBe("chromium");
             expect(launchOptions(resolved).headless).toBe(true);
             const display = plan(host, "display");
-            expect(display.mode).toBe("headed");
             expect(launchOptions(display).headless).toBe(false);
             expect(display.args).toEqual(resolved.args);
-            // A plan's own fields cannot select headed for chromium: options read the seat's policy.
-            expect(
-                launchOptions({ ...resolved, mode: "headed", adapterEvidence: "proven" }).headless,
-            ).toBe(true);
+            // A plan carries no mode of its own, so seat resolution and launch options both read the seat.
+            expect("mode" in resolved || "mode" in display).toBe(false);
+            expect(launchOptions({ ...resolved, adapterEvidence: "proven" }).headless).toBe(true);
             // No declaration carries a mode, a headless field or a capability of its own.
             expect(Object.keys(HOST_LAUNCHES[host]).sort()).toEqual(["adapterEvidence", "note"]);
             expect(Object.keys(HOST_LAUNCHES[host].adapterEvidence).sort()).toEqual([

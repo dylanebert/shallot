@@ -11,13 +11,12 @@ import {
 import { SourceMap } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
-import { buildWeb } from "../cli/build";
 import { classifyAdapter } from "../engine/runtime/adapter";
 import { CROSS_ORIGIN_ISOLATION } from "../project/vite";
 import { attribute, originalPosition, subjectSite } from "./allocation-sampler.mjs";
 import { CAPTURE_CONTRACT } from "./capture";
 import { adapterFacts } from "./driver";
-import { launchOptions, launchPlan } from "./launch";
+import { LAUNCH_MODES, launchOptions, launchPlan } from "./launch";
 import { resolveSeat } from "./seat";
 
 export interface AllocationSite {
@@ -148,6 +147,8 @@ async function runSampler(
 export interface PageSample extends AllocationSample {
     /** the positively identified real adapter the display seat resolved on */
     adapter: string;
+    /** the run frame's own site, where the control's literal is credited */
+    loopSite: string;
 }
 
 type CallFrame = Parameters<typeof subjectSite>[0] & { url: string };
@@ -178,28 +179,44 @@ export async function samplePage(
     if (!declared) throw new Error("display seat unavailable: no headed display is declared");
     const app = realpathSync(FRAME_LOOP.source);
     const remaining = () => Math.max(1, deadline - performance.now());
+    // Every slow call races the deadline, so a hang still reaches `finally` before the row's budget ends.
+    const bounded = <T>(what: string, work: Promise<T>): Promise<T> => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const late = new Promise<never>((_, reject) => {
+            timer = setTimeout(
+                () => reject(new Error(`inconclusive: ${what} did not finish by the deadline`)),
+                remaining(),
+            );
+        });
+        return Promise.race([work, late]).finally(() => clearTimeout(timer));
+    };
 
     const outDir = mkdtempSync(join(tmpdir(), "shallot-page-"));
-    const server = Bun.serve({
-        port: 0,
-        fetch(request) {
-            const path = new URL(request.url).pathname;
-            const file = join(outDir, path === "/" ? "index.html" : decodeURIComponent(path));
-            if (
-                !file.startsWith(`${outDir}${sep}`) ||
-                !existsSync(file) ||
-                !statSync(file).isFile()
-            )
-                return new Response("not found", { status: 404 });
-            const body = Bun.file(file);
-            return new Response(body, {
-                headers: { ...CROSS_ORIGIN_ISOLATION, "Content-Type": body.type },
-            });
-        },
-    });
+    let server: ReturnType<typeof Bun.serve> | undefined;
     let browser: import("playwright").Browser | undefined;
     try {
-        await buildWeb(projectDir, { outDir, sourcemap: true });
+        // A second small static server beside the fixtures': none of those serves a directory with the
+        // cross-origin isolation headers the build needs.
+        server = Bun.serve({
+            port: 0,
+            fetch(request) {
+                const path = new URL(request.url).pathname;
+                const file = join(outDir, path === "/" ? "index.html" : decodeURIComponent(path));
+                if (
+                    !file.startsWith(`${outDir}${sep}`) ||
+                    !existsSync(file) ||
+                    !statSync(file).isFile()
+                )
+                    return new Response("not found", { status: 404 });
+                const body = Bun.file(file);
+                return new Response(body, {
+                    headers: { ...CROSS_ORIGIN_ISOLATION, "Content-Type": body.type },
+                });
+            },
+        });
+        // Loaded here, as playwright is, so Node allocation rows never load vite on import.
+        const { buildWeb } = await import("../cli/build");
+        await bounded("the web build", buildWeb(projectDir, { outDir, sourcemap: true }));
         const origin = `http://localhost:${server.port}`;
         const maps = new Map<string, { map: SourceMap; base: string }>();
         for (const file of readdirSync(outDir, { recursive: true }) as string[]) {
@@ -227,11 +244,19 @@ export async function samplePage(
         const { chromium } = await import("playwright");
         const options = launchOptions(plan);
         const tiers = `--js-flags=${TIER_FLAGS.join(" ")}`;
-        browser = await chromium.launch({ ...options, args: [...options.args, tiers] });
-        const page = await browser.newPage({
-            viewport: { width: CAPTURE_CONTRACT.width, height: CAPTURE_CONTRACT.height },
-            deviceScaleFactor: CAPTURE_CONTRACT.deviceScale,
+        browser = await chromium.launch({
+            ...options,
+            args: [...options.args, tiers],
+            timeout: remaining(),
         });
+        const page = await bounded(
+            "newPage",
+            browser.newPage({
+                viewport: { width: CAPTURE_CONTRACT.width, height: CAPTURE_CONTRACT.height },
+                deviceScaleFactor: CAPTURE_CONTRACT.deviceScale,
+            }),
+        );
+        page.setDefaultTimeout(remaining());
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
         // The harness's frame count: its own rAF callback, outside the run frame, never wrapping the engine's.
@@ -244,17 +269,18 @@ export async function samplePage(
             };
             requestAnimationFrame(tick);
         });
-        const cdp = await page.context().newCDPSession(page);
+        const cdp = await bounded("newCDPSession", page.context().newCDPSession(page));
         await page.goto(`${origin}/`, { waitUntil: "load", timeout: remaining() });
-        const facts = await adapterFacts(page);
+        const facts = await bounded("adapterFacts", adapterFacts(page));
         const seat = resolveSeat("display", {
             display: { source: declared, browser: { launch: plan, adapter: facts } },
         });
         if (!seat.ok) throw new Error(seat.reason);
 
         const advance = async (count: number) => {
-            const now = await page.evaluate(
-                () => (window as unknown as FrameCount).__shallotFrames,
+            const now = await bounded(
+                "the frame count",
+                page.evaluate(() => (window as unknown as FrameCount).__shallotFrames),
             );
             await page.waitForFunction(
                 (target) => (window as unknown as FrameCount).__shallotFrames >= target,
@@ -265,26 +291,34 @@ export async function samplePage(
 
         // The page is ready once a CPU profile of its frames holds the frame loop, whose position is also
         // where the control's breakpoint goes.
-        await cdp.send("Profiler.enable");
+        await bounded("Profiler.enable", cdp.send("Profiler.enable"));
         let loop: CallFrame | undefined;
         while (loop === undefined) {
-            await cdp.send("Profiler.start");
+            await bounded("Profiler.start", cdp.send("Profiler.start"));
             await advance(30);
-            const { profile } = await cdp.send("Profiler.stop");
+            const { profile } = await bounded("Profiler.stop", cdp.send("Profiler.stop"));
             loop = profile.nodes.find((node) => isFrameLoop(node.callFrame))?.callFrame;
         }
-        await cdp.send("Profiler.disable");
+        await bounded("Profiler.disable", cdp.send("Profiler.disable"));
+        const loopSite = siteOf(loop);
+        if (loopSite === undefined) throw new Error("inconclusive: the frame loop has no site");
 
-        await cdp.send("HeapProfiler.enable");
+        await bounded("HeapProfiler.enable", cdp.send("HeapProfiler.enable"));
         const sample = async (count: number) => {
-            await cdp.send("HeapProfiler.collectGarbage");
-            await cdp.send("HeapProfiler.startSampling", {
-                samplingInterval: 1,
-                includeObjectsCollectedByMajorGC: true,
-                includeObjectsCollectedByMinorGC: true,
-            });
+            await bounded("collectGarbage", cdp.send("HeapProfiler.collectGarbage"));
+            await bounded(
+                "startSampling",
+                cdp.send("HeapProfiler.startSampling", {
+                    samplingInterval: 1,
+                    includeObjectsCollectedByMajorGC: true,
+                    includeObjectsCollectedByMinorGC: true,
+                }),
+            );
             await advance(count);
-            const { profile } = await cdp.send("HeapProfiler.stopSampling");
+            const { profile } = await bounded(
+                "stopSampling",
+                cdp.send("HeapProfiler.stopSampling"),
+            );
             return attribute(profile, runSite, siteOf);
         };
         await advance(warm);
@@ -293,23 +327,28 @@ export async function samplePage(
         const atDoubleWarm = await sample(frames);
         const repeat = await sample(frames);
 
-        await cdp.send("Debugger.enable");
-        const { breakpointId } = await cdp.send("Debugger.setBreakpointByUrl", {
-            url: loop.url,
-            lineNumber: loop.lineNumber,
-            columnNumber: loop.columnNumber,
-            condition: "(globalThis.__shallotControl = { frame: 0 }), false",
-        });
+        await bounded("Debugger.enable", cdp.send("Debugger.enable"));
+        const { breakpointId } = await bounded(
+            "setBreakpointByUrl",
+            cdp.send("Debugger.setBreakpointByUrl", {
+                url: loop.url,
+                lineNumber: loop.lineNumber,
+                columnNumber: loop.columnNumber,
+                condition: "(globalThis.__shallotControl = { frame: 0 }), false",
+            }),
+        );
         // The breakpoint's condition runs in the debugger on every frame, which slows the page; 60 frames prove
         // the rule sees bytes under the frame loop as well as a full window would.
         const control = await sample(60);
-        await cdp.send("Debugger.removeBreakpoint", { breakpointId });
+        await bounded("removeBreakpoint", cdp.send("Debugger.removeBreakpoint", { breakpointId }));
+        await bounded("Debugger.disable", cdp.send("Debugger.disable"));
 
         if (errors.length > 0)
             throw new Error(`inconclusive: the page threw:\n${errors.slice(0, 20).join("\n")}`);
         return {
-            runtime: `chromium ${browser.version()} ${plan.mode} ${tiers}`,
+            runtime: `chromium ${browser.version()} ${LAUNCH_MODES[plan.seat]} ${tiers}`,
             adapter: classifyAdapter(facts).identity,
+            loopSite,
             warm,
             frames,
             windows: [
@@ -321,7 +360,7 @@ export async function samplePage(
         };
     } finally {
         await browser?.close();
-        server.stop(true);
+        server?.stop(true);
         rmSync(outDir, { recursive: true, force: true });
     }
 }
