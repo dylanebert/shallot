@@ -269,7 +269,9 @@ export function writeSlots(cols: Columns, world: WorldState, layout: SolveLayout
 
     // Convex region: directory row + the per-record lane map. Records never cross a color boundary;
     // a color's tail record is short.
-    for (const span of layout.colors) {
+    const spans = layout.colors;
+    for (let s = 0; s < spans.length; ++s) {
+        const span = spans[s];
         const convex = span.color.convexContacts;
         const nConvex = convex.length;
         for (let j = 0; j < nConvex; ++j) {
@@ -290,8 +292,8 @@ export function writeSlots(cols: Columns, world: WorldState, layout: SolveLayout
     }
 
     // Mesh region, color by color (contiguous — matches layout.meshStart / meshTotal).
-    for (const span of layout.colors) {
-        const contacts = span.color.contacts;
+    for (let s = 0; s < spans.length; ++s) {
+        const contacts = spans[s].color.contacts;
         for (let k = 0; k < contacts.length; ++k) {
             const contactId = contacts[k].contactId;
             writeRow(world, contactId);
@@ -335,15 +337,19 @@ export function readbackHitEvents(
 ): void {
     const store = world.manifoldStore;
     const set = context.hitEventContacts;
-    for (const span of layout.colors) {
-        for (const contactId of span.color.convexContacts) {
-            if (store.hit(contactId)) set.add(contactId);
+    const spans = layout.colors;
+    for (let s = 0; s < spans.length; ++s) {
+        const convex = spans[s].color.convexContacts;
+        for (let j = 0; j < convex.length; ++j) {
+            if (store.hit(convex[j])) set.add(convex[j]);
         }
-        for (const spec of span.color.contacts) {
-            if (store.hit(spec.contactId)) set.add(spec.contactId);
+        const contacts = spans[s].color.contacts;
+        for (let j = 0; j < contacts.length; ++j) {
+            if (store.hit(contacts[j].contactId)) set.add(contacts[j].contactId);
         }
     }
-    for (const spec of world.constraintGraph.colors[OVERFLOW_INDEX].contacts) {
-        if (store.hit(spec.contactId)) set.add(spec.contactId);
+    const overflow = world.constraintGraph.colors[OVERFLOW_INDEX].contacts;
+    for (let j = 0; j < overflow.length; ++j) {
+        if (store.hit(overflow[j].contactId)) set.add(overflow[j].contactId);
     }
 }

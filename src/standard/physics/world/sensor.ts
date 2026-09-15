@@ -12,10 +12,11 @@ import * as tree from "../collision/tree";
 import { NULL_INDEX } from "../common/array";
 import { MAX_SHAPE_CAST_POINTS, SetType } from "../common/constants";
 import type { EntityId } from "../common/ids";
-import { minInt, type Transform, toRelativeTransform, type Vec3, xf } from "../common/math";
+import { minInt, type Transform, toRelativeTransform, type Vec3, vec3, xf } from "../common/math";
 import { BodyType, ShapeType } from "../common/types";
+import { readSimTransform } from "../kernel/bodycolumns";
 import { makeShapeProxy, overlapShape, type Shape } from "../shapes/shape";
-import { getBodyTransformQuick } from "./body";
+import { getBodySim, getBodyTransformQuick } from "./body";
 import type { WorldState } from "./world";
 
 /** A tracked overlap: the visitor shape's id and generation (b3Visitor). */
@@ -84,6 +85,59 @@ function overlapSensor(
     return overlapShape(sensorShape, xf.identity(), { points, count, radius: proxy.radius });
 }
 
+// The sensor pose, taken per sensor at the top of its query (relative to WORLD_ORIGIN).
+const sensorPose: Transform = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+
+// The sensor whose tree query is running; the pass is synchronous and not re-entrant, so the candidate
+// visitor reads it here rather than closing over it per sensor.
+const query: { world: WorldState | null; sensorShape: Shape | null; overlaps2: Visitor[] | null } =
+    {
+        world: null,
+        sensorShape: null,
+        overlaps2: null,
+    };
+
+const byShapeId = (a: Visitor, b: Visitor): number => a.shapeId - b.shapeId;
+
+function visitCandidate(_proxyId: number, shapeId: number): boolean {
+    const world = query.world as WorldState;
+    const sensorShape = query.sensorShape as Shape;
+    if (shapeId === sensorShape.id) {
+        return true;
+    }
+    const other = world.shapes[shapeId];
+
+    // Mesh vs mesh (or height field) has no overlap test — skip if both are non-convex.
+    const sensorNonConvex =
+        sensorShape.type === ShapeType.Mesh || sensorShape.type === ShapeType.HeightField;
+    const otherNonConvex = other.type === ShapeType.Mesh || other.type === ShapeType.HeightField;
+    if (sensorNonConvex && otherNonConvex) {
+        return true;
+    }
+
+    if (other.enableSensorEvents === false) {
+        return true;
+    }
+    if (other.bodyId === sensorShape.bodyId) {
+        return true;
+    }
+    if (shouldShapesCollide(sensorShape.filter, other.filter) === false) {
+        return true;
+    }
+    // Custom user filtering lands with its own stage (no customFilterFcn yet).
+
+    const otherTransform = toRelativeTransform(
+        getBodyTransformQuick(world, world.bodies[other.bodyId]),
+        WORLD_ORIGIN,
+    );
+    if (overlapSensor(sensorShape, sensorPose, other, otherTransform) === false) {
+        return true;
+    }
+
+    (query.overlaps2 as Visitor[]).push({ shapeId, generation: other.generation });
+    return true;
+}
+
 /**
  * Refresh every sensor's overlaps and publish begin/end events (b3OverlapSensors + b3SensorTask,
  * merged for the serial path). Runs after the solver, so continuous hits are already recorded.
@@ -103,10 +157,13 @@ export function overlapSensors(world: WorldState): void {
         const sensor = world.sensors[sensorIndex];
         const sensorShape = world.shapes[sensor.shapeId];
 
-        // Swap overlap buffers, seed the new frame with this step's time-of-impact hits.
+        // Swap overlap buffers, seed the new frame with this step's time-of-impact hits. The retired
+        // previous-frame buffer becomes the empty hit list; nothing outside this pass holds it.
+        const retired = sensor.overlaps1;
         sensor.overlaps1 = sensor.overlaps2;
         sensor.overlaps2 = sensor.hits;
-        sensor.hits = [];
+        retired.length = 0;
+        sensor.hits = retired;
         const overlaps2 = sensor.overlaps2;
 
         const body = world.bodies[sensorShape.bodyId];
@@ -114,56 +171,24 @@ export function overlapSensors(world: WorldState): void {
             body.setIndex === SetType.Disabled || sensorShape.enableSensorEvents === false;
 
         if (disabled === false) {
-            const transform = toRelativeTransform(getBodyTransformQuick(world, body), WORLD_ORIGIN);
+            readSimTransform(getBodySim(world, body), sensorPose);
+            vec3.subOut(sensorPose.p, WORLD_ORIGIN, sensorPose.p);
             const bounds = sensorShape.aabb;
             const maskHi = sensorShape.filter.maskHi;
             const maskLo = sensorShape.filter.maskLo;
 
-            const callback = (_proxyId: number, shapeId: number): boolean => {
-                if (shapeId === sensorShape.id) {
-                    return true;
-                }
-                const other = world.shapes[shapeId];
-
-                // Mesh vs mesh (or height field) has no overlap test — skip if both are non-convex.
-                const sensorNonConvex =
-                    sensorShape.type === ShapeType.Mesh ||
-                    sensorShape.type === ShapeType.HeightField;
-                const otherNonConvex =
-                    other.type === ShapeType.Mesh || other.type === ShapeType.HeightField;
-                if (sensorNonConvex && otherNonConvex) {
-                    return true;
-                }
-
-                if (other.enableSensorEvents === false) {
-                    return true;
-                }
-                if (other.bodyId === sensorShape.bodyId) {
-                    return true;
-                }
-                if (shouldShapesCollide(sensorShape.filter, other.filter) === false) {
-                    return true;
-                }
-                // Custom user filtering lands with its own stage (no customFilterFcn yet).
-
-                const otherTransform = toRelativeTransform(
-                    getBodyTransformQuick(world, world.bodies[other.bodyId]),
-                    WORLD_ORIGIN,
-                );
-                if (overlapSensor(sensorShape, transform, other, otherTransform) === false) {
-                    return true;
-                }
-
-                overlaps2.push({ shapeId, generation: other.generation });
-                return true;
-            };
-
-            tree.query(trees[BodyType.Static], bounds, maskHi, maskLo, false, callback);
-            tree.query(trees[BodyType.Kinematic], bounds, maskHi, maskLo, false, callback);
-            tree.query(trees[BodyType.Dynamic], bounds, maskHi, maskLo, false, callback);
+            query.world = world;
+            query.sensorShape = sensorShape;
+            query.overlaps2 = overlaps2;
+            tree.query(trees[BodyType.Static], bounds, maskHi, maskLo, false, visitCandidate);
+            tree.query(trees[BodyType.Kinematic], bounds, maskHi, maskLo, false, visitCandidate);
+            tree.query(trees[BodyType.Dynamic], bounds, maskHi, maskLo, false, visitCandidate);
+            query.world = null;
+            query.sensorShape = null;
+            query.overlaps2 = null;
 
             // Sort by shape id, then drop duplicates (a hit may repeat a queried overlap).
-            overlaps2.sort((a, b) => a.shapeId - b.shapeId);
+            overlaps2.sort(byShapeId);
             let uniqueCount = 0;
             for (let i = 0; i < overlaps2.length; ++i) {
                 if (

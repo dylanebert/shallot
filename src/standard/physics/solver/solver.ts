@@ -41,7 +41,7 @@ import { isConvexRefit, S_CAND, S_ESCAPED, SHAPE_STRIDE } from "../kernel/shapec
 import { computeFatShapeAABBOut, getShapeUserMaterialId, type Shape } from "../shapes/shape";
 import { BODY_TRANSIENT_FLAGS, BodyFlags, type BodyState, getBodySim } from "../world/body";
 import { splitIsland } from "../world/island";
-import { elapsed, makeTimer, reset, ticks } from "../world/profile";
+import { elapsed, reset, type Timer, ticks } from "../world/profile";
 import { trySleepIsland } from "../world/solverset";
 import { setMoveTransform, type WorldState } from "../world/world";
 import {
@@ -93,6 +93,9 @@ const finTransform: WorldTransform = {
 // one synchronous `solve` and never read across steps.
 const awakeIslandsScratch: boolean[] = [];
 
+// The solve's per-phase profile cursor, re-marked at the top of every solve.
+const solveTimer: Timer = { t: 0 };
+
 /** Read a Mat3 out of `col` at `o` into `out` (kernel row order cx, cy, cz — read_sim, body.rs). */
 function readMat3(col: Float32Array, o: number, out: Mat3): void {
     out.cx.x = col[o];
@@ -130,8 +133,9 @@ function setSweepBase(
  * column-backed body-state views (b3's per-color joint blocks + the overflow joint spill). */
 function hasJoints(world: WorldState, layout: SolveLayout): boolean {
     if (world.constraintGraph.colors[OVERFLOW_INDEX].jointSims.length > 0) return true;
-    for (const span of layout.colors) {
-        if (span.color.jointSims.length > 0) return true;
+    const colors = layout.colors;
+    for (let i = 0; i < colors.length; ++i) {
+        if (colors[i].color.jointSims.length > 0) return true;
     }
     return false;
 }
@@ -390,7 +394,9 @@ function finalizeBodies(
 /** Emit a joint event for each joint flagged over its threshold, in ascending id order (b3Solve). */
 /** Fill begin events after the solve has written the per-point normal impulses. */
 function updateBeginContactImpulses(world: WorldState): void {
-    for (const event of world.contactBeginEvents) {
+    const events = world.contactBeginEvents;
+    for (let i = 0; i < events.length; ++i) {
+        const event = events[i];
         const contact = world.contacts[event.contactId.index1 - 1];
         if (!contact || contact.generation !== event.contactId.generation) continue;
         let impulse = 0;
@@ -551,7 +557,8 @@ export function solve(world: WorldState, context: StepContext): void {
     // one `constraints` timer wraps this whole region (the solver task); an inner cursor accumulates
     // the per-phase split, both recorded at once.
     const constraintsStart = ticks();
-    const timer = makeTimer();
+    const timer = solveTimer;
+    timer.t = constraintsStart;
 
     const k = kernel();
     const colors = layout.colors;

@@ -121,6 +121,7 @@ export class World {
     // Reused wrappers over the internal move-event pool, so getBodyEvents allocates nothing in steady
     // state (matching the internal pool). Rebuilt lazily; valid until the next step or getBodyEvents.
     private readonly _moveEventPool: BodyMoveEvent[] = [];
+    private readonly _bodyEvents: BodyEvents = { moveEvents: this._moveEventPool, count: 0 };
 
     constructor(def: Partial<WorldDef> = {}) {
         this._worldId = createWorld({ ...defaultWorldDef(), ...def });
@@ -271,7 +272,9 @@ export class World {
             ev.userData = rec.userData;
             ev.fellAsleep = rec.fellAsleep;
         }
-        return { moveEvents: pool, count };
+        const events = this._bodyEvents;
+        events.count = count;
+        return events;
     }
 
     /**

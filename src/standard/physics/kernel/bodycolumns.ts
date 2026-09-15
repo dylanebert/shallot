@@ -255,6 +255,15 @@ class ResidentBodyState implements BodyState {
     ) {
         this._o = _i * STATE_STRIDE;
     }
+    /** {@link linearVelocity} into `out`, without the getter's fresh object. */
+    readLinearVelocity(out: Vec3): Vec3 {
+        const f = this._s.stateF;
+        const o = this._o;
+        out.x = f[o];
+        out.y = f[o + 1];
+        out.z = f[o + 2];
+        return out;
+    }
     get linearVelocity(): Vec3 {
         const f = this._s.stateF;
         const o = this._o;
@@ -333,6 +342,45 @@ class ResidentBodySim implements BodySim {
         this._so = i * SIM_STRIDE;
         this._fo = i * FIN_STRIDE;
         this._s2o = i * SIM2_STRIDE;
+    }
+    /** {@link transform} into `out`, without the getter's fresh objects. */
+    readTransform(out: WorldTransform): WorldTransform {
+        const sf = this._s.simF;
+        const ff = this._s.finF;
+        const so = this._so;
+        const fo = this._fo;
+        out.p.x = ff[fo + 9];
+        out.p.y = ff[fo + 10];
+        out.p.z = ff[fo + 11];
+        out.q.v.x = sf[so + 28];
+        out.q.v.y = sf[so + 29];
+        out.q.v.z = sf[so + 30];
+        out.q.s = sf[so + 31];
+        return out;
+    }
+    /** {@link localCenter} into `out`. */
+    readLocalCenter(out: Vec3): Vec3 {
+        const ff = this._s.finF;
+        const fo = this._fo;
+        out.x = ff[fo + 3];
+        out.y = ff[fo + 4];
+        out.z = ff[fo + 5];
+        return out;
+    }
+    /** {@link invInertiaLocal} into `out`. */
+    readInvInertiaLocal(out: Mat3): Mat3 {
+        const sf = this._s.simF;
+        const o = this._so + 10;
+        out.cx.x = sf[o];
+        out.cx.y = sf[o + 1];
+        out.cx.z = sf[o + 2];
+        out.cy.x = sf[o + 3];
+        out.cy.y = sf[o + 4];
+        out.cy.z = sf[o + 5];
+        out.cz.x = sf[o + 6];
+        out.cz.y = sf[o + 7];
+        out.cz.z = sf[o + 8];
+        return out;
     }
     get transform(): WorldTransform {
         const sf = this._s.simF;
@@ -502,6 +550,66 @@ class ResidentBodySim implements BodySim {
     set flags(v: number) {
         this._s.sim2U[this._s2o + S2_FLAGS] = v;
     }
+}
+
+/** @returns whether `sim` is a column view, whose vector setters copy components rather than store the object. */
+export function isResidentSim(sim: BodySim): boolean {
+    return sim instanceof ResidentBodySim;
+}
+
+/** @returns whether `state` is a column view, whose vector setters copy components rather than store the object. */
+export function isResidentState(state: BodyState): boolean {
+    return state instanceof ResidentBodyState;
+}
+
+/** Copy a sim's world transform into `out`; a column view reads its columns raw instead of minting objects. */
+export function readSimTransform(sim: BodySim, out: WorldTransform): WorldTransform {
+    if (sim instanceof ResidentBodySim) return sim.readTransform(out);
+    const t = sim.transform;
+    out.p.x = t.p.x;
+    out.p.y = t.p.y;
+    out.p.z = t.p.z;
+    out.q.v.x = t.q.v.x;
+    out.q.v.y = t.q.v.y;
+    out.q.v.z = t.q.v.z;
+    out.q.s = t.q.s;
+    return out;
+}
+
+/** Copy a sim's local center of mass into `out`. */
+export function readSimLocalCenter(sim: BodySim, out: Vec3): Vec3 {
+    if (sim instanceof ResidentBodySim) return sim.readLocalCenter(out);
+    const c = sim.localCenter;
+    out.x = c.x;
+    out.y = c.y;
+    out.z = c.z;
+    return out;
+}
+
+/** Copy a sim's local inverse inertia into `out`. */
+export function readSimInvInertiaLocal(sim: BodySim, out: Mat3): Mat3 {
+    if (sim instanceof ResidentBodySim) return sim.readInvInertiaLocal(out);
+    const m = sim.invInertiaLocal;
+    out.cx.x = m.cx.x;
+    out.cx.y = m.cx.y;
+    out.cx.z = m.cx.z;
+    out.cy.x = m.cy.x;
+    out.cy.y = m.cy.y;
+    out.cy.z = m.cy.z;
+    out.cz.x = m.cz.x;
+    out.cz.y = m.cz.y;
+    out.cz.z = m.cz.z;
+    return out;
+}
+
+/** Copy a state's linear velocity into `out`. */
+export function readStateLinearVelocity(state: BodyState, out: Vec3): Vec3 {
+    if (state instanceof ResidentBodyState) return state.readLinearVelocity(out);
+    const v = state.linearVelocity;
+    out.x = v.x;
+    out.y = v.y;
+    out.z = v.z;
+    return out;
 }
 
 /** Read a Mat3 out of `col` at `o` in the kernel's row order (cx, cy, cz), matching read_sim (body.rs). */

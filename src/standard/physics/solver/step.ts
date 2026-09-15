@@ -168,8 +168,9 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
 
     // Swap the double-buffered end-event arrays.
     world.endEventArrayIndex = 1 - world.endEventArrayIndex;
-    world.contactEndEvents[world.endEventArrayIndex] = [];
-    world.sensorEndEvents[world.endEventArrayIndex] = [];
+    // Truncate in place: the API getters map these into fresh event objects, so no caller holds the arrays.
+    world.contactEndEvents[world.endEventArrayIndex].length = 0;
+    world.sensorEndEvents[world.endEventArrayIndex].length = 0;
 
     profile.step = elapsed(stepStart);
     world.locked = false;

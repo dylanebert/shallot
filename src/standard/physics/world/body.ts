@@ -22,7 +22,6 @@ import { NULL_INDEX, swapRemove } from "../common/array";
 import { BODY_NAME_LENGTH, HUGE, SetType, SPECULATIVE_DISTANCE } from "../common/constants";
 import { allocId, type EntityId, freeId } from "../common/ids";
 import {
-    type AABB,
     aabb,
     clampInt,
     FLT_MAX,
@@ -51,12 +50,21 @@ import {
     shouldQueryCollide,
     toQueryFilterBits,
 } from "../common/types";
-import { reserveBodies, residentPush, residentRemove } from "../kernel/bodycolumns";
+import {
+    isResidentSim,
+    isResidentState,
+    readSimInvInertiaLocal,
+    readSimLocalCenter,
+    readSimTransform,
+    reserveBodies,
+    residentPush,
+    residentRemove,
+} from "../kernel/bodycolumns";
 import { writeFatAabb } from "../kernel/fataabbcolumns";
 import type { Capsule, MassData } from "../shapes/geometry";
 import {
     collideMover,
-    computeFatShapeAABB,
+    computeFatShapeAABBOut,
     computeShapeExtent,
     computeShapeMass,
     createShapeProxy,
@@ -264,8 +272,11 @@ export function bodySetLinearVelocity(world: WorldState, body: Body, linearVeloc
     if (vec3.lengthSq(linearVelocity) > 0) wakeBody(world, body);
     const state = getBodyState(world, body);
     if (state === null) return;
-    // Copy, don't store the caller's object: finalize mutates state.linearVelocity in place.
-    state.linearVelocity = { x: linearVelocity.x, y: linearVelocity.y, z: linearVelocity.z };
+    // Copy, don't store the caller's object: finalize mutates state.linearVelocity in place. A column
+    // view's setter already copies the components.
+    state.linearVelocity = isResidentState(state)
+        ? linearVelocity
+        : { x: linearVelocity.x, y: linearVelocity.y, z: linearVelocity.z };
 }
 
 /**
@@ -452,6 +463,29 @@ export function bodyApplyAngularImpulse(
 
 // --- transform + type + awake ----------------------------------------------------------------
 
+// Registers for bodySetTransform's column-view path; never live across calls.
+const setPose: WorldTransform = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
+const setCenter: Vec3 = { x: 0, y: 0, z: 0 };
+const setLocalCenter: Vec3 = { x: 0, y: 0, z: 0 };
+const setRotation = mat3.zero();
+const setRotationT = mat3.zero();
+const setInertiaTmp = mat3.zero();
+const setInvILocal = mat3.zero();
+const setInvIWorld = mat3.zero();
+
+function copyQuat(q: Quat, o: Quat): void {
+    o.v.x = q.v.x;
+    o.v.y = q.v.y;
+    o.v.z = q.v.z;
+    o.s = q.s;
+}
+
+function copyMat3(m: Mat3, o: Mat3): void {
+    vec3.copy(m.cx, o.cx);
+    vec3.copy(m.cy, o.cy);
+    vec3.copy(m.cz, o.cz);
+}
+
 /**
  * Teleport a body to a new pose (b3Body_SetTransform), recomputing its center of mass, world inverse
  * inertia, and shape broadphase proxies. Does not change velocity; the body keeps moving from the new
@@ -465,38 +499,65 @@ export function bodySetTransform(
 ): void {
     const sim = getBodySim(world, body);
 
-    sim.transform = { p: cloneVec(position), q: cloneQuat(rotation) };
-    sim.center = transformWorldPoint(sim.transform, sim.localCenter);
+    // The pose stages through registers. A column view's setters copy components, and reading its
+    // transform back takes the column's f32 store, exactly as the getter did. A plain record's pose
+    // sub-objects are its own (created fresh, deep-copied across set transfers), so they take the
+    // components in place.
+    const resident = isResidentSim(sim);
+    const transform = setPose;
+    transform.p.x = position.x;
+    transform.p.y = position.y;
+    transform.p.z = position.z;
+    transform.q.v.x = rotation.v.x;
+    transform.q.v.y = rotation.v.y;
+    transform.q.v.z = rotation.v.z;
+    transform.q.s = rotation.s;
+    if (resident) {
+        sim.transform = transform;
+        readSimTransform(sim, transform);
+    } else {
+        vec3.copy(transform.p, sim.transform.p);
+        copyQuat(transform.q, sim.transform.q);
+    }
 
-    const rot = mat3.fromQuat(sim.transform.q);
-    sim.invInertiaWorld = mat3.mul(mat3.mul(rot, sim.invInertiaLocal), mat3.transpose(rot));
+    readSimLocalCenter(sim, setLocalCenter);
+    quat.rotateOut(transform.q, setLocalCenter, setCenter);
+    vec3.addOut(setCenter, transform.p, setCenter);
 
-    sim.rotation0 = cloneQuat(sim.transform.q);
-    sim.center0 = cloneVec(sim.center);
+    mat3.fromQuatOut(transform.q, setRotation);
+    readSimInvInertiaLocal(sim, setInvILocal);
+    mat3.mulOut(setRotation, setInvILocal, setInertiaTmp);
+    mat3.transposeOut(setRotation, setRotationT);
+    mat3.mulOut(setInertiaTmp, setRotationT, setInvIWorld);
+
+    if (resident) {
+        sim.center = setCenter;
+        sim.invInertiaWorld = setInvIWorld;
+        sim.rotation0 = transform.q;
+        sim.center0 = setCenter;
+    } else {
+        vec3.copy(setCenter, sim.center);
+        copyMat3(setInvIWorld, sim.invInertiaWorld);
+        copyQuat(transform.q, sim.rotation0);
+        vec3.copy(setCenter, sim.center0);
+    }
 
     const broadPhase = world.broadPhase;
-    const transform = sim.transform;
     let shapeId = body.headShapeId;
     while (shapeId !== NULL_INDEX) {
         const shape = world.shapes[shapeId];
-        const box = computeFatShapeAABB(shape, transform, SPECULATIVE_DISTANCE);
-        shape.aabb = box;
+        // In-place refit: shape.aabb/fatAABB are shape-owned, as in the finalize refit.
+        const box = computeFatShapeAABBOut(shape, transform, SPECULATIVE_DISTANCE, shape.aabb);
 
         if (aabb.contains(shape.fatAABB, box) === false) {
             const margin = shape.aabbMargin;
-            const fatAABB: AABB = {
-                lowerBound: {
-                    x: f32(box.lowerBound.x - margin),
-                    y: f32(box.lowerBound.y - margin),
-                    z: f32(box.lowerBound.z - margin),
-                },
-                upperBound: {
-                    x: f32(box.upperBound.x + margin),
-                    y: f32(box.upperBound.y + margin),
-                    z: f32(box.upperBound.z + margin),
-                },
-            };
-            shape.fatAABB = fatAABB;
+            const fatAABB = shape.fatAABB;
+            fatAABB.lowerBound.x = f32(box.lowerBound.x - margin);
+            fatAABB.lowerBound.y = f32(box.lowerBound.y - margin);
+            fatAABB.lowerBound.z = f32(box.lowerBound.z - margin);
+            fatAABB.upperBound.x = f32(box.upperBound.x + margin);
+            fatAABB.upperBound.y = f32(box.upperBound.y + margin);
+            fatAABB.upperBound.z = f32(box.upperBound.z + margin);
             writeFatAabb(world, shape);
 
             // The body could be disabled, in which case it has no proxy.

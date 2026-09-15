@@ -41,7 +41,8 @@ interface ShapeHit {
 }
 
 /** rotate a vector by a quaternion (q · v). Pass the conjugate (`-qx, -qy, -qz, qw`) for the inverse
- * rotation, world → body-local. */
+ * rotation, world → body-local. Pass `out` to fill it instead of allocating (it may be read by the caller
+ * only until the next call that writes it). */
 export function qRotate(
     qx: number,
     qy: number,
@@ -50,15 +51,19 @@ export function qRotate(
     vx: number,
     vy: number,
     vz: number,
+    out?: [number, number, number],
 ): [number, number, number] {
     const tx = 2 * (qy * vz - qz * vy);
     const ty = 2 * (qz * vx - qx * vz);
     const tz = 2 * (qx * vy - qy * vx);
-    return [
-        vx + qw * tx + qy * tz - qz * ty,
-        vy + qw * ty + qz * tx - qx * tz,
-        vz + qw * tz + qx * ty - qy * tx,
-    ];
+    const x = vx + qw * tx + qy * tz - qz * ty;
+    const y = vy + qw * ty + qz * tx - qx * tz;
+    const z = vz + qw * tz + qx * ty - qy * tx;
+    if (out === undefined) return [x, y, z];
+    out[0] = x;
+    out[1] = y;
+    out[2] = z;
+    return out;
 }
 
 /** ray vs a sphere of `radius` centred at `c`. Nearest non-negative root; normal points outward. */

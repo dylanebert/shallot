@@ -1,8 +1,8 @@
 // Typed-array views over the kernel's shared solver columns (kernel/src/arena.rs). `reserveColumns`
-// lays out the columns in wasm linear memory for one step's counts and returns fresh views. Because
-// `reserve` may `memory.grow` (which detaches every existing view), the views are re-derived on every
-// call — the cost is a handful of typed-array constructions, no copy, and it sidesteps stale-buffer
-// bugs entirely.
+// lays out the columns in wasm linear memory for one step's counts and returns views over them.
+// Because `reserve` may `memory.grow` (which replaces the buffer and detaches every existing view),
+// the views are re-derived whenever the buffer, a column offset or a column length differs from the
+// last reservation, and reused otherwise, so a steady step constructs no typed arrays.
 //
 // The strides and column order MIRROR the Rust ABI (kernel/src/body.rs, kernel/src/contact.rs). The
 // wasm layout is the contract; a mismatch here silently corrupts the solve, so keep them in lockstep.
@@ -289,9 +289,37 @@ export type Columns = {
     joint: Float32Array;
 };
 
+// The last reservation's views, re-derived only when the buffer, a column offset, or a column length
+// changes, so a steady step mints no typed-array views.
+let layoutView = new Uint32Array(0);
+let reserved: Columns | null = null;
+
+function viewsCurrent(
+    views: Columns,
+    buf: ArrayBufferLike,
+    layout: Uint32Array,
+    lengths: number[],
+): boolean {
+    return (
+        views.finOut.buffer === buf &&
+        views.finOut.byteOffset === layout[FIN_OUT] &&
+        views.finOut.length === lengths[0] &&
+        views.slotScalar.byteOffset === layout[SLOT_SCALAR] &&
+        views.slotScalar.length === lengths[1] &&
+        views.wideMeta.byteOffset === layout[WIDE_META] &&
+        views.wideMeta.length === lengths[2] &&
+        views.colorSpan.byteOffset === layout[COLOR_SPAN] &&
+        views.colorSpan.length === lengths[3] &&
+        views.joint.byteOffset === layout[JOINT] &&
+        views.joint.length === lengths[4]
+    );
+}
+
+const reservedLengths = [0, 0, 0, 0, 0];
+
 /**
- * Reserve the solver columns for one step's counts and return fresh typed-array views over them.
- * Call once per step, before driving the kernel phases; the returned views are valid until the next
+ * Reserve the solver columns for one step's counts and return typed-array views over them. Call once
+ * per step, before driving the kernel phases; the returned views are valid until the next
  * `reserveColumns` (or any other call that can grow memory).
  */
 export function reserveColumns(
@@ -306,12 +334,24 @@ export function reserveColumns(
     const k = kernel();
     k.reserve(body, contact, manifold, point, wide, color, joint);
     const buf = k.memory.buffer;
-    const layout = new Uint32Array(buf, k.layoutPtr(), N_COLS);
-    return {
-        finOut: new Float32Array(buf, layout[FIN_OUT], body * FIN_OUT_STRIDE),
-        slotScalar: new Uint32Array(buf, layout[SLOT_SCALAR], contact * SLOT_STRIDE),
-        wideMeta: new Uint32Array(buf, layout[WIDE_META], wide * WIDE_META_STRIDE),
-        colorSpan: new Uint32Array(buf, layout[COLOR_SPAN], color * COLOR_SPAN_STRIDE),
-        joint: new Float32Array(buf, layout[JOINT], joint * JOINT_STRIDE),
+    const layoutPtr = k.layoutPtr();
+    if (layoutView.buffer !== buf || layoutView.byteOffset !== layoutPtr) {
+        layoutView = new Uint32Array(buf, layoutPtr, N_COLS);
+    }
+    const layout = layoutView;
+    const lengths = reservedLengths;
+    lengths[0] = body * FIN_OUT_STRIDE;
+    lengths[1] = contact * SLOT_STRIDE;
+    lengths[2] = wide * WIDE_META_STRIDE;
+    lengths[3] = color * COLOR_SPAN_STRIDE;
+    lengths[4] = joint * JOINT_STRIDE;
+    if (reserved !== null && viewsCurrent(reserved, buf, layout, lengths)) return reserved;
+    reserved = {
+        finOut: new Float32Array(buf, layout[FIN_OUT], lengths[0]),
+        slotScalar: new Uint32Array(buf, layout[SLOT_SCALAR], lengths[1]),
+        wideMeta: new Uint32Array(buf, layout[WIDE_META], lengths[2]),
+        colorSpan: new Uint32Array(buf, layout[COLOR_SPAN], lengths[3]),
+        joint: new Float32Array(buf, layout[JOINT], lengths[4]),
     };
+    return reserved;
 }

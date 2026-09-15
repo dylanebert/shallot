@@ -227,6 +227,10 @@ const sigBits = (x: number): number => {
     return _sigU32[0];
 };
 
+// the signature query terms, held once so the per-step signature walk mints no array.
+const SPRING_TERMS = [Spring];
+const JOINT_TERMS = [Joint];
+
 // FNV_BASIS is the empty-set signature, so an unconstrained scene's first frame already matches → no upload.
 /** re-arm the warning dedupe when a plugin world is warmed. Signatures themselves are State-owned. */
 export function resetSignatures(): void {
@@ -237,7 +241,7 @@ export function resetSignatures(): void {
 /** a hash of the authored {@link Spring} set, endpoint create-stamps included: an uploader re-uploads only when it changes. */
 export function springSignature(state: State): number {
     let h = FNV_BASIS;
-    for (const eid of state.query([Spring])) {
+    for (const eid of state.query(SPRING_TERMS)) {
         h = fold(h, eid);
         const a = Spring.a.get(eid);
         const b = Spring.b.get(eid);
@@ -263,7 +267,7 @@ export function springSignature(state: State): number {
 /** a hash of the authored {@link Joint} set, endpoint create-stamps included: the {@link springSignature} twin. */
 export function jointSignature(state: State): number {
     let h = FNV_BASIS;
-    for (const eid of state.query([Joint])) {
+    for (const eid of state.query(JOINT_TERMS)) {
         h = fold(h, eid);
         const a = Joint.a.get(eid);
         const b = Joint.b.get(eid);
@@ -549,14 +553,46 @@ export function getJointEvents(state: State): JointEvent[] {
     return world.getJointEvents();
 }
 
-export function readBody(state: State, eid: number): BodyState | null {
+/** a writable {@link BodyState} that {@link readBody} fills in place. */
+export interface BodyStateOut {
+    pos: [number, number, number];
+    quat: [number, number, number, number];
+    vel: [number, number, number];
+}
+
+// registers readBody reads the solver body through; never live across calls.
+const readPos = { x: 0, y: 0, z: 0 };
+const readQuat = { v: { x: 0, y: 0, z: 0 }, s: 1 };
+const readVel = { x: 0, y: 0, z: 0 };
+
+/** one body's live pose + velocity, or null when `eid` has no solver body. Pass `out` to fill it instead of allocating. */
+export function readBody(state: State, eid: number, out?: BodyStateOut): BodyState | null {
     const tb = body(state, eid);
     if (!tb) return null;
-    const p = tb.getPosition();
-    const q = tb.getRotation();
-    const v = tb.getLinearVelocity();
-    return { pos: [p.x, p.y, p.z], quat: [q.v.x, q.v.y, q.v.z, q.s], vel: [v.x, v.y, v.z] };
+    const p = tb.getPosition(readPos);
+    const q = tb.getRotation(readQuat);
+    const v = tb.getLinearVelocity(readVel);
+    if (out === undefined) {
+        return { pos: [p.x, p.y, p.z], quat: [q.v.x, q.v.y, q.v.z, q.s], vel: [v.x, v.y, v.z] };
+    }
+    out.pos[0] = p.x;
+    out.pos[1] = p.y;
+    out.pos[2] = p.z;
+    out.quat[0] = q.v.x;
+    out.quat[1] = q.v.y;
+    out.quat[2] = q.v.z;
+    out.quat[3] = q.s;
+    out.vel[0] = v.x;
+    out.vel[1] = v.y;
+    out.vel[2] = v.z;
+    return out;
 }
+
+// registers setKinematic hands the solver body; its setters round and copy them.
+const kinPos = { x: 0, y: 0, z: 0 };
+const kinQuat = { v: { x: 0, y: 0, z: 0 }, s: 1 };
+const kinVel = { x: 0, y: 0, z: 0 };
+
 export function setKinematic(
     state: State,
     eid: number,
@@ -571,20 +607,28 @@ export function setKinematic(
     let prev = runtime.kinPrev.get(eid);
     const moved =
         !prev || teleport || pos[0] !== prev[0] || pos[1] !== prev[1] || pos[2] !== prev[2];
-    tb.setTransform(
-        { x: pos[0], y: pos[1], z: pos[2] },
-        { v: { x: quat[0], y: quat[1], z: quat[2] }, s: quat[3] },
-    );
+    kinPos.x = pos[0];
+    kinPos.y = pos[1];
+    kinPos.z = pos[2];
+    kinQuat.v.x = quat[0];
+    kinQuat.v.y = quat[1];
+    kinQuat.v.z = quat[2];
+    kinQuat.s = quat[3];
+    tb.setTransform(kinPos, kinQuat);
     if (!prev || teleport) {
         prev = [pos[0], pos[1], pos[2]];
         runtime.kinPrev.set(eid, prev);
     }
-    const next = vel ?? [
-        (pos[0] - prev[0]) / Time.FIXED_DT,
-        (pos[1] - prev[1]) / Time.FIXED_DT,
-        (pos[2] - prev[2]) / Time.FIXED_DT,
-    ];
-    tb.setLinearVelocity({ x: next[0], y: next[1], z: next[2] });
+    if (vel) {
+        kinVel.x = vel[0];
+        kinVel.y = vel[1];
+        kinVel.z = vel[2];
+    } else {
+        kinVel.x = (pos[0] - prev[0]) / Time.FIXED_DT;
+        kinVel.y = (pos[1] - prev[1]) / Time.FIXED_DT;
+        kinVel.z = (pos[2] - prev[2]) / Time.FIXED_DT;
+    }
+    tb.setLinearVelocity(kinVel);
     if (moved && !tb.isAwake()) tb.setAwake(true);
     prev[0] = pos[0];
     prev[1] = pos[1];
@@ -631,6 +675,9 @@ export function physicsStepConfig(state: State): PhysicsStepConfig {
     return { dt: Time.FIXED_DT, gravity: GRAVITY, substeps: SUBSTEPS };
 }
 
+// the velocity register the step reads each moved body through.
+const stepVel = { x: 0, y: 0, z: 0 };
+
 /** the fixed-group solver step: the ordering anchor a producer that moves bodies before the solve (the character sweep's kinematic upload) orders `before:`. */
 export const StepSystem: System = {
     name: "step",
@@ -646,7 +693,7 @@ export const StepSystem: System = {
         world.step(Time.FIXED_DT, SUBSTEPS);
         if (liveRuntimes.size > 1) residentSnapshots.set(runtime, snapshotWorld(world));
         runtime.movedThisTick.clear();
-        runtime.counters = { bodiesVisited: runtime.counters.bodiesVisited, bytesUploaded: 0 };
+        runtime.counters.bytesUploaded = 0;
         const events = world.getBodyEvents();
         for (let i = 0; i < events.count; i++) {
             const ev = events.moveEvents[i];
@@ -668,13 +715,17 @@ export const StepSystem: System = {
             runtime.currQuat[q + 2] = ev.transform.q.v.z;
             runtime.currQuat[q + 3] = ev.transform.q.s;
             const live = runtime.bodies.get(eid);
-            const velocity = live?.getLinearVelocity();
-            writePose(
+            const velocity = live ? live.getLinearVelocity(stepVel) : null;
+            Pose.pos.set(eid, ev.transform.p.x, ev.transform.p.y, ev.transform.p.z, 0);
+            Pose.quat.set(
                 eid,
-                [ev.transform.p.x, ev.transform.p.y, ev.transform.p.z],
-                [ev.transform.q.v.x, ev.transform.q.v.y, ev.transform.q.v.z, ev.transform.q.s],
-                velocity ? [velocity.x, velocity.y, velocity.z] : [0, 0, 0],
+                ev.transform.q.v.x,
+                ev.transform.q.v.y,
+                ev.transform.q.v.z,
+                ev.transform.q.s,
             );
+            if (velocity) Pose.vel.set(eid, velocity.x, velocity.y, velocity.z, 0);
+            else Pose.vel.set(eid, 0, 0, 0, 0);
             runtime.movedThisTick.add(eid);
         }
     },
@@ -702,6 +753,21 @@ export const ConstraintSystem: System = {
     },
 };
 
+// query terms and the stale-eid list, held once so a steady sync mints neither.
+const BODY_TERMS = [Body];
+const staleScratch: number[] = [];
+
+// the State the sync's map walks read; set only for the duration of one synchronous sync.
+let syncState: State | null = null;
+
+function dropDespawnedFailure(_failure: unknown, eid: number, failed: Map<number, unknown>): void {
+    if (!(syncState as State).has(eid, Body)) failed.delete(eid);
+}
+
+function collectStale(_body: unknown, eid: number): void {
+    if (!(syncState as State).has(eid, Body)) staleScratch.push(eid);
+}
+
 // membership-driven create/destroy, ascending eid order (state.query's natural order — creation order is
 // load-bearing for solver determinism). Runs every fixed tick before the solve so a body spawned this frame
 // joins THIS tick's step.
@@ -718,7 +784,7 @@ const SyncSystem: System = {
         // waits on, and `ConstraintSystem` re-uploads on an authored signature change only, so the constraint
         // re-sync is pumped from here on any body-set change (a no-op walk when nothing was dropped, joints.ts).
         let bodySetChanged = false;
-        for (const eid of state.query([Body])) {
+        for (const eid of state.query(BODY_TERMS)) {
             runtime.counters.bodiesVisited += 1;
             const stamp = state.stamp(eid);
             if (runtime.bodies.has(eid)) {
@@ -739,14 +805,14 @@ const SyncSystem: System = {
             bodySetChanged = true;
             seedPose(runtime, eid);
         }
-        for (const eid of runtime.failed.keys()) {
-            if (!state.has(eid, Body)) runtime.failed.delete(eid);
-        }
-        const stale: number[] = [];
-        for (const eid of runtime.bodies.keys()) {
-            if (!state.has(eid, Body)) stale.push(eid);
-        }
-        for (const eid of stale) {
+        syncState = state;
+        runtime.failed.forEach(dropDespawnedFailure);
+        const stale = staleScratch;
+        stale.length = 0;
+        runtime.bodies.forEach(collectStale);
+        syncState = null;
+        for (let i = 0; i < stale.length; i++) {
+            const eid = stale[i];
             forget(runtime, eid);
             runtime.stamps.delete(eid);
             if (state.has(eid, Pose)) state.remove(eid, Pose);
