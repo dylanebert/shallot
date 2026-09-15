@@ -1,9 +1,8 @@
 import { afterEach, expect } from "bun:test";
 import { build, type Plugin } from "@dylanebert/shallot";
+import { PhysicsProfilePlugin } from "@dylanebert/shallot/extras";
 import { check } from "@dylanebert/shallot/harness/check";
 import { Body, PhysicsPlugin, physicsWorld, ShapeKind } from "@dylanebert/shallot/physics";
-import { stepClocks } from "../../standard/physics/world/clock";
-import { timingClock } from "./physics";
 
 let live: Awaited<ReturnType<typeof build>> | null = null;
 
@@ -11,14 +10,6 @@ afterEach(() => {
     live?.dispose();
     live = null;
 });
-
-// Registers the timing clock exactly as ProfilePlugin's initialize does; ProfilePlugin itself needs a GPU.
-const TimedPhysics: Plugin = {
-    name: "TimedPhysics",
-    initialize(state) {
-        stepClocks.set(state, timingClock());
-    },
-};
 
 async function stepFalling(plugins: Plugin[]) {
     live = await build({ defaults: false, plugins });
@@ -47,7 +38,7 @@ check(
         live?.dispose();
         live = null;
 
-        const timed = await stepFalling([TimedPhysics, PhysicsPlugin]);
+        const timed = await stepFalling([PhysicsPlugin, PhysicsProfilePlugin]);
         expect(timed.step).toBeGreaterThan(0);
         expect(timed.solve).toBeGreaterThan(0);
         expect(timed.step).toBeGreaterThanOrEqual(timed.solve);

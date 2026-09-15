@@ -62,16 +62,15 @@ function createBag(state: State): DemoBag {
 const liftPos: [number, number, number] = [0, 0, 0];
 const LIFT_QUAT = [0, 0, 0, 1] as const;
 const liftVel: [number, number, number] = [0, 0, 0];
-// The lift's phase offset, held in a double register: a module `let` boxes every double written to it.
-const liftOffset = new Float64Array(1);
-// The State the lift's map walk reads, set only for one synchronous update.
-let liftState: State | null = null;
 
-function moveLift(base: readonly [number, number, number], eid: number): void {
+// One lift's kinematic target at the State's elapsed time; the map walk passes the State as `this`.
+function moveLift(this: State, base: readonly [number, number, number], eid: number): void {
+    const phase = this.time.elapsed * RATE;
     liftPos[0] = base[0];
-    liftPos[1] = base[1] + liftOffset[0];
+    liftPos[1] = base[1] + 0.5 * TRAVEL * (1 - Math.cos(2 * phase));
     liftPos[2] = base[2];
-    setKinematic(liftState as State, eid, liftPos, LIFT_QUAT, false, liftVel);
+    liftVel[1] = RATE * TRAVEL * Math.sin(2 * phase);
+    setKinematic(this, eid, liftPos, LIFT_QUAT, false, liftVel);
 }
 
 const lift: System = {
@@ -79,13 +78,7 @@ const lift: System = {
     group: "fixed",
     before: [CharacterSweepSystem],
     update(state: State): void {
-        const bases = stateBag(state).liftBases;
-        const phase = state.time.elapsed * RATE;
-        liftOffset[0] = 0.5 * TRAVEL * (1 - Math.cos(2 * phase));
-        liftVel[1] = RATE * TRAVEL * Math.sin(2 * phase);
-        liftState = state;
-        bases.forEach(moveLift);
-        liftState = null;
+        stateBag(state).liftBases.forEach(moveLift, state);
     },
 };
 

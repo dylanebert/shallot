@@ -4,8 +4,8 @@ import { check } from "@dylanebert/shallot/harness/check";
 const ENTRY = resolve(import.meta.dir, "../../examples/first-person/src/allocation.entry.ts");
 const ROOT = resolve(import.meta.dir, "../..");
 
-// Profiler modules: the `profile` extra and the physics world's step timers (`ticks()`, `makeTimer()`).
-const PROFILER = [/^src\/extras\/profile\//, /^src\/standard\/physics\/world\/profile\.ts$/];
+// Profiler modules: the `profile` extra, which owns the physics step's timing clock.
+const PROFILER = [/^src\/extras\/profile\//];
 
 check(
     "the gated first-person bundle imports no profiler module",

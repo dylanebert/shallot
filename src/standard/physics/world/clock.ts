@@ -86,10 +86,6 @@ export function zeroProfile(): Profile {
     };
 }
 
-/** Timing clocks a profiler composed into a State, keyed by that State. `PhysicsPlugin` installs a
- * State's clock on the world it warms; a State without one keeps {@link NO_CLOCK}. */
-export const stepClocks = new WeakMap<object, StepClock>();
-
 /** The default clock: no timing work, and every phase reads zero. */
 export const NO_CLOCK: StepClock = {
     begin() {},

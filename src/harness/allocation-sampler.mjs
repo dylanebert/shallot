@@ -66,8 +66,17 @@ async function sample(url, body) {
 
 const { default: create } = await import(bundleUrl);
 const subject = await create(readFileSync(inputFile, "utf8"));
+// Frames step in short calls, so the warm compiles this loop for an ordinary entry. One long call would
+// tier it only by on-stack replacement, and each window's fresh entry would install new code, whose
+// allocation lands on whichever subject frame is running.
+const CHUNK = 60;
+if (warm % CHUNK !== 0 || frames % CHUNK !== 0)
+    throw new Error(`allocation sampler: warm and frames must be multiples of ${CHUNK}`);
+const stepChunk = () => {
+    for (let i = 0; i < CHUNK; i++) subject.step();
+};
 const run = (n) => {
-    for (let i = 0; i < n; i++) subject.step();
+    for (let i = 0; i < n; i += CHUNK) stepChunk();
 };
 const window = () => {
     collect();

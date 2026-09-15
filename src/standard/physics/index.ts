@@ -36,7 +36,6 @@ import { nlerpShortest, renderScale } from "./compose";
 import { Hulls } from "./hull";
 import { resetConstraints, resyncConstraints, syncJoints, syncSprings } from "./joints";
 import { marshalBody } from "./marshal";
-import { stepClocks } from "./world/clock";
 
 export { createPool, maxWorkers, type Pool, type WorkerReady } from "./kernel/pool";
 
@@ -369,6 +368,8 @@ interface PhysicsRuntime {
     stamps: Map<number, number>;
     kinPrev: Map<number, [number, number, number]>;
     failed: Map<number, { stamp: number; hulls: number }>;
+    // whether a body's marshal failed, so the constraint uploads defer its joints; made once per runtime
+    isFailed: (eid: number) => boolean;
     prevPos: Float32Array;
     prevQuat: Float32Array;
     currPos: Float32Array;
@@ -388,12 +389,14 @@ const liveRuntimes = new Set<PhysicsRuntime>();
 const residentSnapshots = new WeakMap<PhysicsRuntime, WorldSnapshot>();
 
 function newRuntime(): PhysicsRuntime {
+    const failed: PhysicsRuntime["failed"] = new Map();
     return {
         world: null,
         bodies: new Map(),
         stamps: new Map(),
         kinPrev: new Map(),
-        failed: new Map(),
+        failed,
+        isFailed: (eid) => failed.has(eid),
         prevPos: new Float32Array(0),
         prevQuat: new Float32Array(0),
         currPos: new Float32Array(0),
@@ -689,10 +692,6 @@ export function physicsStepConfig(state: State): PhysicsStepConfig {
 
 // the velocity register the step reads each moved body through.
 const stepVel = { x: 0, y: 0, z: 0 };
-// the fixed step as a module constant: `Time.FIXED_DT` is an object property, and passing it across the
-// non-inlined world step boxes a double every tick.
-const STEP_DT = 1 / 60;
-if (STEP_DT !== Time.FIXED_DT) throw new Error(`physics: step ${STEP_DT} is not Time.FIXED_DT`);
 
 /** the fixed-group solver step: the ordering anchor a producer that moves bodies before the solve (the character sweep's kinematic upload) orders `before:`. */
 export const StepSystem: System = {
@@ -706,7 +705,7 @@ export const StepSystem: System = {
             const saved = residentSnapshots.get(runtime);
             if (saved) restoreWorld(world, saved);
         }
-        world.step(STEP_DT, SUBSTEPS);
+        world.step(Time.FIXED_DT, SUBSTEPS);
         if (liveRuntimes.size > 1) residentSnapshots.set(runtime, snapshotWorld(world));
         runtime.movedCount = 0;
         runtime.counters.bytesUploaded = 0;
@@ -747,13 +746,6 @@ export const StepSystem: System = {
     },
 };
 
-// the runtime the constraint uploads' failure predicate reads; set only for one synchronous upload, so the
-// predicate is hoisted and a steady update allocates no closure context.
-let failedRuntime: PhysicsRuntime | null = null;
-function isFailed(eid: number): boolean {
-    return (failedRuntime as PhysicsRuntime).failed.has(eid);
-}
-
 /** uploads a scene's authored {@link Spring} / {@link Joint} entities to the solver, on change only. Fixed group, `before: [StepSystem]` so a constraint authored or edited this frame lands in this frame's solve. */
 export const ConstraintSystem: System = {
     name: "constraints",
@@ -766,16 +758,14 @@ export const ConstraintSystem: System = {
         const ss = springSignature(state);
         const js = jointSignature(state);
         if (ss === runtime.springSig && js === runtime.jointSig) return;
-        failedRuntime = runtime;
         if (ss !== runtime.springSig) {
             runtime.springSig = ss;
-            syncSprings(world, runtime.bodies, springDefs(state), isFailed);
+            syncSprings(world, runtime.bodies, springDefs(state), runtime.isFailed);
         }
         if (js !== runtime.jointSig) {
             runtime.jointSig = js;
-            syncJoints(world, runtime.bodies, jointDefs(state), isFailed);
+            syncJoints(world, runtime.bodies, jointDefs(state), runtime.isFailed);
         }
-        failedRuntime = null;
     },
 };
 
@@ -783,15 +773,18 @@ export const ConstraintSystem: System = {
 const BODY_TERMS = [Body];
 const staleScratch: number[] = [];
 
-// the State the sync's map walks read; set only for the duration of one synchronous sync.
-let syncState: State | null = null;
-
-function dropDespawnedFailure(_failure: unknown, eid: number, failed: Map<number, unknown>): void {
-    if (!(syncState as State).has(eid, Body)) failed.delete(eid);
+// the sync's map walks, given the State as `this`, so a steady sync mints no iterator.
+function dropDespawnedFailure(
+    this: State,
+    _failure: unknown,
+    eid: number,
+    failed: Map<number, unknown>,
+): void {
+    if (!this.has(eid, Body)) failed.delete(eid);
 }
 
-function collectStale(_body: unknown, eid: number): void {
-    if (!(syncState as State).has(eid, Body)) staleScratch.push(eid);
+function collectStale(this: State, _body: unknown, eid: number): void {
+    if (!this.has(eid, Body)) staleScratch.push(eid);
 }
 
 // membership-driven create/destroy, ascending eid order (state.query's natural order — creation order is
@@ -831,12 +824,10 @@ const SyncSystem: System = {
             bodySetChanged = true;
             seedPose(runtime, eid);
         }
-        syncState = state;
-        runtime.failed.forEach(dropDespawnedFailure);
+        runtime.failed.forEach(dropDespawnedFailure, state);
         const stale = staleScratch;
         stale.length = 0;
-        runtime.bodies.forEach(collectStale);
-        syncState = null;
+        runtime.bodies.forEach(collectStale, state);
         for (let i = 0; i < stale.length; i++) {
             const eid = stale[i];
             forget(runtime, eid);
@@ -844,11 +835,7 @@ const SyncSystem: System = {
             if (state.has(eid, Pose)) state.remove(eid, Pose);
             bodySetChanged = true;
         }
-        if (bodySetChanged) {
-            failedRuntime = runtime;
-            resyncConstraints(world, runtime.bodies, isFailed);
-            failedRuntime = null;
-        }
+        if (bodySetChanged) resyncConstraints(world, runtime.bodies, runtime.isFailed);
     },
 };
 
@@ -949,8 +936,6 @@ export const PhysicsPlugin: Plugin = {
         await init(); // async wasm compile — the browser main thread can't compile it synchronously
         runtime.world?.destroy();
         runtime.world = new World({ gravity: { x: 0, y: GRAVITY, z: 0 } });
-        const clock = stepClocks.get(state);
-        if (clock) runtime.world.setClock(clock);
         clearBodies(runtime);
         runtime.prevPos = new Float32Array(capacity * 3);
         runtime.prevQuat = new Float32Array(capacity * 4);
@@ -980,7 +965,7 @@ export type {
     SphericalJointConfig,
     WheelJointConfig,
 } from "./api";
-export { BodyType, JointType } from "./api";
+export { BodyType, CLOCK_SLOTS, JointType, type Profile, type StepClock, zeroProfile } from "./api";
 export { SoftJoint } from "./api/joints";
 export { World } from "./api/world";
 export { nlerpShortest } from "./compose";

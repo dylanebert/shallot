@@ -44,9 +44,11 @@ export {
     type BenchmarkGpuStats,
     type BenchmarkMeasurement,
     type BenchmarkMemoryStats,
+    PhysicsProfilePlugin,
     Profile,
     ProfilePlugin,
     showProfiler,
+    timingClock,
 } from "./profile";
 export {
     LiveSkin,

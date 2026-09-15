@@ -118,7 +118,7 @@ The plugin declaration is the one source of truth for whether composition needs 
 | Plugin set | Composition tier | `required` (GPU) | `optional` (CPU/GPU) | absent declaration (CPU) |
 | --- | --- | --- | --- | --- |
 | standard | gpu | BVH, Fog, Glaze, Mirror, Render, Sear | Part, Physics, Slab, Transforms | Audio, Character, Input, Player |
-| extras | gpu | Profile | Cells, Gltf, Lines, Outline, Skin, Sky, Sprite, Text | Orbit, OrbitOverlay |
+| extras | gpu | Profile | Cells, Gltf, Lines, Outline, Skin, Sky, Sprite, Text | Orbit, OrbitOverlay, PhysicsProfile |
 <!-- device-tiers:end -->
 
 ## Engine shape
