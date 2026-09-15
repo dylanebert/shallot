@@ -61,24 +61,27 @@ export const Resolution = {
 const _proj = new Float32Array(16);
 const _world = new Float32Array(16);
 const _view = new Float32Array(16);
+// the projection's scalar inputs, `[fov or size, aspect, near, far]`
+const _lens = new Float64Array(4);
 
 /**
- * compute viewProj for a camera entity. `aspect` is the bound surface's width / height.
+ * compute viewProj for a camera entity bound to a `width` × `height` surface (the aspect is their ratio).
  * `viewOut` optionally receives the world→view matrix alone (the light cull
  * transforms world-space lights into cluster space with it)
  */
 export function computeViewProj(
     eid: number,
-    aspect: number,
+    width: number,
+    height: number,
     out: Float32Array,
     viewOut?: Float32Array,
 ): void {
-    const near = Camera.near.get(eid);
-    const far = Camera.far.get(eid);
-    const proj =
-        Camera.mode.get(eid) === CameraMode.Orthographic
-            ? orthographic(Camera.size.get(eid), aspect, near, far, _proj)
-            : perspective(Camera.fov.get(eid), aspect, near, far, _proj);
+    const ortho = Camera.mode.get(eid) === CameraMode.Orthographic;
+    _lens[0] = ortho ? Camera.size.get(eid) : Camera.fov.get(eid);
+    _lens[1] = width / height;
+    _lens[2] = Camera.near.get(eid);
+    _lens[3] = Camera.far.get(eid);
+    const proj = ortho ? orthographic(_lens, _proj) : perspective(_lens, _proj);
     composeTransform(eid, _world);
     const view = invert(_world, _view);
     viewOut?.set(view);

@@ -107,6 +107,16 @@ export function sunResolution(): number {
     return Math.min(4096, 1 << Math.round(Math.log2(s)));
 }
 
+// a fit's scalar inputs, in one Float64Array so a fit call carries no double argument: the main camera's
+// fov and ortho size, the view aspect, the slice's near and far split (the ortho footprint's forward
+// fallback distance rides the far slot), and the toward-light margin
+const FIT_FOV = 0;
+const FIT_SIZE = 1;
+const FIT_ASPECT = 2;
+const FIT_NEAR = 3;
+const FIT_FAR = 4;
+const FIT_MARGIN = 5;
+
 // a light box placement: the light eye, its look target and up hint, the ortho half-extent (`cover`) and
 // the near-extended box depth. The fits write one in place.
 type LightFit = {
@@ -125,17 +135,19 @@ type LightFit = {
 // bleed). The eye moves back by `cover + margin`, the far stays at `center + dir·cover`, so the box depth is
 // `2·cover + margin`. `margin` is along the sun, ⊥ the snap plane, so the texel snap is unaffected. Shared by
 // the per-cascade slice fit ({@link cascadeFit}) and the ortho footprint fit ({@link orthoFootprintFit}).
-// The placement is written into the caller's `out`.
+// It reads the fit center from `out.focus`, the cover from `out.extent[0]` and the margin from `input`, and
+// writes the placement over them.
 function placeFromCenter(
-    cenX: number,
-    cenY: number,
-    cenZ: number,
-    cover: number,
+    input: Float64Array,
     dir: ArrayLike<number>,
     resolution: number,
-    margin: number,
     out: LightFit,
 ): LightFit {
+    const cenX = out.focus[0];
+    const cenY = out.focus[1];
+    const cenZ = out.focus[2];
+    const cover = out.extent[0];
+    const margin = input[FIT_MARGIN];
     let dx = dir[0];
     let dy = dir[1];
     let dz = dir[2];
@@ -220,22 +232,22 @@ export function cascadeSplits(
  * diagonal, whichever is longer, three.js CSM), so the `cover` is rotation-stable as the camera turns
  * (no per-frame size pumping). `margin` extends the box's near plane toward the light ({@link placeFromCenter})
  * so a tight cascade still captures occluders above its slice. Reads only the camera pose + projection (the
- * perspective `fov` or the ortho `size`), never its own near/far. Writes the placement into `out`; otherwise
- * pure.
+ * perspective `fov` or the ortho `size`), never its own near/far. Its scalars ride `input` (fov, size, aspect,
+ * near and far split, margin); writes the placement into `out`, otherwise pure.
  */
 export function cascadeFit(
     camWorld: Float32Array,
     mode: number,
-    fov: number,
-    size: number,
-    aspect: number,
+    input: Float64Array,
     dir: ArrayLike<number>,
-    nearSplit: number,
-    farSplit: number,
     resolution: number,
-    margin: number,
     out: LightFit,
 ): LightFit {
+    const fov = input[FIT_FOV];
+    const size = input[FIT_SIZE];
+    const aspect = input[FIT_ASPECT];
+    const nearSplit = input[FIT_NEAR];
+    const farSplit = input[FIT_FAR];
     const px = camWorld[12];
     const py = camWorld[13];
     const pz = camWorld[14];
@@ -291,17 +303,11 @@ export function cascadeFit(
     const bx = nearWins ? nearX : farX;
     const by = nearWins ? nearY : farY;
     const bz = nearWins ? nearZ : farZ;
-    const cover = (nearWins ? nearDist : farDist) / 2;
-    return placeFromCenter(
-        (ax + bx) / 2,
-        (ay + by) / 2,
-        (az + bz) / 2,
-        cover,
-        dir,
-        resolution,
-        margin,
-        out,
-    );
+    out.focus[0] = (ax + bx) / 2;
+    out.focus[1] = (ay + by) / 2;
+    out.focus[2] = (az + bz) / 2;
+    out.extent[0] = (nearWins ? nearDist : farDist) / 2;
+    return placeFromCenter(input, dir, resolution, out);
 }
 
 /**
@@ -313,19 +319,20 @@ export function cascadeFit(
  * (the extra travel as `v` changes the height it must fall), so the footprint corners are `center ± Kr ± Ku`
  * and the bounding radius is the longer half-diagonal. A camera not angled at the ground (`fwd.y ≥ −1e-3`)
  * has no convergent footprint, so it falls back to a forward-distance box (`center = pos + fwd·distance`,
- * `cover = distance`). `margin` extends the near plane toward the light ({@link placeFromCenter}). Writes the
- * placement into `out`; otherwise pure.
+ * `cover = distance`). `margin` extends the near plane toward the light ({@link placeFromCenter}). Its scalars ride
+ * `input` (size, aspect, the fallback distance in the far slot, margin); writes the placement into `out`,
+ * otherwise pure.
  */
 export function orthoFootprintFit(
     camWorld: Float32Array,
-    size: number,
-    aspect: number,
+    input: Float64Array,
     dir: ArrayLike<number>,
-    distance: number,
     resolution: number,
-    margin: number,
     out: LightFit,
 ): LightFit {
+    const size = input[FIT_SIZE];
+    const aspect = input[FIT_ASPECT];
+    const distance = input[FIT_FAR];
     const px = camWorld[12];
     const py = camWorld[13];
     const pz = camWorld[14];
@@ -378,7 +385,11 @@ export function orthoFootprintFit(
         cover = distance;
     }
 
-    return placeFromCenter(cenX, cenY, cenZ, cover, dir, resolution, margin, out);
+    out.focus[0] = cenX;
+    out.focus[1] = cenY;
+    out.focus[2] = cenZ;
+    out.extent[0] = cover;
+    return placeFromCenter(input, dir, resolution, out);
 }
 
 // ---- CSM: the cascade combo-camera pool (the sun's analogue of the point combo pool) ----
@@ -448,11 +459,16 @@ const _fit: LightFit = {
 };
 const _cascRecv = new Float32Array(16);
 const _cascFolded = new Float32Array(16);
-const _aimQuat = { x: 0, y: 0, z: 0, w: 1 };
+const _fitInput = new Float64Array(6);
+// one cascade's ortho projection inputs, `[cover, aspect 1, near 0, depth]`
+const _cascBox = new Float64Array(4);
+const _aimQuat = new Float64Array(4);
+// each cascade camera's last written `[size, far]`; NaN until a camera is first posed
+const _posedExtent = new Float64Array(MAX_CASCADES * 2).fill(Number.NaN);
 
 /** the pooled cascade cameras' eids, one per active cascade (the first {@link cascadeCount} valid). Each is a
  * depth-only frustum-culled view slot: the per-cascade cull. An oracle reads each one's
- * `Views.get(eid).slot` + `computeViewProj(eid, 1)` to pin the pack's per-cascade survivor counts to a CPU
+ * `Views.get(eid).slot` + `computeViewProj(eid, 1, 1)` to pin the pack's per-cascade survivor counts to a CPU
  * frustum test, the {@link pointComboEids} shape over cascade slots. */
 export function cascadeComboEids(): number[] {
     return _cascadeEids;
@@ -520,6 +536,7 @@ function createCascadeCamera(state: State): number {
 // grow/shrink the cascade-camera pool to exactly `n` (the active cascade count). The count is hysteresis-free
 // but `sunCascades()` is fixed before build, so this is effectively a one-time create
 function syncCascadePool(state: State, n: number): void {
+    if (_cascadeEids.length !== n) _posedExtent.fill(Number.NaN);
     while (_cascadeEids.length < n) _cascadeEids.push(createCascadeCamera(state));
     while (_cascadeEids.length > n) {
         const eid = _cascadeEids.pop()!;
@@ -532,28 +549,24 @@ function syncCascadePool(state: State, n: number): void {
 // frustum the pack culls against. `aim` returns the lookAt orientation as a quaternion, so
 // `invert(compose(pos, rot))` equals the `lookAt(eye, eye→focus, up)` the atlas render's `_cascadeRecv` folds
 // the tile onto (the cull frustum and the render projection agree to f32 — the sun camera's guarantee)
-function poseCascade(eid: number, fit: LightFit): void {
-    const { eye, focus, up } = fit;
-    const q = aim(
-        eye[0],
-        eye[1],
-        eye[2],
-        focus[0],
-        focus[1],
-        focus[2],
-        up[0],
-        up[1],
-        up[2],
-        _aimQuat,
-    );
+function poseCascade(eid: number, cascade: number, fit: LightFit): void {
+    const { eye } = fit;
+    const q = aim(eye, fit.focus, fit.up, _aimQuat);
     Transform.pos.set(eid, eye[0], eye[1], eye[2], 1);
-    Transform.rot.set(eid, q.x, q.y, q.z, q.w);
+    Transform.rot.set(eid, q[0], q[1], q[2], q[3]);
     Camera.mode.set(eid, CameraMode.Orthographic);
-    Camera.size.set(eid, fit.extent[0]);
     Camera.near.set(eid, 0);
-    // far = the near-extended box depth (2·cover + margin), so the cull frustum matches the render box and
-    // the toward-light occluder margin is culled in, not clipped out
-    Camera.far.set(eid, fit.extent[1]);
+    // size = the cover, far = the near-extended box depth (2·cover + margin), so the cull frustum matches the
+    // render box and the toward-light occluder margin is culled in, not clipped out. The cover is a bounding
+    // sphere, independent of the camera's pose, so both change only when the split, fov, aspect or margin
+    // does: a steady frame writes neither
+    const at = cascade * 2;
+    if (_posedExtent[at] !== fit.extent[0] || _posedExtent[at + 1] !== fit.extent[1]) {
+        Camera.size.set(eid, fit.extent[0]);
+        Camera.far.set(eid, fit.extent[1]);
+        _posedExtent[at] = fit.extent[0];
+        _posedExtent[at + 1] = fit.extent[1];
+    }
 }
 
 /** destroy the pooled cascade cameras + their views (at plugin dispose). */
@@ -563,12 +576,14 @@ export function destroyCascades(state: State): void {
         state.destroy(eid);
     }
     _cascadeEids = [];
+    _posedExtent.fill(Number.NaN);
 }
 
 /** forget the cached cascade camera eids on a (re)build: the prior State owns its own teardown, a fresh one
  * recreates lazily (the same lifecycle-reset as {@link resetPointShadows}). */
 export function resetCascades(): void {
     _cascadeEids = [];
+    _posedExtent.fill(Number.NaN);
     _cascadeCount = 0;
 }
 
@@ -605,8 +620,10 @@ export function updateCascades(state: State, main: number): void {
     const aspect = view && view.height > 0 ? view.width / view.height : 1;
     composeTransform(main, _cascWorld);
     const mode = Camera.mode.get(main);
-    const fov = Camera.fov.get(main);
-    const size = Camera.size.get(main);
+    _fitInput[FIT_FOV] = Camera.fov.get(main);
+    _fitInput[FIT_SIZE] = Camera.size.get(main);
+    _fitInput[FIT_ASPECT] = aspect;
+    _fitInput[FIT_MARGIN] = maxDist;
     const near = Math.max(1e-3, Camera.near.get(main));
     // ortho cameras get one footprint box; perspective gets N depth slices
     const ortho = mode === CameraMode.Orthographic;
@@ -618,16 +635,8 @@ export function updateCascades(state: State, main: number): void {
     for (let i = 0; i < n; i++) {
         let farBound: number;
         if (ortho) {
-            orthoFootprintFit(
-                _cascWorld,
-                size,
-                aspect,
-                _sunDir,
-                maxDist,
-                resolution,
-                maxDist,
-                _fit,
-            );
+            _fitInput[FIT_FAR] = maxDist;
+            orthoFootprintFit(_cascWorld, _fitInput, _sunDir, resolution, _fit);
             // a sentinel beyond any visible fragment's view-z, so the receiver's get_cascade_index always
             // picks this single box (no blend, count = 1)
             farBound = 1e9;
@@ -636,37 +645,20 @@ export function updateCascades(state: State, main: number): void {
             // widen the near edge back over the blend band (Bevy's `next_near = (1−overlap)·this_far`), so the
             // band the receiver blends across is covered by both this cascade and its predecessor
             const nearSplit = i === 0 ? near : (1 - overlap) * _splits[i - 1];
-            cascadeFit(
-                _cascWorld,
-                mode,
-                fov,
-                size,
-                aspect,
-                _sunDir,
-                nearSplit,
-                farSplit,
-                resolution,
-                maxDist,
-                _fit,
-            );
+            _fitInput[FIT_NEAR] = nearSplit;
+            _fitInput[FIT_FAR] = farSplit;
+            cascadeFit(_cascWorld, mode, _fitInput, _sunDir, resolution, _fit);
             farBound = farSplit;
         }
         cascadeTileRect(i, n, _cascadeRectsArr, i * 4);
         // unfolded receiver viewProj (ortho × lookAt) — matches `computeViewProj` of this cascade's camera
         // (aspect 1), so the cull frustum and the render projection agree; the folded VP adds the tile placement
-        orthographic(_fit.extent[0], 1, 0, _fit.extent[1], _cascProj);
-        lookAt(
-            _fit.eye[0],
-            _fit.eye[1],
-            _fit.eye[2],
-            _fit.focus[0],
-            _fit.focus[1],
-            _fit.focus[2],
-            _fit.up[0],
-            _fit.up[1],
-            _fit.up[2],
-            _cascView,
-        );
+        _cascBox[0] = _fit.extent[0];
+        _cascBox[1] = 1;
+        _cascBox[2] = 0;
+        _cascBox[3] = _fit.extent[1];
+        orthographic(_cascBox, _cascProj);
+        lookAt(_fit.eye, _fit.focus, _fit.up, _cascView);
         multiply(_cascProj, _cascView, _cascRecv);
         _cascadeRecv.set(_cascRecv, i * 16);
         multiply(tileTransform(_cascadeRectsArr, _cascTileMat, i * 4), _cascRecv, _cascFolded);
@@ -675,7 +667,7 @@ export function updateCascades(state: State, main: number): void {
         _cascadeFarArr[i] = farBound;
         _cascadeCoverArr[i] = _fit.extent[0];
         const cam = _cascadeEids[i];
-        if (cam !== undefined) poseCascade(cam, _fit);
+        if (cam !== undefined) poseCascade(cam, i, _fit);
     }
     _cascadeCount = n;
 }
@@ -775,7 +767,7 @@ export function pointTanHalf(tilePx: number): number {
     return 1 + (2 * EDGE_TEXELS) / tilePx;
 }
 
-/** the face frustum's vertical FOV in degrees (what `perspective()` takes for each face viewProj) for a
+/** the face frustum's vertical FOV in degrees (the fov `perspective()` takes for each face viewProj) for a
  * tile of `tilePx` pixels */
 export function pointFov(tilePx: number): number {
     return (Math.atan(pointTanHalf(tilePx)) * 360) / Math.PI;
@@ -1005,6 +997,11 @@ let _comboMeta = new Uint32Array(0);
 let _tileRects = new Float32Array(0);
 let _comboCount = 0;
 const _faceView = new Float32Array(16);
+// a combo camera's eye and look target, for the vector-form aim/lookAt calls
+const _comboEye = new Float64Array(3);
+const _comboTarget = new Float64Array(3);
+// a combo's perspective inputs, `[fov, aspect 1, near, far]`
+const _faceLens = new Float64Array(4);
 const _faceProj = new Float32Array(16);
 // the proj·view product before the tile transform is folded on (the combo viewProj carries the tile
 // placement, so the VS emits `tileVP·world` directly — see {@link tileTransform})
@@ -1042,7 +1039,7 @@ export function pointComboCount(): number {
 
 /** the pooled combo cameras' eids, one per active combo (combo-major: each caster's faces/cone in turn,
  * the first {@link pointComboCount} valid). Each is a depth-only frustum-culled view slot: the per-combo
- * cull. An oracle reads each combo's `Views.get(eid).slot` + `computeViewProj(eid, 1)` to pin the
+ * cull. An oracle reads each combo's `Views.get(eid).slot` + `computeViewProj(eid, 1, 1)` to pin the
  * pack's per-combo survivor counts to a CPU frustum test (the combo's frustum is what the pack culls
  * against, == the pre-fold proj·view the atlas VS folds the tile into). */
 export function pointComboEids(): number[] {
@@ -1089,9 +1086,15 @@ function poseCombo(
     near: number,
     far: number,
 ): void {
-    const q = aim(px, py, pz, px + fwd[0], py + fwd[1], pz + fwd[2], up[0], up[1], up[2], _aimQuat);
+    _comboEye[0] = px;
+    _comboEye[1] = py;
+    _comboEye[2] = pz;
+    _comboTarget[0] = px + fwd[0];
+    _comboTarget[1] = py + fwd[1];
+    _comboTarget[2] = pz + fwd[2];
+    const q = aim(_comboEye, _comboTarget, up, _aimQuat);
     Transform.pos.set(eid, px, py, pz, 1);
-    Transform.rot.set(eid, q.x, q.y, q.z, q.w);
+    Transform.rot.set(eid, q[0], q[1], q[2], q[3]);
     Camera.fov.set(eid, fov);
     Camera.near.set(eid, near);
     Camera.far.set(eid, far);
@@ -1171,7 +1174,7 @@ export function packCasters(
  * query order; a hysteresis margin keeps an incumbent its slot so the set doesn't flicker. {@link packCasters}
  * then sizes each caster's tiles (area ∝ score) and buddy-packs them into the square atlas; a caster that
  * won't fit even at the smallest tiling is dropped (warn). Each combo's viewProj is `tileTransform(rect) ×
- * perspective(pointFov(tilePx), 1, near, far) × lookAt(light, light+fwd, up)` (near/far = `[range/1000,
+ * perspective([pointFov(tilePx), 1, near, far]) × lookAt(light, light+fwd, up)` (near/far = `[range/1000,
  * range]`), written into the shared {@link pointFaceVP} buffer combo-major, with its rect in {@link pointTileRects}.
  * Each combo also gets a pooled depth-only camera ({@link pointComboEids}) the pack frustum-culls casters
  * into (the per-combo cull), spawned lazily at the first casting frame. The frames are written into the
@@ -1355,20 +1358,19 @@ export function updatePointShadows(state: State, main: number, frames: PointShad
         const faceRects = rects![frame.slot];
         if (frame.spot) {
             const rect = faceRects[0];
-            perspective(frame.coneFov, 1, frame.near, frame.far, _faceProj);
+            _faceLens[0] = frame.coneFov;
+            _faceLens[1] = 1;
+            _faceLens[2] = frame.near;
+            _faceLens[3] = frame.far;
+            perspective(_faceLens, _faceProj);
             // `up` is orthonormal to `fwd`, so it serves as the lookAt up directly (same basis as up0)
-            lookAt(
-                px,
-                py,
-                pz,
-                px + frame.fwd[0],
-                py + frame.fwd[1],
-                pz + frame.fwd[2],
-                frame.up[0],
-                frame.up[1],
-                frame.up[2],
-                _faceView,
-            );
+            _comboEye[0] = px;
+            _comboEye[1] = py;
+            _comboEye[2] = pz;
+            _comboTarget[0] = px + frame.fwd[0];
+            _comboTarget[1] = py + frame.fwd[1];
+            _comboTarget[2] = pz + frame.fwd[2];
+            lookAt(_comboEye, _comboTarget, frame.up, _faceView);
             // fold the tile placement into the viewProj, so the VS projects straight into the atlas tile
             // with the hardware doing the divide + near-plane clip
             multiply(_faceProj, _faceView, _pv);
@@ -1394,22 +1396,21 @@ export function updatePointShadows(state: State, main: number, frames: PointShad
             ci++;
         } else {
             const fov = pointFov(frame.tilePx);
-            perspective(fov, 1, frame.near, frame.far, _faceProj);
+            _faceLens[0] = fov;
+            _faceLens[1] = 1;
+            _faceLens[2] = frame.near;
+            _faceLens[3] = frame.far;
+            perspective(_faceLens, _faceProj);
             for (let f = 0; f < 6; f++) {
                 const { fwd, up } = POINT_FACES[f];
                 const rect = faceRects[f];
-                lookAt(
-                    px,
-                    py,
-                    pz,
-                    px + fwd[0],
-                    py + fwd[1],
-                    pz + fwd[2],
-                    up[0],
-                    up[1],
-                    up[2],
-                    _faceView,
-                );
+                _comboEye[0] = px;
+                _comboEye[1] = py;
+                _comboEye[2] = pz;
+                _comboTarget[0] = px + fwd[0];
+                _comboTarget[1] = py + fwd[1];
+                _comboTarget[2] = pz + fwd[2];
+                lookAt(_comboEye, _comboTarget, up, _faceView);
                 // fold the face's atlas tile placement into its viewProj — the VS emits `tileVP·world`
                 // with no manual divide, so the hardware clips a triangle behind the face near plane
                 multiply(_faceProj, _faceView, _pv);

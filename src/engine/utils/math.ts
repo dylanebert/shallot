@@ -168,14 +168,13 @@ export function rotate(
     };
 }
 
-/** perspective projection mat4 (column-major), reverse-Z (near→1, far→0); fov in degrees */
-export function perspective(
-    fov: number,
-    aspect: number,
-    near: number,
-    far: number,
-    out?: Float32Array,
-): Float32Array {
+/** perspective projection mat4 (column-major), reverse-Z (near→1, far→0), from `lens` = `[fov, aspect, near,
+ * far]` with fov in degrees */
+export function perspective(lens: ArrayLike<number>, out?: Float32Array): Float32Array {
+    const fov = lens[0];
+    const aspect = lens[1];
+    const near = lens[2];
+    const far = lens[3];
     if (!Number.isFinite(fov) || fov <= 0) throw new Error(`Invalid FOV: ${fov} (must be > 0)`);
     if (!Number.isFinite(aspect) || aspect <= 0)
         throw new Error(`Invalid aspect ratio: ${aspect} (must be > 0)`);
@@ -208,14 +207,13 @@ export function perspective(
     return out;
 }
 
-/** orthographic projection mat4 (column-major), reverse-Z (near→1, far→0); size is the half-height in world units */
-export function orthographic(
-    size: number,
-    aspect: number,
-    near: number,
-    far: number,
-    out?: Float32Array,
-): Float32Array {
+/** orthographic projection mat4 (column-major), reverse-Z (near→1, far→0), from `box` = `[size, aspect, near,
+ * far]` with size the half-height in world units */
+export function orthographic(box: ArrayLike<number>, out?: Float32Array): Float32Array {
+    const size = box[0];
+    const aspect = box[1];
+    const near = box[2];
+    const far = box[3];
     if (!Number.isFinite(size) || size <= 0)
         throw new Error(`Invalid orthographic size: ${size} (must be > 0)`);
     if (!Number.isFinite(aspect) || aspect <= 0)
@@ -457,61 +455,50 @@ export function invert(m: Float32Array, out?: Float32Array): Float32Array {
     return out;
 }
 
-/** shared finite-guard for aim/lookAt's nine congruent numeric params (eye, target, up) */
+/** shared finite-guard for aim/lookAt's eye, target and up vectors */
 function assertFiniteAimLookAtParams(
     name: string,
-    eyeX: number,
-    eyeY: number,
-    eyeZ: number,
-    targetX: number,
-    targetY: number,
-    targetZ: number,
-    upX: number,
-    upY: number,
-    upZ: number,
+    eye: ArrayLike<number>,
+    target: ArrayLike<number>,
+    up: ArrayLike<number>,
 ): void {
     if (
-        !Number.isFinite(eyeX) ||
-        !Number.isFinite(eyeY) ||
-        !Number.isFinite(eyeZ) ||
-        !Number.isFinite(targetX) ||
-        !Number.isFinite(targetY) ||
-        !Number.isFinite(targetZ) ||
-        !Number.isFinite(upX) ||
-        !Number.isFinite(upY) ||
-        !Number.isFinite(upZ)
+        !Number.isFinite(eye[0]) ||
+        !Number.isFinite(eye[1]) ||
+        !Number.isFinite(eye[2]) ||
+        !Number.isFinite(target[0]) ||
+        !Number.isFinite(target[1]) ||
+        !Number.isFinite(target[2]) ||
+        !Number.isFinite(up[0]) ||
+        !Number.isFinite(up[1]) ||
+        !Number.isFinite(up[2])
     ) {
         throw new Error(
-            `${name} received non-finite: eye=[${eyeX},${eyeY},${eyeZ}], target=[${targetX},${targetY},${targetZ}], up=[${upX},${upY},${upZ}]`,
+            `${name} received non-finite: eye=[${eye[0]},${eye[1]},${eye[2]}], target=[${target[0]},${target[1]},${target[2]}], up=[${up[0]},${up[1]},${up[2]}]`,
         );
     }
 }
 
-/** view matrix from eye looking at target */
+// the default up vector aim/lookAt read when a caller passes none
+const Y_UP = new Float64Array([0, 1, 0]);
+
+/** view matrix from `eye` looking at `target`, each an xyz vector (`up` defaults to +Y) */
 export function lookAt(
-    eyeX: number,
-    eyeY: number,
-    eyeZ: number,
-    targetX: number,
-    targetY: number,
-    targetZ: number,
-    upX = 0,
-    upY = 1,
-    upZ = 0,
+    eye: ArrayLike<number>,
+    target: ArrayLike<number>,
+    up: ArrayLike<number> = Y_UP,
     out?: Float32Array,
 ): Float32Array {
-    assertFiniteAimLookAtParams(
-        "lookAt",
-        eyeX,
-        eyeY,
-        eyeZ,
-        targetX,
-        targetY,
-        targetZ,
-        upX,
-        upY,
-        upZ,
-    );
+    assertFiniteAimLookAtParams("lookAt", eye, target, up);
+    const eyeX = eye[0];
+    const eyeY = eye[1];
+    const eyeZ = eye[2];
+    const targetX = target[0];
+    const targetY = target[1];
+    const targetZ = target[2];
+    const upX = up[0];
+    const upY = up[1];
+    const upZ = up[2];
     let zx = eyeX - targetX;
     let zy = eyeY - targetY;
     let zz = eyeZ - targetZ;
@@ -591,20 +578,24 @@ export function lookAt(
     return out;
 }
 
-/** rotation quaternion that points an object at eye toward target, written into `out` when given */
+/** rotation quaternion `[x, y, z, w]` that points an object at `eye` toward `target` (xyz vectors, `up`
+ * defaults to +Y), written into `out` */
 export function aim(
-    eyeX: number,
-    eyeY: number,
-    eyeZ: number,
-    targetX: number,
-    targetY: number,
-    targetZ: number,
-    upX = 0,
-    upY = 1,
-    upZ = 0,
-    out: { x: number; y: number; z: number; w: number } = { x: 0, y: 0, z: 0, w: 1 },
-): { x: number; y: number; z: number; w: number } {
-    assertFiniteAimLookAtParams("aim", eyeX, eyeY, eyeZ, targetX, targetY, targetZ, upX, upY, upZ);
+    eye: ArrayLike<number>,
+    target: ArrayLike<number>,
+    up: ArrayLike<number> = Y_UP,
+    out: Float64Array = new Float64Array(4),
+): Float64Array {
+    assertFiniteAimLookAtParams("aim", eye, target, up);
+    const eyeX = eye[0];
+    const eyeY = eye[1];
+    const eyeZ = eye[2];
+    const targetX = target[0];
+    const targetY = target[1];
+    const targetZ = target[2];
+    let upX = up[0];
+    const upY = up[1];
+    let upZ = up[2];
 
     let zx = eyeX - targetX;
     let zy = eyeY - targetY;
@@ -693,9 +684,9 @@ export function aim(
         qz = 0.25 * s;
     }
 
-    out.x = qx;
-    out.y = qy;
-    out.z = qz;
-    out.w = qw;
+    out[0] = qx;
+    out[1] = qy;
+    out[2] = qz;
+    out[3] = qw;
     return out;
 }

@@ -24,12 +24,12 @@ check(
         subject: ["src/standard/render/frustum.ts", "src/engine/utils/math.ts"],
     },
     () => {
-        const projection = perspective(
+        const projection = perspective([
             FRUSTUM_FIXTURE.fov,
             FRUSTUM_FIXTURE.aspect,
             FRUSTUM_FIXTURE.near,
             FRUSTUM_FIXTURE.far,
-        );
+        ]);
         const planes = frustumPlanes(projection, new Float32Array(24));
         const boundaryDistances = Array.from({ length: 6 }, (_, plane) =>
             signedDistance(planes, plane, FRUSTUM_FIXTURE.boundary),

@@ -107,7 +107,9 @@ const PlayerSnapshotSystem: System = {
     update(state: State) {
         for (const eid of state.query(PLAYER_BODIES)) {
             if (!pose(eid, _pose)) continue; // unregistered (the sweep hasn't built its CharState) — keep the fallback pose
-            const [x, y, z] = _pose;
+            const x = _pose[0];
+            const y = _pose[1];
+            const z = _pose[2];
             if (state.has(eid, PlayerFollow)) {
                 PlayerFollow.prev.set(
                     eid,
@@ -161,9 +163,10 @@ function findCamera(state: State, eid: number): number {
 
 // FPS orientation from yaw (around world Y) then pitch (around the camera's right axis). Matches the
 // forward used for the move basis + the third-person offset (forward = q·(0,0,−1)).
-function setLook(cam: number, yaw: number, pitch: number): void {
-    const hy = yaw * 0.5;
-    const hp = pitch * 0.5;
+// `look` = `[yaw, pitch]`, so the per-frame call carries no double argument
+function setLook(cam: number, look: Float64Array): void {
+    const hy = look[0] * 0.5;
+    const hp = look[1] * 0.5;
     const sy = Math.sin(hy);
     const cy = Math.cos(hy);
     const sp = Math.sin(hp);
@@ -172,6 +175,7 @@ function setLook(cam: number, yaw: number, pitch: number): void {
 }
 
 const _pos: [number, number, number] = [0, 0, 0];
+const _look = new Float64Array(2);
 
 /**
  * the first-person controller: mouse-look + WASD/jump intent + the follow-camera pose, run in the
@@ -260,7 +264,9 @@ export const PlayerControlSystem: System = {
                 _pos[2] - fz * dist,
                 1,
             );
-            setLook(cam, yaw, pitch);
+            _look[0] = yaw;
+            _look[1] = pitch;
+            setLook(cam, _look);
         }
 
         // InputPlugin clears the shared pointer delta at the draw boundary.

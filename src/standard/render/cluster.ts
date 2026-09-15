@@ -222,16 +222,16 @@ export const Clusters: Clusters = {
 
 /**
  * pack a camera's {@link ClusterView} fields into the staging slot, called per view by
- * `BeginFrameSystem`: {@link clusterView}'s derivation written in place, with no record
+ * `BeginFrameSystem` with the view's pixel size: {@link clusterView}'s derivation written in place, with no record
  */
-export function packClusterView(eid: number, aspect: number, slot: number): void {
+export function packClusterView(eid: number, width: number, height: number, slot: number): void {
     const perspective = Camera.mode.get(eid) !== CameraMode.Orthographic;
     const halfH = perspective
         ? Math.tan((Camera.fov.get(eid) * Math.PI) / 360)
         : Camera.size.get(eid);
     const o = slot * CLUSTER_VIEW_FLOATS;
     const s = Clusters.staging;
-    s[o] = halfH * aspect;
+    s[o] = halfH * (width / height);
     s[o + 1] = halfH;
     s[o + 2] = Camera.near.get(eid);
     s[o + 3] = Camera.far.get(eid);

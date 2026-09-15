@@ -96,7 +96,8 @@ function packView(state: State, eid: number, view: ViewSlot, shading: boolean, s
     // world-space lights into cluster space
     computeViewProj(
         eid,
-        view.width / view.height,
+        view.width,
+        view.height,
         viewProj,
         shading ? _lightViews[slot] : undefined,
     );
@@ -119,7 +120,7 @@ function packView(state: State, eid: number, view: ViewSlot, shading: boolean, s
     // View.cluster: (near, far, perspective, slot) — sear's FS maps a
     // fragment to its froxel and indexes the slot-major light grid
     if (shading) {
-        packClusterView(eid, view.width / view.height, slot);
+        packClusterView(eid, view.width, view.height, slot);
         Render.viewStaging[offset + 28] = Camera.near.get(eid);
         Render.viewStaging[offset + 29] = Camera.far.get(eid);
         Render.viewStaging[offset + 30] = Camera.mode.get(eid) !== CameraMode.Orthographic ? 1 : 0;

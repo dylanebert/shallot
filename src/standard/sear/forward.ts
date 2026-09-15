@@ -345,6 +345,29 @@ function sameResources(
     return k === res.length;
 }
 
+// one surface bind group against `layout`: the resolved layout values, any override, and the vertex stream.
+// The two layout objects share one loose signature here — the color/depth `vertices` element split is real at
+// authoring time, but a bind group takes raw buffers either way (the `layout.$` cast class). A module function,
+// so the steady `recordSurface` path captures nothing and opens no context
+function surfaceGroup(
+    values: Record<string, unknown>,
+    layout: unknown,
+    vertices: TgpuBuffer<AnyData>,
+    override?: Record<string, BindResource>,
+): GPUBindGroup {
+    const root = Compute.root;
+    return root.unwrap(
+        root.createBindGroup(
+            layout as TgpuBindGroupLayout,
+            {
+                ...values,
+                ...override,
+                vertices,
+            } as never,
+        ),
+    );
+}
+
 /**
  * the typed twin of {@link record}: compiled typed pipelines + the per-draw group-2 state cached by
  * layout name — `color` against `layout`; opaque depth-side groups against `layout.depthVariant`; clip
@@ -403,23 +426,6 @@ function recordSurface(draw: Draw, surface: Surface): FrameDraw | null {
     if (cascadeList) resources.push(cascadeList);
 
     const root = Compute.root;
-    // the two layout objects share one loose signature here — the color/depth `vertices` element split
-    // is real at authoring time, but a bind group takes raw buffers either way (the `layout.$` cast class)
-    const group = (
-        lay: unknown,
-        vertices: TgpuBuffer<AnyData>,
-        override?: Record<string, BindResource>,
-    ) =>
-        root.unwrap(
-            root.createBindGroup(
-                lay as TgpuBindGroupLayout,
-                {
-                    ...resolved.values,
-                    ...override,
-                    vertices,
-                } as never,
-            ),
-        );
     const engineCache = new Map<number, GPUBindGroup>();
     const clip = surface.blend === "clip";
     const depthLayout = clip ? surface.layout : surface.layout.depthVariant;
@@ -428,16 +434,22 @@ function recordSurface(draw: Draw, surface: Surface): FrameDraw | null {
         owner: surface,
         layout: surface.layout,
         quant: root.unwrap(mesh.quant),
-        color: group(surface.layout, mesh.vertices),
+        color: surfaceGroup(resolved.values, surface.layout, mesh.vertices),
         // `alpha` compiles no depth-side pipelines, so it needs no depth-shape groups
-        depth: surface.blend === "alpha" ? null : group(depthLayout, depthVertices),
+        depth:
+            surface.blend === "alpha"
+                ? null
+                : surfaceGroup(resolved.values, depthLayout, depthVertices),
         // an authored tag receives the full fragment context (requested uv/localPos + custom varyings),
         // so its tag pair reads the main stream even while an opaque depth-only pass stays compact
-        tag: surface.tag ? group(surface.layout, mesh.vertices) : null,
-        point: t.point && pointList ? group(depthLayout, depthVertices, { eids: pointList }) : null,
+        tag: surface.tag ? surfaceGroup(resolved.values, surface.layout, mesh.vertices) : null,
+        point:
+            t.point && pointList
+                ? surfaceGroup(resolved.values, depthLayout, depthVertices, { eids: pointList })
+                : null,
         cascade:
             t.cascade && cascadeList
-                ? group(depthLayout, depthVertices, { eids: cascadeList })
+                ? surfaceGroup(resolved.values, depthLayout, depthVertices, { eids: cascadeList })
                 : null,
         eids: resolved.values.eids
             ? root.unwrap(resolved.values.eids as TgpuBuffer<AnyData>)
@@ -975,7 +987,10 @@ export const PrepassSystem: System = {
                 }
             }
             if (!marked && !storeDepth) continue; // no lane requested — bare path
-            const lanes = COLOR_LANES.filter((l) => state.has(eid, l.marker));
+            const lanes: ColorLane[] = [];
+            for (let l = 0; l < COLOR_LANES.length; l++) {
+                if (state.has(eid, COLOR_LANES[l].marker)) lanes.push(COLOR_LANES[l]);
+            }
             renderPrepass(eid, view, _frameDraws, _frameCount, lanes, storeDepth);
         }
     },
