@@ -10,10 +10,13 @@ export class Entities {
     private _stamp: number[] = [];
     private _count = 0;
     private _nextId = 1;
+    // freed ids in the first `_freeCount` slots; a pop or `length` write would release the backing store
+    // and the next free would allocate it again, so the list keeps its high-water capacity.
     private _freelist: number[] = [];
+    private _freeCount = 0;
 
     add(): Entity {
-        const eid = this._freelist.length > 0 ? this._freelist.pop()! : this._nextId++;
+        const eid = this._freeCount > 0 ? this._freelist[--this._freeCount] : this._nextId++;
         this._sparse[eid] = this._count;
         this._dense[this._count++] = eid;
         // bump on every allocation (fresh or recycled) so a held (eid, stamp) pair detects a realias
@@ -33,7 +36,7 @@ export class Entities {
         this._dense[idx] = last;
         this._sparse[last] = idx;
         this._sparse[eid] = -1;
-        this._freelist.push(eid);
+        this._freelist[this._freeCount++] = eid;
     }
 
     exists(eid: Entity): boolean {

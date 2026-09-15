@@ -246,8 +246,9 @@ export class World {
     /**
      * Body move events from the last {@link step} (b3World_GetBodyEvents) — every body that moved,
      * for bulk-syncing game object transforms (cheaper than per-body {@link Body.getTransform}). The
-     * `moveEvents` array is a reused pool valid until the next step; keep `userData` to route each.
-     * @example for (const e of world.getBodyEvents().moveEvents) sync(e.userData, e.transform)
+     * `moveEvents` array is a reused pool valid until the next step whose first `count` entries are this
+     * step's; it keeps its high-water length. Keep `userData` to route each.
+     * @example const ev = world.getBodyEvents(); for (let i = 0; i < ev.count; i++) sync(ev.moveEvents[i].userData, ev.moveEvents[i].transform)
      */
     getBodyEvents(): BodyEvents {
         const state = this.state;
@@ -261,7 +262,6 @@ export class World {
                 fellAsleep: false,
             });
         }
-        pool.length = count;
         for (let i = 0; i < count; ++i) {
             const rec = state.bodyMoveEvents[i];
             const ev = pool[i];
