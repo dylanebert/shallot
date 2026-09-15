@@ -20,9 +20,9 @@ import {
 
 export type { SplashProfile } from "./presentation";
 
-/** The grace before responsive and compact branded content is allowed to appear. */
+/** The grace before responsive branded content is allowed to appear. */
 export const SPLASH_GRACE_MS = 150;
-/** The whole-overlay handoff after responsive and compact readiness. */
+/** The whole-overlay handoff after responsive readiness. */
 export const SPLASH_FADE_MS = 150;
 /** The minimum finished-lockup rest for the cinematic profile. */
 export const SPLASH_LOCKUP_REST_MS = 150;
