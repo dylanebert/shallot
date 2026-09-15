@@ -87,8 +87,13 @@ export type TreeStats = { nodeVisits: number; leafVisits: number };
 export type RayCastInput = { origin: Vec3; translation: Vec3; maxFraction: number };
 export type BoxCastInput = { box: AABB; translation: Vec3; maxFraction: number };
 
-// Query callbacks close over their context (idiomatic TS); the C void* context is dropped.
-export type QueryCallback = (proxyId: number, userData: number) => boolean;
+// A query callback receives the caller's context as its third argument (the C `void* context`), so a
+// hoisted visitor needs neither a per-call closure nor module state.
+export type QueryCallback<C = undefined> = (
+    proxyId: number,
+    userData: number,
+    context: C,
+) => boolean;
 export type Query64Callback = (proxyId: number, userData: bigint) => boolean;
 export type RayCastCallback = (input: RayCastInput, proxyId: number, userData: number) => number;
 export type BoxCastCallback = (input: BoxCastInput, proxyId: number, userData: number) => number;
@@ -880,6 +885,15 @@ export function query(
     requireAllBits: boolean,
     callback: QueryCallback,
 ): Readonly<TreeStats>;
+export function query<C>(
+    tree: DynamicTree,
+    box: AABB,
+    maskHi: number,
+    maskLo: number,
+    requireAllBits: boolean,
+    callback: QueryCallback<C>,
+    context: C,
+): Readonly<TreeStats>;
 export function query(
     tree: DynamicTree,
     box: AABB,
@@ -887,6 +901,7 @@ export function query(
     maskLo: number,
     requireAllBits: boolean,
     callback: Query64Callback,
+    context: undefined,
     wideUserData: true,
 ): Readonly<TreeStats>;
 export function query(
@@ -895,19 +910,20 @@ export function query(
     maskHi: number,
     maskLo: number,
     requireAllBits: boolean,
-    callback: QueryCallback | Query64Callback,
+    callback: QueryCallback<never> | Query64Callback,
+    context?: unknown,
     wideUserData = false,
 ): Readonly<TreeStats> {
     if (tree.nodeCount === 0) return NO_VISITS;
 
     const depth = queryDepth;
-    let context = queryContexts[depth];
-    if (context === undefined) {
-        context = { stack: new Int32Array(STACK_SIZE), stats: { nodeVisits: 0, leafVisits: 0 } };
-        queryContexts[depth] = context;
+    let scratch = queryContexts[depth];
+    if (scratch === undefined) {
+        scratch = { stack: new Int32Array(STACK_SIZE), stats: { nodeVisits: 0, leafVisits: 0 } };
+        queryContexts[depth] = scratch;
     }
 
-    const result = context.stats;
+    const result = scratch.stats;
     result.nodeVisits = 0;
     result.leafVisits = 0;
 
@@ -922,7 +938,7 @@ export function query(
     const bhy = box.upperBound.y;
     const bhz = box.upperBound.z;
 
-    const stack = context.stack;
+    const stack = scratch.stack;
     let stackCount = 0;
     stack[stackCount++] = tree.root;
     queryDepth = depth + 1;
@@ -955,8 +971,9 @@ export function query(
                     const invoke = callback as (
                         proxyId: number,
                         userData: number | bigint,
+                        context: unknown,
                     ) => boolean;
-                    const proceed = invoke(nodeId, userData);
+                    const proceed = invoke(nodeId, userData, context);
                     result.leafVisits += 1;
                     if (proceed === false) return result;
                 } else if (stackCount < STACK_SIZE - 1) {

@@ -21,8 +21,8 @@ export interface AllocationSample {
     frames: number;
     /** windows read after `warm` frames, after twice that, and an A/A repeat, each after a collection */
     windows: readonly AllocationWindow[];
-    /** sampled bytes of one known literal per frame; zero means the sampler saw nothing */
-    controlBytes: number;
+    /** sites of the bundle's `control` literal, attributed as the windows are; empty means the sampler saw nothing */
+    control: readonly AllocationSite[];
 }
 
 const SAMPLER = resolve(import.meta.dir, "allocation-sampler.mjs");

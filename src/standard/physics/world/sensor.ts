@@ -85,23 +85,23 @@ function overlapSensor(
     return overlapShape(sensorShape, xf.identity(), { points, count, radius: proxy.radius });
 }
 
-// The sensor pose, taken per sensor at the top of its query (relative to WORLD_ORIGIN).
-const sensorPose: Transform = { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } };
-
-// The sensor whose tree query is running; the pass is synchronous and not re-entrant, so the candidate
-// visitor reads it here rather than closing over it per sensor.
-const query: { world: WorldState | null; sensorShape: Shape | null; overlaps2: Visitor[] | null } =
-    {
-        world: null,
-        sensorShape: null,
-        overlaps2: null,
-    };
+/**
+ * The running sensor's tree-query context (b3SensorQueryContext), passed to the candidate visitor as the
+ * query's context argument. One per sensor pass, filled per sensor before its queries.
+ */
+export type SensorQueryContext = {
+    world: WorldState;
+    sensorShape: Shape;
+    // the sensor pose, relative to WORLD_ORIGIN
+    transform: Transform;
+    overlaps2: Visitor[];
+};
 
 const byShapeId = (a: Visitor, b: Visitor): number => a.shapeId - b.shapeId;
 
-function visitCandidate(_proxyId: number, shapeId: number): boolean {
-    const world = query.world as WorldState;
-    const sensorShape = query.sensorShape as Shape;
+function visitCandidate(_proxyId: number, shapeId: number, context: SensorQueryContext): boolean {
+    const world = context.world;
+    const sensorShape = context.sensorShape;
     if (shapeId === sensorShape.id) {
         return true;
     }
@@ -130,11 +130,11 @@ function visitCandidate(_proxyId: number, shapeId: number): boolean {
         getBodyTransformQuick(world, world.bodies[other.bodyId]),
         WORLD_ORIGIN,
     );
-    if (overlapSensor(sensorShape, sensorPose, other, otherTransform) === false) {
+    if (overlapSensor(sensorShape, context.transform, other, otherTransform) === false) {
         return true;
     }
 
-    (query.overlaps2 as Visitor[]).push({ shapeId, generation: other.generation });
+    context.overlaps2.push({ shapeId, generation: other.generation });
     return true;
 }
 
@@ -171,21 +171,51 @@ export function overlapSensors(world: WorldState): void {
             body.setIndex === SetType.Disabled || sensorShape.enableSensorEvents === false;
 
         if (disabled === false) {
-            readSimTransform(getBodySim(world, body), sensorPose);
-            vec3.subOut(sensorPose.p, WORLD_ORIGIN, sensorPose.p);
+            let context = world.sensorQuery;
+            if (context === null) {
+                context = {
+                    world,
+                    sensorShape,
+                    transform: { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
+                    overlaps2,
+                };
+                world.sensorQuery = context;
+            }
+            context.sensorShape = sensorShape;
+            context.overlaps2 = overlaps2;
+            readSimTransform(getBodySim(world, body), context.transform);
+            vec3.subOut(context.transform.p, WORLD_ORIGIN, context.transform.p);
             const bounds = sensorShape.aabb;
             const maskHi = sensorShape.filter.maskHi;
             const maskLo = sensorShape.filter.maskLo;
 
-            query.world = world;
-            query.sensorShape = sensorShape;
-            query.overlaps2 = overlaps2;
-            tree.query(trees[BodyType.Static], bounds, maskHi, maskLo, false, visitCandidate);
-            tree.query(trees[BodyType.Kinematic], bounds, maskHi, maskLo, false, visitCandidate);
-            tree.query(trees[BodyType.Dynamic], bounds, maskHi, maskLo, false, visitCandidate);
-            query.world = null;
-            query.sensorShape = null;
-            query.overlaps2 = null;
+            tree.query(
+                trees[BodyType.Static],
+                bounds,
+                maskHi,
+                maskLo,
+                false,
+                visitCandidate,
+                context,
+            );
+            tree.query(
+                trees[BodyType.Kinematic],
+                bounds,
+                maskHi,
+                maskLo,
+                false,
+                visitCandidate,
+                context,
+            );
+            tree.query(
+                trees[BodyType.Dynamic],
+                bounds,
+                maskHi,
+                maskLo,
+                false,
+                visitCandidate,
+                context,
+            );
 
             // Sort by shape id, then drop duplicates (a hit may repeat a queried overlap).
             overlaps2.sort(byShapeId);

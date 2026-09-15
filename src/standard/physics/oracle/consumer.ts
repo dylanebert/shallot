@@ -339,6 +339,7 @@ function runBaseCase(item: OracleCase): unknown {
                     hits.push({ proxyId, userData });
                     return true;
                 },
+                undefined,
                 true,
             );
             return {

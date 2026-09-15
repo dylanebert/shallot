@@ -1129,9 +1129,11 @@ const ProfileRenderSystem: System = {
  * performance profiler: an F3-toggled stats overlay (FPS, per-pass GPU/CPU timings, memory, shader
  * compile) plus the {@link Profile} singleton and the `window.__benchmark` measurement API. Off by
  * default: add it and press F3 to show the overlay; the data is on `Profile` whether it's shown or not.
- * Register it first so its `createBuffer` / pipeline patches catch every allocation.
+ * Register it first so its `createBuffer` / pipeline patches catch every allocation. Physics phase
+ * timings are separate: add {@link PhysicsProfilePlugin} for `World.getProfile`, which this plugin does
+ * not pull in, since it would add physics to every profiled composition.
  * @example
- * const config = { plugins: [ProfilePlugin] };
+ * const config = { plugins: [ProfilePlugin, PhysicsProfilePlugin] };
  */
 export const ProfilePlugin: Plugin = {
     name: "Profile",

@@ -24,7 +24,7 @@ import type { Joint } from "../solver/joint";
 import type { Body } from "./body";
 import { NO_CLOCK, type Profile, type StepClock } from "./clock";
 import type { Island } from "./island";
-import type { Sensor, SensorBeginTouchEvent } from "./sensor";
+import type { Sensor, SensorBeginTouchEvent, SensorQueryContext } from "./sensor";
 import { destroySolverSet, emptySolverSet, type SolverSet } from "./solverset";
 
 /** Maximum concurrent worlds (B3_MAX_WORLDS). */
@@ -147,6 +147,8 @@ export type WorldState = {
 
     // Dense array of sensor overlap-tracking state, one per sensor shape (b3World.sensors).
     sensors: Sensor[];
+    // The sensor pass's tree-query context, made by the first pass that runs a query.
+    sensorQuery: SensorQueryContext | null;
 
     // Event buffers. End events are double-buffered so the user needn't flush every step. The body
     // move buffer is a reused pool grown but never shrunk; bodyMoveCount is the valid prefix length.
@@ -281,6 +283,7 @@ function makeWorldState(def: WorldDef, worldId: number, generation: number): Wor
         fatAabbStore: createFatAabbStore(),
         shapeStore: createShapeStore(),
         sensors: [],
+        sensorQuery: null,
         bodyMoveEvents: [],
         bodyMoveCount: 0,
         sensorBeginEvents: [],

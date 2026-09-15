@@ -568,8 +568,9 @@ export class World {
 
     /**
      * @returns the last step's per-phase timings in milliseconds (b3World_GetProfile); zeros unless a
-     * timing clock is installed with {@link setClock}.
-     * @example world.step(1 / 60, 4); console.log(world.getProfile().collide)
+     * timing clock is installed with {@link setClock} (the `profile` extra's `timingClock`, or its
+     * `PhysicsProfilePlugin` in a composition).
+     * @example world.setClock(timingClock()); world.step(1 / 60, 4); console.log(world.getProfile().collide)
      */
     getProfile(): Profile {
         return worldProfile(this.state);

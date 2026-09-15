@@ -15,6 +15,7 @@ import {
     allocatesNothing,
     sampleAllocation,
     siteTable,
+    windowBytes,
 } from "@dylanebert/shallot/harness/allocation";
 import { check } from "@dylanebert/shallot/harness/check";
 import { Demo } from "./demo";
@@ -277,9 +278,13 @@ check(
             frames: 600,
             input: readFileSync(SCENE, "utf8"),
         });
-        // The control literal proves the sampler sees allocation; without it an empty site set proves nothing.
-        if (sample.controlBytes <= 0)
-            throw new Error("inconclusive: the sampler attributed no bytes to its control literal");
+        // The entry's control literal, attributed as the windows are, proves the sampler sees subject
+        // allocation; without it an empty site set proves nothing.
+        const control = { label: "control", sites: sample.control };
+        if (control.sites.length === 0 || windowBytes(control) <= 0)
+            throw new Error(
+                "inconclusive: the sampler attributed no site to the entry's control literal",
+            );
         if (!allocatesNothing(sample))
             throw new Error(`warm first-person frames allocate:\n${siteTable(sample)}`);
     },
