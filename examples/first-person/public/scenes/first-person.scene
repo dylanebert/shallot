@@ -1,34 +1,50 @@
 <scene>
-    <a ambient-light="color: 0xd0dcec" />
-    <a directional-light="direction: -0.4 -1 -0.55; color: 0xfff4e0; intensity: 1.1" shadow />
+    <a ambient-light="color: 0xd8d6ce" />
+    <a directional-light="direction: -0.45 -1 -0.6; color: 0xfff1d6; intensity: 1.15" shadow />
 
-    <!-- the player's eye: a camera the controller poses each frame -->
-    <a id="eye" camera sear transform="pos: 0 1.5 5" />
-
-    <!-- the player: a capsule (shape 2, half-height 0.6 + radius 0.3), mass 0 = the controller owns the pose -->
+    <!-- the player's eye follows the capsule; the route faces the short steps, lift, and tower -->
+    <a id="eye" camera sear transform="pos: 0 1.7 6" />
     <a
         id="player"
-        body="pos: 0 1 0; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0"
+        body="pos: 0 1.4 6; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0"
         character
         player="camera: @eye"
     />
 
-    <!-- names the interaction on open; the recipe is otherwise silent until a keypress -->
     <a
-        text="anchor: 0.5; content: WASD: move   Click: look   Space: jump; font-size: 0.4; color: 0xffcc44"
-        transform="pos: 0 2.2 -6"
+        text="anchor: 0.5; content: WASD: move   Click: look   Space: jump; font-size: 0.4; color: 0xffb85c"
+        transform="pos: 0 2.2 4.5"
     />
 
-    <!-- ground + a raised block to walk up to -->
-    <a body="pos: 0 0 0; half-extents: 10 0.5 10; mass: 0" part color="rgba: 0.4 0.42 0.46" />
-    <a body="pos: 4 0.5 0; half-extents: 1.5 0.5 1.5; mass: 0" part color="rgba: 0.5 0.52 0.56" />
+    <!-- quiet neutral ground and broad steps give the ascent a clear silhouette from spawn -->
+    <a body="pos: 0 0 -4; half-extents: 10 0.5 16; mass: 0" part color="rgba(0.22 0.24 0.26)" />
+    <a body="pos: 0 0.75 3; half-extents: 3 0.25 1.5; mass: 0" part color="rgba(0.3 0.32 0.34)" />
+    <a body="pos: 0 1.25 0; half-extents: 3 0.25 1.5; mass: 0" part color="rgba(0.3 0.32 0.34)" />
+    <a body="pos: 0 1.75 -3; half-extents: 3 0.25 1.5; mass: 0" part color="rgba(0.3 0.32 0.34)" />
 
-    <!-- a kinematic platform the slide system drives; a player standing on it is carried along -->
+    <!-- the single moving object: it starts level with the last step and rises only on Y -->
     <a
-        id="platform"
-        body="pos: -4 0.75 0; half-extents: 1.5 0.25 1.5; mass: 0"
+        id="lift"
+        body="pos: 0 1.75 -6.5; half-extents: 3 0.25 2; mass: 0"
         part
-        color="rgba: 0.55 0.45 0.65"
-        moving
+        color="rgba(0.86 0.42 0.12)"
+        lift
+    />
+
+    <!-- staggered neutral blocks make a compact tower and finish at a readable perch -->
+    <a
+        body="pos: 0.7 2.5 -10; half-extents: 2.2 0.5 1.2; mass: 0"
+        part
+        color="rgba(0.34 0.36 0.38)"
+    />
+    <a
+        body="pos: -0.7 3.5 -12.3; half-extents: 1.8 0.5 1.2; mass: 0"
+        part
+        color="rgba(0.34 0.36 0.38)"
+    />
+    <a
+        body="pos: 0.7 4.5 -14.5; half-extents: 2.2 0.5 1.5; mass: 0"
+        part
+        color="rgba(0.38 0.4 0.42)"
     />
 </scene>

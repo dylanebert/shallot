@@ -10,7 +10,7 @@ From `bun run examples:index` and `examples/*/shallot.json`; edit manifests. Use
 | `custom-material` | I want to write my own shader for a material and for the background. | `bunx shallot add custom-material` |
 | `day-night-sky` | I want a day and night cycle where the sun moves and the sky follows it. | `bunx shallot add day-night-sky` |
 | `drive-a-vehicle` | I want a car I can drive with WASD. (check: unit) | `bunx shallot add drive-a-vehicle` |
-| `first-person` | I want to walk around and look with the mouse like a first-person game. | `bunx shallot add first-person` |
+| `first-person` | I want a first-person character to climb a route with a moving lift. (check: unit) | `bunx shallot add first-person` |
 | `import-gltf` | I want to load and place one glTF model. | `bunx shallot add import-gltf` |
 | `particles` | I want to simulate and draw many particles on the GPU. | `bunx shallot add particles` |
 | `play-sound` | I want a sound that comes from a place in the world and pans as it moves. | `bunx shallot add play-sound` |
