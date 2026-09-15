@@ -1,6 +1,6 @@
 import { cpSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { CLAUDE_IMPORT, RECIPE_TSCONFIG, recipeDoc } from "./add-fragments";
+import { CLAUDE_IMPORT, PROJECT_GITIGNORE, RECIPE_TSCONFIG, recipeDoc } from "./add-fragments";
 
 // `shallot add [name] [dir]` — copy a recipe out of the installed package into a runnable project.
 // The recipes ship in the tarball under this package's `examples/`; running
@@ -125,11 +125,12 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
         writeFileSync(pkgPath, pinEngine(readFileSync(pkgPath, "utf8"), version));
 
     // emit the standalone scaffold the monorepo recipe lacks: the agent-surface pointer (AGENTS.md,
-    // imported by CLAUDE.md) that hands a harness the installed engine's contract, and a tsconfig for
-    // `bunx tsc`. Don't clobber a recipe that ships its own.
+    // imported by CLAUDE.md) that hands a harness the installed engine's contract, the project ignore
+    // (bun pack drops `.gitignore`), and a tsconfig for `bunx tsc`. Don't clobber a recipe that ships its own.
     for (const [file, content] of [
         ["AGENTS.md", recipeDoc(name)],
         ["CLAUDE.md", CLAUDE_IMPORT],
+        [".gitignore", PROJECT_GITIGNORE],
     ] as const) {
         const path = resolve(dest, file);
         if (!existsSync(path)) writeFileSync(path, content);

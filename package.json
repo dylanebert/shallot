@@ -79,6 +79,8 @@
         "examples/svelte-ui",
         "!examples/AGENTS.md",
         "!examples/*/node_modules",
+        "!examples/*/build",
+        "!examples/*/dist",
         "!examples/*/tsconfig.json",
         "!src/harness/fixtures",
         "!src/extras/gltf/fixtures",
