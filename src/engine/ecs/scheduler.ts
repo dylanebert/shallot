@@ -1,11 +1,14 @@
 import type { State } from "./state";
 
+/** the fixed simulation step in seconds; {@link Time.FIXED_DT} is this value */
+export const FIXED_DT = 1 / 60;
+
 /**
  * frame timing constants and per-frame data
  * @expand
  */
 export const Time = {
-    FIXED_DT: 1 / 60,
+    FIXED_DT,
     DEFAULT_DT: 1 / 60,
     MAX_FIXED_STEPS: 4,
 } as const;

@@ -1,4 +1,4 @@
-import { f32, type Plugin, type State, type System, sparse } from "../../engine";
+import { FIXED_DT, f32, type Plugin, type State, type System, sparse } from "../../engine";
 import {
     Body,
     type BodyStateOut,
@@ -261,7 +261,7 @@ function sweepEid(eid: number, st: CharState, state: State): void {
         _pushVel0[3 * i + 2] = v[2];
     }
 
-    sweepCharacter(st, input, _statics, gravity, Physics.dt, jumped.has(eid), _push);
+    sweepCharacter(st, input, _statics, gravity, FIXED_DT, jumped.has(eid), _push);
 
     // kinematic upload — the swept pose, with the realized velocity (snap excluded) as the explicit
     // velocity so the carry-of-riders + broadphase pad read the swept motion, not the cosmetic ground snap.

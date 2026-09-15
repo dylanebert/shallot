@@ -2,6 +2,7 @@ import {
     Compute,
     capacity,
     entity,
+    FIXED_DT,
     f32,
     type Plugin,
     type State,
@@ -675,7 +676,7 @@ export function hash(state: State): bigint {
 /** Static physics configuration shared by the State-first functions. */
 export const Physics = {
     gravity: GRAVITY,
-    dt: Time.FIXED_DT,
+    dt: FIXED_DT,
 } as const;
 
 export type PhysicsStepConfig = Readonly<{
@@ -705,7 +706,7 @@ export const StepSystem: System = {
             const saved = residentSnapshots.get(runtime);
             if (saved) restoreWorld(world, saved);
         }
-        world.step(Time.FIXED_DT, SUBSTEPS);
+        world.step(FIXED_DT, SUBSTEPS);
         if (liveRuntimes.size > 1) residentSnapshots.set(runtime, snapshotWorld(world));
         runtime.movedCount = 0;
         runtime.counters.bytesUploaded = 0;
