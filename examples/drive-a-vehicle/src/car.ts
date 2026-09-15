@@ -241,10 +241,13 @@ export function readVehicle(state: State): VehicleObservation | null {
     };
 }
 
-const controlPanels = new WeakMap<State, HTMLDivElement>();
+const CONTROL_PANEL = Symbol.for("shallot.examples.drive-a-vehicle.controls");
+type ControlState = State & { [CONTROL_PANEL]?: HTMLDivElement };
 
 function mountControls(state: State): void {
-    if (typeof document === "undefined" || controlPanels.has(state)) return;
+    if (typeof document === "undefined") return;
+    const owner = state as ControlState;
+    if (owner[CONTROL_PANEL]) return;
     const overlay = mountOverlay(document.querySelector("canvas"), state);
     const panel = document.createElement("div");
     panel.dataset.recipeControls = "";
@@ -270,8 +273,10 @@ function mountControls(state: State): void {
         panel.append(row);
     }
     overlay.append(panel);
-    controlPanels.set(state, panel);
-    state.onDispose(() => controlPanels.delete(state));
+    owner[CONTROL_PANEL] = panel;
+    state.onDispose(() => {
+        if (owner[CONTROL_PANEL] === panel) delete owner[CONTROL_PANEL];
+    });
 }
 
 const controls: System = {

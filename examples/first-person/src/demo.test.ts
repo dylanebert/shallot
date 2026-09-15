@@ -8,6 +8,7 @@ import {
     InputPlugin,
     PhysicsPlugin,
     readBody,
+    swap,
     Time,
 } from "@dylanebert/shallot";
 import { runBrowserCheck } from "@dylanebert/shallot/harness";
@@ -61,9 +62,10 @@ function tangentGap(player: number, lift: number): number {
     return capsuleBottom - liftTop;
 }
 
-function extent(eid: number, axis: "x" | "z"): readonly [number, number] {
+function extent(eid: number, axis: "x" | "z", radius = 0): readonly [number, number] {
     const center = axis === "x" ? Body.pos.x.get(eid) : Body.pos.z.get(eid);
-    const half = axis === "x" ? Body.halfExtents.x.get(eid) : Body.halfExtents.z.get(eid);
+    const half =
+        (axis === "x" ? Body.halfExtents.x.get(eid) : Body.halfExtents.z.get(eid)) + radius;
     return [center - half, center + half];
 }
 
@@ -118,7 +120,8 @@ check(
             ];
             for (const routeEntity of route) {
                 for (const axis of ["x", "z"] as const) {
-                    const [min, max] = extent(routeEntity, axis);
+                    const radius = routeEntity === player ? Body.halfExtents.w.get(player) : 0;
+                    const [min, max] = extent(routeEntity, axis, radius);
                     const [groundMin, groundMax] = extent(ground, axis);
                     if (min < groundMin || max > groundMax)
                         throw new Error(
@@ -279,6 +282,15 @@ check(
                 const expectedPhase = (app.state.time.elapsed + Time.FIXED_DT) * RATE;
                 const expected = base[1] + 0.5 * TRAVEL * (1 - Math.cos(2 * expectedPhase));
                 const expectedVelocity = RATE * TRAVEL * Math.sin(2 * phase);
+                if (tick === 45) {
+                    const replacement = {
+                        ...Demo,
+                        systems: Demo.systems?.map((system) => ({ ...system })),
+                    };
+                    const result = await swap(app.state, [Demo], [replacement]);
+                    if (!result.ok)
+                        throw new Error(`same-shape Demo swap was refused: ${result.reason}`);
+                }
                 if (Math.abs(phase) > 0.05) observedPhases.push(phase);
                 const positionError = Math.abs(pose.pos[1] - expected);
                 const derivativeError = Math.abs(pose.vel[1] - expectedVelocity);

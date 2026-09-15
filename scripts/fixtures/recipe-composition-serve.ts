@@ -32,7 +32,7 @@ const roleCheck =
            const liftEntities = lift ? [...state.query([lift])] : [];
            if (liftEntities.length !== 1 || !state.has(liftEntities[0], body)) throw new Error("Lift role/body composition was incomplete");`;
 const html = `<!doctype html><meta charset="utf-8"><style>html,body{margin:0}canvas{display:block;width:100vw;height:100vh}</style><canvas id="canvas" width="1280" height="720"></canvas><script type="module">
-import { build, Body, pointerLockChanged, run } from "@dylanebert/shallot";
+import { build, Body, pointerLockChanged, run, swap } from "@dylanebert/shallot";
 import { getComponent } from "@dylanebert/shallot/ecs";
 import project from "virtual:project";
 let verdict;
@@ -64,6 +64,7 @@ try {
     if (${recipe === "first-person"}) {
         const status = controls[0].querySelector("[data-pointer-lock-status]");
         if (!status || !status.textContent?.includes("Click the scene to enable mouse look.")) throw new Error("unlocked pointer-lock status was missing");
+        if (getComputedStyle(status).color !== "rgb(255, 255, 255)") throw new Error("unlocked pointer-lock status was not computed white");
         if (controls[0].textContent?.includes("Click: look")) throw new Error("stale Click: look copy remained");
         pointerLockChanged(state, true);
         state.step(1 / 60);
@@ -71,6 +72,20 @@ try {
         pointerLockChanged(state, false, "fixture refusal");
         state.step(1 / 60);
         if (!status.textContent?.startsWith("Mouse look unavailable.") || !status.textContent.includes("fixture refusal")) throw new Error("pointer-lock refusal status was missing");
+        if (getComputedStyle(status).color !== "rgb(255, 255, 255)") throw new Error("refused pointer-lock status was not computed white");
+    }
+    const replacementPlugins = project.plugins.map((plugin) =>
+        plugin.name === ${JSON.stringify(expectedPlugin)}
+            ? { ...plugin, systems: plugin.systems?.map((system) => ({ ...system })) }
+            : plugin,
+    );
+    const swapResult = await swap(state, project.plugins, replacementPlugins);
+    if (!swapResult.ok) throw new Error("same-shape recipe plugin swap was refused: " + swapResult.reason);
+    state.step(1 / 60);
+    if (document.querySelectorAll("[data-recipe-controls]").length !== 1) throw new Error("plugin swap duplicated the control card");
+    if (${recipe === "first-person"}) {
+        const swappedStatus = controls[0].querySelector("[data-pointer-lock-status]");
+        if (!swappedStatus || getComputedStyle(swappedStatus).color !== "rgb(255, 255, 255)") throw new Error("swapped pointer-lock status was not computed white");
     }
     if (document.querySelectorAll("[data-recipe-controls]").length !== 1) throw new Error("control card multiplicity changed before disposal");
     app.dispose();

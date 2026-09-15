@@ -30,15 +30,29 @@ export const Lift = {};
 
 const TRAVEL = 1.5;
 const RATE = 0.65;
-const liftBases = new WeakMap<State, Map<number, readonly [number, number, number]>>();
+const LIFT_BASES = Symbol.for("shallot.examples.first-person.lift-bases");
+type LiftState = State & {
+    [LIFT_BASES]?: Map<number, readonly [number, number, number]>;
+};
+
+function liftBases(state: State): Map<number, readonly [number, number, number]> {
+    const owner = state as LiftState;
+    const existing = owner[LIFT_BASES];
+    if (existing) return existing;
+    const created = new Map<number, readonly [number, number, number]>();
+    owner[LIFT_BASES] = created;
+    state.onDispose(() => {
+        if (owner[LIFT_BASES] === created) delete owner[LIFT_BASES];
+    });
+    return created;
+}
 
 const lift: System = {
     name: "lift",
     group: "fixed",
     before: [CharacterSweepSystem],
     update(state: State): void {
-        const bases = liftBases.get(state);
-        if (!bases) return;
+        const bases = liftBases(state);
         const phase = state.time.elapsed * RATE;
         const offset = 0.5 * TRAVEL * (1 - Math.cos(2 * phase));
         const vy = RATE * TRAVEL * Math.sin(2 * phase);
@@ -56,10 +70,18 @@ const lift: System = {
     },
 };
 
-const controlPanels = new WeakMap<State, { panel: HTMLDivElement; status: HTMLDivElement }>();
+const CONTROL_PANEL = Symbol.for("shallot.examples.first-person.controls");
+type ControlPanel = { panel: HTMLDivElement; status: HTMLDivElement };
+type ControlState = State & { [CONTROL_PANEL]?: ControlPanel };
+
+function controlPanel(state: State): ControlPanel | undefined {
+    return (state as ControlState)[CONTROL_PANEL];
+}
 
 function mountControls(state: State): void {
-    if (typeof document === "undefined" || controlPanels.has(state)) return;
+    if (typeof document === "undefined") return;
+    const owner = state as ControlState;
+    if (owner[CONTROL_PANEL]) return;
     const overlay = mountOverlay(document.querySelector("canvas"), state);
     const panel = document.createElement("div");
     panel.dataset.recipeControls = "";
@@ -90,8 +112,11 @@ function mountControls(state: State): void {
     status.style.cssText = "margin-top:4px;color:#ffffff";
     panel.append(status);
     overlay.append(panel);
-    controlPanels.set(state, { panel, status });
-    state.onDispose(() => controlPanels.delete(state));
+    const current = { panel, status };
+    owner[CONTROL_PANEL] = current;
+    state.onDispose(() => {
+        if (owner[CONTROL_PANEL] === current) delete owner[CONTROL_PANEL];
+    });
 }
 
 const controls: System = {
@@ -99,7 +124,7 @@ const controls: System = {
     group: "draw",
     update(state) {
         mountControls(state);
-        const current = controlPanels.get(state);
+        const current = controlPanel(state);
         if (!current) return;
         const status = pointerLockStatus(state);
         current.status.hidden = status === "locked";
@@ -119,8 +144,7 @@ export const Demo = {
     dependencies: [CharacterPlugin, InputPlugin, PhysicsPlugin],
     warm(state: State) {
         tune(state);
-        liftBases.set(state, new Map());
-        state.onDispose(() => liftBases.delete(state));
+        liftBases(state);
     },
     systems: [lift, controls],
 } satisfies Plugin;
