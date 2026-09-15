@@ -785,6 +785,11 @@ check(
         const rightVelocity = right.samples[20].bodies[0].vel[2];
         const leftHeading = heading(left.samples[HORIZON - 1].bodies[0].quat);
         const rightHeading = heading(right.samples[HORIZON - 1].bodies[0].quat);
+        const firstOppositeHeading = firstDivergence(
+            left,
+            right,
+            (a, b) => heading(a.bodies[0].quat) < -0.02 && heading(b.bodies[0].quat) > 0.02,
+        );
         if (
             leftVelocity >= -0.001 ||
             rightVelocity <= 0.001 ||
@@ -794,7 +799,7 @@ check(
             leftHeading * rightHeading >= 0
         )
             throw new Error(
-                `actual steering lateral/yaw response was not opposite: lateral=${leftVelocity},${rightVelocity} heading=${leftHeading},${rightHeading}; diagnostics=${pairedDiagnostic("opposite W+A/W+D steering", left, right, HORIZON - 1, left.bounds)}`,
+                `actual steering lateral/yaw response was not opposite: lateral=${leftVelocity},${rightVelocity} heading=${leftHeading},${rightHeading}; first opposite heading=${firstOppositeHeading ?? HORIZON - 1}; diagnostics=${pairedDiagnostic("opposite W+A/W+D steering", left, right, firstOppositeHeading ?? HORIZON - 1, left.bounds)}`,
             );
     },
 );
