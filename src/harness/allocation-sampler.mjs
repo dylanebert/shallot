@@ -1,11 +1,10 @@
 // Runs under Node, never Bun: V8's sampling heap profiler counts allocation exactly, where JSC's
 // statistics hold still between collections.
-// argv: <bundle.mjs> <warm frames> <measured frames> <input file>. The bundle's default export takes
+// argv: <bundle.mjs> <warm frames> <window frames> <input file>. The bundle's default export takes
 // the input text and resolves to { step(), dispose() }. Prints one JSON sample on stdout.
 import { readFileSync } from "node:fs";
 import { findSourceMap } from "node:module";
 import { Session } from "node:inspector/promises";
-import { getHeapStatistics } from "node:v8";
 import { dirname, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -18,7 +17,6 @@ const collect = globalThis.gc;
 if (typeof collect !== "function") throw new Error("allocation sampler needs node --expose-gc");
 
 const bundleUrl = pathToFileURL(bundle).href;
-const used = () => getHeapStatistics().used_heap_size;
 
 function site(frame) {
     const name = frame.functionName || "(anonymous)";
@@ -76,41 +74,31 @@ const window = () => {
     return sample(bundleUrl, () => run(frames));
 };
 try {
-    // Steadiness premise: a window read after `warm` frames, one read after twice that, and an A/A
-    // repeat of the latter. The measured window follows the controls.
+    // Three windows: after `warm` frames, after twice that, and an A/A repeat. Tiering only adds
+    // allocation, so each must read zero on its own.
     run(warm);
     const atWarm = await window();
     run(warm - frames);
     const atDoubleWarm = await window();
     const repeat = await window();
 
-    // Controls: a read costs a stable amount, an empty window moves the heap by exactly that read,
-    // and the sampler attributes a known per-frame literal, so an empty site set is not a dead probe.
-    used();
-    const a = used();
-    const warmReadBytes = used() - a;
-    const n0 = used();
-    for (let i = 0; i < frames; i++);
-    const nullHeapDelta = used() - n0;
+    // Control: the sampler attributes a known per-frame literal, so an empty site set is not a dead probe.
     let sink;
     const control = await sample(import.meta.url, () => {
         for (let i = 0; i < frames; i++) sink = { frame: i };
     });
     void sink;
 
-    const measured = await window();
     process.stdout.write(
         `${JSON.stringify({
             runtime: `node ${process.version} ${process.execArgv.join(" ")}`,
             warm,
             frames,
-            totalBytes: measured.reduce((sum, row) => sum + row.bytes, 0),
-            sites: measured,
-            atWarm,
-            atDoubleWarm,
-            repeat,
-            warmReadBytes,
-            nullHeapDelta,
+            windows: [
+                { label: `after warm ${warm}`, sites: atWarm },
+                { label: `after warm ${2 * warm}`, sites: atDoubleWarm },
+                { label: "A/A repeat", sites: repeat },
+            ],
             controlBytes: control.reduce((sum, row) => sum + row.bytes, 0),
         })}\n`,
     );
