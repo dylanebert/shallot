@@ -22,8 +22,8 @@ import type { Shape } from "../shapes/shape";
 import type { WorldState } from "../world/world";
 import { kernel } from "./kernel";
 
-/** 4-byte stride of one shape record, mirroring `shapes.rs`: type(1) next(1) geometry(7) refit(7). */
-export const SHAPE_STRIDE = 16;
+/** 4-byte stride of one shape record, mirroring `shapes.rs`: type(1) next(1) geometry(7) refit(7) attachment(2). */
+export const SHAPE_STRIDE = 18;
 /** Shape type code — the `ShapeType` value verbatim (sphere/capsule/hull dispatch in-kernel; every
  * other value is the TS-fallback partition the kernel skips). */
 export const S_TYPE = 0;
@@ -35,9 +35,10 @@ export const S_GEOM = 2;
 /** Finalize-refit output the kernel writes per convex shape and TS reads in `finalizeBodies`: the
  * candidate fat AABB (`[lower.xyz, upper.xyz]`, 6 f32) then the escaped flag (u32, 0/1). */
 export const S_CAND = 9;
-export const S_MATERIAL_HEAD = 10;
-export const S_MATERIAL_COUNT = 11;
 export const S_ESCAPED = 15;
+/** Kernel shape-record attachment lanes, outside finalize output. */
+export const S_MATERIAL_HEAD = 16;
+export const S_MATERIAL_COUNT = 17;
 
 /** Kernel material record: friction, restitution, rolling, tangent xyz, u64 user id, color, link,
  * generation and alive. */
@@ -166,17 +167,19 @@ export class ShapeStore {
         }
     }
 
-    /** Write shape `shape.id`'s whole record — type, `nextShapeId`, geometry. Every slot is written
-     * (the payload zeroed past the type's fields), so a recycled shapeId inherits nothing. */
+    /** Write authored type, list link and geometry while preserving the kernel attachment and finalize
+     * output lanes. A material list is published before this write on create/reuse. */
     write(shape: Shape): void {
         const u = this.shapeU;
         const f = this.shapeF;
         const o = shape.id * SHAPE_STRIDE;
+        const materialHead = u[o + S_MATERIAL_HEAD];
+        const materialCount = u[o + S_MATERIAL_COUNT];
         u[o + S_TYPE] = shape.type;
         u[o + S_NEXT] = shape.nextShapeId;
         for (let i = S_GEOM; i < SHAPE_STRIDE; ++i) f[o + i] = 0;
-        u[o + S_MATERIAL_HEAD] = shape.materialHead < 0 ? 0xffffffff : shape.materialHead;
-        u[o + S_MATERIAL_COUNT] = shape.materialCount;
+        u[o + S_MATERIAL_HEAD] = materialHead;
+        u[o + S_MATERIAL_COUNT] = materialCount;
 
         const g = o + S_GEOM;
         if (shape.type === ShapeType.Sphere) {
@@ -236,21 +239,32 @@ export class ShapeStore {
             this.materialU[o + M_NEXT] = head < 0 ? 0xffffffff : head;
             head = id;
         }
-        shape.materialHead = head;
-        this.shapeU[shape.id * SHAPE_STRIDE + S_MATERIAL_HEAD] = head < 0 ? 0xffffffff : head;
-        this.shapeU[shape.id * SHAPE_STRIDE + S_MATERIAL_COUNT] = materials.length;
+        // Publish the completed list once. The shape record, not Shape, owns this attachment.
+        const o = shape.id * SHAPE_STRIDE;
+        this.shapeU[o + S_MATERIAL_HEAD] = head < 0 ? 0xffffffff : head;
+        this.shapeU[o + S_MATERIAL_COUNT] = materials.length;
     }
 
-    /** Release the kernel material records owned by a shape. */
+    /** Detach and release the kernel material records owned by a shape. */
     destroyMaterials(world: WorldState, shape: Shape): void {
-        let id = shape.materialHead;
-        while (id >= 0) {
-            this.refreshViews();
-            const next = this.materialU[id * MATERIAL_STRIDE + M_NEXT];
-            kernel().materialDestroy(world.worldId, id);
-            id = next === 0xffffffff ? -1 : next;
+        this.refreshViews();
+        const k = kernel();
+        const head = k.shapeMaterialHead(world.worldId, shape.id) >>> 0;
+        const count = k.shapeMaterialCount(world.worldId, shape.id) >>> 0;
+        const listCount = k.materialListCount(world.worldId, head) >>> 0;
+        if (listCount !== count) {
+            throw new Error(`physics: material attachment mismatch on shape ${shape.id}`);
         }
-        shape.materialHead = -1;
+        const o = shape.id * SHAPE_STRIDE;
+        // Detach first. Each next link is captured before materialDestroy replaces it with the free link.
+        this.shapeU[o + S_MATERIAL_HEAD] = 0xffffffff;
+        this.shapeU[o + S_MATERIAL_COUNT] = 0;
+        let id = head;
+        for (let i = 0; i < count; ++i) {
+            const next = this.materialU[id * MATERIAL_STRIDE + M_NEXT] >>> 0;
+            k.materialDestroy(world.worldId, id);
+            id = next;
+        }
     }
 
     /** Write the shape's enlarged proxy AABB into the same resident shape-owned store. */
@@ -274,10 +288,12 @@ export function createShapeStore(worldId: number): ShapeStore {
  * simulation decisions always re-read this column rather than a Shape.materials authoring array. */
 export function readShapeMaterials(shape: Shape): SurfaceMaterial[] {
     const k = kernel();
-    const count = k.materialListCount(
-        shape.worldId,
-        shape.materialHead < 0 ? 0xffffffff : shape.materialHead,
-    );
+    const head = k.shapeMaterialHead(shape.worldId, shape.id) >>> 0;
+    const count = k.shapeMaterialCount(shape.worldId, shape.id) >>> 0;
+    const listCount = k.materialListCount(shape.worldId, head) >>> 0;
+    if (listCount !== count) {
+        throw new Error(`physics: material attachment mismatch on shape ${shape.id}`);
+    }
     if (count === 0) return [];
     const cap = k.materialCap();
     const ptr = k.materialLayoutPtr();
@@ -286,8 +302,8 @@ export function readShapeMaterials(shape: Shape): SurfaceMaterial[] {
     const u = new Uint32Array(buf, base, cap * MATERIAL_STRIDE);
     const f = new Float32Array(buf, base, cap * MATERIAL_STRIDE);
     const out: SurfaceMaterial[] = [];
-    let id = shape.materialHead < 0 ? 0xffffffff : shape.materialHead;
-    for (let i = 0; i < count && id !== 0xffffffff; ++i) {
+    let id = head;
+    for (let i = 0; i < count; ++i) {
         const o = id * MATERIAL_STRIDE;
         const bits = BigInt(u[o + 6]) | (BigInt(u[o + 7]) << 32n);
         out.push({
@@ -298,18 +314,20 @@ export function readShapeMaterials(shape: Shape): SurfaceMaterial[] {
             userMaterialId: BigInt.asUintN(64, bits),
             customColor: u[o + 8],
         });
-        const next = u[o + M_NEXT];
-        id = next;
+        id = u[o + M_NEXT] >>> 0;
     }
     return out;
 }
 
 /** The authoritative live material count for a shape. */
 export function shapeMaterialCount(shape: Shape): number {
-    return kernel().materialListCount(
-        shape.worldId,
-        shape.materialHead < 0 ? 0xffffffff : shape.materialHead,
-    );
+    const k = kernel();
+    const head = k.shapeMaterialHead(shape.worldId, shape.id) >>> 0;
+    const count = k.shapeMaterialCount(shape.worldId, shape.id) >>> 0;
+    if (k.materialListCount(shape.worldId, head) >>> 0 !== count) {
+        throw new Error(`physics: material attachment mismatch on shape ${shape.id}`);
+    }
+    return count;
 }
 
 /**

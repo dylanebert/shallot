@@ -149,14 +149,13 @@ export type Shape = {
     fatAABB: AABB;
     localCentroid: Vec3;
     material: SurfaceMaterial;
-    materialCount: number;
+    /** Authored material bridge values; live attachment/count lives in the kernel shape record. */
     materials: SurfaceMaterial[] | null;
     filter: FilterBits;
     userData: unknown;
     generation: number;
-    /** Kernel pool identity for the live material linked list. */
+    /** Kernel world key for the world-local shape/material columns. */
     worldId: number;
-    materialHead: number;
     enableSensorEvents: boolean;
     enableContactEvents: boolean;
     enableCustomFiltering: boolean;
@@ -257,13 +256,11 @@ function createShapeRecord(): Shape {
             userMaterialId: 0n,
             customColor: 0,
         },
-        materialCount: 0,
         materials: null,
         filter: { categoryHi: 0, categoryLo: 0, maskHi: 0, maskLo: 0, groupIndex: 0 },
         userData: undefined,
         generation: 0,
         worldId: 0,
-        materialHead: -1,
         enableSensorEvents: false,
         enableContactEvents: false,
         enableCustomFiltering: false,
@@ -757,8 +754,6 @@ export function destroyShapeAllocations(world: WorldState, shape: Shape): void {
     }
     world.shapeStore.destroyMaterials(world, shape);
     shape.materials = null;
-    shape.materialCount = 0;
-    shape.materialHead = -1;
 }
 
 // --- create / destroy ------------------------------------------------------------------------
@@ -786,7 +781,6 @@ function createShapeInternal(
     Object.assign(shape, createShapeRecord());
     shape.generation = generation;
     shape.worldId = world.worldId;
-    shape.materialHead = -1;
 
     switch (shapeType) {
         case ShapeType.Capsule:
@@ -837,17 +831,14 @@ function createShapeInternal(
         // Own a copy of the compound's materials so every shape frees its array the same way; the
         // per-child material indices resolve against this array (b3CreateShapeInternal compound branch).
         const mats = getCompoundMaterials(shape.compound as CompoundData);
-        shape.materialCount = mats.length;
         shape.materials = mats.map(cloneMaterial);
     } else if (materialCount > 1 && def.materials) {
-        shape.materialCount = materialCount;
         shape.materials = def.materials.map(cloneMaterial);
     } else {
         shape.material =
             materialCount === 1 && def.materials
                 ? cloneMaterial(def.materials[0])
                 : cloneMaterial(def.baseMaterial);
-        shape.materialCount = 1;
         shape.materials = null;
     }
 

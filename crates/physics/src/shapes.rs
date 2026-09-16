@@ -3,7 +3,7 @@
 //! its fat AABBs without a per-step marshal. Keyed by shapeId (id-space, grow-on-`createShape`), a
 //! single column, so — like the fat-AABB region it sits above — it needs no record migration: a
 //! shapeId's slot is fixed for the shape's life. Wasm-only (the column aliases linear memory); TS owns
-//! the growth policy and writes the records at shape create/destroy (`src/shapecolumns.ts`).
+//! the growth policy and writes authored geometry/material payloads at shape create (`src/shapecolumns.ts`).
 //!
 //! Placement — a third *low* persistent region, directly above the fat-AABB region, so it joins the
 //! same relocation chain:
@@ -43,10 +43,10 @@ const PAGE: usize = 65536;
 /// AABB path reads, `src/shape.ts` hull branch of `computeShapeAABBOut`). The refit output is the
 /// finalize pass's per-shape write-back: the candidate fat AABB (6, f32) + the escaped flag (1, u32).
 /// Mesh/height-field/compound records carry only the type code + list link (the kernel skips them; TS
-/// computes their AABB at their list position). 16 slots = one 64-byte cache line per shape: the refit
-/// reads type/geom and writes candidate/escaped in one line. No other padding — the record is read
-/// scalar, one shape at a time.
-pub const SHAPE_STRIDE: usize = 16;
+/// computes their AABB at their list position). Attachment lanes 16 and 17 sit outside the refit
+/// output and survive every shape write. No other padding — the record is read scalar, one shape at a
+/// time.
+pub const SHAPE_STRIDE: usize = 18;
 
 /// Record slots. Type codes are the TS `ShapeType` values verbatim (the same codes the narrowphase
 /// dispatch already carries — `finalize::TY_SPHERE` etc), so sphere/capsule/hull dispatch and every other
@@ -57,10 +57,10 @@ pub const S_GEOM: usize = 2;
 /// Finalize refit output (written per convex shape by `arena::refit_block`, read by TS `finalizeBodies`):
 /// the candidate fat AABB `[lower.xyz, upper.xyz]` (6 f32) + the escaped flag (u32, 0/1).
 pub const S_CAND: usize = 9;
-/// Kernel-owned material allocation attached to this shape; these lanes are not part of convex geometry.
-pub const S_MATERIAL_HEAD: usize = 10;
-pub const S_MATERIAL_COUNT: usize = 11;
 pub const S_ESCAPED: usize = 15;
+/// Kernel-owned material allocation attached to this shape; lanes 16 and 17 are outside finalize.
+pub const S_MATERIAL_HEAD: usize = 16;
+pub const S_MATERIAL_COUNT: usize = 17;
 
 /// End-of-list sentinel in the `nextShapeId` slot (and in the body record's headShapeId lane): TS's
 /// `NULL_INDEX` (-1) written through a u32 view.
