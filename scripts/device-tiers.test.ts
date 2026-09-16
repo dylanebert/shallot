@@ -1,19 +1,12 @@
 import { expect } from "bun:test";
-import { cpSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { cpSync, mkdtempSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
 import { readDeviceTierViolations } from "./check-device-tiers";
+import { unfixture } from "./unfixture";
 
 const ROOT = resolve(import.meta.dir, "..");
 const FIXTURE = resolve(ROOT, "scripts/fixtures/surface/undeclared-device");
-
-function unfixture(dir: string): void {
-    for (const entry of readdirSync(dir)) {
-        const path = join(dir, entry);
-        if (statSync(path).isDirectory()) unfixture(path);
-        else if (entry.endsWith(".fixture")) renameSync(path, path.slice(0, -".fixture".length));
-    }
-}
 
 check(
     "device declaration gate: undeclared fixture reds",

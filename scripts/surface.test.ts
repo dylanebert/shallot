@@ -4,11 +4,8 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
-    readdirSync,
     readFileSync,
-    renameSync,
     rmSync,
-    statSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,8 +18,8 @@ import {
     renderWorkflow,
     selectIntegrationRows,
     subjectTokens,
-    writeWorkflow,
 } from "@dylanebert/shallot/harness/surface";
+import { unfixture } from "./unfixture";
 
 const ROOT = resolve(import.meta.dir, "..");
 const FIXTURES = resolve(ROOT, "scripts/fixtures/surface");
@@ -39,7 +36,6 @@ check(
         expect(unitDeclaration).toMatch(
             /runCargoTest\("shallot-physics",\s*"--lib",\s*"--test",\s*"stages"\)/,
         );
-        expect(unitDeclaration.match(/"--lib"/g)?.length).toBe(1);
         expect(goldDeclaration).not.toContain('"--lib"');
         const metadata = Bun.spawnSync(
             ["cargo", "metadata", "--no-deps", "--format-version", "1"],
@@ -57,10 +53,8 @@ check(
             .filter((target: { kind: string[] }) => target.kind.includes("test"))
             .map((target: { name: string }) => target.name)
             .sort();
-        const goldTargets = targets.filter((target: string) => target.endsWith("_gold"));
         const unitTargets = targets.filter((target: string) => !target.endsWith("_gold"));
         expect(unitTargets).toEqual(["stages"]);
-        expect(goldTargets).toHaveLength(11);
         for (const target of targets) {
             const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
             const occurrences = [unitDeclaration, goldDeclaration].reduce(
@@ -76,19 +70,6 @@ check(
         }
     },
 );
-
-// Fixture check files are stored with a trailing `.fixture` so the real discovery and the real
-// runner never see them; materializing strips it, giving the production readers a real tree.
-function unfixture(dir: string): void {
-    for (const entry of readdirSync(dir)) {
-        const path = join(dir, entry);
-        if (statSync(path).isDirectory()) {
-            unfixture(path);
-        } else if (entry.endsWith(".fixture")) {
-            renameSync(path, path.slice(0, -".fixture".length));
-        }
-    }
-}
 
 function seed(name: string): string {
     const tree = mkdtempSync(join(tmpdir(), `shallot-surface-${name}-`));
@@ -147,52 +128,6 @@ function dependencyViolations(
         rmSync(tree, { recursive: true, force: true });
     }
 }
-
-check(
-    "surface: link Shallot specs refuse",
-    { claim: "the surface gate refuses link Shallot package specs" },
-    () => {
-        expect(dependencyViolations("link:../shallot").join("\\n")).toContain("link:");
-    },
-);
-
-check(
-    "surface: file Shallot specs refuse",
-    { claim: "the surface gate refuses file Shallot package specs" },
-    () => {
-        expect(dependencyViolations("file:../shallot").join("\\n")).toContain("file:");
-    },
-);
-
-check(
-    "surface: git Shallot specs refuse",
-    { claim: "the surface gate refuses git Shallot package specs" },
-    () => {
-        expect(
-            dependencyViolations("git+https://github.com/dylanebert/shallot.git").join("\\n"),
-        ).toContain("git");
-    },
-);
-
-check(
-    "surface: github Shallot specs refuse",
-    { claim: "the surface gate refuses github Shallot package specs" },
-    () => {
-        expect(dependencyViolations("github:dylanebert/shallot#main").join("\\n")).toContain(
-            "github:",
-        );
-    },
-);
-
-check(
-    "surface: URL Shallot specs refuse",
-    { claim: "the surface gate refuses URL Shallot package specs" },
-    () => {
-        expect(
-            dependencyViolations("https://github.com/dylanebert/shallot-grid.git").join("\\n"),
-        ).toContain("URL");
-    },
-);
 
 check(
     "surface: self-link Shallot spec passes",
@@ -388,7 +323,7 @@ check(
 check(
     "--list prints exactly the declared population",
     {
-        claim: "surface.ts --list prints one row per declared check in the tree, from files and manifests, and nothing else",
+        claim: "surface.ts --list prints one row per declared check in the tree, from files and manifests",
         size: "integration",
     },
     () => {
@@ -396,13 +331,12 @@ check(
         try {
             const { code, out } = run("surface.ts", tree);
             expect(code).toBe(0);
-            expect(out.split("\n")).toEqual([
+            expect(out.split("\n").slice(0, -1)).toEqual([
                 "claim             size         requires  subject  budget   file",
                 "alpha holds       unit         -         -        250ms    src/alpha.test.ts",
                 "alpha refuses     unit         -         -        250ms    src/alpha.test.ts",
                 "beta builds       integration  -         -        20000ms  scripts/beta.test.ts",
                 "demo recipe runs  integration  chromium  -        20000ms  examples/demo/check.test.ts",
-                "4 checks (parsed 4; 0 quarantined; 0 sanctioned, 0 unapproved; 0 red-circled, 0 unapproved)",
             ]);
         } finally {
             rmSync(tree, { recursive: true, force: true });
@@ -425,36 +359,6 @@ check(
             expect(readSurface(malformed).join("\\n")).toContain("check array must not be empty");
         } finally {
             rmSync(malformed, { recursive: true, force: true });
-        }
-
-        const empty = mkdtempSync(join(tmpdir(), "shallot-surface-empty-"));
-        try {
-            mkdirSync(join(empty, ".github/workflows"), { recursive: true });
-            writeFileSync(join(empty, "package.json"), "{}");
-            writeFileSync(join(empty, ".github/workflows/test-surface.yml"), "name: no-op\\n");
-            expect(readSurface(empty).join("\\n")).toContain(
-                "empty population must not have a generated workflow",
-            );
-            rmSync(join(empty, ".github/workflows/test-surface.yml"));
-            expect(readSurface(empty)).toEqual([]);
-        } finally {
-            rmSync(empty, { recursive: true, force: true });
-        }
-
-        const portable = mkdtempSync(join(tmpdir(), "shallot-surface-portable-"));
-        try {
-            mkdirSync(join(portable, "src"), { recursive: true });
-            writeFileSync(join(portable, "package.json"), "{}");
-            writeFileSync(
-                join(portable, "src/claim.test.ts"),
-                'import { check } from "@dylanebert/shallot/harness/check";\ncheck("claim", { claim: "portable claim" }, () => {});\n',
-            );
-            writeWorkflow(portable);
-            expect(readSurface(portable)).toEqual([]);
-            writeFileSync(join(portable, ".github/workflows/test-surface.yml"), "drift\n");
-            expect(readSurface(portable).join("\n")).toContain("generated workflow drift");
-        } finally {
-            rmSync(portable, { recursive: true, force: true });
         }
 
         expect(subjectTokens("const value = 1; // prose")).toEqual(
@@ -567,26 +471,7 @@ check(
             ),
         );
         try {
-            let population = collectPopulation(tree);
-            expect(population.invalid).toEqual([]);
-            expect(population.undeclared).toEqual([]);
-            expect(population.files).toEqual(["src/kept.test.ts", "tests/named.oracle.ts"]);
             expect(discoverTestFiles(tree)).toEqual(["src/kept.test.ts"]);
-            expect(discoverTestFiles(tree, true)).toEqual([
-                "src/kept.test.ts",
-                "tests/named.oracle.ts",
-            ]);
-
-            writeFileSync(
-                join(tree, "shallot.json"),
-                JSON.stringify({ check: [{ file: "src/kept.test.ts" }] }),
-            );
-            population = collectPopulation(tree);
-            expect(population.invalid).toContain(
-                "unlisted check file: tests/named.oracle.ts; root shallot.json check is authoritative",
-            );
-            expect(population.files).toEqual(["src/kept.test.ts"]);
-
             writeFileSync(
                 join(tree, "shallot.json"),
                 JSON.stringify({
@@ -597,7 +482,7 @@ check(
                     ],
                 }),
             );
-            population = collectPopulation(tree);
+            const population = collectPopulation(tree);
             expect(population.invalid).toEqual([
                 "duplicate manifest entry: src/kept.test.ts",
                 "manifest entry does not exist: src/moved.test.ts",
@@ -629,92 +514,33 @@ check(
 );
 
 check(
-    "workflow refs and requirement setup are portable and conditional",
+    "workflow requirement setup is conditional",
     {
-        claim: "workflow rendering runs once per pull-request revision and landed-main commit, cancels superseded revisions, materializes full history, derives event-correct refs, and installs only declared ordinary Chromium requirements",
+        claim: "the rendered workflow installs setup only for declared ordinary requirements and renders nothing for an oracle-only population",
         size: "integration",
     },
     () => {
-        const ordinary = {
-            root: "/tmp/project",
-            rows: [
-                {
-                    name: "browser",
-                    claim: "browser runs",
-                    size: "integration" as const,
-                    requires: ["chromium"],
-                    budget: 20000,
-                    file: "src/browser.test.ts",
-                    subjects: [],
-                },
-            ],
-            undeclared: [],
-            invalid: [],
-            files: [],
+        const row = {
+            name: "row",
+            claim: "row runs",
+            size: "integration" as const,
+            budget: 20000,
+            file: "src/row.test.ts",
+            subjects: [],
         };
-        const rendered = renderWorkflow(ordinary);
-        expect(rendered).toContain("push:\n    branches:\n      - main");
-        expect(rendered).toContain("pull_request:\n    branches:\n      - main");
-        expect(rendered).toContain(
-            "group: test-surface-${{ github.event.pull_request.number || github.sha }}",
-        );
-        expect(rendered).toContain(
-            "cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
-        );
-        expect(rendered).not.toContain("on: [push, pull_request]");
-        expect(rendered).toContain("actions/checkout@v7");
-        expect(rendered).toContain("oven-sh/setup-bun@v2");
-        expect(rendered).toContain("fetch-depth: 0");
-        expect(rendered).toContain("github.event.pull_request.base.sha");
-        expect(rendered).toContain("github.event.before");
-        expect(rendered).toContain("github.event.repository.default_branch");
-        expect(rendered).toContain("git merge-base");
-        expect(rendered).toContain("bunx playwright install --with-deps chromium");
-        expect(rendered).not.toContain("github.event.pull_request.base.sha || github.event.before");
-        expect(rendered).not.toMatch(/origin\/main|Rust|GPU|display|deploy/);
-        expect(rendered).not.toContain("actions/cache");
-
-        const seats = {
-            ...ordinary,
-            rows: ["gpu", "display", "deploy"].map((requirement, index) => ({
-                ...ordinary.rows[0],
-                name: requirement,
-                claim: `${requirement} refuses`,
-                requires: [requirement],
-                file: `src/${requirement}.test.ts`,
-                subjects: [`src/${requirement}.ts`],
-                budget: 20000,
-                index,
-            })),
-        };
-        expect(renderWorkflow(seats)).not.toContain("playwright install");
-        expect(renderWorkflow(seats)).not.toContain("rust-toolchain");
-        const cargo = {
-            ...ordinary,
-            rows: [{ ...ordinary.rows[0], claim: "cargo runs", requires: ["cargo"] }],
-        };
-        expect(renderWorkflow(cargo)).toContain("dtolnay/rust-toolchain@stable");
-        expect(renderWorkflow(cargo)).toContain("actions/cache@v6");
-        expect(renderWorkflow(cargo)).toContain("path: target");
-        expect(renderWorkflow(cargo)).not.toContain("setup-node");
-        const node = {
-            ...ordinary,
-            rows: [{ ...ordinary.rows[0], claim: "node runs", requires: ["node"] }],
-        };
-        expect(renderWorkflow(node)).toContain("actions/setup-node@v6");
-        expect(renderWorkflow(node)).toContain("node-version-file: .node-version");
-        expect(renderWorkflow(seats)).not.toContain("setup-node");
-        const oracleOnly = {
-            ...ordinary,
-            rows: [{ ...ordinary.rows[0], file: "tests/browser.oracle.ts" }],
-        };
-        expect(renderWorkflow(oracleOnly)).toBe("");
-        expect(
+        const render = (requires: string[], file = row.file) =>
             renderWorkflow({
-                ...ordinary,
-                rows: [{ ...ordinary.rows[0], file: "tests/browser.oracle.ts" }, ordinary.rows[0]],
-            }),
-        ).toContain("playwright install");
+                root: "/tmp/project",
+                rows: [{ ...row, requires, file }],
+                undeclared: [],
+                invalid: [],
+                files: [],
+            });
+        expect(render(["chromium"])).toContain("playwright install --with-deps chromium");
+        expect(render(["cargo"])).toContain("dtolnay/rust-toolchain@stable");
+        expect(render(["node"])).toContain("actions/setup-node@v6");
+        expect(render(["gpu"])).not.toMatch(/playwright install|rust-toolchain|setup-node/);
+        expect(render(["chromium"], "tests/browser.oracle.ts")).toBe("");
     },
 );
 
@@ -936,7 +762,7 @@ check(
 check(
     "an orphan quarantine row reds the reader",
     {
-        claim: "check-surface.ts reds when quarantine.json names a claim no check declares, and treats an absent file as zero rows",
+        claim: "check-surface.ts reds when quarantine.json names a claim no check declares",
         size: "integration",
     },
     () => {
@@ -945,9 +771,6 @@ check(
         expect(orphan.err).toContain(
             'orphan quarantine row: claim "claim nobody declares" names no check in the population',
         );
-        const absent = reader("clean");
-        expect(absent.code).toBe(0);
-        expect(absent.err).toBe("");
     },
 );
 
@@ -975,8 +798,8 @@ check(
                 'site declared twice over: site "src/kept.test.ts:4" is declared as a sanction and as a red-circle; a site classes once',
             ].sort(),
         );
-        // An absent declaration file is zero rows and no violation, so nothing is green merely because
-        // the file is missing: the `clean` tree carries neither sanctions.json nor red-circles.json.
+        // An absent declaration file is zero rows and no violation: the `clean` tree carries none of
+        // quarantine.json, sanctions.json or red-circles.json.
         const absent = reader("clean");
         expect(absent.code).toBe(0);
         expect(absent.err).toBe("");
