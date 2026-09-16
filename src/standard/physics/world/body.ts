@@ -72,6 +72,7 @@ import {
     createShapeProxy,
     destroyShapeAllocations,
     destroyShapeProxy,
+    getShapeMaterialCount,
     getShapeMaterials,
     makeShapeProxy,
     overlapShape,
@@ -1208,7 +1209,11 @@ export function bodyCastRay(
             continue;
         }
 
-        const materialIndex = clampInt(shapeOutput.materialIndex, 0, shape.materialCount - 1);
+        const materialIndex = clampInt(
+            shapeOutput.materialIndex,
+            0,
+            getShapeMaterialCount(shape) - 1,
+        );
         result = {
             shapeId: { index1: shape.id + 1, world0: world.worldId, generation: shape.generation },
             point: offsetPos(origin, shapeOutput.point),
@@ -1260,7 +1265,11 @@ export function bodyCastShape(
             continue;
         }
 
-        const materialIndex = clampInt(shapeOutput.materialIndex, 0, shape.materialCount - 1);
+        const materialIndex = clampInt(
+            shapeOutput.materialIndex,
+            0,
+            getShapeMaterialCount(shape) - 1,
+        );
         result = {
             shapeId: { index1: shape.id + 1, world0: world.worldId, generation: shape.generation },
             point: offsetPos(origin, shapeOutput.point),

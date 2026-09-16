@@ -52,6 +52,7 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     // (two live worlds can't be stepped interleaved over the singleton kernel memory).
     claimResident(world);
     kernel().bodySetActiveWorld(world.worldId);
+    kernel().shapeSetActiveWorld(world.worldId);
     const clock = world.clock;
     clock.begin(STEP_SLOT);
 

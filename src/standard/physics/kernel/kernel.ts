@@ -46,6 +46,8 @@ export type Kernel = {
     bodyCap(): number;
     /** Set the world context used by kernel finalization's move publication. */
     bodySetActiveWorld(world: number): void;
+    /** Select the world-local shape and fat-AABB slabs for the next kernel operation. */
+    shapeSetActiveWorld(world: number): void;
     /** Allocate a body index/generation from the kernel-owned world-local pool. */
     bodyCreate(world: number): number;
     /** Release a body index into the kernel-owned world-local free list. */
@@ -82,6 +84,18 @@ export type Kernel = {
     shapeGeneration(world: number, id: number): number;
     shapeAlive(world: number, id: number): number;
     shapeCount(world: number): number;
+    /** Kernel-owned live material records attached to shape slots. */
+    reserveMaterials(cap: number): number;
+    materialLayoutPtr(): number;
+    materialCap(): number;
+    materialCreate(world: number): number;
+    materialDestroy(world: number, id: number): void;
+    materialResetWorld(world: number): void;
+    materialGeneration(world: number, id: number): number;
+    materialAlive(world: number, id: number): number;
+    materialListCount(world: number, head: number): number;
+    shapeMaterialHead(world: number, id: number): number;
+    shapeMaterialCount(world: number, id: number): number;
 
     // Persistent broad-phase columns (kernel/src/broad.rs) — the three dynamic-tree node pools plus the
     // pair-set membership arrays, held resident so the in-kernel pair query + tree rebuild (3d) run over

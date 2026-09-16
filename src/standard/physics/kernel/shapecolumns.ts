@@ -15,7 +15,7 @@
 
 import { NULL_INDEX } from "../common/array";
 import type { AABB } from "../common/math";
-import { ShapeType } from "../common/types";
+import { ShapeType, type SurfaceMaterial } from "../common/types";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HullData } from "../shapes/hull";
 import type { Shape } from "../shapes/shape";
@@ -35,7 +35,14 @@ export const S_GEOM = 2;
 /** Finalize-refit output the kernel writes per convex shape and TS reads in `finalizeBodies`: the
  * candidate fat AABB (`[lower.xyz, upper.xyz]`, 6 f32) then the escaped flag (u32, 0/1). */
 export const S_CAND = 9;
+export const S_MATERIAL_HEAD = 10;
+export const S_MATERIAL_COUNT = 11;
 export const S_ESCAPED = 15;
+
+/** Kernel material record: friction, restitution, rolling, tangent xyz, u64 user id, color, link,
+ * generation and alive. */
+export const MATERIAL_STRIDE = 12;
+const M_NEXT = 9;
 
 /** Which shape types the in-kernel finalize refit computes; the rest (mesh/height-field/compound) fall
  * back to the TS AABB path at their list position. Mirrors kernel `is_convex_refit` (`finalize.rs`). */
@@ -85,15 +92,21 @@ export function destroyShapeSlot(world: WorldState, shapeId: number): void {
  * its views whenever a grow detaches or relocates them.
  */
 export class ShapeStore {
+    constructor(private readonly _worldId: number) {}
+
     /** Resident shape column as u32 (type + nextShapeId). Re-derived after every grow. */
     shapeU = new Uint32Array(0);
     /** The same bytes as f32 — the geometry payload's natural type. */
     shapeF = new Float32Array(0);
     /** Resident fat-AABB column owned by this shape store, not a second helper store. */
     fatF = new Float32Array(0);
+    /** Kernel-owned material records for this world's shape slots. */
+    materialU = new Uint32Array(0);
+    materialF = new Float32Array(0);
     // The held layout header views are derived from.
     private _layout = new Uint32Array(0);
     private _fatLayout = new Uint32Array(0);
+    private _materialLayout = new Uint32Array(0);
 
     /** Re-derive the column views over the current region. No-op before the first `reserveShapes`, and
      * when the buffer, offset and capacity are those the views were derived at. */
@@ -109,22 +122,47 @@ export class ShapeStore {
         const fatPtr = k.fatAabbLayoutPtr();
         if (this._fatLayout.buffer !== buf || this._fatLayout.byteOffset !== fatPtr)
             this._fatLayout = new Uint32Array(buf, fatPtr, 1);
+        const materialPtr = k.materialLayoutPtr();
+        if (this._materialLayout.buffer !== buf || this._materialLayout.byteOffset !== materialPtr)
+            this._materialLayout = new Uint32Array(buf, materialPtr, 1);
         const layout = this._layout;
         const fatLayout = this._fatLayout;
+        const materialLayout = this._materialLayout;
         if (
             this.shapeU.buffer !== buf ||
-            this.shapeU.byteOffset !== layout[0] ||
+            this.shapeU.byteOffset !== layout[0] + this._worldId * cap * SHAPE_STRIDE * 4 ||
             this.shapeU.length !== cap * SHAPE_STRIDE
         ) {
-            this.shapeU = new Uint32Array(buf, layout[0], cap * SHAPE_STRIDE);
-            this.shapeF = new Float32Array(buf, layout[0], cap * SHAPE_STRIDE);
+            const worldOffset = this._worldId * cap * SHAPE_STRIDE * 4;
+            this.shapeU = new Uint32Array(buf, layout[0] + worldOffset, cap * SHAPE_STRIDE);
+            this.shapeF = new Float32Array(buf, layout[0] + worldOffset, cap * SHAPE_STRIDE);
         }
         if (
             this.fatF.buffer !== buf ||
-            this.fatF.byteOffset !== fatLayout[0] ||
+            this.fatF.byteOffset !== fatLayout[0] + this._worldId * fatCap * 6 * 4 ||
             this.fatF.length !== fatCap * 6
         ) {
-            this.fatF = new Float32Array(buf, fatLayout[0], fatCap * 6);
+            const worldOffset = this._worldId * fatCap * 6 * 4;
+            this.fatF = new Float32Array(buf, fatLayout[0] + worldOffset, fatCap * 6);
+        }
+        const materialCap = k.materialCap();
+        if (
+            this.materialU.buffer !== buf ||
+            this.materialU.byteOffset !==
+                materialLayout[0] + this._worldId * materialCap * MATERIAL_STRIDE * 4 ||
+            this.materialU.length !== materialCap * MATERIAL_STRIDE
+        ) {
+            const worldOffset = this._worldId * materialCap * MATERIAL_STRIDE * 4;
+            this.materialU = new Uint32Array(
+                buf,
+                materialLayout[0] + worldOffset,
+                materialCap * MATERIAL_STRIDE,
+            );
+            this.materialF = new Float32Array(
+                buf,
+                materialLayout[0] + worldOffset,
+                materialCap * MATERIAL_STRIDE,
+            );
         }
     }
 
@@ -137,6 +175,8 @@ export class ShapeStore {
         u[o + S_TYPE] = shape.type;
         u[o + S_NEXT] = shape.nextShapeId;
         for (let i = S_GEOM; i < SHAPE_STRIDE; ++i) f[o + i] = 0;
+        u[o + S_MATERIAL_HEAD] = shape.materialHead < 0 ? 0xffffffff : shape.materialHead;
+        u[o + S_MATERIAL_COUNT] = shape.materialCount;
 
         const g = o + S_GEOM;
         if (shape.type === ShapeType.Sphere) {
@@ -172,6 +212,47 @@ export class ShapeStore {
         this.shapeU[shapeId * SHAPE_STRIDE + S_NEXT] = nextShapeId;
     }
 
+    /** Upload authored materials into kernel-owned records and attach their linked list to a shape. */
+    writeMaterials(world: WorldState, shape: Shape, materials: SurfaceMaterial[]): void {
+        this.refreshViews();
+        let head = -1;
+        for (let i = materials.length - 1; i >= 0; --i) {
+            const id = kernel().materialCreate(world.worldId);
+            world.manifoldStore.refreshViews();
+            world.bodyStore.refreshViews();
+            this.refreshViews();
+            const o = id * MATERIAL_STRIDE;
+            const m = materials[i];
+            this.materialF[o] = m.friction;
+            this.materialF[o + 1] = m.restitution;
+            this.materialF[o + 2] = m.rollingResistance;
+            this.materialF[o + 3] = m.tangentVelocity.x;
+            this.materialF[o + 4] = m.tangentVelocity.y;
+            this.materialF[o + 5] = m.tangentVelocity.z;
+            const bits = BigInt.asUintN(64, m.userMaterialId);
+            this.materialU[o + 6] = Number(bits & 0xffffffffn);
+            this.materialU[o + 7] = Number((bits >> 32n) & 0xffffffffn);
+            this.materialU[o + 8] = m.customColor;
+            this.materialU[o + M_NEXT] = head < 0 ? 0xffffffff : head;
+            head = id;
+        }
+        shape.materialHead = head;
+        this.shapeU[shape.id * SHAPE_STRIDE + S_MATERIAL_HEAD] = head < 0 ? 0xffffffff : head;
+        this.shapeU[shape.id * SHAPE_STRIDE + S_MATERIAL_COUNT] = materials.length;
+    }
+
+    /** Release the kernel material records owned by a shape. */
+    destroyMaterials(world: WorldState, shape: Shape): void {
+        let id = shape.materialHead;
+        while (id >= 0) {
+            this.refreshViews();
+            const next = this.materialU[id * MATERIAL_STRIDE + M_NEXT];
+            kernel().materialDestroy(world.worldId, id);
+            id = next === 0xffffffff ? -1 : next;
+        }
+        shape.materialHead = -1;
+    }
+
     /** Write the shape's enlarged proxy AABB into the same resident shape-owned store. */
     writeFatAabb(shapeId: number, fat: AABB): void {
         const o = shapeId * 6;
@@ -185,8 +266,50 @@ export class ShapeStore {
 }
 
 /** Create an empty shape store for a new world. Its views are derived on the first write. */
-export function createShapeStore(): ShapeStore {
-    return new ShapeStore();
+export function createShapeStore(worldId: number): ShapeStore {
+    return new ShapeStore(worldId);
+}
+
+/** Read live material records from the kernel-owned linked list. The returned objects are bridge values;
+ * simulation decisions always re-read this column rather than a Shape.materials authoring array. */
+export function readShapeMaterials(shape: Shape): SurfaceMaterial[] {
+    const k = kernel();
+    const count = k.materialListCount(
+        shape.worldId,
+        shape.materialHead < 0 ? 0xffffffff : shape.materialHead,
+    );
+    if (count === 0) return [];
+    const cap = k.materialCap();
+    const ptr = k.materialLayoutPtr();
+    const buf = k.memory.buffer;
+    const base = new Uint32Array(buf, ptr, 1)[0] + shape.worldId * cap * MATERIAL_STRIDE * 4;
+    const u = new Uint32Array(buf, base, cap * MATERIAL_STRIDE);
+    const f = new Float32Array(buf, base, cap * MATERIAL_STRIDE);
+    const out: SurfaceMaterial[] = [];
+    let id = shape.materialHead < 0 ? 0xffffffff : shape.materialHead;
+    for (let i = 0; i < count && id !== 0xffffffff; ++i) {
+        const o = id * MATERIAL_STRIDE;
+        const bits = BigInt(u[o + 6]) | (BigInt(u[o + 7]) << 32n);
+        out.push({
+            friction: f[o],
+            restitution: f[o + 1],
+            rollingResistance: f[o + 2],
+            tangentVelocity: { x: f[o + 3], y: f[o + 4], z: f[o + 5] },
+            userMaterialId: BigInt.asUintN(64, bits),
+            customColor: u[o + 8],
+        });
+        const next = u[o + M_NEXT];
+        id = next;
+    }
+    return out;
+}
+
+/** The authoritative live material count for a shape. */
+export function shapeMaterialCount(shape: Shape): number {
+    return kernel().materialListCount(
+        shape.worldId,
+        shape.materialHead < 0 ? 0xffffffff : shape.materialHead,
+    );
 }
 
 /**

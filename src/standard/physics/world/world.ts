@@ -249,7 +249,7 @@ function makeWorldState(def: WorldDef, worldId: number, generation: number): Wor
         geometryDirty: false,
         manifoldStore: createManifoldStore(),
         bodyStore: createBodyStore(),
-        shapeStore: createShapeStore(),
+        shapeStore: createShapeStore(worldId),
         sensors: [],
         sensorQuery: null,
         bodyMoveCount: 0,
@@ -373,6 +373,7 @@ export function destroyWorld(world: WorldState): void {
     const generation = world.generation;
     kernel().bodyResetWorld(world.worldId);
     kernel().shapeResetWorld(world.worldId);
+    kernel().materialResetWorld(world.worldId);
     world.inUse = false;
     world.worldId = 0;
     world.generation = (generation + 1) & 0xffff;

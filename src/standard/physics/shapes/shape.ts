@@ -57,6 +57,8 @@ import { kernel } from "../kernel/kernel";
 import {
     createShapeSlot,
     destroyShapeSlot,
+    readShapeMaterials,
+    shapeMaterialCount,
     unlinkShape,
     writeFatAabb,
     writeShape,
@@ -152,6 +154,9 @@ export type Shape = {
     filter: FilterBits;
     userData: unknown;
     generation: number;
+    /** Kernel pool identity for the live material linked list. */
+    worldId: number;
+    materialHead: number;
     enableSensorEvents: boolean;
     enableContactEvents: boolean;
     enableCustomFiltering: boolean;
@@ -178,13 +183,18 @@ const farthestPointOnAABB = (b: AABB, p: Vec3): Vec3 => ({
  * a heap array. Reach both the same way (b3GetShapeMaterials). Do not cache — the shapes array moves.
  */
 export function getShapeMaterials(shape: Shape): SurfaceMaterial[] {
-    return shape.materials !== null ? shape.materials : [shape.material];
+    return readShapeMaterials(shape);
+}
+
+/** Authoritative live material count, read from the kernel shape record. */
+export function getShapeMaterialCount(shape: Shape): number {
+    return shapeMaterialCount(shape);
 }
 
 /** The shape's material 0 — what a convex contact mixes — without the fresh single-element array
  * `getShapeMaterials` builds for a one-material shape. */
 export function getShapeMaterial(shape: Shape): SurfaceMaterial {
-    return shape.materials !== null ? shape.materials[0] : shape.material;
+    return getShapeMaterials(shape)[0];
 }
 
 /**
@@ -196,7 +206,8 @@ export function getShapeUserMaterialId(
     childIndex: number,
     triangleIndex: number,
 ): bigint {
-    if (shape.materialCount === 0) {
+    const materialCount = getShapeMaterialCount(shape);
+    if (materialCount === 0) {
         return 0n;
     }
 
@@ -219,7 +230,7 @@ export function getShapeUserMaterialId(
         }
     }
 
-    materialIndex = clampInt(materialIndex, 0, shape.materialCount - 1);
+    materialIndex = clampInt(materialIndex, 0, materialCount - 1);
     return getShapeMaterials(shape)[materialIndex].userMaterialId;
 }
 
@@ -251,6 +262,8 @@ function createShapeRecord(): Shape {
         filter: { categoryHi: 0, categoryLo: 0, maskHi: 0, maskLo: 0, groupIndex: 0 },
         userData: undefined,
         generation: 0,
+        worldId: 0,
+        materialHead: -1,
         enableSensorEvents: false,
         enableContactEvents: false,
         enableCustomFiltering: false,
@@ -742,10 +755,10 @@ export function destroyShapeAllocations(world: WorldState, shape: Shape): void {
         removeHullFromDatabase(world, shape.hull as HullData);
         shape.hull = undefined;
     }
-    if (shape.materials !== null) {
-        shape.materials = null;
-        shape.materialCount = 0;
-    }
+    world.shapeStore.destroyMaterials(world, shape);
+    shape.materials = null;
+    shape.materialCount = 0;
+    shape.materialHead = -1;
 }
 
 // --- create / destroy ------------------------------------------------------------------------
@@ -772,6 +785,8 @@ function createShapeInternal(
     const generation = kernel().shapeGeneration(world.worldId, shapeId);
     Object.assign(shape, createShapeRecord());
     shape.generation = generation;
+    shape.worldId = world.worldId;
+    shape.materialHead = -1;
 
     switch (shapeType) {
         case ShapeType.Capsule:
@@ -835,6 +850,9 @@ function createShapeInternal(
         shape.materialCount = 1;
         shape.materials = null;
     }
+
+    const authoredMaterials = shape.materials !== null ? shape.materials : [shape.material];
+    world.shapeStore.writeMaterials(world, shape, authoredMaterials);
 
     if (body.setIndex !== SetType.Disabled) {
         // A compound never force-creates pairs: its outer proxy holds no geometry, only children do
