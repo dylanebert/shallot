@@ -371,20 +371,6 @@ export const vec3 = {
         o.z = absf(a.z);
         return o;
     },
-    /** Component-wise max, written into `o` (may alias `a` or `b`). */
-    maxOut: (a: Vec3, b: Vec3, o: Vec3): Vec3 => {
-        o.x = maxf(a.x, b.x);
-        o.y = maxf(a.y, b.y);
-        o.z = maxf(a.z, b.z);
-        return o;
-    },
-    /** Component-wise min, written into `o` (may alias `a` or `b`). */
-    minOut: (a: Vec3, b: Vec3, o: Vec3): Vec3 => {
-        o.x = minf(a.x, b.x);
-        o.y = minf(a.y, b.y);
-        o.z = minf(a.z, b.z);
-        return o;
-    },
     clamp: (a: Vec3, lo: Vec3, hi: Vec3): Vec3 => ({
         x: clampf(a.x, lo.x, hi.x),
         y: clampf(a.y, lo.y, hi.y),

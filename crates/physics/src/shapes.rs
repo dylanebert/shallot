@@ -63,9 +63,27 @@ pub const S_ESCAPED: usize = 15;
 /// `NULL_INDEX` (-1) written through a u32 view.
 pub const NULL_SHAPE: u32 = u32::MAX;
 
-/// Single-column layout header (byte offset of the shape column). TS reads this (`shapeLayoutPtr`) to
-/// build its views after every grow-triggering `reserveShapes`.
-static mut SHAPE_LAYOUT: [u32; 1] = [0; 1];
+const B_RECORD_GENERATION: usize = 1;
+const B_RECORD_ALIVE: usize = 2;
+const B_RECORD_NEXT: usize = 3;
+const N_SHAPE: usize = 4;
+const MAX_WORLDS: usize = 128;
+
+// Shape-slot lifecycle state is kernel-owned, just like body-slot lifecycle state. The public
+// TypeScript array remains an authoring/handle bridge; index, generation, validity and reuse are
+// decided here so a stale Shape cannot resolve to a later occupant.
+static mut SHAPE_NEXT_INDEX: [usize; MAX_WORLDS] = [0; MAX_WORLDS];
+static mut SHAPE_FREE_HEAD: [i32; MAX_WORLDS] = [-1; MAX_WORLDS];
+static mut SHAPE_LIVE_COUNT: [usize; MAX_WORLDS] = [0; MAX_WORLDS];
+
+#[inline]
+fn record_index(world: usize, id: usize, cap: usize) -> usize {
+    world * cap + id
+}
+
+/// Single-column data plus world-local lifecycle columns. TS reads this (`shapeLayoutPtr`) to build
+/// its views after every grow-triggering `reserveShapes`.
+static mut SHAPE_LAYOUT: [u32; N_SHAPE] = [0; N_SHAPE];
 /// First free byte past the shape region — where the manifold region anchors. Zero until the first
 /// `reserveShapes`; `region_top` then treats it as an empty region ending at the fat-AABB region's top.
 static mut SHAPE_END: u32 = 0;
@@ -162,11 +180,20 @@ pub extern "C" fn reserve_shapes(cap: usize) -> u32 {
             return 0;
         }
 
+        let old_cap = SHAPE_CAP;
+        let old_layout = SHAPE_LAYOUT;
         // The column sits at the fat-AABB region's top (which doesn't move during this call), so its
-        // base is unchanged and its live bytes stay in place; only the region grows upward. The manifold
-        // + geometry regions above shift up by the growth delta.
+        // shape-data base is unchanged. Lifecycle columns widen after it; the manifold + geometry
+        // regions above shift up by the complete growth delta.
         let base = align16(shape_base());
-        let new_end = align16(base + cap * SHAPE_STRIDE * 4);
+        let data_end = align16(base + cap * SHAPE_STRIDE * 4);
+        let lifecycle = cap * MAX_WORLDS;
+        let mut off = data_end;
+        for slot in [B_RECORD_GENERATION, B_RECORD_ALIVE, B_RECORD_NEXT] {
+            SHAPE_LAYOUT[slot] = off as u32;
+            off += lifecycle * 4;
+        }
+        let new_end = align16(off);
         let old_top = region_top(); // where the manifold region currently anchors
         let delta = new_end - old_top;
 
@@ -197,9 +224,131 @@ pub extern "C" fn reserve_shapes(cap: usize) -> u32 {
             ensure_capacity(new_end);
         }
 
-        SHAPE_LAYOUT[0] = base as u32;
+        // The shape-data column is base-anchored and stays in place; lifecycle columns move from their
+        // old post-data offsets into the widened rows. Copy each world row independently because its
+        // stride is the capacity.
+        if old_cap > 0 {
+            for slot in [B_RECORD_NEXT, B_RECORD_ALIVE, B_RECORD_GENERATION] {
+                for world in (0..MAX_WORLDS).rev() {
+                    let old_row = old_layout[slot] as usize + world * old_cap * 4;
+                    let new_row = SHAPE_LAYOUT[slot] as usize + world * cap * 4;
+                    core::ptr::copy(old_row as *const u8, new_row as *mut u8, old_cap * 4);
+                }
+            }
+        }
+
+        // Newly exposed slots begin invalid and unlinked. Generations intentionally survive reuse;
+        // shape_create increments them when the slot is handed out.
+        for world in 0..MAX_WORLDS {
+            for id in old_cap..cap {
+                let slot = record_index(world, id, cap);
+                *(SHAPE_LAYOUT[B_RECORD_GENERATION] as *mut u32).add(slot) = 0;
+                *(SHAPE_LAYOUT[B_RECORD_ALIVE] as *mut u32).add(slot) = 0;
+                *(SHAPE_LAYOUT[B_RECORD_NEXT] as *mut u32).add(slot) = u32::MAX;
+            }
+        }
+
         SHAPE_END = new_end as u32;
         SHAPE_CAP = cap;
         1
     }
+}
+
+/// Allocate a world-local shape slot and advance its generation. The returned index is stable for the
+/// shape's lifetime and is reused LIFO after `shapeDestroy`.
+#[export_name = "shapeCreate"]
+pub extern "C" fn shape_create(world: u32) -> u32 {
+    unsafe {
+        let world = (world as usize) % MAX_WORLDS;
+        let next = SHAPE_NEXT_INDEX[world];
+        if SHAPE_FREE_HEAD[world] < 0 && next == SHAPE_CAP {
+            let mut cap = if SHAPE_CAP == 0 { 16 } else { SHAPE_CAP };
+            while cap <= next {
+                cap *= 2;
+            }
+            reserve_shapes(cap);
+        }
+        let id = if SHAPE_FREE_HEAD[world] >= 0 {
+            let id = SHAPE_FREE_HEAD[world] as usize;
+            let slot = record_index(world, id, SHAPE_CAP);
+            SHAPE_FREE_HEAD[world] = *(SHAPE_LAYOUT[B_RECORD_NEXT] as *const u32).add(slot) as i32;
+            id
+        } else {
+            let id = SHAPE_NEXT_INDEX[world];
+            SHAPE_NEXT_INDEX[world] += 1;
+            id
+        };
+        let slot = record_index(world, id, SHAPE_CAP);
+        let generation = (SHAPE_LAYOUT[B_RECORD_GENERATION] as *mut u32).add(slot);
+        *generation = (*generation).wrapping_add(1);
+        *(SHAPE_LAYOUT[B_RECORD_ALIVE] as *mut u32).add(slot) = 1;
+        *(SHAPE_LAYOUT[B_RECORD_NEXT] as *mut u32).add(slot) = u32::MAX;
+        SHAPE_LIVE_COUNT[world] += 1;
+        id as u32
+    }
+}
+
+#[export_name = "shapeDestroy"]
+pub extern "C" fn shape_destroy(world: u32, id: u32) {
+    unsafe {
+        let world = (world as usize) % MAX_WORLDS;
+        let id = id as usize;
+        if id >= SHAPE_NEXT_INDEX[world] || id >= SHAPE_CAP {
+            return;
+        }
+        let slot = record_index(world, id, SHAPE_CAP);
+        let alive = (SHAPE_LAYOUT[B_RECORD_ALIVE] as *mut u32).add(slot);
+        if *alive == 0 {
+            return;
+        }
+        *alive = 0;
+        *(SHAPE_LAYOUT[B_RECORD_NEXT] as *mut u32).add(slot) = SHAPE_FREE_HEAD[world] as u32;
+        SHAPE_FREE_HEAD[world] = id as i32;
+        SHAPE_LIVE_COUNT[world] -= 1;
+    }
+}
+
+#[export_name = "shapeResetWorld"]
+pub extern "C" fn shape_reset_world(world: u32) {
+    unsafe {
+        let world = (world as usize) % MAX_WORLDS;
+        SHAPE_NEXT_INDEX[world] = 0;
+        SHAPE_FREE_HEAD[world] = -1;
+        SHAPE_LIVE_COUNT[world] = 0;
+    }
+}
+
+#[export_name = "shapeGeneration"]
+pub extern "C" fn shape_generation(world: u32, id: u32) -> u32 {
+    unsafe {
+        let world = (world as usize) % MAX_WORLDS;
+        if id as usize >= SHAPE_CAP {
+            return 0;
+        }
+        *(SHAPE_LAYOUT[B_RECORD_GENERATION] as *const u32).add(record_index(
+            world,
+            id as usize,
+            SHAPE_CAP,
+        ))
+    }
+}
+
+#[export_name = "shapeAlive"]
+pub extern "C" fn shape_alive(world: u32, id: u32) -> u32 {
+    unsafe {
+        let world = (world as usize) % MAX_WORLDS;
+        if id as usize >= SHAPE_CAP {
+            return 0;
+        }
+        *(SHAPE_LAYOUT[B_RECORD_ALIVE] as *const u32).add(record_index(
+            world,
+            id as usize,
+            SHAPE_CAP,
+        ))
+    }
+}
+
+#[export_name = "shapeCount"]
+pub extern "C" fn shape_count(world: u32) -> usize {
+    unsafe { SHAPE_LIVE_COUNT[(world as usize) % MAX_WORLDS] }
 }

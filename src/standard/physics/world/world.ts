@@ -13,7 +13,6 @@ import { allocId, createIdPool, type EntityId, type IdPool, idCount } from "../c
 import { f32, froundConfig, maxf, type Vec3 } from "../common/math";
 import type { Capacity, MixCallback, WorldDef } from "../common/types";
 import { type BodyStore, createBodyStore, releaseResident } from "../kernel/bodycolumns";
-import { createFatAabbStore, type FatAabbStore } from "../kernel/fataabbcolumns";
 import { kernel } from "../kernel/kernel";
 import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
 import type { HullData } from "../shapes/hull";
@@ -100,7 +99,7 @@ export type WorldState = {
     islandIdPool: IdPool;
     islands: Island[];
 
-    shapeIdPool: IdPool;
+    /** Public shape authoring records and handle bridge; slot lifecycle is kernel-owned. */
     shapes: Shape[];
 
     // Reference-counted store of shared hull data keyed by content hash (b3HullMap).
@@ -113,10 +112,6 @@ export type WorldState = {
     // Resident body-state columns (velocity/delta/flags of awake bodies), held across steps in the
     // body region. The awake set's `bodyStates` are offset-backed views over this store (bodycolumns.ts).
     bodyStore: BodyStore;
-    // Resident fat-AABB column (one enlarged broad-phase AABB per shape), held across steps so the
-    // in-kernel recycle overlap test + finalize escape test read it without a per-step marshal. Every TS
-    // site that writes `shape.fatAABB` mirrors it here inline — no dirty set (fataabbcolumns.ts).
-    fatAabbStore: FatAabbStore;
     // Resident shape column (type code + local geometry + nextShapeId, one record per shapeId), held
     // across steps so the in-kernel finalize refit walks a body's shape list without a marshal. Written
     // at shape create/destroy — no dirty set (shapecolumns.ts).
@@ -249,13 +244,11 @@ function makeWorldState(def: WorldDef, worldId: number, generation: number): Wor
         awakeOtherContacts: [],
         islandIdPool: createIdPool(),
         islands: [],
-        shapeIdPool: createIdPool(),
         shapes: [],
         hullDatabase: new Map(),
         geometryDirty: false,
         manifoldStore: createManifoldStore(),
         bodyStore: createBodyStore(),
-        fatAabbStore: createFatAabbStore(),
         shapeStore: createShapeStore(),
         sensors: [],
         sensorQuery: null,
@@ -379,6 +372,7 @@ export function destroyWorld(world: WorldState): void {
     // Wipe but preserve+bump generation so stale ids to this (possibly recycled) slot are detected.
     const generation = world.generation;
     kernel().bodyResetWorld(world.worldId);
+    kernel().shapeResetWorld(world.worldId);
     world.inUse = false;
     world.worldId = 0;
     world.generation = (generation + 1) & 0xffff;
@@ -388,7 +382,7 @@ export function destroyWorld(world: WorldState): void {
 export function worldCounters(world: WorldState): Counters {
     return {
         bodyCount: kernel().bodyCount(world.worldId),
-        shapeCount: idCount(world.shapeIdPool),
+        shapeCount: kernel().shapeCount(world.worldId),
         contactCount: idCount(world.contactIdPool),
         jointCount: idCount(world.jointIdPool),
         islandCount: idCount(world.islandIdPool),

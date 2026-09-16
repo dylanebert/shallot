@@ -1,6 +1,8 @@
 import { expect } from "bun:test";
 import { check } from "../../../harness/check";
+import { World } from "../api/world";
 import type { Vec3 } from "../common/math";
+import { BodyType } from "../common/types";
 import gold from "./geometry.gold.json";
 import {
     createBoxMesh,
@@ -101,6 +103,18 @@ function assertMesh(mesh: MeshData, g: MeshGold, vector: string) {
 
 const v = (x: number, y: number, z: number): Vec3 => ({ x, y, z });
 
+/** The mesh builder remains TypeScript authoring; shape lifetime is exercised through the public path. */
+function exercisePublicMeshShape(mesh: MeshData): void {
+    const world = new World();
+    const body = world.createBody({ type: BodyType.Static });
+    const shape = body.createMesh({}, mesh);
+    expect(shape.isValid(), "public mesh shape is kernel-live").toBe(true);
+    shape.destroy(false);
+    expect(shape.isValid(), "destroyed mesh handle is stale").toBe(false);
+    body.destroy();
+    world.destroy();
+}
+
 check(
     "triangle mesh builders match the C reference bit for bit",
     {
@@ -125,8 +139,10 @@ check(
             ],
             ["torus (portable trig, SAH)", () => createTorusMesh(8, 6, 3, 1), "torus"],
         ];
-        for (const [vector, build, name] of cases) {
-            assertMesh(build(), meshGold(name), vector);
+        const authored = cases.map(([vector, build, name]) => [vector, build(), name] as const);
+        exercisePublicMeshShape(authored[0][1]);
+        for (const [vector, mesh, name] of authored) {
+            assertMesh(mesh, meshGold(name), vector);
         }
     },
 );

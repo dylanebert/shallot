@@ -14,6 +14,7 @@
 // regions after a grow (the same discipline reserveBodies/reserveFatAabb follow).
 
 import { NULL_INDEX } from "../common/array";
+import type { AABB } from "../common/math";
 import { ShapeType } from "../common/types";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import type { HullData } from "../shapes/hull";
@@ -56,7 +57,26 @@ function growCap(need: number): number {
  * relocated regions above it, and over every region a `memory.grow` detached).
  */
 export function reserveShapes(shapeCount: number): boolean {
-    return kernel().reserveShapes(growCap(shapeCount)) !== 0;
+    const cap = growCap(shapeCount);
+    const fatGrew = kernel().reserveFatAabb(cap) !== 0;
+    const shapeGrew = kernel().reserveShapes(cap) !== 0;
+    return fatGrew || shapeGrew;
+}
+
+/** Allocate a world-local shape slot in the kernel pool. The shape record itself is authored below,
+ * but index reuse, generation and validity are never decided by TypeScript. */
+export function createShapeSlot(world: WorldState): number {
+    if (reserveShapes(world.shapes.length + 1)) {
+        world.manifoldStore.refreshViews();
+        world.bodyStore.refreshViews();
+    }
+    const id = kernel().shapeCreate(world.worldId);
+    world.shapeStore.refreshViews();
+    return id;
+}
+
+export function destroyShapeSlot(world: WorldState, shapeId: number): void {
+    kernel().shapeDestroy(world.worldId, shapeId);
 }
 
 /**
@@ -69,28 +89,43 @@ export class ShapeStore {
     shapeU = new Uint32Array(0);
     /** The same bytes as f32 — the geometry payload's natural type. */
     shapeF = new Float32Array(0);
-    // The held layout header view the column views are derived from.
+    /** Resident fat-AABB column owned by this shape store, not a second helper store. */
+    fatF = new Float32Array(0);
+    // The held layout header views are derived from.
     private _layout = new Uint32Array(0);
+    private _fatLayout = new Uint32Array(0);
 
     /** Re-derive the column views over the current region. No-op before the first `reserveShapes`, and
      * when the buffer, offset and capacity are those the views were derived at. */
     refreshViews(): void {
         const k = kernel();
         const cap = k.shapeCap();
-        if (cap === 0) return;
+        const fatCap = k.fatAabbCap();
+        if (cap === 0 && fatCap === 0) return;
         const buf = k.memory.buffer;
         const ptr = k.shapeLayoutPtr();
         if (this._layout.buffer !== buf || this._layout.byteOffset !== ptr)
             this._layout = new Uint32Array(buf, ptr, 1);
+        const fatPtr = k.fatAabbLayoutPtr();
+        if (this._fatLayout.buffer !== buf || this._fatLayout.byteOffset !== fatPtr)
+            this._fatLayout = new Uint32Array(buf, fatPtr, 1);
         const layout = this._layout;
+        const fatLayout = this._fatLayout;
         if (
-            this.shapeU.buffer === buf &&
-            this.shapeU.byteOffset === layout[0] &&
-            this.shapeU.length === cap * SHAPE_STRIDE
-        )
-            return;
-        this.shapeU = new Uint32Array(buf, layout[0], cap * SHAPE_STRIDE);
-        this.shapeF = new Float32Array(buf, layout[0], cap * SHAPE_STRIDE);
+            this.shapeU.buffer !== buf ||
+            this.shapeU.byteOffset !== layout[0] ||
+            this.shapeU.length !== cap * SHAPE_STRIDE
+        ) {
+            this.shapeU = new Uint32Array(buf, layout[0], cap * SHAPE_STRIDE);
+            this.shapeF = new Float32Array(buf, layout[0], cap * SHAPE_STRIDE);
+        }
+        if (
+            this.fatF.buffer !== buf ||
+            this.fatF.byteOffset !== fatLayout[0] ||
+            this.fatF.length !== fatCap * 6
+        ) {
+            this.fatF = new Float32Array(buf, fatLayout[0], fatCap * 6);
+        }
     }
 
     /** Write shape `shape.id`'s whole record — type, `nextShapeId`, geometry. Every slot is written
@@ -136,6 +171,17 @@ export class ShapeStore {
     writeNext(shapeId: number, nextShapeId: number): void {
         this.shapeU[shapeId * SHAPE_STRIDE + S_NEXT] = nextShapeId;
     }
+
+    /** Write the shape's enlarged proxy AABB into the same resident shape-owned store. */
+    writeFatAabb(shapeId: number, fat: AABB): void {
+        const o = shapeId * 6;
+        this.fatF[o] = fat.lowerBound.x;
+        this.fatF[o + 1] = fat.lowerBound.y;
+        this.fatF[o + 2] = fat.lowerBound.z;
+        this.fatF[o + 3] = fat.upperBound.x;
+        this.fatF[o + 4] = fat.upperBound.y;
+        this.fatF[o + 5] = fat.upperBound.z;
+    }
 }
 
 /** Create an empty shape store for a new world. Its views are derived on the first write. */
@@ -166,4 +212,14 @@ export function unlinkShape(world: WorldState, shape: Shape): void {
     if (shape.prevShapeId === NULL_INDEX) return;
     world.shapeStore.refreshViews();
     world.shapeStore.writeNext(shape.prevShapeId, shape.nextShapeId);
+}
+
+/** Size and write the resident fat-AABB lane owned by the shape store. */
+export function writeFatAabb(world: WorldState, shape: Shape): void {
+    if (reserveShapes(world.shapes.length)) {
+        world.manifoldStore.refreshViews();
+        world.bodyStore.refreshViews();
+    }
+    world.shapeStore.refreshViews();
+    world.shapeStore.writeFatAabb(shape.id, shape.fatAABB);
 }

@@ -20,7 +20,7 @@ import {
 import type { PlaneResult } from "../collision/mover";
 import { NULL_INDEX, swapRemove } from "../common/array";
 import { BODY_NAME_LENGTH, HUGE, SetType, SPECULATIVE_DISTANCE } from "../common/constants";
-import { allocId, type EntityId, freeId } from "../common/ids";
+import { allocId, type EntityId } from "../common/ids";
 import {
     aabb,
     clampInt,
@@ -61,8 +61,8 @@ import {
     writeSimRotation0,
     writeSimTransform,
 } from "../kernel/bodycolumns";
-import { writeFatAabb } from "../kernel/fataabbcolumns";
 import { kernel } from "../kernel/kernel";
+import { destroyShapeSlot, writeFatAabb } from "../kernel/shapecolumns";
 import type { Capsule, MassData } from "../shapes/geometry";
 import {
     collideMover,
@@ -987,7 +987,7 @@ export function destroyBody(world: WorldState, body: Body): void {
         }
         destroyShapeProxy(shape, world.broadPhase);
         destroyShapeAllocations(world, shape);
-        freeId(world.shapeIdPool, shapeId);
+        destroyShapeSlot(world, shapeId);
         shape.id = NULL_INDEX;
         shapeId = shape.nextShapeId;
     }

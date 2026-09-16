@@ -30,12 +30,6 @@
         "approved": "(user, 2026-09-15)"
     },
     {
-        "site": "src/standard/physics/shapes/geometry.ts:198",
-        "reason": "boxed doubles in the shape AABB refit, on the page-only TypeScript kernel.",
-        "owner": "the heavy-lifting boundary, which replaces this code; § Goal and S6b defer the physics kernel and the slab upload strategy to it by name",
-        "approved": "(user, 2026-09-15)"
-    },
-    {
         "site": "src/standard/character/sweep.ts:476",
         "reason": "boxed doubles in the character sweep's per-step entry, on the page-only TypeScript kernel.",
         "owner": "the heavy-lifting boundary, which replaces this code; § Goal and S6b defer the physics kernel and the slab upload strategy to it by name",
@@ -56,24 +50,6 @@
     {
         "site": "src/standard/physics/solver/step.ts:48",
         "reason": "boxed doubles in the step entry, on the page-only TypeScript kernel.",
-        "owner": "the heavy-lifting boundary, which replaces this code; § Goal and S6b defer the physics kernel and the slab upload strategy to it by name",
-        "approved": "(user, 2026-09-15)"
-    },
-    {
-        "site": "src/standard/physics/kernel/fataabbcolumns.ts:70",
-        "reason": "boxed doubles writing a fat AABB, on the page-only TypeScript kernel.",
-        "owner": "the heavy-lifting boundary, which replaces this code; § Goal and S6b defer the physics kernel and the slab upload strategy to it by name",
-        "approved": "(user, 2026-09-15)"
-    },
-    {
-        "site": "src/standard/physics/common/math.ts:375",
-        "reason": "boxed doubles in maxOut, on the page-only TypeScript kernel.",
-        "owner": "the heavy-lifting boundary, which replaces this code; § Goal and S6b defer the physics kernel and the slab upload strategy to it by name",
-        "approved": "(user, 2026-09-15)"
-    },
-    {
-        "site": "src/standard/physics/common/math.ts:382",
-        "reason": "boxed doubles in minOut, on the page-only TypeScript kernel.",
         "owner": "the heavy-lifting boundary, which replaces this code; § Goal and S6b defer the physics kernel and the slab upload strategy to it by name",
         "approved": "(user, 2026-09-15)"
     },

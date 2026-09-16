@@ -160,7 +160,7 @@ function commitRefit(world: WorldState, shape: Shape, box: AABB): void {
     fat.upperBound.x = f32(box.upperBound.x + margin);
     fat.upperBound.y = f32(box.upperBound.y + margin);
     fat.upperBound.z = f32(box.upperBound.z + margin);
-    world.fatAabbStore.write(shape.id, fat);
+    world.shapeStore.writeFatAabb(shape.id, fat);
     bp.enlargeProxy(world.broadPhase, shape.proxyKey, fat);
 }
 
@@ -213,7 +213,6 @@ function finalizeBodies(
     // column; refresh the shape + fat views (the solve's column reserve, or a step-top body grow, may have
     // relocated/detached them — the finalize refit is their one per-step read, so refresh here, before it).
     world.shapeStore.refreshViews();
-    world.fatAabbStore.refreshViews();
     const shapeF = world.shapeStore.shapeF;
     const shapeU = world.shapeStore.shapeU;
 

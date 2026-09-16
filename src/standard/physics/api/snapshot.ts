@@ -53,7 +53,6 @@ function clone<T>(value: T, seen: Map<object, unknown>, opaque: Set<object>): T 
 function opaqueStores(state: WorldState): Set<object> {
     return new Set([
         state.bodyStore,
-        state.fatAabbStore,
         state.shapeStore,
         state.manifoldStore,
         state.broadPhase.store,
@@ -95,7 +94,6 @@ export function restore(world: World, bytes: WorldSnapshot): void {
     state.broadPhase.store.world = state;
     state.broadPhase.store.refreshViews();
     state.bodyStore.refreshViews();
-    state.fatAabbStore.refreshViews();
     state.shapeStore.refreshViews();
     state.manifoldStore.refreshViews();
 }

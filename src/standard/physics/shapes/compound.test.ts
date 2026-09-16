@@ -1,5 +1,6 @@
 import { expect } from "bun:test";
 import { check } from "../../../harness/check";
+import { World } from "../api/world";
 import type { ShapeProxy } from "../collision/distance";
 import { readNode } from "../collision/tree";
 import {
@@ -13,7 +14,7 @@ import {
     vec3,
     xf,
 } from "../common/math";
-import { defaultSurfaceMaterial, ShapeType, type SurfaceMaterial } from "../common/types";
+import { BodyType, defaultSurfaceMaterial, ShapeType, type SurfaceMaterial } from "../common/types";
 import {
     type CompoundData,
     type CompoundDef,
@@ -218,6 +219,17 @@ function buildMaterials(): CompoundData {
 
 // Mirrors the transforms scene: the same box hull at two instance transforms (one rotated), sharing one
 // material, plus a sphere with a second material.
+function exercisePublicCompoundShape(compound: CompoundData): void {
+    const world = new World();
+    const body = world.createBody({ type: BodyType.Static });
+    const shape = body.createCompound({}, compound);
+    expect(shape.isValid(), "public compound shape is kernel-live").toBe(true);
+    shape.destroy(false);
+    expect(shape.isValid(), "destroyed compound handle is stale").toBe(false);
+    body.destroy();
+    world.destroy();
+}
+
 function buildTransforms(): CompoundData {
     const box = makeBoxHull(0.5, 0.5, 0.5);
     // f32-round the axis/angle literals to match the C `0.3f`/`0.6f` before normalize/fromAxisAngle.
@@ -249,7 +261,11 @@ check(
         ];
         for (const [name, build] of scenes) {
             const goldName = name.split(" ")[0];
-            vector(name, () => assertCompound(build(), cGold(goldName)));
+            vector(name, () => {
+                const authored = build();
+                if (name.startsWith("mixed")) exercisePublicCompoundShape(authored);
+                assertCompound(authored, cGold(goldName));
+            });
         }
     },
 );

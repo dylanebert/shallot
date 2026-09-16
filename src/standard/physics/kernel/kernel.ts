@@ -60,7 +60,7 @@ export type Kernel = {
     // held resident so the in-kernel recycle loop tests contact overlap without a marshal. A second
     // low persistent region above the body region; `reserveFatAabb` sizes it to the shape high-water
     // (grow-only), relocating the manifold + geometry regions above it on a grow. `fatAabbLayoutPtr`
-    // returns the byte-offset header TS derives its view from (fataabbcolumns.ts); `fatAabbCap` is the
+    // returns the byte-offset header the shape store derives its resident fat-AABB view from; `fatAabbCap` is the
     // authoritative capacity.
     reserveFatAabb(cap: number): number;
     fatAabbLayoutPtr(): number;
@@ -75,6 +75,13 @@ export type Kernel = {
     reserveShapes(cap: number): number;
     shapeLayoutPtr(): number;
     shapeCap(): number;
+    /** Allocate/release a world-local shape slot; generation and validity stay in wasm. */
+    shapeCreate(world: number): number;
+    shapeDestroy(world: number, id: number): void;
+    shapeResetWorld(world: number): void;
+    shapeGeneration(world: number, id: number): number;
+    shapeAlive(world: number, id: number): number;
+    shapeCount(world: number): number;
 
     // Persistent broad-phase columns (kernel/src/broad.rs) — the three dynamic-tree node pools plus the
     // pair-set membership arrays, held resident so the in-kernel pair query + tree rebuild (3d) run over

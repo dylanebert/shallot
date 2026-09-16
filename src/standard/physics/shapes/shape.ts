@@ -26,7 +26,6 @@ import {
     SetType,
     SPECULATIVE_DISTANCE,
 } from "../common/constants";
-import { allocId, freeId } from "../common/ids";
 import {
     type AABB,
     aabb,
@@ -54,8 +53,14 @@ import {
     toFilterBits,
 } from "../common/types";
 import { syncHeadShape } from "../kernel/bodycolumns";
-import { writeFatAabb } from "../kernel/fataabbcolumns";
-import { unlinkShape, writeShape } from "../kernel/shapecolumns";
+import { kernel } from "../kernel/kernel";
+import {
+    createShapeSlot,
+    destroyShapeSlot,
+    unlinkShape,
+    writeFatAabb,
+    writeShape,
+} from "../kernel/shapecolumns";
 import { type Body, getBodyTransformQuick, updateBodyMassData } from "../world/body";
 import { createSensor, destroySensor, type Visitor } from "../world/sensor";
 import { addHullToDatabase, removeHullFromDatabase, type WorldState } from "../world/world";
@@ -75,7 +80,6 @@ import {
     collideMoverAndCapsule,
     collideMoverAndSphere,
     computeCapsuleAABB,
-    computeCapsuleAABBOut,
     computeCapsuleMass,
     computeSphereAABB,
     computeSphereAABBOut,
@@ -219,7 +223,7 @@ export function getShapeUserMaterialId(
     return getShapeMaterials(shape)[materialIndex].userMaterialId;
 }
 
-function emptyShape(): Shape {
+function createShapeRecord(): Shape {
     return {
         id: NULL_INDEX,
         bodyId: NULL_INDEX,
@@ -358,8 +362,16 @@ export function computeFatShapeAABB(shape: Shape, transform: WorldTransform, ext
  * allocating compute and copy (identity on already-f32 values). */
 export function computeShapeAABBOut(shape: Shape, transform: Transform, o: AABB): AABB {
     switch (shape.type) {
-        case ShapeType.Capsule:
-            return computeCapsuleAABBOut(shape.capsule as Capsule, transform, o);
+        case ShapeType.Capsule: {
+            const box = computeCapsuleAABB(shape.capsule as Capsule, transform);
+            o.lowerBound.x = box.lowerBound.x;
+            o.lowerBound.y = box.lowerBound.y;
+            o.lowerBound.z = box.lowerBound.z;
+            o.upperBound.x = box.upperBound.x;
+            o.upperBound.y = box.upperBound.y;
+            o.upperBound.z = box.upperBound.z;
+            return o;
+        }
         case ShapeType.Hull:
             return aabb.transformOut(transform, (shape.hull as HullData).aabb, o);
         case ShapeType.Sphere:
@@ -751,14 +763,14 @@ function createShapeInternal(
     // is f32, so an unrounded f64 scalar would reach mass/solve and break bit-exact parity. Filter
     // category/mask bigints and enum/bool fields pass through untouched.
     def = froundConfig(def);
-    const shapeId = allocId(world.shapeIdPool);
+    const shapeId = createShapeSlot(world);
     if (shapeId === world.shapes.length) {
-        world.shapes.push(emptyShape());
+        world.shapes.push(createShapeRecord());
     }
 
     const shape = world.shapes[shapeId];
-    const generation = shape.generation;
-    Object.assign(shape, emptyShape());
+    const generation = kernel().shapeGeneration(world.worldId, shapeId);
+    Object.assign(shape, createShapeRecord());
     shape.generation = generation;
 
     switch (shapeType) {
@@ -803,7 +815,7 @@ function createShapeInternal(
     shape.proxyKey = NULL_INDEX;
     shape.localCentroid = getShapeCentroid(shape);
     shape.aabbMargin = computeShapeMargin(shape);
-    shape.generation = generation + 1;
+    // The kernel pool advanced the generation at allocation; the public bridge only carries it.
 
     const materialCount = def.materials ? def.materials.length : 0;
     if (shapeType === ShapeType.Compound) {
@@ -1000,7 +1012,7 @@ export function destroyShapeInternal(
 
     destroyShapeAllocations(world, shape);
 
-    freeId(world.shapeIdPool, shapeId);
+    destroyShapeSlot(world, shapeId);
     shape.id = NULL_INDEX;
 }
 
