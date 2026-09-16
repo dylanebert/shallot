@@ -136,5 +136,23 @@
         "reason": "typegpu's data writer allocates on every frame's uniform write; it is upstream code this tree cannot fix at its source.",
         "owner": "the typegpu stateful-path deferral S6b names at its \"Deferred and not touched\" line; these are node_modules sites and cannot be fixed at their source here",
         "approved": "(user, 2026-09-15)"
+    },
+    {
+        "site": "src/standard/player/index.ts:204",
+        "reason": "PlayerControlSystem boxes two non-integral doubles per frame crossing a sparse component setter's call boundary; bisection removed one of them by passing constants to Transform.pos.set. A double that does not fit a Smi must be boxed to cross a call the compiler does not inline, so it is the crossing that allocates, not the arithmetic.",
+        "owner": "the sparse setter reshape — a write(eid, src) companion to the existing read(eid, dst), so a typed-array pointer crosses the call rather than loose doubles. The same setters recur throughout the physics bucket deferred above, so the heavy-lifting boundary is the natural place to make the reshape once",
+        "approved": "(user, 2026-09-15)"
+    },
+    {
+        "site": "src/standard/player/index.ts:107",
+        "reason": "PlayerSnapshotSystem boxes one non-integral double per fixed tick crossing the same kind of boundary; bisection removed it entirely by passing constants to PlayerFollow.curr.set. Only one of the three coordinates boxes because the other two are Smi-valued while the player is still, so the count follows the pose, not the code.",
+        "owner": "the sparse setter reshape — a write(eid, src) companion to the existing read(eid, dst), so a typed-array pointer crosses the call rather than loose doubles. The same setters recur throughout the physics bucket deferred above, so the heavy-lifting boundary is the natural place to make the reshape once",
+        "approved": "(user, 2026-09-15)"
+    },
+    {
+        "site": "src/standard/render/cluster.ts:753",
+        "reason": "checkOverflow's residue after its two reactions were hoisted to module functions: the promise chain mapAsync() mints, and the promises .then and .catch mint over it. It cannot leave while the readback itself stays on the default per-frame path.",
+        "owner": "moving the light-pool overflow readback out of the default composition into the profile extra, which the Locked decision's Diagnostics paragraph already requires of per-frame diagnostics",
+        "approved": "(user, 2026-09-15)"
     }
 ]
