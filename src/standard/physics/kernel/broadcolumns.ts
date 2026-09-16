@@ -117,7 +117,6 @@ export class BroadStore {
                 w.manifoldStore.refreshViews();
                 w.bodyStore.refreshViews();
                 w.shapeStore.refreshViews();
-                w.fatAabbStore.refreshViews();
             }
         }
     }

@@ -20,6 +20,7 @@ import {
     invMulWorldTransforms,
     invMulWorldTransformsOut,
     mat3,
+    maxf,
     minf,
     mulWorldTransforms,
     type Quat,
@@ -496,7 +497,10 @@ function tryRecycle(
 
     const xf = invMulWorldTransformsOut(transformA, transformB, recycleXf);
     const xfc = contact.cachedRelativePose;
-    const maxExtent = vec3.maxOut(maxExtentA, maxExtentB, recycleExtent);
+    recycleExtent.x = maxf(maxExtentA.x, maxExtentB.x);
+    recycleExtent.y = maxf(maxExtentA.y, maxExtentB.y);
+    recycleExtent.z = maxf(maxExtentA.z, maxExtentB.z);
+    const maxExtent = recycleExtent;
 
     const d = vec3.subOut(xfc.p, xf.p, recycleTmp);
     const distSquared = vec3.dot(d, d);

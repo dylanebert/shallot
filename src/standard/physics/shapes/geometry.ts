@@ -96,7 +96,6 @@ export function computeSphereAABB(shape: Sphere, transform: Transform): AABB {
 
 // Working registers for the AABB out-variants below; never live across calls.
 const aabbC1: Vec3 = { x: 0, y: 0, z: 0 };
-const aabbC2: Vec3 = { x: 0, y: 0, z: 0 };
 
 /** {@link computeSphereAABB}, written into `o` — identical expression tree, no allocation. */
 export function computeSphereAABBOut(shape: Sphere, transform: Transform, o: AABB): AABB {
@@ -192,24 +191,6 @@ export function computeCapsuleAABB(shape: Capsule, transform: Transform): AABB {
         lowerBound: vec3.sub(vec3.min(center1, center2), extent),
         upperBound: vec3.add(vec3.max(center1, center2), extent),
     };
-}
-
-/** {@link computeCapsuleAABB}, written into `o` — identical expression tree, no allocation. */
-export function computeCapsuleAABBOut(shape: Capsule, transform: Transform, o: AABB): AABB {
-    const r = shape.radius;
-    quat.rotateOut(transform.q, shape.center1, aabbC1);
-    vec3.addOut(aabbC1, transform.p, aabbC1);
-    quat.rotateOut(transform.q, shape.center2, aabbC2);
-    vec3.addOut(aabbC2, transform.p, aabbC2);
-    vec3.minOut(aabbC1, aabbC2, o.lowerBound);
-    vec3.maxOut(aabbC1, aabbC2, o.upperBound);
-    o.lowerBound.x = f32(o.lowerBound.x - r);
-    o.lowerBound.y = f32(o.lowerBound.y - r);
-    o.lowerBound.z = f32(o.lowerBound.z - r);
-    o.upperBound.x = f32(o.upperBound.x + r);
-    o.upperBound.y = f32(o.upperBound.y + r);
-    o.upperBound.z = f32(o.upperBound.z + r);
-    return o;
 }
 
 // --- queries --------------------------------------------------------------------------------

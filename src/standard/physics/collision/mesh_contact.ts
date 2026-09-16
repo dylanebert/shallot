@@ -41,7 +41,7 @@ import {
 } from "../shapes/heightfield";
 import type { HullData } from "../shapes/hull";
 import { getMeshTriangle, type Mesh, MeshEdgeFlags, queryMesh } from "../shapes/mesh";
-import { getShapeMaterials, type Shape } from "../shapes/shape";
+import { getShapeMaterialCount, getShapeMaterials, type Shape } from "../shapes/shape";
 import type { WorldState } from "../world/world";
 import type { Contact, ConvexContactCache } from "./contact";
 import { emptyCache } from "./distance";
@@ -889,7 +889,7 @@ export function computeMeshManifolds(
     const materialB = getShapeMaterials(shapeB)[0];
     let tangentVelocityA: Vec3 = { x: 0, y: 0, z: 0 };
 
-    if (shapeA.materialCount > 0) {
+    if (getShapeMaterialCount(shapeA) > 0) {
         let friction = 0;
         let restitution = 0;
         let sampleCount = 0;
@@ -914,7 +914,7 @@ export function computeMeshManifolds(
                 } else {
                     materialIndex = materialIndices[triangleIndex >> 1];
                 }
-                materialIndex = clampInt(materialIndex, 0, shapeA.materialCount - 1);
+                materialIndex = clampInt(materialIndex, 0, getShapeMaterialCount(shapeA) - 1);
                 const material = materialsA[materialIndex];
                 friction = f32(
                     friction +

@@ -52,6 +52,7 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     // (two live worlds can't be stepped interleaved over the singleton kernel memory).
     claimResident(world);
     kernel().bodySetActiveWorld(world.worldId);
+    kernel().shapeSetActiveWorld(world.worldId);
     const clock = world.clock;
     clock.begin(STEP_SLOT);
 
@@ -115,7 +116,7 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     // fat-AABB + shape + manifold + geometry regions and a grow relocates them in place (detaching every
     // view). Refresh the stores before anything reads through them, including the shape store the finalize
     // refit reads. (Usually a no-op — createBody already sized it.) The fat-AABB + shape regions size
-    // themselves at shape create (fataabbcolumns / shapecolumns), so no step-top reserve is needed for them.
+    // themselves at shape create (the shape store), so no step-top reserve is needed for them.
     if (reserveBodies(world.bodies.length)) {
         world.manifoldStore.refreshViews();
         world.bodyStore.refreshViews();

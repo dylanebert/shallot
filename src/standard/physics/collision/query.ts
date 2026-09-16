@@ -26,6 +26,7 @@ import {
 import type { Capsule } from "../shapes/geometry";
 import {
     collideMover as collideMoverShape,
+    getShapeMaterialCount,
     getShapeMaterials,
     overlapShape,
     rayCastShape,
@@ -188,7 +189,7 @@ function rayCastCallback(ctx: RayCastContext, input: RayCastInput, userData: num
 
     if (output.hit) {
         const point = offsetPos(ctx.origin, output.point);
-        const materialIndex = clampInt(output.materialIndex, 0, shape.materialCount - 1);
+        const materialIndex = clampInt(output.materialIndex, 0, getShapeMaterialCount(shape) - 1);
         const userMaterialId = getShapeMaterials(shape)[materialIndex].userMaterialId;
         const fraction = ctx.fcn(
             shapeId(world, shape),
@@ -360,7 +361,11 @@ export function castShape(
 
         const output = shapeCastShape(shape, transform, localInput);
         if (output.hit) {
-            const materialIndex = clampInt(output.materialIndex, 0, shape.materialCount - 1);
+            const materialIndex = clampInt(
+                output.materialIndex,
+                0,
+                getShapeMaterialCount(shape) - 1,
+            );
             const userMaterialId = getShapeMaterials(shape)[materialIndex].userMaterialId;
             const fraction = fcn(
                 shapeId(world, shape),

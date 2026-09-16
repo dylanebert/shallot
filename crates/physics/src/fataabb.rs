@@ -28,6 +28,11 @@
 use crate::bodies::persistent_base;
 
 const PAGE: usize = 65536;
+const MAX_WORLDS: usize = 128;
+
+/// The world whose body set is currently being stepped. Shape and fat-AABB records are world-local,
+/// while the resident columns are shared by the sequential kernel instance.
+static mut ACTIVE_WORLD: usize = 0;
 /// f32 stride of one shape's fat AABB: lowerBound.xyz + upperBound.xyz (mirrors `src/math.ts` AABB).
 pub const AABB_STRIDE: usize = 6;
 
@@ -69,7 +74,15 @@ pub fn region_end() -> usize {
 /// (arena.rs, 4b.3c); TS writes it at refit time (`src/fataabbcolumns.ts`).
 pub fn col_slice() -> &'static [f32] {
     unsafe {
-        core::slice::from_raw_parts(FATAABB_LAYOUT[0] as *const f32, FATAABB_CAP * AABB_STRIDE)
+        let base = FATAABB_LAYOUT[0] as usize + ACTIVE_WORLD * FATAABB_CAP * AABB_STRIDE * 4;
+        core::slice::from_raw_parts(base as *const f32, FATAABB_CAP * AABB_STRIDE)
+    }
+}
+
+/// Select the world-local fat-AABB slab used by the in-kernel step.
+pub fn set_active_world(world: u32) {
+    unsafe {
+        ACTIVE_WORLD = (world as usize) % MAX_WORLDS;
     }
 }
 
@@ -123,7 +136,7 @@ pub extern "C" fn reserve_fat_aabb(cap: usize) -> u32 {
         // base is unchanged and its live bytes stay in place; only the region grows upward. The shape +
         // manifold + geometry regions above shift up by the growth delta.
         let base = align16(persistent_base());
-        let new_end = align16(base + cap * AABB_STRIDE * 4);
+        let new_end = align16(base + MAX_WORLDS * cap * AABB_STRIDE * 4);
         let old_top = region_top(); // where the shape region currently anchors
         let delta = new_end - old_top;
 
@@ -158,6 +171,21 @@ pub extern "C" fn reserve_fat_aabb(cap: usize) -> u32 {
             ensure_capacity(new_end);
         }
 
+        // Widening the world-local stride moves later worlds even though the slab base is fixed.
+        // Preserve each world's resident fat-AABB records before publishing the new capacity.
+        if FATAABB_CAP > 0 {
+            let old_cap = FATAABB_CAP;
+            let old_base = FATAABB_LAYOUT[0] as usize;
+            for world in (0..MAX_WORLDS).rev() {
+                let old_row = old_base + world * old_cap * AABB_STRIDE * 4;
+                let new_row = base + world * cap * AABB_STRIDE * 4;
+                core::ptr::copy(
+                    old_row as *const u8,
+                    new_row as *mut u8,
+                    old_cap * AABB_STRIDE * 4,
+                );
+            }
+        }
         FATAABB_LAYOUT[0] = base as u32;
         FATAABB_END = new_end as u32;
         FATAABB_CAP = cap;

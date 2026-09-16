@@ -1,6 +1,8 @@
 import { expect } from "bun:test";
 import { check } from "../../../harness/check";
+import { World } from "../api/world";
 import { f32, type Transform, type Vec3, xf } from "../common/math";
+import { BodyType } from "../common/types";
 import {
     type Capsule,
     computeCapsuleAABB,
@@ -56,12 +58,39 @@ function assertMass(m: MassData, g: MassGold) {
 const sphereGold = (name: string) => gold.spheres.find((s) => s.name === name) as MassGold;
 const capsuleGold = (name: string) => gold.capsules.find((c) => c.name === name) as MassGold;
 
+/** Keep the authoring gold on its existing builders while driving shape lifetime through production. */
+function exercisePublicShapeLifecycle(): void {
+    const world = new World();
+    const body = world.createBody({ type: BodyType.Dynamic });
+    const stale = body.createSphere({}, { center: v(0, 0, 0), radius: 0.5 });
+    const capsule = body.createCapsule(
+        {},
+        {
+            center1: v(0, -1, 0),
+            center2: v(0, 1, 0),
+            radius: 0.25,
+        },
+    );
+    expect(stale.isValid(), "public sphere shape is kernel-live").toBe(true);
+    expect(capsule.isValid(), "public capsule shape is kernel-live").toBe(true);
+    stale.destroy(false);
+    expect(stale.isValid(), "destroyed shape handle is stale").toBe(false);
+    const reused = body.createSphere({}, { center: v(0, 0, 0), radius: 0.5 });
+    expect(reused.isValid(), "reused shape slot is kernel-live").toBe(true);
+    expect(reused.id.generation).not.toBe(stale.id.generation);
+    capsule.destroy(false);
+    reused.destroy(false);
+    body.destroy();
+    world.destroy();
+}
+
 check(
     "sphere/capsule mass bit-exact vs C reference",
     {
         claim: "computeSphereMass or computeCapsuleMass drifts from the Box3D C reference's f32 bits for a sphere or capsule vector, including the ragdoll bone capsule where an unrounded 0.4 sphere-inertia literal costs a ULP",
     },
     () => {
+        exercisePublicShapeLifecycle();
         // f32-round non-exact literals (0.35, 0.3) to match the C float inputs bit-for-bit.
         const unit: Sphere = { center: v(0, 0, 0), radius: 1 };
         assertMass(computeSphereMass(unit, 1), sphereGold("unit"));
@@ -98,6 +127,7 @@ check(
         claim: "computeSphereAABB or computeCapsuleAABB stops bounding a sphere or capsule at center +/- radius, or stops following the transform's translation",
     },
     () => {
+        exercisePublicShapeLifecycle();
         // AABBs compose xf.point (bit-exact) with min/max/sub/add; concrete extremes pin the
         // wrapper without reimplementing the transform.
         const id = xf.identity();
@@ -141,6 +171,7 @@ check(
         claim: "roundSphere or roundCapsule leaves an f64 sphere or capsule field unrounded at the storage boundary, so solver arithmetic on it diverges from the C's f32 struct fields",
     },
     () => {
+        exercisePublicShapeLifecycle();
         // The C holds geometry as f32 struct fields; callers pass f64 JS numbers. A field that is
         // not f32-exact (e.g. 0.3) must be rounded on storage or the solver arithmetic diverges
         // from the C.

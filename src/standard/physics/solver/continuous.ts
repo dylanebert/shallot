@@ -605,7 +605,7 @@ function enlargeFastShapes(
             };
             shape.enlargedAABB = true;
             sim.flags |= BodyFlags.enlargeBounds;
-            world.fatAabbStore.write(shape.id, shape.fatAABB);
+            world.shapeStore.writeFatAabb(shape.id, shape.fatAABB);
         }
 
         shapeId = shape.nextShapeId;
@@ -651,7 +651,7 @@ export function bufferFastBulletMoves(world: WorldState, fastBody: Body): void {
 export function solveBullets(world: WorldState, bullets: BodySim[]): void {
     // The per-bullet sweeps re-fit fast shapes into the resident fat-AABB column; refresh the view once
     // before the loop (a solve column reserve may have detached it), so the raw writes below land right.
-    world.fatAabbStore.refreshViews();
+    world.shapeStore.refreshViews();
     for (const sim of bullets) {
         solveContinuous(world, sim);
     }

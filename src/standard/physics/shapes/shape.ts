@@ -26,7 +26,6 @@ import {
     SetType,
     SPECULATIVE_DISTANCE,
 } from "../common/constants";
-import { allocId, freeId } from "../common/ids";
 import {
     type AABB,
     aabb,
@@ -54,8 +53,16 @@ import {
     toFilterBits,
 } from "../common/types";
 import { syncHeadShape } from "../kernel/bodycolumns";
-import { writeFatAabb } from "../kernel/fataabbcolumns";
-import { unlinkShape, writeShape } from "../kernel/shapecolumns";
+import { kernel } from "../kernel/kernel";
+import {
+    createShapeSlot,
+    destroyShapeSlot,
+    readShapeMaterials,
+    shapeMaterialCount,
+    unlinkShape,
+    writeFatAabb,
+    writeShape,
+} from "../kernel/shapecolumns";
 import { type Body, getBodyTransformQuick, updateBodyMassData } from "../world/body";
 import { createSensor, destroySensor, type Visitor } from "../world/sensor";
 import { addHullToDatabase, removeHullFromDatabase, type WorldState } from "../world/world";
@@ -75,7 +82,6 @@ import {
     collideMoverAndCapsule,
     collideMoverAndSphere,
     computeCapsuleAABB,
-    computeCapsuleAABBOut,
     computeCapsuleMass,
     computeSphereAABB,
     computeSphereAABBOut,
@@ -143,11 +149,13 @@ export type Shape = {
     fatAABB: AABB;
     localCentroid: Vec3;
     material: SurfaceMaterial;
-    materialCount: number;
+    /** Authored material bridge values; live attachment/count lives in the kernel shape record. */
     materials: SurfaceMaterial[] | null;
     filter: FilterBits;
     userData: unknown;
     generation: number;
+    /** Kernel world key for the world-local shape/material columns. */
+    worldId: number;
     enableSensorEvents: boolean;
     enableContactEvents: boolean;
     enableCustomFiltering: boolean;
@@ -174,13 +182,18 @@ const farthestPointOnAABB = (b: AABB, p: Vec3): Vec3 => ({
  * a heap array. Reach both the same way (b3GetShapeMaterials). Do not cache — the shapes array moves.
  */
 export function getShapeMaterials(shape: Shape): SurfaceMaterial[] {
-    return shape.materials !== null ? shape.materials : [shape.material];
+    return readShapeMaterials(shape);
+}
+
+/** Authoritative live material count, read from the kernel shape record. */
+export function getShapeMaterialCount(shape: Shape): number {
+    return shapeMaterialCount(shape);
 }
 
 /** The shape's material 0 — what a convex contact mixes — without the fresh single-element array
  * `getShapeMaterials` builds for a one-material shape. */
 export function getShapeMaterial(shape: Shape): SurfaceMaterial {
-    return shape.materials !== null ? shape.materials[0] : shape.material;
+    return getShapeMaterials(shape)[0];
 }
 
 /**
@@ -192,7 +205,8 @@ export function getShapeUserMaterialId(
     childIndex: number,
     triangleIndex: number,
 ): bigint {
-    if (shape.materialCount === 0) {
+    const materialCount = getShapeMaterialCount(shape);
+    if (materialCount === 0) {
         return 0n;
     }
 
@@ -215,11 +229,11 @@ export function getShapeUserMaterialId(
         }
     }
 
-    materialIndex = clampInt(materialIndex, 0, shape.materialCount - 1);
+    materialIndex = clampInt(materialIndex, 0, materialCount - 1);
     return getShapeMaterials(shape)[materialIndex].userMaterialId;
 }
 
-function emptyShape(): Shape {
+function createShapeRecord(): Shape {
     return {
         id: NULL_INDEX,
         bodyId: NULL_INDEX,
@@ -242,11 +256,11 @@ function emptyShape(): Shape {
             userMaterialId: 0n,
             customColor: 0,
         },
-        materialCount: 0,
         materials: null,
         filter: { categoryHi: 0, categoryLo: 0, maskHi: 0, maskLo: 0, groupIndex: 0 },
         userData: undefined,
         generation: 0,
+        worldId: 0,
         enableSensorEvents: false,
         enableContactEvents: false,
         enableCustomFiltering: false,
@@ -358,8 +372,16 @@ export function computeFatShapeAABB(shape: Shape, transform: WorldTransform, ext
  * allocating compute and copy (identity on already-f32 values). */
 export function computeShapeAABBOut(shape: Shape, transform: Transform, o: AABB): AABB {
     switch (shape.type) {
-        case ShapeType.Capsule:
-            return computeCapsuleAABBOut(shape.capsule as Capsule, transform, o);
+        case ShapeType.Capsule: {
+            const box = computeCapsuleAABB(shape.capsule as Capsule, transform);
+            o.lowerBound.x = box.lowerBound.x;
+            o.lowerBound.y = box.lowerBound.y;
+            o.lowerBound.z = box.lowerBound.z;
+            o.upperBound.x = box.upperBound.x;
+            o.upperBound.y = box.upperBound.y;
+            o.upperBound.z = box.upperBound.z;
+            return o;
+        }
         case ShapeType.Hull:
             return aabb.transformOut(transform, (shape.hull as HullData).aabb, o);
         case ShapeType.Sphere:
@@ -730,10 +752,8 @@ export function destroyShapeAllocations(world: WorldState, shape: Shape): void {
         removeHullFromDatabase(world, shape.hull as HullData);
         shape.hull = undefined;
     }
-    if (shape.materials !== null) {
-        shape.materials = null;
-        shape.materialCount = 0;
-    }
+    world.shapeStore.destroyMaterials(world, shape);
+    shape.materials = null;
 }
 
 // --- create / destroy ------------------------------------------------------------------------
@@ -751,15 +771,16 @@ function createShapeInternal(
     // is f32, so an unrounded f64 scalar would reach mass/solve and break bit-exact parity. Filter
     // category/mask bigints and enum/bool fields pass through untouched.
     def = froundConfig(def);
-    const shapeId = allocId(world.shapeIdPool);
+    const shapeId = createShapeSlot(world);
     if (shapeId === world.shapes.length) {
-        world.shapes.push(emptyShape());
+        world.shapes.push(createShapeRecord());
     }
 
     const shape = world.shapes[shapeId];
-    const generation = shape.generation;
-    Object.assign(shape, emptyShape());
+    const generation = kernel().shapeGeneration(world.worldId, shapeId);
+    Object.assign(shape, createShapeRecord());
     shape.generation = generation;
+    shape.worldId = world.worldId;
 
     switch (shapeType) {
         case ShapeType.Capsule:
@@ -803,26 +824,26 @@ function createShapeInternal(
     shape.proxyKey = NULL_INDEX;
     shape.localCentroid = getShapeCentroid(shape);
     shape.aabbMargin = computeShapeMargin(shape);
-    shape.generation = generation + 1;
+    // The kernel pool advanced the generation at allocation; the public bridge only carries it.
 
     const materialCount = def.materials ? def.materials.length : 0;
     if (shapeType === ShapeType.Compound) {
         // Own a copy of the compound's materials so every shape frees its array the same way; the
         // per-child material indices resolve against this array (b3CreateShapeInternal compound branch).
         const mats = getCompoundMaterials(shape.compound as CompoundData);
-        shape.materialCount = mats.length;
         shape.materials = mats.map(cloneMaterial);
     } else if (materialCount > 1 && def.materials) {
-        shape.materialCount = materialCount;
         shape.materials = def.materials.map(cloneMaterial);
     } else {
         shape.material =
             materialCount === 1 && def.materials
                 ? cloneMaterial(def.materials[0])
                 : cloneMaterial(def.baseMaterial);
-        shape.materialCount = 1;
         shape.materials = null;
     }
+
+    const authoredMaterials = shape.materials !== null ? shape.materials : [shape.material];
+    world.shapeStore.writeMaterials(world, shape, authoredMaterials);
 
     if (body.setIndex !== SetType.Disabled) {
         // A compound never force-creates pairs: its outer proxy holds no geometry, only children do
@@ -1000,7 +1021,7 @@ export function destroyShapeInternal(
 
     destroyShapeAllocations(world, shape);
 
-    freeId(world.shapeIdPool, shapeId);
+    destroyShapeSlot(world, shapeId);
     shape.id = NULL_INDEX;
 }
 

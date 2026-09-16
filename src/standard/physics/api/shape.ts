@@ -3,6 +3,7 @@ import { NULL_INDEX } from "../common/array";
 import type { EntityId } from "../common/ids";
 import type { AABB } from "../common/math";
 import type { ShapeType } from "../common/types";
+import { kernel } from "../kernel/kernel";
 import type { MassData } from "../shapes/geometry";
 import {
     computeShapeMass,
@@ -125,11 +126,10 @@ export class Shape {
         if (i < 0 || i >= this.world.shapes.length) {
             return false;
         }
-        const shape = this.world.shapes[i];
-        if (shape.id === NULL_INDEX) {
+        if (kernel().shapeAlive(this.world.worldId, i) === 0) {
             return false;
         }
-        return shape.generation === this.id.generation;
+        return kernel().shapeGeneration(this.world.worldId, i) === this.id.generation;
     }
 
     /** Destroy this shape. Pass `false` to skip recomputing the body mass. */
