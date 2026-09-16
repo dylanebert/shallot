@@ -265,32 +265,8 @@ pub extern "C" fn reserve_shapes(cap: usize) -> u32 {
             ensure_capacity(new_end);
         }
 
-        // The shape-data column is base-anchored, but widening its world-local stride moves later
-        // worlds. Preserve the authored records before copying the lifecycle rows.
-        if old_cap > 0 {
-            for world in (0..MAX_WORLDS).rev() {
-                let old_row = old_layout[0] as usize + world * old_cap * SHAPE_STRIDE * 4;
-                let new_row = SHAPE_LAYOUT[0] as usize + world * cap * SHAPE_STRIDE * 4;
-                core::ptr::copy(
-                    old_row as *const u8,
-                    new_row as *mut u8,
-                    old_cap * SHAPE_STRIDE * 4,
-                );
-            }
-            // Lifecycle columns move from their old post-data offsets into the widened rows. Copy
-            // each world row independently because its stride is the capacity.
-        }
-        if old_cap > 0 {
-            for slot in [B_RECORD_NEXT, B_RECORD_ALIVE, B_RECORD_GENERATION] {
-                for world in (0..MAX_WORLDS).rev() {
-                    let old_row = old_layout[slot] as usize + world * old_cap * 4;
-                    let new_row = SHAPE_LAYOUT[slot] as usize + world * cap * 4;
-                    core::ptr::copy(old_row as *const u8, new_row as *mut u8, old_cap * 4);
-                }
-            }
-        }
-        // Shape-capacity growth also widens the address stride of the material slab's world rows.
-        // Preserve the kernel-owned material records before exposing the new layout.
+        // The widened shape data/lifecycle destinations can overlap the old material slab. Preserve
+        // materials first, before either destination copy can overwrite their old rows.
         if MATERIAL_CAP > 0 {
             for world in (0..MAX_WORLDS).rev() {
                 let old_row =
@@ -305,6 +281,30 @@ pub extern "C" fn reserve_shapes(cap: usize) -> u32 {
             }
         }
 
+        // Lifecycle columns move from their old post-data offsets into the widened rows. Copy them
+        // before the larger data destination can overwrite the old lifecycle source.
+        if old_cap > 0 {
+            for slot in [B_RECORD_NEXT, B_RECORD_ALIVE, B_RECORD_GENERATION] {
+                for world in (0..MAX_WORLDS).rev() {
+                    let old_row = old_layout[slot] as usize + world * old_cap * 4;
+                    let new_row = SHAPE_LAYOUT[slot] as usize + world * cap * 4;
+                    core::ptr::copy(old_row as *const u8, new_row as *mut u8, old_cap * 4);
+                }
+            }
+        }
+        // The shape-data destination is copied last because its widened world slabs cover the old
+        // lifecycle and material locations.
+        if old_cap > 0 {
+            for world in (0..MAX_WORLDS).rev() {
+                let old_row = old_layout[0] as usize + world * old_cap * SHAPE_STRIDE * 4;
+                let new_row = SHAPE_LAYOUT[0] as usize + world * cap * SHAPE_STRIDE * 4;
+                core::ptr::copy(
+                    old_row as *const u8,
+                    new_row as *mut u8,
+                    old_cap * SHAPE_STRIDE * 4,
+                );
+            }
+        }
         // Newly exposed slots begin invalid and unlinked. Generations intentionally survive reuse;
         // shape_create increments them when the slot is handed out.
         for world in 0..MAX_WORLDS {
