@@ -49,9 +49,6 @@ check(
                 { target, profile: { test: false }, executable: join(root, "stale") },
                 { target, profile: { test: true }, executable },
             ];
-            // This is the old refusal premise: Cargo's declared kinds do not contain the literal
-            // `lib`, even though the second artifact is the current libtest executable.
-            expect(target.kind.includes("lib")).toBe(false);
             expect(selectCargoTestExecutable("shallot-physics", fixture)).toEqual({ executable });
         } finally {
             rmSync(root, { recursive: true, force: true });

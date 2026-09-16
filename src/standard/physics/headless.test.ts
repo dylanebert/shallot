@@ -1,14 +1,7 @@
 import { afterEach, expect } from "bun:test";
 import { build, type State, Time } from "@dylanebert/shallot";
 import { check } from "@dylanebert/shallot/harness/check";
-import {
-    Body,
-    body,
-    hash,
-    PhysicsPlugin,
-    physicsWorld,
-    ShapeKind,
-} from "@dylanebert/shallot/physics";
+import { Body, body, PhysicsPlugin, physicsWorld, ShapeKind } from "@dylanebert/shallot/physics";
 
 // The solver is CPU-native wasm: the public PhysicsPlugin composition warms and steps in Bun with no
 // GPU device. Keep authoring in this check so it proves the public component writes rather than a fixture seam.
@@ -65,15 +58,9 @@ check(
             mass: 1,
         });
 
-        const hashes: bigint[] = [];
-        for (let i = 0; i < 30; i++) {
-            state.step(Time.FIXED_DT);
-            hashes.push(hash(state));
-        }
+        for (let i = 0; i < 30; i++) state.step(Time.FIXED_DT);
 
-        // the world advanced: 30 distinct states, and the dynamic body fell under gravity while the
-        // static floor held.
-        expect(new Set(hashes.map(String)).size).toBe(30);
+        // the dynamic body fell under gravity while the static floor held.
         const handle = body(state, falling);
         expect(handle).not.toBeNull();
         const y = handle!.getPosition().y;

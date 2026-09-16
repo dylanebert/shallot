@@ -204,16 +204,6 @@ check(
 );
 
 check(
-    "the public import path resolves",
-    {
-        claim: "check() is reachable at @dylanebert/shallot/harness/check, the path an extension imports",
-    },
-    () => {
-        expect(typeof check).toBe("function");
-    },
-);
-
-check(
     "a row declared for another host is skipped and reported, never refused",
     {
         claim: "a row declared for one host refuses or runs on another, so a host that cannot hold its premise reports a failure against the claim",

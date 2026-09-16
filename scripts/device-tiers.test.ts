@@ -1,7 +1,8 @@
 import { expect } from "bun:test";
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
+import { Glob } from "bun";
 import { readDeviceTierViolations } from "./check-device-tiers";
 import { unfixture } from "./unfixture";
 
@@ -36,6 +37,16 @@ check(
         subject: "src/standard",
     },
     () => {
+        // Floor: the gate's own glob and device-read pattern find modules to judge, so an empty scan
+        // cannot pass as green.
+        const scanned = ["src/standard/**/*.ts", "src/extras/**/*.ts"]
+            .flatMap((pattern) => [...new Glob(pattern).scanSync(ROOT)])
+            .filter((file) =>
+                /\bCompute\.(?:device|root|buffers)\b/.test(
+                    readFileSync(resolve(ROOT, file), "utf8"),
+                ),
+            );
+        expect(scanned.length).toBeGreaterThan(0);
         expect(readDeviceTierViolations(ROOT)).toEqual([]);
     },
 );

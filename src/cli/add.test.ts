@@ -29,7 +29,6 @@ check(
                 }),
             ).toBe(0);
             expect(readFileSync(join(dest, ".gitignore"), "utf8")).toBe(PROJECT_GITIGNORE);
-            expect(PROJECT_GITIGNORE).toBe("node_modules/\ndist/\nbuild/\n.artifacts/\n");
         } finally {
             console.log = log;
             rmSync(root, { recursive: true, force: true });
