@@ -1,0 +1,26 @@
+[
+    {
+        "site": "src/kept.test.ts:5",
+        "reason": "approved and present: the row this fixture holds green",
+        "owner": "shallot-surface-dogfood",
+        "approved": "(user, 2026-01-01)"
+    },
+    {
+        "site": "src/kept.test.ts:6",
+        "reason": "approved is empty, so check reds until the person classes it",
+        "owner": "shallot-surface-dogfood",
+        "approved": ""
+    },
+    {
+        "site": "src/vanished.ts:7",
+        "reason": "the file was renamed away, so the row is an orphan",
+        "owner": "shallot-surface-dogfood",
+        "approved": "(user, 2026-01-01)"
+    },
+    {
+        "site": "src/kept.test.ts:4",
+        "reason": "this site is also sanctioned, and a site classes once",
+        "owner": "shallot-surface-dogfood",
+        "approved": "(user, 2026-01-01)"
+    }
+]

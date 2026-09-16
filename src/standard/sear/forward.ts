@@ -15,13 +15,7 @@
 // own shadow state directly — nothing publishes into it. Add a `Shadow` to the sun to cast; omit it for the
 // fully-lit bare path (no map allocated), exactly like a camera without a lane marker runs no prepass.
 
-import type {
-    TgpuBindGroupLayout,
-    TgpuBuffer,
-    TgpuRenderPass,
-    TgpuRenderPassDescriptor,
-    TgpuRenderPipeline,
-} from "typegpu";
+import type { TgpuBindGroupLayout, TgpuBuffer, TgpuRenderPipeline } from "typegpu";
 import tgpu, { isBuffer, isUsableAsStorage, isUsableAsUniform } from "typegpu";
 import type { AnyData } from "typegpu/data";
 import * as d from "typegpu/data";
@@ -58,6 +52,8 @@ import {
     shadowReady,
 } from "./atlas";
 import { boundPipeline } from "./bound";
+import type { BundleDraw, PassBundle } from "./bundle";
+import { bundleChanged, bundleDraw, newPassBundle, recordBundle } from "./bundle";
 import { COLOR_LANES, type ColorLane, DEPTH_FORMAT, laneKey, SAMPLE_COUNT, Tag } from "./codegen";
 import { engineLayout, litPbr } from "./engine";
 import {
@@ -631,11 +627,36 @@ const _colorDepth: Omit<GPURenderPassDepthStencilAttachment, "view"> & { view: G
     depthStoreOp: "discard",
     depthClearValue: 0,
 };
-const _colorPass: TgpuRenderPassDescriptor = {
+const _colorPass: GPURenderPassDescriptor = {
     label: "",
     colorAttachments: _colorAttachments,
     depthStencilAttachment: _colorDepth,
 };
+
+// the color bundle's encoder descriptor and per-camera recordings. The bundle holds the camera's whole
+// draw program — opaque, backdrop, blend — and is recorded again only when that program or the pass shape
+// changes; a steady frame begins the pass and replays it
+const _colorBundleDesc: GPURenderBundleEncoderDescriptor & { colorFormats: GPUTextureFormat[] } = {
+    label: "sear-color",
+    colorFormats: [Render.format],
+    depthStencilFormat: DEPTH_FORMAT,
+    sampleCount: 1,
+};
+const _colorBundles = new Map<number, PassBundle>();
+// this frame's program for the camera being drawn, a capacity pool rewritten in place
+const _colorProgram: BundleDraw[] = [];
+
+// the prepass bundle's encoder descriptor (its color formats are the camera's lane set, rewritten per
+// camera), its per-camera recordings and this frame's program
+const _prepassBundleDesc: GPURenderBundleEncoderDescriptor & { colorFormats: GPUTextureFormat[] } =
+    {
+        label: "sear-prepass",
+        colorFormats: [],
+        depthStencilFormat: DEPTH_FORMAT,
+        sampleCount: 1,
+    };
+const _prepassBundles = new Map<number, PassBundle>();
+const _prepassProgram: BundleDraw[] = [];
 
 // the geometry pass (one color target — the prepass lanes ride their own pass), cleared to `_clearValue`.
 // AA on: the opaque draws clear + write `msaaColor`, the transparent draws blend over, and it resolves into
@@ -648,7 +669,7 @@ function beginColor(
     msaaColor: GPUTextureView | null,
     depth: GPUTextureView,
     framebuffer: GPUTextureView,
-): TgpuRenderPass {
+): GPURenderPassEncoder {
     if (msaaColor) {
         _msaaColor.view = msaaColor;
         _msaaColor.resolveTarget = framebuffer;
@@ -660,7 +681,7 @@ function beginColor(
     _colorDepth.view = depth;
     _colorPass.label = label;
     _colorPass.timestampWrites = Compute.span?.("sear:color");
-    return Render.frame!.beginRenderPass(_colorPass);
+    return Render.encoder!.beginRenderPass(_colorPass);
 }
 
 /**
@@ -682,7 +703,7 @@ function renderPrepass(
     lanes: ColorLane[],
     storeDepth: boolean,
 ): void {
-    if (!Render.frame || !view.framebuffer) return;
+    if (!Render.encoder || !view.framebuffer) return;
     const depth = depthView(eid, view.width, view.height);
     const key = laneKey(lanes);
     const colorAttachments = lanes.map((lane) => {
@@ -695,7 +716,7 @@ function renderPrepass(
             clearValue: lane.clear,
         };
     });
-    const pass = Render.frame.beginRenderPass({
+    const pass = Render.encoder.beginRenderPass({
         label: `sear-prepass/${eid}`,
         timestampWrites: Compute.span?.("sear:prepass"),
         colorAttachments,
@@ -716,16 +737,32 @@ function renderPrepass(
         const pipe = r.t.prepass.get(key);
         const group = tagLane ? (r.g.tag ?? r.g.depth) : r.g.depth;
         if (pipe && group) {
-            pass.setPipeline(boundPipeline(r.g, pipe, group, true, r.index));
-            pass.setBindGroup(engineLayout, engineGroup(r.g.engineCache, view.slot, r.g.quant));
-            pass.setBindGroup(shadowLayout, shadow);
-            pass.drawIndexedIndirect(
-                Compute.root.unwrap(draw.args.indirect),
-                (draw.args.offset ?? 0) + view.slot * (draw.args.viewStride ?? 0),
-            );
+            const step = bundleDraw(_prepassProgram, draws);
+            step.pipeline = boundPipeline(r.g, pipe, group, true, r.index) as never;
+            step.layout0 = engineLayout;
+            step.group0 = engineGroup(r.g.engineCache, view.slot, r.g.quant);
+            step.layout1 = shadowLayout;
+            step.group1 = shadow;
+            step.layout2 = null;
+            step.group2 = null;
+            step.indirect = draw.args.indirect;
+            step.offset = (draw.args.offset ?? 0) + view.slot * (draw.args.viewStride ?? 0);
             draws++;
         }
     }
+    // the prepass runs only for a camera carrying a lane marker; its lane set, and so its attachment
+    // shape, is per camera, so each camera keeps its own recording
+    let bundle = _prepassBundles.get(eid);
+    if (!bundle) {
+        bundle = newPassBundle();
+        _prepassBundles.set(eid, bundle);
+    }
+    _prepassBundleDesc.colorFormats.length = 0;
+    for (let l = 0; l < lanes.length; l++) _prepassBundleDesc.colorFormats.push(lanes[l].format);
+    if (bundleChanged(bundle, _prepassProgram, draws, _prepassBundleDesc)) {
+        recordBundle(bundle, _prepassProgram, draws, _prepassBundleDesc);
+    }
+    if (bundle.bundle) pass.executeBundles(bundle.replay);
     pass.end();
     Compute.indirect?.("sear:prepass", draws);
     view.depth = storeDepth ? depth : null;
@@ -783,22 +820,27 @@ function backgroundGroup(bg: Background, ct: CompiledBackground): GPUBindGroup |
  * backdrop between the opaque and blend draws: masked to far-plane pixels by the depth test, so geometry
  * overdraws it and blended draws composite over it; null leaves the flat clear color as the only backdrop
  */
-// one opaque or blended surface draw in a camera's color pass at its view slot
+// one opaque or blended surface draw in a camera's color pass at its view slot, written into the
+// camera's bundle program at `at`
 function drawColor(
-    pass: TgpuRenderPass,
+    program: BundleDraw[],
+    at: number,
     item: FrameDraw,
     pipe: TgpuRenderPipeline<any>,
     slot: number,
     shadow: GPUBindGroup,
 ): void {
     const { draw, r } = item;
-    pass.setPipeline(boundPipeline(r.g, pipe, r.g.color, false, r.index));
-    pass.setBindGroup(engineLayout, engineGroup(r.g.engineCache, slot, r.g.quant));
-    pass.setBindGroup(shadowLayout, shadow);
-    pass.drawIndexedIndirect(
-        Compute.root.unwrap(draw.args.indirect),
-        (draw.args.offset ?? 0) + slot * (draw.args.viewStride ?? 0),
-    );
+    const step = bundleDraw(program, at);
+    step.pipeline = boundPipeline(r.g, pipe, r.g.color, false, r.index) as never;
+    step.layout0 = engineLayout;
+    step.group0 = engineGroup(r.g.engineCache, slot, r.g.quant);
+    step.layout1 = shadowLayout;
+    step.group1 = shadow;
+    step.layout2 = null;
+    step.group2 = null;
+    step.indirect = draw.args.indirect;
+    step.offset = (draw.args.offset ?? 0) + slot * (draw.args.viewStride ?? 0);
 }
 
 function renderColor(
@@ -808,7 +850,7 @@ function renderColor(
     count: number,
     bg: BackdropPick | null = null,
 ): void {
-    if (!Render.frame || !view.framebuffer) return;
+    if (!Render.encoder || !view.framebuffer) return;
     // per-camera AA: 4× MSAA when `Camera.antialias` is on (the default the Camera trait seeds), else
     // single-sample. A scene attribute or a runtime `Camera.antialias.set(eid, 0)` flips it live
     const aa = Camera.antialias.get(eid) !== 0;
@@ -821,18 +863,18 @@ function renderColor(
         _clearPacked = packed;
     }
     const targets = colorTargets(eid, view.width, view.height, aa);
-    const pass = beginColor(targets.label, targets.colorView, targets.depthView, view.framebuffer);
     const shadow = shadowGroup();
-    // tally the indirect draws this camera issues (opaque + blend) so the profiler derives the injected
-    // validation floor; the honest count is post the `if (pipe)` skip
+    // the camera's draw program: opaque, then the backdrop, then blend. Building it reads only cached
+    // identities, so a steady frame allocates nothing here and the compare below reports no transition
     let draws = 0;
+    let indirect = 0;
     for (let i = 0; i < count; i++) {
         const item = items[i];
         if (!aa) ensureSingle(item.r.t);
         const pipe = aa ? item.r.t.color : item.r.t.single?.color;
         if (pipe) {
-            drawColor(pass, item, pipe, view.slot, shadow);
-            draws++;
+            drawColor(_colorProgram, draws++, item, pipe, view.slot, shadow);
+            indirect++;
         }
     }
     // the backdrop: a fullscreen triangle at the far plane, after opaque (the depth test masks it to
@@ -845,23 +887,49 @@ function renderColor(
         // group-count-compatibility reason `compileBackground` documents), and its own group 2
         const group = backgroundGroup(bg.bg, bg.ct);
         if (group) {
-            pass.setPipeline(aa ? bg.ct.color : bg.ct.single);
-            pass.setBindGroup(engineLayout, engineGroup(bg.ct.engineCache, view.slot, bgQuant()));
-            pass.setBindGroup(shadowLayout, shadow);
-            if (group !== "none") pass.setBindGroup(bg.bg.layout, group);
-            pass.draw(3);
+            const step = bundleDraw(_colorProgram, draws++);
+            step.pipeline = (aa ? bg.ct.color : bg.ct.single) as never;
+            step.layout0 = engineLayout;
+            step.group0 = engineGroup(bg.ct.engineCache, view.slot, bgQuant());
+            step.layout1 = shadowLayout;
+            step.group1 = shadow;
+            step.layout2 = group === "none" ? null : bg.bg.layout;
+            step.group2 = group === "none" ? null : group;
+            step.indirect = null;
+            step.offset = 3;
         }
     }
     for (let i = 0; i < count; i++) {
         const item = items[i];
         const pipe = aa ? item.r.t.transparent : item.r.t.single?.transparent;
         if (pipe) {
-            drawColor(pass, item, pipe, view.slot, shadow);
-            draws++;
+            drawColor(_colorProgram, draws++, item, pipe, view.slot, shadow);
+            indirect++;
         }
     }
-    pass.end();
-    Compute.indirect?.("sear:color", draws);
+
+    let pass = _colorBundles.get(eid);
+    if (!pass) {
+        pass = newPassBundle();
+        _colorBundles.set(eid, pass);
+    }
+    _colorBundleDesc.colorFormats[0] = Render.format;
+    _colorBundleDesc.sampleCount = aa ? SAMPLE_COUNT : 1;
+    if (bundleChanged(pass, _colorProgram, draws, _colorBundleDesc)) {
+        recordBundle(pass, _colorProgram, draws, _colorBundleDesc);
+    }
+    const encoded = beginColor(
+        targets.label,
+        targets.colorView,
+        targets.depthView,
+        view.framebuffer,
+    );
+    if (pass.bundle) encoded.executeBundles(pass.replay);
+    encoded.end();
+    // tally the indirect draws this camera issues (opaque + blend) so the profiler derives the injected
+    // validation floor; the honest count is post the `if (pipe)` skip, and excludes the backdrop's
+    // three-vertex draw, which is not indirect
+    Compute.indirect?.("sear:color", indirect);
 }
 
 // the Sear camera query terms, and the point caster frames `ShadowCameraSystem` ranks into (a capacity pool
@@ -958,7 +1026,7 @@ export const PrepassSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     update(state) {
-        if (!Render.frame) return;
+        if (!Render.encoder) return;
         // resolve once for the prepass + shadow map + color pass (they all run after this)
         resolveDraws();
         for (const eid of state.query(SEAR_CAMERAS)) {
@@ -1002,7 +1070,7 @@ export const ColorSystem: System = {
     after: [PrepassSystem],
     before: [GlazeSystem],
     update(state) {
-        if (!Render.frame) return;
+        if (!Render.encoder) return;
         for (const eid of state.query(SEAR_CAMERAS)) {
             const view = Views.get(eid);
             if (!view?.framebuffer) continue;

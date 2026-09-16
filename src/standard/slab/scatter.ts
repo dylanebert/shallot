@@ -54,11 +54,15 @@ export type ScatterLayout = TgpuBindGroupLayout<{
 // Layout and kernel are authored together inside the factory so the body closes over *this* layout: one
 // authored kernel, re-emitted per element with the element's own type in each `array<...>`.
 function scatterLayout(element: d.AnyWgslData): ScatterLayout {
-    return tgpu.bindGroupLayout({
-        slots: { storage: d.arrayOf(d.u32), access: "readonly" },
-        values: { storage: d.arrayOf(element), access: "readonly" },
-        canonical: { storage: d.arrayOf(element), access: "mutable" },
-    }) as ScatterLayout;
+    // group 0 is declared, not inferred: the scatter dispatches on a raw pass, which addresses a bind
+    // group by index
+    return tgpu
+        .bindGroupLayout({
+            slots: { storage: d.arrayOf(d.u32), access: "readonly" },
+            values: { storage: d.arrayOf(element), access: "readonly" },
+            canonical: { storage: d.arrayOf(element), access: "mutable" },
+        })
+        .$idx(0) as ScatterLayout;
 }
 
 function scatterKernel(element: d.AnyWgslData, layout: ScatterLayout) {

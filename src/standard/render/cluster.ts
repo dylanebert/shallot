@@ -1,9 +1,4 @@
-import tgpu, {
-    type StorageFlag,
-    type TgpuBuffer,
-    type TgpuComputePassDescriptor,
-    type TgpuComputePipeline,
-} from "typegpu";
+import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State, System } from "../../engine";
@@ -236,10 +231,14 @@ export function packClusterView(eid: number, aspect: number, slot: number): Clus
     return v;
 }
 
-const gridLayout = tgpu.bindGroupLayout({
-    clusterViews: { storage: d.arrayOf(d.vec4f), access: "readonly" },
-    aabbs: { storage: d.arrayOf(d.vec4f), access: "mutable" },
-});
+// group 0 is declared, not inferred: the dispatch is issued on a raw pass, which addresses a bind group
+// by index, so the kernel's one group pins its index here
+const gridLayout = tgpu
+    .bindGroupLayout({
+        clusterViews: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+        aabbs: { storage: d.arrayOf(d.vec4f), access: "mutable" },
+    })
+    .$idx(0);
 
 // the TGSL twin of clusterAabb — one thread per (cluster, view slot). The grid dimensions are module
 // constants, so they fold to literals; `idiv` is the integer division (TGSL's `/` is float division —
@@ -293,7 +292,7 @@ export function gridWgsl(): string {
 }
 
 let _pipe: TgpuComputePipeline | null = null;
-let _bound: TgpuComputePipeline | null = null;
+let _bound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null = null;
 let _typedViews: (TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag) | null = null;
 let _typedAabbs: (TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag) | null = null;
 
@@ -326,30 +325,35 @@ export const ClusterSystem: System = {
             used,
         );
         _gridPass.timestampWrites = Compute.span?.("cluster:aabbs");
-        const pass = Render.frame!.beginComputePass(_gridPass);
-        pass.setPipeline(bindGrid());
+        const grid = bindGrid();
+        const pass = Render.encoder.beginComputePass(_gridPass);
+        pass.setPipeline(grid.pipeline);
+        pass.setBindGroup(0, grid.group);
         pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
         pass.end();
     },
 };
 
 // the grid and light-cull pass descriptors; their timestamp spans are re-read each frame
-const _gridPass: TgpuComputePassDescriptor = { label: "shallot-cluster-aabbs" };
-const _cullPass: TgpuComputePassDescriptor = { label: "shallot-light-cull" };
+const _gridPass: GPUComputePassDescriptor = { label: "shallot-cluster-aabbs" };
+const _cullPass: GPUComputePassDescriptor = { label: "shallot-light-cull" };
 
 // bound once, on the forced precompile (which drains after every plugin has warmed). Every input is
 // this module's own, allocated in `warmClusters` before the forcer is registered — so a missing one is
 // a wiring bug and throws, never a silently skipped frame
-function bindGrid(): TgpuComputePipeline {
+function bindGrid(): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
     if (_bound) return _bound;
     if (!_pipe || !_typedViews || !_typedAabbs)
         throw new Error("[render] cluster grid used before warmClusters");
-    _bound = _pipe.with(
-        Compute.root.createBindGroup(gridLayout, {
-            clusterViews: _typedViews,
-            aabbs: _typedAabbs,
-        }),
-    );
+    _bound = {
+        pipeline: Compute.root.unwrap(_pipe),
+        group: Compute.root.unwrap(
+            Compute.root.createBindGroup(gridLayout, {
+                clusterViews: _typedViews,
+                aabbs: _typedAabbs,
+            }),
+        ),
+    };
     return _bound;
 }
 
@@ -379,8 +383,9 @@ export function warmClusters(): void {
     // the bind is deferred into the forcer: it runs after every plugin's warm
     // has resolved (warm hooks run under `Promise.all`), the first moment every input buffer is up
     precompile("shallot-cluster-aabbs", () => {
-        const bound = bindGrid();
-        return bound;
+        // the raw pipeline, already unwrapped for the dispatch: the forcer's raw-pipeline shape, which
+        // Dawn compiles on the drain like any other
+        return [bindGrid().pipeline];
     });
 }
 
@@ -430,25 +435,29 @@ export const LightCull: LightCull = {
     viewStaging: new Float32Array(MAX_VIEWS * 16),
 };
 
-const compactLayout = tgpu.bindGroupLayout({
-    membership: { storage: d.arrayOf(d.u32), access: "readonly" },
-    transforms: { storage: d.arrayOf(Xform), access: "readonly" },
-    colorF: { storage: d.arrayOf(d.f32), access: "readonly" },
-    intensityF: { storage: d.arrayOf(d.f32), access: "readonly" },
-    rangeF: { storage: d.arrayOf(d.f32), access: "readonly" },
-    radiusF: { storage: d.arrayOf(d.f32), access: "readonly" },
-    spotInnerF: { storage: d.arrayOf(d.f32), access: "readonly" },
-    spotOuterF: { storage: d.arrayOf(d.f32), access: "readonly" },
-    lights: { storage: PointLightsRw, access: "mutable" },
-});
+const compactLayout = tgpu
+    .bindGroupLayout({
+        membership: { storage: d.arrayOf(d.u32), access: "readonly" },
+        transforms: { storage: d.arrayOf(Xform), access: "readonly" },
+        colorF: { storage: d.arrayOf(d.f32), access: "readonly" },
+        intensityF: { storage: d.arrayOf(d.f32), access: "readonly" },
+        rangeF: { storage: d.arrayOf(d.f32), access: "readonly" },
+        radiusF: { storage: d.arrayOf(d.f32), access: "readonly" },
+        spotInnerF: { storage: d.arrayOf(d.f32), access: "readonly" },
+        spotOuterF: { storage: d.arrayOf(d.f32), access: "readonly" },
+        lights: { storage: PointLightsRw, access: "mutable" },
+    })
+    .$idx(0);
 
-const cullLayout = tgpu.bindGroupLayout({
-    aabbs: { storage: d.arrayOf(d.vec4f), access: "readonly" },
-    lights: { storage: PointLights, access: "readonly" },
-    viewMats: { storage: d.arrayOf(d.mat4x4f), access: "readonly" },
-    grid: { storage: d.arrayOf(d.vec2u), access: "mutable" },
-    pool: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
-});
+const cullLayout = tgpu
+    .bindGroupLayout({
+        aabbs: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+        lights: { storage: PointLights, access: "readonly" },
+        viewMats: { storage: d.arrayOf(d.mat4x4f), access: "readonly" },
+        grid: { storage: d.arrayOf(d.vec2u), access: "mutable" },
+        pool: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
+    })
+    .$idx(0);
 
 // the GPU twin of the deleted CPU pack: membership-gated scan over capacity, world position from the
 // transforms firehose, hex sRGB color decoded to linear with intensity pre-baked, posRange.w = 1/range².
@@ -647,8 +656,8 @@ export function lightCullWgsl(
 let _typedLights: (TgpuBuffer<typeof PointLightsRw> & StorageFlag) | null = null;
 let _compactPipe: TgpuComputePipeline | null = null;
 let _cullPipe: TgpuComputePipeline | null = null;
-let _compactBound: TgpuComputePipeline | null = null;
-let _cullBound: TgpuComputePipeline | null = null;
+let _compactBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null = null;
+let _cullBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null = null;
 
 // pool-overflow surfacing: the reserve counter lives GPU-side, so a throttled
 // 8-byte readback (copy one frame, map the next) carries the warn — never
@@ -662,7 +671,7 @@ const OVERFLOW_PERIOD = 240;
 // bound once, on the forced precompile. A typed bind group takes a raw GPUBuffer, which is what keeps
 // the slab mirrors' and `membership`'s reach-in open. Every input is stable post-warm, so a missing one
 // is a wiring bug and gets the named throw — never a skipped frame
-function bindCompact(): TgpuComputePipeline {
+function bindCompact(): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
     if (_compactBound) return _compactBound;
     if (!_compactPipe || !_typedLights)
         throw new Error("[render] light compact used before warmLightCull");
@@ -684,32 +693,61 @@ function bindCompact(): TgpuComputePipeline {
             `[render] light compact inputs missing (${missing.join(", ")}) — SlabPlugin + TransformsPlugin must be loaded`,
         );
     }
-    _compactBound = _compactPipe.with(
-        Compute.root.createBindGroup(compactLayout, {
-            ...(inputs as Required<{ [K in keyof typeof inputs]: GPUBuffer }>),
-            lights: _typedLights,
-        }),
-    );
+    _compactBound = {
+        pipeline: Compute.root.unwrap(_compactPipe),
+        group: Compute.root.unwrap(
+            Compute.root.createBindGroup(compactLayout, {
+                ...(inputs as Required<{ [K in keyof typeof inputs]: GPUBuffer }>),
+                lights: _typedLights,
+            }),
+        ),
+    };
     return _compactBound;
 }
 
-function bindCull(): TgpuComputePipeline {
+function bindCull(): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
     if (_cullBound) return _cullBound;
     if (!_cullPipe || !_typedAabbs || !LightCull.lights)
         throw new Error("[render] light cull used before warmLightCull");
     // the light list binds RAW here and typed in the compact group: same buffer, two schemas (the
     // writer's count word is atomic, which WGSL forbids in a read-only binding — `PointLightsRw` vs
     // `PointLights`, layouts pinned equal in lighting.test.ts)
-    _cullBound = _cullPipe.with(
-        Compute.root.createBindGroup(cullLayout, {
-            aabbs: _typedAabbs,
-            lights: LightCull.lights,
-            viewMats: LightCull.viewMats!,
-            grid: LightCull.grid!,
-            pool: LightCull.indices!,
-        }),
-    );
+    _cullBound = {
+        pipeline: Compute.root.unwrap(_cullPipe),
+        group: Compute.root.unwrap(
+            Compute.root.createBindGroup(cullLayout, {
+                aabbs: _typedAabbs,
+                lights: LightCull.lights,
+                viewMats: LightCull.viewMats!,
+                grid: LightCull.grid!,
+                pool: LightCull.indices!,
+            }),
+        ),
+    };
     return _cullBound;
+}
+
+// The two readback reactions, held as module functions rather than minted at each map: both read only
+// module state, so neither needs a closure or a context per frame.
+function overflowMapped(): void {
+    const words = new Uint32Array(_overflowStaging!.getMappedRange());
+    const dropped = words[1];
+    if (dropped > 0) {
+        if (!_overflowWarned) {
+            _overflowWarned = true;
+            console.warn(
+                `shallot: light index pool overflow — ${dropped} cluster-light entries dropped this frame (pool ${LIGHT_POOL})`,
+            );
+        }
+    } else {
+        _overflowWarned = false;
+    }
+    _overflowStaging!.unmap();
+    _overflowInFlight = false;
+}
+
+function overflowUnmapped(): void {
+    _overflowInFlight = false;
 }
 
 function checkOverflow(): void {
@@ -717,27 +755,7 @@ function checkOverflow(): void {
     // copy was submitted with last frame's encoder — safe to map now
     if (_overflowInFlight) return;
     _overflowInFlight = true;
-    _overflowStaging
-        .mapAsync(GPUMapMode.READ)
-        .then(() => {
-            const words = new Uint32Array(_overflowStaging!.getMappedRange());
-            const dropped = words[1];
-            if (dropped > 0) {
-                if (!_overflowWarned) {
-                    _overflowWarned = true;
-                    console.warn(
-                        `shallot: light index pool overflow — ${dropped} cluster-light entries dropped this frame (pool ${LIGHT_POOL})`,
-                    );
-                }
-            } else {
-                _overflowWarned = false;
-            }
-            _overflowStaging!.unmap();
-            _overflowInFlight = false;
-        })
-        .catch(() => {
-            _overflowInFlight = false;
-        });
+    _overflowStaging.mapAsync(GPUMapMode.READ).then(overflowMapped).catch(overflowUnmapped);
 }
 
 /**
@@ -762,10 +780,14 @@ export const LightCullSystem: System = {
         Render.encoder.clearBuffer(LightCull.lights!, 0, 16);
         Render.encoder.clearBuffer(LightCull.indices!, 0, POOL_HEADER * 4);
         _cullPass.timestampWrites = Compute.span?.("light:cull");
-        const pass = Render.frame!.beginComputePass(_cullPass);
-        pass.setPipeline(bindCompact());
+        const compact = bindCompact();
+        const cull = bindCull();
+        const pass = Render.encoder.beginComputePass(_cullPass);
+        pass.setPipeline(compact.pipeline);
+        pass.setBindGroup(0, compact.group);
         pass.dispatchWorkgroups(Math.ceil(capacity / 64));
-        pass.setPipeline(bindCull());
+        pass.setPipeline(cull.pipeline);
+        pass.setBindGroup(0, cull.group);
         pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
         pass.end();
 
@@ -841,12 +863,6 @@ export function warmLightCull(state: State): void {
         })
         .$name("shallot-light-compact");
     _cullPipe = root.createComputePipeline({ compute: cullKernel }).$name("shallot-light-cull");
-    precompile("shallot-light-compact", () => {
-        const bound = bindCompact();
-        return bound;
-    });
-    precompile("shallot-light-cull", () => {
-        const bound = bindCull();
-        return bound;
-    });
+    precompile("shallot-light-compact", () => [bindCompact().pipeline]);
+    precompile("shallot-light-cull", () => [bindCull().pipeline]);
 }

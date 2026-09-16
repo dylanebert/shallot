@@ -1,9 +1,4 @@
-import type {
-    TgpuBindGroup,
-    TgpuBuffer,
-    TgpuComputePassDescriptor,
-    TgpuComputePipeline,
-} from "typegpu";
+import type { TgpuBindGroup, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import {
     Compute,
@@ -114,9 +109,9 @@ export class Slab {
     private _rawSlots: GPUBuffer | null = null;
     private _rawValues: GPUBuffer | null = null;
     private _bindGroup: TgpuBindGroup | null = null;
-    // the pipeline with this slab's bind group already bound. `.with(...)` returns a fresh wrapper each
-    // call, so binding once at prepare keeps the per-frame flush to one allocation per dispatch
-    private _bound: TgpuComputePipeline | null = null;
+    // this slab's scatter pipeline and bind group as raw handles, resolved once at prepare: the flush
+    // dispatches on a raw compute pass, so a steady flush runs no typegpu state work
+    private _bound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null = null;
     private readonly _stagingPool: Stager[] = [];
     // this slab's stager and packed count in the current flush
     private _flushStager: Stager | null = null;
@@ -257,7 +252,10 @@ export class Slab {
             values: this._values,
             canonical: this.typed,
         } as never);
-        this._bound = ctx.pipeline.with(this._bindGroup);
+        this._bound = {
+            pipeline: root.unwrap(ctx.pipeline),
+            group: root.unwrap(this._bindGroup),
+        };
         if (this.name) {
             Compute.buffers.set(this.name, this.gpu);
             Compute.typed.set(this.name, this.typed);
@@ -399,9 +397,7 @@ export class Slab {
             if (!s._bound || forced.has(key)) continue;
             forced.add(key);
             const bound = s._bound;
-            precompile(`slab-scatter-${key}`, () => {
-                return bound;
-            });
+            precompile(`slab-scatter-${key}`, () => [bound.pipeline]);
         }
     }
 
@@ -418,15 +414,14 @@ export class Slab {
     // one-buffer submit list, held so a frame's upload mints only its WebGPU objects
     private static readonly _used: Slab[] = [];
     private static readonly _flushEncoder: GPUCommandEncoderDescriptor = { label: "slab-flush" };
-    private static readonly _scatterPass: TgpuComputePassDescriptor = { label: "slab-scatter" };
+    private static readonly _scatterPass: GPUComputePassDescriptor = { label: "slab-scatter" };
     private static readonly _submit: GPUCommandBuffer[] = [];
 
     static flush(): void {
         if (Slab._all.length === 0 || !Compute.device) return;
         const device = Compute.device;
         if (deviceLost(device)) return;
-        const frame = Compute.root["~unstable"].createCommandEncoder(Slab._flushEncoder);
-        const encoder = Compute.root.unwrap(frame);
+        const encoder = device.createCommandEncoder(Slab._flushEncoder);
         const used = Slab._used;
         let usedCount = 0;
 
@@ -465,14 +460,16 @@ export class Slab {
             // One compute pass for all slabs — each dispatch rebinds its own group; the pass is shared, which
             // saves N-1 beginComputePass/endPass round-trips.
             Slab._scatterPass.timestampWrites = Compute.span?.("slab:flush");
-            const pass = frame.beginComputePass(Slab._scatterPass);
+            const pass = encoder.beginComputePass(Slab._scatterPass);
             for (let i = 0; i < usedCount; i++) {
-                pass.setPipeline(used[i]._bound!);
+                const bound = used[i]._bound!;
+                pass.setPipeline(bound.pipeline);
+                pass.setBindGroup(0, bound.group);
                 pass.dispatchWorkgroups(Math.ceil(used[i]._flushCount / 64));
             }
             pass.end();
 
-            Slab._submit[0] = frame.finish();
+            Slab._submit[0] = encoder.finish();
             device.queue.submit(Slab._submit);
         } catch (error) {
             // Nothing submitted: retain every dirty word, and release even a stager whose pack failed.

@@ -150,14 +150,18 @@ export function glazeLayout(format: "bgra8unorm" | "rgba8unorm") {
     // entry and compute+fragment for a mutable one, so leaving them would claim a fragment storage-texture
     // slot (and vertex uniform/texture slots) for a pipeline that has no such stage — the pre-port layout
     // declared COMPUTE on all three
-    return tgpu.bindGroupLayout({
-        input: { texture: d.texture2d(d.f32), visibility: ["compute"] },
-        glaze: { uniform: GlazeConfig, visibility: ["compute"] },
-        output: {
-            storageTexture: d.textureStorage2d(format, "write-only"),
-            visibility: ["compute"],
-        },
-    });
+    // group 0 is declared, not inferred: the composite dispatches on a raw pass, which addresses a bind
+    // group by index
+    return tgpu
+        .bindGroupLayout({
+            input: { texture: d.texture2d(d.f32), visibility: ["compute"] },
+            glaze: { uniform: GlazeConfig, visibility: ["compute"] },
+            output: {
+                storageTexture: d.textureStorage2d(format, "write-only"),
+                visibility: ["compute"],
+            },
+        })
+        .$idx(0);
 }
 
 /** the composite kernel over a format-matched layout. @internal */

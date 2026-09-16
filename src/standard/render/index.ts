@@ -204,7 +204,6 @@ export const BeginFrameSystem: System = {
     first: true,
     update(state) {
         Render.encoder = null;
-        Render.frame = null;
         const device = Compute.device;
         if (!device) return;
 
@@ -215,9 +214,7 @@ export const BeginFrameSystem: System = {
         // to a recycled eid — is dropped here.
         pruneViews(state);
 
-        const frame = Compute.root["~unstable"].createCommandEncoder(FRAME_ENCODER);
-        Render.frame = frame;
-        const encoder = Compute.root.unwrap(frame);
+        const encoder = device.createCommandEncoder(FRAME_ENCODER);
         Render.encoder = encoder;
         writeFrame(state);
         writeLighting(state);
@@ -314,14 +311,13 @@ const EndFrameSystem: System = {
     update() {
         const device = Compute.device;
         if (!device) return;
-        const frame = Render.frame;
-        if (!frame)
+        const encoder = Render.encoder;
+        if (!encoder)
             throw new Error("render submission requires BeginFrameSystem to open an encoder");
-        _submit[0] = frame.finish();
+        _submit[0] = encoder.finish();
         device.queue.submit(_submit);
         Compute.frame++;
         Render.encoder = null;
-        Render.frame = null;
         Views.forEach(clearTargets);
     },
     dispose() {
@@ -375,7 +371,6 @@ async function initRender(): Promise<void> {
         });
 
     Render.encoder = null;
-    Render.frame = null;
     for (const b of Render.viewBuffers) b.destroy();
     Render.viewBuffers = Array.from({ length: MAX_VIEWS }, (_, slot) =>
         uniform(`shallot-view-${slot}`, VIEW_BYTES),

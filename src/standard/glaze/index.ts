@@ -15,7 +15,6 @@
 // transform); the grade defaults to a no-op and posterize / dither / vignette gate off, so only the
 // tonemap + linear→sRGB encode run. The rg11b10ufloat HDR offscreen is what lets the tonemap roll off
 // highlights >1 (they'd clamp at store on an LDR offscreen).
-import type { TgpuComputePassDescriptor } from "typegpu";
 import type { Plugin, State, System } from "../../engine";
 import { Compute, f32, sparse, u32, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
@@ -91,7 +90,43 @@ const DEFAULT = {
 // the camera query terms, the composite pass descriptor, and each camera's pass label, held so the
 // per-frame composite mints only its bind group and WebGPU objects
 const CAMERAS = [Camera];
-const _pass: TgpuComputePassDescriptor = { label: "" };
+const _pass: GPUComputePassDescriptor = { label: "" };
+// the composite's raw pipeline, bind-group layout and per-slot raw config buffers, resolved on the first
+// frame that has them: the dispatch runs on a raw pass, and the bind group is the one WebGPU object the
+// swapchain forces this system to mint per camera per frame (`getCurrentTexture` hands back a new view),
+// so its descriptor and entries are retained and rewritten in place
+let _raw: {
+    pipeline: GPUComputePipeline;
+    layout: GPUBindGroupLayout;
+    configs: GPUBuffer[];
+    composite: ReturnType<typeof composite>;
+} | null = null;
+const _inputEntry: GPUBindGroupEntry = { binding: 0, resource: null! };
+const _glazeBinding: GPUBufferBinding = { buffer: null! };
+const _glazeEntry: GPUBindGroupEntry = { binding: 1, resource: _glazeBinding };
+const _outputEntry: GPUBindGroupEntry = { binding: 2, resource: null! };
+const _groupEntries: GPUBindGroupEntry[] = [_inputEntry, _glazeEntry, _outputEntry];
+const _groupDesc: GPUBindGroupDescriptor = {
+    label: "glaze",
+    layout: null!,
+    entries: _groupEntries,
+};
+
+// the composite's raw handles, resolved once per build from the typegpu pipeline, layout and uniforms
+function rawComposite(built: ReturnType<typeof composite>): {
+    pipeline: GPUComputePipeline;
+    layout: GPUBindGroupLayout;
+    configs: GPUBuffer[];
+} {
+    if (_raw && _raw.composite === built) return _raw;
+    _raw = {
+        composite: built,
+        pipeline: Compute.root.unwrap(built.pipeline),
+        layout: Compute.root.unwrap(built.layout),
+        configs: _configs.map((buffer) => Compute.root.unwrap(buffer)),
+    };
+    return _raw;
+}
 const _labels = new Map<number, string>();
 
 function uploadConfig(state: State, eid: number, slot: number): void {
@@ -128,18 +163,18 @@ export const GlazeSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     update(state) {
-        const frame = Render.frame;
-        if (!frame || !Compute.device || !_composite) return;
-        const { layout, pipeline } = _composite;
+        const encoder = Render.encoder;
+        if (!encoder || !Compute.device || !_composite) return;
+        const raw = rawComposite(_composite);
+        _groupDesc.layout = raw.layout;
         for (const eid of state.query(CAMERAS)) {
             const view = Views.get(eid);
             if (!view?.present || !view.framebuffer) continue;
             uploadConfig(state, eid, view.slot);
-            const group = Compute.root.createBindGroup(layout, {
-                input: view.framebuffer,
-                glaze: _configs[view.slot],
-                output: view.present,
-            });
+            _inputEntry.resource = view.framebuffer;
+            _glazeBinding.buffer = raw.configs[view.slot];
+            _outputEntry.resource = view.present;
+            const group = Compute.device.createBindGroup(_groupDesc);
             let label = _labels.get(eid);
             if (label === undefined) {
                 label = `glaze/${eid}`;
@@ -147,9 +182,9 @@ export const GlazeSystem: System = {
             }
             _pass.label = label;
             _pass.timestampWrites = Compute.span?.("glaze");
-            const pass = frame.beginComputePass(_pass);
-            pass.setPipeline(pipeline);
-            pass.setBindGroup(group);
+            const pass = encoder.beginComputePass(_pass);
+            pass.setPipeline(raw.pipeline);
+            pass.setBindGroup(0, group);
             pass.dispatchWorkgroups(
                 Math.ceil(view.width / WORKGROUP),
                 Math.ceil(view.height / WORKGROUP),
@@ -237,5 +272,6 @@ export const GlazePlugin: Plugin = {
         // the pipeline memo is device-scoped and outlives a build (`composite`), like every other typed
         // pipeline cache — only this build's per-slot uniforms are ours to free
         _composite = null;
+        _raw = null;
     },
 };

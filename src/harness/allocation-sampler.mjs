@@ -46,7 +46,7 @@ export function subjectSite(frame, map, base, fallback) {
 }
 
 /**
- * @typedef {{ functionName: string, url: string, lineNumber: number, columnNumber: number }} CallFrame
+ * @typedef {{ functionName: string, url: string, scriptId: string, lineNumber: number, columnNumber: number }} CallFrame
  * @typedef {{ id: number, callFrame: CallFrame, children: ProfileNode[] }} ProfileNode
  */
 
@@ -58,7 +58,9 @@ export function subjectSite(frame, map, base, fallback) {
  * @param {{ head: ProfileNode, samples: { nodeId: number, size: number }[] }} profile
  * @param {(frame: CallFrame) => string | undefined} runSite names a run frame, else undefined
  * @param {(frame: CallFrame) => string | undefined} siteOf names a subject frame, else undefined
- * @returns {{ site: string, bytes: number }[]} most bytes first
+ * At a one-byte sampling interval every allocation is sampled, so the number of samples at a site is the
+ * number of allocations there: a sanctioned site's per-frame count is read from it, never from bytes.
+ * @returns {{ site: string, bytes: number, count: number }[]} most bytes first
  */
 export function attribute(profile, runSite, siteOf) {
     const owner = new Map();
@@ -71,12 +73,15 @@ export function attribute(profile, runSite, siteOf) {
     };
     visit(profile.head, undefined);
     const bytes = new Map();
+    const counts = new Map();
     for (const { nodeId, size } of profile.samples) {
         const key = owner.get(nodeId);
-        if (key !== undefined) bytes.set(key, (bytes.get(key) ?? 0) + size);
+        if (key === undefined) continue;
+        bytes.set(key, (bytes.get(key) ?? 0) + size);
+        counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return [...bytes]
-        .map(([name, size]) => ({ site: name, bytes: size }))
+        .map(([name, size]) => ({ site: name, bytes: size, count: counts.get(name) ?? 0 }))
         .sort((x, y) => y.bytes - x.bytes);
 }
 
@@ -158,10 +163,12 @@ async function main() {
         steps(warm - frames);
         const atDoubleWarm = await sample(steps, frames);
         const repeat = await sample(steps, frames);
+        // Node steps its own frames, so each window's frame count is exact by construction; the page
+        // sampler has to measure its windows, because a page window overshoots what it was asked for.
         return [
-            { label: `after warm ${warm}`, sites: atWarm },
-            { label: `after warm ${2 * warm}`, sites: atDoubleWarm },
-            { label: "A/A repeat", sites: repeat },
+            { label: `after warm ${warm}`, sites: atWarm, frames, framesAtMost: frames },
+            { label: `after warm ${2 * warm}`, sites: atDoubleWarm, frames, framesAtMost: frames },
+            { label: "A/A repeat", sites: repeat, frames, framesAtMost: frames },
         ];
     }
 
@@ -184,10 +191,13 @@ async function main() {
         const despawnAgain = await sample(despawnFrame);
         const afterDespawnAgain = await sample(steps, CHUNK);
         const afterEvents = [
-            { label: `${CHUNK} frames after spawn`, sites: afterSpawn },
-            { label: `${CHUNK} frames after despawn`, sites: afterDespawn },
-            { label: `${CHUNK} frames after second spawn`, sites: afterSpawnAgain },
-            { label: `${CHUNK} frames after second despawn`, sites: afterDespawnAgain },
+            { label: `${CHUNK} frames after spawn`, sites: afterSpawn, frames: CHUNK, framesAtMost: CHUNK },
+            { label: `${CHUNK} frames after despawn`, sites: afterDespawn, frames: CHUNK, framesAtMost: CHUNK },
+            { label: `${CHUNK} frames after second spawn`, sites: afterSpawnAgain, frames: CHUNK, framesAtMost: CHUNK },
+            {
+                label: `${CHUNK} frames after second despawn`,
+                sites: afterDespawnAgain,
+                frames: CHUNK, framesAtMost: CHUNK },
         ];
         const windows = await steadyWindows();
         collect();

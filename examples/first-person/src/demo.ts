@@ -32,7 +32,11 @@ const TRAVEL = 1.5;
 const RATE = 0.65;
 const RECIPE_STATE = Symbol.for("shallot.examples.first-person.state");
 type DemoBag = {
-    liftBases: Map<number, readonly [number, number, number]>;
+    // one slot per lift: its body eid, and its authored base at `slot * 3`. Two held arrays rather than a
+    // Map, so the per-tick walk indexes instead of iterating and the base reads stay unboxed doubles.
+    liftEids: number[];
+    liftBases: number[];
+    liftCount: number;
     panel: HTMLDivElement | null;
     look: HTMLDivElement | null;
 };
@@ -46,11 +50,12 @@ function stateBag(state: State): DemoBag {
 // lookup allocate a context.
 function createBag(state: State): DemoBag {
     const owner = state as DemoState;
-    const bag: DemoBag = { liftBases: new Map(), panel: null, look: null };
+    const bag: DemoBag = { liftEids: [], liftBases: [], liftCount: 0, panel: null, look: null };
     owner[RECIPE_STATE] = bag;
     state.onDispose(() => {
         if (owner[RECIPE_STATE] !== bag) return;
-        bag.liftBases.clear();
+        // the slot arrays keep their capacity; the count is what empties them
+        bag.liftCount = 0;
         bag.panel = null;
         bag.look = null;
         delete owner[RECIPE_STATE];
@@ -63,22 +68,24 @@ const liftPos: [number, number, number] = [0, 0, 0];
 const LIFT_QUAT = [0, 0, 0, 1] as const;
 const liftVel: [number, number, number] = [0, 0, 0];
 
-// One lift's kinematic target at the State's elapsed time; the map walk passes the State as `this`.
-function moveLift(this: State, base: readonly [number, number, number], eid: number): void {
-    const phase = this.time.elapsed * RATE;
-    liftPos[0] = base[0];
-    liftPos[1] = base[1] + 0.5 * TRAVEL * (1 - Math.cos(2 * phase));
-    liftPos[2] = base[2];
-    liftVel[1] = RATE * TRAVEL * Math.sin(2 * phase);
-    setKinematic(this, eid, liftPos, LIFT_QUAT, false, liftVel);
-}
-
 const lift: System = {
     name: "lift",
     group: "fixed",
     before: [CharacterSweepSystem],
+    // Every lift shares one trajectory, so the phase, the rise and the velocity are the tick's, not each
+    // lift's: they are computed once here and the slot walk only adds each lift's base to them.
     update(state: State): void {
-        stateBag(state).liftBases.forEach(moveLift, state);
+        const bag = stateBag(state);
+        const phase = 2 * (state.time.elapsed * RATE);
+        const rise = 0.5 * TRAVEL * (1 - Math.cos(phase));
+        liftVel[1] = RATE * TRAVEL * Math.sin(phase);
+        for (let slot = 0; slot < bag.liftCount; slot++) {
+            const base = slot * 3;
+            liftPos[0] = bag.liftBases[base];
+            liftPos[1] = bag.liftBases[base + 1] + rise;
+            liftPos[2] = bag.liftBases[base + 2];
+            setKinematic(state, bag.liftEids[slot], liftPos, LIFT_QUAT, false, liftVel);
+        }
     },
 };
 
@@ -143,13 +150,15 @@ export const Demo = {
     dependencies: [CharacterPlugin, InputPlugin, PhysicsPlugin],
     warm(state: State) {
         tune(state);
-        const bases = stateBag(state).liftBases;
+        const bag = stateBag(state);
+        bag.liftCount = 0;
         for (const eid of state.query([Lift, Body])) {
-            bases.set(eid, [
-                Body.pos.x.get(eid),
-                Body.pos.y.get(eid),
-                Body.pos.z.get(eid),
-            ] as const);
+            const base = bag.liftCount * 3;
+            bag.liftEids[bag.liftCount] = eid;
+            bag.liftBases[base] = Body.pos.x.get(eid);
+            bag.liftBases[base + 1] = Body.pos.y.get(eid);
+            bag.liftBases[base + 2] = Body.pos.z.get(eid);
+            bag.liftCount++;
         }
     },
     systems: [lift, controls],
