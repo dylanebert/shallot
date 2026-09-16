@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 import { resolve } from "node:path";
-import { declaredSiteFailures } from "@dylanebert/shallot/harness/allocation";
+import { declaredSiteFailures, sentinelFrames } from "@dylanebert/shallot/harness/allocation";
 import { check } from "@dylanebert/shallot/harness/check";
 
 const ENTRY = resolve(import.meta.dir, "../../examples/first-person/src/allocation.entry.ts");
@@ -125,5 +125,74 @@ check(
         expect(declaredSiteFailures(goneSanction, [SANCTION], [RED_CIRCLE])).toEqual([
             "stale declared rows:\n  window 1: sanction src/a.ts:10 allocates nothing",
         ]);
+    },
+);
+
+// The sentinel's own identity, read here because everything the page sampler reports divides by the frame
+// count it produces. A profile node carries the definition site the scan keys on: script, line and column.
+const frame = (scriptId: string, functionName = "__shallotFrameMark", url = "") => ({
+    functionName,
+    url,
+    scriptId,
+    lineNumber: 3,
+    columnNumber: 30,
+});
+const node = (id: number, callFrame: ReturnType<typeof frame>, children: never[] = []) => ({
+    id,
+    callFrame,
+    children,
+});
+const samples = (...perNode: [number, number][]) =>
+    perNode.flatMap(([nodeId, count]) =>
+        Array.from({ length: count }, () => ({ nodeId, size: 24 })),
+    );
+const profileOf = (children: ReturnType<typeof node>[], rows: [number, number][]) => ({
+    head: { id: 1, callFrame: frame("root", "(root)", ""), children },
+    samples: samples(...rows),
+});
+
+check(
+    "the frame sentinel refuses a span where its identity is not exactly one frame",
+    {
+        claim: "the sentinel scan returns the sole matching frame's allocation count, refuses by name when no frame answers to it, and refuses by a different name naming every definition site when more than one does",
+    },
+    () => {
+        // Non-vacuity: one matching frame reads its own sample count, which is the span's frame count.
+        expect(sentinelFrames(profileOf([node(2, frame("4"))], [[2, 120]]))).toBe(120);
+        // Two definition sites answering to the sentinel's name: `attribute` keys by site name, so these
+        // would collapse into one row and their sum, 360, would be read as the frame count. Every per-frame
+        // figure would then be a third of the truth and the exact-count assertion would red at the
+        // sanctioned sites instead of here.
+        const impostor = profileOf(
+            [node(2, frame("4")), node(3, { ...frame("5"), lineNumber: 1 })],
+            [
+                [2, 120],
+                [3, 240],
+            ],
+        );
+        expect(() => sentinelFrames(impostor)).toThrow("is not unique in this span");
+        // The message names what matched, so the reader is told what is being counted as frames.
+        expect(() => sentinelFrames(impostor)).toThrow("script 4 at 4:31: 120 allocations");
+        expect(() => sentinelFrames(impostor)).toThrow("script 5 at 2:31: 240 allocations");
+        // Nothing answering to the sentinel means the page was not stepping frames under the profiler.
+        // It is a different failure from the one above and says so.
+        const silent = profileOf([node(2, frame("4", "somethingElse"))], [[2, 99]]);
+        expect(() => sentinelFrames(silent)).toThrow("did not sample this span");
+        // A frame carrying the reserved name but a served script's url is not the sentinel either.
+        const served = profileOf(
+            [node(2, frame("4", "__shallotFrameMark", "http://localhost:1/app.js"))],
+            [[2, 99]],
+        );
+        expect(() => sentinelFrames(served)).toThrow("did not sample this span");
+        // Two nodes at one definition site are one identity, summed: the rule is on the definition site,
+        // not the node count, so a frame reached by two call paths is still the sentinel.
+        const twoPaths = profileOf(
+            [node(2, frame("4")), node(3, frame("4"))],
+            [
+                [2, 70],
+                [3, 50],
+            ],
+        );
+        expect(sentinelFrames(twoPaths)).toBe(120);
     },
 );

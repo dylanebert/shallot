@@ -204,7 +204,7 @@ export interface PageSample extends AllocationSample {
     trace: PlayTrace;
 }
 
-type CallFrame = Parameters<typeof subjectSite>[0] & { url: string };
+type CallFrame = Parameters<typeof subjectSite>[0] & { url: string; scriptId: string };
 type FrameCount = { __shallotFrames: number };
 
 // The page's run frame: the engine's frame loop, `run`'s `frame` method in the app module. A method keeps its
@@ -222,8 +222,10 @@ const FRAME_LOOP = { source: resolve(import.meta.dir, "../engine/app/index.ts"),
  * every reported list.
  *
  * An injected document script has no url in a heap profile — a `sourceURL` trailer names it for stack traces
- * only — so the frame is identified by the empty url the page's own served scripts never have, plus a
- * reserved name no subject declares.
+ * only — so the name and the empty url only *select* candidate frames. They do not identify one, because
+ * empty url is a property the sentinel shares with anything else the profiler cannot attribute to a served
+ * script. {@link sentinelFrames} turns that selection into an identity by requiring exactly one definition
+ * site among the candidates, which is what the measured frame count rests on.
  */
 const FRAME_TICK_NAME = "__shallotFrameMark";
 const FRAME_TICK_SITE = `${FRAME_TICK_NAME} (harness frame sentinel)`;
@@ -538,17 +540,23 @@ export async function samplePage(
         const removeLoopBreakpoint = (breakpointId: string) =>
             bounded("removeBreakpoint", cdp.send("Debugger.removeBreakpoint", { breakpointId }));
         // The sentinel is the harness's instrument, not the subject's: it leaves every reported site list,
-        // and where it measures a span it leaves as that span's frame count.
-        const split = (sites: ReturnType<typeof attribute>) => ({
-            sites: sites.filter((row) => row.site !== FRAME_TICK_SITE),
-            frames: sites.find((row) => row.site === FRAME_TICK_SITE)?.count ?? 0,
+        // and where it measures a span it leaves as that span's frame count. The count comes from the node
+        // scan rather than from the attributed site, because `attribute` keys by site name: two frames
+        // sharing the sentinel's name would collapse into one row there, and their sum would be silently
+        // read as the frame count. `sentinelFrames` is the only place that number is computed, so its
+        // identity assertion is a premise of every consumer of it, not a condition an oracle remembers.
+        const split = (profile: Parameters<typeof attribute>[0]) => ({
+            sites: attribute(profile, runSite, siteOf).filter(
+                (row) => row.site !== FRAME_TICK_SITE,
+            ),
+            frames: sentinelFrames(profile),
         });
         const sample = async (count: number) => {
             await collect();
             await startSampling();
             await advance(count);
             const { profile } = await stopSampling();
-            return split(attribute(profile, runSite, siteOf));
+            return split(profile);
         };
         // the survivor window: sampling without the collected-object classes, then a full collection
         // before the profile is read, so what remains is what the window allocated and still holds.
@@ -561,7 +569,7 @@ export async function samplePage(
             await advance(count);
             await collect();
             const { profile } = await stopSampling();
-            return split(attribute(profile, runSite, siteOf)).sites;
+            return split(profile).sites;
         };
         const timed = async <T>(work: () => Promise<T>): Promise<[T, number]> => {
             const at = performance.now();
@@ -682,6 +690,65 @@ export async function samplePage(
         server?.stop(true);
         rmSync(outDir, { recursive: true, force: true });
     }
+}
+
+/** one node of a sampling heap profile, as much of it as the sentinel scan reads */
+interface ProfileNode {
+    id: number;
+    callFrame: {
+        functionName: string;
+        url: string;
+        scriptId: string;
+        lineNumber: number;
+        columnNumber: number;
+    };
+    children: ProfileNode[];
+}
+
+/**
+ * The frames one profiled span stepped, read from the harness's per-frame sentinel.
+ *
+ * The sentinel allocates exactly one escaping object per frame, so at the one-byte sampling interval its
+ * sample count is the span's frame count. Everything else divides by this number, so identifying the wrong
+ * frame as the sentinel is the one failure this mechanism must not have: a second frame folded into the
+ * count would inflate the denominator, shrink every per-frame figure, and red the exact-count assertion at
+ * the sanctioned sites rather than naming the real cause.
+ *
+ * So the identity is asserted, not assumed. Candidate frames are selected by the reserved name and the
+ * empty url an injected document script has, then their definition sites — script, line and column, which
+ * survive the profile — must be exactly one. Zero candidates and two or more each fail by their own name,
+ * and the second names every definition site it found, so "the sampler saw nothing" and "something else is
+ * being counted as frames" are never the same message.
+ */
+export function sentinelFrames(profile: {
+    head: ProfileNode;
+    samples: readonly { nodeId: number }[];
+}): number {
+    const counts = new Map<number, number>();
+    for (const { nodeId } of profile.samples) counts.set(nodeId, (counts.get(nodeId) ?? 0) + 1);
+    const found = new Map<string, number>();
+    const visit = (node: ProfileNode) => {
+        const frame = node.callFrame;
+        if (frame.functionName === FRAME_TICK_NAME && frame.url === "") {
+            const at = `script ${frame.scriptId} at ${frame.lineNumber + 1}:${frame.columnNumber + 1}`;
+            found.set(at, (found.get(at) ?? 0) + (counts.get(node.id) ?? 0));
+        }
+        for (const child of node.children) visit(child);
+    };
+    visit(profile.head);
+    if (found.size === 0)
+        throw new Error(
+            `the harness frame sentinel did not sample this span: no frame named ${FRAME_TICK_NAME} allocated while the profiler was running, so the page was not stepping frames under it and nothing in this span was measured`,
+        );
+    if (found.size > 1)
+        throw new Error(
+            `the harness frame sentinel is not unique in this span: ${found.size} definition sites answer to ${FRAME_TICK_NAME}, so the measured frame count would be the sum of all of them:\n${[
+                ...found,
+            ]
+                .map(([at, samples]) => `  ${at}: ${samples} allocations`)
+                .join("\n")}`,
+        );
+    return [...found.values()][0];
 }
 
 /**

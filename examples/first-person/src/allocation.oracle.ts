@@ -150,18 +150,16 @@ check(
             );
         failures.push(...declared.errors, ...redCircled.errors);
         // Each window's frame count is the harness's own per-frame sentinel, sampled on the same clock as
-        // the sites below, so it is what the counts divide by and what proves the window's sampler was live.
-        // A window steps at least the frames it was asked for; it overshoots, because the calls that start
-        // and stop the profiler and the frame-count poll all let frames elapse.
+        // the sites below, so it is what the counts divide by. That the sentinel was live and unique is the
+        // sampler's premise, asserted where the count is computed, so what is left to read here is only
+        // whether a window came up short: a window steps at least the frames it was asked for, and
+        // overshoots, because the calls that start and stop the profiler and the frame-count poll all let
+        // frames elapse.
         for (const window of sample.windows)
             if (window.frames < sample.frames)
                 failures.push(
-                    `${window.label} measured ${window.frames} frames against the ${sample.frames} it asked for: the harness's per-frame sentinel did not sample this window, so nothing read from it was measured`,
+                    `${window.label} measured ${window.frames} frames against the ${sample.frames} it asked for, so its window closed early and its per-frame figures are not what they claim`,
                 );
-        if (sample.controlFrames <= 0)
-            failures.push(
-                "the control span measured no frames: the harness's per-frame sentinel did not sample it",
-            );
 
         // The Locked decision's red conditions over the declared sites: no byte outside the two
         // declarations, no stale row in either, and every sanctioned site at its derived count. The rule

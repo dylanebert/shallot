@@ -46,7 +46,7 @@ export function subjectSite(frame, map, base, fallback) {
 }
 
 /**
- * @typedef {{ functionName: string, url: string, lineNumber: number, columnNumber: number }} CallFrame
+ * @typedef {{ functionName: string, url: string, scriptId: string, lineNumber: number, columnNumber: number }} CallFrame
  * @typedef {{ id: number, callFrame: CallFrame, children: ProfileNode[] }} ProfileNode
  */
 
