@@ -79,7 +79,11 @@ positively identified real adapter at the capture contract; a software adapter, 
 and an undeclared host each refuse with their own reason, and its launch is always headless — a headed
 launch never grants it, because a windowed run proves a different seat. `display` is that seat, and the only
 one that launches headed: it refuses unless the host declares a display in `SHALLOT_DISPLAY_SEAT` and a headed
-Chromium on the shared floor there classifies a positively identified real adapter. Launch mode is policy
+Chromium on the shared floor there classifies a positively identified real adapter. The page is opened on the
+monitor that declaration names and read back from the compositor for where it actually landed, because a
+window placed by focus presents at whichever monitor's rate happened to be in front of the person. A display
+run therefore takes that monitor while it lasts, along with the keyboard and cursor the page under test asks
+for. That is the seat, not a defect — presenting on a real display is the measurement. Launch mode is policy
 keyed by seat in `src/harness/launch.ts`; `launch.json` holds only each host's headless and headed evidence.
 
 `captureFrame` from `@dylanebert/shallot/harness/capture` is the one capture: it fixes the viewport, device

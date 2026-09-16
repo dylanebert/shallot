@@ -15,6 +15,7 @@ import { classifyAdapter } from "../engine/runtime/adapter";
 import { CROSS_ORIGIN_ISOLATION } from "../project/vite";
 import { attribute, originalPosition, subjectSite } from "./allocation-sampler.mjs";
 import { CAPTURE_CONTRACT } from "./capture";
+import { confirmOnDisplay, openOnDisplay } from "./display";
 import { adapterFacts } from "./driver";
 import { LAUNCH_MODES, launchOptions, launchPlan } from "./launch";
 import { resolveSeat } from "./seat";
@@ -191,10 +192,26 @@ export interface PlayTrace {
     longFrames: readonly LongFrame[];
 }
 
+/**
+ * the monitor a page sample presented on: what the seat declared, what the compositor reports that monitor
+ * runs at, and what the page actually presented at. A window's wall-clock length is its frame count over
+ * the presented rate, so a reader can see from this which display a table came from.
+ */
+export interface DisplaySeat {
+    /** the monitor named by `SHALLOT_DISPLAY_SEAT`, on which the page was placed and verified */
+    declared: string;
+    /** the declared monitor's current mode, Hz, as the compositor reports it */
+    refreshRate: number;
+    /** the rate the page presented at over the traced windows, Hz, from its own presented-frame intervals */
+    presented: number;
+}
+
 /** a page sample: the steady windows and control of {@link AllocationSample}, and the adapter it ran on. */
 export interface PageSample extends AllocationSample {
     /** the positively identified real adapter the display seat resolved on */
     adapter: string;
+    /** the monitor the page was pinned to, and the rate it presented there */
+    display: DisplaySeat;
     /** the run frame's own site, where the control's literal is credited */
     loopSite: string;
     /** sites of a fourth window's allocations still live after a full collection */
@@ -430,12 +447,17 @@ export async function samplePage(
         };
         const runSite = (frame: CallFrame) => (isFrameLoop(frame) ? siteOf(frame) : undefined);
 
+        // The declaration is made true before the browser exists: the page opens on the monitor the seat
+        // names, so every span below is spent there, at that monitor's refresh rate, rather than on
+        // whichever monitor happened to hold focus.
+        const placement = await bounded("the display placement", openOnDisplay(declared));
+
         const { chromium } = await import("playwright");
         const options = launchOptions(plan);
         const tiers = `--js-flags=${TIER_FLAGS.join(" ")}`;
         browser = await chromium.launch({
             ...options,
-            args: [...options.args, tiers],
+            args: [...options.args, ...placement.args, tiers],
             timeout: remaining(),
         });
         const page = await bounded(
@@ -458,6 +480,8 @@ export async function samplePage(
             display: { source: declared, browser: { launch: plan, adapter: facts } },
         });
         if (!seat.ok) throw new MissingPremise(seat.reason);
+        // A placement rule is a request; this is the evidence that the page took it.
+        const pinned = await bounded("the display placement", confirmOnDisplay(placement));
 
         const frameCount = () =>
             bounded(
@@ -639,6 +663,10 @@ export async function samplePage(
         await bounded("the trace", traced);
         cdp.off("Tracing.dataCollected", onTrace);
         const trace = readTrace(events);
+        // The person uses this desktop while the row runs. A window dragged away, or a workspace switched on
+        // the declared monitor, means the windows just measured were not all presented where the verdict
+        // says, so the run refuses rather than recording a seat it half held.
+        await pinned.stillThere("after the three steady windows");
         const survivors = await sampleSurvivors(frames);
 
         await debuggerEnable();
@@ -654,6 +682,11 @@ export async function samplePage(
         return {
             runtime: `chromium ${browser.version()} ${LAUNCH_MODES[plan.seat]} ${tiers} at ${sampledRate.toFixed(1)} Hz sampled, ${controlRate.toFixed(1)} Hz under the control breakpoint`,
             adapter: classifyAdapter(facts).identity,
+            display: {
+                declared: pinned.monitor.name,
+                refreshRate: pinned.monitor.refreshRate,
+                presented: trace.period > 0 ? 1000 / trace.period : 0,
+            },
             loopSite,
             survivors,
             trace,

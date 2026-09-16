@@ -136,8 +136,13 @@ check(
             const derived = derivedFrames(window, declared.rows);
             return "frames" in derived ? derived.frames : window.frames;
         };
+        // The seat beside the adapter: which monitor the page was placed on and verified to have presented
+        // on, what that monitor runs at, and what the page actually presented at. A window's wall-clock
+        // length is its frames over that rate, so a reader can see which display a table below came from.
+        const seat = `display seat ${sample.display.declared} at ${sample.display.refreshRate.toFixed(2)} Hz, page presented at ${sample.display.presented.toFixed(1)} Hz`;
         const tables = [
             `${sample.runtime} on ${sample.adapter}`,
+            seat,
             ...sample.windows.map((window) =>
                 table(window.label, window.sites, windowFrames(window)),
             ),
@@ -152,7 +157,7 @@ check(
             traceReport(sample),
         ].join("\n");
         console.log(tables);
-        const metadata = { runtime: sample.runtime, hardware: sample.adapter };
+        const metadata = { runtime: `${sample.runtime}; ${seat}`, hardware: sample.adapter };
         // Every red condition is read, then reported together: a page that fails more than one of them
         // shows all of them in one verdict, so a mutation aimed at one is visible beside the rest.
         const failures: string[] = [];
