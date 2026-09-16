@@ -684,6 +684,65 @@ export async function samplePage(
     }
 }
 
+/**
+ * A measured site is `<function> <file>:<line>`; a declaration names the `<file>:<line>` half, the one a
+ * minified production build keeps.
+ */
+export const where = (site: string): string => site.slice(site.indexOf(" ") + 1);
+
+/**
+ * The declared-site conditions over a page sample's windows: nothing allocates outside the two
+ * declarations, no declared site is stale, and every sanctioned site reads its derived count exactly.
+ *
+ * Membership and staleness are the same for both classes. Only the count differs: a sanction is what the
+ * platform forces, so its samples must equal `count * window.frames` exactly — no rounding, no tolerance,
+ * because one extra allocation in one frame of one window is the defect the count exists to catch. A
+ * red-circle is real, unwanted allocation the person deferred to a named later gate, so it carries no
+ * count and holds at any count until that gate closes it.
+ *
+ * Returns one message per broken condition, empty when all hold.
+ */
+export function declaredSiteFailures(
+    windows: readonly AllocationWindow[],
+    sanctions: readonly { site: string; count: number }[],
+    redCircles: readonly { site: string }[],
+): string[] {
+    const declared = new Set([...sanctions, ...redCircles].map((row) => row.site));
+    const failures: string[] = [];
+    const undeclared = windows.flatMap((window) =>
+        window.sites
+            .filter((row) => !declared.has(where(row.site)))
+            .map((row) => `  ${window.label}: ${row.bytes} B at ${row.site}`),
+    );
+    if (undeclared.length > 0)
+        failures.push(
+            `warm page frames allocate outside the sanctions and red circles:\n${undeclared.join("\n")}`,
+        );
+    const stale: string[] = [];
+    const wrongCount: string[] = [];
+    for (const row of [
+        ...sanctions.map((row) => ({ ...row, noun: "sanction" })),
+        ...redCircles.map((row) => ({ ...row, count: undefined, noun: "red-circle" })),
+    ]) {
+        for (const window of windows) {
+            const seen = window.sites.find((site) => where(site.site) === row.site);
+            if (seen === undefined) {
+                stale.push(`  ${window.label}: ${row.noun} ${row.site} allocates nothing`);
+                continue;
+            }
+            if (row.count === undefined) continue;
+            if (seen.count !== row.count * window.frames)
+                wrongCount.push(
+                    `  ${window.label}: ${row.site} read ${seen.count} allocations over ${window.frames} frames against the declared ${row.count}×/f, which is ${row.count * window.frames}`,
+                );
+        }
+    }
+    if (stale.length > 0) failures.push(`stale declared rows:\n${stale.join("\n")}`);
+    if (wrongCount.length > 0)
+        failures.push(`sanctioned sites off their derived counts:\n${wrongCount.join("\n")}`);
+    return failures;
+}
+
 /** Empty when `sites` names exactly `named`; otherwise the unnamed sites by bytes and the named ones absent. */
 export function siteSetMismatch(
     label: string,

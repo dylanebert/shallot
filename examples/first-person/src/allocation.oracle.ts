@@ -1,12 +1,19 @@
 import { resolve } from "node:path";
 import {
     type AllocationSite,
+    declaredSiteFailures,
     type PageSample,
     samplePage,
+    where,
     windowBytes,
 } from "@dylanebert/shallot/harness/allocation";
 import { check } from "@dylanebert/shallot/harness/check";
-import { readSanctions, type SanctionRow } from "@dylanebert/shallot/harness/surface";
+import {
+    type RedCircleRow,
+    readRedCircles,
+    readSanctions,
+    type SanctionRow,
+} from "@dylanebert/shallot/harness/surface";
 
 function table(label: string, sites: readonly AllocationSite[], frames: number): string {
     const bytes = windowBytes({ sites });
@@ -18,12 +25,6 @@ function table(label: string, sites: readonly AllocationSite[], frames: number):
                 `  ${String(row.bytes).padStart(10)}  ${perFrame(row.bytes).padStart(8)}/f  ${(row.count / frames).toFixed(2).padStart(6)}×/f  ${row.site}`,
         ),
     ].join("\n");
-}
-
-// a measured site is `<function> <file>:<line>`; a sanction row names the `<file>:<line>` half, the one a
-// minified production build keeps
-function where(site: string): string {
-    return site.slice(site.indexOf(" ") + 1);
 }
 
 // the declared sanctions beside their observed counts, printed with every verdict so the person sees what
@@ -41,6 +42,26 @@ function sanctionTable(rows: readonly SanctionRow[], sample: PageSample): string
                 .map((value) => value.toFixed(2))
                 .join(" / ");
             return `  ${row.count}×/f declared, ${counts} observed  ${row.approved || "(unapproved)"}  ${row.site} — ${row.reason}`;
+        }),
+    ].join("\n");
+}
+
+// the red-circled sites beside what they actually allocate. A red-circle carries no count, so these
+// figures are telemetry, never a floor or a gate: they exist so the person can watch the debt trend to
+// zero at the gate its `owner` names.
+function redCircleTable(rows: readonly RedCircleRow[], sample: PageSample): string {
+    const observed = (site: string) =>
+        sample.windows.map(
+            (window) =>
+                (window.sites.find((row) => where(row.site) === site)?.count ?? 0) / window.frames,
+        );
+    return [
+        `red circles: ${rows.length} rows, ${rows.filter((row) => row.approved === "").length} unapproved`,
+        ...rows.map((row) => {
+            const counts = observed(row.site)
+                .map((value) => value.toFixed(2))
+                .join(" / ");
+            return `  no declared count, ${counts} observed  ${row.approved || "(unapproved)"}  ${row.site} — owner ${row.owner} — ${row.reason}`;
         }),
     ].join("\n");
 }
@@ -77,7 +98,7 @@ function traceReport(sample: PageSample): string {
 check(
     "first-person page frames allocate nothing on a real display adapter",
     {
-        claim: "a warm requestAnimationFrame frame of the production first-person web build, stepped by its own page loop in a headed browser on a real adapter, allocates no JavaScript heap outside the declared per-frame sanctions, each at its derived count, with nothing surviving a full collection and no major collection or promoted bytes, so no periodic scavenge follows play",
+        claim: "a warm requestAnimationFrame frame of the production first-person web build, stepped by its own page loop in a headed browser on a real adapter, allocates no JavaScript heap outside the declared per-frame sanctions and red circles, every sanction at its derived count exactly, with nothing surviving a full collection and no major collection or promoted bytes, so no periodic scavenge follows play",
         size: "integration",
         requires: ["display"],
         subject: ["examples/first-person"],
@@ -96,12 +117,14 @@ check(
             deadline: performance.now() + 16_000,
         });
         const declared = readSanctions(process.cwd());
+        const redCircled = readRedCircles(process.cwd());
         const tables = [
             `${sample.runtime} on ${sample.adapter}`,
             ...sample.windows.map((window) => table(window.label, window.sites, window.frames)),
             table("survivors after a full collection", sample.survivors, sample.windows[0].frames),
             table("control", sample.control, sample.controlFrames),
             sanctionTable(declared.rows, sample),
+            redCircleTable(redCircled.rows, sample),
             traceReport(sample),
         ].join("\n");
         console.log(tables);
@@ -125,7 +148,7 @@ check(
             failures.push(
                 `the control read ${controlAt.toFixed(1)}/f at ${sample.loopSite}, not above the A/A window's ${repeatAt.toFixed(1)}/f: either the sampler is not attributing the control literal to the frame loop, or the page allocates at least as much there on its own`,
             );
-        failures.push(...declared.errors);
+        failures.push(...declared.errors, ...redCircled.errors);
         // Each window's frame count is the harness's own per-frame sentinel, sampled on the same clock as
         // the sites below, so it is what the counts divide by and what proves the window's sampler was live.
         // A window steps at least the frames it was asked for; it overshoots, because the calls that start
@@ -140,40 +163,10 @@ check(
                 "the control span measured no frames: the harness's per-frame sentinel did not sample it",
             );
 
-        // The Locked decision's red conditions: no byte outside the declared sanctions, every sanctioned
-        // site at its derived count, no stale row, nothing alive after a full collection, and no major
-        // collection or promoted bytes in steady play.
-        const sanctioned = new Set(declared.rows.map((row) => row.site));
-        const unsanctioned = sample.windows.flatMap((window) =>
-            window.sites
-                .filter((row) => !sanctioned.has(where(row.site)))
-                .map((row) => `  ${window.label}: ${row.bytes} B at ${row.site}`),
-        );
-        if (unsanctioned.length > 0)
-            failures.push(
-                `warm first-person page frames allocate outside the sanctions:\n${unsanctioned.join("\n")}`,
-            );
-        const wrongCount: string[] = [];
-        const stale: string[] = [];
-        for (const row of declared.rows) {
-            for (const window of sample.windows) {
-                const seen = window.sites.find((site) => where(site.site) === row.site);
-                if (!seen) {
-                    stale.push(`  ${window.label}: ${row.site} allocates nothing`);
-                    continue;
-                }
-                // The count is derived per frame and the window's measured frame count is exact, so the
-                // samples must equal their product exactly: no rounding, no tolerance. One extra allocation
-                // in one frame of the window is a red, which is the whole point of deriving the count.
-                if (seen.count !== row.count * window.frames)
-                    wrongCount.push(
-                        `  ${window.label}: ${row.site} read ${seen.count} allocations over ${window.frames} frames against the declared ${row.count}×/f, which is ${row.count * window.frames}`,
-                    );
-            }
-        }
-        if (stale.length > 0) failures.push(`stale sanction rows:\n${stale.join("\n")}`);
-        if (wrongCount.length > 0)
-            failures.push(`sanctioned sites off their derived counts:\n${wrongCount.join("\n")}`);
+        // The Locked decision's red conditions over the declared sites: no byte outside the two
+        // declarations, no stale row in either, and every sanctioned site at its derived count. The rule
+        // lives in the harness beside the sampler, so it is read by unit rows that need no display seat.
+        failures.push(...declaredSiteFailures(sample.windows, declared.rows, redCircled.rows));
         if (sample.survivors.length > 0)
             failures.push(
                 `the steady window allocated objects that survive a full collection:\n${sample.survivors.map((row) => `  ${row.bytes} B at ${row.site}`).join("\n")}`,
