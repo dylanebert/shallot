@@ -44,12 +44,17 @@ export type Kernel = {
     /** The record capacity the resident body region is sized to — the single source of truth for the
      * TS body-store's column-view lengths (bodycolumns.ts). Zero before the first `reserveBodies`. */
     bodyCap(): number;
-    /** Register a world-local public body index and generation in the kernel record column. */
-    bodyRegister(id: number, generation: number): void;
-    /** Release a public body index from the kernel-owned lifecycle record. */
-    bodyDestroy(id: number): void;
-    bodyGeneration(id: number): number;
-    bodyAlive(id: number): number;
+    /** Set the world context used by kernel finalization's move publication. */
+    bodySetActiveWorld(world: number): void;
+    /** Allocate a body index/generation from the kernel-owned world-local pool. */
+    bodyCreate(world: number): number;
+    /** Release a body index into the kernel-owned world-local free list. */
+    bodyDestroy(world: number, id: number): void;
+    /** Clear a world-local body pool after the public world is destroyed. */
+    bodyResetWorld(world: number): void;
+    bodyGeneration(world: number, id: number): number;
+    bodyAlive(world: number, id: number): number;
+    bodyCount(world: number): number;
 
     // Persistent fat-AABB column (kernel/src/fataabb.rs) — one enlarged broad-phase AABB per shape,
     // held resident so the in-kernel recycle loop tests contact overlap without a marshal. A second

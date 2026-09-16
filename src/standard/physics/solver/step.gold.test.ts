@@ -26,10 +26,10 @@ check(
         world.step(1 / 60, 1);
         const moves = world.getBodyEvents();
         expect(moves.count).toBeGreaterThan(0);
-        const record = world.state.bodyStore.readMove(0);
-        expect(record.bodyId).toBe(body.id.index1 - 1);
-        expect(record.generation).toBe(body.id.generation);
-        expect(record.fellAsleep).toBe(false);
+        const event = moves.moveEvents[0];
+        expect(event.body.id.index1).toBe(body.id.index1);
+        expect(event.body.id.generation).toBe(body.id.generation);
+        expect(event.fellAsleep).toBe(false);
 
         const { corpus, digest } = loadScenarioCorpus();
         const ccd = corpus.scenarios.find((scenario) => scenario.name === "ccd-bullet");

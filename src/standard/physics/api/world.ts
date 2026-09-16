@@ -29,6 +29,7 @@ import {
     type QueryFilter,
     type WorldDef,
 } from "../common/types";
+import { readSimTransform } from "../kernel/bodycolumns";
 import type { Capsule } from "../shapes/geometry";
 import {
     createDistanceJoint,
@@ -60,7 +61,7 @@ import {
 import { step as stepWorld } from "../solver/step";
 import { createWeldJoint, defaultWeldJointDef, type WeldJointDef } from "../solver/weldJoint";
 import { createWheelJoint, defaultWheelJointDef, type WheelJointDef } from "../solver/wheelJoint";
-import { createBody, makeBodyId } from "../world/body";
+import { createBody, getBodySim, makeBodyId } from "../world/body";
 import type { Profile, StepClock } from "../world/clock";
 import { type DebugDraw, worldDraw } from "../world/draw";
 import {
@@ -244,10 +245,9 @@ export class World {
     }
 
     /**
-     * Body move events from the last {@link step} (b3World_GetBodyEvents) — every body that moved,
-     * for bulk-syncing game object transforms (cheaper than per-body {@link Body.getTransform}). The
-     * `moveEvents` array is a reused pool valid until the next step whose first `count` entries are this
-     * step's; it keeps its high-water length. Keep `userData` to route each.
+     * Body move events from the last {@link step} (b3World_GetBodyEvents), bridged from the kernel's
+     * retained finalization records. The wrapper pool is only public API ergonomics; identity, generation,
+     * sleep state and the final transform come from the retained kernel record/body columns.
      * @example const ev = world.getBodyEvents(); for (let i = 0; i < ev.count; i++) sync(ev.moveEvents[i].userData, ev.moveEvents[i].transform)
      */
     getBodyEvents(): BodyEvents {
@@ -263,13 +263,13 @@ export class World {
             });
         }
         for (let i = 0; i < count; ++i) {
-            const rec = state.bodyMoveEvents[i];
+            const rec = state.bodyStore.readMove(i);
+            const body = state.bodies[rec.bodyId];
             const ev = pool[i];
             ev.body.id.index1 = rec.bodyId + 1;
             ev.body.id.generation = rec.generation;
-            // Reference the internal pooled transform directly (valid until the next step).
-            ev.transform = rec.transform;
-            ev.userData = rec.userData;
+            readSimTransform(getBodySim(state, body), ev.transform);
+            ev.userData = body.userData;
             ev.fellAsleep = rec.fellAsleep;
         }
         const events = this._bodyEvents;

@@ -11,6 +11,7 @@ import { SetType } from "../common/constants";
 import { f32, maxInt, minf } from "../common/math";
 import { claimResident, reserveBodies } from "../kernel/bodycolumns";
 import { rebuildGeometry } from "../kernel/geocolumns";
+import { kernel } from "../kernel/kernel";
 import { PHASE_SLOT, STEP_SLOT } from "../world/clock";
 import { overlapSensors } from "../world/sensor";
 import type { WorldState } from "../world/world";
@@ -50,6 +51,7 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     // Claim the shared resident body region for this world — throws if another world took it over
     // (two live worlds can't be stepped interleaved over the singleton kernel memory).
     claimResident(world);
+    kernel().bodySetActiveWorld(world.worldId);
     const clock = world.clock;
     clock.begin(STEP_SLOT);
 

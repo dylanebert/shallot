@@ -10,10 +10,11 @@ import { type Contact, initializeContactRegisters } from "../collision/contact";
 import { createManifoldStore, type ManifoldStore } from "../collision/manifoldstore";
 import { CONTACT_RECYCLE_DISTANCE } from "../common/constants";
 import { allocId, createIdPool, type EntityId, type IdPool, idCount } from "../common/ids";
-import { f32, froundConfig, maxf, type Vec3, type WorldTransform } from "../common/math";
+import { f32, froundConfig, maxf, type Vec3 } from "../common/math";
 import type { Capacity, MixCallback, WorldDef } from "../common/types";
 import { type BodyStore, createBodyStore, releaseResident } from "../kernel/bodycolumns";
 import { createFatAabbStore, type FatAabbStore } from "../kernel/fataabbcolumns";
+import { kernel } from "../kernel/kernel";
 import { createShapeStore, type ShapeStore } from "../kernel/shapecolumns";
 import type { HullData } from "../shapes/hull";
 import type { Shape } from "../shapes/shape";
@@ -57,32 +58,8 @@ export type ContactHitEvent = {
     userMaterialIdB: bigint;
 };
 
-/**
- * A body move event (b3BodyMoveEvent): a body that moved this step. Written into a reused pool in
- * finalize (zero steady-state allocation); `transform`/`bodyId`/`generation` are corrected in place
- * by CCD and `fellAsleep` is patched by the sleep path. Only the first `bodyMoveCount` are valid.
- */
-export type BodyMoveEvent = {
-    bodyId: number;
-    generation: number;
-    transform: WorldTransform;
-    userData: unknown;
-    fellAsleep: boolean;
-};
-
 /** A joint event (b3JointEvent): an awake joint whose force/torque exceeded its threshold. */
 export type JointEvent = { jointId: EntityId; userData: unknown };
-
-/** Copy a world transform into a pooled move event's transform in place (no allocation). */
-export function setMoveTransform(move: BodyMoveEvent, t: WorldTransform): void {
-    move.transform.p.x = t.p.x;
-    move.transform.p.y = t.p.y;
-    move.transform.p.z = t.p.z;
-    move.transform.q.v.x = t.q.v.x;
-    move.transform.q.v.y = t.q.v.y;
-    move.transform.q.v.z = t.q.v.z;
-    move.transform.q.s = t.q.s;
-}
 
 /** A sensor end-touch event (b3SensorEndTouchEvent). */
 export type SensorEndTouchEvent = { sensorShapeId: EntityId; visitorShapeId: EntityId };
@@ -101,8 +78,7 @@ export type WorldState = {
     broadPhase: BroadPhase;
     constraintGraph: ConstraintGraph;
 
-    bodyIdPool: IdPool;
-    /** Public body records are the authoring/handle bridge; lifecycle mirrors are registered in wasm. */
+    /** Public body records are the authoring/handle bridge; lifecycle lives in wasm. */
     bodies: Body[];
 
     solverSetIdPool: IdPool;
@@ -151,9 +127,8 @@ export type WorldState = {
     // The sensor pass's tree-query context, made by the first pass that runs a query.
     sensorQuery: SensorQueryContext | null;
 
-    // Event buffers. End events are double-buffered so the user needn't flush every step. The body
-    // move buffer is a reused pool grown but never shrunk; bodyMoveCount is the valid prefix length.
-    bodyMoveEvents: BodyMoveEvent[];
+    // Event buffers. End events are double-buffered so the user needn't flush every step. Kernel
+    // finalization owns the retained body move records; bodyMoveCount is their valid prefix length.
     bodyMoveCount: number;
     sensorBeginEvents: SensorBeginTouchEvent[];
     contactBeginEvents: ContactTouchEvent[];
@@ -263,7 +238,6 @@ function makeWorldState(def: WorldDef, worldId: number, generation: number): Wor
     const world: WorldState = {
         broadPhase: createBroadPhase(capacity),
         constraintGraph: createGraph(capacity.staticBodyCount + capacity.dynamicBodyCount),
-        bodyIdPool: createIdPool(),
         bodies: [],
         solverSetIdPool: createIdPool(),
         solverSets: [],
@@ -285,7 +259,6 @@ function makeWorldState(def: WorldDef, worldId: number, generation: number): Wor
         shapeStore: createShapeStore(),
         sensors: [],
         sensorQuery: null,
-        bodyMoveEvents: [],
         bodyMoveCount: 0,
         sensorBeginEvents: [],
         contactBeginEvents: [],
@@ -405,6 +378,7 @@ export function destroyWorld(world: WorldState): void {
 
     // Wipe but preserve+bump generation so stale ids to this (possibly recycled) slot are detected.
     const generation = world.generation;
+    kernel().bodyResetWorld(world.worldId);
     world.inUse = false;
     world.worldId = 0;
     world.generation = (generation + 1) & 0xffff;
@@ -413,7 +387,7 @@ export function destroyWorld(world: WorldState): void {
 /** @returns entity counts for a world (b3World_GetCounters). */
 export function worldCounters(world: WorldState): Counters {
     return {
-        bodyCount: idCount(world.bodyIdPool),
+        bodyCount: kernel().bodyCount(world.worldId),
         shapeCount: idCount(world.shapeIdPool),
         contactCount: idCount(world.contactIdPool),
         jointCount: idCount(world.jointIdPool),

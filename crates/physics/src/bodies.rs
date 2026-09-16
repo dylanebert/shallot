@@ -57,11 +57,27 @@ const B_RECORD_NEXT: usize = 8;
 const B_MOVE: usize = 9;
 const N_BODY: usize = 10;
 
-const MOVE_STRIDE: usize = 3;
+pub const MOVE_STRIDE: usize = 3;
+const MAX_WORLDS: usize = 128;
 
 /// Public body-slot lifecycle state. These records live beside the solver columns in wasm memory;
-/// TypeScript retains only the authoring/handle bridge and never owns generation validity.
-static mut BODY_NEXT_INDEX: usize = 0;
+/// TypeScript retains only the authoring/handle bridge and never owns index, generation, validity or
+/// count decisions. The small world metadata arrays name the free-list heads and high-water marks;
+/// the records themselves remain in the kernel's linear memory.
+static mut BODY_NEXT_INDEX: [usize; MAX_WORLDS] = [0; MAX_WORLDS];
+static mut BODY_FREE_HEAD: [i32; MAX_WORLDS] = [-1; MAX_WORLDS];
+static mut BODY_LIVE_COUNT: [usize; MAX_WORLDS] = [0; MAX_WORLDS];
+static mut ACTIVE_WORLD: usize = 0;
+
+#[inline]
+fn record_index(world: usize, id: usize, cap: usize) -> usize {
+    world * cap + id
+}
+
+#[inline]
+fn record_slots(cap: usize) -> usize {
+    cap * MAX_WORLDS
+}
 
 /// Per-column byte offsets into linear memory, rewritten by every grow-triggering `reserveBodies`.
 /// TS reads this header (`bodyLayoutPtr`) to build its column views (4a.2 on).
@@ -201,6 +217,8 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
         let old_layout = BODY_LAYOUT;
 
         let records = cap + IDENT_RECORDS; // trailing null-lane records, one per thread
+        let lifecycle = record_slots(cap);
+        let old_lifecycle = record_slots(old_cap);
         let old_base = persistent_base(); // where the fat-AABB region currently anchors
 
         let base = align16(heap_base());
@@ -221,11 +239,11 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
         off += records * SIM2_STRIDE * 4;
         off = align16(off);
         BODY_LAYOUT[B_RECORD_GENERATION] = off as u32;
-        off += cap * 4;
+        off += lifecycle * 4;
         BODY_LAYOUT[B_RECORD_ALIVE] = off as u32;
-        off += cap * 4;
+        off += lifecycle * 4;
         BODY_LAYOUT[B_RECORD_NEXT] = off as u32;
-        off += cap * 4;
+        off += lifecycle * 4;
         off = align16(off);
         BODY_LAYOUT[B_MOVE] = off as u32;
         off += cap * MOVE_STRIDE * 4;
@@ -291,7 +309,7 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
                 core::ptr::copy(old_layout[c] as *const u8, BODY_LAYOUT[c] as *mut u8, bytes);
             }
             for c in B_RECORD_GENERATION..=B_RECORD_NEXT {
-                let bytes = old_cap * 4;
+                let bytes = old_lifecycle * 4;
                 core::ptr::copy(old_layout[c] as *const u8, BODY_LAYOUT[c] as *mut u8, bytes);
             }
             core::ptr::copy(
@@ -306,10 +324,13 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
             let generation = BODY_LAYOUT[B_RECORD_GENERATION] as *mut u32;
             let alive = BODY_LAYOUT[B_RECORD_ALIVE] as *mut u32;
             let next = BODY_LAYOUT[B_RECORD_NEXT] as *mut u32;
-            for i in old_cap..cap {
-                *generation.add(i) = 0;
-                *alive.add(i) = 0;
-                *next.add(i) = u32::MAX;
+            for world in 0..MAX_WORLDS {
+                for i in old_cap..cap {
+                    let i = record_index(world, i, cap);
+                    *generation.add(i) = 0;
+                    *alive.add(i) = 0;
+                    *next.add(i) = u32::MAX;
+                }
             }
             let moves = BODY_LAYOUT[B_MOVE] as *mut u32;
             for i in old_cap..cap {
@@ -340,62 +361,133 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
     }
 }
 
-/// Register a world-local public body slot. The TS world owns the local index pool while the kernel
-/// owns the resident generation/alive record used by the solver bridge.
-#[export_name = "bodyRegister"]
-pub extern "C" fn body_register(id: u32, generation: u32) {
+/// Select the world whose resident solver step is about to run. Finalization uses this context to
+/// stamp move records with the public body generation without a TypeScript per-body publication pass.
+#[export_name = "bodySetActiveWorld"]
+pub extern "C" fn body_set_active_world(world: u32) {
     unsafe {
-        let index = id as usize;
-        if index >= BODY_CAP {
+        ACTIVE_WORLD = (world as usize) % MAX_WORLDS;
+    }
+}
+
+/// Allocate a body index from the kernel-owned world-local LIFO free list and advance its generation.
+#[export_name = "bodyCreate"]
+pub extern "C" fn body_create(world: u32) -> u32 {
+    unsafe {
+        let world = (world as usize) % MAX_WORLDS;
+        let next = BODY_NEXT_INDEX[world];
+        if BODY_FREE_HEAD[world] < 0 && next == BODY_CAP {
             let mut cap = if BODY_CAP == 0 { 16 } else { BODY_CAP };
-            while cap <= index {
+            while cap <= next {
                 cap *= 2;
             }
             reserve_bodies(cap);
         }
-        if index >= BODY_NEXT_INDEX {
-            BODY_NEXT_INDEX = index + 1;
-        }
-        let alive = (BODY_LAYOUT[B_RECORD_ALIVE] as *mut u32).add(index);
-        *(BODY_LAYOUT[B_RECORD_GENERATION] as *mut u32).add(index) = generation;
-        *alive = 1;
+        let id = if BODY_FREE_HEAD[world] >= 0 {
+            let id = BODY_FREE_HEAD[world] as usize;
+            let slot = record_index(world, id, BODY_CAP);
+            BODY_FREE_HEAD[world] = *(BODY_LAYOUT[B_RECORD_NEXT] as *const u32).add(slot) as i32;
+            id
+        } else {
+            let id = BODY_NEXT_INDEX[world];
+            BODY_NEXT_INDEX[world] += 1;
+            id
+        };
+        let slot = record_index(world, id, BODY_CAP);
+        let generation = (BODY_LAYOUT[B_RECORD_GENERATION] as *mut u32).add(slot);
+        *generation = (*generation).wrapping_add(1);
+        *(BODY_LAYOUT[B_RECORD_ALIVE] as *mut u32).add(slot) = 1;
+        *(BODY_LAYOUT[B_RECORD_NEXT] as *mut u32).add(slot) = u32::MAX;
+        BODY_LIVE_COUNT[world] += 1;
+        id as u32
     }
 }
 
-/// Destroy a public body slot and clear its kernel-resident lifecycle record.
+/// Destroy a public body slot and return it to the kernel-owned world-local free list.
 #[export_name = "bodyDestroy"]
-pub extern "C" fn body_destroy(id: u32) {
+pub extern "C" fn body_destroy(world: u32, id: u32) {
     unsafe {
-        let i = id as usize;
-        if i >= BODY_NEXT_INDEX || BODY_CAP == 0 {
+        let world = (world as usize) % MAX_WORLDS;
+        let id = id as usize;
+        if id >= BODY_NEXT_INDEX[world] || id >= BODY_CAP {
             return;
         }
-        let alive = BODY_LAYOUT[B_RECORD_ALIVE] as *mut u32;
-        if *alive.add(i) == 0 {
+        let slot = record_index(world, id, BODY_CAP);
+        let alive = (BODY_LAYOUT[B_RECORD_ALIVE] as *mut u32).add(slot);
+        if *alive == 0 {
             return;
         }
-        *alive.add(i) = 0;
-        let next = BODY_LAYOUT[B_RECORD_NEXT] as *mut u32;
-        *next.add(i) = u32::MAX;
+        *alive = 0;
+        *(BODY_LAYOUT[B_RECORD_NEXT] as *mut u32).add(slot) = BODY_FREE_HEAD[world] as u32;
+        BODY_FREE_HEAD[world] = id as i32;
+        BODY_LIVE_COUNT[world] -= 1;
+    }
+}
+
+/// Clear all slots for a world being destroyed. The world generation already invalidates its public
+/// handles, so the next incarnation starts with a clean kernel pool.
+#[export_name = "bodyResetWorld"]
+pub extern "C" fn body_reset_world(world: u32) {
+    unsafe {
+        let world = (world as usize) % MAX_WORLDS;
+        if BODY_CAP != 0 {
+            let generation = BODY_LAYOUT[B_RECORD_GENERATION] as *mut u32;
+            let alive = BODY_LAYOUT[B_RECORD_ALIVE] as *mut u32;
+            let next = BODY_LAYOUT[B_RECORD_NEXT] as *mut u32;
+            for id in 0..BODY_NEXT_INDEX[world] {
+                let slot = record_index(world, id, BODY_CAP);
+                *generation.add(slot) = 0;
+                *alive.add(slot) = 0;
+                *next.add(slot) = u32::MAX;
+            }
+        }
+        BODY_NEXT_INDEX[world] = 0;
+        BODY_FREE_HEAD[world] = -1;
+        BODY_LIVE_COUNT[world] = 0;
     }
 }
 
 #[export_name = "bodyGeneration"]
-pub extern "C" fn body_generation(id: u32) -> u32 {
+pub extern "C" fn body_generation(world: u32, id: u32) -> u32 {
     unsafe {
-        if id as usize >= BODY_CAP {
+        let world = (world as usize) % MAX_WORLDS;
+        let id = id as usize;
+        if id >= BODY_CAP {
             return 0;
         }
-        *(BODY_LAYOUT[B_RECORD_GENERATION] as *const u32).add(id as usize)
+        *(BODY_LAYOUT[B_RECORD_GENERATION] as *const u32).add(record_index(world, id, BODY_CAP))
     }
 }
 
 #[export_name = "bodyAlive"]
-pub extern "C" fn body_alive(id: u32) -> u32 {
+pub extern "C" fn body_alive(world: u32, id: u32) -> u32 {
     unsafe {
-        if id as usize >= BODY_CAP {
+        let world = (world as usize) % MAX_WORLDS;
+        let id = id as usize;
+        if id >= BODY_CAP {
             return 0;
         }
-        *(BODY_LAYOUT[B_RECORD_ALIVE] as *const u32).add(id as usize)
+        *(BODY_LAYOUT[B_RECORD_ALIVE] as *const u32).add(record_index(world, id, BODY_CAP))
+    }
+}
+
+#[export_name = "bodyCount"]
+pub extern "C" fn body_count(world: u32) -> usize {
+    unsafe { BODY_LIVE_COUNT[(world as usize) % MAX_WORLDS] }
+}
+
+/// Read the active world's generation for kernel finalization's move publication.
+#[inline]
+pub fn active_generation(id: u32) -> u32 {
+    unsafe {
+        let id = id as usize;
+        if id >= BODY_CAP {
+            return 0;
+        }
+        *(BODY_LAYOUT[B_RECORD_GENERATION] as *const u32).add(record_index(
+            ACTIVE_WORLD,
+            id,
+            BODY_CAP,
+        ))
     }
 }

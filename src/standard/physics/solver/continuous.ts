@@ -37,6 +37,7 @@ import {
     xf,
 } from "../common/math";
 import { BodyType, ShapeType } from "../common/types";
+import { writeSimRotation0, writeSimTransform } from "../kernel/bodycolumns";
 import { type CompoundData, getCompoundChild, queryCompound } from "../shapes/compound";
 import type { Capsule, Sphere } from "../shapes/geometry";
 import { type HeightFieldData, queryHeightField } from "../shapes/heightfield";
@@ -53,7 +54,7 @@ import {
 } from "../shapes/shape";
 import { type Body, BodyFlags, type BodySim, getBodySim } from "../world/body";
 import { recordSensorHit } from "../world/sensor";
-import { setMoveTransform, type WorldState } from "../world/world";
+import type { WorldState } from "../world/world";
 
 /** Max continuous sensor hits recorded per fast body (B2_MAX_CONTINUOUS_SENSOR_HITS). */
 const MAX_CONTINUOUS_SENSOR_HITS = 8;
@@ -546,29 +547,24 @@ export function solveContinuous(world: WorldState, sim: BodySim): void {
 
         const transform: WorldTransform = { p: vec3.add(base, origin), q };
         const center = vec3.add(base, c);
-        sim.transform = transform;
+        writeSimTransform(sim, transform);
         sim.center = center;
         // Component copies, not references: finalize mutates transform.q/center in place each step,
         // and the sweep base (rotation0/center0) must not follow it.
-        sim.rotation0 = { v: { ...q.v }, s: q.s };
+        writeSimRotation0(sim, q);
         sim.center0 = { ...center };
-
-        // The move event was written at the pre-CCD pose in finalize; correct it with the impact pose.
-        const body = world.bodies[sim.bodyId];
-        if (body.bodyMoveIndex !== NULL_INDEX) {
-            setMoveTransform(world.bodyMoveEvents[body.bodyMoveIndex], transform);
-        }
 
         // Recompute AABBs at the interpolated transform and flag any that grew for enlargement.
         enlargeFastShapes(world, sim, fastBody, transform);
     } else {
         // No impact — advance to the solved pose (already in sim.transform/center) and flag AABBs.
         // Component copies for the same reason as the impact branch above.
-        sim.rotation0 = { v: { ...sim.transform.q.v }, s: sim.transform.q.s };
+        const transform = sim.transform;
+        writeSimRotation0(sim, transform.q);
         sim.center0 = { ...sim.center };
         // shape.aabb is still the tight end box (box2) from the loop above; C does NOT re-fat it here
         // (unlike the impact case), so pass recompute=false and test containment against that box.
-        enlargeFastShapes(world, sim, fastBody, sim.transform, false);
+        enlargeFastShapes(world, sim, fastBody, transform, false);
     }
 }
 

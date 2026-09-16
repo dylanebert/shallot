@@ -15,16 +15,16 @@ check(
         const index = first.id.index1 - 1;
         const firstGeneration = first.id.generation;
 
-        expect(kernel().bodyAlive(index)).toBe(1);
-        expect(kernel().bodyGeneration(index)).toBe(firstGeneration);
+        expect(kernel().bodyAlive(world.state.worldId, index)).toBe(1);
+        expect(kernel().bodyGeneration(world.state.worldId, index)).toBe(firstGeneration);
         first.destroy();
-        expect(kernel().bodyAlive(index)).toBe(0);
+        expect(kernel().bodyAlive(world.state.worldId, index)).toBe(0);
         expect(first.isValid()).toBe(false);
 
         const replacement = world.createBody({ type: BodyType.Dynamic });
         expect(replacement.id.index1 - 1).toBe(index);
         expect(replacement.id.generation).not.toBe(firstGeneration);
-        expect(kernel().bodyGeneration(index)).toBe(replacement.id.generation);
+        expect(kernel().bodyGeneration(world.state.worldId, index)).toBe(replacement.id.generation);
         expect(first.isValid()).toBe(false);
         expect(replacement.isValid()).toBe(true);
     },

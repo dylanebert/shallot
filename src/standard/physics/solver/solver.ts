@@ -33,7 +33,6 @@ import {
     S2_ROTATION0,
     SIM_STRIDE,
     SIM2_STRIDE,
-    writeMat3,
 } from "../kernel/columns";
 import { countJoints, marshalJoints, readbackJointImpulses } from "../kernel/jointcolumns";
 import { kernel, runPool, workers } from "../kernel/kernel";
@@ -43,7 +42,7 @@ import { BODY_TRANSIENT_FLAGS, BodyFlags, type BodyState, getBodySim } from "../
 import { CONSTRAINTS_SLOT, CURSOR_SLOT, SOLVE_PHASE_SLOT } from "../world/clock";
 import { splitIsland } from "../world/island";
 import { trySleepIsland } from "../world/solverset";
-import { setMoveTransform, type WorldState } from "../world/world";
+import type { WorldState } from "../world/world";
 import {
     computeLayout,
     readbackHitEvents,
@@ -192,17 +191,8 @@ function finalizeBodies(
     const speculativeScalar = SPECULATIVE_DISTANCE;
     const count = sims.length;
 
-    // Size the reused move-event pool to the awake body count (grow only, never shrunk) and mark the
-    // valid prefix. b3Array_Resize; the pool objects are reused across steps for zero steady-state alloc.
-    while (world.bodyMoveEvents.length < count) {
-        world.bodyMoveEvents.push({
-            bodyId: 0,
-            generation: 0,
-            transform: { p: { x: 0, y: 0, z: 0 }, q: { v: { x: 0, y: 0, z: 0 }, s: 1 } },
-            userData: null,
-            fellAsleep: false,
-        });
-    }
+    // Kernel finalization publishes one retained move record per awake body. Keep only its valid
+    // prefix count here; the public World bridge reads the wasm records after the step.
     world.bodyMoveCount = count;
 
     const store = world.bodyStore;
@@ -249,15 +239,8 @@ function finalizeBodies(
         const body = world.bodies[sim.bodyId];
         body.bodyMoveIndex = simIndex;
 
-        // Publish the move event (corrected in place by CCD if the body is fast; fellAsleep patched
-        // by the sleep pass). Only bodies that moved this step land here — the render bulk-sync path.
-        world.bodyStore.writeMove(simIndex, sim.bodyId, body.generation);
-        const move = world.bodyMoveEvents[simIndex];
-        move.bodyId = sim.bodyId;
-        move.generation = body.generation;
-        setMoveTransform(move, finTransform);
-        move.userData = body.userData;
-        move.fellAsleep = false;
+        // Kernel finalization already published this body's move identity. Keep the local index only
+        // so the TS sleep policy can mark the retained kernel record if the body falls asleep.
 
         body.flags &= ~BODY_TRANSIENT_FLAGS;
         body.flags |= sim.flags & (SPEED_CAPPED | TOI);
@@ -323,7 +306,15 @@ function finalizeBodies(
             mat3.mulOut(finRotation, finInvILocal, finInertiaTmp);
             mat3.transposeOut(finRotation, finRotationT);
             mat3.mulOut(finInertiaTmp, finRotationT, finInvIWorld);
-            writeMat3(simF, so + 19, finInvIWorld);
+            simF[so + 19] = finInvIWorld.cx.x;
+            simF[so + 20] = finInvIWorld.cx.y;
+            simF[so + 21] = finInvIWorld.cx.z;
+            simF[so + 22] = finInvIWorld.cy.x;
+            simF[so + 23] = finInvIWorld.cy.y;
+            simF[so + 24] = finInvIWorld.cy.z;
+            simF[so + 25] = finInvIWorld.cz.x;
+            simF[so + 26] = finInvIWorld.cz.y;
+            simF[so + 27] = finInvIWorld.cz.z;
         }
 
         // Any single body in an island can keep it awake; a sleepy body in a split-pending island is
