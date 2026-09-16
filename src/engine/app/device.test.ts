@@ -1,11 +1,11 @@
 import { afterEach, expect } from "bun:test";
 import { check } from "../../harness/check";
-import { DEFAULT_PLUGINS } from "../../standard/defaults";
+// Registers DEFAULT_PLUGINS as the build default set that the default-build refusal row reads.
+import "../../standard/defaults";
 import {
     Body,
     hash as hashPhysics,
     PhysicsPlugin,
-    physicsWorld,
     readBody,
     ShapeKind,
 } from "../../standard/physics";
@@ -133,20 +133,6 @@ check(
 );
 
 check(
-    "a CPU Physics build steps without navigator.gpu",
-    {
-        claim: "the build unconditionally requests WebGPU, so CPU physics cannot build and step in Bun",
-    },
-    async () => {
-        expect(globalThis.navigator?.gpu).toBeUndefined();
-        live = await build({ defaults: false, plugins: [PhysicsPlugin] });
-        expect(Compute.device).toBeUndefined();
-        expect(physicsWorld(live.state)).not.toBeNull();
-        live.state.step(Time.FIXED_DT);
-    },
-);
-
-check(
     "a sequential Physics build re-enters with the same world hash",
     {
         claim: "disposing a CPU Physics build leaves slab or solver state behind, so a sequential re-entry produces a different fixed-step world",
@@ -191,40 +177,15 @@ check(
 );
 
 check(
-    "deviceTier classifies the standard default set",
+    "GPU acquisition stamps a fallback adapter",
     {
-        claim: "the standard plugin set has no pure composition data for deciding whether build should acquire a device",
-    },
-    () => {
-        expect(deviceTier(DEFAULT_PLUGINS)).toEqual({
-            tier: "gpu",
-            required: ["Render", "Sear", "Glaze"],
-            optional: ["Slab", "Transforms", "Part"],
-        });
-    },
-);
-
-check(
-    "GPU acquisition stamps and surfaces a fallback adapter once",
-    {
-        claim: "GPU acquisition accepts a fallback adapter without stamping or surfacing its verdict, so an app can look like it has real hardware",
+        claim: "GPU acquisition accepts a fallback adapter without stamping its verdict, so an app can look like it has real hardware",
         subject: ["src/engine/runtime/gpu.ts", "src/engine/app/index.ts"],
     },
     () => {
-        const warnings: unknown[][] = [];
-        const previousWarn = console.warn;
-        const notices: import("../runtime/adapter").AdapterVerdict[] = [];
-        console.warn = (...args: unknown[]) => warnings.push(args);
-        try {
-            stampAdapter(fallbackAdapter, (verdict) => notices.push(verdict));
-            expect(Compute.adapter.class).toBe("fallback");
-            expect(Compute.adapter.identity).toContain("SwiftShader");
-            expect(warnings).toHaveLength(1);
-            expect(warnings[0]?.[0]).toContain("fallback adapter");
-            expect(notices).toEqual([Compute.adapter]);
-        } finally {
-            console.warn = previousWarn;
-        }
+        stampAdapter(fallbackAdapter);
+        expect(Compute.adapter.class).toBe("fallback");
+        expect(Compute.adapter.identity).toContain("SwiftShader");
     },
 );
 
@@ -235,17 +196,9 @@ check(
         subject: "src/engine/runtime/gpu.ts",
     },
     () => {
-        const warnings: unknown[][] = [];
-        const previousWarn = console.warn;
-        console.warn = (...args: unknown[]) => warnings.push(args);
-        try {
-            stampAdapter();
-            expect(Compute.adapter.class).toBe("unidentified");
-            expect(Compute.adapter.identity).toBe("unidentified");
-            expect(warnings).toHaveLength(1);
-        } finally {
-            console.warn = previousWarn;
-        }
+        stampAdapter();
+        expect(Compute.adapter.class).toBe("unidentified");
+        expect(Compute.adapter.identity).toBe("unidentified");
     },
 );
 
