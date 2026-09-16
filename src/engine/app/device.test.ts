@@ -39,7 +39,7 @@ check(
     "public build refuses overlapping in-flight and live Apps, then recovers sequentially",
     {
         claim: "overlapping public builds can mutate process-global registries beneath one another instead of refusing before lifecycle work",
-        subject: ["src/engine/app/index.ts", "src/engine/app/device.test.ts"],
+        subject: "src/engine/app/index.ts",
     },
     async () => {
         let release!: () => void;
@@ -76,7 +76,7 @@ check(
     "a live CPU Physics App refuses a second build without losing its stepped state",
     {
         claim: "a second public Physics build can reset the first App's slabs and world instead of refusing while the first remains live",
-        subject: ["src/engine/app/index.ts", "src/engine/app/device.test.ts"],
+        subject: "src/engine/app/index.ts",
     },
     async () => {
         const author = (state: State) => {
@@ -114,7 +114,7 @@ check(
     "a failed public build releases only its owned lease",
     {
         claim: "a plugin initialize failure can strand the public build lifecycle lease and refuse every later recovery build",
-        subject: ["src/engine/app/index.ts", "src/engine/app/device.test.ts"],
+        subject: "src/engine/app/index.ts",
     },
     async () => {
         const broken = {

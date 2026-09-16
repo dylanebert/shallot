@@ -1,5 +1,6 @@
 import { expect } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
 import { validateDeclaration } from "./declaration";
@@ -55,17 +56,19 @@ check(
         expect(() => validateDeclaration("here", { claim: "bad", subject: [] })).toThrow(
             "non-empty string `subject`",
         );
-        const tree = mkdtempSync(join(resolve(import.meta.dir, "../.."), ".surface-requirement-"));
-        const file = join(tree, "missing.test.ts");
-        writeFileSync(
-            file,
-            `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n` +
-                'check("missing", { claim: "missing display refuses", requires: ["display"] }, () => {});\n',
-        );
+        const tree = mkdtempSync(join(tmpdir(), "shallot-surface-requirement-"));
         try {
+            const file = join(tree, "missing.test.ts");
+            writeFileSync(
+                file,
+                `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n` +
+                    'check("missing", { claim: "missing display refuses", requires: ["display"] }, () => {});\n',
+            );
+            const environment = { ...process.env };
+            delete environment.KEX_S3_ROW;
             const proc = Bun.spawnSync(["bun", "test", file], {
                 cwd: resolve(import.meta.dir, "../.."),
-                env: { ...process.env, SHALLOT_UNIT_ONLY: "" },
+                env: { ...environment, SHALLOT_UNIT_ONLY: "" },
             });
             expect(proc.exitCode).not.toBe(0);
             expect(proc.stderr.toString() + proc.stdout.toString()).toContain(
@@ -106,15 +109,15 @@ check(
     },
     () => {
         const root = resolve(import.meta.dir, "../..");
-        const tree = mkdtempSync(join(root, ".surface-budget-"));
-        const file = join(tree, "overrun.test.ts");
-        writeFileSync(
-            file,
-            'import { check } from "@dylanebert/shallot/harness/check";\n' +
-                'check("overruns", { claim: "overruns its budget", budget: 20 }, async () => {\n' +
-                "    await Bun.sleep(2000);\n});\n",
-        );
+        const tree = mkdtempSync(join(tmpdir(), "shallot-surface-budget-"));
         try {
+            const file = join(tree, "overrun.test.ts");
+            writeFileSync(
+                file,
+                `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n` +
+                    'check("overruns", { claim: "overruns its budget", budget: 20 }, async () => {\n' +
+                    "    await Bun.sleep(2000);\n});\n",
+            );
             const environment = { ...process.env };
             delete environment.KEX_S3_ROW;
             const proc = Bun.spawnSync(["bun", "test", file], {
@@ -137,22 +140,22 @@ check(
     },
     () => {
         const root = resolve(import.meta.dir, "../..");
-        const tree = mkdtempSync(join(root, ".surface-row-selector-"));
-        const file = join(tree, "selector.test.ts");
-        const sideEffect = join(tree, "unit-reached");
-        const unitClaim = "unselected unit must not execute";
-        const targetClaim = "selected integration executes with a real verdict";
-        writeFileSync(
-            file,
-            `import { appendFileSync } from "node:fs";\n` +
-                `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n` +
-                `check("unit", { claim: ${JSON.stringify(unitClaim)} }, () => {\n` +
-                `    appendFileSync(${JSON.stringify(sideEffect)}, "reached");\n` +
-                `    throw new Error("the skipped unit body was reached");\n` +
-                `});\n` +
-                `check("target", { claim: ${JSON.stringify(targetClaim)}, size: "integration" }, () => ({ ok: true }));\n`,
-        );
+        const tree = mkdtempSync(join(tmpdir(), "shallot-surface-row-selector-"));
         try {
+            const file = join(tree, "selector.test.ts");
+            const sideEffect = join(tree, "unit-reached");
+            const unitClaim = "unselected unit must not execute";
+            const targetClaim = "selected integration executes with a real verdict";
+            writeFileSync(
+                file,
+                `import { appendFileSync } from "node:fs";\n` +
+                    `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n` +
+                    `check("unit", { claim: ${JSON.stringify(unitClaim)} }, () => {\n` +
+                    `    appendFileSync(${JSON.stringify(sideEffect)}, "reached");\n` +
+                    `    throw new Error("the skipped unit body was reached");\n` +
+                    `});\n` +
+                    `check("target", { claim: ${JSON.stringify(targetClaim)}, size: "integration" }, () => ({ ok: true }));\n`,
+            );
             const proc = Bun.spawnSync(
                 ["bun", "test", "--max-concurrency=1", "--pass-with-no-tests", file],
                 {
@@ -225,41 +228,41 @@ check(
         );
 
         const root = resolve(import.meta.dir, "../..");
-        const tree = mkdtempSync(join(root, ".surface-host-"));
-        const reached = join(tree, "body-reached");
-        // Two files, because a refused requirement throws at registration and would take the other row
-        // down with it. `plain` carries no premise, so its body is the non-vacuity witness on any host;
-        // `gated` carries one no host here supplies, so a mismatch must report `unrun` rather than that
-        // requirement's refusal.
-        const plainFile = join(tree, "plain.test.ts");
-        const gatedFile = join(tree, "gated.test.ts");
-        const head =
-            `import { appendFileSync } from "node:fs";\n` +
-            `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n`;
-        writeFileSync(
-            plainFile,
-            `${head}check("plain", { claim: "a row declared for the omarchy seat", size: "integration", host: "omarchy" }, () => {\n` +
-                `    appendFileSync(${JSON.stringify(reached)}, "reached");\n` +
-                `    throw new Error("the other host's body ran here");\n` +
-                `});\n`,
-        );
-        writeFileSync(
-            gatedFile,
-            `${head}check("gated", { claim: "an omarchy row whose requirement no host here supplies", size: "integration", host: "omarchy", requires: ["display"] }, () => {});\n`,
-        );
-        const run = (file: string, host: string) => {
-            const environment = { ...process.env };
-            delete environment.KEX_S3_ROW;
-            const proc = Bun.spawnSync(["bun", "test", "--pass-with-no-tests", file], {
-                cwd: root,
-                env: { ...environment, SHALLOT_HOST: host, SHALLOT_UNIT_ONLY: "" },
-            });
-            return {
-                exitCode: proc.exitCode,
-                output: proc.stdout.toString() + proc.stderr.toString(),
-            };
-        };
+        const tree = mkdtempSync(join(tmpdir(), "shallot-surface-host-"));
         try {
+            const reached = join(tree, "body-reached");
+            // Two files, because a refused requirement throws at registration and would take the other row
+            // down with it. `plain` carries no premise, so its body is the non-vacuity witness on any host;
+            // `gated` carries one no host here supplies, so a mismatch must report `unrun` rather than that
+            // requirement's refusal.
+            const plainFile = join(tree, "plain.test.ts");
+            const gatedFile = join(tree, "gated.test.ts");
+            const head =
+                `import { appendFileSync } from "node:fs";\n` +
+                `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n`;
+            writeFileSync(
+                plainFile,
+                `${head}check("plain", { claim: "a row declared for the omarchy seat", size: "integration", host: "omarchy" }, () => {\n` +
+                    `    appendFileSync(${JSON.stringify(reached)}, "reached");\n` +
+                    `    throw new Error("the other host's body ran here");\n` +
+                    `});\n`,
+            );
+            writeFileSync(
+                gatedFile,
+                `${head}check("gated", { claim: "an omarchy row whose requirement no host here supplies", size: "integration", host: "omarchy", requires: ["display"] }, () => {});\n`,
+            );
+            const run = (file: string, host: string) => {
+                const environment = { ...process.env };
+                delete environment.KEX_S3_ROW;
+                const proc = Bun.spawnSync(["bun", "test", "--pass-with-no-tests", file], {
+                    cwd: root,
+                    env: { ...environment, SHALLOT_HOST: host, SHALLOT_UNIT_ONLY: "" },
+                });
+                return {
+                    exitCode: proc.exitCode,
+                    output: proc.stdout.toString() + proc.stderr.toString(),
+                };
+            };
             // Skipped and reported: the verdict names the declared host, the run stays green, and the
             // body never executes.
             const elsewhere = run(plainFile, "mac");
@@ -297,29 +300,29 @@ check(
     },
     () => {
         const root = resolve(import.meta.dir, "../..");
-        const tree = mkdtempSync(join(root, ".surface-refusal-"));
-        const head =
-            `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n` +
-            `import { MissingPremise } from ${JSON.stringify(resolve(import.meta.dir, "verdict.ts"))};\n`;
-        const write = (name: string, claim: string, thrown: string) => {
-            const file = join(tree, `${name}.test.ts`);
-            writeFileSync(
-                file,
-                `${head}check(${JSON.stringify(name)}, { claim: ${JSON.stringify(claim)}, size: "integration" }, () => {\n` +
-                    `    throw ${thrown};\n});\n`,
-            );
-            const environment = { ...process.env };
-            delete environment.KEX_S3_ROW;
-            const proc = Bun.spawnSync(["bun", "test", file], {
-                cwd: root,
-                env: { ...environment, SHALLOT_UNIT_ONLY: "", SHALLOT_INTEGRATION_ONLY: "" },
-            });
-            return {
-                exitCode: proc.exitCode,
-                output: proc.stdout.toString() + proc.stderr.toString(),
-            };
-        };
+        const tree = mkdtempSync(join(tmpdir(), "shallot-surface-refusal-"));
         try {
+            const head =
+                `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n` +
+                `import { MissingPremise } from ${JSON.stringify(resolve(import.meta.dir, "verdict.ts"))};\n`;
+            const write = (name: string, claim: string, thrown: string) => {
+                const file = join(tree, `${name}.test.ts`);
+                writeFileSync(
+                    file,
+                    `${head}check(${JSON.stringify(name)}, { claim: ${JSON.stringify(claim)}, size: "integration" }, () => {\n` +
+                        `    throw ${thrown};\n});\n`,
+                );
+                const environment = { ...process.env };
+                delete environment.KEX_S3_ROW;
+                const proc = Bun.spawnSync(["bun", "test", file], {
+                    cwd: root,
+                    env: { ...environment, SHALLOT_UNIT_ONLY: "", SHALLOT_INTEGRATION_ONLY: "" },
+                });
+                return {
+                    exitCode: proc.exitCode,
+                    output: proc.stdout.toString() + proc.stderr.toString(),
+                };
+            };
             // A body that fails its claim is a red, and stays one.
             const claimed = write(
                 "claimed",

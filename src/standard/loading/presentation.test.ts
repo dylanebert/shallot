@@ -21,10 +21,7 @@ check(
     "responsive readiness before grace never mounts branded content",
     {
         claim: "responsive readiness before grace leaves the overlay ground-only and cancels the delayed brand mount",
-        subject: [
-            "src/standard/loading/presentation.ts",
-            "src/standard/loading/presentation.test.ts",
-        ],
+        subject: "src/standard/loading/presentation.ts",
     },
     () => {
         expect(TICK_RATE).toBe(35);
@@ -50,10 +47,7 @@ check(
     "reduced motion preserves responsive grace",
     {
         claim: "reduced-motion responsive readiness before grace never mounts branded content",
-        subject: [
-            "src/standard/loading/presentation.ts",
-            "src/standard/loading/presentation.test.ts",
-        ],
+        subject: "src/standard/loading/presentation.ts",
     },
     () => {
         let current = initialPresentation("responsive", true);
@@ -72,10 +66,7 @@ check(
     "responsive mounts one complete static lockup after grace",
     {
         claim: "responsive grace mounts one static brand and readiness starts its whole-overlay exit without animation completion",
-        subject: [
-            "src/standard/loading/presentation.ts",
-            "src/standard/loading/presentation.test.ts",
-        ],
+        subject: "src/standard/loading/presentation.ts",
     },
     () => {
         let current = initialPresentation("responsive");
@@ -97,10 +88,7 @@ check(
     "cinematic waits for readiness and only unspent lockup rest",
     {
         claim: "cinematic requires readiness plus finished animation and lockup rest before its single exit",
-        subject: [
-            "src/standard/loading/presentation.ts",
-            "src/standard/loading/presentation.test.ts",
-        ],
+        subject: "src/standard/loading/presentation.ts",
     },
     () => {
         const orders: ReadonlyArray<readonly ("ready" | "animation-finished" | "rest-finished")[]> =
@@ -135,10 +123,7 @@ check(
     "responsive and terminal mutations cannot leave live callbacks",
     {
         claim: "responsive never starts animation and completion, error, and cleanup transition paths cancel pending effects",
-        subject: [
-            "src/standard/loading/presentation.ts",
-            "src/standard/loading/presentation.test.ts",
-        ],
+        subject: "src/standard/loading/presentation.ts",
     },
     () => {
         let current = initialPresentation("responsive");

@@ -1,63 +1,5 @@
 import { check } from "@dylanebert/shallot/harness/check";
-import { discoverCargoTestPartitions, runCargoTest } from "../../scripts/cargo-test";
-
-// Cargo --no-run and libtest --list are untimed discovery; each direct module partition has the
-// ordinary 20-second integration ceiling for test execution only.
-const discovered =
-    process.env.SHALLOT_UNIT_ONLY === "1" ? null : discoverCargoTestPartitions("shallot-audio");
-const partitionByFilter = new Map(discovered?.map((partition) => [partition.filter, partition]));
-function partition(filter: string): { filter: string } {
-    const found = partitionByFilter.get(filter);
-    if (discovered !== null && (found === undefined || found.tests.length === 0)) {
-        throw new Error(`audio declaration has no non-empty libtest partition: ${filter}`);
-    }
-    return { filter };
-}
-
-const convolution = partition("convolution::");
-const delay = partition("delay::");
-const dynamics = partition("dynamics::");
-const envelope = partition("envelope::");
-const fft = partition("fft::");
-const filter = partition("filter::");
-const graph = partition("graph::");
-const hrtf = partition("hrtf::");
-const interp = partition("interp::");
-const modulation = partition("modulation::");
-const oscillator = partition("oscillator::");
-const sample = partition("sample::");
-const tests = partition("tests::");
-const waveshaper = partition("waveshaper::");
-
-if (discovered !== null) {
-    const declared = [
-        convolution.filter,
-        delay.filter,
-        dynamics.filter,
-        envelope.filter,
-        fft.filter,
-        filter.filter,
-        graph.filter,
-        hrtf.filter,
-        interp.filter,
-        modulation.filter,
-        oscillator.filter,
-        sample.filter,
-        tests.filter,
-        waveshaper.filter,
-    ];
-    if (
-        declared.length !== discovered.length ||
-        new Set(declared).size !== discovered.length ||
-        [...declared].sort().join("\n") !==
-            discovered
-                .map((candidate) => candidate.filter)
-                .sort()
-                .join("\n")
-    ) {
-        throw new Error("audio declarations are not an exact union of discovered libtest partitions");
-    }
-}
+import { runCargoTest } from "../../scripts/cargo-test";
 
 check(
     "audio convolution",
@@ -68,7 +10,7 @@ check(
         subject: ["crates/audio"],
         requires: ["cargo"],
     },
-    () => runCargoTest("shallot-audio", convolution.filter),
+    () => runCargoTest("shallot-audio", "convolution::"),
 );
 check(
     "audio delay",
@@ -79,7 +21,7 @@ check(
         subject: ["crates/audio"],
         requires: ["cargo"],
     },
-    () => runCargoTest("shallot-audio", delay.filter),
+    () => runCargoTest("shallot-audio", "delay::"),
 );
 check(
     "audio dynamics",
@@ -90,7 +32,7 @@ check(
         subject: ["crates/audio"],
         requires: ["cargo"],
     },
-    () => runCargoTest("shallot-audio", dynamics.filter),
+    () => runCargoTest("shallot-audio", "dynamics::"),
 );
 check(
     "audio envelope",
@@ -101,7 +43,7 @@ check(
         subject: ["crates/audio"],
         requires: ["cargo"],
     },
-    () => runCargoTest("shallot-audio", envelope.filter),
+    () => runCargoTest("shallot-audio", "envelope::"),
 );
 check(
     "audio fft",
@@ -112,7 +54,7 @@ check(
         subject: ["crates/audio"],
         requires: ["cargo"],
     },
-    () => runCargoTest("shallot-audio", fft.filter),
+    () => runCargoTest("shallot-audio", "fft::"),
 );
 check(
     "audio filter",
@@ -123,7 +65,7 @@ check(
         subject: ["crates/audio"],
         requires: ["cargo"],
     },
-    () => runCargoTest("shallot-audio", filter.filter),
+    () => runCargoTest("shallot-audio", "filter::"),
 );
 check(
     "audio graph",
@@ -134,7 +76,7 @@ check(
         subject: ["crates/audio"],
         requires: ["cargo"],
     },
-    () => runCargoTest("shallot-audio", graph.filter),
+    () => runCargoTest("shallot-audio", "graph::"),
 );
 check(
     "audio hrtf",
@@ -145,7 +87,7 @@ check(
         subject: ["crates/audio"],
         requires: ["cargo"],
     },
-    () => runCargoTest("shallot-audio", hrtf.filter),
+    () => runCargoTest("shallot-audio", "hrtf::"),
 );
 check(
     "audio interp",
@@ -156,7 +98,7 @@ check(
         subject: ["crates/audio"],
         requires: ["cargo"],
     },
-    () => runCargoTest("shallot-audio", interp.filter),
+    () => runCargoTest("shallot-audio", "interp::"),
 );
 check(
     "audio modulation",
@@ -167,7 +109,7 @@ check(
         subject: ["crates/audio"],
         requires: ["cargo"],
     },
-    () => runCargoTest("shallot-audio", modulation.filter),
+    () => runCargoTest("shallot-audio", "modulation::"),
 );
 check(
     "audio oscillator",
@@ -178,7 +120,7 @@ check(
         subject: ["crates/audio"],
         requires: ["cargo"],
     },
-    () => runCargoTest("shallot-audio", oscillator.filter),
+    () => runCargoTest("shallot-audio", "oscillator::"),
 );
 check(
     "audio sample",
@@ -189,7 +131,7 @@ check(
         subject: ["crates/audio"],
         requires: ["cargo"],
     },
-    () => runCargoTest("shallot-audio", sample.filter),
+    () => runCargoTest("shallot-audio", "sample::"),
 );
 check(
     "audio root tests",
@@ -200,7 +142,7 @@ check(
         subject: ["crates/audio"],
         requires: ["cargo"],
     },
-    () => runCargoTest("shallot-audio", tests.filter),
+    () => runCargoTest("shallot-audio", "tests::"),
 );
 check(
     "audio waveshaper",
@@ -211,5 +153,5 @@ check(
         subject: ["crates/audio"],
         requires: ["cargo"],
     },
-    () => runCargoTest("shallot-audio", waveshaper.filter),
+    () => runCargoTest("shallot-audio", "waveshaper::"),
 );

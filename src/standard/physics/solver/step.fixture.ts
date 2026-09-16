@@ -42,7 +42,7 @@ const hex = (value: number): string => {
 
 import { B_FLAGS, B_STATE, IDENT_RECORDS, N_BODY } from "../kernel/bodycolumns";
 import { STATE_LIVE, STATE_STRIDE } from "../kernel/columns";
-import { init, kernel, sharedBytes, shutdown, threads } from "../kernel/kernel";
+import { kernel } from "../kernel/kernel";
 import { BodyFlags, getBodySim, getBodyState } from "../world/body";
 import { hashWorldState } from "../world/hash";
 
@@ -1592,36 +1592,6 @@ const stepFactories: Record<string, () => (world: World, step: number) => void> 
         };
     },
 };
-
-// The hashes are the C reference's, generated serially — and cross-thread-count determinism is what the
-// ported task machinery guarantees (within a color no two constraints share a body, the overflow color
-// and contact creation stay serial in creation order, no reduction depends on worker identity). So the
-// same fixtures gate the multithreaded kernel unchanged: `SHALLOT_PHYSICS_THREADS=n bun run test:fixture:mt`,
-// or `SHALLOT_PHYSICS_THREADS=auto` to drive the default-on path — bare `init()`, which multithreads standalone.
-const RAW = process.env.SHALLOT_PHYSICS_THREADS;
-const AUTO = RAW === "auto";
-const THREADS = AUTO ? undefined : Number(RAW ?? 0);
-// AUTO and any explicit count ≥ 1 must land on the shared kernel here (bun/node have SAB unconditionally);
-// only `SHALLOT_PHYSICS_THREADS` absent/0 stays single-thread.
-const WANT_MT = AUTO || (THREADS ?? 0) >= 1;
-
-/**
- * Bring the kernel up at the thread count `SHALLOT_PHYSICS_THREADS` asks for.
- * A silent fall back to single-thread would make the MT run a vacuous re-run of the default one, so
- * this refuses when the shared kernel was asked for and did not load (`sharedBytes` is 0 on the ST path).
- */
-export async function startKernel(): Promise<void> {
-    await (AUTO ? init() : init({ threads: THREADS }));
-    if (WANT_MT && sharedBytes() === 0) {
-        throw new Error(`wanted the multithreaded kernel (${RAW}), got the single-thread one`);
-    }
-    console.log(`[gold] threads: ${threads()}${sharedBytes() > 0 ? " (shared kernel)" : ""}`);
-}
-
-/** Tear the kernel down. */
-export async function stopKernel(): Promise<void> {
-    await shutdown();
-}
 
 /**
  * Rebuild one scene through the public API, step it, and assert its world-state hash equals the C
