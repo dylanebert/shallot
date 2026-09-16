@@ -7,22 +7,7 @@
 // The strides and column order MIRROR the Rust ABI (kernel/src/body.rs, kernel/src/contact.rs). The
 // wasm layout is the contract; a mismatch here silently corrupts the solve, so keep them in lockstep.
 
-import type { Mat3 } from "../common/math";
 import { kernel } from "./kernel";
-
-/** Write a Mat3 into `col` at `o` in the kernel's row order (cx, cy, cz) — the sim column's inertia
- * layout (read_sim, kernel/src/body.rs). Shared by the body-store marshal and finalize's raw write. */
-export function writeMat3(col: Float32Array, o: number, m: Mat3): void {
-    col[o] = m.cx.x;
-    col[o + 1] = m.cx.y;
-    col[o + 2] = m.cx.z;
-    col[o + 3] = m.cy.x;
-    col[o + 4] = m.cy.y;
-    col[o + 5] = m.cy.z;
-    col[o + 6] = m.cz.x;
-    col[o + 7] = m.cz.y;
-    col[o + 8] = m.cz.z;
-}
 
 // Body columns (body.rs + bodies.rs). All resident in the persistent body region — the awake
 // `BodySim`/`BodyState` are offset-backed views over them (bodycolumns.ts), so no per-step marshal.
@@ -37,6 +22,8 @@ export const FIN_OUT_STRIDE = 2;
  * flags(1) headShapeId(1) = 12 (body.rs `SIM2_STRIDE`). Mirrors the Rust ABI. */
 export const SIM2_STRIDE = 12;
 export const SIM2_LIVE = 12;
+/** Retained body-move bridge: body index, generation, fellAsleep. */
+export const MOVE_STRIDE = 3;
 // sim2 field offsets.
 export const S2_ROTATION0 = 0; // v3 + s
 export const S2_CENTER0 = 4;

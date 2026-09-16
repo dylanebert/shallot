@@ -25,6 +25,7 @@ import type { Body, BodySim, BodyState } from "../world/body";
 import type { WorldState } from "../world/world";
 import {
     FIN_STRIDE,
+    MOVE_STRIDE,
     S2_BODY_ID,
     S2_CENTER0,
     S2_FLAGS,
@@ -37,7 +38,6 @@ import {
     SIM2_STRIDE,
     STATE_LIVE,
     STATE_STRIDE,
-    writeMat3,
 } from "./columns";
 import { kernel, sharedBytes } from "./kernel";
 
@@ -47,7 +47,8 @@ const B_SIM = 1;
 const B_FIN = 2;
 export const B_FLAGS = 4;
 const B_SIM2 = 5;
-export const N_BODY = 6;
+const B_MOVE = 9;
+export const N_BODY = 10;
 
 /** Null-lane identity records the region holds past `bodyCap` — one per thread, since the wide
  * gather/scatter writes the running worker's record (bodies.rs `IDENT_RECORDS`). */
@@ -92,6 +93,8 @@ export class BodyStore {
     sim2F = new Float32Array(0);
     /** The same sim2 bytes viewed as u32, for the integer `bodyId`/`flags` slots. */
     sim2U = new Uint32Array(0);
+    /** Retained kernel body-move records: body index, generation, fellAsleep. */
+    moveU = new Uint32Array(0);
     /** Memory size the views were derived at, on the shared (multithreaded) path; 0 single-threaded,
      * where detachment is the signal instead. See `stale`. */
     bytes = 0;
@@ -126,7 +129,8 @@ export class BodyStore {
             this.flagsU.byteOffset === layout[B_FLAGS] &&
             this.simF.byteOffset === layout[B_SIM] &&
             this.finF.byteOffset === layout[B_FIN] &&
-            this.sim2F.byteOffset === layout[B_SIM2]
+            this.sim2F.byteOffset === layout[B_SIM2] &&
+            this.moveU.byteOffset === layout[B_MOVE]
         )
             return;
         this.stateF = new Float32Array(buf, layout[B_STATE], cap * STATE_STRIDE);
@@ -135,6 +139,22 @@ export class BodyStore {
         this.finF = new Float32Array(buf, layout[B_FIN], cap * FIN_STRIDE);
         this.sim2F = new Float32Array(buf, layout[B_SIM2], cap * SIM2_STRIDE);
         this.sim2U = new Uint32Array(buf, layout[B_SIM2], cap * SIM2_STRIDE);
+        this.moveU = new Uint32Array(buf, layout[B_MOVE], cap * MOVE_STRIDE);
+    }
+
+    /** Mark a published body move as asleep without allocating an event object. */
+    markMoveAsleep(index: number): void {
+        this.moveU[index * MOVE_STRIDE + 2] = 1;
+    }
+
+    /** Read a retained body move record for direct bridge evidence. */
+    readMove(index: number): { bodyId: number; generation: number; fellAsleep: boolean } {
+        const o = index * MOVE_STRIDE;
+        return {
+            bodyId: this.moveU[o],
+            generation: this.moveU[o + 1],
+            fellAsleep: this.moveU[o + 2] !== 0,
+        };
     }
 
     /** Marshal a plain `BodyState` into the resident column at record `i` — the object→view write on a
@@ -188,8 +208,26 @@ export class BodyStore {
         sf[so + 7] = torque.x;
         sf[so + 8] = torque.y;
         sf[so + 9] = torque.z;
-        writeMat3(sf, so + 10, s.invInertiaLocal);
-        writeMat3(sf, so + 19, s.invInertiaWorld);
+        const invLocal = s.invInertiaLocal;
+        sf[so + 10] = invLocal.cx.x;
+        sf[so + 11] = invLocal.cx.y;
+        sf[so + 12] = invLocal.cx.z;
+        sf[so + 13] = invLocal.cy.x;
+        sf[so + 14] = invLocal.cy.y;
+        sf[so + 15] = invLocal.cy.z;
+        sf[so + 16] = invLocal.cz.x;
+        sf[so + 17] = invLocal.cz.y;
+        sf[so + 18] = invLocal.cz.z;
+        const invWorld = s.invInertiaWorld;
+        sf[so + 19] = invWorld.cx.x;
+        sf[so + 20] = invWorld.cx.y;
+        sf[so + 21] = invWorld.cx.z;
+        sf[so + 22] = invWorld.cy.x;
+        sf[so + 23] = invWorld.cy.y;
+        sf[so + 24] = invWorld.cy.z;
+        sf[so + 25] = invWorld.cz.x;
+        sf[so + 26] = invWorld.cz.y;
+        sf[so + 27] = invWorld.cz.z;
         const q = s.transform.q;
         sf[so + 28] = q.v.x;
         sf[so + 29] = q.v.y;
@@ -359,6 +397,29 @@ class ResidentBodySim implements BodySim {
         this._fo = i * FIN_STRIDE;
         this._s2o = i * SIM2_STRIDE;
     }
+    /** Write a transform directly into the resident pose columns. */
+    writeTransform(t: WorldTransform): void {
+        const sf = this._s.simF;
+        const ff = this._s.finF;
+        const so = this._so;
+        const fo = this._fo;
+        ff[fo + 9] = t.p.x;
+        ff[fo + 10] = t.p.y;
+        ff[fo + 11] = t.p.z;
+        sf[so + 28] = t.q.v.x;
+        sf[so + 29] = t.q.v.y;
+        sf[so + 30] = t.q.v.z;
+        sf[so + 31] = t.q.s;
+    }
+    /** Write rotation0 directly into the resident sim2 columns. */
+    writeRotation0(q: Quat): void {
+        const s2 = this._s.sim2F;
+        const o = this._s2o + S2_ROTATION0;
+        s2[o] = q.v.x;
+        s2[o + 1] = q.v.y;
+        s2[o + 2] = q.v.z;
+        s2[o + 3] = q.s;
+    }
     /** {@link transform} into `out`, without the getter's fresh objects. */
     readTransform(out: WorldTransform): WorldTransform {
         const sf = this._s.simF;
@@ -383,21 +444,6 @@ class ResidentBodySim implements BodySim {
         out.z = ff[fo + 5];
         return out;
     }
-    /** {@link invInertiaLocal} into `out`. */
-    readInvInertiaLocal(out: Mat3): Mat3 {
-        const sf = this._s.simF;
-        const o = this._so + 10;
-        out.cx.x = sf[o];
-        out.cx.y = sf[o + 1];
-        out.cx.z = sf[o + 2];
-        out.cy.x = sf[o + 3];
-        out.cy.y = sf[o + 4];
-        out.cy.z = sf[o + 5];
-        out.cz.x = sf[o + 6];
-        out.cz.y = sf[o + 7];
-        out.cz.z = sf[o + 8];
-        return out;
-    }
     get transform(): WorldTransform {
         const sf = this._s.simF;
         const ff = this._s.finF;
@@ -407,19 +453,6 @@ class ResidentBodySim implements BodySim {
             p: { x: ff[fo + 9], y: ff[fo + 10], z: ff[fo + 11] },
             q: { v: { x: sf[so + 28], y: sf[so + 29], z: sf[so + 30] }, s: sf[so + 31] },
         };
-    }
-    set transform(t: WorldTransform) {
-        const sf = this._s.simF;
-        const ff = this._s.finF;
-        const so = this._so;
-        const fo = this._fo;
-        ff[fo + 9] = t.p.x;
-        ff[fo + 10] = t.p.y;
-        ff[fo + 11] = t.p.z;
-        sf[so + 28] = t.q.v.x;
-        sf[so + 29] = t.q.v.y;
-        sf[so + 30] = t.q.v.z;
-        sf[so + 31] = t.q.s;
     }
     get center(): Vec3 {
         const ff = this._s.finF;
@@ -437,14 +470,6 @@ class ResidentBodySim implements BodySim {
         const s2 = this._s.sim2F;
         const o = this._s2o + S2_ROTATION0;
         return { v: { x: s2[o], y: s2[o + 1], z: s2[o + 2] }, s: s2[o + 3] };
-    }
-    set rotation0(q: Quat) {
-        const s2 = this._s.sim2F;
-        const o = this._s2o + S2_ROTATION0;
-        s2[o] = q.v.x;
-        s2[o + 1] = q.v.y;
-        s2[o + 2] = q.v.z;
-        s2[o + 3] = q.s;
     }
     get center0(): Vec3 {
         const s2 = this._s.sim2F;
@@ -500,17 +525,60 @@ class ResidentBodySim implements BodySim {
     set invMass(v: number) {
         this._s.simF[this._so] = v;
     }
+    private readonly _invInertiaLocal: Mat3 = {
+        cx: { x: 0, y: 0, z: 0 },
+        cy: { x: 0, y: 0, z: 0 },
+        cz: { x: 0, y: 0, z: 0 },
+    };
+    private readonly _invInertiaWorld: Mat3 = {
+        cx: { x: 0, y: 0, z: 0 },
+        cy: { x: 0, y: 0, z: 0 },
+        cz: { x: 0, y: 0, z: 0 },
+    };
+    private readMat3(out: Mat3, offset: number): Mat3 {
+        const f = this._s.simF;
+        out.cx.x = f[offset];
+        out.cx.y = f[offset + 1];
+        out.cx.z = f[offset + 2];
+        out.cy.x = f[offset + 3];
+        out.cy.y = f[offset + 4];
+        out.cy.z = f[offset + 5];
+        out.cz.x = f[offset + 6];
+        out.cz.y = f[offset + 7];
+        out.cz.z = f[offset + 8];
+        return out;
+    }
     get invInertiaLocal(): Mat3 {
-        return readMat3(this._s.simF, this._so + 10);
+        return this.readMat3(this._invInertiaLocal, this._so + 10);
     }
     set invInertiaLocal(m: Mat3) {
-        writeMat3(this._s.simF, this._so + 10, m);
+        const f = this._s.simF;
+        const o = this._so + 10;
+        f[o] = m.cx.x;
+        f[o + 1] = m.cx.y;
+        f[o + 2] = m.cx.z;
+        f[o + 3] = m.cy.x;
+        f[o + 4] = m.cy.y;
+        f[o + 5] = m.cy.z;
+        f[o + 6] = m.cz.x;
+        f[o + 7] = m.cz.y;
+        f[o + 8] = m.cz.z;
     }
     get invInertiaWorld(): Mat3 {
-        return readMat3(this._s.simF, this._so + 19);
+        return this.readMat3(this._invInertiaWorld, this._so + 19);
     }
     set invInertiaWorld(m: Mat3) {
-        writeMat3(this._s.simF, this._so + 19, m);
+        const f = this._s.simF;
+        const o = this._so + 19;
+        f[o] = m.cx.x;
+        f[o + 1] = m.cx.y;
+        f[o + 2] = m.cx.z;
+        f[o + 3] = m.cy.x;
+        f[o + 4] = m.cy.y;
+        f[o + 5] = m.cy.z;
+        f[o + 6] = m.cz.x;
+        f[o + 7] = m.cz.y;
+        f[o + 8] = m.cz.z;
     }
     get minExtent(): number {
         return this._s.sim2F[this._s2o + S2_MIN_EXTENT];
@@ -578,6 +646,33 @@ export function isResidentState(state: BodyState): boolean {
     return state instanceof ResidentBodyState;
 }
 
+/** Write a sim's world transform without replacing a resident column view. */
+export function writeSimTransform(sim: BodySim, t: WorldTransform): void {
+    if (sim instanceof ResidentBodySim) {
+        sim.writeTransform(t);
+        return;
+    }
+    sim.transform.p.x = t.p.x;
+    sim.transform.p.y = t.p.y;
+    sim.transform.p.z = t.p.z;
+    sim.transform.q.v.x = t.q.v.x;
+    sim.transform.q.v.y = t.q.v.y;
+    sim.transform.q.v.z = t.q.v.z;
+    sim.transform.q.s = t.q.s;
+}
+
+/** Write a sim's sweep-base rotation without replacing a resident column view. */
+export function writeSimRotation0(sim: BodySim, q: Quat): void {
+    if (sim instanceof ResidentBodySim) {
+        sim.writeRotation0(q);
+        return;
+    }
+    sim.rotation0.v.x = q.v.x;
+    sim.rotation0.v.y = q.v.y;
+    sim.rotation0.v.z = q.v.z;
+    sim.rotation0.s = q.s;
+}
+
 /** Copy a sim's world transform into `out`; a column view reads its columns raw instead of minting objects. */
 export function readSimTransform(sim: BodySim, out: WorldTransform): WorldTransform {
     if (sim instanceof ResidentBodySim) return sim.readTransform(out);
@@ -602,22 +697,6 @@ export function readSimLocalCenter(sim: BodySim, out: Vec3): Vec3 {
     return out;
 }
 
-/** Copy a sim's local inverse inertia into `out`. */
-export function readSimInvInertiaLocal(sim: BodySim, out: Mat3): Mat3 {
-    if (sim instanceof ResidentBodySim) return sim.readInvInertiaLocal(out);
-    const m = sim.invInertiaLocal;
-    out.cx.x = m.cx.x;
-    out.cx.y = m.cx.y;
-    out.cx.z = m.cx.z;
-    out.cy.x = m.cy.x;
-    out.cy.y = m.cy.y;
-    out.cy.z = m.cy.z;
-    out.cz.x = m.cz.x;
-    out.cz.y = m.cz.y;
-    out.cz.z = m.cz.z;
-    return out;
-}
-
 /** Copy a state's linear velocity into `out`. */
 export function readStateLinearVelocity(state: BodyState, out: Vec3): Vec3 {
     if (state instanceof ResidentBodyState) return state.readLinearVelocity(out);
@@ -626,15 +705,6 @@ export function readStateLinearVelocity(state: BodyState, out: Vec3): Vec3 {
     out.y = v.y;
     out.z = v.z;
     return out;
-}
-
-/** Read a Mat3 out of `col` at `o` in the kernel's row order (cx, cy, cz), matching read_sim (body.rs). */
-function readMat3(col: Float32Array, o: number): Mat3 {
-    return {
-        cx: { x: col[o], y: col[o + 1], z: col[o + 2] },
-        cy: { x: col[o + 3], y: col[o + 4], z: col[o + 5] },
-        cz: { x: col[o + 6], y: col[o + 7], z: col[o + 8] },
-    };
 }
 
 /**

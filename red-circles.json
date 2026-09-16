@@ -60,36 +60,6 @@
         "approved": "(user, 2026-09-15)"
     },
     {
-        "site": "src/standard/physics/kernel/bodycolumns.ts:606",
-        "reason": "boxed doubles reading a body's columns, on the page-only TypeScript kernel.",
-        "owner": "the heavy-lifting boundary, which replaces this code; § Goal and S6b defer the physics kernel and the slab upload strategy to it by name",
-        "approved": "(user, 2026-09-15)"
-    },
-    {
-        "site": "src/standard/physics/kernel/bodycolumns.ts:387",
-        "reason": "boxed doubles reading the inverse inertia lane, on the page-only TypeScript kernel.",
-        "owner": "the heavy-lifting boundary, which replaces this code; § Goal and S6b defer the physics kernel and the slab upload strategy to it by name",
-        "approved": "(user, 2026-09-15)"
-    },
-    {
-        "site": "src/standard/physics/kernel/bodycolumns.ts:411",
-        "reason": "boxed doubles writing the transform lane, on the page-only TypeScript kernel.",
-        "owner": "the heavy-lifting boundary, which replaces this code; § Goal and S6b defer the physics kernel and the slab upload strategy to it by name",
-        "approved": "(user, 2026-09-15)"
-    },
-    {
-        "site": "src/standard/physics/kernel/bodycolumns.ts:441",
-        "reason": "boxed doubles writing the rotation0 lane, on the page-only TypeScript kernel.",
-        "owner": "the heavy-lifting boundary, which replaces this code; § Goal and S6b defer the physics kernel and the slab upload strategy to it by name",
-        "approved": "(user, 2026-09-15)"
-    },
-    {
-        "site": "src/standard/physics/kernel/columns.ts:15",
-        "reason": "boxed doubles in the column view refresh, on the page-only TypeScript kernel.",
-        "owner": "the heavy-lifting boundary, which replaces this code; § Goal and S6b defer the physics kernel and the slab upload strategy to it by name",
-        "approved": "(user, 2026-09-15)"
-    },
-    {
         "site": "src/standard/physics/kernel/fataabbcolumns.ts:70",
         "reason": "boxed doubles writing a fat AABB, on the page-only TypeScript kernel.",
         "owner": "the heavy-lifting boundary, which replaces this code; § Goal and S6b defer the physics kernel and the slab upload strategy to it by name",

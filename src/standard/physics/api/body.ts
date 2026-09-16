@@ -1,5 +1,4 @@
 import type { ShapeProxy } from "../collision/distance";
-import { NULL_INDEX } from "../common/array";
 import { SetType } from "../common/constants";
 import type { EntityId } from "../common/ids";
 import {
@@ -20,6 +19,7 @@ import {
     type ShapeDef,
 } from "../common/types";
 import { readSimTransform, readStateLinearVelocity } from "../kernel/bodycolumns";
+import { kernel } from "../kernel/kernel";
 import type { CompoundData } from "../shapes/compound";
 import type { Capsule, MassData, Sphere } from "../shapes/geometry";
 import type { HeightFieldData } from "../shapes/heightfield";
@@ -97,11 +97,10 @@ export class Body {
         if (i < 0 || i >= this.world.bodies.length) {
             return false;
         }
-        const body = this.world.bodies[i];
-        if (body.setIndex === NULL_INDEX) {
+        if (kernel().bodyAlive(this.world.worldId, i) === 0) {
             return false;
         }
-        return body.generation === this.id.generation;
+        return kernel().bodyGeneration(this.world.worldId, i) === this.id.generation;
     }
 
     /** Destroy this body, its shapes, contacts, and joints. */

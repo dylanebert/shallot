@@ -53,14 +53,16 @@ import {
 import {
     isResidentSim,
     isResidentState,
-    readSimInvInertiaLocal,
     readSimLocalCenter,
     readSimTransform,
     reserveBodies,
     residentPush,
     residentRemove,
+    writeSimRotation0,
+    writeSimTransform,
 } from "../kernel/bodycolumns";
 import { writeFatAabb } from "../kernel/fataabbcolumns";
+import { kernel } from "../kernel/kernel";
 import type { Capsule, MassData } from "../shapes/geometry";
 import {
     collideMover,
@@ -145,9 +147,9 @@ export function identityBodyState(): BodyState {
 
 /** Body integration + collision payload (b3BodySim). Lives in every set's bodySims column. */
 export type BodySim = {
-    transform: WorldTransform;
+    readonly transform: WorldTransform;
     center: Pos;
-    rotation0: Quat;
+    readonly rotation0: Quat;
     center0: Pos;
     localCenter: Vec3;
     force: Vec3;
@@ -189,7 +191,6 @@ export type Body = {
     id: number;
     flags: number;
     type: BodyType;
-    generation: number;
     name: string;
 };
 
@@ -246,8 +247,11 @@ export function makeBodyId(world: WorldState, bodyId: number): EntityId {
     if (bodyId === NULL_INDEX) {
         return { index1: 0, world0: 0, generation: 0 };
     }
-    const body = world.bodies[bodyId];
-    return { index1: bodyId + 1, world0: world.worldId, generation: body.generation };
+    return {
+        index1: bodyId + 1,
+        world0: world.worldId,
+        generation: kernel().bodyGeneration(world.worldId, bodyId),
+    };
 }
 
 /** @returns the body's world transform (b3GetBodyTransformQuick). */
@@ -513,7 +517,7 @@ export function bodySetTransform(
     transform.q.v.z = rotation.v.z;
     transform.q.s = rotation.s;
     if (resident) {
-        sim.transform = transform;
+        writeSimTransform(sim, transform);
         readSimTransform(sim, transform);
     } else {
         vec3.copy(transform.p, sim.transform.p);
@@ -525,7 +529,7 @@ export function bodySetTransform(
     vec3.addOut(setCenter, transform.p, setCenter);
 
     mat3.fromQuatOut(transform.q, setRotation);
-    readSimInvInertiaLocal(sim, setInvILocal);
+    copyMat3(sim.invInertiaLocal, setInvILocal);
     mat3.mulOut(setRotation, setInvILocal, setInertiaTmp);
     mat3.transposeOut(setRotation, setRotationT);
     mat3.mulOut(setInertiaTmp, setRotationT, setInvIWorld);
@@ -533,12 +537,12 @@ export function bodySetTransform(
     if (resident) {
         sim.center = setCenter;
         sim.invInertiaWorld = setInvIWorld;
-        sim.rotation0 = transform.q;
+        writeSimRotation0(sim, transform.q);
         sim.center0 = setCenter;
     } else {
         vec3.copy(setCenter, sim.center);
         copyMat3(setInvIWorld, sim.invInertiaWorld);
-        copyQuat(transform.q, sim.rotation0);
+        writeSimRotation0(sim, transform.q);
         vec3.copy(setCenter, sim.center0);
     }
 
@@ -769,7 +773,6 @@ function emptyBody(): Body {
         id: NULL_INDEX,
         flags: 0,
         type: BodyType.Static,
-        generation: 0,
         name: "",
     };
 }
@@ -842,7 +845,9 @@ export function createBody(world: WorldState, def: BodyDef): number {
         world.solverSets[setId].setIndex = setId;
     }
 
-    const bodyId = allocId(world.bodyIdPool);
+    // The cold record remains the world-local authoring/handle bridge; the lifecycle fields are
+    // registered in the kernel record columns before any solver path can observe the body.
+    const bodyId = kernel().bodyCreate(world.worldId);
 
     let lockFlags = 0;
     lockFlags |= def.motionLocks.linearX ? BodyFlags.lockLinearX : 0;
@@ -857,7 +862,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
     bodySim.transform.p = { ...def.position };
     bodySim.transform.q = { v: { ...def.rotation.v }, s: def.rotation.s };
     bodySim.center = { ...def.position };
-    bodySim.rotation0 = { v: { ...bodySim.transform.q.v }, s: bodySim.transform.q.s };
+    writeSimRotation0(bodySim, bodySim.transform.q);
     bodySim.center0 = { ...bodySim.center };
     bodySim.minExtent = HUGE;
     bodySim.linearDamping = def.linearDamping;
@@ -898,7 +903,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
     // Awake: the sim view is pushed below, so its index is the current (pre-push) length; every other
     // set already pushed at line above, so its index is length - 1.
     body.localIndex = setId === SetType.Awake ? set.bodySims.length : set.bodySims.length - 1;
-    body.generation += 1;
+
     body.headShapeId = NULL_INDEX;
     body.shapeCount = 0;
     body.headChainId = NULL_INDEX;
@@ -1020,7 +1025,7 @@ export function destroyBody(world: WorldState, body: Body): void {
         }
     }
 
-    freeId(world.bodyIdPool, body.id);
+    kernel().bodyDestroy(world.worldId, body.id);
     body.setIndex = NULL_INDEX;
     body.localIndex = NULL_INDEX;
     body.id = NULL_INDEX;
