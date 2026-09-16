@@ -38,7 +38,7 @@ type DemoBag = {
     liftBases: number[];
     liftCount: number;
     panel: HTMLDivElement | null;
-    status: HTMLDivElement | null;
+    look: HTMLDivElement | null;
 };
 type DemoState = State & { [RECIPE_STATE]?: DemoBag };
 
@@ -50,14 +50,14 @@ function stateBag(state: State): DemoBag {
 // lookup allocate a context.
 function createBag(state: State): DemoBag {
     const owner = state as DemoState;
-    const bag: DemoBag = { liftEids: [], liftBases: [], liftCount: 0, panel: null, status: null };
+    const bag: DemoBag = { liftEids: [], liftBases: [], liftCount: 0, panel: null, look: null };
     owner[RECIPE_STATE] = bag;
     state.onDispose(() => {
         if (owner[RECIPE_STATE] !== bag) return;
         // the slot arrays keep their capacity; the count is what empties them
         bag.liftCount = 0;
         bag.panel = null;
-        bag.status = null;
+        bag.look = null;
         delete owner[RECIPE_STATE];
     });
     return bag;
@@ -117,32 +117,30 @@ function mountControls(state: State): void {
             row.append(cell);
         }
         panel.append(row);
+        if (control === "MOUSE") bag.look = row;
     }
-    const status = document.createElement("div");
-    status.dataset.pointerLockStatus = "";
-    status.style.cssText = "margin-top:4px;color:#ffffff";
-    panel.append(status);
     overlay.append(panel);
     bag.panel = panel;
-    bag.status = status;
 }
 
+// Mouse look states itself on the control it governs, never as a sentence: the MOUSE row is dim until the
+// pointer locks and brightens when it does, so the affordance and its outcome are one mark. A refusal reads
+// as a struck row, with the browser's reason kept on the title so the cause stays recoverable without copy.
 const controls: System = {
     name: "first-person-controls",
     group: "draw",
     update(state) {
         mountControls(state);
         const bag = stateBag(state);
-        if (!bag.panel || !bag.status) return;
+        if (!bag.panel || !bag.look) return;
         const status = pointerLockStatus(state);
-        bag.status.hidden = status === "locked";
-        if (status === "locked") return;
-        if (status === "unsupported" || status === "refused") {
-            const refusal = pointerLockRefusal(state);
-            bag.status.textContent = `Mouse look unavailable.${refusal ? ` ${refusal}` : ""}`;
-        } else {
-            bag.status.textContent = "Click the scene to enable mouse look.";
-        }
+        const look =
+            status === "locked" ? "locked" : status === "unlocked" ? "idle" : "unavailable";
+        if (bag.look.dataset.pointerLook === look) return;
+        bag.look.dataset.pointerLook = look;
+        bag.look.style.opacity = look === "locked" ? "1" : "0.45";
+        bag.look.style.textDecoration = look === "unavailable" ? "line-through" : "none";
+        bag.look.title = look === "unavailable" ? (pointerLockRefusal(state) ?? "") : "";
     },
 };
 
