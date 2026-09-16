@@ -34,12 +34,13 @@ export interface AllocationWindow {
     /** allocating sites in the bundled subject, most bytes first; builtin bytes credit their caller */
     sites: readonly AllocationSite[];
     /**
-     * frames this window actually stepped, measured on the same allocation clock as `sites`. The Node
-     * sampler steps its frames itself, so this is exact by construction; the page sampler reads it from
-     * its own per-frame sentinel, because a page window overshoots the frames the harness asked for.
-     * Per-frame figures and per-frame counts divide by this, never by {@link AllocationSample.frames}.
+     * the fewest frames this window can have stepped. The Node sampler steps its frames itself, so this is
+     * exact and equals {@link framesAtMost}; a page window is bracketed instead, because nothing in the
+     * page can be sampled once per frame reliably enough to count them (see {@link derivedFrames}).
      */
     frames: number;
+    /** the most frames this window can have stepped; equal to {@link frames} where that is exact */
+    framesAtMost: number;
 }
 
 export interface AllocationSample {
@@ -198,8 +199,8 @@ export interface PageSample extends AllocationSample {
     loopSite: string;
     /** sites of a fourth window's allocations still live after a full collection */
     survivors: readonly AllocationSite[];
-    /** frames the control span stepped, measured as each window's are */
-    controlFrames: number;
+    /** the control span, bracketed as the windows are */
+    controlSpan: AllocationWindow;
     /** the GC trace and long-frame correlation over the steady windows */
     trace: PlayTrace;
 }
@@ -212,33 +213,15 @@ type FrameCount = { __shallotFrames: number };
 const FRAME_LOOP = { source: resolve(import.meta.dir, "../engine/app/index.ts"), name: "frame" };
 
 /**
- * The harness's own per-frame sentinel, a second run frame beside the engine's.
- * `__shallotFrameMark` allocates exactly one escaping object per frame into a slot on `window`, so escape
- * analysis cannot remove it, and it allocates nothing else; the `tick` that schedules the next frame is
- * deliberately not a run frame, so whatever `requestAnimationFrame` allocates is never counted here. At the
- * one-byte sampling interval every allocation is a sample, so the sentinel's sample count over a span is
- * exactly the frames that span stepped, read on the same allocation clock as the sanctioned sites. Each
- * frame overwrites the slot, so every sentinel but the live one is collected, and the site is stripped from
- * every reported list.
- *
- * An injected document script has no url in a heap profile — a `sourceURL` trailer names it for stack traces
- * only — so the name and the empty url only *select* candidate frames. They do not identify one, because
- * empty url is a property the sentinel shares with anything else the profiler cannot attribute to a served
- * script. {@link sentinelFrames} turns that selection into an identity by requiring exactly one definition
- * site among the candidates, which is what the measured frame count rests on.
+ * The harness's frame counter, injected into every document. It is read over CDP to step and bracket
+ * windows; it is deliberately not an allocation, because an allocation cannot be counted reliably here —
+ * see {@link derivedFrames}.
  */
-const FRAME_TICK_NAME = "__shallotFrameMark";
-const FRAME_TICK_SITE = `${FRAME_TICK_NAME} (harness frame sentinel)`;
-
 const FRAME_TICK_SCRIPT = `(() => {
     const counter = window;
     counter.__shallotFrames = 0;
-    const ${FRAME_TICK_NAME} = () => {
-        counter.__shallotMark = { frame: counter.__shallotFrames };
-    };
     const tick = () => {
         counter.__shallotFrames++;
-        ${FRAME_TICK_NAME}();
         requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -445,10 +428,7 @@ export async function samplePage(
                 originalPosition(frame, built.map, built.base)?.source === app
             );
         };
-        const isFrameTick = (frame: CallFrame) =>
-            frame.url === "" && frame.functionName === FRAME_TICK_NAME;
-        const runSite = (frame: CallFrame) =>
-            isFrameTick(frame) ? FRAME_TICK_SITE : isFrameLoop(frame) ? siteOf(frame) : undefined;
+        const runSite = (frame: CallFrame) => (isFrameLoop(frame) ? siteOf(frame) : undefined);
 
         const { chromium } = await import("playwright");
         const options = launchOptions(plan);
@@ -539,24 +519,26 @@ export async function samplePage(
             );
         const removeLoopBreakpoint = (breakpointId: string) =>
             bounded("removeBreakpoint", cdp.send("Debugger.removeBreakpoint", { breakpointId }));
-        // The sentinel is the harness's instrument, not the subject's: it leaves every reported site list,
-        // and where it measures a span it leaves as that span's frame count. The count comes from the node
-        // scan rather than from the attributed site, because `attribute` keys by site name: two frames
-        // sharing the sentinel's name would collapse into one row there, and their sum would be silently
-        // read as the frame count. `sentinelFrames` is the only place that number is computed, so its
-        // identity assertion is a premise of every consumer of it, not a condition an oracle remembers.
-        const split = (profile: Parameters<typeof attribute>[0]) => ({
-            sites: attribute(profile, runSite, siteOf).filter(
-                (row) => row.site !== FRAME_TICK_SITE,
-            ),
-            frames: sentinelFrames(profile),
-        });
+        // A window is bracketed, not measured. The counter is read before the profiler starts and after
+        // it stops, and `advance` only returns once the page has stepped the frames asked for while the
+        // profiler was running, so the frames inside the profiled span are at least what was asked for and
+        // at most the counter's delta. What the span stepped exactly is derived from the declared rows by
+        // `derivedFrames`, because nothing in the page can be sampled once per frame reliably enough to
+        // count them: V8 attributes occasional tiering and deoptimisation allocations to whichever frame is
+        // running, so a per-frame allocation site over-reports, nondeterministically and by a margin larger
+        // than the bracket itself.
         const sample = async (count: number) => {
             await collect();
+            const before = await frameCount();
             await startSampling();
             await advance(count);
             const { profile } = await stopSampling();
-            return split(profile);
+            const after = await frameCount();
+            return {
+                sites: attribute(profile, runSite, siteOf),
+                frames: count,
+                framesAtMost: after - before,
+            };
         };
         // the survivor window: sampling without the collected-object classes, then a full collection
         // before the profile is read, so what remains is what the window allocated and still holds.
@@ -569,7 +551,7 @@ export async function samplePage(
             await advance(count);
             await collect();
             const { profile } = await stopSampling();
-            return split(profile).sites;
+            return attribute(profile, runSite, siteOf);
         };
         const timed = async <T>(work: () => Promise<T>): Promise<[T, number]> => {
             const at = performance.now();
@@ -683,72 +665,13 @@ export async function samplePage(
                 { label: "A/A repeat", ...repeat },
             ],
             control: control.sites,
-            controlFrames: control.frames,
+            controlSpan: { label: "control", ...control },
         };
     } finally {
         await browser?.close();
         server?.stop(true);
         rmSync(outDir, { recursive: true, force: true });
     }
-}
-
-/** one node of a sampling heap profile, as much of it as the sentinel scan reads */
-interface ProfileNode {
-    id: number;
-    callFrame: {
-        functionName: string;
-        url: string;
-        scriptId: string;
-        lineNumber: number;
-        columnNumber: number;
-    };
-    children: ProfileNode[];
-}
-
-/**
- * The frames one profiled span stepped, read from the harness's per-frame sentinel.
- *
- * The sentinel allocates exactly one escaping object per frame, so at the one-byte sampling interval its
- * sample count is the span's frame count. Everything else divides by this number, so identifying the wrong
- * frame as the sentinel is the one failure this mechanism must not have: a second frame folded into the
- * count would inflate the denominator, shrink every per-frame figure, and red the exact-count assertion at
- * the sanctioned sites rather than naming the real cause.
- *
- * So the identity is asserted, not assumed. Candidate frames are selected by the reserved name and the
- * empty url an injected document script has, then their definition sites — script, line and column, which
- * survive the profile — must be exactly one. Zero candidates and two or more each fail by their own name,
- * and the second names every definition site it found, so "the sampler saw nothing" and "something else is
- * being counted as frames" are never the same message.
- */
-export function sentinelFrames(profile: {
-    head: ProfileNode;
-    samples: readonly { nodeId: number }[];
-}): number {
-    const counts = new Map<number, number>();
-    for (const { nodeId } of profile.samples) counts.set(nodeId, (counts.get(nodeId) ?? 0) + 1);
-    const found = new Map<string, number>();
-    const visit = (node: ProfileNode) => {
-        const frame = node.callFrame;
-        if (frame.functionName === FRAME_TICK_NAME && frame.url === "") {
-            const at = `script ${frame.scriptId} at ${frame.lineNumber + 1}:${frame.columnNumber + 1}`;
-            found.set(at, (found.get(at) ?? 0) + (counts.get(node.id) ?? 0));
-        }
-        for (const child of node.children) visit(child);
-    };
-    visit(profile.head);
-    if (found.size === 0)
-        throw new Error(
-            `the harness frame sentinel did not sample this span: no frame named ${FRAME_TICK_NAME} allocated while the profiler was running, so the page was not stepping frames under it and nothing in this span was measured`,
-        );
-    if (found.size > 1)
-        throw new Error(
-            `the harness frame sentinel is not unique in this span: ${found.size} definition sites answer to ${FRAME_TICK_NAME}, so the measured frame count would be the sum of all of them:\n${[
-                ...found,
-            ]
-                .map(([at, samples]) => `  ${at}: ${samples} allocations`)
-                .join("\n")}`,
-        );
-    return [...found.values()][0];
 }
 
 /**
@@ -758,14 +681,80 @@ export function sentinelFrames(profile: {
 export const where = (site: string): string => site.slice(site.indexOf(" ") + 1);
 
 /**
+ * The frames one window stepped, derived from the sanctioned sites rather than measured.
+ *
+ * Each sanctioned site allocates a fixed number of objects per frame, so over a window of F frames a row
+ * declaring `count` must read exactly `count * F` allocations. Every row therefore divides to the same F,
+ * and F must fall inside the window's bracket. That agreement is what makes the reading exact: one extra
+ * allocation, in one frame, at one site either leaves a remainder or moves that row's quotient off the
+ * others, and either way it is named.
+ *
+ * This is derived rather than measured because nothing in the page can be sampled once per frame reliably
+ * enough to count them. A per-frame allocation site over-reports: V8 attributes occasional tiering and
+ * deoptimisation allocations to whichever JS frame is running, nondeterministically and by more than the
+ * bracket's own width, so such a site is an upper bound on frames and never a count. An inflated
+ * denominator would shrink every per-frame figure and red the count assertion at the sanctioned sites
+ * instead of naming its own cause, so it is not used.
+ *
+ * Returns the frames, or the reason no single count is consistent with the window.
+ */
+export function derivedFrames(
+    window: AllocationWindow,
+    sanctions: readonly { site: string; count: number }[],
+): { frames: number } | { reason: string } {
+    const quotients = new Map<number, string[]>();
+    const ragged: string[] = [];
+    for (const row of sanctions) {
+        const seen = window.sites.find((site) => where(site.site) === row.site);
+        if (seen === undefined) continue;
+        if (seen.count % row.count !== 0) {
+            // The rate range the bracket allows, so the reading says what the site actually allocates
+            // rather than only that the declared count does not divide it.
+            const low = (seen.count / window.framesAtMost).toFixed(2);
+            const high = (seen.count / window.frames).toFixed(2);
+            ragged.push(
+                `  ${row.site} read ${seen.count} allocations, which is not a whole number of frames at the declared ${row.count}×/f; over this window's ${window.frames} to ${window.framesAtMost} frames that is ${low} to ${high} per frame`,
+            );
+            continue;
+        }
+        const frames = seen.count / row.count;
+        quotients.set(frames, [
+            ...(quotients.get(frames) ?? []),
+            `  ${row.site}: ${seen.count} allocations at ${row.count}×/f is ${frames} frames`,
+        ]);
+    }
+    if (ragged.length > 0)
+        return {
+            reason: `${window.label}: a sanctioned site did not allocate a whole number of frames' worth:\n${ragged.join("\n")}`,
+        };
+    if (quotients.size === 0)
+        return { reason: `${window.label}: no sanctioned site allocated, so it measured nothing` };
+    if (quotients.size > 1)
+        return {
+            reason: `${window.label}: the sanctioned sites disagree on how many frames this window stepped, so at least one of them is off its declared count:\n${[
+                ...quotients.values(),
+            ]
+                .flat()
+                .join("\n")}`,
+        };
+    const frames = [...quotients.keys()][0];
+    if (frames < window.frames || frames > window.framesAtMost)
+        return {
+            reason: `${window.label}: the sanctioned sites agree on ${frames} frames, which is outside the ${window.frames} to ${window.framesAtMost} frames the page's own counter bracketed this window at, so they agree on something other than the frame count`,
+        };
+    return { frames };
+}
+
+/**
  * The declared-site conditions over a page sample's windows: nothing allocates outside the two
  * declarations, no declared site is stale, and every sanctioned site reads its derived count exactly.
  *
  * Membership and staleness are the same for both classes. Only the count differs: a sanction is what the
- * platform forces, so its samples must equal `count * window.frames` exactly — no rounding, no tolerance,
- * because one extra allocation in one frame of one window is the defect the count exists to catch. A
- * red-circle is real, unwanted allocation the person deferred to a named later gate, so it carries no
- * count and holds at any count until that gate closes it.
+ * platform forces, so its samples must equal `count * frames` exactly — no rounding, no tolerance, because
+ * one extra allocation in one frame of one window is the defect the count exists to catch. That is
+ * asserted by {@link derivedFrames}, which fails unless every row agrees on one frame count inside the
+ * window's bracket. A red-circle is real, unwanted allocation the person deferred to a named later gate,
+ * so it carries no count and holds at any count until that gate closes it.
  *
  * Returns one message per broken condition, empty when all hold.
  */
@@ -786,27 +775,18 @@ export function declaredSiteFailures(
             `warm page frames allocate outside the sanctions and red circles:\n${undeclared.join("\n")}`,
         );
     const stale: string[] = [];
-    const wrongCount: string[] = [];
     for (const row of [
-        ...sanctions.map((row) => ({ ...row, noun: "sanction" })),
-        ...redCircles.map((row) => ({ ...row, count: undefined, noun: "red-circle" })),
-    ]) {
-        for (const window of windows) {
-            const seen = window.sites.find((site) => where(site.site) === row.site);
-            if (seen === undefined) {
+        ...sanctions.map((row) => ({ site: row.site, noun: "sanction" })),
+        ...redCircles.map((row) => ({ site: row.site, noun: "red-circle" })),
+    ])
+        for (const window of windows)
+            if (!window.sites.some((site) => where(site.site) === row.site))
                 stale.push(`  ${window.label}: ${row.noun} ${row.site} allocates nothing`);
-                continue;
-            }
-            if (row.count === undefined) continue;
-            if (seen.count !== row.count * window.frames)
-                wrongCount.push(
-                    `  ${window.label}: ${row.site} read ${seen.count} allocations over ${window.frames} frames against the declared ${row.count}×/f, which is ${row.count * window.frames}`,
-                );
-        }
-    }
     if (stale.length > 0) failures.push(`stale declared rows:\n${stale.join("\n")}`);
-    if (wrongCount.length > 0)
-        failures.push(`sanctioned sites off their derived counts:\n${wrongCount.join("\n")}`);
+    for (const window of windows) {
+        const derived = derivedFrames(window, sanctions);
+        if ("reason" in derived) failures.push(derived.reason);
+    }
     return failures;
 }
 
@@ -831,7 +811,7 @@ export function siteTable(sample: AllocationSample, limit = 30): string {
     const perFrame = (bytes: number, frames: number) => (bytes / frames).toFixed(1);
     const totals = sample.windows.map(
         (window) =>
-            `${window.label}: ${windowBytes(window)} bytes (${perFrame(windowBytes(window), window.frames)}/f) over ${window.frames} measured frames at ${window.sites.length} sites`,
+            `${window.label}: ${windowBytes(window)} bytes (${perFrame(windowBytes(window), window.frames)}/f) over ${window.frames} frames at ${window.sites.length} sites`,
     );
     const heaviest = sample.windows.reduce((a, b) => (windowBytes(b) > windowBytes(a) ? b : a));
     const rows = heaviest.sites
@@ -844,7 +824,7 @@ export function siteTable(sample: AllocationSample, limit = 30): string {
         heaviest.sites.length > limit ? [`  … ${heaviest.sites.length - limit} more sites`] : [];
     return [
         ...totals,
-        `heaviest, ${heaviest.label}, over ${heaviest.frames} measured frames, ${sample.runtime}`,
+        `heaviest, ${heaviest.label}, over ${heaviest.frames} frames, ${sample.runtime}`,
         ...rows,
         ...more,
     ].join("\n");

@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 import { resolve } from "node:path";
-import { declaredSiteFailures, sentinelFrames } from "@dylanebert/shallot/harness/allocation";
+import { declaredSiteFailures, derivedFrames } from "@dylanebert/shallot/harness/allocation";
 import { check } from "@dylanebert/shallot/harness/check";
 
 const ENTRY = resolve(import.meta.dir, "../../examples/first-person/src/allocation.entry.ts");
@@ -49,9 +49,9 @@ check(
 );
 
 // The page sampler needs a display seat, so the declared-site rule is read here instead: it is the same
-// production function the oracle calls, driven over a constructed sample. A window is 120 measured frames,
-// the sanctioned site allocates its declared 2 per frame, and the red-circled site allocates at a rate
-// nothing declares.
+// production function the oracle calls, driven over constructed windows. A window is bracketed at 120 to
+// 133 frames by the page's own counter, the sanctioned site allocates its declared 2 per frame over 120 of
+// them, and the red-circled site allocates at a rate nothing declares.
 const SANCTION = { site: "src/a.ts:10", count: 2 };
 const RED_CIRCLE = { site: "src/b.ts:20" };
 const sanctionSite = (count: number) => ({ site: `openFrame ${SANCTION.site}`, bytes: 96, count });
@@ -61,7 +61,12 @@ const redCircleSite = (count: number) => ({
     count,
 });
 const windows = (...sites: { site: string; bytes: number; count: number }[][]) =>
-    sites.map((rows, index) => ({ label: `window ${index}`, sites: rows, frames: 120 }));
+    sites.map((rows, index) => ({
+        label: `window ${index}`,
+        sites: rows,
+        frames: 120,
+        framesAtMost: 133,
+    }));
 const STEADY = windows(
     [sanctionSite(240), redCircleSite(517)],
     [sanctionSite(240), redCircleSite(499)],
@@ -75,21 +80,26 @@ check(
     () => {
         // Non-vacuity: the rule reads green on the sample every mutation below starts from.
         expect(declaredSiteFailures(STEADY, [SANCTION], [RED_CIRCLE])).toEqual([]);
-        // One extra allocation, in one frame, of one window: 241 against the derived 2×120. This is the
-        // defect rounding the count per frame used to hide, so it is the witness that the equality is exact.
+        // One extra allocation, in one frame, of one window: 241 against 2 per frame leaves a remainder,
+        // so the window has no whole frame count and the site that broke it is named. This is the defect
+        // rounding the count per frame used to hide.
         const offByOne = windows(
             [sanctionSite(240), redCircleSite(517)],
             [sanctionSite(241), redCircleSite(499)],
         );
-        expect(declaredSiteFailures(offByOne, [SANCTION], [RED_CIRCLE])).toEqual([
-            "sanctioned sites off their derived counts:\n  window 1: src/a.ts:10 read 241 allocations over 120 frames against the declared 2×/f, which is 240",
-        ]);
-        // One below reds the same way, so the condition is equality and not a ceiling.
-        const offByOneUnder = windows(
-            [sanctionSite(239), redCircleSite(517)],
-            [sanctionSite(240), redCircleSite(499)],
-        );
-        expect(declaredSiteFailures(offByOneUnder, [SANCTION], [RED_CIRCLE])).toHaveLength(1);
+        const broken = declaredSiteFailures(offByOne, [SANCTION], [RED_CIRCLE]);
+        expect(broken).toHaveLength(1);
+        expect(broken[0]).toContain("not a whole number of frames at the declared 2×/f");
+        expect(broken[0]).toContain("1.81 to 2.01 per frame");
+        expect(broken[0]).toContain("src/a.ts:10 read 241 allocations");
+        // One below reds the same way, so the condition is exactness and not a ceiling.
+        expect(
+            declaredSiteFailures(
+                windows([sanctionSite(239), redCircleSite(517)]),
+                [SANCTION],
+                [RED_CIRCLE],
+            ),
+        ).toHaveLength(1);
         // A site neither declaration names reds as undeclared, whatever the declared sites do.
         const extra = windows([
             sanctionSite(240),
@@ -98,6 +108,50 @@ check(
         ]);
         expect(declaredSiteFailures(extra, [SANCTION], [RED_CIRCLE])[0]).toContain(
             "64 B at leak src/c.ts:30",
+        );
+    },
+);
+
+check(
+    "sanctioned sites must agree on one frame count inside the page's bracket",
+    {
+        claim: "the derived frame count is the one every sanctioned site agrees on and lies inside the window's bracket; disagreeing rows, a count outside the bracket, and a window where nothing sanctioned allocated each red by their own name",
+    },
+    () => {
+        const other = { site: "src/d.ts:40", count: 1 };
+        // Two rows, both whole, agreeing on 120 frames: the window has a frame count.
+        const agreeing = windows([
+            sanctionSite(240),
+            { site: "submit src/d.ts:40", bytes: 8, count: 120 },
+        ]);
+        expect(derivedFrames(agreeing[0], [SANCTION, other])).toEqual({ frames: 120 });
+        // The same window with one row one allocation high: both quotients are whole, so nothing is
+        // ragged, but they disagree and the rule names every row's own reading rather than picking one.
+        const disagreeing = windows([
+            sanctionSite(240),
+            { site: "submit src/d.ts:40", bytes: 8, count: 121 },
+        ]);
+        const split = derivedFrames(disagreeing[0], [SANCTION, other]);
+        expect(split).toHaveProperty("reason");
+        expect((split as { reason: string }).reason).toContain("disagree on how many frames");
+        expect((split as { reason: string }).reason).toContain(
+            "240 allocations at 2×/f is 120 frames",
+        );
+        expect((split as { reason: string }).reason).toContain(
+            "121 allocations at 1×/f is 121 frames",
+        );
+        // Rows can agree on a number that is not the frame count. The page's own counter bracketed this
+        // window at 120 to 133, so an agreed 60 is rejected: it would halve every per-frame figure.
+        const halved = windows([
+            sanctionSite(120),
+            { site: "submit src/d.ts:40", bytes: 8, count: 60 },
+        ]);
+        const outside = derivedFrames(halved[0], [SANCTION, other]);
+        expect((outside as { reason: string }).reason).toContain("outside the 120 to 133 frames");
+        // A window where no sanctioned site allocated has no frame count and is not silently zero.
+        const silent = windows([redCircleSite(517)]);
+        expect((derivedFrames(silent[0], [SANCTION]) as { reason: string }).reason).toContain(
+            "no sanctioned site allocated",
         );
     },
 );
@@ -122,77 +176,11 @@ check(
             "stale declared rows:\n  window 1: red-circle src/b.ts:20 allocates nothing",
         ]);
         const goneSanction = windows([sanctionSite(240), redCircleSite(517)], [redCircleSite(499)]);
-        expect(declaredSiteFailures(goneSanction, [SANCTION], [RED_CIRCLE])).toEqual([
+        const failures = declaredSiteFailures(goneSanction, [SANCTION], [RED_CIRCLE]);
+        expect(failures[0]).toBe(
             "stale declared rows:\n  window 1: sanction src/a.ts:10 allocates nothing",
-        ]);
-    },
-);
-
-// The sentinel's own identity, read here because everything the page sampler reports divides by the frame
-// count it produces. A profile node carries the definition site the scan keys on: script, line and column.
-const frame = (scriptId: string, functionName = "__shallotFrameMark", url = "") => ({
-    functionName,
-    url,
-    scriptId,
-    lineNumber: 3,
-    columnNumber: 30,
-});
-const node = (id: number, callFrame: ReturnType<typeof frame>, children: never[] = []) => ({
-    id,
-    callFrame,
-    children,
-});
-const samples = (...perNode: [number, number][]) =>
-    perNode.flatMap(([nodeId, count]) =>
-        Array.from({ length: count }, () => ({ nodeId, size: 24 })),
-    );
-const profileOf = (children: ReturnType<typeof node>[], rows: [number, number][]) => ({
-    head: { id: 1, callFrame: frame("root", "(root)", ""), children },
-    samples: samples(...rows),
-});
-
-check(
-    "the frame sentinel refuses a span where its identity is not exactly one frame",
-    {
-        claim: "the sentinel scan returns the sole matching frame's allocation count, refuses by name when no frame answers to it, and refuses by a different name naming every definition site when more than one does",
-    },
-    () => {
-        // Non-vacuity: one matching frame reads its own sample count, which is the span's frame count.
-        expect(sentinelFrames(profileOf([node(2, frame("4"))], [[2, 120]]))).toBe(120);
-        // Two definition sites answering to the sentinel's name: `attribute` keys by site name, so these
-        // would collapse into one row and their sum, 360, would be read as the frame count. Every per-frame
-        // figure would then be a third of the truth and the exact-count assertion would red at the
-        // sanctioned sites instead of here.
-        const impostor = profileOf(
-            [node(2, frame("4")), node(3, { ...frame("5"), lineNumber: 1 })],
-            [
-                [2, 120],
-                [3, 240],
-            ],
         );
-        expect(() => sentinelFrames(impostor)).toThrow("is not unique in this span");
-        // The message names what matched, so the reader is told what is being counted as frames.
-        expect(() => sentinelFrames(impostor)).toThrow("script 4 at 4:31: 120 allocations");
-        expect(() => sentinelFrames(impostor)).toThrow("script 5 at 2:31: 240 allocations");
-        // Nothing answering to the sentinel means the page was not stepping frames under the profiler.
-        // It is a different failure from the one above and says so.
-        const silent = profileOf([node(2, frame("4", "somethingElse"))], [[2, 99]]);
-        expect(() => sentinelFrames(silent)).toThrow("did not sample this span");
-        // A frame carrying the reserved name but a served script's url is not the sentinel either.
-        const served = profileOf(
-            [node(2, frame("4", "__shallotFrameMark", "http://localhost:1/app.js"))],
-            [[2, 99]],
-        );
-        expect(() => sentinelFrames(served)).toThrow("did not sample this span");
-        // Two nodes at one definition site are one identity, summed: the rule is on the definition site,
-        // not the node count, so a frame reached by two call paths is still the sentinel.
-        const twoPaths = profileOf(
-            [node(2, frame("4")), node(3, frame("4"))],
-            [
-                [2, 70],
-                [3, 50],
-            ],
-        );
-        expect(sentinelFrames(twoPaths)).toBe(120);
+        // and that window then has no frame count of its own, which is its own message
+        expect(failures[1]).toContain("no sanctioned site allocated");
     },
 );

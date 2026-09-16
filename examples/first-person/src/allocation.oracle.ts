@@ -1,7 +1,9 @@
 import { resolve } from "node:path";
 import {
     type AllocationSite,
+    type AllocationWindow,
     declaredSiteFailures,
+    derivedFrames,
     type PageSample,
     samplePage,
     where,
@@ -19,7 +21,7 @@ function table(label: string, sites: readonly AllocationSite[], frames: number):
     const bytes = windowBytes({ sites });
     const perFrame = (value: number) => (value / frames).toFixed(1);
     return [
-        `${label}: ${bytes} bytes (${perFrame(bytes)}/f) over ${frames} measured frames at ${sites.length} sites`,
+        `${label}: ${bytes} bytes (${perFrame(bytes)}/f) over ${frames} frames at ${sites.length} sites`,
         ...sites.map(
             (row) =>
                 `  ${String(row.bytes).padStart(10)}  ${perFrame(row.bytes).padStart(8)}/f  ${(row.count / frames).toFixed(2).padStart(6)}×/f  ${row.site}`,
@@ -29,11 +31,15 @@ function table(label: string, sites: readonly AllocationSite[], frames: number):
 
 // the declared sanctions beside their observed counts, printed with every verdict so the person sees what
 // is tolerated and at what count each time memory is reviewed
-function sanctionTable(rows: readonly SanctionRow[], sample: PageSample): string {
+function sanctionTable(
+    rows: readonly SanctionRow[],
+    sample: PageSample,
+    frames: (window: AllocationWindow) => number,
+): string {
     const observed = (site: string) =>
         sample.windows.map(
             (window) =>
-                (window.sites.find((row) => where(row.site) === site)?.count ?? 0) / window.frames,
+                (window.sites.find((row) => where(row.site) === site)?.count ?? 0) / frames(window),
         );
     return [
         `sanctions: ${rows.length} rows, ${rows.filter((row) => row.approved === "").length} unapproved`,
@@ -49,11 +55,15 @@ function sanctionTable(rows: readonly SanctionRow[], sample: PageSample): string
 // the red-circled sites beside what they actually allocate. A red-circle carries no count, so these
 // figures are telemetry, never a floor or a gate: they exist so the person can watch the debt trend to
 // zero at the gate its `owner` names.
-function redCircleTable(rows: readonly RedCircleRow[], sample: PageSample): string {
+function redCircleTable(
+    rows: readonly RedCircleRow[],
+    sample: PageSample,
+    frames: (window: AllocationWindow) => number,
+): string {
     const observed = (site: string) =>
         sample.windows.map(
             (window) =>
-                (window.sites.find((row) => where(row.site) === site)?.count ?? 0) / window.frames,
+                (window.sites.find((row) => where(row.site) === site)?.count ?? 0) / frames(window),
         );
     return [
         `red circles: ${rows.length} rows, ${rows.filter((row) => row.approved === "").length} unapproved`,
@@ -118,13 +128,27 @@ check(
         });
         const declared = readSanctions(process.cwd());
         const redCircled = readRedCircles(process.cwd());
+        // A window's frames are derived from the sanctioned sites agreeing on one count inside the page
+        // counter's bracket, so every per-frame figure below divides by what the window actually stepped.
+        // Where they do not agree the window has no frame count, the condition below says so by name, and
+        // the tables fall back to the bracket's floor so the reader still sees the raw sites.
+        const windowFrames = (window: AllocationWindow) => {
+            const derived = derivedFrames(window, declared.rows);
+            return "frames" in derived ? derived.frames : window.frames;
+        };
         const tables = [
             `${sample.runtime} on ${sample.adapter}`,
-            ...sample.windows.map((window) => table(window.label, window.sites, window.frames)),
-            table("survivors after a full collection", sample.survivors, sample.windows[0].frames),
-            table("control", sample.control, sample.controlFrames),
-            sanctionTable(declared.rows, sample),
-            redCircleTable(redCircled.rows, sample),
+            ...sample.windows.map((window) =>
+                table(window.label, window.sites, windowFrames(window)),
+            ),
+            table(
+                "survivors after a full collection",
+                sample.survivors,
+                windowFrames(sample.windows[0]),
+            ),
+            table("control", sample.control, windowFrames(sample.controlSpan)),
+            sanctionTable(declared.rows, sample, windowFrames),
+            redCircleTable(redCircled.rows, sample, windowFrames),
             traceReport(sample),
         ].join("\n");
         console.log(tables);
@@ -139,8 +163,8 @@ check(
         // at the loop's own site to drown the control is itself the red this row exists to report.
         const at = (sites: readonly AllocationSite[]) =>
             sites.find((row) => row.site === sample.loopSite)?.bytes ?? 0;
-        const controlAt = at(sample.control) / sample.controlFrames;
-        const repeatAt = at(sample.windows[2].sites) / sample.windows[2].frames;
+        const controlAt = at(sample.control) / windowFrames(sample.controlSpan);
+        const repeatAt = at(sample.windows[2].sites) / windowFrames(sample.windows[2]);
         console.log(
             `control at ${sample.loopSite}: ${controlAt.toFixed(1)}/f against A/A ${repeatAt.toFixed(1)}/f`,
         );
@@ -149,18 +173,6 @@ check(
                 `the control read ${controlAt.toFixed(1)}/f at ${sample.loopSite}, not above the A/A window's ${repeatAt.toFixed(1)}/f: either the sampler is not attributing the control literal to the frame loop, or the page allocates at least as much there on its own`,
             );
         failures.push(...declared.errors, ...redCircled.errors);
-        // Each window's frame count is the harness's own per-frame sentinel, sampled on the same clock as
-        // the sites below, so it is what the counts divide by. That the sentinel was live and unique is the
-        // sampler's premise, asserted where the count is computed, so what is left to read here is only
-        // whether a window came up short: a window steps at least the frames it was asked for, and
-        // overshoots, because the calls that start and stop the profiler and the frame-count poll all let
-        // frames elapse.
-        for (const window of sample.windows)
-            if (window.frames < sample.frames)
-                failures.push(
-                    `${window.label} measured ${window.frames} frames against the ${sample.frames} it asked for, so its window closed early and its per-frame figures are not what they claim`,
-                );
-
         // The Locked decision's red conditions over the declared sites: no byte outside the two
         // declarations, no stale row in either, and every sanctioned site at its derived count. The rule
         // lives in the harness beside the sampler, so it is read by unit rows that need no display seat.
