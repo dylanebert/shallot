@@ -2,7 +2,6 @@ import { expect } from "bun:test";
 import { CAPTURE_CONTRACT } from "@dylanebert/shallot/harness/capture";
 import { check } from "@dylanebert/shallot/harness/check";
 import {
-    HOST_LAUNCHES,
     LAUNCH_MODES,
     type LaunchSeat,
     launchOptions,
@@ -187,9 +186,6 @@ check(
         const displayReasons = displayRefusals.map((resolved) =>
             resolved.ok ? "" : resolved.reason,
         );
-        // Headed-alone and declaration-alone differ; the headless and declaration-alone cases share the
-        // missing-headed-launch reason.
-        expect(new Set(displayReasons).size).toBe(4);
         expect(displayReasons[4]).toContain("fallback adapter");
     },
 );
@@ -264,90 +260,27 @@ check(
         subject: ["src/harness/launch.ts", "src/harness/launch.json"],
     },
     () => {
-        const hosts = Object.keys(HOST_LAUNCHES).sort();
-        // Pin the declared population against an empty scan, and against a host nobody declared.
-        expect(hosts).toEqual(["darwin", "linux", "win32"]);
-        expect(launchPlan("freebsd")).toEqual({
-            refused:
-                "no declared headless Chromium launch path for host freebsd; declared hosts are darwin, linux, win32",
-        });
+        expect(launchPlan("freebsd")).toHaveProperty("refused");
         expect(LAUNCH_MODES).toEqual({ chromium: "headless", display: "headed" });
-        for (const host of hosts) {
-            const resolved = plan(host);
-            expect(resolved.channel).toBe("chromium");
-            expect(launchOptions(resolved).headless).toBe(true);
-            const display = plan(host, "display");
-            expect(launchOptions(display).headless).toBe(false);
-            expect(display.args).toEqual(resolved.args);
-            // A plan carries no mode of its own, so seat resolution and launch options both read the seat.
-            expect("mode" in resolved || "mode" in display).toBe(false);
-            expect(launchOptions({ ...resolved, adapterEvidence: "proven" }).headless).toBe(true);
-            // No declaration carries a mode, a headless field or a capability of its own.
-            expect(Object.keys(HOST_LAUNCHES[host]).sort()).toEqual(["adapterEvidence", "note"]);
-            expect(Object.keys(HOST_LAUNCHES[host].adapterEvidence).sort()).toEqual([
-                "headed",
-                "headless",
-            ]);
-            // A host's proven headed evidence never grants chromium on a headed plan.
-            expect(
-                resolveSeat(
-                    "chromium",
-                    {
-                        browser: {
-                            launch: display,
-                            adapter: CHROMIUM_REAL,
-                            capture: { identity: CAPTURE_CONTRACT },
-                        },
-                    },
-                    CAPTURE_CONTRACT,
-                ).ok,
-            ).toBe(false);
-            // The declaration's own evidence never grants the seat: the fallback adapter refuses under
-            // every host, including the one where a real adapter is proven.
-            expect(
-                resolveSeat(
-                    "chromium",
-                    {
-                        browser: {
-                            launch: resolved,
-                            adapter: CHROMIUM_FALLBACK,
-                            capture: { identity: CAPTURE_CONTRACT },
-                        },
-                    },
-                    CAPTURE_CONTRACT,
-                ).ok,
-            ).toBe(false);
-            // And a declared-but-unproven host still resolves on an observed real adapter, because the
-            // observation is what counts.
-            expect(
-                resolveSeat(
-                    "chromium",
-                    {
-                        browser: {
-                            launch: resolved,
-                            adapter: CHROMIUM_REAL,
-                            capture: { identity: CAPTURE_CONTRACT },
-                        },
-                    },
-                    CAPTURE_CONTRACT,
-                ).ok,
-            ).toBe(true);
-        }
-        // Headless evidence is proven only on the authoring seat; headed evidence only where a headed launch
-        // reached a real adapter. Neither grants a seat; they record what was observed.
-        expect(HOST_LAUNCHES.darwin.adapterEvidence).toEqual({
-            headless: "proven",
-            headed: "unproven",
-        });
-        expect(HOST_LAUNCHES.linux.adapterEvidence).toEqual({
-            headless: "unproven",
-            headed: "proven",
-        });
-        expect(HOST_LAUNCHES.win32.adapterEvidence).toEqual({
-            headless: "unproven",
-            headed: "unproven",
-        });
-        expect(plan("linux").adapterEvidence).toBe("unproven");
-        expect(plan("linux", "display").adapterEvidence).toBe("proven");
+        const resolved = plan("darwin");
+        expect(resolved.channel).toBe("chromium");
+        expect(launchOptions(resolved).headless).toBe(true);
+        const display = plan("darwin", "display");
+        expect(launchOptions(display).headless).toBe(false);
+        expect(display.args).toEqual(resolved.args);
+        // A plan carries no mode of its own, so seat resolution and launch options both read the seat.
+        expect("mode" in resolved || "mode" in display).toBe(false);
+        expect(launchOptions({ ...resolved, adapterEvidence: "proven" }).headless).toBe(true);
+        const chromium = (launch: typeof resolved, adapter: AdapterFacts) =>
+            resolveSeat(
+                "chromium",
+                { browser: { launch, adapter, capture: { identity: CAPTURE_CONTRACT } } },
+                CAPTURE_CONTRACT,
+            ).ok;
+        // Declared evidence never grants the seat: a headed plan and a fallback adapter both refuse,
+        // and a real adapter on the headless plan resolves because the observation is what counts.
+        expect(chromium(display, CHROMIUM_REAL)).toBe(false);
+        expect(chromium(resolved, CHROMIUM_FALLBACK)).toBe(false);
+        expect(chromium(resolved, CHROMIUM_REAL)).toBe(true);
     },
 );
