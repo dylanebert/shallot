@@ -218,7 +218,6 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
 
         let records = cap + IDENT_RECORDS; // trailing null-lane records, one per thread
         let lifecycle = record_slots(cap);
-        let old_lifecycle = record_slots(old_cap);
         let old_base = persistent_base(); // where the fat-AABB region currently anchors
 
         let base = align16(heap_base());
@@ -296,27 +295,34 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
         // `[base, new_end)`; copy each column top-down (highest offset first) so a write never lands on a
         // lower column's not-yet-copied old bytes. STATE is skipped — its bytes are already in place.
         if old_cap > 0 {
-            let strides = [
-                STATE_STRIDE,
-                SIM_STRIDE,
-                FIN_STRIDE,
-                FIN_OUT_STRIDE,
-                FLAGS_STRIDE,
-                SIM2_STRIDE,
-            ];
-            for c in (B_SIM..=B_SIM2).rev() {
-                let bytes = old_cap * strides[c] * 4;
-                core::ptr::copy(old_layout[c] as *const u8, BODY_LAYOUT[c] as *mut u8, bytes);
-            }
-            for c in B_RECORD_GENERATION..=B_RECORD_NEXT {
-                let bytes = old_lifecycle * 4;
-                core::ptr::copy(old_layout[c] as *const u8, BODY_LAYOUT[c] as *mut u8, bytes);
-            }
+            // Preserve the physical columns from high to low. The expanded destination can overlap
+            // the old body region, so this order keeps a higher old column alive until its copy is done.
             core::ptr::copy(
                 old_layout[B_MOVE] as *const u8,
                 BODY_LAYOUT[B_MOVE] as *mut u8,
                 old_cap * MOVE_STRIDE * 4,
             );
+
+            // Lifecycle records are world-major at the old and new strides. Move each row rather than
+            // copying the flat matrix: every world keeps its id-indexed generation/alive/free-list data.
+            for c in [B_RECORD_NEXT, B_RECORD_ALIVE, B_RECORD_GENERATION] {
+                for world in (0..MAX_WORLDS).rev() {
+                    let old_row = old_layout[c] as usize + world * old_cap * 4;
+                    let new_row = BODY_LAYOUT[c] as usize + world * cap * 4;
+                    core::ptr::copy(old_row as *const u8, new_row as *mut u8, old_cap * 4);
+                }
+            }
+
+            for (c, stride) in [
+                (B_SIM2, SIM2_STRIDE),
+                (B_FLAGS, FLAGS_STRIDE),
+                (B_FIN_OUT, FIN_OUT_STRIDE),
+                (B_FIN, FIN_STRIDE),
+                (B_SIM, SIM_STRIDE),
+            ] {
+                let bytes = old_cap * stride * 4;
+                core::ptr::copy(old_layout[c] as *const u8, BODY_LAYOUT[c] as *mut u8, bytes);
+            }
         }
 
         // Newly exposed public body slots start empty and point nowhere in the lifecycle record.

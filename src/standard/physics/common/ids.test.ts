@@ -7,26 +7,45 @@ import { kernel } from "../kernel/kernel";
 check(
     "public body handles preserve their packed index and generation record",
     {
-        claim: "the public body handle loses or reorders its index or generation across kernel create and destroy",
+        claim: "body lifecycle records lose a sibling world's validity, generation, LIFO reuse, or count when another world grows the kernel capacity",
     },
     () => {
-        const world = new World({ gravity: { x: 0, y: 0, z: 0 } });
-        const first = world.createBody({ type: BodyType.Dynamic });
-        const index = first.id.index1 - 1;
-        const firstGeneration = first.id.generation;
+        const growing = new World({ gravity: { x: 0, y: 0, z: 0 } });
+        const sibling = new World({ gravity: { x: 0, y: 0, z: 0 } });
+        const survivor = sibling.createBody({ type: BodyType.Dynamic });
+        const freedA = sibling.createBody({ type: BodyType.Dynamic });
+        const freedB = sibling.createBody({ type: BodyType.Dynamic });
+        const freedAGeneration = freedA.id.generation;
+        const freedBGeneration = freedB.id.generation;
+        freedA.destroy();
+        freedB.destroy();
+        expect(sibling.getCounters().bodyCount).toBe(1);
 
-        expect(kernel().bodyAlive(world.state.worldId, index)).toBe(1);
-        expect(kernel().bodyGeneration(world.state.worldId, index)).toBe(firstGeneration);
-        first.destroy();
-        expect(kernel().bodyAlive(world.state.worldId, index)).toBe(0);
-        expect(first.isValid()).toBe(false);
+        const initialCapacity = kernel().bodyCap();
+        const growingBodies = [];
+        while (kernel().bodyCap() === initialCapacity) {
+            growingBodies.push(growing.createBody({ type: BodyType.Dynamic }));
+        }
 
-        const replacement = world.createBody({ type: BodyType.Dynamic });
-        expect(replacement.id.index1 - 1).toBe(index);
-        expect(replacement.id.generation).not.toBe(firstGeneration);
-        expect(kernel().bodyGeneration(world.state.worldId, index)).toBe(replacement.id.generation);
-        expect(first.isValid()).toBe(false);
-        expect(replacement.isValid()).toBe(true);
+        expect(survivor.id.index1 - 1).toBe(0);
+        expect(survivor.isValid()).toBe(true);
+        expect(kernel().bodyGeneration(sibling.state.worldId, 0)).toBe(survivor.id.generation);
+        expect(sibling.getCounters().bodyCount).toBe(1);
+
+        const reusedB = sibling.createBody({ type: BodyType.Dynamic });
+        const reusedA = sibling.createBody({ type: BodyType.Dynamic });
+        expect(reusedB.id.index1 - 1).toBe(freedB.id.index1 - 1);
+        expect(reusedA.id.index1 - 1).toBe(freedA.id.index1 - 1);
+        expect(reusedB.id.generation).not.toBe(freedBGeneration);
+        expect(reusedA.id.generation).not.toBe(freedAGeneration);
+        expect(sibling.getCounters().bodyCount).toBe(3);
+
+        survivor.destroy();
+        expect(survivor.isValid()).toBe(false);
+        expect(sibling.getCounters().bodyCount).toBe(2);
+        for (const body of growingBodies) body.destroy();
+        growing.destroy();
+        sibling.destroy();
     },
 );
 
