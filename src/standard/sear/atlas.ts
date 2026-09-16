@@ -105,6 +105,11 @@ let _pointFrameCount = 0;
 // pos + nf + spotA/B/C vec4s per caster — (re)sized at warm, when the PointShadows config is final
 let _pointBuf = new ArrayBuffer(0);
 let _pointF32 = new Float32Array(_pointBuf);
+// whether the params buffer on the GPU already holds the cleared set. This replaces reading slot 0's
+// `light` lane back as a sentinel: `clearPointParams` writes that -1 only for slots a caster exists for,
+// so a scene with no casters at all never reached the sentinel and re-cleared and re-uploaded the whole
+// uniform on every frame of the default frame.
+let _pointCleared = false;
 
 /** the point-shadow atlas depth view a screen-space consumer (the fog volumetric march) binds to sample
  * the casters' shadows: the real atlas once a point/spot light casts, else the 1×1 fallback (whose empty
@@ -532,6 +537,7 @@ export function resetShadowAtlas(device: GPUDevice): void {
     });
     clearPointParams();
     device.queue.writeBuffer(_pointParams, 0, _pointBuf);
+    _pointCleared = true;
     Compute.buffers.set("pointShadows", _pointParams);
     Compute.typed.set(
         "pointShadows",
@@ -684,9 +690,10 @@ export function renderPointShadows(
     const encoder = Render.encoder;
     if (!encoder || !_shadowReady) return;
     if (_pointFrameCount === 0) {
-        if (_pointF32[3] !== -1) {
+        if (!_pointCleared) {
             clearPointParams();
             Compute.device.queue.writeBuffer(_pointParams!, 0, _pointBuf);
+            _pointCleared = true;
         }
         return;
     }
@@ -720,6 +727,7 @@ export function renderPointShadows(
         _pointF32[o + 18] = caster.fwd[2];
     }
     Compute.device.queue.writeBuffer(_pointParams!, 0, _pointBuf);
+    _pointCleared = false;
     // the per-(caster, face) tile rects (sparse, slot·6 + face) the receiver samples + the VS discards by
     const tileRects = pointTileRects();
     Compute.device.queue.writeBuffer(

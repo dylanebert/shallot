@@ -727,32 +727,35 @@ function bindCull(): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
     return _cullBound;
 }
 
+// The two readback reactions, held as module functions rather than minted at each map: both read only
+// module state, so neither needs a closure or a context per frame.
+function overflowMapped(): void {
+    const words = new Uint32Array(_overflowStaging!.getMappedRange());
+    const dropped = words[1];
+    if (dropped > 0) {
+        if (!_overflowWarned) {
+            _overflowWarned = true;
+            console.warn(
+                `shallot: light index pool overflow — ${dropped} cluster-light entries dropped this frame (pool ${LIGHT_POOL})`,
+            );
+        }
+    } else {
+        _overflowWarned = false;
+    }
+    _overflowStaging!.unmap();
+    _overflowInFlight = false;
+}
+
+function overflowUnmapped(): void {
+    _overflowInFlight = false;
+}
+
 function checkOverflow(): void {
     if (!_overflowStaging) return;
     // copy was submitted with last frame's encoder — safe to map now
     if (_overflowInFlight) return;
     _overflowInFlight = true;
-    _overflowStaging
-        .mapAsync(GPUMapMode.READ)
-        .then(() => {
-            const words = new Uint32Array(_overflowStaging!.getMappedRange());
-            const dropped = words[1];
-            if (dropped > 0) {
-                if (!_overflowWarned) {
-                    _overflowWarned = true;
-                    console.warn(
-                        `shallot: light index pool overflow — ${dropped} cluster-light entries dropped this frame (pool ${LIGHT_POOL})`,
-                    );
-                }
-            } else {
-                _overflowWarned = false;
-            }
-            _overflowStaging!.unmap();
-            _overflowInFlight = false;
-        })
-        .catch(() => {
-            _overflowInFlight = false;
-        });
+    _overflowStaging.mapAsync(GPUMapMode.READ).then(overflowMapped).catch(overflowUnmapped);
 }
 
 /**
