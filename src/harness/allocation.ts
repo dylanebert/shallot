@@ -710,8 +710,13 @@ export async function samplePage(
 /**
  * A measured site is `<function> <file>:<line>`; a declaration names the `<file>:<line>` half, the one a
  * minified production build keeps.
+ *
+ * The split is at the last space, not the first: V8 names an accessor frame `set transform`, so a getter or
+ * setter site carries a space inside its function name and splitting at the first one leaves half the name
+ * on the front of the path. A declaration for such a site then matches nothing, and reads as both undeclared
+ * and stale in the same verdict.
  */
-export const where = (site: string): string => site.slice(site.indexOf(" ") + 1);
+export const where = (site: string): string => site.slice(site.lastIndexOf(" ") + 1);
 
 /**
  * The frames one window stepped, derived from the sanctioned sites rather than measured.

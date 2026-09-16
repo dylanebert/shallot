@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 import { resolve } from "node:path";
-import { declaredSiteFailures, derivedFrames } from "@dylanebert/shallot/harness/allocation";
+import { declaredSiteFailures, derivedFrames, where } from "@dylanebert/shallot/harness/allocation";
 import { check } from "@dylanebert/shallot/harness/check";
 
 const ENTRY = resolve(import.meta.dir, "../../examples/first-person/src/allocation.entry.ts");
@@ -109,6 +109,27 @@ check(
         expect(declaredSiteFailures(extra, [SANCTION], [RED_CIRCLE])[0]).toContain(
             "64 B at leak src/c.ts:30",
         );
+    },
+);
+
+check(
+    "an accessor site matches the declaration that names its file and line",
+    {
+        claim: "a measured site whose function name is a V8 accessor, and so carries a space of its own, still resolves to the file and line a declaration names, rather than reading as undeclared and stale at once",
+    },
+    () => {
+        // V8 names a setter frame `set transform`, which is two words before the path. Splitting the site
+        // at its first space left `transform src/b.ts:20` as the "file", so the red-circle row for that
+        // site matched nothing: the verdict called it undeclared in the same breath as it called the row
+        // stale. The physics kernel's column setters are exactly this shape.
+        expect(where("set transform src/b.ts:20")).toBe("src/b.ts:20");
+        expect(where("get size src/b.ts:20")).toBe("src/b.ts:20");
+        expect(where("flush src/b.ts:20")).toBe("src/b.ts:20");
+        const accessor = windows([
+            sanctionSite(240),
+            { ...redCircleSite(517), site: "set transform src/b.ts:20" },
+        ]);
+        expect(declaredSiteFailures(accessor, [SANCTION], [RED_CIRCLE])).toEqual([]);
     },
 );
 

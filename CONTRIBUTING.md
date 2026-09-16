@@ -83,8 +83,13 @@ Chromium on the shared floor there classifies a positively identified real adapt
 monitor that declaration names and read back from the compositor for where it actually landed, because a
 window placed by focus presents at whichever monitor's rate happened to be in front of the person. A display
 run therefore takes that monitor while it lasts, along with the keyboard and cursor the page under test asks
-for. That is the seat, not a defect — presenting on a real display is the measurement. Launch mode is policy
-keyed by seat in `src/harness/launch.ts`; `launch.json` holds only each host's headless and headed evidence.
+for. That is the seat, not a defect — presenting on a real display is the measurement. The seat also needs a
+display fast enough for the row's frame budget — about 134 Hz sampled under the allocation oracle's
+constants — so a 60 or 120 Hz display refuses honestly and always rather than measuring a page it cannot
+step in time. Placement is per compositor, and Hyprland is the only driver today: a host on any other
+compositor refuses by name rather than letting focus decide which monitor the page presents on. Launch mode
+is policy keyed by seat in `src/harness/launch.ts`; `launch.json` holds only each host's headless and headed
+evidence.
 
 `captureFrame` from `@dylanebert/shallot/harness/capture` is the one capture: it fixes the viewport, device
 scale, surface, presentation boundary and tightly packed RGBA semantics, and refuses a surface at any other
