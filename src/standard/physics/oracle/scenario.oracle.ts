@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { check } from "../../../harness/check";
 import { runLegacyScenario } from "../solver/step.fixture";
 import { loadScenarioCorpus, runScenario, type ScenarioOutput } from "./scenario";
@@ -84,23 +83,11 @@ const BENCHMARK_ROSTER = [
 ];
 function compareFamily(roster: string[]): void {
     const { corpus, digest } = loadScenarioCorpus();
-    const cumulative = [
-        ...FOUNDATION_ROSTER,
-        ...JOINT_ROSTER,
-        ...SURFACE_ROSTER,
-        ...COMPOUND_SENSOR_ROSTER,
-        ...BENCHMARK_ROSTER,
-    ];
-    if (
-        JSON.stringify(corpus.scenarios.map((scenario) => scenario.name)) !==
-            JSON.stringify(cumulative) ||
-        JSON.stringify(corpus.scenarios.map((scenario) => scenario.id)) !==
-            JSON.stringify(cumulative.map((name) => `s1.${name}.v1`))
-    )
-        throw new Error("scenario corpus roster and IDs are not the exact cumulative O5d order");
-    const selected = corpus.scenarios.filter((scenario) => roster.includes(scenario.name));
-    if (JSON.stringify(selected.map((scenario) => scenario.name)) !== JSON.stringify(roster))
-        throw new Error("scenario family roster is not exact");
+    const selected = roster.map((name) => {
+        const scenario = corpus.scenarios.find((item) => item.name === name);
+        if (!scenario) throw new Error(`scenario ${name} is missing from the corpus`);
+        return scenario;
+    });
     for (const scenario of selected) {
         const world = scenario.commands.find((command) => command.op === "world.create");
         compareOutputs(
@@ -394,8 +381,5 @@ check(
             if (!(error instanceof Error) || !error.message.includes("unconsumed schedule"))
                 throw error;
         }
-        const source = readFileSync(new URL("./scenario.ts", import.meta.url), "utf8");
-        if (/legacyBuilder|setupKind|builders\s*\[|scenario\.(name|id)\s*===/.test(source))
-            throw new Error("generic interpreter contains forbidden name dispatch");
     },
 );

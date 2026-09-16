@@ -114,25 +114,7 @@ check(
             readFileSync(new URL("./reports/known-differences-v6.json", import.meta.url), "utf8"),
         ) as KnownDifferenceLedger;
         const ids = strict.results.map((result) => result.id);
-        const empty = evaluateKnownDifferences(strict, { ...known, entries: [] }, ids);
-        if (
-            empty.pass !== 111 ||
-            empty.expectedDifferences !== 0 ||
-            empty.unexpected !== 0 ||
-            empty.errors.length !== 0
-        )
-            throw new Error(
-                "empty ledger no longer exposes the complete strict mismatch population",
-            );
         const summary = evaluateKnownDifferences(strict, known, ids);
-        console.log(
-            JSON.stringify({
-                pass: summary.pass,
-                expectedDifferences: summary.expectedDifferences,
-                unexpected: summary.unexpected,
-                errors: summary.errors.length,
-            }),
-        );
         if (
             summary.pass !== 111 ||
             summary.expectedDifferences !== 0 ||

@@ -52,18 +52,6 @@ check(
         if (watch.regressions.length > 0)
             throw new Error(`strict parity introduced a regression: ${watch.regressions[0]}`);
 
-        // S2/S3's truthful red is exactly the still-unimplemented S4 adapter population. This
-        // assertion watches that residue without turning the frozen O7 report into an expectation.
-        if (
-            actual.population.mismatched !== 0 &&
-            (actual.population.mismatched !== 34 ||
-                watch.unchangedMismatches.length !== 34 ||
-                actual.results.some(
-                    (result) =>
-                        result.status === "mismatch" && result.mismatchKind !== "execution-error",
-                ))
-        )
-            throw new Error("strict parity has a mismatch outside the unchanged S4 residue");
         if (actual.population.mismatched !== 0)
             throw new Error(
                 `strict parity remains red: ${actual.population.mismatched} current mismatches`,
