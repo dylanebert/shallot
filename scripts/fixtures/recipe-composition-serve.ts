@@ -58,21 +58,30 @@ try {
     });
     const expectedRows = ${JSON.stringify(recipe === "vehicle" ? ["W / S | Throttle", "A / D | Steer"] : ["WASD | Move", "MOUSE | Look", "SPACE | Jump"])};
     if (JSON.stringify(rows) !== JSON.stringify(expectedRows)) throw new Error("control rows were not exact: " + JSON.stringify(rows));
+    // A demo overlay is legend, never prose: every character in the card belongs to a control row, so an
+    // instruction sentence cannot be reintroduced beside the rows in either recipe.
+    const cardText = (controls[0].textContent ?? "").replace(/\\s+/g, "");
+    const rowText = rows.join("").replace(/[|\\s]+/g, "");
+    if (cardText !== rowText) throw new Error("control card carried text outside its rows: " + JSON.stringify(controls[0].textContent));
     const text = getComponent("Text");
     if (text && [...state.query([text])].length !== 0) throw new Error("selected scene still contains a Text entity");
     if (project.plugins.some((plugin) => plugin.name === "Text")) throw new Error("manifest still selected TextPlugin");
     if (${recipe === "first-person"}) {
-        const status = controls[0].querySelector("[data-pointer-lock-status]");
-        if (!status || !status.textContent?.includes("Click the scene to enable mouse look.")) throw new Error("unlocked pointer-lock status was missing");
-        if (getComputedStyle(status).color !== "rgb(255, 255, 255)") throw new Error("unlocked pointer-lock status was not computed white");
-        if (controls[0].textContent?.includes("Click: look")) throw new Error("stale Click: look copy remained");
+        if (controls[0].querySelector("[data-pointer-lock-status]")) throw new Error("stale pointer-lock status line remained");
+        const look = controls[0].querySelector("[data-pointer-look]");
+        if (!look || look.dataset.pointerLook !== "idle") throw new Error("unlocked mouse row was not marked idle");
+        if (getComputedStyle(look).opacity !== "0.45") throw new Error("unlocked mouse row was not dimmed");
         pointerLockChanged(state, true);
         state.step(1 / 60);
-        if (!status.hidden) throw new Error("pointer-lock status remained visible while locked");
+        if (look.dataset.pointerLook !== "locked" || getComputedStyle(look).opacity !== "1") throw new Error("locked mouse row did not brighten");
+        if (look.title !== "") throw new Error("locked mouse row carried a refusal title");
         pointerLockChanged(state, false, "fixture refusal");
         state.step(1 / 60);
-        if (!status.textContent?.startsWith("Mouse look unavailable.") || !status.textContent.includes("fixture refusal")) throw new Error("pointer-lock refusal status was missing");
-        if (getComputedStyle(status).color !== "rgb(255, 255, 255)") throw new Error("refused pointer-lock status was not computed white");
+        if (look.dataset.pointerLook !== "unavailable" || getComputedStyle(look).textDecorationLine !== "line-through") throw new Error("refused mouse row was not struck");
+        if (look.title !== "fixture refusal") throw new Error("refused mouse row lost the browser reason");
+        for (const cell of look.children) {
+            if (getComputedStyle(cell).color !== "rgb(255, 255, 255)") throw new Error("mouse row text was not computed white");
+        }
     }
     const retainedCard = controls[0];
     const previousPlugin = project.plugins.find((plugin) => plugin.name === ${JSON.stringify(expectedPlugin)});
@@ -149,8 +158,8 @@ try {
             state.step(1 / 60);
             liftSample();
         }
-        const swappedStatus = controls[0].querySelector("[data-pointer-lock-status]");
-        if (!swappedStatus || getComputedStyle(swappedStatus).color !== "rgb(255, 255, 255)") throw new Error("swapped pointer-lock status was not computed white");
+        const swappedLook = controls[0].querySelector("[data-pointer-look]");
+        if (!swappedLook || swappedLook.dataset.pointerLook !== "unavailable") throw new Error("swapped mouse row lost its pointer-lock mark");
     }
     const postSwapCard = document.querySelector("[data-recipe-controls]");
     if (postSwapCard !== retainedCard || document.querySelectorAll("[data-recipe-controls]").length !== 1) throw new Error("plugin swap remounted or duplicated the control card");
