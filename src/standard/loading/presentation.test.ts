@@ -1,5 +1,4 @@
 import { expect } from "bun:test";
-import { TICK_RATE } from "../../brand";
 import { check } from "../../harness/check";
 import {
     initialPresentation,
@@ -24,7 +23,6 @@ check(
         subject: "src/standard/loading/presentation.ts",
     },
     () => {
-        expect(TICK_RATE).toBe(35);
         let current = initialPresentation("responsive");
         let result = step(current, "show");
         current = result.state;

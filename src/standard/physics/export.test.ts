@@ -17,13 +17,8 @@ import {
     World,
 } from "@dylanebert/shallot/physics";
 
-function poolSize(pool: Pool): number {
-    return pool.size;
-}
-
-function workerIndex(worker: WorkerReady): number {
-    return worker.index;
-}
+// Type-only evidence: this file stops compiling if the public subpath drops either pool type.
+export type PublicPoolTypes = [Pool["size"], WorkerReady["index"]];
 
 check(
     "physics: State-scoped physics seams are public",
@@ -31,9 +26,9 @@ check(
         claim: "the wheel, parallel, hinge, cone/twist, soft-anchor, contact-event and joint-event seams are absent from the published physics subpath",
     },
     () => {
-        expect(BodyType).toBeDefined();
-        expect(JointType).toBeDefined();
-        expect(World).toBeDefined();
+        expect(World).toBeFunction();
+        expect(typeof BodyType.Dynamic).toBe("number");
+        expect(typeof JointType.Wheel).toBe("number");
         expect(createWheelJoint).toBeFunction();
         expect(createParallelJoint).toBeFunction();
         expect(createRevoluteJoint).toBeFunction();
@@ -52,7 +47,5 @@ check(
     () => {
         expect(typeof createPool).toBe("function");
         expect(typeof maxWorkers).toBe("function");
-        expect(poolSize).toBeDefined();
-        expect(workerIndex).toBeDefined();
     },
 );

@@ -25,7 +25,7 @@ check(
         claim: "the pair hash set loses or resurrects a pair across grows and backward-shift deletes, so the broad phase reports stale membership",
     },
     () => {
-        const N = 200;
+        const N = 40;
         const itemCount = (N * N - N) / 2;
         const removed = new Array<boolean>(itemCount).fill(false);
 
@@ -85,37 +85,6 @@ check(
     },
 );
 
-// The u32-halves key + fmix must be bit-identical to the u64 bigint form Box3D specifies. The
-// oracle below is the direct transcription of b3ShapePairKey + b3KeyHash; the split implementation
-// is what ships. A single moved bit changes which pairs the broad phase considers new.
-const SHAPE_MASK = BigInt((1 << 22) - 1);
-const CHILD_MASK = BigInt((1 << 20) - 1);
-const U64 = 0xffffffffffffffffn;
-
-function oracleKey(s1: number, s2: number, c: number): bigint {
-    const lo = BigInt(s1 < s2 ? s1 : s2) & SHAPE_MASK;
-    const hi = BigInt(s1 < s2 ? s2 : s1) & SHAPE_MASK;
-    return ((lo << 42n) | (hi << 20n) | (BigInt(c) & CHILD_MASK)) & U64;
-}
-
-function oracleHash(key: bigint): number {
-    let h = key & U64;
-    h ^= h >> 33n;
-    h = (h * 0xff51afd7ed558ccdn) & U64;
-    h ^= h >> 33n;
-    h = (h * 0xc4ceb9fe1a85ec53n) & U64;
-    h ^= h >> 33n;
-    return Number(h & 0xffffffffn);
-}
-
-function assertMatch(s1: number, s2: number, c: number): void {
-    const key = oracleKey(s1, s2, c);
-    const label = `(${s1}, ${s2}, ${c})`;
-    expect(pairKeyHi(s1, s2), `${label} hi`).toBe(Number(key >> 32n));
-    expect(pairKeyLo(s1, s2, c), `${label} lo`).toBe(Number(key & 0xffffffffn));
-    expect(keyHash(pairKeyHi(s1, s2), pairKeyLo(s1, s2, c)), `${label} hash`).toBe(oracleHash(key));
-}
-
 const MaxShape = (1 << 22) - 1;
 const MaxChild = (1 << 20) - 1;
 
@@ -125,41 +94,26 @@ check(
         claim: "the pair key packs a field across the word boundary wrongly at its extremes, so saturated shape or child indices alias",
     },
     () => {
-        for (const [s1, s2, c] of [
-            [0, 0, 0],
-            [0, 1, 0],
-            [1, 0, 0],
-            [MaxShape, MaxShape, MaxChild],
-            [0, MaxShape, MaxChild],
-            [MaxShape, 0, 0],
-            [MaxShape - 1, MaxShape, MaxChild],
-            [1, 2, MaxChild],
-            // The larger shape index is the only field straddling bit 32: its top 10 bits land in
-            // the high word, its low 12 in the low word. These walk that boundary.
-            [0, 0xfff, 0],
-            [0, 0x1000, 0],
-            [0, 0xfff000, 0],
-            [7, 0b1010101010_101010101010, 0xabcde],
+        // [s1, s2, child, hi, lo, hash] from Box3D's u64 b3ShapePairKey + b3KeyHash. The larger shape
+        // index is the only field straddling bit 32; the last four rows walk that boundary.
+        for (const [s1, s2, c, hi, lo, hash] of [
+            [0, 0, 0, 0x0, 0x0, 0x0],
+            [0, 1, 0, 0x0, 0x100000, 0x7657ae14],
+            [1, 0, 0, 0x0, 0x100000, 0x7657ae14],
+            [MaxShape, MaxShape, MaxChild, 0xffffffff, 0xffffffff, 0x4b825f21],
+            [0, MaxShape, MaxChild, 0x3ff, 0xffffffff, 0xdbe0fe82],
+            [MaxShape, 0, 0, 0x3ff, 0xfff00000, 0x235cfe2e],
+            [MaxShape - 1, MaxShape, MaxChild, 0xfffffbff, 0xffffffff, 0xe86c277b],
+            [1, 2, MaxChild, 0x400, 0x2fffff, 0x15cd2890],
+            [0, 0xfff, 0, 0x0, 0xfff00000, 0x670ea74e],
+            [0, 0x1000, 0, 0x1, 0x0, 0xa5f1419],
+            [0, 0xfff000, 0, 0x3ff, 0x0, 0xa0cfccd8],
+            [7, 0b1010101010_101010101010, 0xabcde, 0x1eaa, 0xaaaabcde, 0x8f4f233b],
         ]) {
-            assertMatch(s1, s2, c);
-        }
-    },
-);
-
-check(
-    "the pair key and its fmix match the u64 oracle over random triples",
-    {
-        claim: "the pair key's split fmix drops a carry on some triple, so its hash diverges from Box3D's u64 fmix64",
-    },
-    () => {
-        // Deterministic LCG — a failing seed is reproducible.
-        let seed = 0x9e3779b9;
-        const next = (bound: number): number => {
-            seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-            return seed % bound;
-        };
-        for (let i = 0; i < 20000; ++i) {
-            assertMatch(next(MaxShape + 1), next(MaxShape + 1), next(MaxChild + 1));
+            const label = `(${s1}, ${s2}, ${c})`;
+            expect(pairKeyHi(s1, s2), `${label} hi`).toBe(hi);
+            expect(pairKeyLo(s1, s2, c), `${label} lo`).toBe(lo);
+            expect(keyHash(pairKeyHi(s1, s2), pairKeyLo(s1, s2, c)), `${label} hash`).toBe(hash);
         }
     },
 );

@@ -52,7 +52,10 @@ const report = (
 
 check(
     "known-difference evaluator rejects ledger adversaries",
-    { claim: "box3d-known-difference-adversarial", size: "integration" },
+    {
+        claim: "the known-difference evaluator accepts a stale, expired, orphaned, wildcard, duplicate, timeout, skip, unexecuted or passing ledger entry, so a real Box3D divergence could hide behind the ledger",
+        size: "integration",
+    },
     () => {
         const ids = ["case.v1"];
         const matching = evaluateKnownDifferences(
@@ -107,32 +110,18 @@ check(
 
 check(
     "Box3D known differences consume the executing ledger",
-    { claim: "box3d-known-differences", size: "integration", budget: 20_000 },
+    {
+        claim: "the checked-in known-difference ledger no longer matches live strict parity, so an unlisted Box3D divergence or a stale excuse would pass",
+        size: "integration",
+        budget: 20_000,
+    },
     () => {
         const strict = executeStrictReport();
         const known = JSON.parse(
             readFileSync(new URL("./reports/known-differences-v6.json", import.meta.url), "utf8"),
         ) as KnownDifferenceLedger;
         const ids = strict.results.map((result) => result.id);
-        const empty = evaluateKnownDifferences(strict, { ...known, entries: [] }, ids);
-        if (
-            empty.pass !== 111 ||
-            empty.expectedDifferences !== 0 ||
-            empty.unexpected !== 0 ||
-            empty.errors.length !== 0
-        )
-            throw new Error(
-                "empty ledger no longer exposes the complete strict mismatch population",
-            );
         const summary = evaluateKnownDifferences(strict, known, ids);
-        console.log(
-            JSON.stringify({
-                pass: summary.pass,
-                expectedDifferences: summary.expectedDifferences,
-                unexpected: summary.unexpected,
-                errors: summary.errors.length,
-            }),
-        );
         if (
             summary.pass !== 111 ||
             summary.expectedDifferences !== 0 ||

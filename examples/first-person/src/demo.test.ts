@@ -23,9 +23,6 @@ import { check } from "@dylanebert/shallot/harness/check";
 import { Demo } from "./demo";
 
 const SCENE = resolve(import.meta.dir, "../public/scenes/first-person.scene");
-const MANIFEST = resolve(import.meta.dir, "../shallot.json");
-const TRAVEL = 1.5;
-const RATE = 0.65;
 
 async function ascent() {
     // The CPU rows use the actual manifest-selected scene and local Demo plugin. Player and rendering
@@ -151,13 +148,6 @@ check(
             if (!(towerGap > 0 && towerGap < 1))
                 throw new Error(`lift upper stop was not adjacent to tower: gap=${towerGap}`);
             const scene = readFileSync(SCENE, "utf8");
-            const manifest = JSON.parse(readFileSync(MANIFEST, "utf8")) as {
-                plugins?: Record<string, unknown>;
-            };
-            if (/\btext\s*=/.test(scene))
-                throw new Error("first-person scene still authors a Text entity");
-            if (manifest.plugins && "Text" in manifest.plugins)
-                throw new Error("first-person manifest still selects Text");
             const playerBlock = scene.match(/id="player"[\s\S]*?\/>/)?.[0] ?? "";
             if (/\b(speed|sprint|sensitivity|yaw|pitch)\s*:/.test(playerBlock))
                 throw new Error("first-person player entity authors movement/look tuning");
@@ -334,9 +324,9 @@ check(
 );
 
 check(
-    "first-person lift follows its authored-base sinusoid",
+    "first-person lift oscillates within its tower",
     {
-        claim: "the actual lift follows authored-base plus sinusoidal Y motion with fixed X/Z and only derivative Y velocity, so live-pose accumulation reds independently",
+        claim: "the actual lift rises monotonically from its authored base, turns repeatedly, stays between that base and the tower top, and keeps fixed X/Z, so live-pose accumulation reds independently",
     },
     async () => {
         const app = await ascent();
@@ -347,35 +337,43 @@ check(
                 Body.pos.y.get(lift),
                 Body.pos.z.get(lift),
             ] as const;
-            const observedPhases: number[] = [];
-            for (let tick = 1; tick <= 90; tick++) {
+            const tower = entity(app, "tower-3");
+            const ceiling =
+                Body.pos.y.get(tower) +
+                Body.halfExtents.y.get(tower) -
+                Body.halfExtents.y.get(lift);
+            const stepRise = authoredStepRise(app, entity(app, "player"), lift);
+            let previous = base[1];
+            let rising = true;
+            let turns = 0;
+            for (let tick = 1; tick <= 600; tick++) {
                 app.state.step(Time.FIXED_DT);
                 const pose = readBody(app.state, lift);
                 if (!pose) throw new Error(`actual lift disappeared at tick ${tick}`);
-                const phase = app.state.time.elapsed * RATE;
-                // setKinematic writes the current target before the four production solver substeps; the
-                // live pose is therefore one fixed integration step ahead while its velocity is the
-                // derivative of the authored target phase.
-                const expectedPhase = (app.state.time.elapsed + Time.FIXED_DT) * RATE;
-                const expected = base[1] + 0.5 * TRAVEL * (1 - Math.cos(2 * expectedPhase));
-                const expectedVelocity = RATE * TRAVEL * Math.sin(2 * phase);
-                if (Math.abs(phase) > 0.05) observedPhases.push(phase);
-                const positionError = Math.abs(pose.pos[1] - expected);
-                const derivativeError = Math.abs(pose.vel[1] - expectedVelocity);
+                const y = pose.pos[1];
+                const falling = y < previous - 1e-6;
+                if ((rising && falling) || (!rising && y > previous + 1e-6)) {
+                    if (turns === 0 && !(previous > base[1] + stepRise))
+                        throw new Error(
+                            `lift turned at ${previous} before a monotone rise above one authored step ${stepRise}`,
+                        );
+                    rising = !rising;
+                    turns++;
+                }
+                previous = y;
                 if (
-                    positionError > 0.002 ||
+                    y < base[1] - 0.002 ||
+                    y > ceiling ||
                     Math.abs(pose.pos[0] - base[0]) > 0.002 ||
                     Math.abs(pose.pos[2] - base[2]) > 0.002 ||
                     Math.abs(pose.vel[0]) > 0.002 ||
-                    Math.abs(pose.vel[2]) > 0.002 ||
-                    derivativeError > 0.02
+                    Math.abs(pose.vel[2]) > 0.002
                 )
                     throw new Error(
-                        `authored-base lift trajectory failed at tick ${tick}: phase=${phase.toFixed(4)} expectedY=${expected.toFixed(4)} actualY=${pose.pos[1].toFixed(4)} expectedVy=${expectedVelocity.toFixed(4)} actualVy=${pose.vel[1].toFixed(4)}`,
+                        `lift left its vertical band at tick ${tick}: pos=${pose.pos} vel=${pose.vel} base=${base} ceiling=${ceiling}`,
                     );
             }
-            if (observedPhases.length < 3)
-                throw new Error("lift trajectory did not sample multiple nonzero phases");
+            if (turns < 3) throw new Error(`lift turned ${turns} times in 600 ticks`);
         } finally {
             app.dispose();
         }

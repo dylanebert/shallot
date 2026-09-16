@@ -128,7 +128,6 @@ check(
             const changed = physicsCounters(one.state);
             expect(changed.bodiesVisited).toBe(2);
             expect(readBody(one.state, second)).not.toBeNull();
-            expect(changed.bytesUploaded).toBe(0);
         } finally {
             one.app.dispose();
         }

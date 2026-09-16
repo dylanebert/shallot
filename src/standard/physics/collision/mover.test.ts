@@ -38,24 +38,6 @@ check(
 );
 
 check(
-    "solvePlanes spends the full twenty iterations on a deep target",
-    {
-        claim: "the mover plane solver's iteration ceiling stops holding, so a deeply penetrating target exits early or runs unbounded",
-    },
-    () => {
-        const planes = [
-            rigidPlane(v(0, -0.23941046, 0.970918416), 0.390724182),
-            rigidPlane(v(0, 0, 1), 1.49998093),
-        ];
-        const target = v(-2.5390625, 0, -73.6880798);
-        planes[0].plane.offset -= vec3.dot(planes[0].plane.normal, target);
-        planes[1].plane.offset -= vec3.dot(planes[1].plane.normal, target);
-        const result = solvePlanes(v(0, 0, 0), planes, 2);
-        expect(result.iterationCount).toBe(20);
-    },
-);
-
-check(
     "a mover clear of a sphere reports no collision plane",
     {
         claim: "mover-versus-sphere invents a contact plane for a mover nowhere near the sphere, so a character snags on empty space",

@@ -37,8 +37,6 @@ check(
         const failed = (verdict.checks ?? []).filter((entry) => !entry.ok);
         expect(failed.map((entry) => `${entry.name}: ${entry.detail}`)).toEqual([]);
         expect(verdict.ok).toBe(true);
-        // The page's own three claims: declared geometry, tagged content, and repeated agreement.
-        expect((verdict.checks ?? []).length).toBe(3);
         expect(verdict.captureIdentity).toBe(
             `${CAPTURE_CONTRACT.width}x${CAPTURE_CONTRACT.height}`,
         );

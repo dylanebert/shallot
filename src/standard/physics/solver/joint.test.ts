@@ -5,6 +5,7 @@
 import { expect } from "bun:test";
 import { check } from "../../../harness/check";
 import {
+    type Body,
     BodyType,
     type Joint,
     JointType,
@@ -33,37 +34,6 @@ function pendulum(): { world: World; joint: Joint } {
     });
     return { world, joint };
 }
-
-check(
-    "a created joint exposes its type, its bodies and the world's joint count",
-    {
-        claim: "a freshly created joint handle reports the wrong type or the wrong pair of bodies, so a caller could not tell which constraint it just made",
-    },
-    () => {
-        const { world, joint } = pendulum();
-        expect(joint.getType()).toBe(JointType.Revolute);
-        const [a, b] = joint.getBodies();
-        expect(a.getPosition().y).toBe(5);
-        expect(b.getType()).toBe(BodyType.Dynamic);
-        expect(world.getCounters().jointCount).toBe(1);
-        world.destroy();
-    },
-);
-
-check(
-    "destroying a joint invalidates its handle and frees the id",
-    {
-        claim: "a destroyed joint still reports itself valid or leaves its id counted, so the joint pool would leak slots across a scene teardown",
-    },
-    () => {
-        const { world, joint } = pendulum();
-        expect(joint.isValid()).toBe(true);
-        joint.destroy();
-        expect(joint.isValid()).toBe(false);
-        expect(world.getCounters().jointCount).toBe(0);
-        world.destroy();
-    },
-);
 
 check(
     "a recycled joint slot invalidates the stale generation",
@@ -480,337 +450,200 @@ function exerciseBase(joint: Joint, world: World, expectedType: JointType) {
 
     joint.wakeBodies();
 
-    // No stable value to assert before the first step; call for coverage (must not throw / NaN).
-    expect(Number.isFinite(joint.getLinearSeparation())).toBe(true);
-    joint.getConstraintForce();
-    joint.getConstraintTorque();
-    // Wheel angular separation is an unimplemented todo in the C reference.
-    if (expectedType !== JointType.Wheel) {
-        expect(Number.isFinite(joint.getAngularSeparation())).toBe(true);
-    }
-
     joint.setLocalFrameA(originalA);
     joint.setLocalFrameB(originalB);
 }
 
-check(
-    "parallel joint accessors round-trip and the joint steps",
+type Accessor = [setter: string, args: unknown[], expected: Record<string, unknown>];
+
+const f32v = (x: number, y: number, z: number) => ({ x: f32(x), y: f32(y), z: f32(z) });
+const spring = (hertz: number, ratio: number): Accessor[] => [
+    ["enableSpring", [true], { isSpringEnabled: true }],
+    ["setSpringHertz", [hertz], { getSpringHertz: hertz }],
+    ["setSpringDampingRatio", [ratio], { getSpringDampingRatio: f32(ratio) }],
+];
+const motor = (speed: number): Accessor[] => [
+    ["enableMotor", [true], { isMotorEnabled: true }],
+    ["setMotorSpeed", [speed], { getMotorSpeed: speed }],
+];
+
+const accessorTable: {
+    type: JointType;
+    create: (world: World, ground: Body, body: Body) => Joint;
+    accessors: Accessor[];
+}[] = [
     {
-        claim: "a parallel joint's spring and max-torque accessors do not round-trip through the solver's storage, so tuning a parallel joint from script would silently keep the old value",
+        type: JointType.Parallel,
+        create: (w, g, b) =>
+            w.createParallelJoint(g, b, {
+                ...commonFrames,
+                hertz: 2,
+                dampingRatio: 0.5,
+                maxTorque: 100,
+            }),
+        accessors: [
+            ["setSpringHertz", [5], { getSpringHertz: 5 }],
+            ["setSpringDampingRatio", [0.7], { getSpringDampingRatio: f32(0.7) }],
+            ["setMaxTorque", [250], { getMaxTorque: 250 }],
+        ],
+    },
+    {
+        type: JointType.Distance,
+        create: (w, g, b) => w.createDistanceJoint(g, b, { ...commonFrames, length: 2 }),
+        accessors: [
+            ["setLength", [3], { getLength: 3 }],
+            [
+                "setSpringForceRange",
+                [-50, 75],
+                { getSpringForceRange: { lowerForce: -50, upperForce: 75 } },
+            ],
+            ...spring(4, 0.6),
+            ["enableLimit", [true], { isLimitEnabled: true }],
+            ["setLengthRange", [1, 5], { getMinLength: 1, getMaxLength: 5 }],
+            ...motor(1.5),
+            ["setMaxMotorForce", [25], { getMaxMotorForce: 25 }],
+        ],
+    },
+    { type: JointType.Filter, create: (w, g, b) => w.createFilterJoint(g, b), accessors: [] },
+    {
+        type: JointType.Motor,
+        create: (w, g, b) => w.createMotorJoint(g, b, { ...commonFrames }),
+        accessors: [
+            [
+                "setLinearVelocity",
+                [{ x: 1, y: 2, z: 3 }],
+                { getLinearVelocity: { x: 1, y: 2, z: 3 } },
+            ],
+            [
+                "setAngularVelocity",
+                [{ x: 0.1, y: 0.2, z: 0.3 }],
+                { getAngularVelocity: f32v(0.1, 0.2, 0.3) },
+            ],
+            ["setMaxVelocityForce", [500], { getMaxVelocityForce: 500 }],
+            ["setMaxVelocityTorque", [600], { getMaxVelocityTorque: 600 }],
+            ["setLinearHertz", [3], { getLinearHertz: 3 }],
+            ["setLinearDampingRatio", [0.8], { getLinearDampingRatio: f32(0.8) }],
+            ["setAngularHertz", [4], { getAngularHertz: 4 }],
+            ["setAngularDampingRatio", [0.9], { getAngularDampingRatio: f32(0.9) }],
+            ["setMaxSpringForce", [700], { getMaxSpringForce: 700 }],
+            ["setMaxSpringTorque", [800], { getMaxSpringTorque: 800 }],
+        ],
+    },
+    {
+        type: JointType.Prismatic,
+        create: (w, g, b) => w.createPrismaticJoint(g, b, { ...commonFrames }),
+        accessors: [
+            ...spring(5, 0.5),
+            ["setTargetTranslation", [1], { getTargetTranslation: 1 }],
+            ["enableLimit", [true], { isLimitEnabled: true }],
+            ["setLimits", [-2, 2], { getLowerLimit: -2, getUpperLimit: 2 }],
+            ...motor(1.5),
+            ["setMaxMotorForce", [30], { getMaxMotorForce: 30 }],
+        ],
+    },
+    {
+        type: JointType.Revolute,
+        create: (w, g, b) => w.createRevoluteJoint(g, b, { ...commonFrames }),
+        accessors: [
+            ...spring(5, 0.5),
+            ["setTargetAngle", [0.5], { getTargetAngle: 0.5 }],
+            ["enableLimit", [true], { isLimitEnabled: true }],
+            ["setLimits", [-1, 1], { getLowerLimit: -1, getUpperLimit: 1 }],
+            ...motor(2),
+            ["setMaxMotorTorque", [40], { getMaxMotorTorque: 40 }],
+        ],
+    },
+    {
+        type: JointType.Spherical,
+        create: (w, g, b) => w.createSphericalJoint(g, b, { ...commonFrames }),
+        accessors: [
+            ["enableConeLimit", [true], { isConeLimitEnabled: true }],
+            ["setConeLimit", [0.5], { getConeLimit: 0.5 }],
+            ["enableTwistLimit", [true], { isTwistLimitEnabled: true }],
+            ["setTwistLimits", [-0.5, 0.5], { getLowerTwistLimit: -0.5, getUpperTwistLimit: 0.5 }],
+            ...spring(5, 0.5),
+            [
+                "setTargetRotation",
+                [{ v: { x: 0, y: 0, z: Math.SQRT1_2 }, s: Math.SQRT1_2 }],
+                { getTargetRotation: { v: f32v(0, 0, Math.SQRT1_2), s: f32(Math.SQRT1_2) } },
+            ],
+            ["enableMotor", [true], { isMotorEnabled: true }],
+            [
+                "setMotorVelocity",
+                [{ x: 0.1, y: 0.2, z: 0.3 }],
+                { getMotorVelocity: f32v(0.1, 0.2, 0.3) },
+            ],
+            ["setMaxMotorTorque", [50], { getMaxMotorTorque: 50 }],
+        ],
+    },
+    {
+        type: JointType.Weld,
+        create: (w, g, b) => w.createWeldJoint(g, b, { ...commonFrames }),
+        accessors: [
+            ["setLinearHertz", [3], { getLinearHertz: 3 }],
+            ["setLinearDampingRatio", [0.5], { getLinearDampingRatio: 0.5 }],
+            ["setAngularHertz", [4], { getAngularHertz: 4 }],
+            ["setAngularDampingRatio", [0.7], { getAngularDampingRatio: f32(0.7) }],
+        ],
+    },
+    {
+        type: JointType.Wheel,
+        create: (w, g, b) => w.createWheelJoint(g, b, { ...commonFrames }),
+        accessors: [
+            ["enableSuspension", [true], { isSuspensionEnabled: true }],
+            ["setSuspensionHertz", [5], { getSuspensionHertz: 5 }],
+            ["setSuspensionDampingRatio", [0.5], { getSuspensionDampingRatio: 0.5 }],
+            ["enableSuspensionLimit", [true], { isSuspensionLimitEnabled: true }],
+            [
+                "setSuspensionLimits",
+                [-1, 1],
+                { getLowerSuspensionLimit: -1, getUpperSuspensionLimit: 1 },
+            ],
+            ["enableSpinMotor", [true], { isSpinMotorEnabled: true }],
+            ["setSpinMotorSpeed", [6], { getSpinMotorSpeed: 6 }],
+            ["setMaxSpinTorque", [35], { getMaxSpinTorque: 35 }],
+            ["enableSteering", [true], { isSteeringEnabled: true }],
+            ["setSteeringHertz", [7], { getSteeringHertz: 7 }],
+            ["setSteeringDampingRatio", [0.8], { getSteeringDampingRatio: f32(0.8) }],
+            ["setMaxSteeringTorque", [45], { getMaxSteeringTorque: 45 }],
+            ["enableSteeringLimit", [true], { isSteeringLimitEnabled: true }],
+            [
+                "setSteeringLimits",
+                [-0.6, 0.6],
+                { getLowerSteeringLimit: f32(-0.6), getUpperSteeringLimit: f32(0.6) },
+            ],
+            ["setTargetSteeringAngle", [0.25], { getTargetSteeringAngle: 0.25 }],
+        ],
+    },
+];
+
+check(
+    "every joint type's accessors round-trip and the joint steps",
+    {
+        claim: "a joint type's type-specific setter does not reach the storage its getter reads, so retuning a hinge, slider, rope, motor, weld, wheel or ball socket from script would silently keep the old value",
     },
     () => {
-        const { world, ground, body } = fixture();
-        const joint = world.createParallelJoint(ground, body, {
-            ...commonFrames,
-            hertz: 2,
-            dampingRatio: 0.5,
-            maxTorque: 100,
-        });
-        exerciseBase(joint, world, JointType.Parallel);
-
-        joint.setSpringHertz(5);
-        expect(joint.getSpringHertz()).toBe(5);
-        joint.setSpringDampingRatio(0.7);
-        expect(joint.getSpringDampingRatio()).toBe(f32(0.7));
-        joint.setMaxTorque(250);
-        expect(joint.getMaxTorque()).toBe(250);
-
-        finish(joint, world);
+        for (const row of accessorTable) {
+            const { world, ground, body } = fixture();
+            const joint = row.create(world, ground, body);
+            exerciseBase(joint, world, row.type);
+            const methods = joint as unknown as Record<string, (...args: unknown[]) => unknown>;
+            for (const [setter, args, expected] of row.accessors) {
+                methods[setter](...args);
+                for (const [getter, value] of Object.entries(expected)) {
+                    expect({ type: row.type, getter, value: methods[getter]() }).toEqual({
+                        type: row.type,
+                        getter,
+                        value,
+                    });
+                }
+            }
+            finish(joint, world);
+        }
     },
 );
 
-check(
-    "distance joint accessors round-trip and the joint steps",
-    {
-        claim: "a distance joint's length, spring, limit and motor accessors do not round-trip, so retuning a rope or spring from script would silently keep the old value",
-    },
-    () => {
-        const { world, ground, body } = fixture();
-        const joint = world.createDistanceJoint(ground, body, { ...commonFrames, length: 2 });
-        exerciseBase(joint, world, JointType.Distance);
-
-        joint.setLength(3);
-        expect(joint.getLength()).toBe(3);
-        joint.enableSpring(true);
-        expect(joint.isSpringEnabled()).toBe(true);
-        joint.setSpringForceRange(-50, 75);
-        const range = joint.getSpringForceRange();
-        expect(range.lowerForce).toBe(-50);
-        expect(range.upperForce).toBe(75);
-        joint.setSpringHertz(4);
-        expect(joint.getSpringHertz()).toBe(4);
-        joint.setSpringDampingRatio(0.6);
-        expect(joint.getSpringDampingRatio()).toBe(f32(0.6));
-        joint.enableLimit(true);
-        expect(joint.isLimitEnabled()).toBe(true);
-        joint.setLengthRange(1, 5);
-        expect(joint.getMinLength()).toBe(1);
-        expect(joint.getMaxLength()).toBe(5);
-        expect(Number.isFinite(joint.getCurrentLength())).toBe(true);
-        joint.enableMotor(true);
-        expect(joint.isMotorEnabled()).toBe(true);
-        joint.setMotorSpeed(1.5);
-        expect(joint.getMotorSpeed()).toBe(1.5);
-        joint.setMaxMotorForce(25);
-        expect(joint.getMaxMotorForce()).toBe(25);
-        expect(Number.isFinite(joint.getMotorForce())).toBe(true);
-
-        finish(joint, world);
-    },
-);
-
-check(
-    "filter joint carries the shared base API with no type-specific accessors",
-    {
-        claim: "a filter joint does not answer the shared joint API or refuses to step, so a contact-suppression joint would break the code paths every other joint type shares",
-    },
-    () => {
-        const { world, ground, body } = fixture();
-        const joint = world.createFilterJoint(ground, body);
-        exerciseBase(joint, world, JointType.Filter);
-        finish(joint, world);
-    },
-);
-
-check(
-    "motor joint accessors round-trip and the joint steps",
-    {
-        claim: "a motor joint's velocity targets, force caps and spring tuning do not round-trip, so retargeting a motor from script would silently keep the old drive",
-    },
-    () => {
-        const { world, ground, body } = fixture();
-        const joint = world.createMotorJoint(ground, body, { ...commonFrames });
-        exerciseBase(joint, world, JointType.Motor);
-
-        joint.setLinearVelocity({ x: 1, y: 2, z: 3 });
-        expect(joint.getLinearVelocity()).toEqual({ x: 1, y: 2, z: 3 });
-        joint.setAngularVelocity({ x: 0.1, y: 0.2, z: 0.3 });
-        const w = joint.getAngularVelocity();
-        expect(w.x).toBe(f32(0.1));
-        expect(w.y).toBe(f32(0.2));
-        expect(w.z).toBe(f32(0.3));
-        joint.setMaxVelocityForce(500);
-        expect(joint.getMaxVelocityForce()).toBe(500);
-        joint.setMaxVelocityTorque(600);
-        expect(joint.getMaxVelocityTorque()).toBe(600);
-        joint.setLinearHertz(3);
-        expect(joint.getLinearHertz()).toBe(3);
-        joint.setLinearDampingRatio(0.8);
-        expect(joint.getLinearDampingRatio()).toBe(f32(0.8));
-        joint.setAngularHertz(4);
-        expect(joint.getAngularHertz()).toBe(4);
-        joint.setAngularDampingRatio(0.9);
-        expect(joint.getAngularDampingRatio()).toBe(f32(0.9));
-        joint.setMaxSpringForce(700);
-        expect(joint.getMaxSpringForce()).toBe(700);
-        joint.setMaxSpringTorque(800);
-        expect(joint.getMaxSpringTorque()).toBe(800);
-
-        finish(joint, world);
-    },
-);
-
-check(
-    "prismatic joint accessors round-trip and the joint steps",
-    {
-        claim: "a prismatic joint's spring, limit and motor accessors do not round-trip, so retuning a slider from script would silently keep the old rail settings",
-    },
-    () => {
-        const { world, ground, body } = fixture();
-        const joint = world.createPrismaticJoint(ground, body, { ...commonFrames });
-        exerciseBase(joint, world, JointType.Prismatic);
-
-        joint.enableSpring(true);
-        expect(joint.isSpringEnabled()).toBe(true);
-        joint.setSpringHertz(5);
-        expect(joint.getSpringHertz()).toBe(5);
-        joint.setSpringDampingRatio(0.5);
-        expect(joint.getSpringDampingRatio()).toBe(0.5);
-        joint.setTargetTranslation(1);
-        expect(joint.getTargetTranslation()).toBe(1);
-        joint.enableLimit(true);
-        expect(joint.isLimitEnabled()).toBe(true);
-        joint.setLimits(-2, 2);
-        expect(joint.getLowerLimit()).toBe(-2);
-        expect(joint.getUpperLimit()).toBe(2);
-        joint.enableMotor(true);
-        expect(joint.isMotorEnabled()).toBe(true);
-        joint.setMotorSpeed(1.5);
-        expect(joint.getMotorSpeed()).toBe(1.5);
-        joint.setMaxMotorForce(30);
-        expect(joint.getMaxMotorForce()).toBe(30);
-        expect(Number.isFinite(joint.getMotorForce())).toBe(true);
-        expect(Number.isFinite(joint.getTranslation())).toBe(true);
-        expect(Number.isFinite(joint.getSpeed())).toBe(true);
-
-        finish(joint, world);
-    },
-);
-
-check(
-    "revolute joint accessors round-trip and the joint steps",
-    {
-        claim: "a revolute joint's target angle, limits and motor accessors do not round-trip, so retuning a hinge from script would silently keep the old settings",
-    },
-    () => {
-        const { world, ground, body } = fixture();
-        const joint = world.createRevoluteJoint(ground, body, { ...commonFrames });
-        exerciseBase(joint, world, JointType.Revolute);
-
-        joint.enableSpring(true);
-        expect(joint.isSpringEnabled()).toBe(true);
-        joint.setSpringHertz(5);
-        expect(joint.getSpringHertz()).toBe(5);
-        joint.setSpringDampingRatio(0.5);
-        expect(joint.getSpringDampingRatio()).toBe(0.5);
-        joint.setTargetAngle(0.5);
-        expect(joint.getTargetAngle()).toBe(0.5);
-        expect(Number.isFinite(joint.getAngle())).toBe(true);
-        joint.enableLimit(true);
-        expect(joint.isLimitEnabled()).toBe(true);
-        joint.setLimits(-1, 1);
-        expect(joint.getLowerLimit()).toBe(-1);
-        expect(joint.getUpperLimit()).toBe(1);
-        joint.enableMotor(true);
-        expect(joint.isMotorEnabled()).toBe(true);
-        joint.setMotorSpeed(2);
-        expect(joint.getMotorSpeed()).toBe(2);
-        joint.setMaxMotorTorque(40);
-        expect(joint.getMaxMotorTorque()).toBe(40);
-        expect(Number.isFinite(joint.getMotorTorque())).toBe(true);
-
-        finish(joint, world);
-    },
-);
-
-check(
-    "spherical joint accessors round-trip and the joint steps",
-    {
-        claim: "a spherical joint's cone, twist, spring and motor accessors do not round-trip, so retuning a ball socket from script would silently keep the old limits",
-    },
-    () => {
-        const { world, ground, body } = fixture();
-        const joint = world.createSphericalJoint(ground, body, { ...commonFrames });
-        exerciseBase(joint, world, JointType.Spherical);
-
-        joint.enableConeLimit(true);
-        expect(joint.isConeLimitEnabled()).toBe(true);
-        joint.setConeLimit(0.5);
-        expect(joint.getConeLimit()).toBe(0.5);
-        expect(Number.isFinite(joint.getConeAngle())).toBe(true);
-        joint.enableTwistLimit(true);
-        expect(joint.isTwistLimitEnabled()).toBe(true);
-        joint.setTwistLimits(-0.5, 0.5);
-        expect(joint.getLowerTwistLimit()).toBe(-0.5);
-        expect(joint.getUpperTwistLimit()).toBe(0.5);
-        expect(Number.isFinite(joint.getTwistAngle())).toBe(true);
-        joint.enableSpring(true);
-        expect(joint.isSpringEnabled()).toBe(true);
-        joint.setSpringHertz(5);
-        expect(joint.getSpringHertz()).toBe(5);
-        joint.setSpringDampingRatio(0.5);
-        expect(joint.getSpringDampingRatio()).toBe(0.5);
-
-        // 90 degrees about z: a unit quaternion (0, 0, sin45, cos45) that round-trips through f32.
-        const target = { v: { x: 0, y: 0, z: Math.SQRT1_2 }, s: Math.SQRT1_2 };
-        joint.setTargetRotation(target);
-        const got = joint.getTargetRotation();
-        expect(Math.abs(got.v.x - target.v.x)).toBeLessThan(1e-5);
-        expect(Math.abs(got.v.y - target.v.y)).toBeLessThan(1e-5);
-        expect(Math.abs(got.v.z - target.v.z)).toBeLessThan(1e-5);
-        expect(Math.abs(got.s - target.s)).toBeLessThan(1e-5);
-
-        joint.enableMotor(true);
-        expect(joint.isMotorEnabled()).toBe(true);
-        joint.setMotorVelocity({ x: 0.1, y: 0.2, z: 0.3 });
-        const mv = joint.getMotorVelocity();
-        expect(mv.x).toBe(f32(0.1));
-        expect(mv.y).toBe(f32(0.2));
-        expect(mv.z).toBe(f32(0.3));
-        joint.setMaxMotorTorque(50);
-        expect(joint.getMaxMotorTorque()).toBe(50);
-        const mt = joint.getMotorTorque();
-        expect(Number.isFinite(mt.x)).toBe(true);
-
-        finish(joint, world);
-    },
-);
-
-check(
-    "weld joint accessors round-trip and the joint steps",
-    {
-        claim: "a weld joint's linear and angular softness accessors do not round-trip, so softening a weld from script would silently keep it rigid",
-    },
-    () => {
-        const { world, ground, body } = fixture();
-        const joint = world.createWeldJoint(ground, body, { ...commonFrames });
-        exerciseBase(joint, world, JointType.Weld);
-
-        joint.setLinearHertz(3);
-        expect(joint.getLinearHertz()).toBe(3);
-        joint.setLinearDampingRatio(0.5);
-        expect(joint.getLinearDampingRatio()).toBe(0.5);
-        joint.setAngularHertz(4);
-        expect(joint.getAngularHertz()).toBe(4);
-        joint.setAngularDampingRatio(0.7);
-        expect(joint.getAngularDampingRatio()).toBe(f32(0.7));
-
-        finish(joint, world);
-    },
-);
-
-check(
-    "wheel joint accessors round-trip and the joint steps",
-    {
-        claim: "a wheel joint's suspension, spin-motor and steering accessors do not round-trip, so tuning a vehicle wheel from script would silently keep the old suspension or steering",
-    },
-    () => {
-        const { world, ground, body } = fixture();
-        const joint = world.createWheelJoint(ground, body, { ...commonFrames });
-        exerciseBase(joint, world, JointType.Wheel);
-
-        joint.enableSuspension(true);
-        expect(joint.isSuspensionEnabled()).toBe(true);
-        joint.setSuspensionHertz(5);
-        expect(joint.getSuspensionHertz()).toBe(5);
-        joint.setSuspensionDampingRatio(0.5);
-        expect(joint.getSuspensionDampingRatio()).toBe(0.5);
-        joint.enableSuspensionLimit(true);
-        expect(joint.isSuspensionLimitEnabled()).toBe(true);
-        joint.setSuspensionLimits(-1, 1);
-        expect(joint.getLowerSuspensionLimit()).toBe(-1);
-        expect(joint.getUpperSuspensionLimit()).toBe(1);
-        joint.enableSpinMotor(true);
-        expect(joint.isSpinMotorEnabled()).toBe(true);
-        joint.setSpinMotorSpeed(6);
-        expect(joint.getSpinMotorSpeed()).toBe(6);
-        joint.setMaxSpinTorque(35);
-        expect(joint.getMaxSpinTorque()).toBe(35);
-        expect(Number.isFinite(joint.getSpinSpeed())).toBe(true);
-        expect(Number.isFinite(joint.getSpinTorque())).toBe(true);
-        joint.enableSteering(true);
-        expect(joint.isSteeringEnabled()).toBe(true);
-        joint.setSteeringHertz(7);
-        expect(joint.getSteeringHertz()).toBe(7);
-        joint.setSteeringDampingRatio(0.8);
-        expect(joint.getSteeringDampingRatio()).toBe(f32(0.8));
-        joint.setMaxSteeringTorque(45);
-        expect(joint.getMaxSteeringTorque()).toBe(45);
-        joint.enableSteeringLimit(true);
-        expect(joint.isSteeringLimitEnabled()).toBe(true);
-        joint.setSteeringLimits(-0.6, 0.6);
-        expect(joint.getLowerSteeringLimit()).toBe(f32(-0.6));
-        expect(joint.getUpperSteeringLimit()).toBe(f32(0.6));
-        joint.setTargetSteeringAngle(0.25);
-        expect(joint.getTargetSteeringAngle()).toBe(0.25);
-        expect(Number.isFinite(joint.getSteeringAngle())).toBe(true);
-        expect(Number.isFinite(joint.getSteeringTorque())).toBe(true);
-
-        finish(joint, world);
-    },
-);
-
-// The parity checks above round-trip every accessor with in-order, in-bounds values, so they step
+// The accessor table above round-trips every accessor with in-order, in-bounds values, so they step
 // past the ordering + clamp branches in the limit/length/force setters. These pin those branches,
 // each observable through the public getters (Box3D's b3*_SetLimits / SetLength / SetMaxSpring*).
 

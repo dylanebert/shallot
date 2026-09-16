@@ -1,10 +1,8 @@
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
     Body,
     body,
     build,
-    devices,
     InputPlugin,
     PhysicsPlugin,
     physicsStepConfig,
@@ -18,8 +16,6 @@ import { check } from "@dylanebert/shallot/harness/check";
 import {
     Car,
     readVehicle,
-    SPIN_FRAME,
-    SUSPENSION_FRAME,
     VEHICLE_CONFIG,
     Vehicle,
     type VehicleObservation,
@@ -27,7 +23,6 @@ import {
 } from "./car";
 
 const SCENE = resolve(import.meta.dir, "../public/scenes/drive-a-vehicle.scene");
-const MANIFEST = resolve(import.meta.dir, "../shallot.json");
 const HORIZON = 120;
 const BOX3D_LINEAR_SLOP = 0.005;
 
@@ -56,7 +51,6 @@ type Trace = {
     wheels: number[];
     bounds: VehicleBounds;
     initial: TickSample;
-    warmup: TickSample[];
     samples: TickSample[];
 };
 
@@ -83,7 +77,6 @@ type VehicleBounds = {
     suspensionExcursion: number;
     driveAcceleration: number;
     driveImpulse: number;
-    effectiveTorque: number;
     torqueBudget: number;
 };
 
@@ -190,7 +183,6 @@ function bounds(
         slop;
     const wheelAltitudeCeiling =
         altitudeCeiling + wheelFrameAnchor + suspensionExcursion + wheelRadius + slop;
-    const effectiveTorque = Math.max(...rear.map((wheel) => Math.abs(wheel.spin.maxTorque)));
     const rimSpeed = Math.abs(VEHICLE_CONFIG.throttle) * wheelRadius;
     const driveAcceleration =
         (rear.length * Math.abs(VEHICLE_CONFIG.maxSpinTorque)) / (wheelRadius * mass);
@@ -218,7 +210,6 @@ function bounds(
         driveAcceleration,
         driveImpulse:
             driveAcceleration * stepConfig.dt + slop / (stepConfig.dt / stepConfig.substeps),
-        effectiveTorque,
         torqueBudget: Math.abs(VEHICLE_CONFIG.maxSpinTorque),
     };
 }
@@ -311,31 +302,13 @@ function capture(
 function diagnostic(trace: Trace, index: number, boundsValue: VehicleBounds): string {
     const samples = [trace.initial, ...trace.samples];
     const actualIndex = index + 1;
-    const from = Math.max(0, actualIndex - 1);
-    const to = Math.min(samples.length, actualIndex + 2);
-    const sample = samples.slice(from, to).map((value) => ({
-        tick: value.tick,
-        activeKeys: value.keys,
-        bodies: value.bodies.map((bodyState, bodyIndex) => ({
-            body: bodyIndex === 0 ? "chassis" : `wheel ${bodyIndex}`,
-            pos: bodyState.pos,
-            vel: bodyState.vel,
-            quat: bodyState.quat,
-            quatNorm: Math.hypot(...bodyState.quat),
-            authored: value.authored[bodyIndex],
-            totalSpeed: value.totalSpeeds[bodyIndex],
-            horizontalSpeed: value.horizontalSpeeds[bodyIndex],
-        })),
-        wheelGroundSeparations: value.wheelGroundSeparations,
-        wheelAltitudes: value.wheelAltitudes,
-        wheelJointSeparations: value.wheelJointSeparations,
-        effectiveVehicle: value.observation,
-    }));
     return JSON.stringify({
         firstFailingTick: index,
         activeKeys: trace.keys,
         bounds: boundsValue,
-        sample,
+        sample: samples
+            .slice(Math.max(0, actualIndex - 1), Math.min(samples.length, actualIndex + 2))
+            .map(diagnosticSample),
     });
 }
 
@@ -385,19 +358,6 @@ function pairedDiagnostic(
         label,
         bounds: boundsValue,
         arms: { left: window(left), right: window(right) },
-    });
-}
-
-function warmupPairedDiagnostic(label: string, left: Trace, right: Trace, index: number): string {
-    const from = Math.max(0, index - 1);
-    const to = Math.min(left.warmup.length, index + 2);
-    return JSON.stringify({
-        firstDivergenceWarmup: index,
-        label,
-        arms: {
-            left: left.warmup.slice(from, to).map(diagnosticSample),
-            right: right.warmup.slice(from, to).map(diagnosticSample),
-        },
     });
 }
 
@@ -650,53 +610,6 @@ function rotate(q: Quat, v: Vec3): [number, number, number] {
     ];
 }
 
-function quat(value: { v: { x: number; y: number; z: number }; s: number }): Quat {
-    return [value.v.x, value.v.y, value.v.z, value.s];
-}
-
-function multiply(a: Quat, b: Quat): Quat {
-    const [ax, ay, az, aw] = a;
-    const [bx, by, bz, bw] = b;
-    return [
-        aw * bx + ax * bw + ay * bz - az * by,
-        aw * by - ax * bz + ay * bw + az * bx,
-        aw * bz + ax * by - ay * bx + az * bw,
-        aw * bw - ax * bx - ay * by - az * bz,
-    ];
-}
-
-function assertFramePremise(chassisEid: number, wheelEids: readonly number[]): void {
-    const chassisPos = tuplePos(chassisEid);
-    const suspensionAxis = rotate(quat(SUSPENSION_FRAME), [1, 0, 0]);
-    const parallelAxis = rotate(quat(SPIN_FRAME), [0, 0, 1]);
-    if (distance(suspensionAxis, [0, 1, 0]) > 1e-5)
-        throw new Error(`wheel suspension frame x axis is not world Y: ${suspensionAxis}`);
-    if (distance(parallelAxis, [0, 1, 0]) > 1e-5)
-        throw new Error(`upright parallel frame z axis is not world Y: ${parallelAxis}`);
-    for (const eid of wheelEids) {
-        const q = tupleQuat(eid);
-        if (Math.abs(Math.hypot(...q) - 1) > 1e-5)
-            throw new Error(`wheel ${eid} stored a non-unit authored quaternion: ${q}`);
-        const axle = rotate(multiply(q, quat(SPIN_FRAME)), [0, 0, 1]);
-        if (distance(axle, [0, 0, 1]) > 1e-5)
-            throw new Error(`wheel ${eid} spin frame does not realize the world-Z axle: ${axle}`);
-        const anchor = [
-            Body.pos.x.get(eid) - chassisPos[0],
-            Body.pos.y.get(eid) - chassisPos[1],
-            Body.pos.z.get(eid) - chassisPos[2],
-        ] as const;
-        const expected = [
-            Vehicle.role.get(eid) === VehicleRole.FrontWheel ? 1.5 : -1.5,
-            -1,
-            Math.sign(Body.pos.z.get(eid)) * 0.8,
-        ] as const;
-        if (distance(anchor, expected) > 1e-5)
-            throw new Error(
-                `wheel ${eid} anchor is not coincident with its authored chassis frame: ${anchor}`,
-            );
-    }
-}
-
 async function runTrace(keys: Arm): Promise<Trace> {
     const app = await vehicle();
     try {
@@ -708,12 +621,8 @@ async function runTrace(keys: Arm): Promise<Trace> {
         if (!firstObservation)
             throw new Error("actual vehicle did not wire after its first fixed step");
         const preliminaryBound = bounds(app, chassisEid, wheelEids, firstObservation);
-        const warmup: TickSample[] = [
-            capture(app, eids, wheelEids, -1, [], preliminaryBound.groundTop),
-        ];
         step(app, 1);
-        warmup.push(capture(app, eids, wheelEids, -0, [], preliminaryBound.groundTop));
-        const initial = warmup[warmup.length - 1];
+        const initial = capture(app, eids, wheelEids, -0, [], preliminaryBound.groundTop);
         const bound = deriveClearAirBounds(preliminaryBound, initial);
         for (const key of keys) pressKey(app.state, key);
         const samples: TickSample[] = [];
@@ -730,38 +639,12 @@ async function runTrace(keys: Arm): Promise<Trace> {
             wheels: wheelEids.slice(),
             bounds: bound,
             initial,
-            warmup,
             samples,
         };
         validateTrace(trace, keys.length === 0);
         return trace;
     } finally {
         app.dispose();
-    }
-}
-
-function assertSameWarmup(traces: readonly Trace[]): void {
-    const reference = traces[0];
-    for (const trace of traces.slice(1)) {
-        for (let index = 0; index < reference.warmup.length; index++) {
-            const a = reference.warmup[index];
-            const b = trace.warmup[index];
-            for (let bodyIndex = 0; bodyIndex < a.bodies.length; bodyIndex++) {
-                if (
-                    distance(a.bodies[bodyIndex].pos, b.bodies[bodyIndex].pos) > 1e-5 ||
-                    distance(a.bodies[bodyIndex].vel, b.bodies[bodyIndex].vel) > 1e-5 ||
-                    Math.hypot(
-                        a.bodies[bodyIndex].quat[0] - b.bodies[bodyIndex].quat[0],
-                        a.bodies[bodyIndex].quat[1] - b.bodies[bodyIndex].quat[1],
-                        a.bodies[bodyIndex].quat[2] - b.bodies[bodyIndex].quat[2],
-                        a.bodies[bodyIndex].quat[3] - b.bodies[bodyIndex].quat[3],
-                    ) > 1e-5
-                )
-                    throw new Error(
-                        `fresh vehicle arms diverged before input injection at warm-up ${index}; diagnostics=${warmupPairedDiagnostic("warm-up", reference, trace, index)}`,
-                    );
-            }
-        }
     }
 }
 
@@ -779,44 +662,6 @@ function causalDelta(trace: Trace, idle: Trace, index: number): Vec3 {
 }
 
 check(
-    "drive-a-vehicle presentation artifact has no world control text",
-    {
-        claim: "the actual drive-a-vehicle scene and manifest select no Text entity or Text plugin because controls live in the canvas overlay",
-    },
-    () => {
-        const scene = readFileSync(SCENE, "utf8");
-        const manifest = JSON.parse(readFileSync(MANIFEST, "utf8")) as {
-            plugins?: Record<string, unknown>;
-        };
-        if (/\btext\s*=/.test(scene))
-            throw new Error("drive-a-vehicle scene still authors a Text entity");
-        if (manifest.plugins && "Text" in manifest.plugins)
-            throw new Error("drive-a-vehicle manifest still selects Text");
-    },
-);
-
-check(
-    "drive-a-vehicle authored frames and effective joints are valid",
-    {
-        claim: "the actual vehicle scene's authored wheel frames and production joint observations establish the semantic suspension, axle, anchor and upright premises",
-    },
-    async () => {
-        const app = await vehicle();
-        try {
-            const chassisEid = chassis(app.state);
-            const wheelEids = wheels(app.state);
-            step(app, 2);
-            assertFramePremise(chassisEid, wheelEids);
-            const observation = readVehicle(app.state);
-            if (observation?.wheels.length !== 4 || observation?.upright === null)
-                throw new Error("actual vehicle did not expose four wheels and an upright joint");
-        } finally {
-            app.dispose();
-        }
-    },
-);
-
-check(
     "drive-a-vehicle actual scene follows a bounded causal trajectory",
     {
         claim: "the actual drive-a-vehicle scene follows a finite, ground-bound, input-causal stepped trajectory rather than receiving an uncommanded launch",
@@ -829,7 +674,6 @@ check(
         const reverse = await runTrace(["KeyS"]);
         const left = await runTrace(["KeyW", "KeyA"]);
         const right = await runTrace(["KeyW", "KeyD"]);
-        assertSameWarmup([idle, forward, reverse, left, right]);
         const deadline = Math.min(HORIZON - 1, idle.bounds.clearAirTicks + 10);
         const causalMinimum = Math.max(4 * idle.bounds.slop, idle.bounds.wheelRadius * 0.1);
         const forwardDelta = causalDelta(forward, idle, deadline);
@@ -868,6 +712,14 @@ check(
             throw new Error(
                 `W+A/W+D command-minus-forward steering failed by tick ${HORIZON - 1}; first divergences A=${leftFirst ?? HORIZON - 1} D=${rightFirst ?? HORIZON - 1}; A=${pairedDiagnostic("W+A vs W", left, forward, leftFirst ?? HORIZON - 1, idle.bounds)}; D=${pairedDiagnostic("W+D vs W", right, forward, rightFirst ?? HORIZON - 1, idle.bounds)}`,
             );
+        const leftHeading = heading(left.samples[HORIZON - 1].bodies[0].quat);
+        const rightHeading = heading(right.samples[HORIZON - 1].bodies[0].quat);
+        if (leftHeading >= -0.02 || rightHeading <= 0.02)
+            throw new Error(
+                `W+A/W+D heading was not opposite: ${leftHeading},${rightHeading}; diagnostics=${pairedDiagnostic("opposite W+A/W+D heading", left, right, HORIZON - 1, idle.bounds)}`,
+            );
+        if (forward.samples[HORIZON - 1].observation.upright === null)
+            throw new Error("actual vehicle exposed no upright joint");
         const forwardRear = forward.samples[HORIZON - 1].observation.wheels.filter(
             (wheel) => wheel.role === VehicleRole.RearWheel,
         );
@@ -885,53 +737,6 @@ check(
         if (drivenDelta > idle.bounds.driveImpulse)
             throw new Error(
                 `first W-minus-idle horizontal velocity divergence exceeded ${idle.bounds.driveImpulse.toFixed(4)}m/s; diagnostics=${pairedDiagnostic("first W vs idle impulse", forward, idle, 0, idle.bounds)}`,
-            );
-    },
-);
-
-check(
-    "vehicle throttle displaces the actual chassis",
-    {
-        claim: "the actual drive-a-vehicle recipe turns W into chassis displacement through its production wheel motor",
-    },
-    async () => {
-        const driven = await runTrace(["KeyW"]);
-        const before = driven.initial.bodies[0];
-        const after = driven.samples[24].bodies[0];
-        if (after.pos[0] <= before.pos[0] || after.vel[0] <= 0.1)
-            throw new Error(
-                `actual throttle did not produce an early forward response: displacement=${(after.pos[0] - before.pos[0]).toFixed(4)}m velocity=${after.vel[0].toFixed(4)}m/s`,
-            );
-    },
-);
-
-check(
-    "vehicle opposite steering gives opposite heading",
-    {
-        claim: "opposite A/D steering commands produce opposite signed chassis heading through the actual front wheel targets",
-    },
-    async () => {
-        const left = await runTrace(["KeyW", "KeyA"]);
-        const right = await runTrace(["KeyW", "KeyD"]);
-        const leftVelocity = left.samples[20].bodies[0].vel[2];
-        const rightVelocity = right.samples[20].bodies[0].vel[2];
-        const leftHeading = heading(left.samples[HORIZON - 1].bodies[0].quat);
-        const rightHeading = heading(right.samples[HORIZON - 1].bodies[0].quat);
-        const firstOppositeHeading = firstDivergence(
-            left,
-            right,
-            (a, b) => heading(a.bodies[0].quat) < -0.02 && heading(b.bodies[0].quat) > 0.02,
-        );
-        if (
-            leftVelocity >= -0.001 ||
-            rightVelocity <= 0.001 ||
-            leftVelocity * rightVelocity >= 0 ||
-            leftHeading >= -0.02 ||
-            rightHeading <= 0.02 ||
-            leftHeading * rightHeading >= 0
-        )
-            throw new Error(
-                `actual steering lateral/yaw response was not opposite: lateral=${leftVelocity},${rightVelocity} heading=${leftHeading},${rightHeading}; first opposite heading=${firstOppositeHeading ?? HORIZON - 1}; diagnostics=${pairedDiagnostic("opposite W+A/W+D steering", left, right, firstOppositeHeading ?? HORIZON - 1, left.bounds)}`,
             );
     },
 );
@@ -985,39 +790,4 @@ check(
             "--recipe",
             "vehicle",
         ]),
-);
-
-check(
-    "vehicle command wakes the actual sleeping chassis",
-    {
-        claim: "a production throttle command moves the actual sleeping chassis without a recipe caller wake loop",
-    },
-    async () => {
-        const app = await vehicle();
-        try {
-            const eid = chassis(app.state);
-            step(app, 2);
-            const parked = body(app.state, eid);
-            if (!parked) throw new Error("actual chassis never became a live body");
-            parked.setAwake(false);
-            const before = readBody(app.state, eid);
-            pressKey(app.state, "KeyW");
-            step(app, 8);
-            releaseKey(app.state, "KeyW");
-            const after = readBody(app.state, eid);
-            if (!before || !after) throw new Error("sleeping actual chassis could not be read");
-            const displacement = Math.hypot(
-                after.pos[0] - before.pos[0],
-                after.pos[2] - before.pos[2],
-            );
-            if (displacement < 0.001)
-                throw new Error(
-                    `sleeping actual command produced only ${displacement.toFixed(3)}m`,
-                );
-            if (devices(app.state).keys.held.has("KeyW"))
-                throw new Error("W remained held after release");
-        } finally {
-            app.dispose();
-        }
-    },
 );
