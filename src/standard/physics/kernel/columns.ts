@@ -37,6 +37,8 @@ export const FIN_OUT_STRIDE = 2;
  * flags(1) headShapeId(1) = 12 (body.rs `SIM2_STRIDE`). Mirrors the Rust ABI. */
 export const SIM2_STRIDE = 12;
 export const SIM2_LIVE = 12;
+/** Retained body-move bridge: body index, generation, fellAsleep. */
+export const MOVE_STRIDE = 3;
 // sim2 field offsets.
 export const S2_ROTATION0 = 0; // v3 + s
 export const S2_CENTER0 = 4;

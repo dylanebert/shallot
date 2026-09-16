@@ -102,6 +102,7 @@ export type WorldState = {
     constraintGraph: ConstraintGraph;
 
     bodyIdPool: IdPool;
+    /** Public body records are the authoring/handle bridge; lifecycle mirrors are registered in wasm. */
     bodies: Body[];
 
     solverSetIdPool: IdPool;

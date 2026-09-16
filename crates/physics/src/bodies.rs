@@ -49,7 +49,19 @@ const B_FIN: usize = 2;
 const B_FIN_OUT: usize = 3;
 const B_FLAGS: usize = 4;
 const B_SIM2: usize = 5;
-const N_BODY: usize = 6;
+// Lifecycle records are keyed by public body index, not awake-set index. Move records are keyed by
+// the awake-set index and are the retained bridge consumed after finalize.
+const B_RECORD_GENERATION: usize = 6;
+const B_RECORD_ALIVE: usize = 7;
+const B_RECORD_NEXT: usize = 8;
+const B_MOVE: usize = 9;
+const N_BODY: usize = 10;
+
+const MOVE_STRIDE: usize = 3;
+
+/// Public body-slot lifecycle state. These records live beside the solver columns in wasm memory;
+/// TypeScript retains only the authoring/handle bridge and never owns generation validity.
+static mut BODY_NEXT_INDEX: usize = 0;
 
 /// Per-column byte offsets into linear memory, rewritten by every grow-triggering `reserveBodies`.
 /// TS reads this header (`bodyLayoutPtr`) to build its column views (4a.2 on).
@@ -123,6 +135,30 @@ pub fn sim2_base() -> usize {
     unsafe { BODY_LAYOUT[B_SIM2] as usize }
 }
 
+/// Byte offset of the generation column keyed by public body index.
+#[inline]
+pub fn record_generation_base() -> usize {
+    unsafe { BODY_LAYOUT[B_RECORD_GENERATION] as usize }
+}
+
+/// Byte offset of the alive column keyed by public body index.
+#[inline]
+pub fn record_alive_base() -> usize {
+    unsafe { BODY_LAYOUT[B_RECORD_ALIVE] as usize }
+}
+
+/// Byte offset of the free-list next column keyed by public body index.
+#[inline]
+pub fn record_next_base() -> usize {
+    unsafe { BODY_LAYOUT[B_RECORD_NEXT] as usize }
+}
+
+/// Byte offset of the retained body-move bridge. Each record is bodyId, generation, fellAsleep.
+#[inline]
+pub fn move_base() -> usize {
+    unsafe { BODY_LAYOUT[B_MOVE] as usize }
+}
+
 /// The record capacity the resident region is currently sized to — the single source of truth for the
 /// TS body-store's column-view lengths (`src/bodycolumns.ts`). Zero before the first `reserveBodies`.
 #[export_name = "bodyCap"]
@@ -183,6 +219,16 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
         off = align16(off);
         BODY_LAYOUT[B_SIM2] = off as u32;
         off += records * SIM2_STRIDE * 4;
+        off = align16(off);
+        BODY_LAYOUT[B_RECORD_GENERATION] = off as u32;
+        off += cap * 4;
+        BODY_LAYOUT[B_RECORD_ALIVE] = off as u32;
+        off += cap * 4;
+        BODY_LAYOUT[B_RECORD_NEXT] = off as u32;
+        off += cap * 4;
+        off = align16(off);
+        BODY_LAYOUT[B_MOVE] = off as u32;
+        off += cap * MOVE_STRIDE * 4;
         let new_end = align16(off);
 
         // Relocate the live persistent data above the body region up by the growth delta. The fat-AABB,
@@ -244,6 +290,33 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
                 let bytes = old_cap * strides[c] * 4;
                 core::ptr::copy(old_layout[c] as *const u8, BODY_LAYOUT[c] as *mut u8, bytes);
             }
+            for c in B_RECORD_GENERATION..=B_RECORD_NEXT {
+                let bytes = old_cap * 4;
+                core::ptr::copy(old_layout[c] as *const u8, BODY_LAYOUT[c] as *mut u8, bytes);
+            }
+            core::ptr::copy(
+                old_layout[B_MOVE] as *const u8,
+                BODY_LAYOUT[B_MOVE] as *mut u8,
+                old_cap * MOVE_STRIDE * 4,
+            );
+        }
+
+        // Newly exposed public body slots start empty and point nowhere in the lifecycle record.
+        if cap > old_cap {
+            let generation = BODY_LAYOUT[B_RECORD_GENERATION] as *mut u32;
+            let alive = BODY_LAYOUT[B_RECORD_ALIVE] as *mut u32;
+            let next = BODY_LAYOUT[B_RECORD_NEXT] as *mut u32;
+            for i in old_cap..cap {
+                *generation.add(i) = 0;
+                *alive.add(i) = 0;
+                *next.add(i) = u32::MAX;
+            }
+            let moves = BODY_LAYOUT[B_MOVE] as *mut u32;
+            for i in old_cap..cap {
+                for lane in 0..MOVE_STRIDE {
+                    *moves.add(i * MOVE_STRIDE + lane) = 0;
+                }
+            }
         }
 
         // Initialise the trailing null-lane records (`cap + w`, one per thread) to identity: zero
@@ -264,5 +337,65 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
         BODY_END = new_end as u32;
         BODY_CAP = cap;
         1
+    }
+}
+
+/// Register a world-local public body slot. The TS world owns the local index pool while the kernel
+/// owns the resident generation/alive record used by the solver bridge.
+#[export_name = "bodyRegister"]
+pub extern "C" fn body_register(id: u32, generation: u32) {
+    unsafe {
+        let index = id as usize;
+        if index >= BODY_CAP {
+            let mut cap = if BODY_CAP == 0 { 16 } else { BODY_CAP };
+            while cap <= index {
+                cap *= 2;
+            }
+            reserve_bodies(cap);
+        }
+        if index >= BODY_NEXT_INDEX {
+            BODY_NEXT_INDEX = index + 1;
+        }
+        let alive = (BODY_LAYOUT[B_RECORD_ALIVE] as *mut u32).add(index);
+        *(BODY_LAYOUT[B_RECORD_GENERATION] as *mut u32).add(index) = generation;
+        *alive = 1;
+    }
+}
+
+/// Destroy a public body slot and clear its kernel-resident lifecycle record.
+#[export_name = "bodyDestroy"]
+pub extern "C" fn body_destroy(id: u32) {
+    unsafe {
+        let i = id as usize;
+        if i >= BODY_NEXT_INDEX || BODY_CAP == 0 {
+            return;
+        }
+        let alive = BODY_LAYOUT[B_RECORD_ALIVE] as *mut u32;
+        if *alive.add(i) == 0 {
+            return;
+        }
+        *alive.add(i) = 0;
+        let next = BODY_LAYOUT[B_RECORD_NEXT] as *mut u32;
+        *next.add(i) = u32::MAX;
+    }
+}
+
+#[export_name = "bodyGeneration"]
+pub extern "C" fn body_generation(id: u32) -> u32 {
+    unsafe {
+        if id as usize >= BODY_CAP {
+            return 0;
+        }
+        *(BODY_LAYOUT[B_RECORD_GENERATION] as *const u32).add(id as usize)
+    }
+}
+
+#[export_name = "bodyAlive"]
+pub extern "C" fn body_alive(id: u32) -> u32 {
+    unsafe {
+        if id as usize >= BODY_CAP {
+            return 0;
+        }
+        *(BODY_LAYOUT[B_RECORD_ALIVE] as *const u32).add(id as usize)
     }
 }

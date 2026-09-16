@@ -251,6 +251,7 @@ function finalizeBodies(
 
         // Publish the move event (corrected in place by CCD if the body is fast; fellAsleep patched
         // by the sleep pass). Only bodies that moved this step land here — the render bulk-sync path.
+        world.bodyStore.writeMove(simIndex, sim.bodyId, body.generation);
         const move = world.bodyMoveEvents[simIndex];
         move.bodyId = sim.bodyId;
         move.generation = body.generation;

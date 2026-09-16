@@ -25,6 +25,7 @@ import type { Body, BodySim, BodyState } from "../world/body";
 import type { WorldState } from "../world/world";
 import {
     FIN_STRIDE,
+    MOVE_STRIDE,
     S2_BODY_ID,
     S2_CENTER0,
     S2_FLAGS,
@@ -47,7 +48,8 @@ const B_SIM = 1;
 const B_FIN = 2;
 export const B_FLAGS = 4;
 const B_SIM2 = 5;
-export const N_BODY = 6;
+const B_MOVE = 9;
+export const N_BODY = 10;
 
 /** Null-lane identity records the region holds past `bodyCap` — one per thread, since the wide
  * gather/scatter writes the running worker's record (bodies.rs `IDENT_RECORDS`). */
@@ -92,6 +94,8 @@ export class BodyStore {
     sim2F = new Float32Array(0);
     /** The same sim2 bytes viewed as u32, for the integer `bodyId`/`flags` slots. */
     sim2U = new Uint32Array(0);
+    /** Retained kernel body-move records: body index, generation, fellAsleep. */
+    moveU = new Uint32Array(0);
     /** Memory size the views were derived at, on the shared (multithreaded) path; 0 single-threaded,
      * where detachment is the signal instead. See `stale`. */
     bytes = 0;
@@ -126,7 +130,8 @@ export class BodyStore {
             this.flagsU.byteOffset === layout[B_FLAGS] &&
             this.simF.byteOffset === layout[B_SIM] &&
             this.finF.byteOffset === layout[B_FIN] &&
-            this.sim2F.byteOffset === layout[B_SIM2]
+            this.sim2F.byteOffset === layout[B_SIM2] &&
+            this.moveU.byteOffset === layout[B_MOVE]
         )
             return;
         this.stateF = new Float32Array(buf, layout[B_STATE], cap * STATE_STRIDE);
@@ -135,6 +140,30 @@ export class BodyStore {
         this.finF = new Float32Array(buf, layout[B_FIN], cap * FIN_STRIDE);
         this.sim2F = new Float32Array(buf, layout[B_SIM2], cap * SIM2_STRIDE);
         this.sim2U = new Uint32Array(buf, layout[B_SIM2], cap * SIM2_STRIDE);
+        this.moveU = new Uint32Array(buf, layout[B_MOVE], cap * MOVE_STRIDE);
+    }
+
+    /** Publish one body move record into the kernel-resident bridge. */
+    writeMove(index: number, bodyId: number, generation: number): void {
+        const o = index * MOVE_STRIDE;
+        this.moveU[o] = bodyId;
+        this.moveU[o + 1] = generation;
+        this.moveU[o + 2] = 0;
+    }
+
+    /** Mark a published body move as asleep without allocating an event object. */
+    markMoveAsleep(index: number): void {
+        this.moveU[index * MOVE_STRIDE + 2] = 1;
+    }
+
+    /** Read a retained body move record for direct bridge evidence. */
+    readMove(index: number): { bodyId: number; generation: number; fellAsleep: boolean } {
+        const o = index * MOVE_STRIDE;
+        return {
+            bodyId: this.moveU[o],
+            generation: this.moveU[o + 1],
+            fellAsleep: this.moveU[o + 2] !== 0,
+        };
     }
 
     /** Marshal a plain `BodyState` into the resident column at record `i` — the object→view write on a

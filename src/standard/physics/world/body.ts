@@ -61,6 +61,7 @@ import {
     residentRemove,
 } from "../kernel/bodycolumns";
 import { writeFatAabb } from "../kernel/fataabbcolumns";
+import { kernel } from "../kernel/kernel";
 import type { Capsule, MassData } from "../shapes/geometry";
 import {
     collideMover,
@@ -842,6 +843,8 @@ export function createBody(world: WorldState, def: BodyDef): number {
         world.solverSets[setId].setIndex = setId;
     }
 
+    // The cold record remains the world-local authoring/handle bridge; the lifecycle fields are
+    // registered in the kernel record columns before any solver path can observe the body.
     const bodyId = allocId(world.bodyIdPool);
 
     let lockFlags = 0;
@@ -899,6 +902,7 @@ export function createBody(world: WorldState, def: BodyDef): number {
     // set already pushed at line above, so its index is length - 1.
     body.localIndex = setId === SetType.Awake ? set.bodySims.length : set.bodySims.length - 1;
     body.generation += 1;
+    kernel().bodyRegister(bodyId, body.generation);
     body.headShapeId = NULL_INDEX;
     body.shapeCount = 0;
     body.headChainId = NULL_INDEX;
@@ -1021,6 +1025,7 @@ export function destroyBody(world: WorldState, body: Body): void {
     }
 
     freeId(world.bodyIdPool, body.id);
+    kernel().bodyDestroy(body.id);
     body.setIndex = NULL_INDEX;
     body.localIndex = NULL_INDEX;
     body.id = NULL_INDEX;
