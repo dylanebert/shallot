@@ -30,10 +30,7 @@ function refuse(message: string): never {
 }
 
 function run(files: string[], environment: NodeJS.ProcessEnv): number {
-    if (files.length === 0) {
-        console.log("empty population; no tests");
-        return 0;
-    }
+    if (files.length === 0) refuse("empty population; an empty run is never green");
     const proc = Bun.spawnSync(
         [
             process.execPath,
@@ -122,7 +119,7 @@ if (selected.length === 0) {
     process.exit(run(files, { ...envBase, SHALLOT_UNIT_ONLY: "1" }));
 }
 for (const row of selected) {
-    const code = run(files, { ...envBase, KEX_S3_ROW: row.claim });
+    const code = run([row.file], { ...envBase, KEX_S3_ROW: row.claim });
     if (code !== 0) process.exit(code);
     console.log(`selected integration: ${row.claim}`);
 }

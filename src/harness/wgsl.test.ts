@@ -8,7 +8,7 @@ check(
         claim: "compileWgsl reports Dawn validation for malformed WGSL and accepts valid WGSL",
         size: "integration",
         requires: ["gpu"],
-        subject: "src/harness/wgsl.test.ts",
+        subject: "src/harness/wgsl.ts",
     },
     async () => {
         const invalid = await compileWgsl("this is not WGSL");

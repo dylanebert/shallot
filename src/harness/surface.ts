@@ -102,6 +102,18 @@ const REGISTRARS = new Set(["test", "it", "describe"]);
 const COLUMNS = ["claim", "size", "requires", "subject", "budget", "file"] as const;
 const DEEP_RECIPE_IMPORT = /(?:from\s+|import\s*\(\s*)["'][^"']*\/src(?:\/|["'])/;
 const PHYSICS_WORLD_ESCAPE = /\bPhysics\.world\b|\bphysicsWorld\s*\(/;
+// A temp dir a check creates must live under the host temp root; one rooted in the repository leaks into
+// discovery, `git status` and sibling sweeps when a row dies before its cleanup.
+const MKDTEMP_CALL = /\bmkdtempSync\s*\(([^;]*)/g;
+const HOST_TEMP_ROOT = /\btmpdir\s*\(\s*\)|\bTMPDIR\b/;
+const FUNCTION_NODES = new Set([
+    "FunctionDeclaration",
+    "FunctionExpression",
+    "ArrowFunctionExpression",
+    "ObjectMethod",
+    "ClassMethod",
+    "ClassPrivateMethod",
+]);
 
 interface StaticValue {
     ok: boolean;
@@ -170,6 +182,27 @@ function walk(node: unknown, visit: (call: Record<string, unknown>) => void): vo
     }
 }
 
+/** Process spawns evaluated at import, outside every function body, so discovery itself runs them. */
+function moduleScopeSpawns(node: unknown): number {
+    if (node === null || typeof node !== "object") return 0;
+    if (Array.isArray(node)) return node.reduce((sum, item) => sum + moduleScopeSpawns(item), 0);
+    const n = node as Record<string, unknown>;
+    if (typeof n.type === "string" && FUNCTION_NODES.has(n.type)) return 0;
+    let count = 0;
+    if (n.type === "CallExpression") {
+        const callee = n.callee as
+            | { type?: string; name?: string; property?: { name?: string } }
+            | undefined;
+        const name = callee?.type === "Identifier" ? callee.name : callee?.property?.name;
+        if (name === "spawnSync") count += 1;
+    }
+    for (const [key, value] of Object.entries(n)) {
+        if (key === "loc" || key === "leadingComments" || key === "trailingComments") continue;
+        count += moduleScopeSpawns(value);
+    }
+    return count;
+}
+
 function relativeFile(root: string, path: string): string {
     return relative(root, path).split(sep).join("/");
 }
@@ -233,6 +266,16 @@ export function readFileDeclarations(root: string, path: string, population: Pop
         population.invalid.push(`cannot parse ${file}: ${(error as Error).message}`);
         return;
     }
+    if (file.endsWith(".test.ts") && moduleScopeSpawns(ast.program) > 0)
+        population.invalid.push(
+            `import-time spawn: ${file} spawns a process at module scope; spawn inside a check() body so discovery runs nothing`,
+        );
+    for (const match of source.matchAll(MKDTEMP_CALL)) {
+        if (!HOST_TEMP_ROOT.test(match[1]))
+            population.invalid.push(
+                `in-repository temp dir: ${file} calls mkdtempSync outside tmpdir(); root temp dirs at the host temp directory`,
+            );
+    }
     let found = 0;
     walk(ast.program, (call) => {
         found += 1;
@@ -247,6 +290,13 @@ export function readFileDeclarations(root: string, path: string, population: Pop
             );
             return;
         }
+        const subjects = subjectList(parsedDeclaration.value?.subject);
+        if (subjects.includes(file)) {
+            population.invalid.push(
+                `self subject: ${where} names its own file as subject; name the source it checks`,
+            );
+            return;
+        }
         try {
             const valid = validateDeclaration(where, parsedDeclaration.value);
             population.rows.push({
@@ -256,7 +306,7 @@ export function readFileDeclarations(root: string, path: string, population: Pop
                 requires: [...valid.requires],
                 budget: valid.budget,
                 file,
-                subjects: subjectList(parsedDeclaration.value?.subject),
+                subjects,
                 ...(valid.host === undefined ? {} : { host: valid.host }),
             });
         } catch (error) {
