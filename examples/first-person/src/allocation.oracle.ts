@@ -9,10 +9,10 @@ import { check } from "@dylanebert/shallot/harness/check";
 import { readSanctions, type SanctionRow } from "@dylanebert/shallot/harness/surface";
 
 function table(label: string, sites: readonly AllocationSite[], frames: number): string {
-    const bytes = windowBytes({ label, sites });
+    const bytes = windowBytes({ sites });
     const perFrame = (value: number) => (value / frames).toFixed(1);
     return [
-        `${label}: ${bytes} bytes (${perFrame(bytes)}/f) at ${sites.length} sites`,
+        `${label}: ${bytes} bytes (${perFrame(bytes)}/f) over ${frames} measured frames at ${sites.length} sites`,
         ...sites.map(
             (row) =>
                 `  ${String(row.bytes).padStart(10)}  ${perFrame(row.bytes).padStart(8)}/f  ${(row.count / frames).toFixed(2).padStart(6)}×/f  ${row.site}`,
@@ -32,7 +32,7 @@ function sanctionTable(rows: readonly SanctionRow[], sample: PageSample): string
     const observed = (site: string) =>
         sample.windows.map(
             (window) =>
-                (window.sites.find((row) => where(row.site) === site)?.count ?? 0) / sample.frames,
+                (window.sites.find((row) => where(row.site) === site)?.count ?? 0) / window.frames,
         );
     return [
         `sanctions: ${rows.length} rows, ${rows.filter((row) => row.approved === "").length} unapproved`,
@@ -98,9 +98,9 @@ check(
         const declared = readSanctions(process.cwd());
         const tables = [
             `${sample.runtime} on ${sample.adapter}`,
-            ...sample.windows.map((window) => table(window.label, window.sites, sample.frames)),
-            table("survivors after a full collection", sample.survivors, sample.frames),
-            table("control over 60 frames", sample.control, 60),
+            ...sample.windows.map((window) => table(window.label, window.sites, window.frames)),
+            table("survivors after a full collection", sample.survivors, sample.windows[0].frames),
+            table("control", sample.control, sample.controlFrames),
             sanctionTable(declared.rows, sample),
             traceReport(sample),
         ].join("\n");
@@ -116,8 +116,8 @@ check(
         // at the loop's own site to drown the control is itself the red this row exists to report.
         const at = (sites: readonly AllocationSite[]) =>
             sites.find((row) => row.site === sample.loopSite)?.bytes ?? 0;
-        const controlAt = at(sample.control) / 60;
-        const repeatAt = at(sample.windows[2].sites) / sample.frames;
+        const controlAt = at(sample.control) / sample.controlFrames;
+        const repeatAt = at(sample.windows[2].sites) / sample.windows[2].frames;
         console.log(
             `control at ${sample.loopSite}: ${controlAt.toFixed(1)}/f against A/A ${repeatAt.toFixed(1)}/f`,
         );
@@ -126,6 +126,19 @@ check(
                 `the control read ${controlAt.toFixed(1)}/f at ${sample.loopSite}, not above the A/A window's ${repeatAt.toFixed(1)}/f: either the sampler is not attributing the control literal to the frame loop, or the page allocates at least as much there on its own`,
             );
         failures.push(...declared.errors);
+        // Each window's frame count is the harness's own per-frame sentinel, sampled on the same clock as
+        // the sites below, so it is what the counts divide by and what proves the window's sampler was live.
+        // A window steps at least the frames it was asked for; it overshoots, because the calls that start
+        // and stop the profiler and the frame-count poll all let frames elapse.
+        for (const window of sample.windows)
+            if (window.frames < sample.frames)
+                failures.push(
+                    `${window.label} measured ${window.frames} frames against the ${sample.frames} it asked for: the harness's per-frame sentinel did not sample this window, so nothing read from it was measured`,
+                );
+        if (sample.controlFrames <= 0)
+            failures.push(
+                "the control span measured no frames: the harness's per-frame sentinel did not sample it",
+            );
 
         // The Locked decision's red conditions: no byte outside the declared sanctions, every sanctioned
         // site at its derived count, no stale row, nothing alive after a full collection, and no major
@@ -149,11 +162,12 @@ check(
                     stale.push(`  ${window.label}: ${row.site} allocates nothing`);
                     continue;
                 }
-                // the count is derived per frame, so the window's samples must round to it exactly
-                const per = Math.round(seen.count / sample.frames);
-                if (per !== row.count)
+                // The count is derived per frame and the window's measured frame count is exact, so the
+                // samples must equal their product exactly: no rounding, no tolerance. One extra allocation
+                // in one frame of the window is a red, which is the whole point of deriving the count.
+                if (seen.count !== row.count * window.frames)
                     wrongCount.push(
-                        `  ${window.label}: ${row.site} read ${(seen.count / sample.frames).toFixed(2)}×/f against the declared ${row.count}`,
+                        `  ${window.label}: ${row.site} read ${seen.count} allocations over ${window.frames} frames against the declared ${row.count}×/f, which is ${row.count * window.frames}`,
                     );
             }
         }

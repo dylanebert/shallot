@@ -950,6 +950,29 @@ check(
 );
 
 check(
+    "an unapproved or orphan sanction row reds the reader",
+    {
+        claim: "check-surface.ts reds a sanction row whose approval is empty and one whose site names an absent file, and leaves an approved row on a present file alone",
+        size: "integration",
+    },
+    () => {
+        const { code, err } = reader("sanctions");
+        expect(code).toBe(1);
+        const sanctionLines = err
+            .split("\n")
+            .filter((line) => line.includes("sanction row"))
+            .map((line) => line.trim());
+        expect(sanctionLines).toEqual([
+            'unapproved sanction row: site "src/kept.test.ts:2" awaits the person\'s approval',
+            'orphan sanction row: site "src/gone.ts:3" names no file in the tree',
+        ]);
+        const absent = reader("clean");
+        expect(absent.code).toBe(0);
+        expect(absent.err).toBe("");
+    },
+);
+
+check(
     "a non-literal declaration reds the reader",
     {
         claim: "check-surface.ts reds a check whose options use a spread, identifier or computed value, naming its file",

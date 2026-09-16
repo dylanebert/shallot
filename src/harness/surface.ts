@@ -44,7 +44,8 @@ export interface QuarantineFile {
  * `reason` names the function and the platform reason; `count` is the per-frame count derived
  * from the frame's structure (one per frame, one per pass, one per submitted buffer), never a byte
  * figure; `spec` owns it; `approved` carries the person's `(user, YYYY-MM-DD)` and is empty until they
- * approve the row. No agent approves a sanction.
+ * approve the row. No agent approves a sanction, and `check` reds while a row is unapproved or its
+ * file is absent from the tree.
  */
 export interface SanctionRow {
     site: string;
@@ -970,6 +971,17 @@ export function readSurface(root: string): string[] {
         if (sanctioned.has(row.site))
             violations.push(`duplicate sanction row: site "${row.site}" is declared twice`);
         sanctioned.add(row.site);
+        // A sanction is the person's, so an unapproved row reds the gate that guards landing: the display
+        // oracle runs only by name, and without this a branch could land its own sanctions unread.
+        if (row.approved === "")
+            violations.push(
+                `unapproved sanction row: site "${row.site}" awaits the person's approval`,
+            );
+        // Structural only: the file must exist, so a rename or move reds here without a display run. The
+        // line is the display oracle's to catch as stale; reading it here would need source-text matching.
+        const file = row.site.slice(0, row.site.lastIndexOf(":"));
+        if (file === "" || !existsSync(resolve(root, file)))
+            violations.push(`orphan sanction row: site "${row.site}" names no file in the tree`);
     }
     const files = new Set(population.rows.map((row) => row.file));
     const claims = new Set(population.rows.map((row) => row.claim));

@@ -33,11 +33,19 @@ export interface AllocationWindow {
     label: string;
     /** allocating sites in the bundled subject, most bytes first; builtin bytes credit their caller */
     sites: readonly AllocationSite[];
+    /**
+     * frames this window actually stepped, measured on the same allocation clock as `sites`. The Node
+     * sampler steps its frames itself, so this is exact by construction; the page sampler reads it from
+     * its own per-frame sentinel, because a page window overshoots the frames the harness asked for.
+     * Per-frame figures and per-frame counts divide by this, never by {@link AllocationSample.frames}.
+     */
+    frames: number;
 }
 
 export interface AllocationSample {
     runtime: string;
     warm: number;
+    /** frames each window was asked to step; what it stepped is the window's own `frames` */
     frames: number;
     /** windows read after `warm` frames, after twice that, and an A/A repeat, each after a collection */
     windows: readonly AllocationWindow[];
@@ -72,7 +80,7 @@ export const TIER_FLAGS = [
     "--invocation-count-for-turbofan=50",
 ];
 
-export const windowBytes = (window: AllocationWindow) =>
+export const windowBytes = (window: { sites: readonly AllocationSite[] }) =>
     window.sites.reduce((total, row) => total + row.bytes, 0);
 
 /** True only when every window reads zero bytes at zero sites. */
@@ -190,6 +198,8 @@ export interface PageSample extends AllocationSample {
     loopSite: string;
     /** sites of a fourth window's allocations still live after a full collection */
     survivors: readonly AllocationSite[];
+    /** frames the control span stepped, measured as each window's are */
+    controlFrames: number;
     /** the GC trace and long-frame correlation over the steady windows */
     trace: PlayTrace;
 }
@@ -200,6 +210,38 @@ type FrameCount = { __shallotFrames: number };
 // The page's run frame: the engine's frame loop, `run`'s `frame` method in the app module. A method keeps its
 // property name through minification, so a production build's profile still names it.
 const FRAME_LOOP = { source: resolve(import.meta.dir, "../engine/app/index.ts"), name: "frame" };
+
+/**
+ * The harness's own per-frame sentinel, a second run frame beside the engine's.
+ * `__shallotFrameMark` allocates exactly one escaping object per frame into a slot on `window`, so escape
+ * analysis cannot remove it, and it allocates nothing else; the `tick` that schedules the next frame is
+ * deliberately not a run frame, so whatever `requestAnimationFrame` allocates is never counted here. At the
+ * one-byte sampling interval every allocation is a sample, so the sentinel's sample count over a span is
+ * exactly the frames that span stepped, read on the same allocation clock as the sanctioned sites. Each
+ * frame overwrites the slot, so every sentinel but the live one is collected, and the site is stripped from
+ * every reported list.
+ *
+ * An injected document script has no url in a heap profile — a `sourceURL` trailer names it for stack traces
+ * only — so the frame is identified by the empty url the page's own served scripts never have, plus a
+ * reserved name no subject declares.
+ */
+const FRAME_TICK_NAME = "__shallotFrameMark";
+const FRAME_TICK_SITE = `${FRAME_TICK_NAME} (harness frame sentinel)`;
+
+const FRAME_TICK_SCRIPT = `(() => {
+    const counter = window;
+    counter.__shallotFrames = 0;
+    const ${FRAME_TICK_NAME} = () => {
+        counter.__shallotMark = { frame: counter.__shallotFrames };
+    };
+    const tick = () => {
+        counter.__shallotFrames++;
+        ${FRAME_TICK_NAME}();
+        requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+})();
+`;
 
 /** frames the control span steps under the breakpoint. */
 const CONTROL_FRAMES = 60;
@@ -401,7 +443,10 @@ export async function samplePage(
                 originalPosition(frame, built.map, built.base)?.source === app
             );
         };
-        const runSite = (frame: CallFrame) => (isFrameLoop(frame) ? siteOf(frame) : undefined);
+        const isFrameTick = (frame: CallFrame) =>
+            frame.url === "" && frame.functionName === FRAME_TICK_NAME;
+        const runSite = (frame: CallFrame) =>
+            isFrameTick(frame) ? FRAME_TICK_SITE : isFrameLoop(frame) ? siteOf(frame) : undefined;
 
         const { chromium } = await import("playwright");
         const options = launchOptions(plan);
@@ -421,16 +466,9 @@ export async function samplePage(
         page.setDefaultTimeout(remaining());
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
-        // The harness's frame count: its own rAF callback, outside the run frame, never wrapping the engine's.
-        await page.addInitScript(() => {
-            const counter = window as unknown as FrameCount;
-            counter.__shallotFrames = 0;
-            const tick = () => {
-                counter.__shallotFrames++;
-                requestAnimationFrame(tick);
-            };
-            requestAnimationFrame(tick);
-        });
+        // The harness's frame count and its per-frame sentinel: its own rAF callback, outside the run frame,
+        // never wrapping the engine's.
+        await page.addInitScript({ content: FRAME_TICK_SCRIPT });
         const cdp = await bounded("newCDPSession", page.context().newCDPSession(page));
         await bounded("goto", page.goto(`${origin}/`, { waitUntil: "load", timeout: remaining() }));
         const facts = await bounded("adapterFacts", adapterFacts(page));
@@ -499,12 +537,18 @@ export async function samplePage(
             );
         const removeLoopBreakpoint = (breakpointId: string) =>
             bounded("removeBreakpoint", cdp.send("Debugger.removeBreakpoint", { breakpointId }));
+        // The sentinel is the harness's instrument, not the subject's: it leaves every reported site list,
+        // and where it measures a span it leaves as that span's frame count.
+        const split = (sites: ReturnType<typeof attribute>) => ({
+            sites: sites.filter((row) => row.site !== FRAME_TICK_SITE),
+            frames: sites.find((row) => row.site === FRAME_TICK_SITE)?.count ?? 0,
+        });
         const sample = async (count: number) => {
             await collect();
             await startSampling();
             await advance(count);
             const { profile } = await stopSampling();
-            return attribute(profile, runSite, siteOf);
+            return split(attribute(profile, runSite, siteOf));
         };
         // the survivor window: sampling without the collected-object classes, then a full collection
         // before the profile is read, so what remains is what the window allocated and still holds.
@@ -517,7 +561,7 @@ export async function samplePage(
             await advance(count);
             await collect();
             const { profile } = await stopSampling();
-            return attribute(profile, runSite, siteOf);
+            return split(attribute(profile, runSite, siteOf)).sites;
         };
         const timed = async <T>(work: () => Promise<T>): Promise<[T, number]> => {
             const at = performance.now();
@@ -626,11 +670,12 @@ export async function samplePage(
             warm,
             frames,
             windows: [
-                { label: `after warm ${warm}`, sites: atWarm },
-                { label: `after warm ${2 * warm}`, sites: atDoubleWarm },
-                { label: "A/A repeat", sites: repeat },
+                { label: `after warm ${warm}`, ...atWarm },
+                { label: `after warm ${2 * warm}`, ...atDoubleWarm },
+                { label: "A/A repeat", ...repeat },
             ],
-            control,
+            control: control.sites,
+            controlFrames: control.frames,
         };
     } finally {
         await browser?.close();
@@ -657,23 +702,23 @@ export function siteSetMismatch(
 
 /** Per-window totals, then the heaviest window's sites as a table, for a failure message. */
 export function siteTable(sample: AllocationSample, limit = 30): string {
-    const perFrame = (bytes: number) => (bytes / sample.frames).toFixed(1);
+    const perFrame = (bytes: number, frames: number) => (bytes / frames).toFixed(1);
     const totals = sample.windows.map(
         (window) =>
-            `${window.label}: ${windowBytes(window)} bytes (${perFrame(windowBytes(window))}/f) at ${window.sites.length} sites`,
+            `${window.label}: ${windowBytes(window)} bytes (${perFrame(windowBytes(window), window.frames)}/f) over ${window.frames} measured frames at ${window.sites.length} sites`,
     );
     const heaviest = sample.windows.reduce((a, b) => (windowBytes(b) > windowBytes(a) ? b : a));
     const rows = heaviest.sites
         .slice(0, limit)
         .map(
             (row) =>
-                `  ${String(row.bytes).padStart(10)}  ${perFrame(row.bytes).padStart(8)}/f  ${row.site}`,
+                `  ${String(row.bytes).padStart(10)}  ${perFrame(row.bytes, heaviest.frames).padStart(8)}/f  ${row.site}`,
         );
     const more =
         heaviest.sites.length > limit ? [`  … ${heaviest.sites.length - limit} more sites`] : [];
     return [
         ...totals,
-        `heaviest, ${heaviest.label}, over ${sample.frames} frames, ${sample.runtime}`,
+        `heaviest, ${heaviest.label}, over ${heaviest.frames} measured frames, ${sample.runtime}`,
         ...rows,
         ...more,
     ].join("\n");

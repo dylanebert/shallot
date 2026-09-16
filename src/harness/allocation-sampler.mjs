@@ -163,10 +163,12 @@ async function main() {
         steps(warm - frames);
         const atDoubleWarm = await sample(steps, frames);
         const repeat = await sample(steps, frames);
+        // Node steps its own frames, so each window's frame count is exact by construction; the page
+        // sampler has to measure its windows, because a page window overshoots what it was asked for.
         return [
-            { label: `after warm ${warm}`, sites: atWarm },
-            { label: `after warm ${2 * warm}`, sites: atDoubleWarm },
-            { label: "A/A repeat", sites: repeat },
+            { label: `after warm ${warm}`, sites: atWarm, frames },
+            { label: `after warm ${2 * warm}`, sites: atDoubleWarm, frames },
+            { label: "A/A repeat", sites: repeat, frames },
         ];
     }
 
@@ -189,10 +191,14 @@ async function main() {
         const despawnAgain = await sample(despawnFrame);
         const afterDespawnAgain = await sample(steps, CHUNK);
         const afterEvents = [
-            { label: `${CHUNK} frames after spawn`, sites: afterSpawn },
-            { label: `${CHUNK} frames after despawn`, sites: afterDespawn },
-            { label: `${CHUNK} frames after second spawn`, sites: afterSpawnAgain },
-            { label: `${CHUNK} frames after second despawn`, sites: afterDespawnAgain },
+            { label: `${CHUNK} frames after spawn`, sites: afterSpawn, frames: CHUNK },
+            { label: `${CHUNK} frames after despawn`, sites: afterDespawn, frames: CHUNK },
+            { label: `${CHUNK} frames after second spawn`, sites: afterSpawnAgain, frames: CHUNK },
+            {
+                label: `${CHUNK} frames after second despawn`,
+                sites: afterDespawnAgain,
+                frames: CHUNK,
+            },
         ];
         const windows = await steadyWindows();
         collect();
