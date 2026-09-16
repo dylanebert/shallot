@@ -968,6 +968,7 @@ check(
         // is as visible as one that never fired at all.
         expect(lines.sort()).toEqual(
             [
+                'unapproved sanction row: site "src/kept.test.ts:2" awaits the person\'s approval',
                 'orphan sanction row: site "src/gone.ts:3" names no file in the tree',
                 'unapproved red-circle row: site "src/kept.test.ts:6" awaits the person\'s approval',
                 'orphan red-circle row: site "src/vanished.ts:7" names no file in the tree',

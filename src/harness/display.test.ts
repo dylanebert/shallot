@@ -2,6 +2,7 @@ import { expect } from "bun:test";
 import { check } from "@dylanebert/shallot/harness/check";
 import {
     declaredMonitor,
+    openOnDisplay,
     parseMonitors,
     parseWindows,
     placementRefusal,
@@ -11,6 +12,7 @@ import {
     type SeatMonitor,
     type SeatWindow,
 } from "./display";
+import { MissingPremise } from "./verdict";
 
 // One live two-monitor desktop as the compositor reports it: the same pair whose refresh rates made one
 // 120-frame window 500 ms on DP-1 and 833 ms on DP-2.
@@ -146,5 +148,30 @@ check(
         // is not retiled around it.
         expect(script).toContain("float = true");
         expect(script).toContain('size = "1280 720"');
+    },
+);
+
+check(
+    "a host with no Hyprland refuses the display seat before it spawns anything",
+    {
+        claim: "openOnDisplay refuses with MissingPremise when the host declares no Hyprland instance, so the seat's placement premise is checked before the compositor is ever asked",
+    },
+    async () => {
+        // The clause the whole module rests on: Hyprland is the only compositor with a placement here, so
+        // another one refuses by name rather than letting focus decide which monitor the page presents on.
+        // Non-vacuity is free: without the guard this call reaches `hyprctl` and tries to spawn.
+        const signature = process.env.HYPRLAND_INSTANCE_SIGNATURE;
+        delete process.env.HYPRLAND_INSTANCE_SIGNATURE;
+        try {
+            const refusal = await openOnDisplay("DP-1").then(
+                () => undefined,
+                (error: unknown) => error,
+            );
+            expect(refusal).toBeInstanceOf(MissingPremise);
+            expect((refusal as Error).message).toContain("DP-1");
+            expect((refusal as Error).message).toContain("no compositor placement");
+        } finally {
+            if (signature !== undefined) process.env.HYPRLAND_INSTANCE_SIGNATURE = signature;
+        }
     },
 );

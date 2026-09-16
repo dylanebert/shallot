@@ -11,7 +11,7 @@
         "reason": "approved is empty, so check reds until the person approves it",
         "count": 1,
         "spec": "shallot-surface-dogfood",
-        "approved": "(user, 2026-01-01)"
+        "approved": ""
     },
     {
         "site": "src/gone.ts:3",

@@ -787,12 +787,24 @@ export function derivedFrames(
  * The declared-site conditions over a page sample's windows: nothing allocates outside the two
  * declarations, no declared site is stale, and every sanctioned site reads its derived count exactly.
  *
+ * Membership and staleness are read over the **A/A repeat window alone**, the last of `windows`, as
+ * § Gate narrowing locks: the page's warm is bounded by the row's own budget, and a JIT transition is not
+ * steady-state cost, so a site that appears only in a warm window is warm-up telemetry rather than a
+ * failure and a row that allocates only in the warm windows is not yet stale. The warm windows' extra and
+ * absent sites are printed beside the verdict by {@link warmWindowTelemetry}, not thrown.
+ *
  * Membership and staleness are the same for both classes. Only the count differs: a sanction is what the
  * platform forces, so its samples must equal `count * frames` exactly — no rounding, no tolerance, because
  * one extra allocation in one frame of one window is the defect the count exists to catch. That is
- * asserted by {@link derivedFrames}, which fails unless every row agrees on one frame count inside the
- * window's bracket. A red-circle is real, unwanted allocation the person deferred to a named later gate,
- * so it carries no count and holds at any count until that gate closes it.
+ * asserted by {@link derivedFrames} over every window, which fails unless every row agrees on one frame
+ * count inside the window's bracket. A red-circle is real, unwanted allocation the person deferred to a
+ * named later gate, so it carries no count and holds at any count until that gate closes it.
+ *
+ * An **empty sanction ledger** asserts nothing here. `derivedFrames` has no row to divide by, so its
+ * reason would be about the ledger being empty rather than about anything the page did, and a failure that
+ * a perfect page cannot clear is not a reading. The ledger is the person's decision; its own
+ * "no sanctioned site allocated" reason stays for the case that matters, a non-empty ledger whose rows
+ * have all gone silent.
  *
  * Returns one message per broken condition, empty when all hold.
  */
@@ -803,29 +815,66 @@ export function declaredSiteFailures(
 ): string[] {
     const declared = new Set([...sanctions, ...redCircles].map((row) => row.site));
     const failures: string[] = [];
-    const undeclared = windows.flatMap((window) =>
-        window.sites
-            .filter((row) => !declared.has(where(row.site)))
-            .map((row) => `  ${window.label}: ${row.bytes} B at ${row.site}`),
-    );
+    const steady = windows[windows.length - 1];
+    if (steady === undefined) return failures;
+    const undeclared = steady.sites
+        .filter((row) => !declared.has(where(row.site)))
+        .map((row) => `  ${steady.label}: ${row.bytes} B at ${row.site}`);
     if (undeclared.length > 0)
         failures.push(
             `warm page frames allocate outside the sanctions and red circles:\n${undeclared.join("\n")}`,
         );
     const stale: string[] = [];
-    for (const row of [
-        ...sanctions.map((row) => ({ site: row.site, noun: "sanction" })),
-        ...redCircles.map((row) => ({ site: row.site, noun: "red-circle" })),
-    ])
-        for (const window of windows)
-            if (!window.sites.some((site) => where(site.site) === row.site))
-                stale.push(`  ${window.label}: ${row.noun} ${row.site} allocates nothing`);
+    for (const row of declaredRows(sanctions, redCircles))
+        if (!steady.sites.some((site) => where(site.site) === row.site))
+            stale.push(`  ${steady.label}: ${row.noun} ${row.site} allocates nothing`);
     if (stale.length > 0) failures.push(`stale declared rows:\n${stale.join("\n")}`);
-    for (const window of windows) {
-        const derived = derivedFrames(window, sanctions);
-        if ("reason" in derived) failures.push(derived.reason);
-    }
+    if (sanctions.length > 0)
+        for (const window of windows) {
+            const derived = derivedFrames(window, sanctions);
+            if ("reason" in derived) failures.push(derived.reason);
+        }
     return failures;
+}
+
+const declaredRows = (
+    sanctions: readonly { site: string }[],
+    redCircles: readonly { site: string }[],
+) => [
+    ...sanctions.map((row) => ({ site: row.site, noun: "sanction" })),
+    ...redCircles.map((row) => ({ site: row.site, noun: "red-circle" })),
+];
+
+/**
+ * What the warm windows saw that the A/A repeat did not, and the reverse: printed beside the verdict as
+ * telemetry, because § Gate narrowing reads membership and staleness over the A/A repeat alone. A site here
+ * is a JIT transition settling, not a page defect — but it is worth seeing, since a site that keeps
+ * appearing across runs is where the next red will come from.
+ *
+ * Empty lines mean the warm windows named exactly what the A/A repeat did.
+ */
+export function warmWindowTelemetry(
+    windows: readonly AllocationWindow[],
+    sanctions: readonly { site: string; count: number }[],
+    redCircles: readonly { site: string }[],
+): string {
+    const declared = new Set([...sanctions, ...redCircles].map((row) => row.site));
+    const lines: string[] = [];
+    for (const window of windows.slice(0, -1)) {
+        for (const row of window.sites)
+            if (!declared.has(where(row.site)))
+                lines.push(
+                    `  ${window.label}: ${row.bytes} B at ${row.site} — undeclared in a warm window only`,
+                );
+        for (const row of declaredRows(sanctions, redCircles))
+            if (!window.sites.some((site) => where(site.site) === row.site))
+                lines.push(
+                    `  ${window.label}: ${row.noun} ${row.site} allocates nothing in this warm window`,
+                );
+    }
+    return lines.length === 0
+        ? "warm-window telemetry: the warm windows name exactly the sites the A/A repeat does"
+        : `warm-window telemetry (not gated; membership and staleness are read over the A/A repeat):\n${lines.join("\n")}`;
 }
 
 /** Empty when `sites` names exactly `named`; otherwise the unnamed sites by bytes and the named ones absent. */

@@ -6,6 +6,7 @@ import {
     derivedFrames,
     type PageSample,
     samplePage,
+    warmWindowTelemetry,
     where,
     windowBytes,
 } from "@dylanebert/shallot/harness/allocation";
@@ -136,6 +137,16 @@ check(
             const derived = derivedFrames(window, declared.rows);
             return "frames" in derived ? derived.frames : window.frames;
         };
+        // Whether the figures below are exact or a floor, said once at the top of the tables rather than
+        // left for the reader to infer: with no sanction declared there is nothing to derive a frame count
+        // from, every window reads its bracket's floor, and each `/f` and `×/f` figure is therefore an
+        // upper bound inflated by up to the bracket's width.
+        const derivation =
+            declared.rows.length === 0
+                ? `frame counts: no sanction is declared, so every window below reads its bracket's floor — each /f and ×/f figure is an upper bound, not an exact rate`
+                : sample.windows.every((window) => "frames" in derivedFrames(window, declared.rows))
+                  ? `frame counts: derived exactly from the ${declared.rows.length} declared sanction rows agreeing inside the page counter's bracket`
+                  : `frame counts: at least one window's sanctioned sites do not agree on a count, so that window reads its bracket's floor and its /f figures are upper bounds; the condition below names it`;
         // The seat beside the adapter: which monitor the page was placed on and verified to have presented
         // on, what that monitor runs at, and what the page actually presented at. A window's wall-clock
         // length is its frames over that rate, so a reader can see which display a table below came from.
@@ -143,6 +154,7 @@ check(
         const tables = [
             `${sample.runtime} on ${sample.adapter}`,
             seat,
+            derivation,
             ...sample.windows.map((window) =>
                 table(window.label, window.sites, windowFrames(window)),
             ),
@@ -154,6 +166,7 @@ check(
             table("control", sample.control, windowFrames(sample.controlSpan)),
             sanctionTable(declared.rows, sample, windowFrames),
             redCircleTable(redCircled.rows, sample, windowFrames),
+            warmWindowTelemetry(sample.windows, declared.rows, redCircled.rows),
             traceReport(sample),
         ].join("\n");
         console.log(tables);

@@ -106,9 +106,9 @@ let _pointFrameCount = 0;
 let _pointBuf = new ArrayBuffer(0);
 let _pointF32 = new Float32Array(_pointBuf);
 // whether the params buffer on the GPU already holds the cleared set. This replaces reading slot 0's
-// `light` lane back as a sentinel: `clearPointParams` writes that -1 only for slots a caster exists for,
-// so a scene with no casters at all never reached the sentinel and re-cleared and re-uploaded the whole
-// uniform on every frame of the default frame.
+// `light` lane back as a sentinel: that lane is data, not a flag, so a caster whose `light` lane happened
+// to read exactly -1 would have satisfied the sentinel and skipped a clear the scene needed. The flag is
+// written on the same path as every write to the buffer, so it cannot disagree with it.
 let _pointCleared = false;
 
 /** the point-shadow atlas depth view a screen-space consumer (the fog volumetric march) binds to sample

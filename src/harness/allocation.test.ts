@@ -1,6 +1,11 @@
 import { expect } from "bun:test";
 import { resolve } from "node:path";
-import { declaredSiteFailures, derivedFrames, where } from "@dylanebert/shallot/harness/allocation";
+import {
+    declaredSiteFailures,
+    derivedFrames,
+    warmWindowTelemetry,
+    where,
+} from "@dylanebert/shallot/harness/allocation";
 import { check } from "@dylanebert/shallot/harness/check";
 
 const ENTRY = resolve(import.meta.dir, "../../examples/first-person/src/allocation.entry.ts");
@@ -203,5 +208,99 @@ check(
         );
         // and that window then has no frame count of its own, which is its own message
         expect(failures[1]).toContain("no sanctioned site allocated");
+    },
+);
+
+check(
+    "membership and staleness are read over the A/A repeat window alone",
+    {
+        claim: "the declared-site rule reads membership and staleness over the last window, so a row that allocates in the A/A repeat but not in a warm window is green and one absent from the A/A repeat reds, and the warm windows' extra and absent sites print as telemetry instead",
+    },
+    () => {
+        // § Gate narrowing: the page's warm is bounded by the row's own budget and a JIT transition is not
+        // steady-state cost, so the warm windows are telemetry and the A/A repeat is the gate. Before this,
+        // an approved row absent from a warm window reded on every run by construction.
+        // Non-vacuity: the three-window steady sample the mutations below start from is green.
+        const steady = windows(
+            [sanctionSite(240), redCircleSite(517)],
+            [sanctionSite(240), redCircleSite(499)],
+            [sanctionSite(240), redCircleSite(503)],
+        );
+        expect(declaredSiteFailures(steady, [SANCTION], [RED_CIRCLE])).toEqual([]);
+        // A row allocating in the A/A repeat but not in window 0: warm-up, not a stale row.
+        const warmSilent = windows(
+            [sanctionSite(240)],
+            [sanctionSite(240), redCircleSite(499)],
+            [sanctionSite(240), redCircleSite(503)],
+        );
+        expect(declaredSiteFailures(warmSilent, [SANCTION], [RED_CIRCLE])).toEqual([]);
+        // and it is not silently dropped: the warm window's absence is printed beside the verdict
+        expect(warmWindowTelemetry(warmSilent, [SANCTION], [RED_CIRCLE])).toContain(
+            "window 0: red-circle src/b.ts:20 allocates nothing in this warm window",
+        );
+        // A row absent from the A/A repeat is stale, and that is the only window that can say so.
+        const gone = windows(
+            [sanctionSite(240), redCircleSite(517)],
+            [sanctionSite(240), redCircleSite(499)],
+            [sanctionSite(240)],
+        );
+        expect(declaredSiteFailures(gone, [SANCTION], [RED_CIRCLE])).toEqual([
+            "stale declared rows:\n  window 2: red-circle src/b.ts:20 allocates nothing",
+        ]);
+        // Membership narrows the same way: an undeclared site seen only while the page warms is telemetry,
+        // and the same site in the A/A repeat reds.
+        const warmOnly = windows(
+            [
+                sanctionSite(240),
+                redCircleSite(517),
+                { site: "tier src/c.ts:30", bytes: 64, count: 7 },
+            ],
+            [sanctionSite(240), redCircleSite(499)],
+            [sanctionSite(240), redCircleSite(503)],
+        );
+        expect(declaredSiteFailures(warmOnly, [SANCTION], [RED_CIRCLE])).toEqual([]);
+        expect(warmWindowTelemetry(warmOnly, [SANCTION], [RED_CIRCLE])).toContain(
+            "window 0: 64 B at tier src/c.ts:30 — undeclared in a warm window only",
+        );
+        const steadyLeak = windows(
+            [sanctionSite(240), redCircleSite(517)],
+            [sanctionSite(240), redCircleSite(499)],
+            [
+                sanctionSite(240),
+                redCircleSite(503),
+                { site: "leak src/c.ts:30", bytes: 64, count: 7 },
+            ],
+        );
+        expect(declaredSiteFailures(steadyLeak, [SANCTION], [RED_CIRCLE])[0]).toContain(
+            "window 2: 64 B at leak src/c.ts:30",
+        );
+    },
+);
+
+check(
+    "an empty sanction ledger reds nothing on a page whose every site is red-circled",
+    {
+        claim: "the declared-site rule asserts no derived count when no sanction is declared, so an empty ledger — the person's decision, not a page defect — cannot manufacture a failure a perfect page is unable to clear",
+    },
+    () => {
+        // With `sanctions.json` at `[]` the derivation has nothing to divide by, and its reason would be
+        // about the ledger rather than about the page. Every measured site is red-circled here, so the page
+        // is exactly as clean as the declarations say it is, and the rule must be silent.
+        const measured = windows([redCircleSite(517)], [redCircleSite(499)], [redCircleSite(503)]);
+        expect(declaredSiteFailures(measured, [], [RED_CIRCLE])).toEqual([]);
+        // The reason itself stays, for the case that matters: a non-empty ledger whose rows went silent.
+        expect(declaredSiteFailures(measured, [SANCTION], [RED_CIRCLE])[1]).toContain(
+            "no sanctioned site allocated",
+        );
+        // and an empty ledger still reds a site no declaration names, so the skip is the count condition
+        // alone and not the whole rule
+        const undeclared = windows(
+            [redCircleSite(517)],
+            [redCircleSite(499)],
+            [redCircleSite(503), { site: "leak src/c.ts:30", bytes: 64, count: 7 }],
+        );
+        expect(declaredSiteFailures(undeclared, [], [RED_CIRCLE])[0]).toContain(
+            "64 B at leak src/c.ts:30",
+        );
     },
 );
