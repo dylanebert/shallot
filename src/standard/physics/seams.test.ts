@@ -107,12 +107,12 @@ check(
                         localFrameA: identity(),
                         localFrameB: identity(-1, 0, 0),
                         enableMotor: true,
-                        maxMotorTorque: 10,
+                        maxMotorTorque: 100000,
                     });
                     return {
                         sleepers: [body],
                         set: () => joint.setMotorSpeed(4),
-                        responded: () => true,
+                        responded: () => Math.abs(joint.getAngle()) > 0.05,
                     };
                 },
             },

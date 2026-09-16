@@ -182,7 +182,11 @@ function walk(node: unknown, visit: (call: Record<string, unknown>) => void): vo
     }
 }
 
-/** Process spawns evaluated at import, outside every function body, so discovery itself runs them. */
+/**
+ * Process spawns evaluated at import, outside every function body, so discovery itself runs them.
+ * Bound: only a callee named `spawnSync` (bare or member) in a `.test.ts`; spawns through an
+ * imported helper, other spawn names, or an `.oracle.ts` are not seen here.
+ */
 function moduleScopeSpawns(node: unknown): number {
     if (node === null || typeof node !== "object") return 0;
     if (Array.isArray(node)) return node.reduce((sum, item) => sum + moduleScopeSpawns(item), 0);
