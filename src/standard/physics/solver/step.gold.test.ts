@@ -4,6 +4,8 @@
 
 import { expect } from "bun:test";
 import { check } from "../../../harness/check";
+import { World } from "../api/world";
+import { BodyType } from "../common/types";
 import { loadConsumerCorpus, runCommonInput } from "../oracle/consumer";
 import { loadScenarioCorpus, runScenario } from "../oracle/scenario";
 import { compareCase } from "../oracle/strict";
@@ -11,12 +13,24 @@ import { compareCase } from "../oracle/strict";
 check(
     "CCD and sensor manifold intermediates match the active C route",
     {
-        claim: "the active collision route changes the symmetric face-B feature order or the pinned CCD and sensor intermediate bits",
+        claim: "the active collision route changes the symmetric face-B feature order, the pinned CCD and sensor intermediate bits, or the public body move record identity",
         size: "integration",
         budget: 20_000,
         subject: ["crates/physics", "src/standard/physics/collision"],
     },
     () => {
+        const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
+        const body = world.createBody({ type: BodyType.Dynamic, position: { x: 0, y: 1, z: 0 } });
+        body.createSphere({}, { center: { x: 0, y: 0, z: 0 }, radius: 0.5 });
+        body.applyMassFromShapes();
+        world.step(1 / 60, 1);
+        const moves = world.getBodyEvents();
+        expect(moves.count).toBeGreaterThan(0);
+        const event = moves.moveEvents[0];
+        expect(event.body.id.index1).toBe(body.id.index1);
+        expect(event.body.id.generation).toBe(body.id.generation);
+        expect(event.fellAsleep).toBe(false);
+
         const { corpus, digest } = loadScenarioCorpus();
         const ccd = corpus.scenarios.find((scenario) => scenario.name === "ccd-bullet");
         const sensor = corpus.scenarios.find((scenario) => scenario.name === "sensor");

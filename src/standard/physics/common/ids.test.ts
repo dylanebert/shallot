@@ -1,66 +1,74 @@
 import { expect } from "bun:test";
 import { check } from "../../../harness/check";
-import { allocId, createIdPool, freeId, idCapacity, idCount, loadId, storeId } from "./ids";
-
-// Ports test_id.c: the store/load roundtrip. Body/shape/joint ids share one packing, so one
-// pair covers all three.
+import { World } from "../api/world";
+import { BodyType } from "../common/types";
+import { kernel } from "../kernel/kernel";
 
 check(
-    "storeId after loadId is the identity on a packed id",
+    "public body handles preserve their packed index and generation record",
     {
-        claim: "the entity id packing loses or reorders bits on a full round trip through loadId and storeId",
+        claim: "body lifecycle records lose a sibling world's validity, generation, LIFO reuse, or count when another world grows the kernel capacity",
     },
     () => {
-        const x = 0x0123456789abcdefn;
-        expect(storeId(loadId(x))).toBe(x);
+        const growing = new World({ gravity: { x: 0, y: 0, z: 0 } });
+        const sibling = new World({ gravity: { x: 0, y: 0, z: 0 } });
+        const survivor = sibling.createBody({ type: BodyType.Dynamic });
+        const freedA = sibling.createBody({ type: BodyType.Dynamic });
+        const freedB = sibling.createBody({ type: BodyType.Dynamic });
+        const freedAGeneration = freedA.id.generation;
+        const freedBGeneration = freedB.id.generation;
+        freedA.destroy();
+        freedB.destroy();
+        expect(sibling.getCounters().bodyCount).toBe(1);
+
+        const initialCapacity = kernel().bodyCap();
+        const growingBodies = [];
+        while (kernel().bodyCap() === initialCapacity) {
+            growingBodies.push(growing.createBody({ type: BodyType.Dynamic }));
+        }
+
+        expect(survivor.id.index1 - 1).toBe(0);
+        expect(survivor.isValid()).toBe(true);
+        expect(kernel().bodyGeneration(sibling.state.worldId, 0)).toBe(survivor.id.generation);
+        expect(sibling.getCounters().bodyCount).toBe(1);
+
+        const reusedB = sibling.createBody({ type: BodyType.Dynamic });
+        const reusedA = sibling.createBody({ type: BodyType.Dynamic });
+        expect(reusedB.id.index1 - 1).toBe(freedB.id.index1 - 1);
+        expect(reusedA.id.index1 - 1).toBe(freedA.id.index1 - 1);
+        expect(reusedB.id.generation).not.toBe(freedBGeneration);
+        expect(reusedA.id.generation).not.toBe(freedAGeneration);
+        expect(sibling.getCounters().bodyCount).toBe(3);
+
+        survivor.destroy();
+        expect(survivor.isValid()).toBe(false);
+        expect(sibling.getCounters().bodyCount).toBe(2);
+        for (const body of growingBodies) body.destroy();
+        growing.destroy();
+        sibling.destroy();
     },
 );
 
 check(
-    "id fields decode from the u64 layout",
+    "the public body pool hands out dense ids and reuses freed ones last in first out",
     {
-        claim: "loadId reads index1, world0 or generation from the wrong bit field of the packed u64",
+        claim: "the public body id pool leaves holes in its dense range, miscounts live ids against capacity, or recycles freed ids in the wrong order",
     },
     () => {
-        const id = loadId(0x0123456789abcdefn);
-        expect(id.index1).toBe(0x01234567);
-        expect(id.world0).toBe(0x89ab);
-        expect(id.generation).toBe(0xcdef);
-    },
-);
+        const world = new World({ gravity: { x: 0, y: 0, z: 0 } });
+        const a = world.createBody({ type: BodyType.Dynamic });
+        const b = world.createBody({ type: BodyType.Dynamic });
+        const c = world.createBody({ type: BodyType.Dynamic });
+        expect([a.id.index1 - 1, b.id.index1 - 1, c.id.index1 - 1]).toEqual([0, 1, 2]);
+        expect(world.getCounters().bodyCount).toBe(3);
 
-check(
-    "a high-bit index1 sign-extends and still round-trips",
-    {
-        claim: "an index1 with its top bit set fails to sign-extend on load, so a negative index round-trips as a large positive one",
-    },
-    () => {
-        const id = { index1: -1, world0: 0x1234, generation: 0x5678 };
-        expect(loadId(storeId(id))).toEqual(id);
-    },
-);
-
-check(
-    "the id pool hands out dense ids and reuses freed ones last in first out",
-    {
-        claim: "the id pool leaves holes in its dense range, miscounts live ids against capacity, or recycles freed ids in the wrong order",
-    },
-    () => {
-        const pool = createIdPool();
-        expect(allocId(pool)).toBe(0);
-        expect(allocId(pool)).toBe(1);
-        expect(allocId(pool)).toBe(2);
-        expect(idCount(pool)).toBe(3);
-        expect(idCapacity(pool)).toBe(3);
-
-        freeId(pool, 0);
-        freeId(pool, 1);
-        expect(idCount(pool)).toBe(1);
-        // LIFO: last freed comes back first.
-        expect(allocId(pool)).toBe(1);
-        expect(allocId(pool)).toBe(0);
-        // Range exhausted again, extend.
-        expect(allocId(pool)).toBe(3);
-        expect(idCapacity(pool)).toBe(4);
+        a.destroy();
+        b.destroy();
+        expect(world.getCounters().bodyCount).toBe(1);
+        const reusedB = world.createBody({ type: BodyType.Dynamic });
+        const reusedA = world.createBody({ type: BodyType.Dynamic });
+        expect(reusedB.id.index1 - 1).toBe(1);
+        expect(reusedA.id.index1 - 1).toBe(0);
+        expect(world.createBody({ type: BodyType.Dynamic }).id.index1 - 1).toBe(3);
     },
 );

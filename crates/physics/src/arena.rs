@@ -12,7 +12,7 @@
 //! [`Col`]s rather than `&mut` slices — `col.rs` carries the argument.
 
 use crate::body::{
-    FIN_OUT_STRIDE, FIN_STRIDE, S2_HEAD_SHAPE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE,
+    FIN_OUT_STRIDE, FIN_STRIDE, S2_BODY_ID, S2_HEAD_SHAPE, SIM2_STRIDE, SIM_STRIDE, STATE_STRIDE,
 };
 use crate::col::Col;
 use crate::contact::{
@@ -1083,6 +1083,11 @@ pub(crate) unsafe fn finalize_block(
         let out = f32s(FIN_OUT, b * FIN_OUT_STRIDE);
         let flags = u32s(FLAGS, b);
         let sim2 = Col::new(crate::bodies::sim2_base() as *mut f32, b * SIM2_STRIDE);
+        let sim2_u = Col::new(crate::bodies::sim2_base() as *mut u32, b * SIM2_STRIDE);
+        let moves = Col::new(
+            crate::bodies::move_base() as *mut u32,
+            b * crate::bodies::MOVE_STRIDE,
+        );
         finalize::finalize(
             state,
             sim,
@@ -1096,6 +1101,15 @@ pub(crate) unsafe fn finalize_block(
             inv_dt,
             enable_continuous,
         );
+        // Finalization is the sole producer of move records. The record identity is read from the
+        // resident kernel body columns and its generation from the active world lifecycle pool.
+        for i in start..end {
+            let body_id = sim2_u.get(i * SIM2_STRIDE + S2_BODY_ID);
+            let o = i * crate::bodies::MOVE_STRIDE;
+            moves.set(o, body_id);
+            moves.set(o + 1, crate::bodies::active_generation(body_id));
+            moves.set(o + 2, 0);
+        }
         refit_block(sim, fin, start, end);
     }
 }

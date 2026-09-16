@@ -314,7 +314,7 @@ export function trySleepIsland(world: WorldState, islandId: number): void {
 
         // The body fell asleep this step; flag its move event so the app can sleep the game object too.
         if (body.bodyMoveIndex !== NULL_INDEX) {
-            world.bodyMoveEvents[body.bodyMoveIndex].fellAsleep = true;
+            world.bodyStore.markMoveAsleep(body.bodyMoveIndex);
             body.bodyMoveIndex = NULL_INDEX;
         }
 

@@ -226,6 +226,8 @@ pub const S2_CENTER0: usize = 4;
 /// Slot of `BodySim.minExtent` in the sim2 column — the smallest shape half-extent, against which the
 /// finalize fast-body test compares this step's motion (`columns.ts` `S2_MIN_EXTENT`).
 pub const S2_MIN_EXTENT: usize = 7;
+/// Public body index carried by the resident sim2 record for lifecycle/move publication.
+pub const S2_BODY_ID: usize = 9;
 
 /// Slot of the head of the body's shape list (its `nextShapeId` chain runs through the shape column,
 /// shapes.rs), written TS-side at marshal-in and on any shape-list mutation of an awake body. The lane
