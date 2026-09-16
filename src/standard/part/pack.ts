@@ -7,9 +7,10 @@ import { CULL_FRUSTUM, CULL_VOLUME_FLOATS, DrawIndexedIndirect } from "../render
 
 // The pack kernels: cull → count → scan → scatter, the compute half of the Part producer. Count and
 // scatter share the same cull inputs, so those are ONE bind group layout both kernels reference (and the
-// shared `visible` test closes over) — a typed bind group is bound by layout identity, never by group
-// index, so the group a kernel's own I/O lands in is invisible to the CPU side and the prefix needs no
-// re-declaration. The scan is a third pipeline with no cull inputs at all.
+// shared `visible` test closes over), and the prefix needs no re-declaration. The scan is a third pipeline
+// with no cull inputs at all. Each layout pins its group index with `$idx`: the dispatches are issued on a
+// raw compute pass, which addresses a bind group by index, so the index is declared here rather than left
+// to resolution order. This displaces the note that the group index is invisible to the CPU side.
 
 /** `{ viewCount, pairCount }` — written each frame, read by all three passes @internal */
 export const CullParams = d.struct({ viewCount: d.u32, pairCount: d.u32 });
@@ -17,35 +18,43 @@ export const CullParams = d.struct({ viewCount: d.u32, pairCount: d.u32 });
 /** the cull inputs shared by count + scatter: the per-entity slabs + membership mirror, the world-transform
  *  firehose, the per-mesh bounds, and the per-view cull volumes the visibility test needs.
  *  @internal */
-export const cullLayout = tgpu.bindGroupLayout({
-    surfaceField: { storage: d.arrayOf(d.u32), access: "readonly" },
-    meshField: { storage: d.arrayOf(d.u32), access: "readonly" },
-    membership: { storage: d.arrayOf(d.u32), access: "readonly" },
-    transforms: { storage: d.arrayOf(Xform), access: "readonly" },
-    meshBounds: { storage: d.arrayOf(d.vec4f), access: "readonly" },
-    cullVolumes: { storage: d.arrayOf(d.vec4f), access: "readonly" },
-    params: { uniform: CullParams },
-});
+export const cullLayout = tgpu
+    .bindGroupLayout({
+        surfaceField: { storage: d.arrayOf(d.u32), access: "readonly" },
+        meshField: { storage: d.arrayOf(d.u32), access: "readonly" },
+        membership: { storage: d.arrayOf(d.u32), access: "readonly" },
+        transforms: { storage: d.arrayOf(Xform), access: "readonly" },
+        meshBounds: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+        cullVolumes: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+        params: { uniform: CullParams },
+    })
+    .$idx(0);
 
 /** the count pass's own output: one atomic tally per (view slot, pair) @internal */
-export const countLayout = tgpu.bindGroupLayout({
-    counts: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
-});
+export const countLayout = tgpu
+    .bindGroupLayout({
+        counts: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
+    })
+    .$idx(1);
 
 /** the scan pass's I/O — no cull inputs, so it references neither shared layout @internal */
-export const scanLayout = tgpu.bindGroupLayout({
-    counts: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
-    drawArgs: { storage: d.arrayOf(DrawIndexedIndirect), access: "mutable" },
-    params: { uniform: CullParams },
-});
+export const scanLayout = tgpu
+    .bindGroupLayout({
+        counts: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
+        drawArgs: { storage: d.arrayOf(DrawIndexedIndirect), access: "mutable" },
+        params: { uniform: CullParams },
+    })
+    .$idx(0);
 
 /** the scatter pass's own I/O: the scanned args it reads bases from, the counts it reuses as a cursor,
  *  and the compacted survivor list it appends into @internal */
-export const scatterLayout = tgpu.bindGroupLayout({
-    drawArgs: { storage: d.arrayOf(DrawIndexedIndirect), access: "readonly" },
-    counts: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
-    packedEids: { storage: d.arrayOf(d.u32), access: "mutable" },
-});
+export const scatterLayout = tgpu
+    .bindGroupLayout({
+        drawArgs: { storage: d.arrayOf(DrawIndexedIndirect), access: "readonly" },
+        counts: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
+        packedEids: { storage: d.arrayOf(d.u32), access: "mutable" },
+    })
+    .$idx(1);
 
 // header vec4 + the 6 frustum planes
 const CULL_STRIDE = CULL_VOLUME_FLOATS / 4;

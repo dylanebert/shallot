@@ -58,7 +58,9 @@ export function subjectSite(frame, map, base, fallback) {
  * @param {{ head: ProfileNode, samples: { nodeId: number, size: number }[] }} profile
  * @param {(frame: CallFrame) => string | undefined} runSite names a run frame, else undefined
  * @param {(frame: CallFrame) => string | undefined} siteOf names a subject frame, else undefined
- * @returns {{ site: string, bytes: number }[]} most bytes first
+ * At a one-byte sampling interval every allocation is sampled, so the number of samples at a site is the
+ * number of allocations there: a sanctioned site's per-frame count is read from it, never from bytes.
+ * @returns {{ site: string, bytes: number, count: number }[]} most bytes first
  */
 export function attribute(profile, runSite, siteOf) {
     const owner = new Map();
@@ -71,12 +73,15 @@ export function attribute(profile, runSite, siteOf) {
     };
     visit(profile.head, undefined);
     const bytes = new Map();
+    const counts = new Map();
     for (const { nodeId, size } of profile.samples) {
         const key = owner.get(nodeId);
-        if (key !== undefined) bytes.set(key, (bytes.get(key) ?? 0) + size);
+        if (key === undefined) continue;
+        bytes.set(key, (bytes.get(key) ?? 0) + size);
+        counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return [...bytes]
-        .map(([name, size]) => ({ site: name, bytes: size }))
+        .map(([name, size]) => ({ site: name, bytes: size, count: counts.get(name) ?? 0 }))
         .sort((x, y) => y.bytes - x.bytes);
 }
 

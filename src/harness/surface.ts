@@ -37,6 +37,28 @@ export interface QuarantineFile {
     errors: string[];
 }
 
+/**
+ * one declared per-frame allocation the platform forces, read from `sanctions.json` beside
+ * `quarantine.json`. `site` is the owning function site as `<file>:<line>`, the function's definition
+ * line, which is the half of an allocation profile's site name a minified production build keeps;
+ * `reason` names the function and the platform reason; `count` is the per-frame count derived
+ * from the frame's structure (one per frame, one per pass, one per submitted buffer), never a byte
+ * figure; `spec` owns it; `approved` carries the person's `(user, YYYY-MM-DD)` and is empty until they
+ * approve the row. No agent approves a sanction.
+ */
+export interface SanctionRow {
+    site: string;
+    reason: string;
+    count: number;
+    spec: string;
+    approved: string;
+}
+
+export interface SanctionFile {
+    rows: SanctionRow[];
+    errors: string[];
+}
+
 export interface UndeclaredFile {
     file: string;
     reason: string;
@@ -462,10 +484,58 @@ export function readQuarantine(root: string): QuarantineFile {
     return { rows, errors };
 }
 
+const APPROVAL = /^\(user, \d{4}-\d{2}-\d{2}\)$/;
+
+/**
+ * the declared per-frame allocation sanctions, read by the same reader as {@link readQuarantine} so
+ * `list` and every verdict count them. A malformed row is an error, never a silently dropped sanction.
+ */
+export function readSanctions(root: string): SanctionFile {
+    const path = resolve(root, "sanctions.json");
+    if (!existsSync(path)) return { rows: [], errors: [] };
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(readFileSync(path, "utf8"));
+    } catch (error) {
+        return { rows: [], errors: [`invalid sanctions.json: ${(error as Error).message}`] };
+    }
+    if (!Array.isArray(parsed))
+        return { rows: [], errors: ["invalid sanctions.json: expected an array"] };
+    const rows: SanctionRow[] = [];
+    const errors: string[] = [];
+    for (const [index, raw] of parsed.entries()) {
+        const row = raw as Record<string, unknown> | null;
+        const fields = ["site", "reason", "spec"];
+        const missing = fields.filter(
+            (field) => typeof row?.[field] !== "string" || (row[field] as string).trim() === "",
+        );
+        if (missing.length > 0) {
+            errors.push(
+                `invalid sanction row ${index + 1}: fields must be strings: ${missing.join(", ")}`,
+            );
+            continue;
+        }
+        if (typeof row?.count !== "number" || !Number.isInteger(row.count) || row.count < 1) {
+            errors.push(`invalid sanction row ${index + 1}: count must be a positive integer`);
+            continue;
+        }
+        const approved = row?.approved;
+        if (typeof approved !== "string" || (approved !== "" && !APPROVAL.test(approved))) {
+            errors.push(
+                `invalid sanction row ${index + 1}: approved must be "" or "(user, YYYY-MM-DD)"`,
+            );
+            continue;
+        }
+        rows.push(row as unknown as SanctionRow);
+    }
+    return { rows, errors };
+}
+
 export function formatPopulation(
     population: Population,
     quarantines: readonly QuarantineRow[] = readQuarantine(population.root).rows,
     rows: readonly SurfaceRow[] = population.rows,
+    sanctions: readonly SanctionRow[] = readSanctions(population.root).rows,
 ): string {
     const cells = rows.map((row) => [
         row.claim,
@@ -486,7 +556,7 @@ export function formatPopulation(
     return [
         line(COLUMNS),
         ...cells.map(line),
-        `${rows.length} checks (parsed ${population.rows.length}; ${quarantines.length} quarantined)`,
+        `${rows.length} checks (parsed ${population.rows.length}; ${quarantines.length} quarantined; ${sanctions.length} sanctioned, ${sanctions.filter((row) => row.approved === "").length} unapproved)`,
     ].join("\n");
 }
 
@@ -893,6 +963,14 @@ export function readSurface(root: string): string[] {
     }
     const quarantine = readQuarantine(root);
     violations.push(...quarantine.errors);
+    const sanctions = readSanctions(root);
+    violations.push(...sanctions.errors);
+    const sanctioned = new Set<string>();
+    for (const row of sanctions.rows) {
+        if (sanctioned.has(row.site))
+            violations.push(`duplicate sanction row: site "${row.site}" is declared twice`);
+        sanctioned.add(row.site);
+    }
     const files = new Set(population.rows.map((row) => row.file));
     const claims = new Set(population.rows.map((row) => row.claim));
     const exactRows = new Set(population.rows.map((row) => `${row.file}\u0000${row.claim}`));

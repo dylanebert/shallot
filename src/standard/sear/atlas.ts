@@ -5,13 +5,14 @@
 // sample the same shadows sear's color pass does. `forward.ts` resolves the frame's draw list and passes
 // it in; this module never reaches back into `forward.ts` at runtime (only for the `Recorded` type).
 
-import type { TgpuRenderPassDescriptor } from "typegpu";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { Compute } from "../../engine";
 import type { Draw } from "../render";
 import { Render, Views } from "../render";
 import { boundPipeline } from "./bound";
+import type { BundleDraw, PassBundle } from "./bundle";
+import { bundleChanged, bundleDraw, newPassBundle, recordBundle } from "./bundle";
 import { DEPTH_FORMAT } from "./codegen";
 import { engineLayout } from "./engine";
 import type { Recorded } from "./forward";
@@ -267,12 +268,40 @@ const _pointShadowDepth: Omit<GPURenderPassDepthStencilAttachment, "view"> & {
     depthStoreOp: "store",
     depthClearValue: 0,
 };
-const _pointShadowPass: TgpuRenderPassDescriptor = {
+const _pointShadowPass: GPURenderPassDescriptor = {
     label: "sear-pointshadow",
     colorAttachments: [],
     depthStencilAttachment: _pointShadowDepth,
 };
 const _cascadeRegatherPass: GPUComputePassDescriptor = { label: "sear:cascaderegather" };
+
+// both atlas passes are depth-only, single-sample, into the same depth format, so they share one bundle
+// encoder shape. The point atlas is one pass; the cascade atlas is one pass per indirect-source batch
+const _shadowBundleDesc: GPURenderBundleEncoderDescriptor & { colorFormats: GPUTextureFormat[] } = {
+    label: "sear-shadow",
+    colorFormats: [],
+    depthStencilFormat: DEPTH_FORMAT,
+    sampleCount: 1,
+};
+// the compaction staging the survivor path writes when fewer cascades carry a view than the sun declares:
+// a capacity pool over the cascade count, grown geometrically and rewritten in place
+let _compactVP = new Float32Array(0);
+let _compactMeta = new Uint32Array(0);
+
+function compactVPScratch(count: number): Float32Array {
+    if (_compactVP.length < count * 16) _compactVP = new Float32Array(count * 16);
+    return _compactVP;
+}
+
+function compactMetaScratch(count: number): Uint32Array {
+    if (_compactMeta.length < count * 4) _compactMeta = new Uint32Array(count * 4);
+    return _compactMeta;
+}
+
+const _pointBundle: PassBundle = newPassBundle();
+const _pointProgram: BundleDraw[] = [];
+const _cascadeBundles: PassBundle[] = [];
+const _cascadeProgram: BundleDraw[] = [];
 const _cascadeShadowDepth: Omit<GPURenderPassDepthStencilAttachment, "view"> & {
     view: GPUTextureView;
 } = {
@@ -281,7 +310,7 @@ const _cascadeShadowDepth: Omit<GPURenderPassDepthStencilAttachment, "view"> & {
     depthStoreOp: "store",
     depthClearValue: 0,
 };
-const _cascadeShadowPass: TgpuRenderPassDescriptor = {
+const _cascadeShadowPass: GPURenderPassDescriptor = {
     label: "sear-cascadeshadow",
     colorAttachments: [],
     depthStencilAttachment: _cascadeShadowDepth,
@@ -652,9 +681,8 @@ export function renderPointShadows(
     frameDraws: { draw: Draw; r: Recorded }[],
     frameCount: number,
 ): void {
-    const commands = Render.frame;
     const encoder = Render.encoder;
-    if (!commands || !encoder || !_shadowReady) return;
+    if (!encoder || !_shadowReady) return;
     if (_pointFrameCount === 0) {
         if (_pointF32[3] !== -1) {
             clearPointParams();
@@ -726,12 +754,12 @@ export function renderPointShadows(
         );
     } else {
         // compact to the survivors' dense index space
-        const compactedVP = new Float32Array(C * 16);
-        const compactedMeta = new Uint32Array(C * 4);
+        const compactedVP = compactVPScratch(C);
+        const compactedMeta = compactMetaScratch(C);
         for (let i = 0; i < C; i++) {
             const src = _comboIndices[i];
-            compactedVP.set(faceVP.subarray(src * 16, src * 16 + 16), i * 16);
-            compactedMeta.set(comboMeta.subarray(src * 4, src * 4 + 4), i * 4);
+            for (let k = 0; k < 16; k++) compactedVP[i * 16 + k] = faceVP[src * 16 + k];
+            for (let k = 0; k < 4; k++) compactedMeta[i * 4 + k] = comboMeta[src * 4 + k];
         }
         Compute.device.queue.writeBuffer(
             _faceVP!,
@@ -799,16 +827,26 @@ export function renderPointShadows(
     // at slot 0 is an unread placeholder
     _pointShadowDepth.view = _pointAtlasView!;
     _pointShadowPass.timestampWrites = Compute.span?.("sear:pointshadow");
-    const pass = commands.beginRenderPass(_pointShadowPass);
     const group1 = pointGroup1Typed();
     const args = pointRegather.args()!;
     for (let i = 0; i < D; i++) {
         const { r } = _castDraws[i];
-        pass.setPipeline(boundPipeline(r.g, r.t.point!, r.g.point!, true, r.index));
-        pass.setBindGroup(engineLayout, r.g.atlasG0);
-        pass.setBindGroup(pointLayout, group1);
-        pass.drawIndexedIndirect(args, i * SHADOW_ARG_STRIDE);
+        const step = bundleDraw(_pointProgram, i);
+        step.pipeline = boundPipeline(r.g, r.t.point!, r.g.point!, true, r.index) as never;
+        step.layout0 = engineLayout;
+        step.group0 = r.g.atlasG0;
+        step.layout1 = pointLayout;
+        step.group1 = group1;
+        step.layout2 = null;
+        step.group2 = null;
+        step.indirect = args;
+        step.offset = i * SHADOW_ARG_STRIDE;
     }
+    if (bundleChanged(_pointBundle, _pointProgram, D, _shadowBundleDesc)) {
+        recordBundle(_pointBundle, _pointProgram, D, _shadowBundleDesc);
+    }
+    const pass = encoder.beginRenderPass(_pointShadowPass);
+    if (_pointBundle.bundle) pass.executeBundles(_pointBundle.replay);
     pass.end();
     // one indirect draw per casting mesh — the Dawn indirect-validation floor; the per-combo
     // fan-out is collapsed by the re-gather, not amplified
@@ -829,9 +867,8 @@ export function renderCascades(
     frameDraws: { draw: Draw; r: Recorded }[],
     frameCount: number,
 ): void {
-    const commands = Render.frame;
     const encoder = Render.encoder;
-    if (!commands || !encoder || !_shadowReady) return;
+    if (!encoder || !_shadowReady) return;
     const COriginal = cascadeCount();
     if (COriginal === 0) {
         _sunCasting = false;
@@ -871,12 +908,12 @@ export function renderCascades(
             C * 4,
         );
     } else {
-        const compactedVP = new Float32Array(C * 16);
-        const compactedMeta = new Uint32Array(C * 4);
+        const compactedVP = compactVPScratch(C);
+        const compactedMeta = compactMetaScratch(C);
         for (let i = 0; i < C; i++) {
             const src = _comboIndices[i];
-            compactedVP.set(vp.subarray(src * 16, src * 16 + 16), i * 16);
-            compactedMeta.set(meta.subarray(src * 4, src * 4 + 4), i * 4);
+            for (let k = 0; k < 16; k++) compactedVP[i * 16 + k] = vp[src * 16 + k];
+            for (let k = 0; k < 4; k++) compactedMeta[i * 4 + k] = meta[src * 4 + k];
         }
         Compute.device.queue.writeBuffer(
             _cascadeVPBuf!,
@@ -981,14 +1018,31 @@ export function renderCascades(
         _cascadeShadowDepth.view = _cascadeAtlasView!;
         _cascadeShadowDepth.depthLoadOp = b === 0 ? "clear" : "load";
         _cascadeShadowPass.timestampWrites = Compute.span?.("sear:cascadeshadow");
-        const pass = commands.beginRenderPass(_cascadeShadowPass);
         for (let i = 0; i < D; i++) {
             const { r } = batch.draws[i];
-            pass.setPipeline(boundPipeline(r.g, r.t.cascade!, r.g.cascade!, true, r.index));
-            pass.setBindGroup(engineLayout, r.g.atlasG0);
-            pass.setBindGroup(cascadeLayout, group1);
-            pass.drawIndexedIndirect(args, i * SHADOW_ARG_STRIDE);
+            const step = bundleDraw(_cascadeProgram, i);
+            step.pipeline = boundPipeline(r.g, r.t.cascade!, r.g.cascade!, true, r.index) as never;
+            step.layout0 = engineLayout;
+            step.group0 = r.g.atlasG0;
+            step.layout1 = cascadeLayout;
+            step.group1 = group1;
+            step.layout2 = null;
+            step.group2 = null;
+            step.indirect = args;
+            step.offset = i * SHADOW_ARG_STRIDE;
         }
+        // one recording per batch index: a batch is a distinct indirect source, and the batch count is a
+        // capacity pool that only grows
+        let bundle = _cascadeBundles[b];
+        if (!bundle) {
+            bundle = newPassBundle();
+            _cascadeBundles[b] = bundle;
+        }
+        if (bundleChanged(bundle, _cascadeProgram, D, _shadowBundleDesc)) {
+            recordBundle(bundle, _cascadeProgram, D, _shadowBundleDesc);
+        }
+        const pass = encoder.beginRenderPass(_cascadeShadowPass);
+        if (bundle.bundle) pass.executeBundles(bundle.replay);
         pass.end();
         totalDraws += D;
     }

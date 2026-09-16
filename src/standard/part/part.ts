@@ -2,7 +2,6 @@ import type {
     StorageFlag,
     TgpuBindGroup,
     TgpuBuffer,
-    TgpuComputePassDescriptor,
     TgpuComputePipeline,
     UniformFlag,
 } from "typegpu";
@@ -82,9 +81,11 @@ let _cullGroup: TgpuBindGroup<(typeof cullLayout)["entries"]> | null = null;
 let _countPipe: TgpuComputePipeline | null = null;
 let _scanPipe: TgpuComputePipeline | null = null;
 let _scatterPipe: TgpuComputePipeline | null = null;
-let _countBound: TgpuComputePipeline | null = null;
-let _scanBound: TgpuComputePipeline | null = null;
-let _scatterBound: TgpuComputePipeline | null = null;
+// each bound pass as the raw pipeline and the raw bind groups at their declared indices (`pack.ts`'s
+// `$idx`): the dispatches run on a raw compute pass, so typegpu's per-apply state work leaves the frame
+let _countBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null = null;
+let _scanBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null = null;
+let _scatterBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null = null;
 let _surfaceCount = 0;
 let _meshCount = 0;
 let _pairCount = 0;
@@ -96,7 +97,7 @@ let _viewDim = 1;
 // the pack pass descriptor, the raw counts buffer the pass clears (unwrapped once per buffer), and the
 // cull params last written with the buffer they went to: both scalars change only when a camera or mesh
 // arrives, so a steady frame writes nothing
-const _packPass: TgpuComputePassDescriptor = { label: "shallot-part-pack" };
+const _packPass: GPUComputePassDescriptor = { label: "shallot-part-pack" };
 let _countsUnwrapped: AtomicU32Buffer | null = null;
 let _countsRaw: GPUBuffer | null = null;
 let _paramsTarget: (TgpuBuffer<typeof CullParams> & UniformFlag) | null = null;
@@ -173,19 +174,28 @@ export const PartSystem: System = {
         }
         Render.encoder.clearBuffer(_countsRaw!);
         _packPass.timestampWrites = Compute.span?.("part:pack");
-        const pass = Render.frame!.beginComputePass(_packPass);
+        const pass = Render.encoder.beginComputePass(_packPass);
         const rows = Math.ceil(capacity / 64);
-        pass.setPipeline(count);
+        setBound(pass, count);
         pass.dispatchWorkgroups(rows, views);
         // one workgroup per allocated view slot (the counts buffer spans _viewDim ×
         // pairCount); slots past the active views carry zero counts → zero instanceCount
-        pass.setPipeline(scan);
+        setBound(pass, scan);
         pass.dispatchWorkgroups(_viewDim);
-        pass.setPipeline(scatter);
+        setBound(pass, scatter);
         pass.dispatchWorkgroups(rows, views);
         pass.end();
     },
 };
+
+// bind one pass's pipeline and its groups, each at the index its layout declares
+function setBound(
+    pass: GPUComputePassEncoder,
+    bound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] },
+): void {
+    pass.setPipeline(bound.pipeline);
+    for (let i = 0; i < bound.groups.length; i++) pass.setBindGroup(i, bound.groups[i]);
+}
 
 // the one shared cull bind group both count and scatter reference. Its inputs are the per-entity slabs +
 // membership mirror, the world-transform firehose and the per-view cull volumes — all stable,
@@ -218,40 +228,55 @@ function cullGroup(): TgpuBindGroup<(typeof cullLayout)["entries"]> | null {
     return _cullGroup;
 }
 
-function bindCount(): TgpuComputePipeline | null {
+function bindCount(): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
     if (_countBound) return _countBound;
     const cull = cullGroup();
     if (!_countPipe || !cull || !_counts) return null;
-    _countBound = _countPipe
-        .with(cull)
-        .with(Compute.root.createBindGroup(countLayout, { counts: _counts }));
+    _countBound = {
+        pipeline: Compute.root.unwrap(_countPipe),
+        groups: [
+            Compute.root.unwrap(cull),
+            Compute.root.unwrap(Compute.root.createBindGroup(countLayout, { counts: _counts })),
+        ],
+    };
     return _countBound;
 }
 
-function bindScan(): TgpuComputePipeline | null {
+function bindScan(): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
     if (_scanBound) return _scanBound;
     if (!_scanPipe || !_counts || !Parts.drawArgs || !_cullParams) return null;
-    _scanBound = _scanPipe.with(
-        Compute.root.createBindGroup(scanLayout, {
-            counts: _counts,
-            drawArgs: Parts.drawArgs,
-            params: _cullParams,
-        }),
-    );
+    _scanBound = {
+        pipeline: Compute.root.unwrap(_scanPipe),
+        groups: [
+            Compute.root.unwrap(
+                Compute.root.createBindGroup(scanLayout, {
+                    counts: _counts,
+                    drawArgs: Parts.drawArgs,
+                    params: _cullParams,
+                }),
+            ),
+        ],
+    };
     return _scanBound;
 }
 
-function bindScatter(): TgpuComputePipeline | null {
+function bindScatter(): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
     if (_scatterBound) return _scatterBound;
     const cull = cullGroup();
     if (!_scatterPipe || !cull || !_counts || !Parts.drawArgs || !Parts.packedEids) return null;
-    _scatterBound = _scatterPipe.with(cull).with(
-        Compute.root.createBindGroup(scatterLayout, {
-            drawArgs: Parts.drawArgs,
-            counts: _counts,
-            packedEids: Parts.packedEids,
-        }),
-    );
+    _scatterBound = {
+        pipeline: Compute.root.unwrap(_scatterPipe),
+        groups: [
+            Compute.root.unwrap(cull),
+            Compute.root.unwrap(
+                Compute.root.createBindGroup(scatterLayout, {
+                    drawArgs: Parts.drawArgs,
+                    counts: _counts,
+                    packedEids: Parts.packedEids,
+                }),
+            ),
+        ],
+    };
     return _scatterBound;
 }
 
@@ -487,15 +512,15 @@ export function warmPart(state: State): void {
     precompile("shallot-part-count", () => {
         syncBuffers();
         const bound = bindCount();
-        return bound;
+        return bound && [bound.pipeline];
     });
     precompile("shallot-part-scan", () => {
         const bound = bindScan();
-        return bound;
+        return bound && [bound.pipeline];
     });
     precompile("shallot-part-scatter", () => {
         const bound = bindScatter();
-        return bound;
+        return bound && [bound.pipeline];
     });
 }
 

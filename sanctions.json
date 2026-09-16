@@ -1,0 +1,51 @@
+[
+    {
+        "site": "src/standard/render/index.ts:205",
+        "reason": "BeginFrameSystem opens the frame: one GPUCommandEncoder for the frame, and getCurrentTexture with its view for each presenting camera. WebGPU mints all three per frame by design.",
+        "count": 3,
+        "spec": "specs/shallot-frame-allocation.md",
+        "approved": ""
+    },
+    {
+        "site": "src/standard/render/index.ts:311",
+        "reason": "EndFrameSystem closes the frame: one GPUCommandBuffer per submit, a single-use WebGPU object.",
+        "count": 1,
+        "spec": "specs/shallot-frame-allocation.md",
+        "approved": ""
+    },
+    {
+        "site": "src/standard/sear/forward.ts:846",
+        "reason": "renderColor opens the geometry pass: one GPURenderPassEncoder per presenting camera. The draws inside it are one recorded render bundle, replayed.",
+        "count": 1,
+        "spec": "specs/shallot-frame-allocation.md",
+        "approved": ""
+    },
+    {
+        "site": "src/standard/sear/atlas.ts:866",
+        "reason": "renderCascades opens the cascade atlas passes: one GPUComputePassEncoder for the re-gather and one GPURenderPassEncoder per indirect-source batch, both single-use.",
+        "count": 2,
+        "spec": "specs/shallot-frame-allocation.md",
+        "approved": ""
+    },
+    {
+        "site": "src/standard/part/part.ts:143",
+        "reason": "PartSystem opens the pack pass: one GPUComputePassEncoder per frame, carrying all three dispatches.",
+        "count": 1,
+        "spec": "specs/shallot-frame-allocation.md",
+        "approved": ""
+    },
+    {
+        "site": "src/standard/render/cluster.ts:766",
+        "reason": "LightCullSystem opens the light pass: one GPUComputePassEncoder per frame, carrying the compact and cull dispatches.",
+        "count": 1,
+        "spec": "specs/shallot-frame-allocation.md",
+        "approved": ""
+    },
+    {
+        "site": "src/standard/glaze/index.ts:165",
+        "reason": "GlazeSystem composites to the swapchain: one GPUComputePassEncoder per presenting camera, and one GPUBindGroup over that frame's swapchain view, which getCurrentTexture replaces every frame.",
+        "count": 2,
+        "spec": "specs/shallot-frame-allocation.md",
+        "approved": ""
+    }
+]

@@ -25,6 +25,8 @@ export interface AllocationSite {
     site: string;
     /** sampled bytes over the measured window, collected objects included */
     bytes: number;
+    /** allocations at this site over the window: one sample per allocation at the one-byte interval */
+    count: number;
 }
 
 export interface AllocationWindow {
@@ -144,12 +146,52 @@ async function runSampler(
     }
 }
 
+/** one collection in the steady windows, read from V8's GC trace over CDP */
+export interface Collection {
+    /** "minor" for a scavenge, "major" for a mark-compact */
+    kind: "minor" | "major";
+    /** trace clock microseconds at the start of the pause */
+    at: number;
+    /** pause milliseconds */
+    pause: number;
+    /** bytes promoted out of the young generation by this collection */
+    promoted: number;
+    /** V8's own reason for the collection */
+    reason: string;
+    /** true when this is the collection the harness forced before a window, not the page's own */
+    forced: boolean;
+}
+
+/** one presented-frame interval above one and a half refresh periods, and the collection inside it */
+export interface LongFrame {
+    /** trace clock microseconds at the start of the frame that ran long */
+    at: number;
+    /** the interval in milliseconds */
+    gap: number;
+    /** the collection inside the interval, or null when none */
+    collection: Collection | null;
+}
+
+/** the GC and frame-pacing evidence read from the trace over the steady windows */
+export interface PlayTrace {
+    /** the refresh period the long-frame threshold is derived from: the median frame interval, ms */
+    period: number;
+    /** presented-frame intervals seen over the traced span */
+    frames: number;
+    collections: readonly Collection[];
+    longFrames: readonly LongFrame[];
+}
+
 /** a page sample: the steady windows and control of {@link AllocationSample}, and the adapter it ran on. */
 export interface PageSample extends AllocationSample {
     /** the positively identified real adapter the display seat resolved on */
     adapter: string;
     /** the run frame's own site, where the control's literal is credited */
     loopSite: string;
+    /** sites of a fourth window's allocations still live after a full collection */
+    survivors: readonly AllocationSite[];
+    /** the GC trace and long-frame correlation over the steady windows */
+    trace: PlayTrace;
 }
 
 type CallFrame = Parameters<typeof subjectSite>[0] & { url: string };
@@ -167,6 +209,96 @@ const RATE_SPAN_MS = 250;
 
 /** how often a frame wait re-reads the page's frame count; each wait can overshoot by this much. */
 const ADVANCE_POLL_MS = 50;
+
+/** the trace categories the GC and frame-pacing evidence is read from. */
+const TRACE_CATEGORIES = ["devtools.timeline", "disabled-by-default-v8.gc"];
+
+/** a long frame is a presentation interval above this multiple of the measured refresh period. */
+const LONG_FRAME = 1.5;
+
+/**
+ * the trace's name for one presented animation frame. The page runs more than one rAF callback (the
+ * harness's frame counter beside the engine's loop), and Chromium emits `FireAnimationFrame` per
+ * callback, so the callback event does not count frames; the presentation event is emitted once per
+ * frame that reached the display, which is also what a dropped frame is missing.
+ */
+const FRAME_EVENT = "AnimationFrame::Presentation";
+
+/**
+ * V8's reasons for the collections the harness's own CDP calls cause: `HeapProfiler.collectGarbage`
+ * before each window, and the sampling profiler's own start and stop. Neither is steady play's, so both
+ * are reported beside the gate rather than counted by it.
+ */
+const FORCED_REASONS = ["low memory notification", "sampling profiler"];
+
+/** one raw trace event, as `Tracing.dataCollected` delivers it. */
+type TraceEvent = {
+    name: string;
+    ts: number;
+    dur?: number;
+    pid?: number;
+    tid?: number;
+    args?: Record<string, unknown>;
+};
+
+/**
+ * the collections, presented frames and long frames in `events`. `MinorGC` and `MajorGC` carry the pause
+ * on the devtools timeline; `V8.GCTraceGCNVP` carries the same collection's reason and promoted bytes,
+ * matched by order. {@link FRAME_EVENT} is the page's own presented frame, in the same trace clock, so a
+ * long frame and a collection are compared without crossing clocks. Every read is restricted to the one
+ * thread the collections ran on, so another process's frames never enter the correlation.
+ */
+function readTrace(events: readonly TraceEvent[]): PlayTrace {
+    const gc = events.find((event) => event.name === "MinorGC" || event.name === "MajorGC");
+    const onThread = (event: TraceEvent) =>
+        gc === undefined || (event.pid === gc.pid && event.tid === gc.tid);
+    const nvp: { reason: string; promoted: number }[] = [];
+    for (const event of events) {
+        if (event.name !== "V8.GCTraceGCNVP" || !onThread(event)) continue;
+        const value = (event.args as { value?: string } | undefined)?.value;
+        if (typeof value !== "string") continue;
+        const parsed = JSON.parse(value) as { promoted?: number; reason?: string };
+        nvp.push({ reason: parsed.reason ?? "", promoted: parsed.promoted ?? 0 });
+    }
+    const collections: Collection[] = [];
+    let index = 0;
+    for (const event of events
+        .filter(
+            (event) => (event.name === "MinorGC" || event.name === "MajorGC") && onThread(event),
+        )
+        .sort((a, b) => a.ts - b.ts)) {
+        const detail = nvp[index++];
+        collections.push({
+            kind: event.name === "MajorGC" ? "major" : "minor",
+            at: event.ts,
+            pause: (event.dur ?? 0) / 1000,
+            promoted: detail?.promoted ?? 0,
+            reason: detail?.reason ?? "",
+            forced: FORCED_REASONS.includes(detail?.reason ?? ""),
+        });
+    }
+    const presented = events
+        .filter((event) => event.name === FRAME_EVENT && onThread(event))
+        .sort((a, b) => a.ts - b.ts);
+    const gaps: number[] = [];
+    for (let i = 1; i < presented.length; i++)
+        gaps.push((presented[i].ts - presented[i - 1].ts) / 1000);
+    const sorted = [...gaps].sort((a, b) => a - b);
+    const period = sorted.length > 0 ? sorted[Math.floor(sorted.length / 2)] : 0;
+    const longFrames: LongFrame[] = [];
+    for (let i = 1; i < presented.length; i++) {
+        const gap = (presented[i].ts - presented[i - 1].ts) / 1000;
+        if (period === 0 || gap <= LONG_FRAME * period) continue;
+        const from = presented[i - 1].ts;
+        const to = presented[i].ts;
+        longFrames.push({
+            at: from,
+            gap,
+            collection: collections.find((row) => row.at >= from && row.at <= to) ?? null,
+        });
+    }
+    return { period, frames: gaps.length, collections, longFrames };
+}
 
 /** the control's one literal per frame, allocated where the frame loop begins and never breaking. */
 const CONTROL_CONDITION = "(globalThis.__shallotControl = { frame: 0 }), false";
@@ -374,6 +506,19 @@ export async function samplePage(
             const { profile } = await stopSampling();
             return attribute(profile, runSite, siteOf);
         };
+        // the survivor window: sampling without the collected-object classes, then a full collection
+        // before the profile is read, so what remains is what the window allocated and still holds.
+        const sampleSurvivors = async (count: number) => {
+            await collect();
+            await bounded(
+                "startSampling for survivors",
+                cdp.send("HeapProfiler.startSampling", { samplingInterval: 1 }),
+            );
+            await advance(count);
+            await collect();
+            const { profile } = await stopSampling();
+            return attribute(profile, runSite, siteOf);
+        };
         const timed = async <T>(work: () => Promise<T>): Promise<[T, number]> => {
             const at = performance.now();
             const value = await work();
@@ -410,32 +555,57 @@ export async function samplePage(
         // six frame waits, each of which may overshoot the target by one poll. `HeapProfiler.enable` is not
         // in it: the probe paid it once, for the row.
         const reserve =
-            4 * (collectMs + startMs + stopMs) +
+            5 * (collectMs + startMs + stopMs) +
+            collectMs +
             enableMs +
             setMs +
             removeMs +
             disableMs +
-            6 * ADVANCE_POLL_MS;
-        const budget = 2 * warm + 2 * frames + CONTROL_FRAMES;
+            7 * ADVANCE_POLL_MS;
+        const budget = 2 * warm + 3 * frames + CONTROL_FRAMES;
         const frameMs = (count: number, rate: number) => (count * 1000) / rate;
         const needed =
-            frameMs(2 * warm + 2 * frames, sampledRate) +
+            frameMs(2 * warm + 3 * frames, sampledRate) +
             frameMs(CONTROL_FRAMES, controlRate) +
             reserve;
         const left = remaining();
         const required = (budget * 1000) / Math.max(1, left - reserve);
         if (needed > left)
             throw new MissingPremise(
-                `the page presents at ${sampledRate.toFixed(1)} Hz under the heap sampler and ${controlRate.toFixed(1)} Hz under the control breakpoint, so this row's ${budget} frames (warm ${warm}, three ${frames}-frame windows and a ${CONTROL_FRAMES}-frame control) need ${needed.toFixed(0)} ms, including ${reserve.toFixed(0)} ms of calls that step no frame, against the ${left.toFixed(0)} ms left before the deadline; an even ${required.toFixed(1)} Hz would be required`,
+                `the page presents at ${sampledRate.toFixed(1)} Hz under the heap sampler and ${controlRate.toFixed(1)} Hz under the control breakpoint, so this row's ${budget} frames (warm ${warm}, three ${frames}-frame windows, a ${frames}-frame survivor window and a ${CONTROL_FRAMES}-frame control) need ${needed.toFixed(0)} ms, including ${reserve.toFixed(0)} ms of calls that step no frame, against the ${left.toFixed(0)} ms left before the deadline; an even ${required.toFixed(1)} Hz would be required`,
             );
         // Past here the host has proved it steps frames fast enough, so running out of time is the page's.
         premiseHeld = true;
 
         await advance(warm);
+        // the GC and frame-pacing trace spans the three steady windows: the collections, their pauses and
+        // promoted bytes, and the rAF intervals, all on one trace clock
+        const events: TraceEvent[] = [];
+        const onTrace = (batch: { value: unknown[] }) => {
+            events.push(...(batch.value as TraceEvent[]));
+        };
+        cdp.on("Tracing.dataCollected", onTrace);
+        const traced = new Promise<void>((resolve) =>
+            cdp.once("Tracing.tracingComplete", () => resolve()),
+        );
+        await bounded(
+            "Tracing.start",
+            cdp.send("Tracing.start", {
+                traceConfig: {
+                    recordMode: "recordContinuously",
+                    includedCategories: TRACE_CATEGORIES,
+                },
+            }),
+        );
         const atWarm = await sample(frames);
         await advance(warm - frames);
         const atDoubleWarm = await sample(frames);
         const repeat = await sample(frames);
+        await bounded("Tracing.end", cdp.send("Tracing.end"));
+        await bounded("the trace", traced);
+        cdp.off("Tracing.dataCollected", onTrace);
+        const trace = readTrace(events);
+        const survivors = await sampleSurvivors(frames);
 
         await debuggerEnable();
         const { breakpointId } = await setLoopBreakpoint();
@@ -451,6 +621,8 @@ export async function samplePage(
             runtime: `chromium ${browser.version()} ${LAUNCH_MODES[plan.seat]} ${tiers} at ${sampledRate.toFixed(1)} Hz sampled, ${controlRate.toFixed(1)} Hz under the control breakpoint`,
             adapter: classifyAdapter(facts).identity,
             loopSite,
+            survivors,
+            trace,
             warm,
             frames,
             windows: [
