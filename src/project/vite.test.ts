@@ -8,7 +8,7 @@ import { projectPlugin } from "./vite";
 check(
     "project plugin: dependency config is shared",
     {
-        claim: "projectPlugin config dedupes the engine, typegpu and every manifest package plugin",
+        claim: "a project build bundles a second copy of the engine, typegpu or a manifest package plugin, splitting their module state",
     },
     () => {
         const root = mkdtempSync(join(tmpdir(), "shallot-project-plugin-"));

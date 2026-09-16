@@ -30,7 +30,7 @@ function inputState(): State {
 check(
     "device keyboard edges survive one frame",
     {
-        claim: "a State-scoped keyboard record reports held, pressed, released, pointer and touch facts",
+        claim: "a key press, pointer, wheel or touch fact is lost before the frame's readers see it, or a release edge never appears",
     },
     () => {
         const state = inputState();
@@ -78,7 +78,7 @@ check(
 
 check(
     "device fixed edge is consumed once across two ticks",
-    { claim: "a key press before a two-tick frame reaches exactly one fixed tick" },
+    { claim: "a key press before a multi-tick frame is seen by zero or several fixed ticks" },
     () => {
         const state = inputState();
         let count = 0;
@@ -98,7 +98,7 @@ check(
 check(
     "device fixed edge carries over a zero-tick frame",
     {
-        claim: "a key press in a frame with zero fixed ticks reaches the next frame's first fixed tick",
+        claim: "a key press in a frame with zero fixed ticks is dropped before the next frame's first fixed tick",
     },
     () => {
         const state = inputState();
@@ -119,7 +119,9 @@ check(
 
 check(
     "device press tick is deterministic",
-    { claim: "a press records the State fixed tick rather than a wall-clock timestamp" },
+    {
+        claim: "a press records a wall-clock timestamp instead of the State fixed tick, so replays diverge",
+    },
     () => {
         const state = inputState();
         state.step(Time.FIXED_DT);
@@ -134,7 +136,7 @@ check(
 check(
     "device press and release latch between frames",
     {
-        claim: "a press and release between frames reports both edges and no held key",
+        claim: "a press and release between frames loses an edge or leaves the key held",
     },
     () => {
         const state = inputState();
@@ -158,7 +160,7 @@ check(
 check(
     "device edge count is cadence invariant",
     {
-        claim: "the same press has one fixed edge under both batched and one-tick-per-frame cadence",
+        claim: "the same press yields a different fixed edge count under batched and one-tick-per-frame cadence",
     },
     () => {
         const batched = inputState();
@@ -189,7 +191,7 @@ check(
 
 check(
     "blur releases held device inputs with edges",
-    { claim: "window blur releases held keys and pointer buttons with release edges" },
+    { claim: "window blur leaves keys or pointer buttons held, or releases them without an edge" },
     () => {
         const state = inputState();
         pressKey(state, "KeyW");
@@ -205,7 +207,9 @@ check(
 
 check(
     "hidden visibility releases held device inputs with edges",
-    { claim: "hidden visibility releases held keys and pointer buttons with release edges" },
+    {
+        claim: "hiding the page leaves keys or pointer buttons held, or releases them without an edge",
+    },
     () => {
         const state = inputState();
         focus(state, 0);
@@ -222,7 +226,9 @@ check(
 
 check(
     "pointer-lock exit releases held device inputs with edges",
-    { claim: "pointer-lock exit releases held keys and pointer buttons with release edges" },
+    {
+        claim: "pointer-lock exit leaves keys or pointer buttons held, or loses the lock refusal reason",
+    },
     () => {
         const state = inputState();
         pointerLockChanged(state, true);
@@ -247,7 +253,7 @@ check(
 
 check(
     "require-lock gates pointer buttons",
-    { claim: "pointer buttons read up until a required pointer lock engages" },
+    { claim: "a pointer button reads down before a required pointer lock engages" },
     () => {
         const state = inputState();
         requirePointerLock(state, true);
@@ -262,7 +268,9 @@ check(
 
 check(
     "suspension neutralizes device reads with release edges",
-    { claim: "a suspended State reads neutral device data and releases held keys" },
+    {
+        claim: "a suspended State still reads held keys, pointer or touch data, or accepts new presses",
+    },
     () => {
         const state = inputState();
         pressKey(state, "KeyS");
@@ -281,7 +289,7 @@ check(
 
 check(
     "suspension is State-scoped",
-    { claim: "suspending one State leaves a second State's device record live" },
+    { claim: "suspending one State suspends or clears a second State's device record" },
     () => {
         const first = inputState();
         const second = inputState();
@@ -300,7 +308,7 @@ check(
 check(
     "device edges are State-scoped",
     {
-        claim: "two States fed the same interleaved producer sequence keep equal independent records",
+        claim: "interleaved producer calls on two States leak edges or held keys between their records",
     },
     () => {
         const a = inputState();

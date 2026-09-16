@@ -4,7 +4,7 @@ import { runCargoTest } from "../../scripts/cargo-test";
 check(
     "audio convolution",
     {
-        claim: "the audio crate's convolution:: native DSP tests catch signal-processing regressions",
+        claim: "a convolution change misapplies the impulse response, keeps stale history or clicks on an IR update",
         size: "integration",
         budget: 20_000,
         subject: ["crates/audio"],
@@ -15,7 +15,7 @@ check(
 check(
     "audio delay",
     {
-        claim: "the audio crate's delay:: native DSP tests catch signal-processing regressions",
+        claim: "a delay line change shifts, loses or mis-mixes delayed samples",
         size: "integration",
         budget: 20_000,
         subject: ["crates/audio"],
@@ -26,7 +26,7 @@ check(
 check(
     "audio dynamics",
     {
-        claim: "the audio crate's dynamics:: native DSP tests catch signal-processing regressions",
+        claim: "a compressor or expander change applies the wrong gain around its threshold",
         size: "integration",
         budget: 20_000,
         subject: ["crates/audio"],
@@ -37,7 +37,7 @@ check(
 check(
     "audio envelope",
     {
-        claim: "the audio crate's envelope:: native DSP tests catch signal-processing regressions",
+        claim: "an envelope change mistimes attack, decay, sustain or release stages",
         size: "integration",
         budget: 20_000,
         subject: ["crates/audio"],
@@ -48,7 +48,7 @@ check(
 check(
     "audio fft",
     {
-        claim: "the audio crate's fft:: native DSP tests catch signal-processing regressions",
+        claim: "an FFT change returns the wrong magnitudes or phases for known spectra",
         size: "integration",
         budget: 20_000,
         subject: ["crates/audio"],
@@ -59,7 +59,7 @@ check(
 check(
     "audio filter",
     {
-        claim: "the audio crate's filter:: native DSP tests catch signal-processing regressions",
+        claim: "a filter change shifts its cutoff, resonance or stability",
         size: "integration",
         budget: 20_000,
         subject: ["crates/audio"],
@@ -70,7 +70,7 @@ check(
 check(
     "audio graph",
     {
-        claim: "the audio crate's graph:: native DSP tests catch signal-processing regressions",
+        claim: "an audio graph change routes, orders or mixes nodes wrongly",
         size: "integration",
         budget: 20_000,
         subject: ["crates/audio"],
@@ -81,7 +81,7 @@ check(
 check(
     "audio hrtf",
     {
-        claim: "the audio crate's hrtf:: native DSP tests catch signal-processing regressions",
+        claim: "an HRTF change gives a positioned source the wrong interaural delay or level",
         size: "integration",
         budget: 20_000,
         subject: ["crates/audio"],
@@ -92,7 +92,7 @@ check(
 check(
     "audio interp",
     {
-        claim: "the audio crate's interp:: native DSP tests catch signal-processing regressions",
+        claim: "an interpolation change produces wrong in-between samples or parameter ramps",
         size: "integration",
         budget: 20_000,
         subject: ["crates/audio"],
@@ -103,7 +103,7 @@ check(
 check(
     "audio modulation",
     {
-        claim: "the audio crate's modulation:: native DSP tests catch signal-processing regressions",
+        claim: "a modulation change lets its LFO drift out of bounds or period, or its allpass lose energy",
         size: "integration",
         budget: 20_000,
         subject: ["crates/audio"],
@@ -114,7 +114,7 @@ check(
 check(
     "audio oscillator",
     {
-        claim: "the audio crate's oscillator:: native DSP tests catch signal-processing regressions",
+        claim: "an oscillator change produces the wrong waveform range, harmonics or band-limiting",
         size: "integration",
         budget: 20_000,
         subject: ["crates/audio"],
@@ -125,7 +125,7 @@ check(
 check(
     "audio sample",
     {
-        claim: "the audio crate's sample:: native DSP tests catch signal-processing regressions",
+        claim: "a sample playback change reads, loops or pitches the source buffer wrongly",
         size: "integration",
         budget: 20_000,
         subject: ["crates/audio"],
@@ -136,7 +136,7 @@ check(
 check(
     "audio root tests",
     {
-        claim: "the audio crate's tests:: native DSP tests catch signal-processing regressions",
+        claim: "a voice, transport or event scheduling change mistimes gates, loops or sample-offset events",
         size: "integration",
         budget: 20_000,
         subject: ["crates/audio"],
@@ -147,7 +147,7 @@ check(
 check(
     "audio waveshaper",
     {
-        claim: "the audio crate's waveshaper:: native DSP tests catch signal-processing regressions",
+        claim: "a waveshaper change applies the wrong clip or fold curve, or leaves a DC offset",
         size: "integration",
         budget: 20_000,
         subject: ["crates/audio"],

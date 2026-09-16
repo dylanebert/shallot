@@ -15,7 +15,7 @@ const manifest = JSON.parse(readFileSync(join(bundle, "manifest.json"), "utf8"))
 check(
     "the selected Box3D oracle bundle is the fully conformed target",
     {
-        claim: "Box3D public oracle bundle records the fully conformed target",
+        claim: "the selected Box3D oracle bundle is not the fully conformed upstream target, so parity would be measured against the wrong reference",
         size: "integration",
     },
     () => {

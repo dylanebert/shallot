@@ -52,7 +52,10 @@ const report = (
 
 check(
     "known-difference evaluator rejects ledger adversaries",
-    { claim: "box3d-known-difference-adversarial", size: "integration" },
+    {
+        claim: "the known-difference evaluator accepts a stale, expired, orphaned, wildcard, duplicate, timeout, skip, unexecuted or passing ledger entry, so a real Box3D divergence could hide behind the ledger",
+        size: "integration",
+    },
     () => {
         const ids = ["case.v1"];
         const matching = evaluateKnownDifferences(
@@ -107,7 +110,11 @@ check(
 
 check(
     "Box3D known differences consume the executing ledger",
-    { claim: "box3d-known-differences", size: "integration", budget: 20_000 },
+    {
+        claim: "the checked-in known-difference ledger no longer matches live strict parity, so an unlisted Box3D divergence or a stale excuse would pass",
+        size: "integration",
+        budget: 20_000,
+    },
     () => {
         const strict = executeStrictReport();
         const known = JSON.parse(

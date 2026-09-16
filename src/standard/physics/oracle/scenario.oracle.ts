@@ -102,33 +102,51 @@ function compareFamily(roster: string[]): void {
     }
 }
 check(
-    "O5a Shallot command interpreter migration",
-    { claim: "box3d-scenario-migration-foundation", size: "integration" },
+    "the command interpreter replays the foundation scenarios like the scene builders",
+    {
+        claim: "the generic scenario interpreter diverges from the builder replay on free-fall, stacking, sleep, wake or split scenes",
+        size: "integration",
+    },
     () => compareFamily(FOUNDATION_ROSTER),
 );
 check(
-    "O5b Shallot command interpreter migration",
-    { claim: "box3d-scenario-migration-joints", size: "integration" },
+    "the command interpreter replays the joint scenarios like the scene builders",
+    {
+        claim: "the generic scenario interpreter diverges from the builder replay on a joint or ragdoll scene",
+        size: "integration",
+    },
     () => compareFamily(JOINT_ROSTER),
 );
 check(
-    "O5c Shallot command interpreter migration",
-    { claim: "box3d-scenario-migration-surfaces", size: "integration" },
+    "the command interpreter replays the continuous, mesh and height-field scenarios like the scene builders",
+    {
+        claim: "the generic scenario interpreter diverges from the builder replay on a continuous-collision, mesh or height-field scene",
+        size: "integration",
+    },
     () => compareFamily(SURFACE_ROSTER),
 );
 check(
-    "O5d Shallot command interpreter migration",
-    { claim: "box3d-scenario-migration-compound-sensor", size: "integration" },
+    "the command interpreter replays the compound and sensor scenarios like the scene builders",
+    {
+        claim: "the generic scenario interpreter diverges from the builder replay on a compound-shape or sensor scene",
+        size: "integration",
+    },
     () => compareFamily(COMPOUND_SENSOR_ROSTER),
 );
 check(
-    "O5e Shallot benchmark command interpreter migration",
-    { claim: "box3d-scenario-migration-benchmarks", size: "integration" },
+    "the command interpreter replays the benchmark scenarios like the scene builders",
+    {
+        claim: "the generic scenario interpreter diverges from the builder replay on a benchmark scene",
+        size: "integration",
+    },
     () => compareFamily(BENCHMARK_ROSTER),
 );
 check(
-    "O5e Shallot benchmark timing mutations",
-    { claim: "box3d-scenario-migration-benchmark-timing", size: "integration" },
+    "moving a scheduled benchmark command past its step changes the replay",
+    {
+        claim: "the scenario interpreter ignores when a spawn or target-transform command is scheduled, so a benchmark replay would pass with its commands at the wrong step",
+        size: "integration",
+    },
     () => {
         const { corpus, digest } = loadScenarioCorpus();
         const moveCommands = (
@@ -182,8 +200,11 @@ check(
 );
 
 check(
-    "O5a command receipt and adversarial gates",
-    { claim: "box3d-scenario-command-corpus", size: "integration" },
+    "the scenario interpreter consumes every command parameter and refuses malformed corpora",
+    {
+        claim: "the scenario interpreter drops a command parameter, omits a consumed command from its receipt, or accepts an unknown or unconsumed command, so a scenario could replay something other than its corpus",
+        size: "integration",
+    },
     () => {
         const { corpus, digest } = loadScenarioCorpus();
         const freeFall = structuredClone(corpus.scenarios[0]);

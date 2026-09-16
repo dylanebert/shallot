@@ -14,7 +14,11 @@ const current = JSON.parse(
 
 check(
     "Box3D strict parity executes the complete frozen v6 mapped surface",
-    { claim: "box3d-strict-parity", size: "integration", budget: 20_000 },
+    {
+        claim: "a Shallot physics result diverges from the Box3D reference on any case of the selected bundle",
+        size: "integration",
+        budget: 20_000,
+    },
     () => {
         const frozen = readFrozenStrictReport();
         const actual = executeStrictReport();
