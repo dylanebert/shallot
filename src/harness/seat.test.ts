@@ -305,7 +305,12 @@ check(
         expect(launchOptions(plan("linux", "display")).args).not.toContain(
             `--class=${HIDDEN_WINDOW_CLASS}`,
         );
-        const hidden = { address: "0x1", class: HIDDEN_WINDOW_CLASS, workspace: "special:gate" };
+        const hidden = {
+            address: "0x1",
+            class: HIDDEN_WINDOW_CLASS,
+            workspace: "special:gate",
+            own: true,
+        };
         const chromium = (facts: object) =>
             resolveSeat(
                 "chromium",
@@ -328,6 +333,13 @@ check(
         expect(chromium({ hidden: { windows: [], activeClass: "" } })).toMatchObject({
             ok: false,
             reason: expect.stringContaining(`no window of class ${HIDDEN_WINDOW_CLASS}`),
+        });
+        // Another run's hidden window of the class is not this launch's: with none of its own, it refuses.
+        expect(
+            chromium({ hidden: { windows: [{ ...hidden, own: false }], activeClass: "" } }),
+        ).toMatchObject({
+            ok: false,
+            reason: expect.stringContaining("opened by this launch"),
         });
         expect(
             chromium({

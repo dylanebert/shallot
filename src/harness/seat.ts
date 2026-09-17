@@ -32,6 +32,8 @@ export interface HiddenWindow {
     class: string;
     /** the workspace's name; a special workspace's name starts with `special:`. */
     workspace: string;
+    /** whether the window's process descends from this run, so the read-back is this launch's own window. */
+    own: boolean;
 }
 
 /** what the compositor reported once a headed `chromium` launch opened its page. */
@@ -82,9 +84,12 @@ export function hiddenRefusal(facts: HiddenFacts | undefined): string | undefine
     const missing = `the compositor must hold a rule sending class ${HIDDEN_WINDOW_CLASS} to a silent special workspace with no focus`;
     if (facts === undefined)
         return `no compositor read-back of the headed window of class ${HIDDEN_WINDOW_CLASS}; ${missing}`;
-    const windows = facts.windows.filter((window) => window.class === HIDDEN_WINDOW_CLASS);
+    // Another run's window of the same class, hidden or not, says nothing about this launch's.
+    const windows = facts.windows.filter(
+        (window) => window.own && window.class === HIDDEN_WINDOW_CLASS,
+    );
     if (windows.length === 0)
-        return `the compositor reports no window of class ${HIDDEN_WINDOW_CLASS}; ${missing}`;
+        return `the compositor reports no window of class ${HIDDEN_WINDOW_CLASS} opened by this launch; ${missing}`;
     const shown = windows.filter((window) => !window.workspace.startsWith("special:"));
     if (shown.length > 0)
         return `the compositor reports ${shown.length} of ${windows.length} windows of class ${HIDDEN_WINDOW_CLASS} off a special workspace (${shown.map((window) => `${window.address} on ${window.workspace}`).join(", ")}); ${missing}`;
