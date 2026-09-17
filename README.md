@@ -48,6 +48,16 @@ Five verbs, run as `bunx shallot <verb> [dir]`:
 
 Any other verb runs `shallot-<verb>` from your PATH or your project's installed bins, the way Cargo and Git do it. `bunx shallot --help` lists every option.
 
+### Checks
+
+The package also installs the verbs the engine is held to: `list`, `check`, `test` and `workflow`. They run from your project root and assume no Rust, package name or branch. A test declares its claim with `check()` from `@dylanebert/shallot/harness/check`, and `.oracle.ts` files are named evidence, run one at a time with `--oracle <claim>`.
+
+A root `shallot.json` `check` field, one `{ "file": "..." }` entry or an array, is the complete population: every visible `.test.ts` and `.oracle.ts` file appears exactly once, and a missing, duplicate or moved entry refuses. Without it, files are discovered from the project root. A project with its own Bun preload composes it with the carrier's in `bunfig.toml`:
+
+```toml
+preload = ["./src/project-preload.ts", "@dylanebert/shallot/harness/preload"]
+```
+
 ### Desktop builds
 
 `bunx shallot build --target <platform> --release` downloads a prebuilt shell for your installed version from GitHub Releases, so a hit needs no Rust toolchain. A debug build, or any miss (404, offline, checksum mismatch, a source checkout), compiles the Rust window host from the crate source shipped in the package. That needs [Rust](https://rustup.rs) plus the target's system dependencies:
