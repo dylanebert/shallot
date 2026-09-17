@@ -47,7 +47,9 @@ import {
 // the public happy path: the component contract (camera + lights) and meshes.
 // Everything else a renderer or producer touches — the Render singleton, the
 // View/Surface/Draw contract, canvas binding, the Lighting uniform, the frame
-// loop — is the extension API, exported below.
+// loop — is the extension API, exported below. A producer (Part) and a renderer
+// (Sear) meet only through that contract and neither imports the other, so a
+// custom producer is a peer of Part rather than a fork of it.
 export { Camera, CameraMode, Resolution } from "./camera";
 export { AmbientLight, DirectionalLight, PointLight, Spot, Volumetric } from "./lighting";
 export type { Mesh } from "./mesh";

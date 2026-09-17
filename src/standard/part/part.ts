@@ -74,6 +74,9 @@ export const Color = {
 // the same pack against the sun's frustum as one more slot. registerDraws
 // writes the static indexCount + firstIndex; the per-view dimension grows
 // lazily with the active camera count, the pair dimension with mesh count.
+// Culling lives here, in the producer's per-view compaction, shadow slots
+// included, because a consumer that culled would already have paid for every
+// instance it never draws.
 let _counts: AtomicU32Buffer | null = null;
 let _meshBounds: Vec4fBuffer | null = null;
 let _cullParams: (TgpuBuffer<typeof CullParams> & UniformFlag) | null = null;

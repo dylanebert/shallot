@@ -810,7 +810,8 @@ function backgroundGroup(bg: Background, ct: CompiledBackground): GPUBindGroup |
 /**
  * one camera's geometry pass (`sear:color`) recorded onto `Render.encoder`: shades every opaque draw,
  * then composites every `blend` draw over them (`less-equal` depth-tested against the opaque depth,
- * depth-write off): one color target, no MRT (the screen-space lanes are {@link renderPrepass}'s). With
+ * depth-write off): one HDR color target, no MRT (the screen-space lanes are {@link renderPrepass}'s),
+ * because each extra target costs bandwidth on every pixel and tile-based GPUs pay it hardest. With
  * `Camera.antialias` on (the default) it's a 4× MSAA pass resolved into the offscreen; off, it renders
  * single-sample straight into the offscreen (and binds the surfaces' single-sample pipeline twins,
  * compiled lazily by {@link ensureSingle}). Opaque and transparent share one `beginRenderPass` (nothing
