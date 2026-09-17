@@ -629,8 +629,7 @@ const binningKernel = tgpu
     .$name("radixBinning");
 
 // GPU-count prepare (indirect path): derive binBlocks/histBlocks from the count, write the per-
-// pass params + the init/hist/binning indirect dispatch args. Scan stays direct (RADIX_PASSES): an
-// indirect dispatch costs about twice a direct one, so a count the CPU already knows dispatches directly.
+// pass params + the init/hist/binning indirect dispatch args. Scan stays direct (RADIX_PASSES).
 const prepareKernel = tgpu
     .computeFn({ workgroupSize: [1] })(() => {
         "use gpu";
@@ -856,6 +855,8 @@ export async function createRadixSort(
             run(encoder, prepare.bound, (p) => p.dispatchWorkgroups(1));
             run(encoder, initBound, (p) => p.dispatchWorkgroupsIndirect(args, 0));
             run(encoder, histBound, (p) => p.dispatchWorkgroupsIndirect(args, 12));
+            // an indirect dispatch costs about twice a direct one, so the scan, whose count the CPU
+            // knows, dispatches directly
             run(encoder, scanBound, (p) => p.dispatchWorkgroups(RADIX_PASSES));
             for (let p = 0; p < RADIX_PASSES; p++) {
                 run(encoder, binBound[p], (bp) => bp.dispatchWorkgroupsIndirect(args, 24));

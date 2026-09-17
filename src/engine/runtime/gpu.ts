@@ -668,8 +668,7 @@ export const BASE_FEATURES = [
 ] as const;
 
 /** shallot's per-stage storage buffer floor, requested as the ceiling across all bind groups. 99.6% of WebGPU
- *  devices support 10, so a shader that needs another storage binding folds it into a spare lane of an
- *  existing one before it adds a buffer past the portable limit. */
+ *  devices support 10. */
 const REQUIRED_STORAGE_BUFFERS_PER_STAGE = 10;
 
 /**
