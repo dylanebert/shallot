@@ -98,6 +98,24 @@ artifacts and human frames all describe the same frame. Assertions stay in the p
 the driver fixes the seat and carries the reproduction record, and a failure retains bounded page, GPU,
 server and sub-check evidence with one actual frame under `.artifacts/`.
 
+## Determinism
+
+Checks run on the scheduler's stepped clock, never wall time. Simulation state lives in registered components or behind a snapshot, restore and hash hook; gameplay runs in the fixed group from per-tick actions, presentation and effects run in draw, and `local` components stay out of the hash. Determinism holds within one runtime and engine version; across them, divergence is detected by hash, never assumed away.
+
+## Allocation and counts
+
+Draws, dispatches, bytes uploaded, allocations and entities visited are deterministic, so they are unit rows whose expected value comes from the scene's content, never a blessed literal. Times come from real devices, stamped with hardware, and report; no gate carries a wall-time floor.
+
+Steady play allocates nothing unaccounted. `sanctions.json` holds each per-frame allocation the platform forces, with a count derived from the frame's structure; `red-circles.json` holds real, unwanted work deferred to a named owner. Neither carries a byte budget, and work that could be hoisted, cached, pooled or moved to wasm is never sanctioned. The person approves every row in both files; an agent proposes one and stops.
+
+## Frame claims
+
+A frame claim is proved on the lowest rung that can see it: a CPU property, then GPU readback, then semantic browser pixels through `captureFrame`, then a person's look. A full-frame golden waits for an escaped defect no lower rung can see, and a golden is never edited to match. A screenshot helps whoever iterates and is never a verdict.
+
+## Heavy work
+
+Heavy work runs in wasm or on the GPU; TypeScript coordinates and carries lightweight gameplay. The test is shape, not cost: TypeScript that reaches a performance bar only through runtime-internals tricks, such as a boxed-`let` register, a call reshaped to dodge a deoptimisation, module state read by hoisted callbacks to avoid a closure context, or a `Math.fround` discipline over every operation, belongs across the line.
+
 ## Pins and freshness
 
 A pin records what was last verified, and every freshness pass bumps it:
@@ -115,6 +133,7 @@ A bump touches every doc and fixture site in one commit; `check-pins` reds on dr
 - The root links itself (`"@dylanebert/shallot": "link:."`), so examples import the package by name.
 - Examples declare no engine dependency; `add` writes the version into the copy.
 - Satellite consumers stay on a published package range and iterate locally with `bun link`; a `file:` directory dependency uses hardlinks, so editor writes can detach the checkout from the installed copy. That doesn't prove the published shape: a `bun pm pack` installed into a scratch project does, and CLI, manifest, dependency, runtime and native changes owe one.
+- Local, staged and published are separate states: a local link is an uncommitted override, a stage pins a full-SHA Git source or an exact tarball with integrity, and published use pins a stable range with its lock. Publishing is a release, never a way to see a change. Cold proof installs frozen from an empty cache.
 - `@types/node` and `@webgpu/types` are runtime dependencies, because `types` points at source.
 
 ## Archive
