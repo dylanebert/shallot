@@ -629,7 +629,8 @@ const binningKernel = tgpu
     .$name("radixBinning");
 
 // GPU-count prepare (indirect path): derive binBlocks/histBlocks from the count, write the per-
-// pass params + the init/hist/binning indirect dispatch args. Scan stays direct (RADIX_PASSES).
+// pass params + the init/hist/binning indirect dispatch args. Scan stays direct (RADIX_PASSES): an
+// indirect dispatch costs about twice a direct one, so a count the CPU already knows dispatches directly.
 const prepareKernel = tgpu
     .computeFn({ workgroupSize: [1] })(() => {
         "use gpu";

@@ -1,3 +1,7 @@
+// GPU policy the device's consumers share. Quantization waits until a pass is five times off its bandwidth
+// floor and a per-field audit is clean, because precision loss is permanent and a small bandwidth win isn't
+// worth it. NaN propagates and is fixed at its source, since a clamp downstream hides the bug it came from.
+
 export {
     type AdapterClass,
     type AdapterFacts,

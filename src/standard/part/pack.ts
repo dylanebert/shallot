@@ -157,7 +157,8 @@ const carry = tgpu.workgroupVar(d.u32);
  * resets counts so scatter reuses them as a cursor, and leaves the static indexCount / firstIndex (lanes 0,
  * 2) alone. Pure LDS (no subgroup ops) — the part pack stays inside the base feature floor, so a
  * physics-free app never needs `subgroups`. One workgroup per slot keeps the pass independent of the
- * view-slot count.
+ * view-slot count. Compaction stays a GPU scan rather than a CPU gather, because a per-entity CPU loop is
+ * the cost the storage-binding budget exists to keep off the frame.
  * @internal
  */
 export const scanKernel = tgpu.computeFn({
