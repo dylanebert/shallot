@@ -17,8 +17,8 @@ export const CullParams = d.struct({ viewCount: d.u32, pairCount: d.u32 });
 
 /** the cull inputs shared by count + scatter: the per-entity slabs + membership mirror, the world-transform
  *  firehose, the per-mesh bounds, and the per-view cull volumes the visibility test needs. Part is the only
- *  many-instance producer, so this cull and scan stay Part's own: one caller can't show where a shared seam
- *  belongs.
+ *  producer that culls and compacts per view (sprite and text draw every instance), so these cull inputs stay
+ *  Part's own: one caller can't show where a shared seam belongs.
  *  @internal */
 export const cullLayout = tgpu
     .bindGroupLayout({
