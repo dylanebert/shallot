@@ -18,7 +18,7 @@ Dependencies point inward: `src/extras` on `src/standard` on `src/engine`, which
 | `crates/audio` | The DSP kernel, compiled to WASM. |
 | `crates/physics` | The solver kernel, inlined into committed `.wasm.ts` files. |
 | `crates/native` | The desktop window host, compiled per project by `build --target`. |
-| `examples` | One flat directory per example; `examples/AGENTS.md` is generated from their manifests by `bun run examples:index`. |
+| `examples` | One flat directory per example; `examples/AGENTS.md` is generated from their manifests by `bun run format`. |
 | `assets.json` | Everything but the shipped icon is fetched by URL and sha256 from here, by `bun run assets`. |
 
 ## Commands
@@ -31,7 +31,7 @@ bun run test -- --integration --base <ref> --diff <ref>   # changed-subject rows
 bun run test -- --integration --all | --requires <tag> | --subject <prefix>   # composable with each other, never with --base/--diff
 bun run test -- --oracle <claim>   # one named oracle row, outside every sweep
 bun run list      # the population the same selectors choose: claim, size, requirements, budget, file
-bun run format    # biome and the scene formatter, writing
+bun run format    # biome, the scene formatter and the examples index, writing
 ```
 
 A selector matching no row refuses.

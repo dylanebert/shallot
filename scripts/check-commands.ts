@@ -117,6 +117,13 @@ const entry = (await Bun.file(resolve(root, "CONTRIBUTING.md")).text())
     ?.split("\n## ")[0];
 if (!entry) commandErrors.push("CONTRIBUTING.md: missing Commands block");
 const scripts = (await Bun.file(resolve(root, "package.json")).json()).scripts;
+/** Declared package command count; a variant of a command is an argument to it, not a command. Changing it is an edit here in the same commit. */
+const EXPECTED_COMMANDS = 8;
+const declaredCommands = Object.keys(scripts).length;
+if (declaredCommands !== EXPECTED_COMMANDS)
+    commandErrors.push(
+        `package.json has ${declaredCommands} commands, declared ${EXPECTED_COMMANDS}: give an existing command an argument, or set EXPECTED_COMMANDS to ${declaredCommands}`,
+    );
 let inCommandFence = false;
 let commandCount = 0;
 for (const line of (entry ?? "").split("\n")) {

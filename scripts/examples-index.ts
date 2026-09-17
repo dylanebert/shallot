@@ -2,8 +2,8 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readCheckDeclarations } from "./surface";
 
-// `bun run examples:index [--check]`: emit `examples/AGENTS.md` from each source-visible
-// `examples/*/shallot.json` (`--root <dir>` is for isolated fixture tests). The index is never
+// `bun run scripts/examples-index.ts [--check]`, run by `bun run format`: emit `examples/AGENTS.md`
+// from each source-visible `examples/*/shallot.json` (`--root <dir>` is for isolated fixture tests). The index is never
 // hand-written; `--check` reds when the committed file differs from what the declarations
 // generate. Every source-visible example dir must declare both fields.
 
@@ -88,7 +88,7 @@ const cell = (s: string) => s.replaceAll("|", "\\|");
 const lines = [
     "# Examples",
     "",
-    "From `bun run examples:index` and `examples/*/shallot.json`; edit manifests. Use `bunx shallot dev examples/<name>`.",
+    "From `bun run format` and `examples/*/shallot.json`; edit manifests. Use `bunx shallot dev examples/<name>`.",
 ];
 for (const kind of KINDS) {
     const own = rows.filter((r) => r.kind === kind);
@@ -110,9 +110,7 @@ const text = `${lines.join("\n")}\n`;
 if (process.argv.includes("--check")) {
     const committed = existsSync(out) ? readFileSync(out, "utf8") : "";
     if (committed !== text) {
-        console.error(
-            "✗ examples/AGENTS.md differs from the manifests; run `bun run examples:index`.",
-        );
+        console.error("✗ examples/AGENTS.md differs from the manifests; run `bun run format`.");
         process.exit(1);
     }
 } else {

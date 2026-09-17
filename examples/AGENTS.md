@@ -1,6 +1,6 @@
 # Examples
 
-From `bun run examples:index` and `examples/*/shallot.json`; edit manifests. Use `bunx shallot dev examples/<name>`.
+From `bun run format` and `examples/*/shallot.json`; edit manifests. Use `bunx shallot dev examples/<name>`.
 
 ## Recipes
 
