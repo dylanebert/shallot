@@ -1028,6 +1028,8 @@ impl AudioEngine {
             v.air_lp = 0.0;
             v.occ_gain = 1.0;
             v.occ_gain_target = 1.0;
+            // Reflections start silent and smooth toward the gain the host sends
+            // once acoustics arrive, so a new voice never pops on its first block.
             v.refl_gain = 0.0;
             v.refl_gain_target = 0.0;
         }
