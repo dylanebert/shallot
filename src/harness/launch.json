@@ -5,7 +5,7 @@
     },
     "linux": {
         "adapterEvidence": { "headless": "unproven", "headed": "proven" },
-        "note": "Headless Chromium with the real-GPU floor reaches only the SwiftShader fallback adapter, which refuses. Headed Chromium with the same floor, on a session that declares SHALLOT_DISPLAY_SEAT, reached a real adapter (2026-09-15)."
+        "note": "Headless Chromium with the real-GPU floor reaches only the SwiftShader fallback adapter, which refuses. Headed Chromium with the same floor, on a session that declares SHALLOT_DISPLAY_SEAT, reached a real adapter (2026-09-15), so the chromium seat launches headed here, hidden by the compositor rule for its window class."
     },
     "win32": {
         "adapterEvidence": { "headless": "unproven", "headed": "unproven" },

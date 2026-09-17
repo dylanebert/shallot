@@ -216,6 +216,17 @@ check(
         expect(() => validateDeclaration("here", { claim: "seat", host: "windows" })).toThrow(
             "has host `windows`",
         );
+        // A list names every host that holds the premise; an empty, repeated or unknown entry refuses.
+        expect(
+            validateDeclaration("here", { claim: "seat", host: ["mac", "omarchy"] }).host,
+        ).toEqual(["mac", "omarchy"]);
+        expect(() => validateDeclaration("here", { claim: "seat", host: [] })).toThrow("non-empty");
+        expect(() => validateDeclaration("here", { claim: "seat", host: ["mac", "mac"] })).toThrow(
+            "distinct",
+        );
+        expect(() =>
+            validateDeclaration("here", { claim: "seat", host: ["mac", "windows"] }),
+        ).toThrow("has host `windows`");
 
         const root = resolve(import.meta.dir, "../..");
         const tree = mkdtempSync(join(tmpdir(), "shallot-surface-host-"));
@@ -230,13 +241,12 @@ check(
             const head =
                 `import { appendFileSync } from "node:fs";\n` +
                 `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n`;
-            writeFileSync(
-                plainFile,
+            const plainSource =
                 `${head}check("plain", { claim: "a row declared for the omarchy seat", size: "integration", host: "omarchy" }, () => {\n` +
-                    `    appendFileSync(${JSON.stringify(reached)}, "reached");\n` +
-                    `    throw new Error("the other host's body ran here");\n` +
-                    `});\n`,
-            );
+                `    appendFileSync(${JSON.stringify(reached)}, "reached");\n` +
+                `    throw new Error("the other host's body ran here");\n` +
+                `});\n`;
+            writeFileSync(plainFile, plainSource);
             writeFileSync(
                 gatedFile,
                 `${head}check("gated", { claim: "an omarchy row whose requirement no host here supplies", size: "integration", host: "omarchy", requires: ["display"] }, () => {});\n`,
@@ -272,6 +282,27 @@ check(
             expect(gatedElsewhere.exitCode).toBe(0);
             expect(gatedElsewhere.output).toContain('"result":"unrun"');
             expect(gatedElsewhere.output).not.toContain("display seat unavailable");
+            // A row listing both hosts runs on either, and a host outside the list still skips it.
+            const bothFile = join(tree, "both.test.ts");
+            writeFileSync(
+                bothFile,
+                plainSource
+                    .replace(
+                        '"a row declared for the omarchy seat"',
+                        '"a row declared for both seats"',
+                    )
+                    .replace('host: "omarchy"', 'host: ["mac", "omarchy"]'),
+            );
+            for (const host of ["mac", "omarchy"]) {
+                rmSync(reached, { force: true });
+                expect(run(bothFile, host).exitCode).not.toBe(0);
+                expect(existsSync(reached)).toBe(true);
+            }
+            const bothElsewhere = run(bothFile, "other");
+            expect(bothElsewhere.exitCode).toBe(0);
+            expect(bothElsewhere.output).toContain(
+                "declared for hosts mac, omarchy; this host is other",
+            );
             const gatedHere = run(gatedFile, "omarchy");
             expect(gatedHere.exitCode).not.toBe(0);
             expect(gatedHere.output).toContain("display seat unavailable");

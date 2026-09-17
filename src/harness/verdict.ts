@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { relative, resolve } from "node:path";
 import type { AdapterFacts } from "../engine/runtime/adapter";
-import { launchPlan } from "./launch";
+import { HIDDEN_WINDOW_CLASS, launchMode, launchPlan } from "./launch";
 import { resolveSeat } from "./seat";
 
 /** the result vocabulary printed by the surface reporter. */
@@ -238,24 +238,34 @@ function resolveGpuRequirement(root: string): string | null {
 
 /**
  * The host this process is running on, in the declaration's vocabulary, or `other` for a host that holds
- * no declared row. `SHALLOT_HOST` lets a host name itself; otherwise only macOS is identifiable, because a
- * Linux kernel alone does not make a runner the Omarchy seat.
+ * no declared row. `SHALLOT_HOST` lets a host name itself and always wins; otherwise macOS is `mac`, and a
+ * Linux session under Hyprland is `omarchy`, because a Linux kernel alone does not make a hosted runner the
+ * Omarchy seat.
  */
-export function currentHost(): string {
-    const declared = process.env.SHALLOT_HOST?.trim();
+export function currentHost(
+    env: Readonly<Record<string, string | undefined>> = process.env,
+    platform: string = process.platform,
+): string {
+    const declared = env.SHALLOT_HOST?.trim();
     if (declared !== undefined && declared !== "") return declared;
-    return process.platform === "darwin" ? "mac" : "other";
+    if (platform === "darwin") return "mac";
+    if (platform === "linux" && env.HYPRLAND_INSTANCE_SIGNATURE?.trim()) return "omarchy";
+    return "other";
 }
 
 /**
- * Why a row declared for one host does not run on this one, or null when it does. A host mismatch is not a
- * refusal: the premise is absent by design, so the row is skipped and reported rather than counted against
- * the claim.
+ * Why a row declared for its hosts does not run on this one, or null when it does. A row declared for a
+ * list runs on any host in it. A host mismatch is not a refusal: the premise is absent by design, so the
+ * row is skipped and reported rather than counted against the claim.
  */
-export function hostMismatch(host: string | undefined): string | null {
+export function hostMismatch(
+    host: string | readonly string[] | undefined,
+    here: string = currentHost(),
+): string | null {
     if (host === undefined) return null;
-    const here = currentHost();
-    return host === here ? null : `declared for host ${host}; this host is ${here}`;
+    const hosts = typeof host === "string" ? [host] : host;
+    if (hosts.includes(here)) return null;
+    return `declared for host${hosts.length === 1 ? "" : "s"} ${hosts.join(", ")}; this host is ${here}`;
 }
 
 function cargoPackage(root: string, subjects: readonly string[]): string | null {
@@ -417,6 +427,13 @@ export function missingRequirement(
         // only on the adapter its run observes.
         const plan = launchPlan(process.platform, requirement);
         if ("refused" in plan) return `${requirement} seat unavailable: ${plan.refused}`;
+        if (
+            requirement === "chromium" &&
+            launchMode(plan.host, plan.seat) === "headed" &&
+            (process.platform !== "linux" || !process.env.HYPRLAND_INSTANCE_SIGNATURE?.trim())
+        ) {
+            return `chromium seat unavailable: host ${plan.host} launches chromium headed, and only a Hyprland rule for class ${HIDDEN_WINDOW_CLASS} can hide that window here`;
+        }
         try {
             const module = require("playwright") as {
                 chromium?: { executablePath?: () => string };

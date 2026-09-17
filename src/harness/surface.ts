@@ -20,8 +20,8 @@ export interface SurfaceRow {
     file: string;
     /** Source file(s) whose token changes select this integration row. */
     subjects: string[];
-    /** the one host that can hold this row's premise, when it declares one. */
-    host?: string;
+    /** the host, or the hosts, that can hold this row's premise, when it declares any. */
+    host?: string | readonly string[];
 }
 
 export interface QuarantineRow {
@@ -773,7 +773,7 @@ function workflowRows(population: Population): SurfaceRow[] {
 }
 
 function workflowNeedsChromium(population: Population): boolean {
-    // A row declared for one host is skipped on the hosted runner, so installing a browser for it would
+    // A row declared for its hosts is skipped on the hosted runner, so installing a browser for it would
     // provision a premise nothing there uses.
     return workflowRows(population).some(
         (row) => row.requires.includes("chromium") && row.host === undefined,

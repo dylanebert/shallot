@@ -2,8 +2,9 @@ import { expect } from "bun:test";
 import { CAPTURE_CONTRACT } from "@dylanebert/shallot/harness/capture";
 import { check } from "@dylanebert/shallot/harness/check";
 import {
-    LAUNCH_MODES,
+    HIDDEN_WINDOW_CLASS,
     type LaunchSeat,
+    launchMode,
     launchOptions,
     launchPlan,
 } from "@dylanebert/shallot/harness/launch";
@@ -122,7 +123,7 @@ check(
 check(
     "one seat never substitutes for another",
     {
-        claim: "a real Bun device satisfies the chromium seat, a browser satisfies the gpu seat, a headless browser or a bare declaration satisfies display, or a headed browser satisfies chromium, so one seat's evidence would be reported as another's",
+        claim: "a real Bun device satisfies the chromium seat, a browser satisfies the gpu seat, a headless browser or a bare declaration satisfies display, or a display browser satisfies chromium, so one seat's evidence would be reported as another's",
         subject: "src/harness/seat.ts",
     },
     () => {
@@ -154,7 +155,7 @@ check(
             ok: false,
             reason: "display seat unavailable: no headed display is declared",
         });
-        // A headed browser never grants chromium, even on a real adapter at the capture contract.
+        // A display launch never grants chromium, even on a real adapter at the capture contract.
         const headedChromium = resolveSeat(
             "chromium",
             { browser: { ...headed, capture: { identity: CAPTURE_CONTRACT } } },
@@ -162,7 +163,7 @@ check(
         );
         expect(headedChromium).toEqual({
             ok: false,
-            reason: "chromium seat unavailable: a headed launch never grants the chromium seat, which runs headless",
+            reason: "chromium seat unavailable: a display launch never grants the chromium seat",
         });
         // Display needs both the declaration and a headed launch that reaches a real adapter: headed alone,
         // the declaration alone, a headless launch on the declaration, or a fallback adapter each refuse.
@@ -261,14 +262,15 @@ check(
     },
     () => {
         expect(launchPlan("freebsd")).toHaveProperty("refused");
-        expect(LAUNCH_MODES).toEqual({ chromium: "headless", display: "headed" });
+        expect(launchMode("darwin", "chromium")).toBe("headless");
+        expect(launchMode("darwin", "display")).toBe("headed");
         const resolved = plan("darwin");
         expect(resolved.channel).toBe("chromium");
         expect(launchOptions(resolved).headless).toBe(true);
         const display = plan("darwin", "display");
         expect(launchOptions(display).headless).toBe(false);
         expect(display.args).toEqual(resolved.args);
-        // A plan carries no mode of its own, so seat resolution and launch options both read the seat.
+        // A plan carries no mode of its own, so seat resolution and launch options both derive it.
         expect("mode" in resolved || "mode" in display).toBe(false);
         expect(launchOptions({ ...resolved, adapterEvidence: "proven" }).headless).toBe(true);
         const chromium = (launch: typeof resolved, adapter: AdapterFacts) =>
@@ -277,10 +279,66 @@ check(
                 { browser: { launch, adapter, capture: { identity: CAPTURE_CONTRACT } } },
                 CAPTURE_CONTRACT,
             ).ok;
-        // Declared evidence never grants the seat: a headed plan and a fallback adapter both refuse,
+        // Declared evidence never grants the seat: a display plan and a fallback adapter both refuse,
         // and a real adapter on the headless plan resolves because the observation is what counts.
         expect(chromium(display, CHROMIUM_REAL)).toBe(false);
         expect(chromium(resolved, CHROMIUM_FALLBACK)).toBe(false);
         expect(chromium(resolved, CHROMIUM_REAL)).toBe(true);
+    },
+);
+
+check(
+    "a headed chromium launch grants the seat only hidden by the compositor",
+    {
+        claim: "a host whose evidence is headed launches chromium headless, or grants the chromium seat to a headed window no compositor rule hid, so a run either reaches only SwiftShader or takes the person's desktop",
+        subject: ["src/harness/launch.ts", "src/harness/launch.json", "src/harness/seat.ts"],
+    },
+    () => {
+        // The mode comes from the host's evidence: Linux proves only headed, so chromium launches headed
+        // there, with the hidden class; macOS proves headless and launches with no class.
+        expect(launchMode("linux", "chromium")).toBe("headed");
+        const headed = plan("linux");
+        const options = launchOptions(headed);
+        expect(options.headless).toBe(false);
+        expect(options.args).toContain(`--class=${HIDDEN_WINDOW_CLASS}`);
+        expect(launchOptions(plan("darwin")).args).not.toContain(`--class=${HIDDEN_WINDOW_CLASS}`);
+        expect(launchOptions(plan("linux", "display")).args).not.toContain(
+            `--class=${HIDDEN_WINDOW_CLASS}`,
+        );
+        const hidden = { address: "0x1", class: HIDDEN_WINDOW_CLASS, workspace: "special:gate" };
+        const chromium = (facts: object) =>
+            resolveSeat(
+                "chromium",
+                {
+                    browser: {
+                        launch: headed,
+                        adapter: CHROMIUM_REAL,
+                        capture: { identity: CAPTURE_CONTRACT },
+                        ...facts,
+                    },
+                },
+                CAPTURE_CONTRACT,
+            );
+        expect(chromium({ hidden: { windows: [hidden], activeClass: "Alacritty" } }).ok).toBe(true);
+        // Each way no rule took refuses by name: no read-back, no window of the class, one shown, or focus.
+        expect(chromium({})).toMatchObject({
+            ok: false,
+            reason: expect.stringContaining("read-back"),
+        });
+        expect(chromium({ hidden: { windows: [], activeClass: "" } })).toMatchObject({
+            ok: false,
+            reason: expect.stringContaining(`no window of class ${HIDDEN_WINDOW_CLASS}`),
+        });
+        expect(
+            chromium({
+                hidden: {
+                    windows: [hidden, { ...hidden, address: "0x2", workspace: "3" }],
+                    activeClass: "",
+                },
+            }),
+        ).toMatchObject({ ok: false, reason: expect.stringContaining("0x2 on 3") });
+        expect(
+            chromium({ hidden: { windows: [hidden], activeClass: HIDDEN_WINDOW_CLASS } }),
+        ).toMatchObject({ ok: false, reason: expect.stringContaining("active window") });
     },
 );

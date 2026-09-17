@@ -1,17 +1,20 @@
 // Host launch declarations, kept separate from seat policy. A host declares only evidence: whether a real
-// adapter has actually been observed there in each launch mode. The launch mode is policy and lives here in
-// code, keyed by seat, so no declaration can ask for a headed browser or change what a seat means.
+// adapter has actually been observed there in each launch mode. The launch mode is derived here from that
+// evidence and the seat, never declared a second time, so no declaration can name a mode its evidence does
+// not support or change what a seat means.
 
 import type { RealGpuLaunch } from "./browser";
 import launchFloor from "./browser.json" with { type: "json" };
 import hosts from "./launch.json" with { type: "json" };
 
-/** the browser seats and the one launch mode each may use. `chromium` is always headless: a host that
- *  cannot reach a real adapter headlessly refuses it, and a window never substitutes for a headless run.
- *  Only `display`, a declared headed premise, launches headed. */
-export const LAUNCH_MODES = { chromium: "headless", display: "headed" } as const;
-export type LaunchSeat = keyof typeof LAUNCH_MODES;
-export type LaunchMode = (typeof LAUNCH_MODES)[LaunchSeat];
+/** the browser seats. */
+export const LAUNCH_SEATS = ["chromium", "display"] as const;
+export type LaunchSeat = (typeof LAUNCH_SEATS)[number];
+export type LaunchMode = "headless" | "headed";
+
+/** the window class a headed `chromium` launch carries. The seat's compositor holds a standing rule for it,
+ *  a silent special workspace with no focus, and the driver reads back that the rule took. */
+export const HIDDEN_WINDOW_CLASS = "kex-gate";
 
 /** whether a real adapter has actually been observed on a host, or is only declared. `unproven` never
  *  grants a seat — the driver still has to observe a real adapter at run time. */
@@ -32,14 +35,26 @@ export const HOST_LAUNCHES: Readonly<Record<string, HostLaunchDeclaration>> = ho
 export const LAUNCH_FLOOR: RealGpuLaunch = launchFloor as RealGpuLaunch;
 
 /** a resolved launch: one seat plus the shared floor, for one declared host. Its mode is always
- *  `LAUNCH_MODES[seat]`, never a field of its own, so no plan can disagree with its seat. */
+ *  {@link launchMode} of its seat and host, never a field of its own, so no plan can disagree with them. */
 export interface LaunchPlan {
     host: string;
     seat: LaunchSeat;
     channel: RealGpuLaunch["channel"];
     args: readonly string[];
-    /** the host's evidence in this seat's mode. */
+    /** the host's evidence in this plan's mode. */
     adapterEvidence: AdapterEvidence;
+}
+
+/**
+ * The mode a seat launches in on a host. `display` is always headed: presenting on a monitor is its
+ * premise. `chromium` takes nothing from the desktop, so it is headless wherever headless is proven, and
+ * headed and hidden only where headed alone is proven; with neither proven it stays headless and the
+ * observed adapter decides.
+ */
+export function launchMode(host: string, seat: LaunchSeat): LaunchMode {
+    if (seat === "display") return "headed";
+    const evidence = HOST_LAUNCHES[host]?.adapterEvidence;
+    return evidence?.headless !== "proven" && evidence?.headed === "proven" ? "headed" : "headless";
 }
 
 /** Resolve a host's launch plan for a browser seat, or refuse a host with no declaration. */
@@ -47,7 +62,7 @@ export function launchPlan(
     host: string,
     seat: LaunchSeat = "chromium",
 ): LaunchPlan | { refused: string } {
-    const mode = LAUNCH_MODES[seat];
+    const mode = launchMode(host, seat);
     const declaration = HOST_LAUNCHES[host];
     if (declaration === undefined) {
         return {
@@ -63,16 +78,20 @@ export function launchPlan(
     };
 }
 
-/** the Playwright launch options for a plan. `headless` comes from the seat's policy, never from host
- *  data. */
+/** the Playwright launch options for a plan. `headless` is derived from the plan's seat and host, never
+ *  from a caller, and a headed `chromium` launch always carries {@link HIDDEN_WINDOW_CLASS}. */
 export function launchOptions(plan: LaunchPlan): {
     headless: boolean;
     channel: RealGpuLaunch["channel"];
     args: string[];
 } {
+    const mode = launchMode(plan.host, plan.seat);
     return {
-        headless: LAUNCH_MODES[plan.seat] === "headless",
+        headless: mode === "headless",
         channel: plan.channel,
-        args: [...plan.args],
+        args:
+            plan.seat === "chromium" && mode === "headed"
+                ? [...plan.args, `--class=${HIDDEN_WINDOW_CLASS}`]
+                : [...plan.args],
     };
 }

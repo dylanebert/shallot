@@ -17,7 +17,7 @@ import { attribute, originalPosition, subjectSite } from "./allocation-sampler.m
 import { CAPTURE_CONTRACT } from "./capture";
 import { confirmOnDisplay, openOnDisplay } from "./display";
 import { adapterFacts } from "./driver";
-import { LAUNCH_MODES, launchOptions, launchPlan } from "./launch";
+import { launchMode, launchOptions, launchPlan } from "./launch";
 import { resolveSeat } from "./seat";
 import { MissingPremise } from "./verdict";
 
@@ -680,7 +680,7 @@ export async function samplePage(
         if (errors.length > 0)
             throw new Error(`the page threw:\n${errors.slice(0, 20).join("\n")}`);
         return {
-            runtime: `chromium ${browser.version()} ${LAUNCH_MODES[plan.seat]} ${tiers} at ${sampledRate.toFixed(1)} Hz sampled, ${controlRate.toFixed(1)} Hz under the control breakpoint`,
+            runtime: `chromium ${browser.version()} ${launchMode(plan.host, plan.seat)} ${tiers} at ${sampledRate.toFixed(1)} Hz sampled, ${controlRate.toFixed(1)} Hz under the control breakpoint`,
             adapter: classifyAdapter(facts).identity,
             display: {
                 declared: pinned.monitor.name,

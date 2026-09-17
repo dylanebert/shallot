@@ -1,7 +1,7 @@
 import { version as engineVersion } from "../../package.json" with { type: "json" };
 import { type AdapterFacts, classifyAdapter } from "../engine/runtime/adapter";
 import { CAPTURE_CONTRACT, type CaptureIdentity, captureIdentityLabel } from "./capture";
-import { launchOptions, launchPlan } from "./launch";
+import { launchMode, launchOptions, launchPlan } from "./launch";
 import type { Verdict } from "./runtime";
 import { resolveSeat } from "./seat";
 import type { Reproduction, VerdictDiagnostics } from "./verdict";
@@ -116,10 +116,11 @@ export type BrowserServeCommand = (port: number) => string[];
  * The page owns the stepped-clock assertion; this process fixes the seat and the capture geometry, waits
  * for readiness, and transports the resulting JSON across the browser boundary.
  *
- * This is the `chromium` seat, whose launch is always headless: the mode is policy keyed by seat, not a
- * caller's choice. A host whose headless Chromium reaches only a fallback adapter refuses, because a
- * software adapter is not the `chromium` seat; a headed launch belongs to the `display` seat alone, and
- * opening a window here to pass would report one seat's result as another's.
+ * This is the `chromium` seat, which takes nothing from the person's desktop: its mode is derived from the
+ * host's evidence, never a caller's choice. Where only headed is proven it launches headed with the hidden
+ * window class, and the compositor is read back before the seat resolves, so a window that shows or takes
+ * focus refuses by name. A host whose Chromium reaches only a fallback adapter refuses, because a software
+ * adapter is not the `chromium` seat.
  *
  * @example const verdict = await runBrowserCheck((port) => ["bun", "serve.ts", "--port", String(port)]);
  */
@@ -129,7 +130,7 @@ export async function runBrowserCheck(
 ): Promise<BrowserVerdict> {
     if (Object.hasOwn(opts, "headless")) {
         throw new Error(
-            "runBrowserCheck refused: `headless` is not a caller option; the harness launches headless and a host that cannot reach a real adapter that way refuses",
+            "runBrowserCheck refused: `headless` is not a caller option; the harness derives the launch mode from the host's evidence",
         );
     }
     const contract = opts.contract ?? CAPTURE_CONTRACT;
@@ -137,7 +138,7 @@ export async function runBrowserCheck(
     const plan = launchPlan(host);
     const reproduction: Reproduction = {
         host: `${host}-${process.arch}`,
-        launch: "headless",
+        launch: launchMode(host, "chromium"),
         runtime: `bun ${Bun.version}`,
         chromium: "none",
         adapter: "none",
@@ -174,6 +175,10 @@ export async function runBrowserCheck(
         await page.waitForFunction(() => window.__harness?.ready === true, undefined, {
             timeout: 10_000,
         });
+        const hidden =
+            launchMode(host, "chromium") === "headed"
+                ? await (await import("./display")).readHidden()
+                : undefined;
         const facts = await adapterFacts(page);
         const adapter = classifyAdapter(facts);
         reproduction.adapter = adapter.identity;
@@ -187,6 +192,7 @@ export async function runBrowserCheck(
             {
                 browser: {
                     launch: plan,
+                    ...(hidden === undefined ? {} : { hidden }),
                     adapter: facts,
                     ...(observed === null ? {} : { capture: { identity: observed } }),
                 },
@@ -215,6 +221,8 @@ export async function runBrowserCheck(
         };
     } catch (error) {
         if (error instanceof BrowserDriverError) throw error;
+        // A window no rule hid is a missing premise, not a red claim: the refusal keeps its type.
+        if (error instanceof Error && error.name === "MissingPremise") throw error;
         throw new BrowserDriverError(
             error instanceof Error ? error.message : String(error),
             reproduction,

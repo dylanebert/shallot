@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
 import {
     type CargoArtifact,
+    currentHost,
+    hostMismatch,
     nodeVersionMismatch,
     selectCargoTestExecutable,
     selectCargoTestTargetExecutables,
@@ -112,5 +114,25 @@ check(
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
+    },
+);
+
+check(
+    "a Hyprland session is the omarchy host unless the host names itself",
+    {
+        claim: "a Linux session under Hyprland reports host other, or a hosted Linux runner or SHALLOT_HOST is overridden, so every omarchy row goes unrun on its own seat",
+        subject: "src/harness/verdict.ts",
+    },
+    () => {
+        expect(currentHost({ HYPRLAND_INSTANCE_SIGNATURE: "abc" }, "linux")).toBe("omarchy");
+        expect(currentHost({}, "linux")).toBe("other");
+        expect(currentHost({ HYPRLAND_INSTANCE_SIGNATURE: "abc" }, "darwin")).toBe("mac");
+        expect(
+            currentHost({ HYPRLAND_INSTANCE_SIGNATURE: "abc", SHALLOT_HOST: "mac" }, "linux"),
+        ).toBe("mac");
+        expect(hostMismatch(["mac", "omarchy"], "omarchy")).toBeNull();
+        expect(hostMismatch(["mac", "omarchy"], "other")).toBe(
+            "declared for hosts mac, omarchy; this host is other",
+        );
     },
 );

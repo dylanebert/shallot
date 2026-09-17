@@ -5,7 +5,7 @@
 
 import { type AdapterFacts, classifyAdapter } from "../engine/runtime/adapter";
 import { type CaptureIdentity, captureIdentityLabel, captureIdentityMatches } from "./capture";
-import { LAUNCH_MODES, type LaunchPlan } from "./launch";
+import { HIDDEN_WINDOW_CLASS, type LaunchPlan, launchMode } from "./launch";
 
 // Keep the harness seat module's public imports stable while the engine owns adapter policy.
 export {
@@ -26,9 +26,27 @@ export interface CaptureFacts {
     identity: CaptureIdentity;
 }
 
+/** one window as the compositor reports it, for the hidden read-back. */
+export interface HiddenWindow {
+    address: string;
+    class: string;
+    /** the workspace's name; a special workspace's name starts with `special:`. */
+    workspace: string;
+}
+
+/** what the compositor reported once a headed `chromium` launch opened its page. */
+export interface HiddenFacts {
+    /** every window the compositor reports. */
+    windows: readonly HiddenWindow[];
+    /** the class of the window that holds focus, empty when none does. */
+    activeClass: string;
+}
+
 /** the browser seat's observed facts: how it was launched, what adapter it reached, what it captured. */
 export interface BrowserFacts {
     launch?: LaunchPlan;
+    /** the compositor read-back, for a headed launch. */
+    hidden?: HiddenFacts;
     adapter?: AdapterFacts;
     capture?: CaptureFacts;
 }
@@ -44,15 +62,35 @@ export interface DisplayFacts {
 /**
  * every fact a seat resolution may read. Each seat reads only its own field, which is what keeps one seat
  * from silently standing in for another: a real `device` adapter cannot satisfy `chromium`, a headless
- * browser cannot satisfy `display`, and a headed browser cannot satisfy `chromium`.
+ * browser cannot satisfy `display`, and a visible headed browser cannot satisfy `chromium`.
  */
 export interface SeatFacts {
     /** the in-process (Bun) WebGPU adapter, for the `gpu` seat. */
     device?: AdapterFacts;
-    /** the headless browser seat, for `chromium`. */
+    /** the browser seat that takes nothing from the desktop, for `chromium`. */
     browser?: BrowserFacts;
     /** the declared display and its headed browser, for `display`. */
     display?: DisplayFacts;
+}
+
+/**
+ * Why a headed launch's windows are not hidden from the person's desktop, or undefined when they are. A
+ * rule is a request: every window of {@link HIDDEN_WINDOW_CLASS} must be on a special workspace and none
+ * may hold focus, and each way it is not reads back as its own reason.
+ */
+export function hiddenRefusal(facts: HiddenFacts | undefined): string | undefined {
+    const missing = `the compositor must hold a rule sending class ${HIDDEN_WINDOW_CLASS} to a silent special workspace with no focus`;
+    if (facts === undefined)
+        return `no compositor read-back of the headed window of class ${HIDDEN_WINDOW_CLASS}; ${missing}`;
+    const windows = facts.windows.filter((window) => window.class === HIDDEN_WINDOW_CLASS);
+    if (windows.length === 0)
+        return `the compositor reports no window of class ${HIDDEN_WINDOW_CLASS}; ${missing}`;
+    const shown = windows.filter((window) => !window.workspace.startsWith("special:"));
+    if (shown.length > 0)
+        return `the compositor reports ${shown.length} of ${windows.length} windows of class ${HIDDEN_WINDOW_CLASS} off a special workspace (${shown.map((window) => `${window.address} on ${window.workspace}`).join(", ")}); ${missing}`;
+    if (facts.activeClass === HIDDEN_WINDOW_CLASS)
+        return `the compositor reports the active window is of class ${HIDDEN_WINDOW_CLASS}; ${missing}`;
+    return undefined;
 }
 
 /** a seat resolution: available, or refused with the reason a verdict prints. */
@@ -67,8 +105,9 @@ function refuse(seat: Seat, reason: string): SeatResolution {
  *
  * - `cpu` — no requirement; always available.
  * - `gpu` — a real in-process WebGPU device. Reads no browser fact, so a browser claim never grants it.
- * - `chromium` — a declared headless launch, a positively identified real adapter inside that browser, and
- *   a capture at the one declared identity. A headed launch never grants it.
+ * - `chromium` — a declared launch in the mode its host's evidence gives, a positively identified real
+ *   adapter inside that browser, and a capture at the one declared identity. A headed launch grants it only
+ *   carrying the hidden window class and read back hidden by the compositor; a `display` launch never.
  * - `display` — a host-declared display and a headed launch on it that reaches a positively identified
  *   real adapter. The declaration alone never grants it, and neither does a headed browser alone.
  *
@@ -91,7 +130,7 @@ export function resolveSeat(
         const display = facts.display;
         if (display === undefined) return refuse(seat, "no headed display is declared");
         const launch = display.browser?.launch;
-        if (launch === undefined || LAUNCH_MODES[launch.seat] !== "headed") {
+        if (launch === undefined || launch.seat !== "display") {
             return refuse(
                 seat,
                 `no headed Chromium launch was observed on the declared display ${display.source}`,
@@ -109,11 +148,15 @@ export function resolveSeat(
     }
     const browser = facts.browser;
     if (browser?.launch === undefined) {
-        return refuse(seat, "no declared headless Chromium launch path for this host");
+        return refuse(seat, "no declared Chromium launch path for this host");
     }
-    const mode = LAUNCH_MODES[browser.launch.seat];
-    if (mode !== "headless") {
-        return refuse(seat, `a ${mode} launch never grants the chromium seat, which runs headless`);
+    if (browser.launch.seat !== "chromium") {
+        return refuse(seat, `a ${browser.launch.seat} launch never grants the chromium seat`);
+    }
+    const mode = launchMode(browser.launch.host, browser.launch.seat);
+    if (mode === "headed") {
+        const hidden = hiddenRefusal(browser.hidden);
+        if (hidden !== undefined) return refuse(seat, hidden);
     }
     if (browser.adapter === undefined) {
         return refuse(seat, "the browser reported no adapter observation");
