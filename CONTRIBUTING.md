@@ -136,6 +136,10 @@ A bump touches every doc and fixture site in one commit; `check-pins` reds on dr
 - Local, staged and published are separate states: a local link is an uncommitted override, a stage pins a full-SHA Git source or an exact tarball with integrity, and published use pins a stable range with its lock. Publishing is a release, never a way to see a change. Cold proof installs frozen from an empty cache.
 - `@types/node` and `@webgpu/types` are runtime dependencies, because `types` points at source.
 
+## Branches and releases
+
+`main` is the work branch and may be mid-change. A release is a `v*` tag: pushing one runs the release workflow, which builds the native shells and attaches them to the GitHub Release, and the same version is published to npm. Consumers pin a published version or a full commit SHA, never `main`.
+
 ## Archive
 
 Retire a unit by tagging the last commit that has it, adding a row to [`ARCHIVE.md`](ARCHIVE.md) (name, tag, path at tag, why, what would rebuild it), then deleting it. There's never an archive directory.
