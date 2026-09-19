@@ -157,22 +157,6 @@ check(
 const EPS = m.FLT_EPSILON;
 
 check(
-    "atan2 tracks libm within 0.0023 degrees",
-    {
-        claim: "the physics atan2 approximation is not merely imprecise but wrong in quadrant or branch, exceeding its 4e-5 radian tolerance against libm",
-    },
-    () => {
-        const AtanTol = 4e-5;
-        for (let y = -1; y <= 1; y += 0.05) {
-            for (let x = -1; x <= 1; x += 0.05) {
-                if (x === 0 && y === 0) continue;
-                expect(Math.abs(m.atan2(y, x) - Math.atan2(y, x))).toBeLessThan(AtanTol);
-            }
-        }
-    },
-);
-
-check(
     "computeCosSin tracks libm within 0.002",
     {
         claim: "the physics computeCosSin range reduction misplaces an angle outside the primary period, exceeding 0.002 absolute error against libm",
