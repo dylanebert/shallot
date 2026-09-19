@@ -489,10 +489,14 @@ check(
             upperBound: { x: 10, y: 1, z: 1 },
         };
 
+        const OuterLeaves = 4;
+        const InnerLeaves = 3;
         const outer = createTree(16);
-        for (let i = 0; i < 4; ++i) createProxy(outer, boxAt(i), ALL_BITS_HI, ALL_BITS_LO, i);
+        for (let i = 0; i < OuterLeaves; ++i)
+            createProxy(outer, boxAt(i), ALL_BITS_HI, ALL_BITS_LO, i);
         const inner = createTree(16);
-        for (let i = 0; i < 3; ++i) createProxy(inner, boxAt(i), ALL_BITS_HI, ALL_BITS_LO, 100 + i);
+        for (let i = 0; i < InnerLeaves; ++i)
+            createProxy(inner, boxAt(i), ALL_BITS_HI, ALL_BITS_LO, 100 + i);
 
         const flat = query(outer, wide, ALL_BITS_HI, ALL_BITS_LO, false, () => true);
         const flatNodeVisits = flat.nodeVisits;
@@ -509,8 +513,8 @@ check(
             return true;
         });
 
-        expect(outerHits.length).toBe(4);
-        expect(innerHits.length).toBe(12); // 3 inner leaves per outer leaf
+        expect(outerHits.length).toBe(OuterLeaves);
+        expect(innerHits.length).toBe(OuterLeaves * InnerLeaves);
         expect(nested.nodeVisits).toBe(flatNodeVisits);
         expect(nested.leafVisits).toBe(flatLeafVisits);
     },
