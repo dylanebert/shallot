@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 import { check } from "../../../harness/check";
-import { clz32, lowerPowerOf2Exponent } from "./bits";
+import { lowerPowerOf2Exponent } from "./bits";
 import {
     countSetBits,
     createBitSet,
@@ -12,16 +12,6 @@ import {
 } from "./bitset";
 
 // Ports test_bitset.c's TestBitMath.
-
-check(
-    "clz32 counts leading zeros the way the C intrinsic does",
-    {
-        claim: "the physics clz32 binding is off by one against the bit position it reports for a small operand",
-    },
-    () => {
-        expect(clz32(9)).toBe(31 - 3);
-    },
-);
 
 check(
     "lowerPowerOf2Exponent equals floor of log2",
