@@ -756,8 +756,10 @@ check(
             // Size the roll impulse from the chassis roll inertia and the upright spring so the
             // critically damped response, theta(t) = w0 t exp(-omega t), peaks at rollBudget. After the
             // spring's settling time 4 / (zeta omega), that response is down to residual; the wheels only
-            // add inertia, so the real chassis must roll no further and recover at least as far.
-            const rollBudget = Math.PI / 6;
+            // add inertia, so the real chassis must roll no further and recover at least as far. The budget
+            // is a sixty-degree roll, past what the wheel stance restores on its own, so without the joint
+            // the chassis overshoots the budget and rolls over.
+            const rollBudget = Math.PI / 3;
             const { uprightHertz: hertz, uprightDampingRatio: dampingRatio } = VEHICLE_CONFIG;
             const omega = 2 * Math.PI * hertz;
             const settleTime = 4 / (dampingRatio * omega);
