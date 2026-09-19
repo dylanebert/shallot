@@ -1,7 +1,16 @@
 import { build, Time } from "@dylanebert/shallot";
 import { check } from "@dylanebert/shallot/harness/check";
-import { Body, PhysicsPlugin, physicsStepConfig } from "@dylanebert/shallot/physics";
+import {
+    Body,
+    hash,
+    PhysicsPlugin,
+    physicsStepConfig,
+    physicsWorld,
+    restore,
+    snapshot,
+} from "@dylanebert/shallot/physics";
 
+const FALLING_SCENE = `<scene><a body="shape: 1; pos: 0 3 0; half-extents: 0 0 0 0.5; mass: 1" /></scene>`;
 const EULER_SCENE = `<scene><a id="wheel" body="shape: 1; pos: 0 1.5 0; half-extents: 0 0 0 0.4; mass: 0.5; quat: 90 0 0" /></scene>`;
 
 function rotateY(quat: readonly [number, number, number, number]): [number, number, number] {
@@ -15,12 +24,42 @@ check(
         claim: "vehicle trajectory bounds can duplicate gravity and substeps instead of reading the initialized Physics system's fixed-step configuration",
     },
     async () => {
-        const app = await build({ defaults: false, plugins: [PhysicsPlugin] });
+        const app = await build({
+            defaults: false,
+            plugins: [PhysicsPlugin],
+            scene: FALLING_SCENE,
+        });
         try {
             const config = physicsStepConfig(app.state);
-            if (config.dt !== Time.FIXED_DT || config.gravity !== -10 || config.substeps !== 4)
-                throw new Error(`unexpected Physics step configuration: ${JSON.stringify(config)}`);
             app.state.step(config.dt);
+            const world = physicsWorld(app.state);
+            if (!world) throw new Error("Physics world did not warm");
+            const gravity = world.getGravity();
+            if (
+                config.dt !== Time.FIXED_DT ||
+                gravity.x !== 0 ||
+                gravity.z !== 0 ||
+                gravity.y !== config.gravity
+            )
+                throw new Error(
+                    `reported ${JSON.stringify(config)} but the world runs ${JSON.stringify(gravity)}`,
+                );
+            const before = snapshot(app.state);
+            app.state.step(config.dt);
+            const production = hash(app.state);
+            const replay = (substeps: number) => {
+                restore(app.state, before);
+                world.step(config.dt, substeps);
+                return hash(app.state);
+            };
+            if (replay(config.substeps) !== production)
+                throw new Error(
+                    `reported ${config.substeps} substeps but the production step differs`,
+                );
+            if (replay(config.substeps + 1) === production)
+                throw new Error(
+                    "substep count does not change the step, so the replay proves nothing",
+                );
         } finally {
             app.dispose();
         }
