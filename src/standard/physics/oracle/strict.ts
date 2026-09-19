@@ -1,7 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { loadConsumerCorpus, type OracleCase, runCommonInput } from "./consumer";
+import type { OracleCase } from "./consumer";
 
 export type StrictResult = {
     id: string;
@@ -10,16 +8,6 @@ export type StrictResult = {
     fingerprint?: string;
     firstDifference?: { path: string; expected: unknown; actual: unknown };
     error?: string;
-};
-
-export type StrictReport = {
-    schema: "box3d-oracle/strict-report/v1";
-    target: string;
-    conformsThrough: string;
-    bundle: string;
-    inventory: { suiteCount: number; caseCount: number; digest: string };
-    population: { caseCount: number; executed: number; passed: number; mismatched: number };
-    results: StrictResult[];
 };
 
 const canonical = (value: unknown): unknown => {
@@ -87,51 +75,5 @@ export function compareCase(item: OracleCase, actual: unknown): StrictResult {
         mismatchKind: "value",
         fingerprint: fingerprint(item.output, actual),
         firstDifference: difference,
-    };
-}
-
-export function executeStrictReport(): StrictReport {
-    const corpus = loadConsumerCorpus();
-    const results: StrictResult[] = [];
-    for (const item of corpus.cases) {
-        try {
-            results.push(compareCase(item, runCommonInput(item)));
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            const expected = item.output;
-            results.push({
-                id: item.id,
-                status: "mismatch",
-                mismatchKind: "execution-error",
-                fingerprint: fingerprint(expected, { error: message }),
-                firstDifference: { path: "$", expected, actual: { error: message } },
-                error: message,
-            });
-        }
-    }
-    const passed = results.filter((result) => result.status === "pass").length;
-    const mismatched = results.length - passed;
-    const inventoryPath = join(import.meta.dir, "coverage", "coverage-v6.json");
-    const inventory = JSON.parse(readFileSync(inventoryPath, "utf8")) as {
-        population: { suiteCount: number; caseCount: number };
-        source: { sha: string; tree: string };
-    };
-    const receipt = JSON.parse(
-        readFileSync(join(import.meta.dir, "box3d", "current.json"), "utf8"),
-    ) as Pick<StrictReport, "target" | "conformsThrough" | "bundle">;
-    return {
-        schema: "box3d-oracle/strict-report/v1",
-        target: receipt.target,
-        conformsThrough: receipt.conformsThrough,
-        bundle: receipt.bundle,
-        inventory: {
-            suiteCount: inventory.population.suiteCount,
-            caseCount: inventory.population.caseCount,
-            digest: createHash("sha256")
-                .update(readFileSync(join(import.meta.dir, "coverage", "inventory-v6.json")))
-                .digest("hex"),
-        },
-        population: { caseCount: results.length, executed: results.length, passed, mismatched },
-        results,
     };
 }
