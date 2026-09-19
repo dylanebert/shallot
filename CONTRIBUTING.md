@@ -11,7 +11,7 @@ Dependencies point inward: `src/extras` depends on `src/standard`, which depends
 | `src/engine` | The core: app lifecycle, ECS, scenes, the runtime (device and platform setup) and utils. |
 | `src/standard` | The default plugins. |
 | `src/extras` | Opt-in plugins, published at `/extras`. A plugin starts in its own repo and moves here once it has been stable for a release cycle. |
-| `src/harness` | The in-page verdict hook a project publishes, the seat policy, the capture contract and the browser driver. |
+| `src/harness` | The in-page verdict hook a project publishes, the seat policy, the capture contract and the display seat. |
 | `src/project` | The manifest, scene and asset generation, host toolchain resolution and the Vite plugin. |
 | `src/native` | The desktop shell: prebuilt download, with a source build as fallback. |
 | `src/cli`, `bin` | The commands, their dispatcher and the one-line entry. |
@@ -39,7 +39,7 @@ A selector that matches no test fails.
 ## Tests
 
 - A test declares its claim, and optionally its size and requirements, in the `check()` call. A Cargo suite is an integration test with `requires: ["cargo"]`. It is compiled once, untimed, and only the run counts against its budget.
-- A requirement tag names something the host must have. A host without it refuses and says why; it never runs a weaker version instead. A test with no tag is CPU only. `gpu` needs a real in-process WebGPU device. `chromium` needs Chromium on a real, identified adapter, and takes nothing from the person's desktop. `display` shows on a monitor the host declares, and takes that monitor, the keyboard and the cursor while it runs, because showing is what it measures. `src/harness/launch.ts` decides how to launch from the tag and from `launch.json`, which holds only facts about the host.
+- A requirement tag names something the host must have. A host without it refuses and says why; it never runs a weaker version instead. A test with no tag is CPU only. `gpu` needs a real in-process WebGPU device. `display` shows in headed Chromium on a monitor the host declares, and takes that monitor, the keyboard and the cursor while it runs, because showing is what it measures. `src/harness/launch.ts` resolves its launch from `launch.json`, which holds only facts about the host. `chromium` refuses on every host until the device-seat roadmap item rebuilds it (see [`ARCHIVE.md`](ARCHIVE.md)).
 - `captureFrame` from `@dylanebert/shallot/harness/capture` is the only way to capture a frame, so checks, saved artifacts and frames for people all show the same thing. Assertions run in the page on the stepped clock. A failure keeps its evidence and one real frame under `.artifacts/`.
 - Tests run on the scheduler's stepped clock, never wall time. Simulation state lives in registered components or behind a snapshot, restore and hash hook. Gameplay runs in the fixed group from per-tick actions; presentation and effects run in draw; `local` components stay out of the hash. Determinism holds within one runtime and engine version. Across them, a hash detects divergence; it is never assumed away.
 - Draws, dispatches, bytes uploaded, allocations and entities visited are deterministic, so they are unit tests whose expected value comes from the scene's content, never a hard-coded number. Timings come from real devices, labeled with the hardware, and are reported; no gate fails on wall time.
