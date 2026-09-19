@@ -750,15 +750,44 @@ check(
             step(app, 2);
             const observation = readVehicle(app.state);
             if (!observation) throw new Error("vehicle observation is absent");
+            if (!observation.upright) throw new Error("actual vehicle exposed no upright joint");
             const live = body(app.state, eid);
             if (!live) throw new Error("actual chassis never became a live body");
-            live.applyAngularImpulse({ x: 10, y: 0, z: 0 }, true);
-            for (let i = 0; i < 30; i++) app.state.step(physicsStepConfig(app.state).dt);
-            const after = readBody(app.state, eid);
-            if (!after) throw new Error("disturbed chassis could not be read");
-            const up = rotate(after.quat, [0, 1, 0]);
-            if (up[1] < 0.9)
-                throw new Error(`bounded roll did not recover upright chassis: up=${up}`);
+            // Size the roll impulse from the chassis roll inertia and the upright spring so the
+            // critically damped response, theta(t) = w0 t exp(-omega t), peaks at rollBudget. After the
+            // spring's settling time 4 / (zeta omega), that response is down to residual; the wheels only
+            // add inertia, so the real chassis must roll no further and recover at least as far.
+            const rollBudget = Math.PI / 6;
+            const { uprightHertz: hertz, uprightDampingRatio: dampingRatio } = VEHICLE_CONFIG;
+            const omega = 2 * Math.PI * hertz;
+            const settleTime = 4 / (dampingRatio * omega);
+            const residual =
+                rollBudget * Math.E * omega * settleTime * Math.exp(-omega * settleTime);
+            const rollInertia = live.getMassData().inertia.cx.x;
+            live.applyAngularImpulse(
+                { x: rollInertia * rollBudget * omega * Math.E, y: 0, z: 0 },
+                true,
+            );
+            const { dt } = physicsStepConfig(app.state);
+            const roll = () => {
+                const sample = readBody(app.state, eid);
+                if (!sample) throw new Error("disturbed chassis could not be read");
+                return Math.acos(Math.min(1, rotate(sample.quat, [0, 1, 0])[1]));
+            };
+            let peak = 0;
+            for (let i = 0; i < Math.ceil(settleTime / dt); i++) {
+                app.state.step(dt);
+                peak = Math.max(peak, roll());
+            }
+            if (peak > rollBudget || peak <= residual)
+                throw new Error(
+                    `roll impulse peaked at ${peak} rad, outside (${residual}, ${rollBudget}]`,
+                );
+            const settled = roll();
+            if (settled > residual)
+                throw new Error(
+                    `bounded roll did not recover upright chassis: roll=${settled} rad`,
+                );
             const current = readVehicle(app.state);
             if (!current) throw new Error("vehicle observation disappeared during recovery");
         } finally {
