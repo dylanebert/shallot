@@ -366,35 +366,6 @@ function recipeSourceViolations(
     }
 }
 
-/** Read one explicitly requested check file through the same declaration reader. */
-export function readCheckDeclarations(
-    root: string,
-    path: string,
-): { rows: SurfaceRow[]; errors: string[] } {
-    const population: Population = {
-        root: resolve(root),
-        rows: [],
-        undeclared: [],
-        invalid: [],
-        files: [],
-    };
-    if (!existsSync(path))
-        return {
-            rows: [],
-            errors: [`recipe check file does not exist: ${relativeFile(root, path)}`],
-        };
-    readFileDeclarations(root, path, population);
-    return {
-        rows: population.rows,
-        errors: [
-            ...population.invalid,
-            ...population.undeclared.map(
-                (file) => `undeclared recipe check file: ${file.file} ${file.reason}`,
-            ),
-        ],
-    };
-}
-
 function discoveredFiles(root: string): string[] {
     const files: string[] = [];
     for (const match of new Glob("**/*.{test,oracle}.ts").scanSync({

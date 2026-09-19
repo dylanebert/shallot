@@ -3,7 +3,6 @@
     "description": "Respond to held keys, key presses and the mouse.",
     "problem": "I want to move a thing with WASD and react to a click and a key press.",
     "scene": "scenes/respond-to-input.scene",
-    "check": { "file": "src/drive.test.ts" },
     "plugins": {
         "Orbit": true,
         "Text": true,

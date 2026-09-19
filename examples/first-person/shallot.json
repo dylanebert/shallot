@@ -8,6 +8,5 @@
         "Character": true,
         "Player": true,
         "Demo": "./src/demo"
-    },
-    "check": { "file": "src/demo.test.ts" }
+    }
 }

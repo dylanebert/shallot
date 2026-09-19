@@ -3,13 +3,10 @@ import {
     CHECK_REQUIREMENTS,
     collectPopulation,
     formatPopulation,
-    readCheckDeclarations,
     selectIntegrationRows,
     selectOracleRows,
     writeWorkflow,
 } from "../src/harness/surface";
-
-export { readCheckDeclarations };
 
 if (import.meta.main) {
     const args = Bun.argv.slice(2);

@@ -353,14 +353,6 @@ check(
             rmSync(defaults, { recursive: true, force: true });
         }
 
-        const malformed = mkdtempSync(join(tmpdir(), "shallot-surface-root-array-"));
-        try {
-            writeFileSync(join(malformed, "shallot.json"), '{"check":[]}');
-            expect(readSurface(malformed)).toEqual([]);
-        } finally {
-            rmSync(malformed, { recursive: true, force: true });
-        }
-
         expect(subjectTokens("const value = 1; // prose")).toEqual(
             subjectTokens("const value = 1; /* prose */"),
         );
@@ -464,10 +456,7 @@ check(
             join(tree, "tests/named.oracle.ts"),
             `import { check } from ${JSON.stringify(checkModule)};\ncheck("named", { claim: "named" }, () => {});\n`,
         );
-        writeFileSync(
-            join(tree, "shallot.json"),
-            JSON.stringify({ check: [{ file: "src/kept.test.ts" }, { file: "missing.test.ts" }] }),
-        );
+        writeFileSync(join(tree, "shallot.json"), JSON.stringify({}));
         try {
             const population = collectPopulation(tree);
             expect(population.invalid).toEqual([]);
@@ -583,10 +572,7 @@ check(
             join(tree, "tests/named.oracle.ts"),
             `import { check } from ${JSON.stringify(checkModule)};\ncheck("named oracle", { claim: "named oracle runs", size: "integration" }, () => { console.log("NAMED_ORACLE_RAN"); });\n`,
         );
-        writeFileSync(
-            join(tree, "shallot.json"),
-            JSON.stringify({ check: [{ file: "tests/named.oracle.ts" }] }),
-        );
+        writeFileSync(join(tree, "shallot.json"), JSON.stringify({}));
         try {
             const proc = Bun.spawnSync(
                 [
@@ -810,21 +796,6 @@ check(
         const expired = reader("expired");
         expect(expired.code).toBe(1);
         expect(expired.err).toContain('expired quarantine row: "expired claim" expired 2020-01-01');
-    },
-);
-
-check(
-    "a convention-named file must declare a check",
-    {
-        claim: "check-surface.ts reds every convention-named file that registers no check declaration, regardless of its manifest",
-        size: "integration",
-    },
-    () => {
-        const missing = reader("manifest-no-check");
-        expect(missing.code).toBe(1);
-        expect(missing.err).toContain(
-            "undeclared check file: examples/no-check/check.test.ts registers no check() declaration",
-        );
     },
 );
 

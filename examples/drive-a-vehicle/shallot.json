@@ -7,6 +7,5 @@
         "Orbit": true,
         "Physics": true,
         "Car": "./src/car"
-    },
-    "check": { "file": "src/car.test.ts" }
+    }
 }

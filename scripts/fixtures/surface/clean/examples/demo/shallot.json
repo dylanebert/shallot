@@ -1,4 +1,3 @@
 {
-    "kind": "recipe",
-    "check": { "file": "check.test.ts" }
+    "kind": "recipe"
 }
