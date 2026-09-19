@@ -320,23 +320,37 @@ check(
             clockwiseWinding: false,
         });
         const radius = 0.3;
+        const startY = 10;
+        const dropY = 20;
         const cast = (cx: number, cz: number) =>
             shapeCastHeightField(hf, {
-                proxy: { points: [{ x: cx, y: 10, z: cz }], count: 1, radius },
-                translation: { x: 0, y: -20, z: 0 },
+                proxy: { points: [{ x: cx, y: startY, z: cz }], count: 1, radius },
+                translation: { x: 0, y: -dropY, z: 0 },
                 maxFraction: 1,
                 canEncroach: false,
             });
 
+        // The sphere touches the flat cell (0,0), spanning [0, 1] at height 0, on its nearest edge or
+        // corner: it stops where the radius reaches that point, at the horizontal offset from it.
+        const fraction = (cx: number, cz: number) => {
+            const dx = Math.max(0, cx - 1);
+            const dz = Math.max(0, cz - 1);
+            return (startY - Math.sqrt(radius * radius - dx * dx - dz * dz)) / dropY;
+        };
         const cases = [
-            { name: "past the x boundary", cx: 1.05, cz: 0.5, fraction: 0.4852098 },
-            { name: "past the z boundary", cx: 0.5, cz: 1.05, fraction: 0.4852098 },
-            { name: "past the corner", cx: 1.05, cz: 1.05, fraction: 0.4854226 },
+            { name: "past the x boundary", cx: 1.05, cz: 0.5 },
+            { name: "past the z boundary", cx: 0.5, cz: 1.05 },
+            { name: "past the corner", cx: 1.05, cz: 1.05 },
         ];
         for (const c of cases) {
             const out = cast(c.cx, c.cz);
             expect(out.hit, `height field shape cast ${c.name}: hit`).toBe(true);
-            near(out.fraction, c.fraction, 2e-3, `height field shape cast ${c.name}: fraction`);
+            near(
+                out.fraction,
+                fraction(c.cx, c.cz),
+                2e-3,
+                `height field shape cast ${c.name}: fraction`,
+            );
         }
     },
 );
