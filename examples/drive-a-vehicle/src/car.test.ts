@@ -665,8 +665,6 @@ check(
     "drive-a-vehicle actual scene follows a bounded causal trajectory",
     {
         claim: "the actual drive-a-vehicle scene follows a finite, ground-bound, input-causal stepped trajectory rather than receiving an uncommanded launch",
-        size: "integration",
-        subject: ["examples/drive-a-vehicle"],
     },
     async () => {
         const idle = await runTrace([]);
