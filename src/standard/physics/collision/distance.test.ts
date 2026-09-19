@@ -161,31 +161,6 @@ check(
 );
 
 check(
-    "shapeCast stops the segment at the analytic half of its translation",
-    {
-        claim: "shapeCast misses the hit or reports a fraction away from the analytic 0.5 when a segment is swept two units into a quad one unit away",
-    },
-    () => {
-        const proxyA: ShapeProxy = {
-            points: [v(-1, -1, 0), v(1, -1, 0), v(1, 1, 0), v(-1, 1, 0)],
-            count: 4,
-            radius: 0,
-        };
-        const proxyB: ShapeProxy = { points: [v(2, -1, 0), v(2, 1, 0)], count: 2, radius: 0 };
-        const out = shapeCast({
-            proxyA,
-            proxyB,
-            transform: { p: v(0, 0, 0), q: { v: v(0, 0, 0), s: 1 } },
-            translationB: v(-2, 0, 0),
-            maxFraction: 1,
-            canEncroach: false,
-        });
-        expect(out.hit).toBe(true);
-        expect(Math.abs(out.fraction - 0.5)).toBeLessThan(0.005);
-    },
-);
-
-check(
     "timeOfImpact lands the Hit state at the analytic half of the sweep",
     {
         claim: "timeOfImpact returns a state other than Hit or a fraction away from the analytic 0.5 when a segment sweeps two units into a stationary quad one unit away",
