@@ -1,7 +1,7 @@
 import { afterEach, expect } from "bun:test";
 import { check } from "../../harness/check";
 // Registers DEFAULT_PLUGINS as the build default set that the default-build refusal row reads.
-import "../../standard/defaults";
+import { DEFAULT_PLUGINS } from "../../standard/defaults";
 import {
     Body,
     hash as hashPhysics,
@@ -169,9 +169,20 @@ check(
         claim: "the default composition hides its GPU requirement behind a generic device error instead of naming the requiring plugins and CPU forms",
     },
     async () => {
-        await expect(build({ plugins: [] })).rejects.toThrow(
-            /required plugins: Render, Sear, Glaze.*defaults: false.*plugins.*plugins:.*exclude.*Render, Sear, Glaze/s,
+        const expected = DEFAULT_PLUGINS.filter((plugin) => plugin.device === "required")
+            .map((plugin) => plugin.name)
+            .sort();
+        expect(expected.length).toBeGreaterThan(0);
+        const message = await build({ plugins: [] }).then(
+            () => "",
+            (error: unknown) => (error instanceof Error ? error.message : String(error)),
         );
+        const named = message.match(
+            /required plugins: ([^.]*)\..*defaults: false.*exclude: \[([^\]]*)\]/s,
+        );
+        if (!named) throw new Error(`default build did not refuse with its plugins: ${message}`);
+        expect(named[1].split(", ").sort()).toEqual(expected);
+        expect(named[2].split(", ").sort()).toEqual(expected);
     },
 );
 
