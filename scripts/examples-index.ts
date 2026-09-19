@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { readCheckDeclarations } from "./surface";
+import { collectPopulation } from "../src/harness/surface";
 
 // `bun run scripts/examples-index.ts [--check]`, run by `bun run format`: emit `examples/AGENTS.md`
 // from each source-visible `examples/*/shallot.json` (`--root <dir>` is for isolated fixture tests). The index is never
@@ -38,6 +38,7 @@ for (const path of evidence.stdout.toString().split("\0")) {
     if (slash > 0 && slash < relative.length - 1) names.add(relative.slice(0, slash));
 }
 
+const population = collectPopulation(root);
 const rows: { name: string; kind: Kind; description: string; checkSize: string }[] = [];
 const errors: string[] = [];
 for (const name of [...names].sort()) {
@@ -46,28 +47,21 @@ for (const name of [...names].sort()) {
         errors.push(`examples/${name}/ has no shallot.json`);
         continue;
     }
-    const { kind, description, problem, check } = JSON.parse(readFileSync(path, "utf8"));
+    const { kind, description, problem } = JSON.parse(readFileSync(path, "utf8"));
     if (!KINDS.includes(kind))
         errors.push(`examples/${name}/shallot.json: kind must be ${KINDS.join(" | ")}`);
     else if (typeof description !== "string" || description.trim() === "")
         errors.push(`examples/${name}/shallot.json: description is missing`);
     else {
-        let checkSize = "-";
-        if (check !== undefined) {
-            if (
-                Array.isArray(check) ||
-                check === null ||
-                typeof check !== "object" ||
-                typeof check.file !== "string" ||
-                Object.keys(check).some((field) => field !== "file")
-            ) {
-                errors.push(`examples/${name}/shallot.json: check must be { file }`);
-            } else {
-                const result = readCheckDeclarations(root, resolve(examples, name, check.file));
-                errors.push(...result.errors);
-                checkSize = [...new Set(result.rows.map((row) => row.size))].join("/") || "-";
-            }
-        }
+        const prefix = `examples/${name}/`;
+        const checkSize =
+            [
+                ...new Set(
+                    population.rows
+                        .filter((row) => row.file.startsWith(prefix))
+                        .map((row) => row.size),
+                ),
+            ].join("/") || "-";
         rows.push({
             name,
             kind,

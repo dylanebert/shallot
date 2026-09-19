@@ -323,7 +323,7 @@ check(
 check(
     "--list prints exactly the declared population",
     {
-        claim: "surface.ts --list prints one row per declared check in the tree, from files and manifests",
+        claim: "surface.ts --list prints one row per declared check in the convention-discovered tree",
         size: "integration",
     },
     () => {
@@ -356,7 +356,7 @@ check(
         const malformed = mkdtempSync(join(tmpdir(), "shallot-surface-root-array-"));
         try {
             writeFileSync(join(malformed, "shallot.json"), '{"check":[]}');
-            expect(readSurface(malformed).join("\\n")).toContain("check array must not be empty");
+            expect(readSurface(malformed)).toEqual([]);
         } finally {
             rmSync(malformed, { recursive: true, force: true });
         }
@@ -442,13 +442,13 @@ check(
 );
 
 check(
-    "root manifests are complete authorities for static and launched populations",
+    "discovery owns the complete population and ordinary launches exclude oracles",
     {
-        claim: "root shallot.json check arrays admit exactly every visible entrypoint and keep named oracles out of ordinary launches",
+        claim: "the carrier reads every convention-named file once, requires each file's check declaration, ignores manifest admission, and keeps named oracles outside ordinary launches",
         size: "integration",
     },
     () => {
-        const tree = mkdtempSync(join(tmpdir(), "shallot-surface-root-authority-"));
+        const tree = mkdtempSync(join(tmpdir(), "shallot-surface-discovery-authority-"));
         mkdirSync(join(tree, "src"), { recursive: true });
         mkdirSync(join(tree, "tests"), { recursive: true });
         const checkModule = resolve(ROOT, "src/harness/check");
@@ -457,56 +457,33 @@ check(
             `import { check } from ${JSON.stringify(checkModule)};\ncheck("kept", { claim: "kept" }, () => {});\n`,
         );
         writeFileSync(
+            join(tree, "src/unlisted.test.ts"),
+            `import { check } from ${JSON.stringify(checkModule)};\ncheck("unlisted", { claim: "unlisted" }, () => {});\n`,
+        );
+        writeFileSync(
             join(tree, "tests/named.oracle.ts"),
             `import { check } from ${JSON.stringify(checkModule)};\ncheck("named", { claim: "named" }, () => {});\n`,
         );
         writeFileSync(
             join(tree, "shallot.json"),
-            JSON.stringify(
-                {
-                    check: [{ file: "src/kept.test.ts" }, { file: "tests/named.oracle.ts" }],
-                },
-                null,
-                2,
-            ),
+            JSON.stringify({ check: [{ file: "src/kept.test.ts" }, { file: "missing.test.ts" }] }),
         );
         try {
-            expect(discoverTestFiles(tree)).toEqual(["src/kept.test.ts"]);
-            writeFileSync(
-                join(tree, "shallot.json"),
-                JSON.stringify({
-                    check: [
-                        { file: "src/kept.test.ts" },
-                        { file: "src/kept.test.ts" },
-                        { file: "src/moved.test.ts" },
-                    ],
-                }),
-            );
             const population = collectPopulation(tree);
-            expect(population.invalid).toEqual([
-                "duplicate manifest entry: src/kept.test.ts",
-                "manifest entry does not exist: src/moved.test.ts",
-                "unlisted check file: tests/named.oracle.ts; root shallot.json check is authoritative",
+            expect(population.invalid).toEqual([]);
+            expect(population.undeclared).toEqual([]);
+            expect(population.files).toEqual([
+                "src/kept.test.ts",
+                "src/unlisted.test.ts",
+                "tests/named.oracle.ts",
             ]);
-
-            writeFileSync(
-                join(tree, "src/unlisted.test.ts"),
-                `import { check } from ${JSON.stringify(checkModule)};\ncheck("unlisted", { claim: "unlisted" }, () => { throw new Error("UNLISTED_RAN"); });\n`,
-            );
-            writeFileSync(
-                join(tree, "shallot.json"),
-                JSON.stringify({ check: [{ file: "src/kept.test.ts" }] }),
-            );
-            const runner = Bun.spawnSync(
-                ["bun", resolve(ROOT, "scripts/test-runner.ts"), "--root", tree],
-                { cwd: ROOT, stdout: "pipe", stderr: "pipe" },
-            );
-            expect(runner.exitCode).toBe(1);
-            expect(runner.stderr.toString()).toContain(
-                "unlisted check file: tests/named.oracle.ts",
-            );
-            expect(runner.stderr.toString()).toContain("unlisted check file: src/unlisted.test.ts");
-            expect(runner.stderr.toString()).not.toContain("UNLISTED_RAN");
+            expect(population.rows.map((row) => row.file)).toEqual([
+                "src/kept.test.ts",
+                "tests/named.oracle.ts",
+                "src/unlisted.test.ts",
+            ]);
+            expect(discoverTestFiles(tree)).toEqual(["src/kept.test.ts", "src/unlisted.test.ts"]);
+            expect(discoverTestFiles(tree, true)).toEqual(population.files);
         } finally {
             rmSync(tree, { recursive: true, force: true });
         }
@@ -837,15 +814,17 @@ check(
 );
 
 check(
-    "a recipe manifest must name a file that declares a check",
+    "a convention-named file must declare a check",
     {
-        claim: "check-surface.ts reds when a recipe manifest names a file with no check declaration",
+        claim: "check-surface.ts reds every convention-named file that registers no check declaration, regardless of its manifest",
         size: "integration",
     },
     () => {
         const missing = reader("manifest-no-check");
         expect(missing.code).toBe(1);
-        expect(missing.err).toContain("undeclared check file: examples/no-check/check.test.ts");
+        expect(missing.err).toContain(
+            "undeclared check file: examples/no-check/check.test.ts registers no check() declaration",
+        );
     },
 );
 

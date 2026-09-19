@@ -245,9 +245,12 @@ function resolveSubject(subject: string): string {
     return subject.replace(/^\.\//, "");
 }
 
-export function readFileDeclarations(root: string, path: string, population: Population): void {
+export function readFileDeclarations(
+    root: string,
+    path: string,
+    population: Population,
+): string | undefined {
     const file = relativeFile(root, path);
-    population.files.push(file);
     let source: string;
     try {
         source = readFileSync(path, "utf8");
@@ -261,14 +264,14 @@ export function readFileDeclarations(root: string, path: string, population: Pop
             file,
             reason: `imports ${imported.join(", ")} from bun:test instead of declaring through check()`,
         });
-        return;
+        return source;
     }
     let ast: any;
     try {
         ast = parse(source, { sourceType: "module", plugins: ["typescript"] });
     } catch (error) {
         population.invalid.push(`cannot parse ${file}: ${(error as Error).message}`);
-        return;
+        return source;
     }
     if (file.endsWith(".test.ts") && moduleScopeSpawns(ast.program) > 0)
         population.invalid.push(
@@ -319,18 +322,15 @@ export function readFileDeclarations(root: string, path: string, population: Pop
     });
     if (found === 0)
         population.undeclared.push({ file, reason: "registers no check() declaration" });
+    return source;
 }
 
-interface ManifestEntry {
-    file: string;
-}
-
-interface ManifestRead {
-    entries: ManifestEntry[];
-    hasCheck: boolean;
-}
-
-function recipeSourceViolations(root: string, manifestPath: string, population: Population): void {
+function recipeSourceViolations(
+    root: string,
+    manifestPath: string,
+    population: Population,
+    conventionSources: ReadonlyMap<string, string | undefined>,
+): void {
     let manifest: unknown;
     try {
         manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -348,8 +348,13 @@ function recipeSourceViolations(root: string, manifestPath: string, population: 
     if (!existsSync(sourceRoot)) return;
     for (const match of new Glob("**/*.ts").scanSync({ cwd: sourceRoot, dot: false })) {
         const path = resolve(sourceRoot, match);
-        const source = readFileSync(path, "utf8");
         const file = relativeFile(root, path);
+        // Reuse the declaration reader's source for convention-named files. This keeps the source
+        // rules and the population reader on one physical read.
+        const source = conventionSources.has(path)
+            ? conventionSources.get(path)
+            : readFileSync(path, "utf8");
+        if (source === undefined) continue;
         if (DEEP_RECIPE_IMPORT.test(source))
             population.invalid.push(
                 `recipe source uses a deep engine import: ${file}; import only from package exports`,
@@ -361,69 +366,7 @@ function recipeSourceViolations(root: string, manifestPath: string, population: 
     }
 }
 
-function manifestEntries(root: string, path: string, population: Population): ManifestRead {
-    const label = relativeFile(root, path);
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(readFileSync(path, "utf8"));
-    } catch (error) {
-        population.invalid.push(`invalid manifest: ${label}: ${(error as Error).message}`);
-        return { entries: [], hasCheck: false };
-    }
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        population.invalid.push(`invalid manifest: ${label}: expected an object`);
-        return { entries: [], hasCheck: false };
-    }
-    const manifest = parsed as Record<string, unknown>;
-    if (!Object.hasOwn(manifest, "check")) return { entries: [], hasCheck: false };
-    const check = manifest.check;
-    const entries = Array.isArray(check) ? check : [check];
-    if (entries.length === 0) {
-        population.invalid.push(`invalid manifest: ${label}: check array must not be empty`);
-        return { entries: [], hasCheck: true };
-    }
-    const seen = new Set<string>();
-    const result: ManifestEntry[] = [];
-    for (const [index, raw] of entries.entries()) {
-        if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-            population.invalid.push(
-                `invalid manifest: ${label} check[${index + 1}] must be an object with file`,
-            );
-            continue;
-        }
-        const entry = raw as Record<string, unknown>;
-        const extras = Object.keys(entry).filter((key) => key !== "file");
-        if (extras.length > 0)
-            population.invalid.push(
-                `invalid manifest: ${label} check[${index + 1}] has unknown fields ${extras.join(", ")}`,
-            );
-        if (typeof entry.file !== "string" || entry.file.trim() === "") {
-            population.invalid.push(`invalid manifest: ${label} check[${index + 1}] needs a file`);
-            continue;
-        }
-        const file = resolve(path, "..", entry.file);
-        const relativePath = relativeFile(root, file);
-        if (relativePath === ".." || relativePath.startsWith("../")) {
-            population.invalid.push(`manifest entry escapes project root: ${relativePath}`);
-            continue;
-        }
-        if (seen.has(relativePath)) {
-            population.invalid.push(`duplicate manifest entry: ${relativePath}`);
-            continue;
-        }
-        seen.add(relativePath);
-        if (!existsSync(file)) {
-            population.invalid.push(`manifest entry does not exist: ${relativePath}`);
-            continue;
-        }
-        if (!SUFFIX.test(file))
-            population.invalid.push(`manifest entry is not a check file: ${relativePath}`);
-        result.push({ file });
-    }
-    return { entries: result, hasCheck: true };
-}
-
-/** Read one manifest-selected check file through the same carrier reader. */
+/** Read one explicitly requested check file through the same declaration reader. */
 export function readCheckDeclarations(
     root: string,
     path: string,
@@ -474,40 +417,27 @@ export function collectPopulation(root: string): Population {
         files: [],
     };
     const files = discoveredFiles(population.root);
+    const conventionSources = new Map<string, string | undefined>();
+    // The naming convention is the complete population. Read each discovered path once, regardless of
+    // what any project or example manifest happens to contain.
+    for (const path of files) {
+        const source = readFileDeclarations(population.root, path, population);
+        conventionSources.set(path, source);
+    }
     const manifests = new Glob("**/shallot.json").scanSync({ cwd: population.root, dot: false });
     const manifestFiles = [...manifests]
         .filter((match) => !match.split("/").some((part) => SKIP.has(part)))
         .sort();
-    const manifestResults = new Map<string, ManifestRead>();
-    for (const match of manifestFiles) {
-        const path = resolve(population.root, match);
-        manifestResults.set(match, manifestEntries(population.root, path, population));
-        recipeSourceViolations(population.root, path, population);
-    }
-    const rootResult = manifestResults.get("shallot.json");
-    const rootIsAuthoritative = rootResult?.hasCheck === true;
-    const admitted = rootIsAuthoritative
-        ? new Set((rootResult?.entries ?? []).map((entry) => resolve(entry.file)))
-        : new Set<string>(files);
-    if (rootIsAuthoritative) {
-        const listed = new Set(admitted);
-        for (const file of files) {
-            if (!listed.has(file))
-                population.invalid.push(
-                    `unlisted check file: ${relativeFile(population.root, file)}; root shallot.json check is authoritative`,
-                );
-        }
-    } else {
-        for (const result of manifestResults.values())
-            for (const entry of result.entries) admitted.add(resolve(entry.file));
-    }
-    for (const path of [...admitted].sort()) {
-        if (!SUFFIX.test(path) || path.split(sep).some((part) => SKIP.has(part))) continue;
-        readFileDeclarations(population.root, path, population);
-    }
+    for (const match of manifestFiles)
+        recipeSourceViolations(
+            population.root,
+            resolve(population.root, match),
+            population,
+            conventionSources,
+        );
+    population.files = files.map((path) => relativeFile(population.root, path));
     population.rows.sort((a, b) => a.claim.localeCompare(b.claim));
     population.undeclared.sort((a, b) => a.file.localeCompare(b.file));
-    population.files = [...new Set(population.files)].sort();
     return population;
 }
 
@@ -1145,9 +1075,7 @@ export function writeWorkflow(root: string): "written" | "removed" | "empty" {
 
 export function discoverTestFiles(root: string, includeOracles = false): string[] {
     const population = collectPopulation(root);
-    return population.files
-        .filter((path) => includeOracles || !ORACLE_SUFFIX.test(path))
-        .map((path) => relativeFile(root, resolve(root, path)));
+    return population.files.filter((path) => includeOracles || !ORACLE_SUFFIX.test(path));
 }
 
 export { CHECK_REQUIREMENTS, CHECK_SIZES };
