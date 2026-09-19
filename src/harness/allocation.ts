@@ -804,8 +804,11 @@ export function derivedFrames(
 }
 
 /**
- * The declared-site conditions over a page sample's windows: nothing allocates outside the two
- * declarations, no declared site is stale, and every sanctioned site reads its derived count exactly.
+ * The declared-site rule has two halves, split because they are claims about different things.
+ * {@link undeclaredSiteFailures} is a claim about the sites a run measured: none allocates outside the
+ * ledger, and every sanctioned site reads its derived count exactly. Any run can make it over the sites it
+ * reaches. {@link staleRowFailures} is a claim about the whole ledger: no row names a site that allocates
+ * nothing. Only a run that reaches every row can make it, so only the page oracle composes both.
  *
  * Membership and staleness are read over the **A/A repeat window alone**, the last of `windows`, as
  * § Gate narrowing locks: the page's warm is bounded by the row's own budget, and a JIT transition is not
@@ -820,7 +823,7 @@ export function derivedFrames(
  * count inside the window's bracket. A red-circle is real, unwanted allocation the person deferred to a
  * named later gate, so it carries no count and holds at any count until that gate closes it.
  *
- * An **empty sanction ledger** asserts nothing here. `derivedFrames` has no row to divide by, so its
+ * An **empty sanction ledger** asserts no count. `derivedFrames` has no row to divide by, so its
  * reason would be about the ledger being empty rather than about anything the page did, and a failure that
  * a perfect page cannot clear is not a reading. The ledger is the person's decision; its own
  * "no sanctioned site allocated" reason stays for the case that matters, a non-empty ledger whose rows
@@ -828,7 +831,7 @@ export function derivedFrames(
  *
  * Returns one message per broken condition, empty when all hold.
  */
-export function declaredSiteFailures(
+export function undeclaredSiteFailures(
     windows: readonly AllocationWindow[],
     sanctions: readonly { site: string; count: number }[],
     redCircles: readonly { site: string }[],
@@ -844,17 +847,34 @@ export function declaredSiteFailures(
         failures.push(
             `warm page frames allocate outside the sanctions and red circles:\n${undeclared.join("\n")}`,
         );
-    const stale: string[] = [];
-    for (const row of declaredRows(sanctions, redCircles))
-        if (!steady.sites.some((site) => where(site.site) === row.site))
-            stale.push(`  ${steady.label}: ${row.noun} ${row.site} allocates nothing`);
-    if (stale.length > 0) failures.push(`stale declared rows:\n${stale.join("\n")}`);
     if (sanctions.length > 0)
         for (const window of windows) {
             const derived = derivedFrames(window, sanctions);
             if ("reason" in derived) failures.push(derived.reason);
         }
     return failures;
+}
+
+/**
+ * The ledger half of the declared-site rule: every sanction and red-circle row names a site the A/A
+ * repeat window saw allocate. A row naming a site that allocates nothing is a row nobody retired. See
+ * {@link undeclaredSiteFailures} for why this is read over the last window alone and why only a run that
+ * reaches every row may apply it.
+ *
+ * Returns one message listing the stale rows, empty when none is stale.
+ */
+export function staleRowFailures(
+    windows: readonly AllocationWindow[],
+    sanctions: readonly { site: string }[],
+    redCircles: readonly { site: string }[],
+): string[] {
+    const steady = windows[windows.length - 1];
+    if (steady === undefined) return [];
+    const stale: string[] = [];
+    for (const row of declaredRows(sanctions, redCircles))
+        if (!steady.sites.some((site) => where(site.site) === row.site))
+            stale.push(`  ${steady.label}: ${row.noun} ${row.site} allocates nothing`);
+    return stale.length > 0 ? [`stale declared rows:\n${stale.join("\n")}`] : [];
 }
 
 const declaredRows = (

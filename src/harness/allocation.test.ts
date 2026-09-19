@@ -1,8 +1,9 @@
 import { expect } from "bun:test";
 import { resolve } from "node:path";
 import {
-    declaredSiteFailures,
     derivedFrames,
+    staleRowFailures,
+    undeclaredSiteFailures,
     warmWindowTelemetry,
     where,
 } from "@dylanebert/shallot/harness/allocation";
@@ -84,7 +85,7 @@ check(
     },
     () => {
         // Non-vacuity: the rule reads green on the sample every mutation below starts from.
-        expect(declaredSiteFailures(STEADY, [SANCTION], [RED_CIRCLE])).toEqual([]);
+        expect(undeclaredSiteFailures(STEADY, [SANCTION], [RED_CIRCLE])).toEqual([]);
         // One extra allocation, in one frame, of one window: 241 against 2 per frame leaves a remainder,
         // so the window has no whole frame count and the site that broke it is named. This is the defect
         // rounding the count per frame used to hide.
@@ -92,14 +93,14 @@ check(
             [sanctionSite(240), redCircleSite(517)],
             [sanctionSite(241), redCircleSite(499)],
         );
-        const broken = declaredSiteFailures(offByOne, [SANCTION], [RED_CIRCLE]);
+        const broken = undeclaredSiteFailures(offByOne, [SANCTION], [RED_CIRCLE]);
         expect(broken).toHaveLength(1);
         expect(broken[0]).toContain("not a whole number of frames at the declared 2×/f");
         expect(broken[0]).toContain("1.81 to 2.01 per frame");
         expect(broken[0]).toContain("src/a.ts:10 read 241 allocations");
         // One below reds the same way, so the condition is exactness and not a ceiling.
         expect(
-            declaredSiteFailures(
+            undeclaredSiteFailures(
                 windows([sanctionSite(239), redCircleSite(517)]),
                 [SANCTION],
                 [RED_CIRCLE],
@@ -111,7 +112,7 @@ check(
             redCircleSite(517),
             { site: "leak src/c.ts:30", bytes: 64, count: 7 },
         ]);
-        expect(declaredSiteFailures(extra, [SANCTION], [RED_CIRCLE])[0]).toContain(
+        expect(undeclaredSiteFailures(extra, [SANCTION], [RED_CIRCLE])[0]).toContain(
             "64 B at leak src/c.ts:30",
         );
     },
@@ -134,7 +135,7 @@ check(
             sanctionSite(240),
             { ...redCircleSite(517), site: "set transform src/b.ts:20" },
         ]);
-        expect(declaredSiteFailures(accessor, [SANCTION], [RED_CIRCLE])).toEqual([]);
+        expect(undeclaredSiteFailures(accessor, [SANCTION], [RED_CIRCLE])).toEqual([]);
     },
 );
 
@@ -185,7 +186,7 @@ check(
 check(
     "a red circle asserts membership only, and reds when it is stale",
     {
-        claim: "the declared-site rule accepts a red-circled site at any count, reds it when a window shows it allocating nothing, and reds a stale sanction the same way",
+        claim: "the sites half accepts a red-circled site at any count, and the ledger half reds it when a window shows it allocating nothing, and reds a stale sanction the same way",
     },
     () => {
         // A red circle carries no count, so any rate holds: it is deferred debt meant to trend to zero,
@@ -194,27 +195,29 @@ check(
             [sanctionSite(240), redCircleSite(3)],
             [sanctionSite(240), redCircleSite(40_000)],
         );
-        expect(declaredSiteFailures(wild, [SANCTION], [RED_CIRCLE])).toEqual([]);
+        expect(undeclaredSiteFailures(wild, [SANCTION], [RED_CIRCLE])).toEqual([]);
+        expect(staleRowFailures(wild, [SANCTION], [RED_CIRCLE])).toEqual([]);
         // A red-circled site absent from a window is stale, exactly as a sanction is: a row that names a
         // site allocating nothing is a row nobody retired.
         const goneRedCircle = windows([sanctionSite(240), redCircleSite(517)], [sanctionSite(240)]);
-        expect(declaredSiteFailures(goneRedCircle, [SANCTION], [RED_CIRCLE])).toEqual([
+        expect(staleRowFailures(goneRedCircle, [SANCTION], [RED_CIRCLE])).toEqual([
             "stale declared rows:\n  window 1: red-circle src/b.ts:20 allocates nothing",
         ]);
         const goneSanction = windows([sanctionSite(240), redCircleSite(517)], [redCircleSite(499)]);
-        const failures = declaredSiteFailures(goneSanction, [SANCTION], [RED_CIRCLE]);
-        expect(failures[0]).toBe(
+        expect(staleRowFailures(goneSanction, [SANCTION], [RED_CIRCLE])).toEqual([
             "stale declared rows:\n  window 1: sanction src/a.ts:10 allocates nothing",
-        );
-        // and that window then has no frame count of its own, which is its own message
-        expect(failures[1]).toContain("no sanctioned site allocated");
+        ]);
+        // and that window then has no frame count of its own, which the sites' half names
+        expect(undeclaredSiteFailures(goneSanction, [SANCTION], [RED_CIRCLE])).toEqual([
+            expect.stringContaining("no sanctioned site allocated"),
+        ]);
     },
 );
 
 check(
     "membership and staleness are read over the A/A repeat window alone",
     {
-        claim: "the declared-site rule reads membership and staleness over the last window, so a row that allocates in the A/A repeat but not in a warm window is green and one absent from the A/A repeat reds, and the warm windows' extra and absent sites print as telemetry instead",
+        claim: "both halves of the declared-site rule read over the last window, so a row that allocates in the A/A repeat but not in a warm window is green and one absent from the A/A repeat reds, and the warm windows' extra and absent sites print as telemetry instead",
     },
     () => {
         // § Gate narrowing: the page's warm is bounded by the row's own budget and a JIT transition is not
@@ -226,14 +229,16 @@ check(
             [sanctionSite(240), redCircleSite(499)],
             [sanctionSite(240), redCircleSite(503)],
         );
-        expect(declaredSiteFailures(steady, [SANCTION], [RED_CIRCLE])).toEqual([]);
+        expect(undeclaredSiteFailures(steady, [SANCTION], [RED_CIRCLE])).toEqual([]);
+        expect(staleRowFailures(steady, [SANCTION], [RED_CIRCLE])).toEqual([]);
         // A row allocating in the A/A repeat but not in window 0: warm-up, not a stale row.
         const warmSilent = windows(
             [sanctionSite(240)],
             [sanctionSite(240), redCircleSite(499)],
             [sanctionSite(240), redCircleSite(503)],
         );
-        expect(declaredSiteFailures(warmSilent, [SANCTION], [RED_CIRCLE])).toEqual([]);
+        expect(undeclaredSiteFailures(warmSilent, [SANCTION], [RED_CIRCLE])).toEqual([]);
+        expect(staleRowFailures(warmSilent, [SANCTION], [RED_CIRCLE])).toEqual([]);
         // and it is not silently dropped: the warm window's absence is printed beside the verdict
         expect(warmWindowTelemetry(warmSilent, [SANCTION], [RED_CIRCLE])).toContain(
             "window 0: red-circle src/b.ts:20 allocates nothing in this warm window",
@@ -244,7 +249,7 @@ check(
             [sanctionSite(240), redCircleSite(499)],
             [sanctionSite(240)],
         );
-        expect(declaredSiteFailures(gone, [SANCTION], [RED_CIRCLE])).toEqual([
+        expect(staleRowFailures(gone, [SANCTION], [RED_CIRCLE])).toEqual([
             "stale declared rows:\n  window 2: red-circle src/b.ts:20 allocates nothing",
         ]);
         // Membership narrows the same way: an undeclared site seen only while the page warms is telemetry,
@@ -258,7 +263,7 @@ check(
             [sanctionSite(240), redCircleSite(499)],
             [sanctionSite(240), redCircleSite(503)],
         );
-        expect(declaredSiteFailures(warmOnly, [SANCTION], [RED_CIRCLE])).toEqual([]);
+        expect(undeclaredSiteFailures(warmOnly, [SANCTION], [RED_CIRCLE])).toEqual([]);
         expect(warmWindowTelemetry(warmOnly, [SANCTION], [RED_CIRCLE])).toContain(
             "window 0: 64 B at tier src/c.ts:30 — undeclared in a warm window only",
         );
@@ -271,7 +276,7 @@ check(
                 { site: "leak src/c.ts:30", bytes: 64, count: 7 },
             ],
         );
-        expect(declaredSiteFailures(steadyLeak, [SANCTION], [RED_CIRCLE])[0]).toContain(
+        expect(undeclaredSiteFailures(steadyLeak, [SANCTION], [RED_CIRCLE])[0]).toContain(
             "window 2: 64 B at leak src/c.ts:30",
         );
     },
@@ -287,9 +292,9 @@ check(
         // about the ledger rather than about the page. Every measured site is red-circled here, so the page
         // is exactly as clean as the declarations say it is, and the rule must be silent.
         const measured = windows([redCircleSite(517)], [redCircleSite(499)], [redCircleSite(503)]);
-        expect(declaredSiteFailures(measured, [], [RED_CIRCLE])).toEqual([]);
+        expect(undeclaredSiteFailures(measured, [], [RED_CIRCLE])).toEqual([]);
         // The reason itself stays, for the case that matters: a non-empty ledger whose rows went silent.
-        expect(declaredSiteFailures(measured, [SANCTION], [RED_CIRCLE])[1]).toContain(
+        expect(undeclaredSiteFailures(measured, [SANCTION], [RED_CIRCLE])[0]).toContain(
             "no sanctioned site allocated",
         );
         // and an empty ledger still reds a site no declaration names, so the skip is the count condition
@@ -299,7 +304,7 @@ check(
             [redCircleSite(499)],
             [redCircleSite(503), { site: "leak src/c.ts:30", bytes: 64, count: 7 }],
         );
-        expect(declaredSiteFailures(undeclared, [], [RED_CIRCLE])[0]).toContain(
+        expect(undeclaredSiteFailures(undeclared, [], [RED_CIRCLE])[0]).toContain(
             "64 B at leak src/c.ts:30",
         );
     },

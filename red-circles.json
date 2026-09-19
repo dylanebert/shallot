@@ -100,5 +100,17 @@
         "reason": "checkOverflow's residue after its two reactions were hoisted to module functions: the promise chain mapAsync() mints, and the promises .then and .catch mint over it. It cannot leave while the readback itself stays on the default per-frame path.",
         "owner": "moving the light-pool overflow readback out of the default composition into the profile extra, which the Locked decision's Diagnostics paragraph already requires of per-frame diagnostics",
         "approved": "(user, 2026-09-15)"
+    },
+    {
+        "site": "src/standard/physics/common/math.ts:688",
+        "reason": "quat.rotate mints its cross and mulAdd Vec3 temporaries per call, on the page-only TypeScript kernel.",
+        "owner": "the heavy-lifting boundary, which replaces this code; § Goal and S6b defer the physics kernel and the slab upload strategy to it by name",
+        "approved": "(user, 2026-09-19)"
+    },
+    {
+        "site": "src/standard/physics/common/math.ts:1176",
+        "reason": "xf.point mints the rotated and translated Vec3 temporaries per call, on the page-only TypeScript kernel.",
+        "owner": "the heavy-lifting boundary, which replaces this code; § Goal and S6b defer the physics kernel and the slab upload strategy to it by name",
+        "approved": "(user, 2026-09-19)"
     }
 ]

@@ -2,10 +2,11 @@ import { resolve } from "node:path";
 import {
     type AllocationSite,
     type AllocationWindow,
-    declaredSiteFailures,
     derivedFrames,
     type PageSample,
     samplePage,
+    staleRowFailures,
+    undeclaredSiteFailures,
     warmWindowTelemetry,
     where,
     windowBytes,
@@ -194,7 +195,10 @@ check(
         // The Locked decision's red conditions over the declared sites: no byte outside the two
         // declarations, no stale row in either, and every sanctioned site at its derived count. The rule
         // lives in the harness beside the sampler, so it is read by unit rows that need no display seat.
-        failures.push(...declaredSiteFailures(sample.windows, declared.rows, redCircled.rows));
+        failures.push(
+            ...undeclaredSiteFailures(sample.windows, declared.rows, redCircled.rows),
+            ...staleRowFailures(sample.windows, declared.rows, redCircled.rows),
+        );
         if (sample.survivors.length > 0)
             failures.push(
                 `the steady window allocated objects that survive a full collection:\n${sample.survivors.map((row) => `  ${row.bytes} B at ${row.site}`).join("\n")}`,
