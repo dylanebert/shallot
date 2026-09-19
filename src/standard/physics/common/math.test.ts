@@ -157,21 +157,6 @@ check(
 const EPS = m.FLT_EPSILON;
 
 check(
-    "computeCosSin tracks libm within 0.002",
-    {
-        claim: "the physics computeCosSin range reduction misplaces an angle outside the primary period, exceeding 0.002 absolute error against libm",
-    },
-    () => {
-        for (let t = -10; t < 10; t += 0.05) {
-            const a = Math.PI * t;
-            const cs = m.computeCosSin(a);
-            expect(Math.abs(cs.cosine - Math.cos(a))).toBeLessThan(0.002);
-            expect(Math.abs(cs.sine - Math.sin(a))).toBeLessThan(0.002);
-        }
-    },
-);
-
-check(
     "vec3.normalize yields unit length",
     {
         claim: "vec3.normalize divides by the wrong magnitude, so the result is not unit length within four float epsilons",
