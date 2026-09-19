@@ -26,10 +26,7 @@
 // Hyprland is the only compositor with a placement here. Another one refuses: an unverified placement is
 // exactly the defect this module exists to remove.
 
-import { readFileSync } from "node:fs";
 import { CAPTURE_CONTRACT } from "./capture";
-import { HIDDEN_WINDOW_CLASS } from "./launch";
-import { type HiddenFacts, hiddenRefusal } from "./seat";
 import { MissingPremise } from "./verdict";
 
 /** one monitor as the compositor reports it. Geometry is layout pixels; `refreshRate` is its current mode. */
@@ -252,65 +249,4 @@ export async function confirmOnDisplay(placement: DisplayPlacement): Promise<Pin
             if (moved !== undefined) throw new MissingPremise(moved);
         },
     };
-}
-
-/**
- * Parse `hyprctl clients -j` and `hyprctl activewindow -j` into the hidden read-back. A window is this
- * launch's own when `own` says so of its process id.
- */
-export function parseHidden(
-    clients: string,
-    active: string,
-    own: (pid: number) => boolean,
-): HiddenFacts {
-    const rows = JSON.parse(clients) as Record<string, unknown>[];
-    const focused = JSON.parse(active.trim() === "" ? "{}" : active) as Record<string, unknown>;
-    return {
-        windows: rows.map((row) => ({
-            address: String(row.address),
-            class: String(row.class ?? ""),
-            workspace: String((row.workspace as { name?: string } | undefined)?.name ?? ""),
-            own: typeof row.pid === "number" && own(row.pid),
-        })),
-        activeClass: String(focused.class ?? ""),
-    };
-}
-
-/** whether `pid` is `ancestor` or descends from it, read from `/proc`. */
-export function descendsFrom(pid: number, ancestor: number): boolean {
-    for (let current = pid; current > 1; ) {
-        if (current === ancestor) return true;
-        try {
-            const stat = readFileSync(`/proc/${current}/stat`, "utf8");
-            current = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
-        } catch {
-            return false;
-        }
-    }
-    return false;
-}
-
-/**
- * Read back what the compositor did with a headed `chromium` launch once its page is open: every window,
- * after one of {@link HIDDEN_WINDOW_CLASS} owned by a process this run spawned maps or the map timeout
- * passes, and the focused window, refusing by name when {@link hiddenRefusal} says no rule took. The
- * caller has already refused a host without Hyprland.
- */
-export async function readHidden(): Promise<HiddenFacts> {
-    const own = (pid: number) => descendsFrom(pid, process.pid);
-    const deadline = Date.now() + MAP_TIMEOUT_MS;
-    let clients = await hyprctl(["clients", "-j"]);
-    while (
-        !parseHidden(clients, "", own).windows.some(
-            (row) => row.own && row.class === HIDDEN_WINDOW_CLASS,
-        ) &&
-        Date.now() < deadline
-    ) {
-        await Bun.sleep(100);
-        clients = await hyprctl(["clients", "-j"]);
-    }
-    const facts = parseHidden(clients, await hyprctl(["activewindow", "-j"]), own);
-    const refusal = hiddenRefusal(facts);
-    if (refusal !== undefined) throw new MissingPremise(`chromium seat unavailable: ${refusal}`);
-    return facts;
 }

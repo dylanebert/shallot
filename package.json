@@ -37,12 +37,6 @@
         "./harness/preload": "./src/harness/preload.ts",
         "./harness/pixels": "./src/harness/pixels.ts",
         "./harness/capture": "./src/harness/capture.ts",
-        "./harness/seat": "./src/harness/seat.ts",
-        "./harness/launch": "./src/harness/launch.ts",
-        "./harness/browser": {
-            "types": "./src/harness/browser.d.ts",
-            "default": "./src/harness/browser.json"
-        },
         "./vite": {
             "types": "./src/project/vite.ts",
             "default": "./dist/vite.js"

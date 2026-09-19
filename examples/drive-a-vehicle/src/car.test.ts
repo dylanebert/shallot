@@ -11,7 +11,6 @@ import {
     releaseKey,
     type State,
 } from "@dylanebert/shallot";
-import { runBrowserCheck } from "@dylanebert/shallot/harness";
 import { check } from "@dylanebert/shallot/harness/check";
 import {
     Car,
@@ -766,26 +765,4 @@ check(
             app.dispose();
         }
     },
-);
-
-check(
-    "drive-a-vehicle exact project composes its selected scene and plugin",
-    {
-        claim: "the exact drive-a-vehicle manifest swaps to a separately evaluated local Car plugin, preserves direct commands and one overlay, and disposes its recipe state",
-        size: "integration",
-        requires: ["chromium"],
-        host: "mac",
-        subject: ["examples/drive-a-vehicle"],
-    },
-    async () =>
-        runBrowserCheck((port) => [
-            process.execPath,
-            resolve(import.meta.dir, "../../../scripts/fixtures/recipe-composition-serve.ts"),
-            "--port",
-            String(port),
-            "--project",
-            resolve(import.meta.dir, ".."),
-            "--recipe",
-            "vehicle",
-        ]),
 );

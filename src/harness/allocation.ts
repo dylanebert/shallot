@@ -11,13 +11,12 @@ import {
 import { SourceMap } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
-import { classifyAdapter } from "../engine/runtime/adapter";
+import { type AdapterFacts, classifyAdapter } from "../engine/runtime/adapter";
 import { CROSS_ORIGIN_ISOLATION } from "../project/vite";
 import { attribute, originalPosition, subjectSite } from "./allocation-sampler.mjs";
 import { CAPTURE_CONTRACT } from "./capture";
 import { confirmOnDisplay, openOnDisplay } from "./display";
-import { adapterFacts } from "./driver";
-import { launchMode, launchOptions, launchPlan } from "./launch";
+import { launchPlan } from "./launch";
 import { resolveSeat } from "./seat";
 import { MissingPremise } from "./verdict";
 
@@ -347,6 +346,27 @@ function readTrace(events: readonly TraceEvent[]): PlayTrace {
 /** the control's one literal per frame, allocated where the frame loop begins and never breaking. */
 const CONTROL_CONDITION = "(globalThis.__shallotControl = { frame: 0 }), false";
 
+/** The adapter the page's own WebGPU reaches, as the facts the seat policy classifies. */
+async function adapterFacts(page: import("playwright").Page): Promise<AdapterFacts> {
+    return page.evaluate(async () => {
+        const gpu = navigator.gpu;
+        if (!gpu) return { present: false };
+        const adapter = await gpu.requestAdapter();
+        if (!adapter) return { present: false };
+        const info = adapter.info as (GPUAdapterInfo & { isFallbackAdapter?: boolean }) | undefined;
+        return {
+            present: true,
+            info: {
+                vendor: info?.vendor,
+                architecture: info?.architecture,
+                device: info?.device,
+                description: info?.description,
+                isFallbackAdapter: info?.isFallbackAdapter,
+            },
+        };
+    });
+}
+
 /**
  * Build `projectDir` for the web as `shallot run` does, with source maps, serve it in-process, and open it in
  * the display seat's headed Chromium, resolving the seat on the adapter the page reaches. The page's own
@@ -365,7 +385,7 @@ export async function samplePage(
 ): Promise<PageSample> {
     if (!Number.isInteger(frames) || frames <= 0 || !Number.isInteger(warm) || warm < frames)
         throw new Error("page sampler: needs integer warm >= frames > 0");
-    const plan = launchPlan(process.platform, "display");
+    const plan = launchPlan(process.platform);
     if ("refused" in plan) throw new MissingPremise(`display seat unavailable: ${plan.refused}`);
     const declared = process.env.SHALLOT_DISPLAY_SEAT?.trim();
     if (!declared)
@@ -453,11 +473,11 @@ export async function samplePage(
         const placement = await bounded("the display placement", openOnDisplay(declared));
 
         const { chromium } = await import("playwright");
-        const options = launchOptions(plan);
         const tiers = `--js-flags=${TIER_FLAGS.join(" ")}`;
         browser = await chromium.launch({
-            ...options,
-            args: [...options.args, ...placement.args, tiers],
+            headless: false,
+            channel: plan.channel,
+            args: [...plan.args, ...placement.args, tiers],
             timeout: remaining(),
         });
         const page = await bounded(
@@ -680,7 +700,7 @@ export async function samplePage(
         if (errors.length > 0)
             throw new Error(`the page threw:\n${errors.slice(0, 20).join("\n")}`);
         return {
-            runtime: `chromium ${browser.version()} ${launchMode(plan.host, plan.seat)} ${tiers} at ${sampledRate.toFixed(1)} Hz sampled, ${controlRate.toFixed(1)} Hz under the control breakpoint`,
+            runtime: `chromium ${browser.version()} headed ${tiers} at ${sampledRate.toFixed(1)} Hz sampled, ${controlRate.toFixed(1)} Hz under the control breakpoint`,
             adapter: classifyAdapter(facts).identity,
             display: {
                 declared: pinned.monitor.name,

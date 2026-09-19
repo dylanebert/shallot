@@ -12,9 +12,8 @@ import {
 import { Slab } from "../../standard/slab";
 import { Compute, State, stampAdapter, Time } from "../index";
 import { diagnose, load, parse } from "../scene";
-import { build, deviceTier } from "./index";
+import { build } from "./index";
 
-const GPU_PLUGIN = { name: "GPU test", device: "required" as const };
 const fallbackAdapter = {
     info: {
         vendor: "google",
@@ -199,32 +198,6 @@ check(
         stampAdapter();
         expect(Compute.adapter.class).toBe("unidentified");
         expect(Compute.adapter.identity).toBe("unidentified");
-    },
-);
-
-check(
-    "a real GPU seat stamps its real adapter on a GPU-tier build",
-    {
-        claim: "a GPU-tier composition can pass on a fallback or unidentified adapter while claiming the gpu seat",
-        size: "integration",
-        requires: ["gpu"],
-        host: "mac",
-        subject: ["src/engine/runtime/gpu.ts", "src/engine/app/index.ts"],
-    },
-    async () => {
-        const peer = (await new Function("return import('bun-webgpu')")()) as {
-            setupGlobals(): Promise<void>;
-        };
-        await peer.setupGlobals();
-        const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) throw new Error("S2 GPU seat refused: no adapter");
-        const device = await adapter.requestDevice();
-        expect(device.queue).toBeDefined();
-        expect(deviceTier([GPU_PLUGIN]).tier).toBe("gpu");
-        stampAdapter(adapter);
-        expect(Compute.adapter.class).toBe("real");
-        expect(Compute.adapter.identity.length).toBeGreaterThan(0);
-        return { ok: true, hardware: Compute.adapter.identity };
     },
 );
 

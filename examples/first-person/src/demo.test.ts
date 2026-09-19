@@ -10,7 +10,6 @@ import {
     readBody,
     Time,
 } from "@dylanebert/shallot";
-import { runBrowserCheck } from "@dylanebert/shallot/harness";
 import {
     allocatesNothing,
     sampleAllocation,
@@ -229,28 +228,6 @@ check(
             app.dispose();
         }
     },
-);
-
-check(
-    "first-person exact project composes its selected scene and plugin",
-    {
-        claim: "the exact first-person manifest swaps to a separately evaluated local Demo plugin, preserves the lift phase and one overlay, and disposes its recipe state",
-        size: "integration",
-        requires: ["chromium"],
-        host: "mac",
-        subject: ["examples/first-person"],
-    },
-    async () =>
-        runBrowserCheck((port) => [
-            process.execPath,
-            resolve(import.meta.dir, "../../../scripts/fixtures/recipe-composition-serve.ts"),
-            "--port",
-            String(port),
-            "--project",
-            resolve(import.meta.dir, ".."),
-            "--recipe",
-            "first-person",
-        ]),
 );
 
 check(

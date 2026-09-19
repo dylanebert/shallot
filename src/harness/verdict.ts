@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { relative, resolve } from "node:path";
 import type { AdapterFacts } from "../engine/runtime/adapter";
-import { HIDDEN_WINDOW_CLASS, launchMode, launchPlan } from "./launch";
+import { launchPlan } from "./launch";
 import { resolveSeat } from "./seat";
 
 /** the result vocabulary printed by the surface reporter. */
@@ -413,27 +413,21 @@ export function missingRequirement(
             if (reason !== null) return reason;
             continue;
         }
-        if (requirement !== "chromium" && requirement !== "display") {
-            return `runner cannot supply requirement ${requirement}`;
+        if (requirement === "chromium") {
+            return "chromium seat unavailable: retired until the device-seat roadmap item proves a real-adapter headless launch here";
         }
+        if (requirement !== "display") return `runner cannot supply requirement ${requirement}`;
         // `display` is declared by the host that has one rather than inferred: a host with a window server
         // still runs every other row headlessly.
-        if (requirement === "display" && !process.env.SHALLOT_DISPLAY_SEAT?.trim()) {
+        if (!process.env.SHALLOT_DISPLAY_SEAT?.trim()) {
             const seat = resolveSeat("display", {});
             if (!seat.ok) return seat.reason;
         }
-        // The launch path is each browser seat's first premise: an undeclared host has no launch in the
-        // seat's mode, and no amount of installed Chromium substitutes for one. The seat itself resolves
-        // only on the adapter its run observes.
-        const plan = launchPlan(process.platform, requirement);
-        if ("refused" in plan) return `${requirement} seat unavailable: ${plan.refused}`;
-        if (
-            requirement === "chromium" &&
-            launchMode(plan.host, plan.seat) === "headed" &&
-            (process.platform !== "linux" || !process.env.HYPRLAND_INSTANCE_SIGNATURE?.trim())
-        ) {
-            return `chromium seat unavailable: host ${plan.host} launches chromium headed, and only a Hyprland rule for class ${HIDDEN_WINDOW_CLASS} can hide that window here`;
-        }
+        // The launch path is the display seat's first premise: an undeclared host has no headed launch, and
+        // no amount of installed Chromium substitutes for one. The seat itself resolves only on the adapter
+        // its run observes.
+        const plan = launchPlan(process.platform);
+        if ("refused" in plan) return `display seat unavailable: ${plan.refused}`;
         try {
             const module = require("playwright") as {
                 chromium?: { executablePath?: () => string };
