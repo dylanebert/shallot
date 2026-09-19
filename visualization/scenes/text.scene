@@ -1,0 +1,43 @@
+<scene>
+    <a ambient-light />
+    <a directional-light />
+    <a camera sear orbit="distance: 13; pitch: 0.5236" transform />
+
+    <!-- the title bobs on a looping tween — the motion flows through the Transform slab the glyph VS
+         samples, so the glyph buffer lays out once at startup and never rebuilds as it moves -->
+    <a id="title" text="anchor: 0.5; color: 0xffd089" transform="pos: 0 2.6 0" />
+    <a id="bob" sequence="loop: 1" />
+    <a
+        tween="field: transform.pos.y; from: 2.48; to: 2.72; duration: 2; easing: ease-in-out-sine; fill: none; target: @title; sequence: @bob"
+    />
+    <a
+        tween="field: transform.pos.y; from: 2.72; to: 2.48; at: 2; duration: 2; easing: ease-in-out-sine; fill: none; target: @title; sequence: @bob"
+    />
+
+    <!-- a dim cube the captions orbit, for depth reference -->
+    <a part transform="scale: 1.2 1.2 1.2" color="rgba: 0.42 0.46 0.52" />
+
+    <!-- four captions circling the cube; RingSystem orbits each by its phase offset -->
+    <a text="anchor: 0.5; font-size: 0.55; color: 0xff7a59" ring="phase: 0" transform />
+    <a
+        text="anchor: 0.5; content: FONT; font-size: 0.55; color: 0x5fb0c9"
+        ring="phase: 1.5708"
+        transform
+    />
+    <a
+        text="anchor: 0.5; content: ATLAS; font-size: 0.55; color: 0xd9b65a"
+        ring="phase: 3.1416"
+        transform
+    />
+    <a
+        text="anchor: 0.5; content: GLYPH; font-size: 0.55; color: 0x7fc7a0"
+        ring="phase: 4.7124"
+        transform
+    />
+
+    <!-- a fixed subtitle below the ring -->
+    <a
+        text="anchor: 0.5; content: world-space SDF labels; font-size: 0.34; color: 0x8a8278"
+        transform="pos: 0 -2.8 0"
+    />
+</scene>
