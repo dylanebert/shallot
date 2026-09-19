@@ -9,8 +9,7 @@
             "crates/physics/scripts/**/*.ts",
             "!examples/*/public",
             "!bin",
-            "!src/project",
-            "!src/harness/browser.d.ts"
+            "!src/project"
         ]
     },
     "linter": {
