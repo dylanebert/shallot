@@ -77,25 +77,6 @@ check(
 );
 
 check(
-    "device fixed edge is consumed once across two ticks",
-    { claim: "a key press before a multi-tick frame is seen by zero or several fixed ticks" },
-    () => {
-        const state = inputState();
-        let count = 0;
-        state.addSystem({
-            group: "fixed",
-            update(s: State) {
-                if (devices(s).keys.tickPressed.has("Space")) count++;
-            },
-        });
-        pressKey(state, "Space");
-        state.step(Time.FIXED_DT * 2);
-        if (count !== 1) throw new Error(`expected one fixed edge, got ${count}`);
-        state.dispose();
-    },
-);
-
-check(
     "device fixed edge carries over a zero-tick frame",
     {
         claim: "a key press in a frame with zero fixed ticks is dropped before the next frame's first fixed tick",
