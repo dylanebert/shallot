@@ -16,7 +16,7 @@ check(
         claim: "the active collision route changes the symmetric face-B feature order, the pinned CCD and sensor intermediate bits, or the public body move record identity",
         size: "integration",
         budget: 20_000,
-        subject: ["crates/physics", "src/standard/physics/collision"],
+        subject: ["crates/physics", "src/standard/physics"],
     },
     () => {
         const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
@@ -73,22 +73,20 @@ check(
 );
 
 check(
-    "official Box3D scene command/bundle parity",
+    "Box3D command/bundle parity over the whole immutable corpus",
     {
-        claim: "all 53 official Box3D scenes execute through the immutable command corpus and match its outputs",
+        claim: "a Shallot physics result diverges from the Box3D reference on any case of the immutable v6 corpus, including the official scenes",
         size: "integration",
         budget: 20_000,
+        subject: ["src/standard/physics"],
     },
     () => {
         const corpus = loadConsumerCorpus();
-        const scenes = corpus.cases.filter((item) => item.family === "scenario");
-        if (scenes.length !== 53)
-            throw new Error(`expected 53 official scenes, got ${scenes.length}`);
-        for (const scene of scenes) {
-            const result = compareCase(scene, runCommonInput(scene));
+        for (const item of corpus.cases) {
+            const result = compareCase(item, runCommonInput(item));
             if (result.status !== "pass")
-                throw new Error(`${scene.id}: ${result.firstDifference?.path ?? "scene mismatch"}`);
+                throw new Error(`${item.id}: ${result.firstDifference?.path ?? "mismatch"}`);
         }
-        console.log(JSON.stringify({ corpus: "immutable box3d v6", scenes: scenes.length }));
+        console.log(JSON.stringify({ corpus: "immutable box3d v6", cases: corpus.cases.length }));
     },
 );

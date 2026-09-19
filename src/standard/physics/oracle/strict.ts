@@ -90,59 +90,6 @@ export function compareCase(item: OracleCase, actual: unknown): StrictResult {
     };
 }
 
-export type StrictWatch = {
-    improvements: string[];
-    unchangedMismatches: string[];
-    regressions: string[];
-};
-
-/**
- * Compare a live strict run with O7's frozen report without using O7 as physics authority.
- * A pass is an improvement, not a regression; a mismatch that remains from O7 must retain its
- * exact execution result while it is still deferred. The ledger is deliberately not consulted.
- */
-export function watchStrictProgress(current: StrictReport, baseline: StrictReport): StrictWatch {
-    const baselineById = new Map(baseline.results.map((result) => [result.id, result]));
-    const currentById = new Map(current.results.map((result) => [result.id, result]));
-    const improvements: string[] = [];
-    const unchangedMismatches: string[] = [];
-    const regressions: string[] = [];
-
-    if (current.results.length !== baseline.results.length) {
-        regressions.push("strict population changed");
-        return { improvements, unchangedMismatches, regressions };
-    }
-
-    for (const baselineResult of baseline.results) {
-        const currentResult = currentById.get(baselineResult.id);
-        if (!currentResult) {
-            regressions.push(`${baselineResult.id}: missing from current report`);
-            continue;
-        }
-        if (baselineResult.status === "pass" && currentResult.status === "mismatch") {
-            regressions.push(`${baselineResult.id}: pass became mismatch`);
-        } else if (baselineResult.status === "mismatch" && currentResult.status === "pass") {
-            improvements.push(baselineResult.id);
-        } else if (baselineResult.status === "mismatch") {
-            if (
-                baselineResult.mismatchKind !== currentResult.mismatchKind ||
-                baselineResult.fingerprint !== currentResult.fingerprint
-            ) {
-                regressions.push(`${baselineResult.id}: deferred mismatch changed`);
-            } else {
-                unchangedMismatches.push(baselineResult.id);
-            }
-        }
-    }
-
-    for (const currentResult of current.results) {
-        if (!baselineById.has(currentResult.id))
-            regressions.push(`${currentResult.id}: new result in current report`);
-    }
-
-    return { improvements, unchangedMismatches, regressions };
-}
-
 export function executeStrictReport(): StrictReport {
     const corpus = loadConsumerCorpus();
     const results: StrictResult[] = [];
@@ -187,14 +134,4 @@ export function executeStrictReport(): StrictReport {
         population: { caseCount: results.length, executed: results.length, passed, mismatched },
         results,
     };
-}
-
-export function readFrozenStrictReport(
-    path = join(import.meta.dir, "reports", "strict-v6.json"),
-): StrictReport {
-    return JSON.parse(readFileSync(path, "utf8")) as StrictReport;
-}
-
-export function strictReportDigest(report: StrictReport): string {
-    return createHash("sha256").update(text(report)).digest("hex");
 }
