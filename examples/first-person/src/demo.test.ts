@@ -7,6 +7,7 @@ import {
     devices,
     InputPlugin,
     PhysicsPlugin,
+    PlayerPlugin,
     readBody,
     Time,
 } from "@dylanebert/shallot";
@@ -150,8 +151,25 @@ check(
             const playerBlock = scene.match(/id="player"[\s\S]*?\/>/)?.[0] ?? "";
             if (/\b(speed|sprint|sensitivity|yaw|pitch)\s*:/.test(playerBlock))
                 throw new Error("first-person player entity authors movement/look tuning");
-            if (!/id="eye"[^>]*pos: 0 2\.1 12/.test(scene))
-                throw new Error("first-person eye was not authored at the default-height spawn");
+            // The eye is authored where Player would pose it at spawn: the capsule centre raised by
+            // the default eye height, since the player entity authors no tuning of its own.
+            const eyeHeight = (
+                PlayerPlugin.traits?.Player?.defaults?.() as { eyeHeight: number } | undefined
+            )?.eyeHeight;
+            if (eyeHeight === undefined) throw new Error("Player declares no default eyeHeight");
+            const eye = scene
+                .match(/id="eye"[^>]*pos: (\S+) (\S+) ([^;"]+)/)
+                ?.slice(1)
+                .map(Number);
+            const spawn = [
+                Body.pos.x.get(player),
+                Body.pos.y.get(player) + eyeHeight,
+                Body.pos.z.get(player),
+            ];
+            if (!eye || eye.some((value, i) => Math.abs(value - spawn[i]) > 0.0001))
+                throw new Error(
+                    `first-person eye ${eye} was not authored at the default-height spawn ${spawn}`,
+                );
         } finally {
             app.dispose();
         }
