@@ -1,0 +1,1 @@
+finding: biome.json still carries "!src/harness/browser.d.ts" (line 13), an ignore for the file this commit deleted; dead config left behind. Everything else holds: Check green, frustum row moved intact, chromium refusal names device-seat, captureFrame/pixels/fixtures/page.ts untouched, no dead exports in seat/launch/display/allocation/index, bounds respected.
