@@ -23,9 +23,11 @@ import {
     collideHulls,
     collideSpheres,
     emptySATCache,
+    FeatureOwner,
     type LocalManifold,
     makeFeatureId,
     makeLocalManifold,
+    SeparatingFeature,
 } from "./manifold";
 import gold from "./manifold.gold.json";
 import {
@@ -264,12 +266,29 @@ check(
         // First call misses; the active target selects face B on the symmetric tie.
         collideHulls(m, 8, boxA, boxB, pose(0.9, 0), cache);
         expect(cache.hit).toBe(0);
-        expect(cache.type).toBe(3);
+        expect(cache.type).toBe(SeparatingFeature.FaceAxisB);
         expect(cache.indexA).toBe(0);
         expect(cache.indexB).toBe(0);
-        expect(m.points.slice(0, m.pointCount).map((p) => makeFeatureId(p.pair))).toEqual([
-            655368, 786442, 917516, 524302,
-        ]);
+        // Face B's points clip A's incident face (the one most anti-parallel to B's reference face),
+        // one per half-edge of its loop in order, each paired with the edge that follows it.
+        const reference = boxB.planes[cache.indexB].normal;
+        let incident = 0;
+        for (let f = 1; f < boxA.faceCount; f++) {
+            const dot = (n: Vec3) => n.x * reference.x + n.y * reference.y + n.z * reference.z;
+            if (dot(boxA.planes[f].normal) < dot(boxA.planes[incident].normal)) incident = f;
+        }
+        const loop = [boxA.faces[incident].edge];
+        for (let e = boxA.edges[loop[0]].next; e !== loop[0]; e = boxA.edges[e].next) loop.push(e);
+        expect(m.points.slice(0, m.pointCount).map((p) => makeFeatureId(p.pair))).toEqual(
+            loop.map((edge, k) =>
+                makeFeatureId({
+                    owner1: FeatureOwner.ShapeA,
+                    index1: loop[(k + 1) % loop.length],
+                    owner2: FeatureOwner.ShapeA,
+                    index2: edge,
+                }),
+            ),
+        );
         expect(bits(m.normal.x)).toBe("3f800000");
         expect(bits(m.normal.y)).toBe("80000000");
         expect(bits(m.normal.z)).toBe("80000000");
@@ -277,12 +296,12 @@ check(
         // The unchanged pose accepts the cached face and records a hit.
         collideHulls(m, 8, boxA, boxB, pose(0.9, 0), cache);
         expect(cache.hit).toBe(1);
-        expect(cache.type).toBe(3);
+        expect(cache.type).toBe(SeparatingFeature.FaceAxisB);
 
         // A stale cached face falls through to a fresh SAT query and clears hit.
         collideHulls(m, 8, boxA, boxB, pose(0, 0.9), cache);
         expect(cache.hit).toBe(0);
-        expect(cache.type).toBe(3);
+        expect(cache.type).toBe(SeparatingFeature.FaceAxisB);
         expect(cache.indexB).toBe(2);
 
         // 0x3f828f5d is the first f32 translation whose separation is >= 0.02.
