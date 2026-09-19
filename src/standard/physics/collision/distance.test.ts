@@ -7,6 +7,7 @@ import {
     type ShapeProxy,
     shapeCast,
     shapeDistance,
+    TOIState,
     timeOfImpact,
 } from "./distance";
 import gold from "./distance.gold.json";
@@ -180,7 +181,7 @@ check(
             sweepB: { localCenter: v(0, 0, 0), c1: v(0, 0, 0), c2: v(-2, 0, 0), q1: id, q2: id },
             maxFraction: 1,
         });
-        expect(out.state).toBe(3); // TOIState.Hit
+        expect(out.state).toBe(TOIState.Hit);
         expect(Math.abs(out.fraction - 0.5)).toBeLessThan(0.005);
     },
 );
