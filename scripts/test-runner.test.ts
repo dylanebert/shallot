@@ -370,7 +370,7 @@ check(
                 "fixture unrun",
                 "f all unrun",
                 "src/other.ts",
-                `    console.log("shallot verdict {\\"claim\\":\\"f all unrun\\",\\"size\\":\\"integration\\",\\"result\\":\\"unrun\\",\\"reason\\":\\"fixture was not executed\\"}");`,
+                `    console.log("shallot verdict {\\"claim\\":\\"f all unrun\\",\\"size\\":\\"integration\\",\\"result\\":\\"unrun\\",\\"reason\\":\\"fixture was not executed\\"}");\n    process.exit(0);`,
             );
             writeCheck(
                 "g-mixed-pass.test.ts",
@@ -420,6 +420,7 @@ check(
             writeFileSync(
                 join(tests, "j-registration-then-load-failure.test.ts"),
                 `${head}check("load failure", { claim: "j registration then load failure", size: "integration", subject: "src/load.ts" }, () => {});\n` +
+                    `console.log("shallot verdict {\\"claim\\":\\"j registration then load failure\\",\\"size\\":\\"integration\\",\\"result\\":\\"unrun\\",\\"reason\\":\\"fixture was not executed\\"}");\n` +
                     `await import("./missing-fixture-module");\n`,
             );
             writeCheck(
@@ -433,6 +434,9 @@ check(
             const loadFailureOutput = outputOf(loadFailure);
             expect(loadFailure.exitCode).not.toBe(0);
             expect(loadFailureOutput).toContain("Cannot find module");
+            expect(loadFailureOutput).toContain(
+                'shallot verdict {"claim":"j registration then load failure","size":"integration","result":"unrun","reason":"fixture was not executed"}',
+            );
             expect(loadFailureOutput).toContain(
                 "selected integration: j registration then load failure (fail",
             );
@@ -468,7 +472,7 @@ check(
                 "mixed unrun",
                 "g mixed unrun",
                 "src/mixed.ts",
-                `    console.log("shallot verdict {\\"claim\\":\\"g mixed unrun\\",\\"size\\":\\"integration\\",\\"result\\":\\"unrun\\",\\"reason\\":\\"fixture was not executed\\"}");`,
+                `    console.log("shallot verdict {\\"claim\\":\\"g mixed unrun\\",\\"size\\":\\"integration\\",\\"result\\":\\"unrun\\",\\"reason\\":\\"fixture was not executed\\"}");\n    process.exit(0);`,
             );
             const mixedWithUnrun = runRunner(tree, "--integration", "--subject", "src/mixed");
             const mixedWithUnrunOutput = outputOf(mixedWithUnrun);
