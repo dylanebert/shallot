@@ -1,1 +1,1 @@
-finding: A successful --oracle run still forwards the child stdout/stderr because run() prints whenever KEX_S3_ROW is set, so green oracle output includes shallot verdict and Bun per-test chatter instead of only the concise count and report path required by stage 3.
+finding: A successful --oracle run still forwards child stdout/stderr because run() prints whenever KEX_S3_ROW is set; its green console includes shallot verdict and Bun per-test chatter rather than only the concise count and report path required by stage 3.
