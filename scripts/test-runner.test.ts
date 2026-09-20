@@ -24,6 +24,17 @@ function outputOf(run: ReturnType<typeof runRunner>): string {
     return `${run.stdout.toString()}\n${run.stderr.toString()}`;
 }
 
+function reportPathOf(tree: string, output: string): string {
+    const line = output.split("\n").find((entry) => entry.includes("report: "));
+    const path = line?.match(/report: (.+)$/)?.[1];
+    if (path === undefined) throw new Error(`report path missing from output: ${output}`);
+    return resolve(tree, path.trim());
+}
+
+function reportOf(tree: string, output: string): string {
+    return readFileSync(reportPathOf(tree, output), "utf8");
+}
+
 function lineOf(source: string, text: string): number {
     const line = source.split("\n").findIndex((entry) => entry.includes(text));
     if (line === -1) throw new Error(`fixture marker not found: ${text}`);
@@ -141,12 +152,6 @@ check(
                 join(tests, file),
                 `${head}check(${JSON.stringify(name)}, { claim: ${JSON.stringify(claim)}, ${options} }, () => {\n${body}\n});\n`,
             );
-        const reportAt = (output: string): string => {
-            const line = output.split("\n").find((entry) => entry.includes("report: "));
-            const path = line?.match(/report: (.+)$/)?.[1];
-            if (path === undefined) throw new Error(`report path missing from output: ${output}`);
-            return resolve(tree, path.trim());
-        };
         try {
             mkdirSync(tests, { recursive: true });
             writeFileSync(
@@ -170,16 +175,26 @@ check(
             const green = runRunner(tree, "--integration", "--subject", "src/report");
             const greenOutput = outputOf(green);
             expect(green.exitCode).toBe(0);
-            expect(greenOutput).toContain("2 passed");
-            expect(greenOutput).toContain("report:");
+            expect(greenOutput.trim()).toMatch(
+                /^shallot test: 2 passed, 0 failed, 0 refused, 0 unrun; report: \.artifacts\/shallot-run-[^/]+\/junit\.xml$/,
+            );
+            expect(greenOutput).not.toContain("shallot verdict");
             expect(greenOutput).not.toContain("<testsuites");
-            const greenReport = readFileSync(reportAt(greenOutput), "utf8");
+            const greenReport = reportOf(tree, greenOutput);
             expect((greenReport.match(/<testsuites /g) ?? []).length).toBe(1);
             expect(greenReport).toContain('tests="2"');
             expect(greenReport).toContain('failures="0"');
             expect(greenReport).toContain('errors="0"');
             expect(greenReport).toContain('skipped="0"');
+            expect(greenReport).toMatch(/<testcase name="a report pass one"[^>]*\/>/);
+            expect(greenReport).toMatch(/<testcase name="b report pass two"[^>]*\/>/);
             expect((greenReport.match(/<testcase /g) ?? []).length).toBe(2);
+            const greenEvidence = readFileSync(
+                reportPathOf(tree, greenOutput).replace("junit.xml", "output.log"),
+                "utf8",
+            );
+            expect(greenEvidence).toContain("=== a report pass one (pass) ===");
+            expect(greenEvidence).toContain("=== b report pass two (pass) ===");
 
             writeCheck(
                 "c-report-failure.test.ts",
@@ -195,7 +210,7 @@ check(
             expect(failureOutput).toContain("redirected report stderr");
             expect(failureOutput).toContain("report:");
             expect(failureOutput).not.toContain("<testsuites");
-            const failureReport = readFileSync(reportAt(failureOutput), "utf8");
+            const failureReport = reportOf(tree, failureOutput);
             expect(failureReport).toContain('tests="1"');
             expect(failureReport).toContain('failures="1"');
             expect(failureReport).toContain("redirected report stdout");
@@ -214,7 +229,7 @@ check(
             const refusalOutput = outputOf(refusal);
             expect(refusal.exitCode).not.toBe(0);
             expect(refusalOutput).toContain("display seat unavailable");
-            const refusalReport = readFileSync(reportAt(refusalOutput), "utf8");
+            const refusalReport = reportOf(tree, refusalOutput);
             expect(refusalReport).toContain('tests="1"');
             expect(refusalReport).toContain('errors="1"');
             expect(refusalReport).toContain("display seat unavailable");
@@ -232,7 +247,7 @@ check(
             expect(unit.exitCode).toBe(0);
             expect(unitOutput).toContain("report:");
             expect(unitOutput).not.toContain("<testsuites");
-            expect(readFileSync(reportAt(unitOutput), "utf8")).toContain("<testsuites");
+            expect(reportOf(tree, unitOutput)).toContain("<testsuites");
 
             const unwritableTree = mkdtempSync(join(tmpdir(), "shallot-runner-report-unwritable-"));
             try {
@@ -358,26 +373,28 @@ check(
             const firstRed = runRunner(tree, "--integration", "--subject", "src/selected");
             const firstRedOutput = outputOf(firstRed);
             expect(firstRed.exitCode).not.toBe(0);
-            expect(firstRedOutput).toContain('"claim":"a first selected failure"');
-            expect(firstRedOutput).toContain('"result":"fail"');
-            expect(firstRedOutput).toContain('"claim":"b later selected pass"');
-            expect(firstRedOutput).toContain('"result":"pass"');
+            const firstRedReport = reportOf(tree, firstRedOutput);
+            expect(firstRedReport).toContain('name="a first selected failure"');
+            expect(firstRedReport).toContain('<failure type="failure"');
+            expect(firstRedReport).toContain('name="b later selected pass"');
+            expect(firstRedReport).toMatch(/<testcase name="b later selected pass"[^>]*\/>/);
 
             // Registration throws after emitting its refusal verdict. The later selected row must still
             // be attempted rather than being hidden by the process exit.
             const registration = runRunner(tree, "--integration", "--subject", "src/registration");
             const registrationOutput = outputOf(registration);
             expect(registration.exitCode).not.toBe(0);
-            expect(registrationOutput).toContain('"claim":"c registration refusal"');
-            expect(registrationOutput).toContain('"result":"refused"');
-            expect(registrationOutput).toContain('"claim":"d registration pass"');
-            expect(registrationOutput).toContain('"result":"pass"');
+            const registrationReport = reportOf(tree, registrationOutput);
+            expect(registrationReport).toContain('name="c registration refusal"');
+            expect(registrationReport).toContain('<error type="refused"');
+            expect(registrationReport).toMatch(/<testcase name="d registration pass"[^>]*\/>/);
 
             const display = runRunner(tree, "--integration", "--subject", "src/display");
             const displayOutput = outputOf(display);
             expect(display.exitCode).not.toBe(0);
-            expect(displayOutput).toContain('"claim":"e display refusal"');
-            expect(displayOutput).toContain('"result":"refused"');
+            const displayReport = reportOf(tree, displayOutput);
+            expect(displayReport).toContain('name="e display refusal"');
+            expect(displayReport).toContain('<error type="refused"');
 
             // A selected file can fail before check() loads. That is a failed selected row, not an
             // unrun host row, and its child diagnostic remains in the runner output.
@@ -400,8 +417,9 @@ check(
             const allUnrun = runRunner(tree, "--integration", "--subject", "src/other");
             const allUnrunOutput = outputOf(allUnrun);
             expect(allUnrun.exitCode).not.toBe(0);
-            expect(allUnrunOutput).toContain('"claim":"f all other-host"');
-            expect(allUnrunOutput).toContain('"result":"unrun"');
+            const allUnrunReport = reportOf(tree, allUnrunOutput);
+            expect(allUnrunReport).toContain('name="f all other-host"');
+            expect(allUnrunReport).toContain("<skipped message=");
             expect(allUnrunOutput).toContain("no integration rows ran");
             expect(allUnrunOutput).not.toContain("other-host body must not run");
 
@@ -418,9 +436,10 @@ check(
             const mixedWithUnrun = runRunner(tree, "--integration", "--subject", "src/mixed");
             const mixedWithUnrunOutput = outputOf(mixedWithUnrun);
             expect(mixedWithUnrun.exitCode).toBe(0);
-            expect(mixedWithUnrunOutput).toContain('"claim":"g mixed pass"');
-            expect(mixedWithUnrunOutput).toContain('"claim":"g mixed other-host"');
-            expect(mixedWithUnrunOutput).toContain('"result":"unrun"');
+            const mixedReport = reportOf(tree, mixedWithUnrunOutput);
+            expect(mixedReport).toMatch(/<testcase name="g mixed pass"[^>]*\/>/);
+            expect(mixedReport).toContain('name="g mixed other-host"');
+            expect(mixedReport).toContain("<skipped message=");
             expect(mixedWithUnrunOutput).not.toContain("mixed other-host body must not run");
             expect(existsSync(marker)).toBe(false);
         } finally {

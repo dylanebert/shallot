@@ -378,15 +378,6 @@ for (const [index, row] of selected.entries()) {
     if (outcome.result === "unrun") unrun += 1;
     if (outcome.result === "fail" || outcome.result === "refused" || outcome.exitCode !== 0)
         failed = true;
-    if (outcome.result === "pass" || outcome.result === "unrun") {
-        console.log(
-            `shallot verdict ${JSON.stringify({
-                claim: row.claim,
-                result: outcome.result,
-                ...(outcome.reason === undefined ? {} : { reason: outcome.reason }),
-            })}`,
-        );
-    }
     if (outcome.result === "fail" || outcome.result === "refused") {
         console.error(
             `selected integration: ${row.claim} (${outcome.result}${outcome.noVerdict ? `; no verdict; child exited ${outcome.exitCode}` : ""})`,
