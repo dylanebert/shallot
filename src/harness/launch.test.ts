@@ -8,7 +8,7 @@ import { resolveSeat, type SeatResolution } from "./seat";
 check(
     "the launch plan contains operational data only",
     {
-        claim: "supported OS launch dispatch retains the Chromium channel and browser arguments without historical adapter evidence",
+        claim: "configured OS launch targets retain the Chromium channel and browser arguments without historical adapter evidence",
     },
     () => {
         for (const host of ["darwin", "linux", "win32"]) {
@@ -26,7 +26,7 @@ check(
         const refused = launchPlan("freebsd");
         expect(refused).toEqual({
             refused:
-                "no operational headed Chromium launch path for host freebsd; supported hosts are darwin, linux, win32",
+                "no headed Chromium launch configuration for platform freebsd; configured platforms are darwin, linux, win32",
         });
     },
 );
