@@ -33,7 +33,9 @@ plugin({
             }
             const module = JSON.stringify(CHECK_MODULE);
             const path = JSON.stringify(args.path);
-            const header = `import { beginFile as __beginFile, assertDeclared as __assertDeclared } from ${module};\n__beginFile(${path});\n`;
+            // Keep the first source line on its original line. Bun reports locations from the transformed
+            // module, so a newline for either injected statement would move every user statement down.
+            const header = `import { beginFile as __beginFile, assertDeclared as __assertDeclared } from ${module}; __beginFile(${path}); `;
             return { contents: `${header}${source}\n__assertDeclared(${path});\n`, loader: "ts" };
         });
     },
