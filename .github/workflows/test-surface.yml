@@ -71,3 +71,10 @@ jobs:
       - run: bun run check
       - run: bun run test
       - run: bun run test -- --integration --base $SHALLOT_SURFACE_BASE --diff $SHALLOT_SURFACE_DIFF
+      - name: upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shallot-test-artifacts-${{ github.run_id }}
+          path: .artifacts/
+          if-no-files-found: warn

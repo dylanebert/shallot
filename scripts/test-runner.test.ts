@@ -1,5 +1,5 @@
 import { expect } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
@@ -111,6 +111,147 @@ check("ordinary exception", { claim: "fixture ordinary exception", size: "integr
                 expect(refusal.stderr.toString()).toContain("registers no check()");
             } finally {
                 rmSync(refusedTree, { recursive: true, force: true });
+            }
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
+    "runner report agreement",
+    {
+        claim: "the check runner writes one retrievable JUnit report and owned child evidence whose totals and diagnostics agree with console outcomes",
+        size: "integration",
+        subject: ["scripts/test-runner.ts", "bunfig.toml", "CONTRIBUTING.md"],
+    },
+    () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-runner-report-agreement-"));
+        const tests = join(tree, "tests");
+        const head = `import { check } from ${JSON.stringify(CHECK_MODULE)};\n`;
+        const writeCheck = (
+            file: string,
+            name: string,
+            claim: string,
+            subject: string,
+            body: string,
+            options = `size: "integration", subject: ${JSON.stringify(subject)}, host: "mac"`,
+        ) =>
+            writeFileSync(
+                join(tests, file),
+                `${head}check(${JSON.stringify(name)}, { claim: ${JSON.stringify(claim)}, ${options} }, () => {\n${body}\n});\n`,
+            );
+        const reportAt = (output: string): string => {
+            const line = output.split("\n").find((entry) => entry.includes("report: "));
+            const path = line?.match(/report: (.+)$/)?.[1];
+            if (path === undefined) throw new Error(`report path missing from output: ${output}`);
+            return resolve(tree, path.trim());
+        };
+        try {
+            mkdirSync(tests, { recursive: true });
+            writeFileSync(
+                join(tree, "bunfig.toml"),
+                `[test]\npreload = [${JSON.stringify(PRELOAD)}]\n`,
+            );
+            writeCheck(
+                "a-report-pass.test.ts",
+                "report pass one",
+                "a report pass one",
+                "src/report.ts",
+                `    return { ok: true };`,
+            );
+            writeCheck(
+                "b-report-pass.test.ts",
+                "report pass two",
+                "b report pass two",
+                "src/report.ts",
+                `    return { ok: true };`,
+            );
+            const green = runRunner(tree, "--integration", "--subject", "src/report");
+            const greenOutput = outputOf(green);
+            expect(green.exitCode).toBe(0);
+            expect(greenOutput).toContain("2 passed");
+            expect(greenOutput).toContain("report:");
+            expect(greenOutput).not.toContain("<testsuites");
+            const greenReport = readFileSync(reportAt(greenOutput), "utf8");
+            expect((greenReport.match(/<testsuites /g) ?? []).length).toBe(1);
+            expect(greenReport).toContain('tests="2"');
+            expect(greenReport).toContain('failures="0"');
+            expect(greenReport).toContain('errors="0"');
+            expect(greenReport).toContain('skipped="0"');
+            expect((greenReport.match(/<testcase /g) ?? []).length).toBe(2);
+
+            writeCheck(
+                "c-report-failure.test.ts",
+                "report failure",
+                "c report failure",
+                "src/report-failure.ts",
+                `    console.log("redirected report stdout");\n    console.error("redirected report stderr");\n    throw new Error("report failure detail");`,
+            );
+            const failure = runRunner(tree, "--integration", "--subject", "src/report-failure");
+            const failureOutput = outputOf(failure);
+            expect(failure.exitCode).not.toBe(0);
+            expect(failureOutput).toContain("redirected report stdout");
+            expect(failureOutput).toContain("redirected report stderr");
+            expect(failureOutput).toContain("report:");
+            expect(failureOutput).not.toContain("<testsuites");
+            const failureReport = readFileSync(reportAt(failureOutput), "utf8");
+            expect(failureReport).toContain('tests="1"');
+            expect(failureReport).toContain('failures="1"');
+            expect(failureReport).toContain("redirected report stdout");
+            expect(failureReport).toContain("redirected report stderr");
+            expect(failureReport).toContain("report failure detail");
+
+            writeCheck(
+                "d-report-refusal.test.ts",
+                "report refusal",
+                "d report refusal",
+                "src/report-refusal.ts",
+                `    return { ok: true };`,
+                `size: "integration", subject: "src/report-refusal.ts", host: "mac", requires: ["display"]`,
+            );
+            const refusal = runRunner(tree, "--integration", "--subject", "src/report-refusal");
+            const refusalOutput = outputOf(refusal);
+            expect(refusal.exitCode).not.toBe(0);
+            expect(refusalOutput).toContain("display seat unavailable");
+            const refusalReport = readFileSync(reportAt(refusalOutput), "utf8");
+            expect(refusalReport).toContain('tests="1"');
+            expect(refusalReport).toContain('errors="1"');
+            expect(refusalReport).toContain("display seat unavailable");
+
+            writeCheck(
+                "e-report-unit.test.ts",
+                "report unit",
+                "e report unit",
+                "src/report-unit.ts",
+                `    return { ok: true };`,
+                `size: "unit"`,
+            );
+            const unit = runRunner(tree);
+            const unitOutput = outputOf(unit);
+            expect(unit.exitCode).toBe(0);
+            expect(unitOutput).toContain("report:");
+            expect(unitOutput).not.toContain("<testsuites");
+            expect(readFileSync(reportAt(unitOutput), "utf8")).toContain("<testsuites");
+
+            const unwritableTree = mkdtempSync(join(tmpdir(), "shallot-runner-report-unwritable-"));
+            try {
+                const unwritableTests = join(unwritableTree, "tests");
+                mkdirSync(unwritableTests, { recursive: true });
+                writeFileSync(
+                    join(unwritableTree, "bunfig.toml"),
+                    `[test]\npreload = [${JSON.stringify(PRELOAD)}]\n`,
+                );
+                writeFileSync(
+                    join(unwritableTests, "one.test.ts"),
+                    `${head}check("one", { claim: "unwritable one", size: "unit" }, () => {});\n`,
+                );
+                writeFileSync(join(unwritableTree, ".artifacts"), "not a directory");
+                const unwritable = runRunner(unwritableTree);
+                expect(unwritable.exitCode).not.toBe(0);
+                expect(outputOf(unwritable)).toContain("report destination unavailable");
+            } finally {
+                rmSync(unwritableTree, { recursive: true, force: true });
             }
         } finally {
             rmSync(tree, { recursive: true, force: true });

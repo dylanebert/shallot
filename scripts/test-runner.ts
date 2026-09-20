@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
-import { resolve } from "node:path";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
 import {
     CHECK_REQUIREMENTS,
     collectPopulation,
@@ -30,63 +31,258 @@ function refuse(message: string): never {
     process.exit(1);
 }
 
+interface RunArtifacts {
+    directory: string;
+    report: string;
+    output: string;
+}
+
+function openArtifacts(): RunArtifacts | null {
+    try {
+        mkdirSync(resolve(root, ".artifacts"), { recursive: true });
+        const directory = mkdtempSync(resolve(root, ".artifacts", "shallot-run-"));
+        return {
+            directory,
+            report: resolve(directory, "junit.xml"),
+            output: resolve(directory, "output.log"),
+        };
+    } catch (error) {
+        console.error(
+            `surface refused: report destination unavailable: ${(error as Error).message}`,
+        );
+        return null;
+    }
+}
+
+function reportPath(artifacts: RunArtifacts): string {
+    return relative(root, artifacts.report).split("\\").join("/");
+}
+
+function outputText(stdout: string, stderr: string): string {
+    return `--- stdout ---\n${stdout}\n--- stderr ---\n${stderr}\n`;
+}
+
+function saveOutput(artifacts: RunArtifacts, output: string): boolean {
+    try {
+        writeFileSync(artifacts.output, output);
+        return true;
+    } catch (error) {
+        console.error(`surface refused: run artifact unavailable: ${(error as Error).message}`);
+        return false;
+    }
+}
+
+interface JunitSummary {
+    tests: number;
+    failures: number;
+    errors: number;
+    skipped: number;
+}
+
+function junitAttribute(xml: string, name: string): number {
+    const value = xml.match(new RegExp(`<testsuites\\b[^>]*\\b${name}="(\\d+)"`))?.[1];
+    return value === undefined ? 0 : Number(value);
+}
+
+function readJunitSummary(path: string): JunitSummary | null {
+    try {
+        const xml = readFileSync(path, "utf8");
+        return {
+            tests: junitAttribute(xml, "tests"),
+            failures: junitAttribute(xml, "failures"),
+            errors: junitAttribute(xml, "errors"),
+            skipped: junitAttribute(xml, "skipped"),
+        };
+    } catch {
+        return null;
+    }
+}
+
 function run(files: string[], environment: NodeJS.ProcessEnv): number {
     if (files.length === 0) refuse("empty population; an empty run is never green");
+    const artifacts = openArtifacts();
+    if (artifacts === null) return 1;
     const proc = Bun.spawnSync(
         [
             process.execPath,
             "test",
             "--max-concurrency=1",
             "--pass-with-no-tests",
+            "--reporter=junit",
+            `--reporter-outfile=${artifacts.report}`,
             ...files.map((file) => `./${file}`),
         ],
-        { cwd: root, env: environment, stdout: "inherit", stderr: "inherit" },
+        { cwd: root, env: environment, stdout: "pipe", stderr: "pipe" },
     );
-    return proc.exitCode ?? 1;
+    const stdout = proc.stdout.toString();
+    const stderr = proc.stderr.toString();
+    let code = proc.exitCode ?? 1;
+    if (!saveOutput(artifacts, outputText(stdout, stderr))) code = 1;
+    const summary = readJunitSummary(artifacts.report);
+    if (summary === null) {
+        console.error(
+            `surface refused: runner did not write a valid report: ${reportPath(artifacts)}`,
+        );
+        return 1;
+    }
+    if (code !== 0 || environment.KEX_S3_ROW !== undefined) {
+        process.stdout.write(stdout);
+        process.stderr.write(stderr);
+    }
+    const passed = Math.max(0, summary.tests - summary.failures - summary.errors - summary.skipped);
+    console.log(
+        `shallot test: ${passed} passed, ${summary.failures} failed, ${summary.errors} refused, ${summary.skipped} skipped; report: ${reportPath(artifacts)}`,
+    );
+    return code;
+}
+
+interface ChildVerdict {
+    claim: string;
+    result: VerdictResult;
+    reason?: string;
+    duration?: number;
 }
 
 interface SelectedRun {
     result: VerdictResult;
     exitCode: number;
+    stdout: string;
+    stderr: string;
+    reason?: string;
+    duration?: number;
+    noVerdict?: boolean;
 }
 
-function selectedRun(row: (typeof population.rows)[number]): SelectedRun {
+function selectedRun(
+    row: (typeof population.rows)[number],
+    artifacts: RunArtifacts,
+    index: number,
+): SelectedRun {
+    const nativeReport = resolve(artifacts.directory, `child-${index}.xml`);
     const proc = Bun.spawnSync(
-        [process.execPath, "test", "--max-concurrency=1", "--pass-with-no-tests", `./${row.file}`],
+        [
+            process.execPath,
+            "test",
+            "--max-concurrency=1",
+            "--pass-with-no-tests",
+            "--reporter=junit",
+            `--reporter-outfile=${nativeReport}`,
+            `./${row.file}`,
+        ],
         { cwd: root, env: { ...envBase, KEX_S3_ROW: row.claim }, stdout: "pipe", stderr: "pipe" },
     );
     const stdout = proc.stdout.toString();
     const stderr = proc.stderr.toString();
-    // Keep the child's streams intact: the runner owns the process boundary, not the check's
-    // diagnostics. Parsing the structured verdict is only for the aggregate decision below.
-    process.stdout.write(stdout);
-    process.stderr.write(stderr);
+    rmSync(nativeReport, { force: true });
     const verdict = `${stdout}\n${stderr}`
         .split("\n")
         .map((line) => line.match(/^shallot verdict (.+)$/)?.[1])
         .filter((line): line is string => line !== undefined)
-        .map((line) => {
+        .map((line): ChildVerdict | undefined => {
             try {
-                return JSON.parse(line) as { claim?: unknown; result?: unknown };
+                const value = JSON.parse(line) as Partial<ChildVerdict>;
+                return value.claim === row.claim &&
+                    (value.result === "pass" ||
+                        value.result === "fail" ||
+                        value.result === "refused" ||
+                        value.result === "unrun")
+                    ? {
+                          claim: value.claim,
+                          result: value.result,
+                          ...(typeof value.reason === "string" ? { reason: value.reason } : {}),
+                          ...(typeof value.duration === "number"
+                              ? { duration: value.duration }
+                              : {}),
+                      }
+                    : undefined;
             } catch {
                 return undefined;
             }
         })
-        .find(
-            (value): value is { claim: string; result: VerdictResult } =>
-                value?.claim === row.claim &&
-                (value.result === "pass" ||
-                    value.result === "fail" ||
-                    value.result === "refused" ||
-                    value.result === "unrun"),
-        );
+        .find((value): value is ChildVerdict => value !== undefined);
     if (verdict === undefined) {
-        console.error(
-            `selected integration: ${row.claim} (fail; no verdict; child exited ${proc.exitCode ?? 1})`,
-        );
-        return { result: "fail", exitCode: proc.exitCode ?? 1 };
+        return {
+            result: "fail",
+            exitCode: proc.exitCode ?? 1,
+            stdout,
+            stderr,
+            noVerdict: true,
+        };
     }
-    return { result: verdict.result, exitCode: proc.exitCode ?? 1 };
+    return {
+        result: verdict.result === "pass" && (proc.exitCode ?? 1) !== 0 ? "fail" : verdict.result,
+        exitCode: proc.exitCode ?? 1,
+        stdout,
+        stderr,
+        ...(verdict.reason === undefined ? {} : { reason: verdict.reason }),
+        ...(verdict.duration === undefined ? {} : { duration: verdict.duration }),
+    };
+}
+
+function xml(value: string): string {
+    const safe = [...value]
+        .filter((character) => {
+            const code = character.codePointAt(0) ?? 0;
+            return (
+                code === 0x09 ||
+                code === 0x0a ||
+                code === 0x0d ||
+                (code >= 0x20 &&
+                    code !== 0xfffe &&
+                    code !== 0xffff &&
+                    (code < 0xd800 || code > 0xdfff))
+            );
+        })
+        .join("");
+    return safe
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&apos;");
+}
+
+function selectedJunit(
+    rows: readonly (typeof population.rows)[number][],
+    outcomes: readonly SelectedRun[],
+): string {
+    const failures = outcomes.filter((outcome) => outcome.result === "fail").length;
+    const errors = outcomes.filter((outcome) => outcome.result === "refused").length;
+    const skipped = outcomes.filter((outcome) => outcome.result === "unrun").length;
+    const seconds = outcomes.reduce((sum, outcome) => sum + (outcome.duration ?? 0), 0) / 1000;
+    const cases = rows
+        .map((row, index) => {
+            const outcome = outcomes[index];
+            const time = ((outcome.duration ?? 0) / 1000).toFixed(6);
+            const start = `  <testcase name="${xml(row.claim)}" classname="${xml(row.file)}" file="${xml(row.file)}" time="${time}"`;
+            if (outcome.result === "pass") return `${start} />`;
+            const details = outputText(outcome.stdout, outcome.stderr);
+            if (outcome.result === "unrun") {
+                return `${start}>\n    <skipped message="${xml(outcome.reason ?? "host premise is unavailable")}" />\n  </testcase>`;
+            }
+            const type = outcome.result === "refused" ? "refused" : "failure";
+            const message =
+                outcome.reason ?? (outcome.result === "refused" ? "check refused" : "check failed");
+            const element = outcome.result === "refused" ? "error" : "failure";
+            return `${start}>\n    <${element} type="${type}" message="${xml(message)}">${xml(details)}</${element}>\n    <system-out>${xml(outcome.stdout)}</system-out>\n    <system-err>${xml(outcome.stderr)}</system-err>\n  </testcase>`;
+        })
+        .join("\n");
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<testsuites name="shallot test run" tests="${rows.length}" failures="${failures}" errors="${errors}" skipped="${skipped}" time="${seconds.toFixed(6)}">\n<testsuite name="selected integration" tests="${rows.length}" failures="${failures}" errors="${errors}" skipped="${skipped}" time="${seconds.toFixed(6)}">\n${cases}\n</testsuite>\n</testsuites>\n`;
+}
+
+function selectedSummary(
+    outcomes: readonly SelectedRun[],
+    artifacts: RunArtifacts,
+    failed: boolean,
+): number {
+    const passed = outcomes.filter((outcome) => outcome.result === "pass").length;
+    const failures = outcomes.filter((outcome) => outcome.result === "fail").length;
+    const refused = outcomes.filter((outcome) => outcome.result === "refused").length;
+    const unrun = outcomes.filter((outcome) => outcome.result === "unrun").length;
+    console.log(
+        `shallot test: ${passed} passed, ${failures} failed, ${refused} refused, ${unrun} unrun; report: ${reportPath(artifacts)}`,
+    );
+    return failed ? 1 : 0;
 }
 
 const base = valueAfter("--base");
@@ -163,18 +359,41 @@ if (selected.length === 0) {
     // Unit rows still get their normal hermetic proof, but no integration/no-op command is claimed.
     process.exit(run(files, { ...envBase, SHALLOT_UNIT_ONLY: "1" }));
 }
+const artifacts = openArtifacts();
+if (artifacts === null) process.exit(1);
+const outcomes: SelectedRun[] = [];
+const evidence: string[] = [];
 let failed = false;
 let ran = 0;
 let refused = 0;
 let unrun = 0;
-for (const row of selected) {
-    const outcome = selectedRun(row);
-    console.log(`selected integration: ${row.claim} (${outcome.result}) exit=${outcome.exitCode}`);
+for (const [index, row] of selected.entries()) {
+    const outcome = selectedRun(row, artifacts, index);
+    outcomes.push(outcome);
+    evidence.push(
+        `=== ${row.claim} (${outcome.result}) ===\n${outputText(outcome.stdout, outcome.stderr)}`,
+    );
     if (outcome.result === "pass" || outcome.result === "fail") ran += 1;
     if (outcome.result === "refused") refused += 1;
     if (outcome.result === "unrun") unrun += 1;
     if (outcome.result === "fail" || outcome.result === "refused" || outcome.exitCode !== 0)
         failed = true;
+    if (outcome.result === "pass" || outcome.result === "unrun") {
+        console.log(
+            `shallot verdict ${JSON.stringify({
+                claim: row.claim,
+                result: outcome.result,
+                ...(outcome.reason === undefined ? {} : { reason: outcome.reason }),
+            })}`,
+        );
+    }
+    if (outcome.result === "fail" || outcome.result === "refused") {
+        console.error(
+            `selected integration: ${row.claim} (${outcome.result}${outcome.noVerdict ? `; no verdict; child exited ${outcome.exitCode}` : ""})`,
+        );
+        process.stdout.write(outcome.stdout);
+        process.stderr.write(outcome.stderr);
+    }
 }
 if (ran === 0) {
     console.error(
@@ -182,4 +401,11 @@ if (ran === 0) {
     );
     failed = true;
 }
-process.exit(failed ? 1 : 0);
+try {
+    writeFileSync(artifacts.report, selectedJunit(selected, outcomes));
+} catch (error) {
+    console.error(`surface refused: report destination unavailable: ${(error as Error).message}`);
+    failed = true;
+}
+if (!saveOutput(artifacts, evidence.join("\n"))) failed = true;
+process.exit(selectedSummary(outcomes, artifacts, failed));

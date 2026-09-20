@@ -1,3 +1,2 @@
 [test]
 preload = ["./src/harness/preload.ts"]
-reporter = { junit = "/dev/stdout" }
