@@ -396,21 +396,36 @@ check(
             expect(displayReport).toContain('name="e display refusal"');
             expect(displayReport).toContain('<error type="refused"');
 
-            // A selected file can fail before check() loads. That is a failed selected row, not an
-            // unrun host row, and its child diagnostic remains in the runner output.
+            // A selected file can register an other-host row, then fail while loading the rest of the
+            // module. That is a failed selected row, not an unrun host row; its child diagnostic must be
+            // visible, and a later selected row must still be attempted.
             writeFileSync(
-                join(tests, "j-load-failure.test.ts"),
-                `${head}import "./missing-fixture-module";\n` +
-                    `check("load failure", { claim: "j load failure", size: "integration", subject: "src/load.ts", host: "mac" }, () => {});\n`,
+                join(tests, "j-registration-then-load-failure.test.ts"),
+                `${head}check("load failure", { claim: "j registration then load failure", size: "integration", subject: "src/load.ts", host: "omarchy" }, () => {});\n` +
+                    `await import("./missing-fixture-module");\n`,
+            );
+            writeCheck(
+                "k-load-failure-continuation.test.ts",
+                "load failure continuation",
+                "k load failure continuation",
+                "src/load.ts",
+                `    return { ok: true };`,
             );
             const loadFailure = runRunner(tree, "--integration", "--subject", "src/load");
             const loadFailureOutput = outputOf(loadFailure);
             expect(loadFailure.exitCode).not.toBe(0);
             expect(loadFailureOutput).toContain("Cannot find module");
             expect(loadFailureOutput).toContain(
-                "selected integration: j load failure (fail; no verdict; child exited",
+                "selected integration: j registration then load failure (fail)",
             );
-            expect(loadFailureOutput).not.toContain('"result":"unrun"');
+            const loadFailureReport = reportOf(tree, loadFailureOutput);
+            expect(loadFailureReport).toContain('tests="2"');
+            expect(loadFailureReport).toContain('failures="1"');
+            expect(loadFailureReport).toContain('skipped="0"');
+            expect(loadFailureReport).toContain("Cannot find module");
+            expect(loadFailureReport).toMatch(
+                /<testcase name="k load failure continuation"[^>]*\/>/,
+            );
 
             // An all-unrun selection used to inherit Bun's successful skipped-test exit code. It is an
             // explicit no-row-ran failure, and the host-mismatched body never probes its requirement.

@@ -153,6 +153,14 @@ interface SelectedRun {
     noVerdict?: boolean;
 }
 
+function normalizeChildOutcome(result: VerdictResult, exitCode: number): VerdictResult {
+    if (exitCode === 0 || result === "fail" || result === "refused") return result;
+    // An unrun verdict is honest only when the child completed normally. A module can register an
+    // other-host row, emit its unrun verdict, then throw while loading; that load failure is red, not a
+    // host mismatch. The same rule keeps a pass from hiding a nonzero child exit.
+    return "fail";
+}
+
 function selectedRun(
     row: (typeof population.rows)[number],
     artifacts: RunArtifacts,
@@ -173,6 +181,7 @@ function selectedRun(
     );
     const stdout = proc.stdout.toString();
     const stderr = proc.stderr.toString();
+    const exitCode = proc.exitCode ?? 1;
     rmSync(nativeReport, { force: true });
     const verdict = `${stdout}\n${stderr}`
         .split("\n")
@@ -203,15 +212,15 @@ function selectedRun(
     if (verdict === undefined) {
         return {
             result: "fail",
-            exitCode: proc.exitCode ?? 1,
+            exitCode,
             stdout,
             stderr,
             noVerdict: true,
         };
     }
     return {
-        result: verdict.result === "pass" && (proc.exitCode ?? 1) !== 0 ? "fail" : verdict.result,
-        exitCode: proc.exitCode ?? 1,
+        result: normalizeChildOutcome(verdict.result, exitCode),
+        exitCode,
         stdout,
         stderr,
         ...(verdict.reason === undefined ? {} : { reason: verdict.reason }),
