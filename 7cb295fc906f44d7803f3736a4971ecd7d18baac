@@ -1,0 +1,1 @@
+finding: selected integration rows that emit an unrun verdict and then fail during module loading are normalized to fail in the count, but selectedJunit keeps the unrun reason as the failure message (for example, a missing-module failure is reported as host premise unavailable), so JUnit diagnostics contradict the red outcome
