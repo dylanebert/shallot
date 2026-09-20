@@ -1,1 +1,1 @@
-clean
+finding: a selected host-unrun row that emits its unrun verdict and then throws during module load is still recorded as unrun/skipped: selectedRun only coerces pass on a nonzero child exit, so the load failure is absent from the aggregate JUnit failure/error counts and is not exposed on console, violating the stopping point that a load failure cannot disappear as unrun.
