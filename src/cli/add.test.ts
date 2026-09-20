@@ -39,7 +39,7 @@ check(
             for (const flag of ["--help", "-h"]) {
                 const dest = join(root, `not-created-${flag.slice(1)}`);
                 const output = await captureOutput(() =>
-                    runAdd([flag, "ignored", dest], {
+                    runAdd([flag, dest], {
                         recipesDir: join(root, "empty"),
                         version: "0.0.0",
                     }),
