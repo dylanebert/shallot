@@ -9,7 +9,7 @@ import {
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
 import {
     collectPopulation,
@@ -23,6 +23,21 @@ import { unfixture } from "./unfixture";
 
 const ROOT = resolve(import.meta.dir, "..");
 const FIXTURES = resolve(ROOT, "scripts/fixtures/surface");
+
+function retainedOutput(tree: string, invocationOutput: string): string {
+    const reported = invocationOutput
+        .split("\n")
+        .find((line) => line.includes("report: "))
+        ?.match(/report: (.+)$/)?.[1]
+        ?.trim();
+    if (reported === undefined)
+        throw new Error(`report path missing from output: ${invocationOutput}`);
+    const report = resolve(tree, reported);
+    expect(relative(resolve(tree), report)).not.toMatch(/^\.\.(?:[\\/]|$)/);
+    const output = join(dirname(report), "output.log");
+    expect(existsSync(output)).toBe(true);
+    return readFileSync(output, "utf8");
+}
 
 check(
     "physics Rust test targets stay partitioned",
@@ -586,8 +601,11 @@ check(
                 { cwd: ROOT, stdout: "pipe", stderr: "pipe" },
             );
             expect(proc.exitCode).toBe(0);
-            expect(proc.stdout.toString()).toContain("NAMED_ORACLE_RAN");
-            expect(proc.stdout.toString()).toContain('"result":"pass"');
+            const retained = retainedOutput(tree, proc.stdout.toString());
+            expect(retained).toContain("NAMED_ORACLE_RAN");
+            expect(retained).toMatch(
+                /shallot verdict \{"claim":"named oracle runs","size":"integration",.*"result":"pass"/,
+            );
         } finally {
             rmSync(tree, { recursive: true, force: true });
         }
