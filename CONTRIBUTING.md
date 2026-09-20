@@ -34,7 +34,7 @@ bun run list      # what the same selectors would run: claim, size, requirements
 bun run format    # biome, the scene formatter and the examples index, writing
 ```
 
-Every `bun run test` invocation writes one JUnit report under `.artifacts/` and prints its path. Failed or refused rows also retain their child stdout and stderr in that invocation's artifact. A selector that matches no test fails.
+The run summary names its JUnit report under `.artifacts/`; child stdout and stderr are retained in `output.log` beside it. A selector that matches no test fails.
 
 ## Tests
 
