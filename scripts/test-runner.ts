@@ -153,12 +153,14 @@ interface SelectedRun {
     noVerdict?: boolean;
 }
 
-function normalizeChildOutcome(result: VerdictResult, exitCode: number): VerdictResult {
-    if (exitCode === 0 || result === "fail" || result === "refused") return result;
+function normalizeChildOutcome(verdict: ChildVerdict, exitCode: number): ChildVerdict {
+    if (exitCode === 0 || verdict.result === "fail" || verdict.result === "refused") return verdict;
     // An unrun verdict is honest only when the child completed normally. A module can register an
     // other-host row, emit its unrun verdict, then throw while loading; that load failure is red, not a
-    // host mismatch. The same rule keeps a pass from hiding a nonzero child exit.
-    return "fail";
+    // host mismatch. Clear the host reason with the result so the normalized failure is attributed to
+    // the actual child failure while stdout/stderr retain its diagnostics. The same rule keeps a pass
+    // from hiding a nonzero child exit.
+    return { ...verdict, result: "fail", reason: undefined };
 }
 
 function selectedRun(
@@ -218,13 +220,14 @@ function selectedRun(
             noVerdict: true,
         };
     }
+    const normalized = normalizeChildOutcome(verdict, exitCode);
     return {
-        result: normalizeChildOutcome(verdict.result, exitCode),
+        result: normalized.result,
         exitCode,
         stdout,
         stderr,
-        ...(verdict.reason === undefined ? {} : { reason: verdict.reason }),
-        ...(verdict.duration === undefined ? {} : { duration: verdict.duration }),
+        ...(normalized.reason === undefined ? {} : { reason: normalized.reason }),
+        ...(normalized.duration === undefined ? {} : { duration: normalized.duration }),
     };
 }
 

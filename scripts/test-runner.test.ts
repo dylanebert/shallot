@@ -423,6 +423,11 @@ check(
             expect(loadFailureReport).toContain('failures="1"');
             expect(loadFailureReport).toContain('skipped="0"');
             expect(loadFailureReport).toContain("Cannot find module");
+            const loadFailureMessage = loadFailureReport.match(
+                /<testcase name="j registration then load failure"[\s\S]*?<failure\b[^>]*\bmessage="([^"]*)"/,
+            )?.[1];
+            expect(loadFailureMessage).toBe("check failed");
+            expect(loadFailureMessage).not.toContain("host premise is unavailable");
             expect(loadFailureReport).toMatch(
                 /<testcase name="k load failure continuation"[^>]*\/>/,
             );
