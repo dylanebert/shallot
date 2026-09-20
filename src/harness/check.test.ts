@@ -204,108 +204,65 @@ check(
 );
 
 check(
-    "a row declared for another host is skipped and reported, never refused",
+    "a retired host declaration is refused before body or prerequisite",
     {
-        claim: "a row declared for one host refuses or runs on another, so a host that cannot hold its premise reports a failure against the claim",
+        claim: "an old host declaration is refused before its body or prerequisite runs, while ordinary admission ignores workstation identity variables",
         size: "integration",
         subject: ["src/harness/declaration.ts", "src/harness/check.ts"],
     },
     () => {
-        expect(validateDeclaration("here", { claim: "seat", host: "mac" }).host).toBe("mac");
-        expect(validateDeclaration("here", { claim: "seat" }).host).toBeUndefined();
-        expect(() => validateDeclaration("here", { claim: "seat", host: "windows" })).toThrow(
-            "has host `windows`",
+        expect(() => validateDeclaration("here", { claim: "retired", host: "mac" })).toThrow(
+            "retired field `host`",
         );
-        // A list names every host that holds the premise; an empty, repeated or unknown entry refuses.
-        expect(
-            validateDeclaration("here", { claim: "seat", host: ["mac", "omarchy"] }).host,
-        ).toEqual(["mac", "omarchy"]);
-        expect(() => validateDeclaration("here", { claim: "seat", host: [] })).toThrow("non-empty");
-        expect(() => validateDeclaration("here", { claim: "seat", host: ["mac", "mac"] })).toThrow(
-            "distinct",
-        );
-        expect(() =>
-            validateDeclaration("here", { claim: "seat", host: ["mac", "windows"] }),
-        ).toThrow("has host `windows`");
 
         const root = resolve(import.meta.dir, "../..");
         const tree = mkdtempSync(join(tmpdir(), "shallot-surface-host-"));
         try {
             const reached = join(tree, "body-reached");
-            // Two files, because a refused requirement throws at registration and would take the other row
-            // down with it. `plain` carries no premise, so its body is the non-vacuity witness on any host;
-            // `gated` carries one no host here supplies, so a mismatch must report `unrun` rather than that
-            // requirement's refusal.
-            const plainFile = join(tree, "plain.test.ts");
-            const gatedFile = join(tree, "gated.test.ts");
             const head =
                 `import { appendFileSync } from "node:fs";\n` +
                 `import { check } from ${JSON.stringify(resolve(import.meta.dir, "check.ts"))};\n`;
-            const plainSource =
-                `${head}check("plain", { claim: "a row declared for the omarchy seat", size: "integration", host: "omarchy" }, () => {\n` +
-                `    appendFileSync(${JSON.stringify(reached)}, "reached");\n` +
-                `    throw new Error("the other host's body ran here");\n` +
-                `});\n`;
-            writeFileSync(plainFile, plainSource);
+            const retired = join(tree, "retired.test.ts");
             writeFileSync(
-                gatedFile,
-                `${head}check("gated", { claim: "an omarchy row whose requirement no host here supplies", size: "integration", host: "omarchy", requires: ["display"] }, () => {});\n`,
+                retired,
+                `${head}check("retired", { claim: "retired host declaration", size: "integration", host: "mac", requires: ["display"] }, () => {\n` +
+                    `    appendFileSync(${JSON.stringify(reached)}, "reached");\n` +
+                    `});\n`,
             );
-            const run = (file: string, host: string) => {
+            const ordinary = join(tree, "ordinary.test.ts");
+            writeFileSync(
+                ordinary,
+                `${head}check("ordinary", { claim: "ordinary declaration" }, () => {\n` +
+                    `    appendFileSync(${JSON.stringify(reached)}, "reached");\n` +
+                    `});\n`,
+            );
+            const run = (file: string) => {
                 const environment = { ...process.env };
                 delete environment.KEX_S3_ROW;
                 const proc = Bun.spawnSync(["bun", "test", "--pass-with-no-tests", file], {
                     cwd: root,
-                    env: { ...environment, SHALLOT_HOST: host, SHALLOT_UNIT_ONLY: "" },
+                    env: {
+                        ...environment,
+                        SHALLOT_HOST: "invented-seat",
+                        HYPRLAND_INSTANCE_SIGNATURE: "invented-compositor",
+                        SHALLOT_UNIT_ONLY: "",
+                    },
                 });
                 return {
                     exitCode: proc.exitCode,
                     output: proc.stdout.toString() + proc.stderr.toString(),
                 };
             };
-            // Skipped and reported: the verdict names the declared host, the run stays green, and the
-            // body never executes.
-            const elsewhere = run(plainFile, "mac");
-            expect(elsewhere.exitCode).toBe(0);
-            expect(elsewhere.output).toContain('"result":"unrun"');
-            expect(elsewhere.output).toContain("declared for host omarchy; this host is mac");
-            expect(elsewhere.output).not.toContain('"result":"refused"');
+
+            const refused = run(retired);
+            expect(refused.exitCode).not.toBe(0);
+            expect(refused.output).toContain("retired field `host`");
+            expect(refused.output).not.toContain("display seat unavailable");
             expect(existsSync(reached)).toBe(false);
-            // Non-vacuity: on its own host the body runs and its failure is reported.
-            const here = run(plainFile, "omarchy");
-            expect(here.exitCode).not.toBe(0);
+
+            const admitted = run(ordinary);
+            expect(admitted.exitCode).toBe(0);
             expect(existsSync(reached)).toBe(true);
-            expect(here.output).not.toContain('"result":"unrun"');
-            // The mismatch resolves before requirements, so the unavailable premise is never probed on
-            // the wrong host — and is still refused on the right one.
-            const gatedElsewhere = run(gatedFile, "mac");
-            expect(gatedElsewhere.exitCode).toBe(0);
-            expect(gatedElsewhere.output).toContain('"result":"unrun"');
-            expect(gatedElsewhere.output).not.toContain("display seat unavailable");
-            // A row listing both hosts runs on either, and a host outside the list still skips it.
-            const bothFile = join(tree, "both.test.ts");
-            writeFileSync(
-                bothFile,
-                plainSource
-                    .replace(
-                        '"a row declared for the omarchy seat"',
-                        '"a row declared for both seats"',
-                    )
-                    .replace('host: "omarchy"', 'host: ["mac", "omarchy"]'),
-            );
-            for (const host of ["mac", "omarchy"]) {
-                rmSync(reached, { force: true });
-                expect(run(bothFile, host).exitCode).not.toBe(0);
-                expect(existsSync(reached)).toBe(true);
-            }
-            const bothElsewhere = run(bothFile, "other");
-            expect(bothElsewhere.exitCode).toBe(0);
-            expect(bothElsewhere.output).toContain(
-                "declared for hosts mac, omarchy; this host is other",
-            );
-            const gatedHere = run(gatedFile, "omarchy");
-            expect(gatedHere.exitCode).not.toBe(0);
-            expect(gatedHere.output).toContain("display seat unavailable");
         } finally {
             rmSync(tree, { recursive: true, force: true });
         }

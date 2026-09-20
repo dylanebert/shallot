@@ -13,7 +13,12 @@ function runRunner(tree: string, ...args: string[]) {
         ["bun", resolve(ROOT, "scripts/test-runner.ts"), "--root", tree, ...args],
         {
             cwd: ROOT,
-            env: { ...process.env, SHALLOT_HOST: "mac", SHALLOT_DISPLAY_SEAT: "" },
+            env: {
+                ...process.env,
+                SHALLOT_HOST: "invented-seat",
+                HYPRLAND_INSTANCE_SIGNATURE: "invented-compositor",
+                SHALLOT_DISPLAY_SEAT: "",
+            },
             stdout: "pipe",
             stderr: "pipe",
         },
@@ -146,7 +151,7 @@ check(
             claim: string,
             subject: string,
             body: string,
-            options = `size: "integration", subject: ${JSON.stringify(subject)}, host: "mac"`,
+            options = `size: "integration", subject: ${JSON.stringify(subject)}`,
         ) =>
             writeFileSync(
                 join(tests, file),
@@ -240,7 +245,7 @@ check(
                 "d report refusal",
                 "src/report-refusal.ts",
                 `    return { ok: true };`,
-                `size: "integration", subject: "src/report-refusal.ts", host: "mac", requires: ["display"]`,
+                `size: "integration", subject: "src/report-refusal.ts", requires: ["display"]`,
             );
             const refusal = runRunner(tree, "--integration", "--subject", "src/report-refusal");
             const refusalOutput = outputOf(refusal);
@@ -294,7 +299,7 @@ check(
 check(
     "runner selection outcomes",
     {
-        claim: "the check runner attempts every selected integration row, reports failure and refusal before later passes, reports host-unrun rows without probing them, and never runs an unselected failure",
+        claim: "the check runner attempts every selected integration row, reports failure and refusal before later passes, preserves generic unrun report handling, and never runs an unselected failure",
         size: "integration",
         subject: ["scripts/test-runner.ts", "src/harness/check.ts"],
     },
@@ -311,12 +316,11 @@ check(
             claim: string,
             subject: string,
             body: string,
-            host = "mac",
             requires = "",
         ) =>
             writeFileSync(
                 join(tests, file),
-                `${head}check(${JSON.stringify(name)}, { claim: ${JSON.stringify(claim)}, size: "integration", subject: ${JSON.stringify(subject)}, host: ${JSON.stringify(host)}${requires} }, () => {\n${body}\n});\n`,
+                `${head}check(${JSON.stringify(name)}, { claim: ${JSON.stringify(claim)}, size: "integration", subject: ${JSON.stringify(subject)}${requires} }, () => {\n${body}\n});\n`,
             );
         try {
             mkdirSync(tests, { recursive: true });
@@ -344,7 +348,6 @@ check(
                 "c registration refusal",
                 "src/registration.ts",
                 `    return { ok: true };`,
-                "mac",
                 `, requires: ["display"]`,
             );
             writeCheck(
@@ -360,16 +363,14 @@ check(
                 "e display refusal",
                 "src/display.ts",
                 `    return { ok: true };`,
-                "mac",
                 `, requires: ["display"]`,
             );
             writeCheck(
-                "f-other-host.test.ts",
-                "other host",
-                "f all other-host",
+                "f-unrun.test.ts",
+                "fixture unrun",
+                "f all unrun",
                 "src/other.ts",
-                `    throw new Error("other-host body must not run");`,
-                "omarchy",
+                `    console.log("shallot verdict {\\"claim\\":\\"f all unrun\\",\\"size\\":\\"integration\\",\\"result\\":\\"unrun\\",\\"reason\\":\\"fixture was not executed\\"}");`,
             );
             writeCheck(
                 "g-mixed-pass.test.ts",
@@ -413,12 +414,12 @@ check(
             expect(displayReport).toContain('name="e display refusal"');
             expect(displayReport).toContain('<error type="refused"');
 
-            // A selected file can register an other-host row, then fail while loading the rest of the
-            // module. That is a failed selected row, not an unrun host row; its child diagnostic must be
-            // visible, and a later selected row must still be attempted.
+            // A selected file can register a row, then fail while loading the rest of the module. That
+            // is a failed selected row, not an unrun outcome; its child diagnostic must be visible, and a
+            // later selected row must still be attempted.
             writeFileSync(
                 join(tests, "j-registration-then-load-failure.test.ts"),
-                `${head}check("load failure", { claim: "j registration then load failure", size: "integration", subject: "src/load.ts", host: "omarchy" }, () => {});\n` +
+                `${head}check("load failure", { claim: "j registration then load failure", size: "integration", subject: "src/load.ts" }, () => {});\n` +
                     `await import("./missing-fixture-module");\n`,
             );
             writeCheck(
@@ -433,7 +434,7 @@ check(
             expect(loadFailure.exitCode).not.toBe(0);
             expect(loadFailureOutput).toContain("Cannot find module");
             expect(loadFailureOutput).toContain(
-                "selected integration: j registration then load failure (fail)",
+                "selected integration: j registration then load failure (fail",
             );
             const loadFailureReport = reportOf(tree, loadFailureOutput);
             expect(loadFailureReport).toContain('tests="2"');
@@ -450,34 +451,33 @@ check(
             );
 
             // An all-unrun selection used to inherit Bun's successful skipped-test exit code. It is an
-            // explicit no-row-ran failure, and the host-mismatched body never probes its requirement.
+            // explicit no-row-ran failure, and the fixture supplies no product verdict.
             const allUnrun = runRunner(tree, "--integration", "--subject", "src/other");
             const allUnrunOutput = outputOf(allUnrun);
             expect(allUnrun.exitCode).not.toBe(0);
             const allUnrunReport = reportOf(tree, allUnrunOutput);
-            expect(allUnrunReport).toContain('name="f all other-host"');
+            expect(allUnrunReport).toContain('name="f all unrun"');
             expect(allUnrunReport).toContain("<skipped message=");
             expect(allUnrunOutput).toContain("no integration rows ran");
-            expect(allUnrunOutput).not.toContain("other-host body must not run");
+            expect(allUnrunReport).toContain("fixture was not executed");
 
-            // The mixed selection includes the passing row and its other-host counterpart by selecting
-            // the shared subject prefix; only the latter is unrun on this explicitly declared mac host.
+            // The mixed selection includes the passing row and a generic unrun outcome by selecting the
+            // shared subject prefix; one executed row still makes the selection attributable.
             writeCheck(
-                "i-mixed-other-host.test.ts",
-                "mixed other host",
-                "g mixed other-host",
+                "i-mixed-unrun.test.ts",
+                "mixed unrun",
+                "g mixed unrun",
                 "src/mixed.ts",
-                `    throw new Error("mixed other-host body must not run");`,
-                "omarchy",
+                `    console.log("shallot verdict {\\"claim\\":\\"g mixed unrun\\",\\"size\\":\\"integration\\",\\"result\\":\\"unrun\\",\\"reason\\":\\"fixture was not executed\\"}");`,
             );
             const mixedWithUnrun = runRunner(tree, "--integration", "--subject", "src/mixed");
             const mixedWithUnrunOutput = outputOf(mixedWithUnrun);
             expect(mixedWithUnrun.exitCode).toBe(0);
             const mixedReport = reportOf(tree, mixedWithUnrunOutput);
             expect(mixedReport).toMatch(/<testcase name="g mixed pass"[^>]*\/>/);
-            expect(mixedReport).toContain('name="g mixed other-host"');
+            expect(mixedReport).toContain('name="g mixed unrun"');
             expect(mixedReport).toContain("<skipped message=");
-            expect(mixedWithUnrunOutput).not.toContain("mixed other-host body must not run");
+            expect(mixedReport).toContain("fixture was not executed");
             expect(existsSync(marker)).toBe(false);
         } finally {
             rmSync(tree, { recursive: true, force: true });

@@ -2,7 +2,6 @@ import { test } from "bun:test";
 import { type CheckDeclaration, validateDeclaration } from "./declaration";
 import {
     emitVerdict,
-    hostMismatch,
     MissingPremise,
     missingRequirement,
     quarantineReason,
@@ -72,16 +71,6 @@ export function check(
         test.skip(name, () => {}, decl.budget);
         return;
     }
-    // A host mismatch comes before requirement resolution: another host must not probe for a premise this
-    // row never claimed there, and must not refuse for lacking it.
-    const elsewhere = hostMismatch(decl.host);
-    if (elsewhere !== null) {
-        if (decl.size === "integration") {
-            emitVerdict(decl.claim, decl.size, performance.now(), "unrun", { reason: elsewhere });
-        }
-        test.skip(name, () => {}, decl.budget);
-        return;
-    }
     const missing = missingRequirement(decl.requires, {
         root: process.env.SHALLOT_PROJECT_ROOT ?? process.cwd(),
         subjects:
@@ -121,7 +110,7 @@ export function check(
                 return value;
             } catch (error) {
                 if (reports) {
-                    // A body whose host could not supply the premise is a refusal, not a red claim: the
+                    // A body whose prerequisite could not be supplied is a refusal, not a red claim: the
                     // run never reached the predicate, so reporting it as a fail would read as product
                     // evidence the row never gathered. Only {@link MissingPremise} says so; any other
                     // throw, whatever it says, is the claim failing.

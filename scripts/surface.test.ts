@@ -230,6 +230,33 @@ check(
     },
 );
 
+check(
+    "surface rejects retired host declarations",
+    {
+        claim: "the surface reader rejects an old host declaration instead of admitting it into the published population",
+        size: "integration",
+        subject: ["src/harness/declaration.ts", "src/harness/surface.ts"],
+    },
+    () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-surface-retired-host-"));
+        mkdirSync(join(tree, "src"), { recursive: true });
+        writeFileSync(
+            join(tree, "src/retired.test.ts"),
+            `import { check } from ${JSON.stringify(resolve(ROOT, "src/harness/check"))};\n` +
+                `check("retired", { claim: "retired host declaration", host: "mac" }, () => {});\n`,
+        );
+        try {
+            const population = collectPopulation(tree);
+            expect(population.rows).toEqual([]);
+            expect(population.invalid).toContain(
+                'invalid declaration: src/retired.test.ts check("retired") has retired field `host`',
+            );
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);
+
 function git(root: string, ...args: string[]): string {
     const proc = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
     expect(proc.exitCode).toBe(0);

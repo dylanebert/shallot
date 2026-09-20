@@ -236,38 +236,6 @@ function resolveGpuRequirement(root: string): string | null {
     return gpuRequirement;
 }
 
-/**
- * The host this process is running on, in the declaration's vocabulary, or `other` for a host that holds
- * no declared row. `SHALLOT_HOST` lets a host name itself and always wins; otherwise macOS is `mac`, and a
- * Linux session under Hyprland is `omarchy`, because a Linux kernel alone does not make a hosted runner the
- * Omarchy seat.
- */
-export function currentHost(
-    env: Readonly<Record<string, string | undefined>> = process.env,
-    platform: string = process.platform,
-): string {
-    const declared = env.SHALLOT_HOST?.trim();
-    if (declared !== undefined && declared !== "") return declared;
-    if (platform === "darwin") return "mac";
-    if (platform === "linux" && env.HYPRLAND_INSTANCE_SIGNATURE?.trim()) return "omarchy";
-    return "other";
-}
-
-/**
- * Why a row declared for its hosts does not run on this one, or null when it does. A row declared for a
- * list runs on any host in it. A host mismatch is not a refusal: the premise is absent by design, so the
- * row is skipped and reported rather than counted against the claim.
- */
-export function hostMismatch(
-    host: string | readonly string[] | undefined,
-    here: string = currentHost(),
-): string | null {
-    if (host === undefined) return null;
-    const hosts = typeof host === "string" ? [host] : host;
-    if (hosts.includes(here)) return null;
-    return `declared for host${hosts.length === 1 ? "" : "s"} ${hosts.join(", ")}; this host is ${here}`;
-}
-
 function cargoPackage(root: string, subjects: readonly string[]): string | null {
     if (subjects.length !== 1)
         return "cargo requirement needs exactly one subject naming a Cargo crate";

@@ -155,11 +155,10 @@ interface SelectedRun {
 
 function normalizeChildOutcome(verdict: ChildVerdict, exitCode: number): ChildVerdict {
     if (exitCode === 0 || verdict.result === "fail" || verdict.result === "refused") return verdict;
-    // An unrun verdict is honest only when the child completed normally. A module can register an
-    // other-host row, emit its unrun verdict, then throw while loading; that load failure is red, not a
-    // host mismatch. Clear the host reason with the result so the normalized failure is attributed to
-    // the actual child failure while stdout/stderr retain its diagnostics. The same rule keeps a pass
-    // from hiding a nonzero child exit.
+    // An unrun verdict is honest only when the child completed normally. A module can emit an unrun
+    // verdict, then throw while loading; that load failure is red, not an unrun outcome. Clear the
+    // unrun reason with the result so the normalized failure is attributed to the actual child failure
+    // while stdout/stderr retain its diagnostics. The same rule keeps a pass from hiding a nonzero child exit.
     return { ...verdict, result: "fail", reason: undefined };
 }
 
@@ -270,7 +269,7 @@ function selectedJunit(
             if (outcome.result === "pass") return `${start} />`;
             const details = outputText(outcome.stdout, outcome.stderr);
             if (outcome.result === "unrun") {
-                return `${start}>\n    <skipped message="${xml(outcome.reason ?? "host premise is unavailable")}" />\n  </testcase>`;
+                return `${start}>\n    <skipped message="${xml(outcome.reason ?? "premise is unavailable")}" />\n  </testcase>`;
             }
             const type = outcome.result === "refused" ? "refused" : "failure";
             const message =
