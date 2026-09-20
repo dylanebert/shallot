@@ -11,6 +11,14 @@ import { CLAUDE_IMPORT, PROJECT_GITIGNORE, RECIPE_TSCONFIG, recipeDoc } from "./
 
 const PACKAGE_ROOT = resolve(import.meta.dir, "../..");
 const ENGINE = "@dylanebert/shallot";
+const ADD_USAGE = `
+  shallot add [name] [dir]
+
+  Without a name, lists available recipes.
+  With a name, copies one recipe into a project.
+  The destination defaults to the recipe name relative to the current directory.
+  An occupied destination is refused.
+`;
 
 interface Env {
     recipesDir: string;
@@ -85,6 +93,11 @@ export function pinEngine(pkgText: string, version: string): string {
 }
 
 export async function runAdd(args: string[], e: Env = env()): Promise<number> {
+    if (args[0] === "--help" || args[0] === "-h") {
+        console.log(ADD_USAGE);
+        return 0;
+    }
+
     const { recipesDir, version } = e;
     const available = listRecipes(recipesDir);
 

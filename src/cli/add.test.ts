@@ -1,5 +1,5 @@
 import { expect } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
@@ -12,6 +12,52 @@ function recipes(): string {
     writeFileSync(join(root, "examples/demo/shallot.json"), '{"kind":"recipe"}\n');
     return root;
 }
+
+async function captureOutput<T>(
+    body: () => Promise<T>,
+): Promise<{ value: T; stdout: string; stderr: string }> {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const log = console.log;
+    const error = console.error;
+    console.log = (...args: unknown[]) => stdout.push(args.join(" "));
+    console.error = (...args: unknown[]) => stderr.push(args.join(" "));
+    try {
+        return { value: await body(), stdout: stdout.join("\n"), stderr: stderr.join("\n") };
+    } finally {
+        console.log = log;
+        console.error = error;
+    }
+}
+
+check(
+    "add help aliases are informational",
+    { claim: "shallot add help succeeds with no recipe catalogue or destination writes" },
+    async () => {
+        const root = mkdtempSync(join(tmpdir(), "shallot-add-help-"));
+        try {
+            for (const flag of ["--help", "-h"]) {
+                const dest = join(root, `not-created-${flag.slice(1)}`);
+                const output = await captureOutput(() =>
+                    runAdd([flag, "ignored", dest], {
+                        recipesDir: join(root, "empty"),
+                        version: "0.0.0",
+                    }),
+                );
+                expect(output.value).toBe(0);
+                expect(output.stderr).toBe("");
+                expect(output.stdout).toContain("shallot add [name] [dir]");
+                expect(output.stdout).toContain("Without a name, lists available recipes.");
+                expect(output.stdout).toContain("With a name, copies one recipe");
+                expect(output.stdout).toContain("destination defaults to the recipe name");
+                expect(output.stdout).toContain("An occupied destination is refused.");
+                expect(existsSync(dest)).toBe(false);
+            }
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    },
+);
 
 check(
     "add writes the project ignore",
