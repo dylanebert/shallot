@@ -125,7 +125,7 @@ function run(files: string[], environment: NodeJS.ProcessEnv): number {
         );
         return 1;
     }
-    if (code !== 0 || environment.KEX_S3_ROW !== undefined) {
+    if (code !== 0) {
         process.stdout.write(stdout);
         process.stderr.write(stderr);
     }

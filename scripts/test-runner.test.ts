@@ -197,6 +197,23 @@ check(
             expect(greenEvidence).toContain("=== b report pass two (pass) ===");
 
             writeCheck(
+                "f-report-oracle.oracle.ts",
+                "report oracle",
+                "f report oracle",
+                "src/report.ts",
+                `    return { ok: true };`,
+            );
+            const oracle = runRunner(tree, "--oracle", "f report oracle");
+            const oracleOutput = outputOf(oracle);
+            expect(oracle.exitCode).toBe(0);
+            expect(oracleOutput.trim()).toMatch(
+                /^shallot test: 1 passed, 0 failed, 0 refused, 0 skipped; report: \.artifacts\/shallot-run-[^/]+\/junit\.xml$/,
+            );
+            expect(oracleOutput).not.toContain("shallot verdict");
+            expect(oracleOutput).not.toContain("(pass)");
+            expect(oracleOutput).not.toContain("Ran 1 test");
+
+            writeCheck(
                 "c-report-failure.test.ts",
                 "report failure",
                 "c report failure",
