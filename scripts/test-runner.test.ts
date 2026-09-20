@@ -1,5 +1,5 @@
 import { expect } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
@@ -11,8 +11,17 @@ const PRELOAD = resolve(ROOT, "src/harness/preload.ts");
 function runRunner(tree: string, ...args: string[]) {
     return Bun.spawnSync(
         ["bun", resolve(ROOT, "scripts/test-runner.ts"), "--root", tree, ...args],
-        { cwd: ROOT, stdout: "pipe", stderr: "pipe" },
+        {
+            cwd: ROOT,
+            env: { ...process.env, SHALLOT_HOST: "mac", SHALLOT_DISPLAY_SEAT: "" },
+            stdout: "pipe",
+            stderr: "pipe",
+        },
     );
+}
+
+function outputOf(run: ReturnType<typeof runRunner>): string {
+    return `${run.stdout.toString()}\n${run.stderr.toString()}`;
 }
 
 function lineOf(source: string, text: string): number {
@@ -103,6 +112,176 @@ check("ordinary exception", { claim: "fixture ordinary exception", size: "integr
             } finally {
                 rmSync(refusedTree, { recursive: true, force: true });
             }
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
+    "runner selection outcomes",
+    {
+        claim: "the check runner attempts every selected integration row, reports failure and refusal before later passes, reports host-unrun rows without probing them, and never runs an unselected failure",
+        size: "integration",
+        subject: ["scripts/test-runner.ts", "src/harness/check.ts"],
+    },
+    () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-runner-selection-outcomes-"));
+        const tests = join(tree, "tests");
+        const marker = join(tree, "unselected-body-ran");
+        const head =
+            `import { writeFileSync } from "node:fs";\n` +
+            `import { check } from ${JSON.stringify(CHECK_MODULE)};\n`;
+        const writeCheck = (
+            file: string,
+            name: string,
+            claim: string,
+            subject: string,
+            body: string,
+            host = "mac",
+            requires = "",
+        ) =>
+            writeFileSync(
+                join(tests, file),
+                `${head}check(${JSON.stringify(name)}, { claim: ${JSON.stringify(claim)}, size: "integration", subject: ${JSON.stringify(subject)}, host: ${JSON.stringify(host)}${requires} }, () => {\n${body}\n});\n`,
+            );
+        try {
+            mkdirSync(tests, { recursive: true });
+            writeFileSync(
+                join(tree, "bunfig.toml"),
+                `[test]\npreload = [${JSON.stringify(PRELOAD)}]\n`,
+            );
+            writeCheck(
+                "a-first-failure.test.ts",
+                "first selected failure",
+                "a first selected failure",
+                "src/selected.ts",
+                `    throw new Error("first selected failure");`,
+            );
+            writeCheck(
+                "b-later-pass.test.ts",
+                "later selected pass",
+                "b later selected pass",
+                "src/selected.ts",
+                `    return { ok: true };`,
+            );
+            writeCheck(
+                "c-registration-refusal.test.ts",
+                "registration refusal",
+                "c registration refusal",
+                "src/registration.ts",
+                `    return { ok: true };`,
+                "mac",
+                `, requires: ["display"]`,
+            );
+            writeCheck(
+                "d-registration-pass.test.ts",
+                "registration pass",
+                "d registration pass",
+                "src/registration.ts",
+                `    return { ok: true };`,
+            );
+            writeCheck(
+                "e-display-refusal.test.ts",
+                "display refusal",
+                "e display refusal",
+                "src/display.ts",
+                `    return { ok: true };`,
+                "mac",
+                `, requires: ["display"]`,
+            );
+            writeCheck(
+                "f-other-host.test.ts",
+                "other host",
+                "f all other-host",
+                "src/other.ts",
+                `    throw new Error("other-host body must not run");`,
+                "omarchy",
+            );
+            writeCheck(
+                "g-mixed-pass.test.ts",
+                "mixed pass",
+                "g mixed pass",
+                "src/mixed.ts",
+                `    return { ok: true };`,
+            );
+            writeCheck(
+                "h-unselected-failure.test.ts",
+                "unselected failure",
+                "h unselected failure",
+                "src/unselected.ts",
+                `    writeFileSync(${JSON.stringify(marker)}, "ran");\n    throw new Error("unselected body must not run");`,
+            );
+            // The first selected red used to terminate the carrier before it attempted its passing
+            // sibling. The fixture's [test].preload is the production declaration path, not a stand-in.
+            const firstRed = runRunner(tree, "--integration", "--subject", "src/selected");
+            const firstRedOutput = outputOf(firstRed);
+            expect(firstRed.exitCode).not.toBe(0);
+            expect(firstRedOutput).toContain('"claim":"a first selected failure"');
+            expect(firstRedOutput).toContain('"result":"fail"');
+            expect(firstRedOutput).toContain('"claim":"b later selected pass"');
+            expect(firstRedOutput).toContain('"result":"pass"');
+
+            // Registration throws after emitting its refusal verdict. The later selected row must still
+            // be attempted rather than being hidden by the process exit.
+            const registration = runRunner(tree, "--integration", "--subject", "src/registration");
+            const registrationOutput = outputOf(registration);
+            expect(registration.exitCode).not.toBe(0);
+            expect(registrationOutput).toContain('"claim":"c registration refusal"');
+            expect(registrationOutput).toContain('"result":"refused"');
+            expect(registrationOutput).toContain('"claim":"d registration pass"');
+            expect(registrationOutput).toContain('"result":"pass"');
+
+            const display = runRunner(tree, "--integration", "--subject", "src/display");
+            const displayOutput = outputOf(display);
+            expect(display.exitCode).not.toBe(0);
+            expect(displayOutput).toContain('"claim":"e display refusal"');
+            expect(displayOutput).toContain('"result":"refused"');
+
+            // A selected file can fail before check() loads. That is a failed selected row, not an
+            // unrun host row, and its child diagnostic remains in the runner output.
+            writeFileSync(
+                join(tests, "j-load-failure.test.ts"),
+                `${head}import "./missing-fixture-module";\n` +
+                    `check("load failure", { claim: "j load failure", size: "integration", subject: "src/load.ts", host: "mac" }, () => {});\n`,
+            );
+            const loadFailure = runRunner(tree, "--integration", "--subject", "src/load");
+            const loadFailureOutput = outputOf(loadFailure);
+            expect(loadFailure.exitCode).not.toBe(0);
+            expect(loadFailureOutput).toContain("Cannot find module");
+            expect(loadFailureOutput).toContain(
+                "selected integration: j load failure (fail; no verdict; child exited",
+            );
+            expect(loadFailureOutput).not.toContain('"result":"unrun"');
+
+            // An all-unrun selection used to inherit Bun's successful skipped-test exit code. It is an
+            // explicit no-row-ran failure, and the host-mismatched body never probes its requirement.
+            const allUnrun = runRunner(tree, "--integration", "--subject", "src/other");
+            const allUnrunOutput = outputOf(allUnrun);
+            expect(allUnrun.exitCode).not.toBe(0);
+            expect(allUnrunOutput).toContain('"claim":"f all other-host"');
+            expect(allUnrunOutput).toContain('"result":"unrun"');
+            expect(allUnrunOutput).toContain("no integration rows ran");
+            expect(allUnrunOutput).not.toContain("other-host body must not run");
+
+            // The mixed selection includes the passing row and its other-host counterpart by selecting
+            // the shared subject prefix; only the latter is unrun on this explicitly declared mac host.
+            writeCheck(
+                "i-mixed-other-host.test.ts",
+                "mixed other host",
+                "g mixed other-host",
+                "src/mixed.ts",
+                `    throw new Error("mixed other-host body must not run");`,
+                "omarchy",
+            );
+            const mixedWithUnrun = runRunner(tree, "--integration", "--subject", "src/mixed");
+            const mixedWithUnrunOutput = outputOf(mixedWithUnrun);
+            expect(mixedWithUnrun.exitCode).toBe(0);
+            expect(mixedWithUnrunOutput).toContain('"claim":"g mixed pass"');
+            expect(mixedWithUnrunOutput).toContain('"claim":"g mixed other-host"');
+            expect(mixedWithUnrunOutput).toContain('"result":"unrun"');
+            expect(mixedWithUnrunOutput).not.toContain("mixed other-host body must not run");
+            expect(existsSync(marker)).toBe(false);
         } finally {
             rmSync(tree, { recursive: true, force: true });
         }

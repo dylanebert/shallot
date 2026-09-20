@@ -7,6 +7,7 @@ import {
     selectIntegrationRows,
     selectOracleRows,
 } from "../src/harness/surface";
+import type { VerdictResult } from "../src/harness/verdict";
 
 const args = Bun.argv.slice(2);
 const rootIndex = args.indexOf("--root");
@@ -42,6 +43,50 @@ function run(files: string[], environment: NodeJS.ProcessEnv): number {
         { cwd: root, env: environment, stdout: "inherit", stderr: "inherit" },
     );
     return proc.exitCode ?? 1;
+}
+
+interface SelectedRun {
+    result: VerdictResult;
+    exitCode: number;
+}
+
+function selectedRun(row: (typeof population.rows)[number]): SelectedRun {
+    const proc = Bun.spawnSync(
+        [process.execPath, "test", "--max-concurrency=1", "--pass-with-no-tests", `./${row.file}`],
+        { cwd: root, env: { ...envBase, KEX_S3_ROW: row.claim }, stdout: "pipe", stderr: "pipe" },
+    );
+    const stdout = proc.stdout.toString();
+    const stderr = proc.stderr.toString();
+    // Keep the child's streams intact: the runner owns the process boundary, not the check's
+    // diagnostics. Parsing the structured verdict is only for the aggregate decision below.
+    process.stdout.write(stdout);
+    process.stderr.write(stderr);
+    const verdict = `${stdout}\n${stderr}`
+        .split("\n")
+        .map((line) => line.match(/^shallot verdict (.+)$/)?.[1])
+        .filter((line): line is string => line !== undefined)
+        .map((line) => {
+            try {
+                return JSON.parse(line) as { claim?: unknown; result?: unknown };
+            } catch {
+                return undefined;
+            }
+        })
+        .find(
+            (value): value is { claim: string; result: VerdictResult } =>
+                value?.claim === row.claim &&
+                (value.result === "pass" ||
+                    value.result === "fail" ||
+                    value.result === "refused" ||
+                    value.result === "unrun"),
+        );
+    if (verdict === undefined) {
+        console.error(
+            `selected integration: ${row.claim} (fail; no verdict; child exited ${proc.exitCode ?? 1})`,
+        );
+        return { result: "fail", exitCode: proc.exitCode ?? 1 };
+    }
+    return { result: verdict.result, exitCode: proc.exitCode ?? 1 };
 }
 
 const base = valueAfter("--base");
@@ -118,8 +163,23 @@ if (selected.length === 0) {
     // Unit rows still get their normal hermetic proof, but no integration/no-op command is claimed.
     process.exit(run(files, { ...envBase, SHALLOT_UNIT_ONLY: "1" }));
 }
+let failed = false;
+let ran = 0;
+let refused = 0;
+let unrun = 0;
 for (const row of selected) {
-    const code = run([row.file], { ...envBase, KEX_S3_ROW: row.claim });
-    if (code !== 0) process.exit(code);
-    console.log(`selected integration: ${row.claim}`);
+    const outcome = selectedRun(row);
+    console.log(`selected integration: ${row.claim} (${outcome.result}) exit=${outcome.exitCode}`);
+    if (outcome.result === "pass" || outcome.result === "fail") ran += 1;
+    if (outcome.result === "refused") refused += 1;
+    if (outcome.result === "unrun") unrun += 1;
+    if (outcome.result === "fail" || outcome.result === "refused" || outcome.exitCode !== 0)
+        failed = true;
 }
+if (ran === 0) {
+    console.error(
+        `no integration rows ran (pass=${ran}, refused=${refused}, unrun=${unrun}); an all-unrun selection is never green`,
+    );
+    failed = true;
+}
+process.exit(failed ? 1 : 0);
