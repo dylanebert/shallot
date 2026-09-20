@@ -36,8 +36,6 @@ export interface Reproduction {
     viewport: string;
     capture: string;
     engine: string;
-    /** whether a real adapter is proven on this host or only declared; never grants a seat. */
-    adapterEvidence?: string;
     /** the stepped tick the page asserted at, when the page reports one. */
     tick?: number;
 }

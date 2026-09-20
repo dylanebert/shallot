@@ -1,7 +1,7 @@
 // Seat policy: which capability a requirement tag actually names, and why a host that lacks it refuses.
 // Pure and host-independent — every fact reaches these functions as data, so the same policy resolves a
 // fixture and a host nobody has run yet. Nothing here launches, probes or reads the environment; `./launch`
-// holds the per-host launch declarations.
+// supplies only the operational launch dispatch.
 
 import { type AdapterFacts, classifyAdapter } from "../engine/runtime/adapter";
 import type { LaunchPlan } from "./launch";
