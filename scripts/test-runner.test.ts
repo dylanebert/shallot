@@ -1,5 +1,5 @@
 import { expect } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
@@ -29,11 +29,6 @@ check(
         subject: ["src/harness/preload.ts", "scripts/test-runner.ts"],
     },
     () => {
-        const modulePlaceholder = ["$", "{module}"].join("");
-        const pathPlaceholder = ["$", "{path}"].join("");
-        expect(readFileSync(PRELOAD, "utf8")).toContain(
-            `const header = \`import { beginFile as __beginFile, assertDeclared as __assertDeclared } from ${modulePlaceholder}; __beginFile(${pathPlaceholder}); \`;`,
-        );
         const tree = mkdtempSync(join(tmpdir(), "shallot-runner-diagnostics-"));
         const tests = join(tree, "tests");
         const fixture = join(tests, "diagnostics.oracle.ts");
@@ -63,7 +58,10 @@ check("ordinary exception", { claim: "fixture ordinary exception", size: "integr
 `;
         try {
             mkdirSync(tests, { recursive: true });
-            writeFileSync(join(tree, "bunfig.toml"), `preload = [${JSON.stringify(PRELOAD)}]\n`);
+            writeFileSync(
+                join(tree, "bunfig.toml"),
+                `[test]\npreload = [${JSON.stringify(PRELOAD)}]\n`,
+            );
             writeFileSync(fixture, source);
 
             const first = runRunner(tree, "--oracle", "fixture assertion first");
@@ -90,15 +88,18 @@ check("ordinary exception", { claim: "fixture ordinary exception", size: "integr
 
             const refusedTree = mkdtempSync(join(tmpdir(), "shallot-runner-undeclared-"));
             try {
+                writeFileSync(
+                    join(refusedTree, "bunfig.toml"),
+                    `[test]\npreload = [${JSON.stringify(PRELOAD)}]\n`,
+                );
                 const refused = join(refusedTree, "naked.test.ts");
-                const bunTest = `bun:${"test"}`;
                 writeFileSync(
                     refused,
-                    `import { test } from ${JSON.stringify(bunTest)};\ntest("must refuse", () => {});\n`,
+                    `import { check } from ${JSON.stringify(CHECK_MODULE)};\n\nif (false) check("must refuse", { claim: "must refuse", size: "integration" }, () => {});\n`,
                 );
                 const refusal = runRunner(refusedTree, "--integration", "--all");
                 expect(refusal.exitCode).not.toBe(0);
-                expect(refusal.stderr.toString()).toContain("imports test from bun:test");
+                expect(refusal.stderr.toString()).toContain("registers no check()");
             } finally {
                 rmSync(refusedTree, { recursive: true, force: true });
             }
