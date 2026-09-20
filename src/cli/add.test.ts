@@ -13,6 +13,21 @@ function recipes(): string {
     return root;
 }
 
+function discoveryRecipes(): string {
+    const root = mkdtempSync(join(tmpdir(), "shallot-add-discovery-"));
+    const manifests: Record<string, string> = {
+        zeta: '{"kind":"recipe","description":"description fallback"}\n',
+        alpha: '{"kind":"recipe","description":"unused description","problem":"declared problem"}\n',
+        legacy: '{"kind":"recipe"}\n',
+        showcase: '{"kind":"showcase","problem":"not a recipe"}\n',
+    };
+    for (const [name, manifest] of Object.entries(manifests)) {
+        mkdirSync(join(root, "examples", name), { recursive: true });
+        writeFileSync(join(root, "examples", name, "shallot.json"), manifest);
+    }
+    return root;
+}
+
 async function captureOutput<T>(
     body: () => Promise<T>,
 ): Promise<{ value: T; stdout: string; stderr: string }> {
@@ -53,6 +68,32 @@ check(
                 expect(output.stdout).toContain("An occupied destination is refused.");
                 expect(existsSync(dest)).toBe(false);
             }
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
+    "add lists manifest intent without changing the recipe population",
+    {
+        claim: "shallot add lists every recipe in stable name order with problem, description, or name-only fallback",
+    },
+    async () => {
+        const root = discoveryRecipes();
+        try {
+            const output = await captureOutput(() =>
+                runAdd([], {
+                    recipesDir: join(root, "examples"),
+                    version: "0.0.0",
+                }),
+            );
+            expect(output.value).toBe(0);
+            expect(output.stderr).toBe("");
+            expect(output.stdout).toContain(
+                "Available recipes:\n\n  alpha — declared problem\n  legacy\n  zeta — description fallback\n\nCopy one out with:\n  bunx shallot add <name> [dir]",
+            );
+            expect(output.stdout).not.toContain("showcase");
         } finally {
             rmSync(root, { recursive: true, force: true });
         }

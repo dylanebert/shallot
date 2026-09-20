@@ -30,21 +30,41 @@ function env(): Env {
     return { recipesDir: resolve(PACKAGE_ROOT, "examples"), version: pkg.version };
 }
 
+interface Recipe {
+    name: string;
+    intent?: string;
+}
+
+function manifestText(value: unknown): string | undefined {
+    return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
+}
+
+function listRecipeEntries(recipesDir: string): Recipe[] {
+    if (!existsSync(recipesDir)) return [];
+    return readdirSync(recipesDir)
+        .sort()
+        .flatMap((name): Recipe[] => {
+            const manifest = resolve(recipesDir, name, "shallot.json");
+            if (!existsSync(manifest)) return [];
+            try {
+                const parsed = JSON.parse(readFileSync(manifest, "utf8"));
+                if (parsed.kind !== "recipe") return [];
+                return [
+                    {
+                        name,
+                        intent: manifestText(parsed.problem) ?? manifestText(parsed.description),
+                    },
+                ];
+            } catch {
+                return [];
+            }
+        });
+}
+
 /** recipe directory names available to copy — a dir is a recipe when its `shallot.json` declares
  *  `"kind": "recipe"`; the directory layout says nothing. */
 export function listRecipes(recipesDir: string): string[] {
-    if (!existsSync(recipesDir)) return [];
-    return readdirSync(recipesDir)
-        .filter((name) => {
-            const manifest = resolve(recipesDir, name, "shallot.json");
-            if (!existsSync(manifest)) return false;
-            try {
-                return JSON.parse(readFileSync(manifest, "utf8")).kind === "recipe";
-            } catch {
-                return false;
-            }
-        })
-        .sort();
+    return listRecipeEntries(recipesDir).map((recipe) => recipe.name);
 }
 
 /** true when `dest` is occupied — a non-empty dir, or a regular file — so the overwrite guard refuses it. */
@@ -99,7 +119,7 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
     }
 
     const { recipesDir, version } = e;
-    const available = listRecipes(recipesDir);
+    const available = listRecipeEntries(recipesDir);
 
     if (available.length === 0) {
         console.error(
@@ -109,16 +129,19 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
     }
 
     const name = args[0];
+    const printRecipe = (recipe: Recipe, write: (line: string) => void) =>
+        write(`  ${recipe.name}${recipe.intent ? ` — ${recipe.intent}` : ""}`);
+
     if (name == null) {
         console.log("Available recipes:\n");
-        for (const r of available) console.log(`  ${r}`);
+        for (const recipe of available) printRecipe(recipe, console.log);
         console.log("\nCopy one out with:\n  bunx shallot add <name> [dir]");
         return 0;
     }
 
-    if (!available.includes(name)) {
+    if (!available.some((recipe) => recipe.name === name)) {
         console.error(`unknown recipe: ${name}\n\nAvailable recipes:`);
-        for (const r of available) console.error(`  ${r}`);
+        for (const recipe of available) printRecipe(recipe, console.error);
         return 1;
     }
 

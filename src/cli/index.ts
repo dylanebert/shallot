@@ -18,6 +18,12 @@ const usage = `
     run       Build and run
     add       Copy an example recipe out of the package (bare: list them)
 
+  Common examples
+    shallot dev                  Run with hot reload
+    shallot build --target mac   Build a macOS app (system WKWebView)
+    shallot build --target linux --portable   Build a self-contained Linux app
+    shallot add first-person     Copy the first-person recipe into ./first-person
+
   Options
     --target <platform>   web (default), windows, mac, linux. Native release builds download a prebuilt
                           shell from GitHub Releases when available (no Rust toolchain needed); any miss
@@ -33,12 +39,6 @@ const usage = `
     --strict-port         Fail if the port is in use instead of picking another
     --no-open             Don't open a browser tab (dev) — for a driver that brings its own
     -h, --help            Show this help
-
-  Examples
-    shallot dev                  Run with hot reload
-    shallot build --target mac   Build a macOS app (system WKWebView)
-    shallot build --target linux --portable   Build a self-contained Linux app
-    shallot add first-person     Copy the first-person recipe into ./first-person
 
   Other verbs resolve to shallot-<verb> on your PATH.
 `;
