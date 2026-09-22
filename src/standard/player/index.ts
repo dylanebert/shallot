@@ -8,7 +8,6 @@ import {
     inputEnabled,
     pointerLockRefusal as readPointerLockRefusal,
     pointerLockStatus as readPointerLockStatus,
-    requirePointerLock,
 } from "../input";
 import { Body } from "../physics";
 import { Camera, RenderPlugin } from "../render";
@@ -84,10 +83,6 @@ export function pointerLockRefusal(state: State): string | null {
     return readPointerLockRefusal(state);
 }
 
-function exitLock(): void {
-    if (typeof document === "undefined") return;
-    if (typeof document.exitPointerLock === "function") document.exitPointerLock();
-}
 // scratch for the per-tick swept-pose read (character.pose), reused across players.
 const _pose: [number, number, number] = [0, 0, 0];
 // query terms held once, so a steady frame mints no array.
@@ -185,28 +180,11 @@ export const PlayerControlSystem: System = {
     name: "control",
     group: "simulation",
 
-    setup(state: State) {
-        // the DOM canvas, not Views: setup runs in the simulation group, before BeginFrameSystem (draw) auto-
-        // binds the camera View, so Views is still empty here. The canvas is mounted before run(), so the DOM
-        // query (the same one run() uses) finds it regardless of View-attach timing.
-        const canvas = typeof document === "undefined" ? null : document.querySelector("canvas");
-        if (!canvas) return;
-        // Pointer lock is requested by Input's canvas click handler, so the browser effect remains behind
-        // the explicit public `requestPointerLock(state)` seam and retains the engagement gesture.
-        const supported = typeof canvas.requestPointerLock === "function";
-        requirePointerLock(state, supported);
-        state.onDispose(() => {
-            requirePointerLock(state, false);
-            if (readPointerLockStatus(state) === "locked") exitLock();
-        });
-    },
-
     update(state: State) {
         // input suspended (a menu/cutscene): release the lock so the cursor frees + mouse-look stops, and let
         // the loop run with neutral device data — every key reads up, so move resolves to 0 and the player freezes.
         const input = devices(state);
         const active = inputEnabled(state);
-        if (!active && input.pointer.lock.status === "locked") exitLock();
         for (const eid of state.query(PLAYER_BODIES)) {
             let yaw = Player.yaw.get(eid);
             let pitch = Player.pitch.get(eid);

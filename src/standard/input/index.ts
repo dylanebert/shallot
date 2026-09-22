@@ -114,10 +114,34 @@ interface DeviceRecord extends Devices {
     readonly viewport: Map<number, Viewport>;
 }
 
-/** Browser handles and callbacks belong to this adapter, never to the State's plain device facts. */
+/** The host effects used by the browser producer. Controlled callers can provide a declared fixture with the
+ * same operations; the default host is created only when the browser producer is composed. */
+export interface InputHost {
+    readonly window: Window;
+    readonly document: Document;
+    queryCanvases(): readonly HTMLCanvasElement[];
+    supportsPointerLock(canvas: HTMLCanvasElement): boolean;
+    requestPointerLock(canvas: HTMLCanvasElement): void | PromiseLike<void>;
+    releasePointerLock(canvas: HTMLCanvasElement): void;
+}
+
+interface ListenerRegistration {
+    readonly target: EventTarget;
+    readonly type: string;
+    readonly listener: EventListener;
+    readonly options?: AddEventListenerOptions | boolean;
+}
+
+/** Browser handles, effects and callbacks belong to this adapter, never to the State's plain device facts. */
 interface BrowserAdapter {
+    readonly host: InputHost;
     readonly canvases: Map<HTMLCanvasElement, number>;
+    readonly listeners: ListenerRegistration[];
+    readonly canvasStyles: Map<HTMLCanvasElement, string>;
+    readonly pendingLocks: Set<HTMLCanvasElement>;
     activeCanvas: HTMLCanvasElement | null;
+    lockCanvas: HTMLCanvasElement | null;
+    disposed: boolean;
     lastPointerX: number;
     lastPointerY: number;
     activePointerId: number | null;
@@ -204,12 +228,20 @@ function record(state: State): DeviceRecord {
     return devices(state) as DeviceRecord;
 }
 
-function adapter(state: State): BrowserAdapter {
+const lockOwners = new WeakMap<HTMLCanvasElement, BrowserAdapter>();
+
+function adapter(state: State, host: InputHost): BrowserAdapter {
     const existing = adapters.get(state);
-    if (existing) return existing;
+    if (existing && !existing.disposed) return existing;
     const created: BrowserAdapter = {
+        host,
         canvases: new Map(),
+        listeners: [],
+        canvasStyles: new Map(),
+        pendingLocks: new Set(),
         activeCanvas: null,
+        lockCanvas: null,
+        disposed: false,
         lastPointerX: 0,
         lastPointerY: 0,
         activePointerId: null,
@@ -543,6 +575,7 @@ function canvasPosition(
 }
 
 function createHandlers(a: BrowserAdapter, d: DeviceRecord, state: State): void {
+    const { document, window } = a.host;
     a.pointerHover = (e) => {
         const target = e.target as HTMLCanvasElement;
         if (!a.canvases.has(target)) return;
@@ -553,13 +586,13 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, state: State): void 
         if (a.activePointerId === null) d.mouse.hover = false;
     };
     a.keyDown = (e) => {
-        if (d.suspended) return;
+        if (a.disposed || d.suspended) return;
         const lockElement = document.pointerLockElement as HTMLCanvasElement | null;
         if (!a.canvasFocused && !(lockElement && a.canvases.has(lockElement))) return;
         pressKey(state, e.code);
     };
     a.keyUp = (e) => {
-        if (d.suspended) return;
+        if (a.disposed || d.suspended) return;
         const lockElement = document.pointerLockElement as HTMLCanvasElement | null;
         if (!a.canvasFocused && !(lockElement && a.canvases.has(lockElement))) return;
         releaseKey(state, e.code);
@@ -598,12 +631,26 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, state: State): void 
     a.windowBlur = () => blur(state);
     a.visibilityChange = () => visibilityChanged(state, document.hidden);
     a.pointerLockChange = () => {
+        if (a.disposed) return;
         const element = document.pointerLockElement as HTMLCanvasElement | null;
-        if (element && a.canvases.has(element)) pointerLockChanged(state, true);
-        else if (d.pointer.lock.status === "locked") pointerLockChanged(state, false);
+        if (element && a.canvases.has(element)) {
+            const owner = lockOwners.get(element);
+            if (owner && owner !== a) return;
+            if (!owner && !a.pendingLocks.has(element)) return;
+            lockOwners.set(element, a);
+            a.lockCanvas = element;
+            pointerLockChanged(state, true);
+        } else if (d.pointer.lock.status === "locked") pointerLockChanged(state, false);
     };
     a.pointerLockError = () => {
+        if (a.disposed || (a.lockCanvas === null && a.pendingLocks.size === 0)) return;
         pointerLockChanged(state, false, "the browser rejected pointer lock");
+        if (a.lockCanvas !== null && lockOwners.get(a.lockCanvas) === a) {
+            if (a.host.document.pointerLockElement !== a.lockCanvas) {
+                lockOwners.delete(a.lockCanvas);
+                a.lockCanvas = null;
+            }
+        }
     };
     a.canvasClick = () => {
         if (d.requireLock) requestPointerLock(state);
@@ -667,51 +714,103 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, state: State): void 
     };
 }
 
-function attachCanvas(a: BrowserAdapter, canvas: HTMLCanvasElement, signal: AbortSignal): void {
-    canvas.addEventListener("pointerdown", a.pointerDown, { signal });
-    canvas.addEventListener("pointermove", a.pointerHover, { signal });
-    canvas.addEventListener("pointerenter", a.pointerEnter, { signal });
-    canvas.addEventListener("pointerleave", a.pointerLeave, { signal });
-    canvas.addEventListener("wheel", a.wheel, { passive: false, signal });
-    canvas.addEventListener("contextmenu", a.contextMenu, { signal });
-    canvas.addEventListener("click", a.canvasClick, { signal });
+function listen(
+    a: BrowserAdapter,
+    target: EventTarget,
+    type: string,
+    listener: EventListener,
+    options?: AddEventListenerOptions | boolean,
+): void {
+    target.addEventListener(type, listener, options);
+    a.listeners.push({ target, type, listener, options });
 }
 
-function attachGlobal(a: BrowserAdapter, signal: AbortSignal): void {
-    window.addEventListener("keydown", a.keyDown, { signal });
-    window.addEventListener("keyup", a.keyUp, { signal });
-    window.addEventListener("pointerdown", a.windowPointerDown, { signal });
-    window.addEventListener("pointerup", a.pointerUp, { signal });
-    window.addEventListener("pointercancel", a.pointerCancel, { signal });
-    window.addEventListener("pointermove", a.pointerMove, { signal });
-    window.addEventListener("blur", a.windowBlur, { signal });
-    document.addEventListener("visibilitychange", a.visibilityChange, { signal });
-    document.addEventListener("pointerlockchange", a.pointerLockChange, { signal });
-    document.addEventListener("pointerlockerror", a.pointerLockError, { signal });
-    document.addEventListener("mousemove", a.lockMove, { signal });
+function attachCanvas(a: BrowserAdapter, canvas: HTMLCanvasElement): void {
+    listen(a, canvas, "pointerdown", a.pointerDown as EventListener);
+    listen(a, canvas, "pointermove", a.pointerHover as EventListener);
+    listen(a, canvas, "pointerenter", a.pointerEnter as EventListener);
+    listen(a, canvas, "pointerleave", a.pointerLeave as EventListener);
+    listen(a, canvas, "wheel", a.wheel as EventListener, { passive: false });
+    listen(a, canvas, "contextmenu", a.contextMenu as EventListener);
+    listen(a, canvas, "click", a.canvasClick as EventListener);
 }
 
-function setup(state: State, canvasElements: HTMLCanvasElement[]): void {
-    const d = record(state);
-    const a = adapter(state);
-    if (a.canvases.size > 0) return;
-    for (let i = 0; i < canvasElements.length; i++) {
-        a.canvases.set(canvasElements[i], i);
-        canvasElements[i].style.touchAction = "none";
+function attachGlobal(a: BrowserAdapter): void {
+    const { document, window } = a.host;
+    listen(a, window, "keydown", a.keyDown as EventListener);
+    listen(a, window, "keyup", a.keyUp as EventListener);
+    listen(a, window, "pointerdown", a.windowPointerDown as EventListener);
+    listen(a, window, "pointerup", a.pointerUp as EventListener);
+    listen(a, window, "pointercancel", a.pointerCancel as EventListener);
+    listen(a, window, "pointermove", a.pointerMove as EventListener);
+    listen(a, window, "blur", a.windowBlur as EventListener);
+    listen(a, document, "visibilitychange", a.visibilityChange as EventListener);
+    listen(a, document, "pointerlockchange", a.pointerLockChange as EventListener);
+    listen(a, document, "pointerlockerror", a.pointerLockError as EventListener);
+    listen(a, document, "mousemove", a.lockMove as EventListener);
+}
+
+function disposeAdapter(a: BrowserAdapter): void {
+    if (a.disposed) return;
+    a.disposed = true;
+    const captureCanvas = a.activeCanvas;
+    if (captureCanvas !== null && a.activePointerId !== null) {
+        try {
+            if (captureCanvas.hasPointerCapture(a.activePointerId))
+                captureCanvas.releasePointerCapture(a.activePointerId);
+        } catch {}
     }
-    if (a.canvases.size === 0) return;
-    createHandlers(a, d, state);
-    attachGlobal(a, state.signal);
-    for (const canvas of a.canvases.keys()) attachCanvas(a, canvas, state.signal);
-    const supported = [...a.canvases.keys()].some(
-        (canvas) => typeof canvas.requestPointerLock === "function",
-    );
-    setPointerLock(
-        d,
-        supported ? "unlocked" : "unsupported",
-        supported ? null : "canvas has no requestPointerLock",
-    );
-    a.canvasFocused = true;
+    if (a.lockCanvas !== null && lockOwners.get(a.lockCanvas) === a) {
+        if (a.host.document.pointerLockElement === a.lockCanvas) {
+            try {
+                a.host.releasePointerLock(a.lockCanvas);
+            } catch {}
+        }
+        if (a.pendingLocks.size === 0) lockOwners.delete(a.lockCanvas);
+    }
+    for (let i = a.listeners.length - 1; i >= 0; i--) {
+        const listener = a.listeners[i];
+        try {
+            listener.target.removeEventListener(listener.type, listener.listener, listener.options);
+        } catch {}
+    }
+    a.listeners.length = 0;
+    for (const [canvas, touchAction] of a.canvasStyles) canvas.style.touchAction = touchAction;
+    a.canvasStyles.clear();
+    a.canvases.clear();
+    a.pendingLocks.clear();
+    releaseCapture(a);
+    a.lockCanvas = null;
+}
+
+function setup(state: State, canvasElements: readonly HTMLCanvasElement[], host: InputHost): void {
+    const d = record(state);
+    const a = adapter(state, host);
+    if (a.canvases.size > 0) return;
+    state.onDispose(() => disposeAdapter(a));
+    try {
+        for (let i = 0; i < canvasElements.length; i++) {
+            const canvas = canvasElements[i];
+            a.canvases.set(canvas, i);
+            a.canvasStyles.set(canvas, canvas.style.touchAction);
+            canvas.style.touchAction = "none";
+        }
+        if (a.canvases.size === 0) return;
+        createHandlers(a, d, state);
+        attachGlobal(a);
+        for (const canvas of a.canvases.keys()) attachCanvas(a, canvas);
+        const supported = [...a.canvases.keys()].some((canvas) => host.supportsPointerLock(canvas));
+        requirePointerLock(state, supported);
+        setPointerLock(
+            d,
+            supported ? "unlocked" : "unsupported",
+            supported ? null : "canvas has no requestPointerLock",
+        );
+        a.canvasFocused = true;
+    } catch (error) {
+        disposeAdapter(a);
+        throw error;
+    }
 }
 
 /** Request pointer lock from an engagement gesture. This is the only browser effect in the lock seam. */
@@ -720,29 +819,84 @@ export function requestPointerLock(state: State): void {
     if (d.suspended) return;
     if (d.pointer.lock.status === "unsupported") return;
     const a = adapters.get(state);
-    if (!a) return;
+    if (!a || a.disposed) return;
     const canvas =
-        a.activeCanvas ??
-        [...a.canvases.entries()].find(([, index]) => index === d.focused)?.[0] ??
-        [...a.canvases.keys()][0];
-    if (!canvas || typeof canvas.requestPointerLock !== "function") {
+        a.activeCanvas && a.host.supportsPointerLock(a.activeCanvas)
+            ? a.activeCanvas
+            : ([...a.canvases.entries()].find(
+                  ([candidate, index]) =>
+                      index === d.focused && a.host.supportsPointerLock(candidate),
+              )?.[0] ??
+              [...a.canvases.keys()].find((candidate) => a.host.supportsPointerLock(candidate)));
+    if (!canvas) {
         setPointerLock(d, "unsupported", "canvas has no requestPointerLock");
         return;
     }
+    const owner = lockOwners.get(canvas);
+    if (owner && owner !== a) return;
+    lockOwners.set(canvas, a);
+    a.lockCanvas = canvas;
     try {
-        const result = canvas.requestPointerLock() as unknown as Promise<void> | undefined;
-        if (result && typeof result.catch === "function") {
-            result.catch((error: unknown) =>
-                pointerLockChanged(
-                    state,
-                    false,
-                    error instanceof Error ? error.message : String(error),
-                ),
+        const result = a.host.requestPointerLock(canvas);
+        if (result && typeof result.then === "function") {
+            a.pendingLocks.add(canvas);
+            result.then(
+                () => finishPointerLockRequest(state, a, canvas),
+                (error: unknown) => {
+                    if (!a.disposed) {
+                        pointerLockChanged(
+                            state,
+                            false,
+                            error instanceof Error ? error.message : String(error),
+                        );
+                    }
+                    finishPointerLockRequest(state, a, canvas, true);
+                },
             );
         }
     } catch (error) {
-        pointerLockChanged(state, false, error instanceof Error ? error.message : String(error));
+        if (!a.disposed)
+            pointerLockChanged(
+                state,
+                false,
+                error instanceof Error ? error.message : String(error),
+            );
+        finishPointerLockRequest(state, a, canvas, true);
     }
+}
+
+function finishPointerLockRequest(
+    state: State,
+    a: BrowserAdapter,
+    canvas: HTMLCanvasElement,
+    rejected = false,
+): void {
+    a.pendingLocks.delete(canvas);
+    if (rejected && !a.disposed && lockOwners.get(canvas) === a) {
+        lockOwners.delete(canvas);
+        if (a.lockCanvas === canvas) a.lockCanvas = null;
+    }
+    if (a.disposed && lockOwners.get(canvas) === a) {
+        if (a.host.document.pointerLockElement === canvas) {
+            try {
+                a.host.releasePointerLock(canvas);
+            } catch {}
+        }
+        lockOwners.delete(canvas);
+    } else if (a.disposed) {
+        return;
+    }
+    // A settled request never grants a lock fact by itself; pointerlockchange is the host report.
+    void state;
+}
+
+/** Release this adapter's lock, if it owns the currently locked canvas. */
+export function releasePointerLock(state: State): void {
+    const a = adapters.get(state);
+    if (!a || a.disposed || a.lockCanvas === null) return;
+    if (lockOwners.get(a.lockCanvas) !== a) return;
+    if (a.host.document.pointerLockElement !== a.lockCanvas) return;
+    a.host.releasePointerLock(a.lockCanvas);
 }
 
 /** Suspend or resume one State's device producers. Suspension releases held inputs with normal edges. */
@@ -789,18 +943,49 @@ const InputSystem: System = {
     update() {},
 };
 
-/** Optional browser producer. It is composed separately from the plain-data input owner. */
-const BrowserInputSystem: System = {
-    name: "browser",
-    group: "simulation",
-    setup(state: State) {
-        if (typeof document === "undefined" || typeof document.querySelectorAll !== "function")
-            return;
-        const elements = Array.from(document.querySelectorAll("canvas"));
-        if (elements.length > 0) setup(state, elements);
-    },
-    update() {},
-};
+function defaultInputHost(): InputHost | null {
+    if (typeof document === "undefined" || typeof window === "undefined") return null;
+    return {
+        window,
+        document,
+        queryCanvases: () => Array.from(document.querySelectorAll("canvas")),
+        supportsPointerLock: (canvas) => typeof canvas.requestPointerLock === "function",
+        requestPointerLock: (canvas) => canvas.requestPointerLock(),
+        releasePointerLock: (canvas) => {
+            if (
+                document.pointerLockElement === canvas &&
+                typeof document.exitPointerLock === "function"
+            )
+                document.exitPointerLock();
+        },
+    };
+}
+
+/** Create the browser producer against an explicit host boundary. The default export below uses the current
+ * browser globals lazily, while fixtures and application hosts can declare the same effects directly. */
+export function createBrowserInputPlugin(host?: InputHost): Plugin {
+    const browserHost = host;
+    const browserSystem: System = {
+        name: "browser",
+        group: "simulation",
+        setup(state: State) {
+            const currentHost = browserHost ?? defaultInputHost();
+            if (!currentHost) return;
+            const elements = currentHost.queryCanvases();
+            if (elements.length > 0) setup(state, elements, currentHost);
+        },
+        update(state: State) {
+            const input = record(state);
+            if (input.suspended && input.pointer.lock.status === "locked")
+                releasePointerLock(state);
+        },
+    };
+    return {
+        name: "BrowserInput",
+        dependencies: [InputPlugin],
+        systems: [browserSystem],
+    };
+}
 
 const InputTickResetSystem: System = {
     name: "tick-reset",
@@ -837,9 +1022,5 @@ export const InputPlugin: Plugin = {
     systems: [InputSystem, InputTickResetSystem, InputResetSystem],
 };
 
-/** Optional browser producer. Compose it with {@link InputPlugin} for ordinary browser gameplay. */
-export const BrowserInputPlugin: Plugin = {
-    name: "BrowserInput",
-    dependencies: [InputPlugin],
-    systems: [BrowserInputSystem],
-};
+/** Optional browser producer. It is composed separately from the plain-data input owner. */
+export const BrowserInputPlugin: Plugin = createBrowserInputPlugin();

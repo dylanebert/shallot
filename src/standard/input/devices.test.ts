@@ -2,8 +2,10 @@ import {
     audioContextState,
     BrowserInputPlugin,
     blur,
+    createBrowserInputPlugin,
     devices,
     focus,
+    type InputHost,
     InputPlugin,
     pointerButton,
     pointerLockChanged,
@@ -12,6 +14,7 @@ import {
     pointerWheel,
     pressKey,
     releaseKey,
+    releasePointerLock,
     requestPointerLock,
     requirePointerLock,
     resizeViewport,
@@ -37,6 +40,190 @@ function browserInputState(): State {
     return state;
 }
 
+type FixtureListener = (event: any) => void;
+
+function fixtureTarget() {
+    const listeners = new Map<string, Set<FixtureListener>>();
+    return {
+        addEventListener(type: string, listener: FixtureListener) {
+            let entries = listeners.get(type);
+            if (!entries) listeners.set(type, (entries = new Set()));
+            entries.add(listener);
+        },
+        removeEventListener(type: string, listener: FixtureListener) {
+            listeners.get(type)?.delete(listener);
+        },
+        emit(type: string, event: Record<string, unknown> = {}) {
+            for (const listener of listeners.get(type) ?? []) listener({ ...event, type });
+        },
+        listenerCount() {
+            let count = 0;
+            for (const entries of listeners.values()) count += entries.size;
+            return count;
+        },
+    };
+}
+
+function declaredHost(options: { failOn?: string; pendingLock?: boolean } = {}) {
+    const hostWindow = fixtureTarget();
+    const hostDocument = fixtureTarget();
+    const canvasTarget = fixtureTarget();
+    let pointerLockElement: HTMLCanvasElement | null = null;
+    let hidden = false;
+    let captured: number | null = null;
+    let requestCount = 0;
+    let releaseCount = 0;
+    let rejectLock: ((error: unknown) => void) | null = null;
+    const canvas = {
+        style: { touchAction: "auto" },
+        addEventListener(type: string, listener: FixtureListener) {
+            if (options.failOn === type) throw new Error("fixture listener failure");
+            canvasTarget.addEventListener(type, listener);
+        },
+        removeEventListener(type: string, listener: FixtureListener) {
+            canvasTarget.removeEventListener(type, listener);
+        },
+        setPointerCapture(pointerId: number) {
+            captured = pointerId;
+        },
+        hasPointerCapture(pointerId: number) {
+            return captured === pointerId;
+        },
+        releasePointerCapture(pointerId: number) {
+            if (captured === pointerId) captured = null;
+        },
+        getBoundingClientRect: () => ({ left: 10, top: 20 }),
+    } as unknown as HTMLCanvasElement;
+    const host = {
+        window: Object.assign(hostWindow, { focus() {} }) as unknown as Window,
+        document: Object.defineProperties(hostDocument, {
+            hidden: { configurable: true, get: () => hidden },
+            pointerLockElement: { configurable: true, get: () => pointerLockElement },
+        }) as unknown as Document,
+        queryCanvases: () => [canvas],
+        supportsPointerLock: () => true,
+        requestPointerLock: () => {
+            requestCount++;
+            if (options.pendingLock)
+                return new Promise<void>((_resolve, reject) => {
+                    rejectLock = reject;
+                });
+            pointerLockElement = canvas;
+        },
+        releasePointerLock: (owned: HTMLCanvasElement) => {
+            if (pointerLockElement === owned) {
+                releaseCount++;
+                pointerLockElement = null;
+            }
+        },
+    } satisfies InputHost;
+    return {
+        host,
+        canvas,
+        window: hostWindow,
+        document: hostDocument,
+        emitLockChange() {
+            hostDocument.emit("pointerlockchange");
+        },
+        emitCanvas(type: string, event: Record<string, unknown> = {}) {
+            canvasTarget.emit(type, { ...event, target: canvas });
+        },
+        setHidden(value: boolean) {
+            hidden = value;
+        },
+        rejectLock(error: unknown) {
+            rejectLock?.(error);
+        },
+        get requestCount() {
+            return requestCount;
+        },
+        get releaseCount() {
+            return releaseCount;
+        },
+        listenerCount() {
+            return (
+                hostWindow.listenerCount() +
+                hostDocument.listenerCount() +
+                canvasTarget.listenerCount()
+            );
+        },
+        captured() {
+            return captured;
+        },
+    };
+}
+
+check(
+    "declared browser host translates representative input events",
+    {
+        claim: "the production browser adapter bypasses shared input producers or loses focus, pointer, touch and visibility transitions",
+    },
+    () => {
+        const fixture = declaredHost();
+        const state = inputState();
+        const plugin = createBrowserInputPlugin(fixture.host);
+        for (const system of plugin.systems ?? []) state.addSystem(system, plugin.name);
+        try {
+            state.step(0);
+            fixture.emitCanvas("pointerdown", {
+                pointerId: 1,
+                pointerType: "mouse",
+                button: 0,
+                buttons: 1,
+                clientX: 30,
+                clientY: 50,
+                preventDefault() {},
+            });
+            fixture.window.emit("keydown", { code: "KeyW" });
+            fixture.window.emit("pointermove", {
+                target: fixture.canvas,
+                pointerId: 1,
+                buttons: 1,
+                clientX: 35,
+                clientY: 54,
+                preventDefault() {},
+            });
+            fixture.emitCanvas("wheel", { target: fixture.canvas, deltaY: 7, preventDefault() {} });
+            fixture.emitCanvas("pointerdown", {
+                pointerId: 2,
+                pointerType: "touch",
+                button: 0,
+                buttons: 1,
+                clientX: 40,
+                clientY: 60,
+                preventDefault() {},
+            });
+            const input = devices(state);
+            if (
+                !input.keys.held.has("KeyW") ||
+                input.focused !== 0 ||
+                input.mouse.x !== 25 ||
+                input.mouse.y !== 34 ||
+                input.mouse.deltaX !== 5 ||
+                input.mouse.deltaY !== 4 ||
+                input.mouse.scroll !== 7 ||
+                input.touch.count !== 1 ||
+                fixture.captured() !== 1
+            )
+                throw new Error("declared host events did not reach shared producers");
+
+            fixture.setHidden(true);
+            fixture.document.emit("visibilitychange");
+            if (input.keys.held.has("KeyW") || Number(input.touch.count) !== 0 || input.mouse.left)
+                throw new Error("visibility did not release captured input");
+            state.dispose();
+            if (
+                fixture.listenerCount() !== 0 ||
+                fixture.canvas.style.touchAction !== "auto" ||
+                fixture.captured() !== null
+            )
+                throw new Error("adapter teardown left listeners, capture or canvas state");
+        } finally {
+            state.dispose();
+        }
+    },
+);
+
 function replaceGlobal(name: "document" | "window", value: unknown): () => void {
     const prior = Object.getOwnPropertyDescriptor(globalThis, name);
     Object.defineProperty(globalThis, name, { configurable: true, value });
@@ -45,6 +232,107 @@ function replaceGlobal(name: "document" | "window", value: unknown): () => void 
         else Reflect.deleteProperty(globalThis, name);
     };
 }
+
+check(
+    "adapter setup failure unwinds acquired effects",
+    {
+        claim: "a browser adapter setup exception leaves listeners or canvas capture effects installed",
+    },
+    () => {
+        const fixture = declaredHost({ failOn: "wheel" });
+        const state = inputState();
+        const plugin = createBrowserInputPlugin(fixture.host);
+        for (const system of plugin.systems ?? []) state.addSystem(system, plugin.name);
+        const report = console.error;
+        console.error = () => {};
+        try {
+            state.step(0);
+        } finally {
+            console.error = report;
+        }
+        state.dispose();
+        if (fixture.listenerCount() !== 0 || fixture.canvas.style.touchAction !== "auto")
+            throw new Error("partial adapter setup was not unwound");
+    },
+);
+
+check(
+    "late lock rejection cannot mutate a retired State",
+    {
+        claim: "a pointer-lock promise rejection after disposal changes the retired State or releases another canvas",
+    },
+    async () => {
+        const fixture = declaredHost({ pendingLock: true });
+        const state = inputState();
+        const plugin = createBrowserInputPlugin(fixture.host);
+        for (const system of plugin.systems ?? []) state.addSystem(system, plugin.name);
+        state.step(0);
+        requestPointerLock(state);
+        state.dispose();
+        fixture.rejectLock(new Error("late refusal"));
+        await Promise.resolve();
+        const input = devices(state);
+        if (input.pointer.lock.status !== "unlocked" || input.pointer.lock.refusal !== null)
+            throw new Error("late lock rejection changed retired facts");
+        if (fixture.releaseCount !== 0 || fixture.listenerCount() !== 0)
+            throw new Error("late lock rejection crossed the retired adapter boundary");
+    },
+);
+
+check(
+    "fresh State does not inherit a retired browser adapter",
+    {
+        claim: "disposing and recreating a State leaves old listeners delivering input to the replacement",
+    },
+    () => {
+        const fixture = declaredHost();
+        const first = inputState();
+        const plugin = createBrowserInputPlugin(fixture.host);
+        for (const system of plugin.systems ?? []) first.addSystem(system, plugin.name);
+        first.step(0);
+        first.dispose();
+        const second = inputState();
+        const replacement = createBrowserInputPlugin(fixture.host);
+        for (const system of replacement.systems ?? []) second.addSystem(system, replacement.name);
+        second.step(0);
+        fixture.window.emit("keydown", { code: "KeyR" });
+        if (!devices(second).keys.held.has("KeyR"))
+            throw new Error("replacement adapter did not bind");
+        second.dispose();
+        if (fixture.listenerCount() !== 0) throw new Error("replacement adapter leaked listeners");
+    },
+);
+
+check(
+    "lock release stays with its adapter canvas",
+    {
+        claim: "releasing one State's pointer lock affects a different State's canvas",
+    },
+    () => {
+        const firstFixture = declaredHost();
+        const secondFixture = declaredHost();
+        const first = inputState();
+        const second = inputState();
+        const firstPlugin = createBrowserInputPlugin(firstFixture.host);
+        const secondPlugin = createBrowserInputPlugin(secondFixture.host);
+        for (const system of firstPlugin.systems ?? []) first.addSystem(system, firstPlugin.name);
+        for (const system of secondPlugin.systems ?? [])
+            second.addSystem(system, secondPlugin.name);
+        first.step(0);
+        second.step(0);
+        requestPointerLock(first);
+        firstFixture.emitLockChange();
+        first.dispose();
+        if (firstFixture.releaseCount !== 1)
+            throw new Error("adapter disposal did not release its own lock");
+        requestPointerLock(second);
+        secondFixture.emitLockChange();
+        releasePointerLock(second);
+        if (secondFixture.releaseCount !== 1 || firstFixture.releaseCount !== 1)
+            throw new Error("lock release escaped its adapter");
+        second.dispose();
+    },
+);
 
 check(
     "input data owner omits browser producer even when a host is present",
