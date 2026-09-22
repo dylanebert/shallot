@@ -77,6 +77,13 @@ check(
                 throw new Error("Player did not consume the supplied locked look sensitivity");
             if (Math.abs(Player.pitch.get(player) - (initialPitch + 4 * lookScale)) > 0.000001)
                 throw new Error("Player did not consume the supplied vertical look sensitivity");
+            const expectedYaw = initialYaw - 12 * lookScale;
+            const expectedPitch = initialPitch + 4 * lookScale;
+            const halfYaw = expectedYaw * 0.5;
+            const halfPitch = expectedPitch * 0.5;
+            const expectedCameraY = Math.sin(halfYaw) * Math.cos(halfPitch);
+            if (Math.abs(Transform.rot.y.get(camera) - expectedCameraY) > 0.000001)
+                throw new Error("Player did not apply look to the public camera Transform.rot");
             if (!devices(state).keys.held.has("KeyW"))
                 throw new Error("Player lost the held move fact");
 
@@ -93,7 +100,8 @@ check(
                 throw new Error("Character did not apply Player's supplied jump edge");
 
             releaseKey(state, "KeyW");
-            state.step(Time.FIXED_DT); // the released fact reaches PlayerControlSystem
+            releaseKey(state, "Space");
+            state.step(Time.FIXED_DT); // the released facts reach PlayerControlSystem
             const beforeNeutral = readBody(state, player);
             if (!beforeNeutral) throw new Error("Player body disappeared after release");
             state.step(Time.FIXED_DT); // the first neutral frame drains the previous simulation intent
