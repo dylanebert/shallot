@@ -1,0 +1,2 @@
+stage: 1
+finding: missing absent-global witness: devices.test.ts only composes BrowserInputPlugin with present mocked document/window, while the absent-global checks omit BrowserInputPlugin; a regression in BrowserInputSystem's no-DOM guard at src/standard/input/index.ts:797 would pass the focused and full suites
