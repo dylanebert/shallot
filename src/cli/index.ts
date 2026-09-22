@@ -24,6 +24,46 @@ const usage = `
     shallot build --target linux --portable   Build a self-contained Linux app
     shallot add first-person     Copy the first-person recipe into ./first-person
 
+  Help
+    shallot <command> --help    Show options and examples for one command
+    -h, --help                  Show this help
+
+  Other verbs resolve to shallot-<verb> on your PATH.
+`;
+
+const commandUsage = {
+    create: `
+  shallot create
+
+  Create a project with:
+    bun create shallot <name>
+`,
+    dev: `
+  shallot dev [dir] [options]
+
+  Run a project standalone with hot reload.
+
+  Common examples
+    shallot dev
+    shallot dev --no-open
+
+  Options
+    --target <platform>   Run a native debug build instead of starting the web server
+    --port <n>            Server port
+    --strict-port        Fail if the port is in use instead of picking another
+    --no-open             Don't open a browser tab — for a driver that brings its own
+    -h, --help            Show this help
+`,
+    build: `
+  shallot build [dir] [options]
+
+  Build a project for distribution.
+
+  Common examples
+    shallot build
+    shallot build --target mac
+    shallot build --target linux --portable
+
   Options
     --target <platform>   web (default), windows, mac, linux. Native release builds download a prebuilt
                           shell from GitHub Releases when available (no Rust toolchain needed); any miss
@@ -31,20 +71,34 @@ const usage = `
                           compiling the Rust native host from source, which requires the Rust toolchain
                           (+ per-target prerequisites; portable auto-downloads CEF on first build, or
                           set CEF_PATH). Debug builds always compile from source.
-    --release             Optimized build (build, run)
+    --release             Optimized build
     --portable            Bundle the Chromium runtime (CEF) instead of the system webview.
                           Larger, but self-contained and runs anywhere. Required on Linux
                           (WebKitGTK has no usable WebGPU) and for apps needing subgroups on macOS.
-    --port <n>            Server port (dev, run)
-    --strict-port         Fail if the port is in use instead of picking another
-    --no-open             Don't open a browser tab (dev) — for a driver that brings its own
     -h, --help            Show this help
+`,
+    run: `
+  shallot run [dir] [options]
 
-  Other verbs resolve to shallot-<verb> on your PATH.
-`;
+  Build and run a project.
+
+  Common examples
+    shallot run
+    shallot run --target mac
+    shallot run --target linux --portable
+
+  Options
+    --target <platform>   web (default), windows, mac, linux
+    --release             Optimized build
+    --portable            Bundle the Chromium runtime (CEF) instead of the system webview
+    --port <n>            Preview server port (web)
+    -h, --help            Show this help
+`,
+} as const;
 
 export type CliArgs =
     | { kind: "add"; rest: string[] }
+    | { kind: "command-help"; command: keyof typeof commandUsage }
     | { kind: "create" }
     | { kind: "external"; verb: string; rest: string[] }
     | { kind: "usage"; exitCode: 0 | 1 }
@@ -70,7 +124,11 @@ const PROJECT_VERBS = ["dev", "build", "run"];
 export function parseCliArgs(raw: string[]): CliArgs {
     const verb = raw[0];
     if (verb === "add") return { kind: "add", rest: raw.slice(1) };
-    if (verb === "create") return { kind: "create" };
+    if (verb === "create") {
+        if (raw.slice(1).some((arg) => arg === "--help" || arg === "-h"))
+            return { kind: "command-help", command: "create" };
+        return { kind: "create" };
+    }
     if (verb && !verb.startsWith("-") && !PROJECT_VERBS.includes(verb))
         return { kind: "external", verb, rest: raw.slice(1) };
 
@@ -123,9 +181,11 @@ export function parseCliArgs(raw: string[]): CliArgs {
         }
     }
 
+    const subcmd = positionalArgs[0];
+    if (help && subcmd !== undefined && PROJECT_VERBS.includes(subcmd))
+        return { kind: "command-help", command: subcmd as keyof typeof commandUsage };
     if (help) return { kind: "usage", exitCode: 0 };
 
-    const subcmd = positionalArgs[0];
     // bare `shallot [flags]` names no command — print usage rather than guess one.
     if (subcmd == null) return { kind: "usage", exitCode: 0 };
 
@@ -191,6 +251,10 @@ export async function main(raw: string[]): Promise<void> {
     if (parsed.kind === "usage") {
         console.log(usage);
         process.exit(parsed.exitCode);
+    }
+    if (parsed.kind === "command-help") {
+        console.log(commandUsage[parsed.command]);
+        process.exit(0);
     }
     if (parsed.kind === "create") {
         console.error("Create a project with: bun create shallot <name>");
