@@ -1,0 +1,372 @@
+{
+  "metadata": {
+    "baseline": "c6a7fc16",
+    "bun": "1.4.2",
+    "node": "sampler child runtime is recorded in each sample.runtime",
+    "warm": 6000,
+    "frames": 600,
+    "input": "examples/first-person/public/scenes/first-person.scene"
+  },
+  "composition": {
+    "baseline": {
+      "runtime": "node v26.8.1 --expose-gc --enable-source-maps --invocation-count-for-maglev=10 --invocation-count-for-turbofan=50",
+      "warm": 6000,
+      "frames": 600,
+      "windows": [
+        {
+          "label": "after warm 6000",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 115200,
+              "count": 1200
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "after warm 12000",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 115200,
+              "count": 1200
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "A/A repeat",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 115200,
+              "count": 1200
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        }
+      ],
+      "control": [
+        {
+          "site": "controlChunk src/harness/allocation-sampler.mjs:143",
+          "bytes": 26920,
+          "count": 637
+        }
+      ]
+    },
+    "noopStep": {
+      "runtime": "node v26.8.1 --expose-gc --enable-source-maps --invocation-count-for-maglev=10 --invocation-count-for-turbofan=50",
+      "warm": 6000,
+      "frames": 600,
+      "windows": [
+        {
+          "label": "after warm 6000",
+          "sites": [],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "after warm 12000",
+          "sites": [],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "A/A repeat",
+          "sites": [],
+          "frames": 600,
+          "framesAtMost": 600
+        }
+      ],
+      "control": [
+        {
+          "site": "controlChunk src/harness/allocation-sampler.mjs:143",
+          "bytes": 24944,
+          "count": 628
+        }
+      ]
+    },
+    "knownSubjectAllocation": {
+      "runtime": "node v26.8.1 --expose-gc --enable-source-maps --invocation-count-for-maglev=10 --invocation-count-for-turbofan=50",
+      "warm": 6000,
+      "frames": 600,
+      "windows": [
+        {
+          "label": "after warm 6000",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 134400,
+              "count": 1800
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "after warm 12000",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 134400,
+              "count": 1800
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "A/A repeat",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 134400,
+              "count": 1800
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        }
+      ],
+      "control": [
+        {
+          "site": "controlChunk src/harness/allocation-sampler.mjs:143",
+          "bytes": 22496,
+          "count": 632
+        }
+      ]
+    },
+    "noCharacterSystem": {
+      "runtime": "node v26.8.1 --expose-gc --enable-source-maps --invocation-count-for-maglev=10 --invocation-count-for-turbofan=50",
+      "warm": 6000,
+      "frames": 600,
+      "windows": [
+        {
+          "label": "after warm 6000",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 54824,
+              "count": 58
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "after warm 12000",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 22144,
+              "count": 18
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "A/A repeat",
+          "sites": [],
+          "frames": 600,
+          "framesAtMost": 600
+        }
+      ],
+      "control": [
+        {
+          "site": "controlChunk src/harness/allocation-sampler.mjs:143",
+          "bytes": 24640,
+          "count": 627
+        }
+      ]
+    },
+    "noPhysicsStep": {
+      "runtime": "node v26.8.1 --expose-gc --enable-source-maps --invocation-count-for-maglev=10 --invocation-count-for-turbofan=50",
+      "warm": 6000,
+      "frames": 600,
+      "windows": [
+        {
+          "label": "after warm 6000",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 399496,
+              "count": 3626
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "after warm 12000",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 369600,
+              "count": 3600
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "A/A repeat",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 369600,
+              "count": 3600
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        }
+      ],
+      "control": [
+        {
+          "site": "controlChunk src/harness/allocation-sampler.mjs:143",
+          "bytes": 24232,
+          "count": 616
+        }
+      ]
+    }
+  },
+  "sceneControls": {
+    "empty": {
+      "runtime": "node v26.8.1 --expose-gc --enable-source-maps --invocation-count-for-maglev=10 --invocation-count-for-turbofan=50",
+      "warm": 6000,
+      "frames": 600,
+      "windows": [
+        {
+          "label": "after warm 6000",
+          "sites": [],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "after warm 12000",
+          "sites": [],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "A/A repeat",
+          "sites": [],
+          "frames": 600,
+          "framesAtMost": 600
+        }
+      ],
+      "control": [
+        {
+          "site": "controlChunk src/harness/allocation-sampler.mjs:143",
+          "bytes": 24944,
+          "count": 627
+        }
+      ]
+    },
+    "character": {
+      "runtime": "node v26.8.1 --expose-gc --enable-source-maps --invocation-count-for-maglev=10 --invocation-count-for-turbofan=50",
+      "warm": 6000,
+      "frames": 600,
+      "windows": [
+        {
+          "label": "after warm 6000",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 115200,
+              "count": 1200
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "after warm 12000",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 116440,
+              "count": 1211
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "A/A repeat",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 115200,
+              "count": 1200
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        }
+      ],
+      "control": [
+        {
+          "site": "controlChunk src/harness/allocation-sampler.mjs:143",
+          "bytes": 25184,
+          "count": 625
+        }
+      ]
+    },
+    "characterGround": {
+      "runtime": "node v26.8.1 --expose-gc --enable-source-maps --invocation-count-for-maglev=10 --invocation-count-for-turbofan=50",
+      "warm": 6000,
+      "frames": 600,
+      "windows": [
+        {
+          "label": "after warm 6000",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 392736,
+              "count": 3807
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "after warm 12000",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 254400,
+              "count": 2400
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        },
+        {
+          "label": "A/A repeat",
+          "sites": [
+            {
+              "site": "stepChunk src/harness/allocation-sampler.mjs:140",
+              "bytes": 254400,
+              "count": 2400
+            }
+          ],
+          "frames": 600,
+          "framesAtMost": 600
+        }
+      ],
+      "control": [
+        {
+          "site": "controlChunk src/harness/allocation-sampler.mjs:143",
+          "bytes": 24904,
+          "count": 622
+        }
+      ]
+    }
+  }
+}
