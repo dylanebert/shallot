@@ -1,0 +1,2 @@
+stage: 1
+finding: Stage 1 verification is red: `bun run test` fails 4 checks in `src/cli/index.test.ts` because the added CLI subprocess checks exceed the 250 ms unit budget under the repository runner (top-level help, create help, add help, and invalid-option diagnostics time out with exit -1/empty output). Direct `bun test --max-concurrency=1 src/cli/index.test.ts` passes, but the required full hermetic run does not. The candidate must keep this focused coverage within the unit budget before landing.
