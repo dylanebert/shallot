@@ -831,7 +831,7 @@ function setup(state: State, canvasElements: readonly HTMLCanvasElement[], host:
     }
 }
 
-/** Request pointer lock from an engagement gesture. This is the only browser effect in the lock seam. */
+/** Request pointer lock through the composed browser adapter from an engagement gesture. */
 export function requestPointerLock(state: State): void {
     const d = record(state);
     if (d.suspended) return;
@@ -980,8 +980,7 @@ function defaultInputHost(): InputHost | null {
     };
 }
 
-/** Create the browser producer against an explicit host boundary. The default export below uses the current
- * browser globals lazily, while fixtures and application hosts can declare the same effects directly. */
+/** Create a browser input producer with an explicit host, or browser globals resolved at setup when omitted. */
 export function createBrowserInputPlugin(host?: InputHost): Plugin {
     const browserHost = host;
     const browserSystem: System = {
