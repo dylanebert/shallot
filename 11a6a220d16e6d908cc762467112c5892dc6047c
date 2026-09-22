@@ -1,0 +1,2 @@
+stage: 2
+finding: P1: src/standard/input/index.ts:848-850 overwrites a BrowserAdapter lockCanvas without releasing/retaining the prior owned canvas. With two canvases, engage canvas A, focus canvas B, start a pending request for B, then dispose: disposeAdapter only examines B, so A remains pointer-locked and its lockOwners entry remains stale (independently reproduced with a declared two-canvas host; release count stayed 0 and A stayed locked). This violates adapter teardown and can permanently block later States from A.
