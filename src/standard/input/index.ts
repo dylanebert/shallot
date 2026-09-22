@@ -893,14 +893,16 @@ function finishPointerLockRequest(
     if (rejected && !a.disposed && lockOwners.get(canvas) === a) {
         releaseOwnedLock(a, canvas);
     }
-    if (a.disposed && lockOwners.get(canvas) === a) {
-        if (a.host.document.pointerLockElement === canvas) {
-            try {
-                a.host.releasePointerLock(canvas);
-            } catch {}
+    if (a.disposed) {
+        const owner = lockOwners.get(canvas);
+        if (owner === a || owner === undefined) {
+            if (a.host.document.pointerLockElement === canvas) {
+                try {
+                    a.host.releasePointerLock(canvas);
+                } catch {}
+            }
+            if (owner === a) releaseOwnedLock(a, canvas);
         }
-        releaseOwnedLock(a, canvas);
-    } else if (a.disposed) {
         return;
     }
     // A settled request never grants a lock fact by itself; pointerlockchange is the host report.

@@ -69,6 +69,7 @@ function declaredHost(
     options: {
         failOn?: string;
         pendingLock?: boolean;
+        pendingRequests?: number;
         pendingCanvas?: number;
         canvas?: HTMLCanvasElement;
         canvasCount?: number;
@@ -131,7 +132,12 @@ function declaredHost(
         requestPointerLock: (requested: HTMLCanvasElement) => {
             requestCount++;
             const index = canvases.indexOf(requested);
-            if (options.pendingLock || options.pendingCanvas === index)
+            if (
+                (options.pendingLock && requestCount === 1) ||
+                (options.pendingRequests !== undefined &&
+                    requestCount <= options.pendingRequests) ||
+                options.pendingCanvas === index
+            )
                 return new Promise<void>((resolve, reject) => {
                     pendingResolvers.set(requested, { resolve, reject });
                 });
@@ -464,6 +470,67 @@ check(
             throw new Error("late canvas B settlement affected the replacement lock");
         replacement.dispose();
         if (Number(fixture.releaseCount) !== 2) throw new Error("replacement lock did not release");
+    },
+);
+
+check(
+    "late lock grant releases a retired adapter canvas",
+    {
+        claim: "a pointer-lock grant that arrives after adapter disposal leaves the retired canvas locked",
+    },
+    async () => {
+        const fixture = declaredHost({ pendingLock: true });
+        const state = inputState();
+        const plugin = createBrowserInputPlugin(fixture.host);
+        for (const system of plugin.systems ?? []) state.addSystem(system, plugin.name);
+        state.step(0);
+        requestPointerLock(state);
+        state.dispose();
+
+        fixture.lock.element = fixture.canvas;
+        fixture.resolveLock(fixture.canvas);
+        await Promise.resolve();
+        if (fixture.releaseCount !== 1 || fixture.lock.element !== null)
+            throw new Error("late retired grant was not released");
+    },
+);
+
+check(
+    "late retired grant preserves a replacement lock",
+    {
+        claim: "releasing a retired adapter's late pointer-lock grant releases a replacement adapter lock",
+    },
+    async () => {
+        const fixture = declaredHost({ pendingRequests: 1 });
+        const retired = inputState();
+        const retiredPlugin = createBrowserInputPlugin(fixture.host);
+        for (const system of retiredPlugin.systems ?? [])
+            retired.addSystem(system, retiredPlugin.name);
+        retired.step(0);
+        requestPointerLock(retired);
+        retired.dispose();
+
+        const replacement = inputState();
+        const replacementPlugin = createBrowserInputPlugin(fixture.host);
+        for (const system of replacementPlugin.systems ?? [])
+            replacement.addSystem(system, replacementPlugin.name);
+        replacement.step(0);
+        requestPointerLock(replacement);
+        fixture.emitLockChange();
+        if (pointerLockStatus(replacement) !== "locked")
+            throw new Error("replacement adapter did not acquire the canvas");
+
+        fixture.lock.element = fixture.canvas;
+        fixture.resolveLock(fixture.canvas);
+        await Promise.resolve();
+        if (
+            pointerLockStatus(replacement) !== "locked" ||
+            fixture.lock.element !== fixture.canvas ||
+            fixture.releaseCount !== 0
+        )
+            throw new Error("late retired grant released the replacement lock");
+        replacement.dispose();
+        if (Number(fixture.releaseCount) !== 1) throw new Error("replacement lock did not release");
     },
 );
 
