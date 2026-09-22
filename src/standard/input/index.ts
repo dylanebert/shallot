@@ -637,10 +637,22 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, state: State): void 
             const owner = lockOwners.get(element);
             if (owner && owner !== a) return;
             if (!owner && !a.pendingLocks.has(element)) return;
+            if (
+                a.lockCanvas !== null &&
+                a.lockCanvas !== element &&
+                lockOwners.get(a.lockCanvas) === a
+            )
+                lockOwners.delete(a.lockCanvas);
             lockOwners.set(element, a);
             a.lockCanvas = element;
             pointerLockChanged(state, true);
-        } else if (d.pointer.lock.status === "locked") pointerLockChanged(state, false);
+        } else {
+            if (d.pointer.lock.status === "locked") pointerLockChanged(state, false);
+            if (a.lockCanvas !== null && lockOwners.get(a.lockCanvas) === a) {
+                lockOwners.delete(a.lockCanvas);
+                a.lockCanvas = null;
+            }
+        }
     };
     a.pointerLockError = () => {
         if (a.disposed || (a.lockCanvas === null && a.pendingLocks.size === 0)) return;
@@ -800,7 +812,6 @@ function setup(state: State, canvasElements: readonly HTMLCanvasElement[], host:
         attachGlobal(a);
         for (const canvas of a.canvases.keys()) attachCanvas(a, canvas);
         const supported = [...a.canvases.keys()].some((canvas) => host.supportsPointerLock(canvas));
-        requirePointerLock(state, supported);
         setPointerLock(
             d,
             supported ? "unlocked" : "unsupported",

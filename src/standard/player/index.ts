@@ -8,6 +8,8 @@ import {
     inputEnabled,
     pointerLockRefusal as readPointerLockRefusal,
     pointerLockStatus as readPointerLockStatus,
+    releasePointerLock,
+    requirePointerLock,
 } from "../input";
 import { Body } from "../physics";
 import { Camera, RenderPlugin } from "../render";
@@ -81,6 +83,14 @@ export function pointerLockStatus(state: State): PointerLockStatus {
 }
 export function pointerLockRefusal(state: State): string | null {
     return readPointerLockRefusal(state);
+}
+
+function setupPointerLock(state: State): void {
+    requirePointerLock(state, true);
+    state.onDispose(() => {
+        releasePointerLock(state);
+        requirePointerLock(state, false);
+    });
 }
 
 // scratch for the per-tick swept-pose read (character.pose), reused across players.
@@ -179,6 +189,8 @@ const _pos: [number, number, number] = [0, 0, 0];
 export const PlayerControlSystem: System = {
     name: "control",
     group: "simulation",
+
+    setup: setupPointerLock,
 
     update(state: State) {
         // input suspended (a menu/cutscene): release the lock so the cursor frees + mouse-look stops, and let

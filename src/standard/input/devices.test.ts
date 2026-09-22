@@ -7,6 +7,7 @@ import {
     focus,
     type InputHost,
     InputPlugin,
+    PlayerControlSystem,
     pointerButton,
     pointerLockChanged,
     pointerLockStatus,
@@ -64,41 +65,51 @@ function fixtureTarget() {
     };
 }
 
-function declaredHost(options: { failOn?: string; pendingLock?: boolean } = {}) {
+function declaredHost(
+    options: {
+        failOn?: string;
+        pendingLock?: boolean;
+        canvas?: HTMLCanvasElement;
+        lock?: { element: HTMLCanvasElement | null };
+        documentTarget?: ReturnType<typeof fixtureTarget>;
+    } = {},
+) {
     const hostWindow = fixtureTarget();
-    const hostDocument = fixtureTarget();
+    const hostDocument = options.documentTarget ?? fixtureTarget();
     const canvasTarget = fixtureTarget();
-    let pointerLockElement: HTMLCanvasElement | null = null;
+    const lock = options.lock ?? { element: null as HTMLCanvasElement | null };
     let hidden = false;
     let captured: number | null = null;
     let requestCount = 0;
     let releaseCount = 0;
     let rejectLock: ((error: unknown) => void) | null = null;
-    const canvas = {
-        style: { touchAction: "auto" },
-        addEventListener(type: string, listener: FixtureListener) {
-            if (options.failOn === type) throw new Error("fixture listener failure");
-            canvasTarget.addEventListener(type, listener);
-        },
-        removeEventListener(type: string, listener: FixtureListener) {
-            canvasTarget.removeEventListener(type, listener);
-        },
-        setPointerCapture(pointerId: number) {
-            captured = pointerId;
-        },
-        hasPointerCapture(pointerId: number) {
-            return captured === pointerId;
-        },
-        releasePointerCapture(pointerId: number) {
-            if (captured === pointerId) captured = null;
-        },
-        getBoundingClientRect: () => ({ left: 10, top: 20 }),
-    } as unknown as HTMLCanvasElement;
+    const canvas =
+        options.canvas ??
+        ({
+            style: { touchAction: "auto" },
+            addEventListener(type: string, listener: FixtureListener) {
+                if (options.failOn === type) throw new Error("fixture listener failure");
+                canvasTarget.addEventListener(type, listener);
+            },
+            removeEventListener(type: string, listener: FixtureListener) {
+                canvasTarget.removeEventListener(type, listener);
+            },
+            setPointerCapture(pointerId: number) {
+                captured = pointerId;
+            },
+            hasPointerCapture(pointerId: number) {
+                return captured === pointerId;
+            },
+            releasePointerCapture(pointerId: number) {
+                if (captured === pointerId) captured = null;
+            },
+            getBoundingClientRect: () => ({ left: 10, top: 20 }),
+        } as unknown as HTMLCanvasElement);
     const host = {
         window: Object.assign(hostWindow, { focus() {} }) as unknown as Window,
         document: Object.defineProperties(hostDocument, {
             hidden: { configurable: true, get: () => hidden },
-            pointerLockElement: { configurable: true, get: () => pointerLockElement },
+            pointerLockElement: { configurable: true, get: () => lock.element },
         }) as unknown as Document,
         queryCanvases: () => [canvas],
         supportsPointerLock: () => true,
@@ -108,12 +119,12 @@ function declaredHost(options: { failOn?: string; pendingLock?: boolean } = {}) 
                 return new Promise<void>((_resolve, reject) => {
                     rejectLock = reject;
                 });
-            pointerLockElement = canvas;
+            lock.element = canvas;
         },
         releasePointerLock: (owned: HTMLCanvasElement) => {
-            if (pointerLockElement === owned) {
+            if (lock.element === owned) {
                 releaseCount++;
-                pointerLockElement = null;
+                lock.element = null;
             }
         },
     } satisfies InputHost;
@@ -123,6 +134,10 @@ function declaredHost(options: { failOn?: string; pendingLock?: boolean } = {}) 
         window: hostWindow,
         document: hostDocument,
         emitLockChange() {
+            hostDocument.emit("pointerlockchange");
+        },
+        exitLock() {
+            lock.element = null;
             hostDocument.emit("pointerlockchange");
         },
         emitCanvas(type: string, event: Record<string, unknown> = {}) {
@@ -335,6 +350,77 @@ check(
 );
 
 check(
+    "pointer-lock exit releases shared-canvas ownership",
+    {
+        claim: "pointer-lock exit clears the facts but leaves a live adapter's shared canvas permanently owned",
+    },
+    () => {
+        const lock = { element: null as HTMLCanvasElement | null };
+        const firstFixture = declaredHost({ lock });
+        const secondFixture = declaredHost({
+            canvas: firstFixture.canvas,
+            documentTarget: firstFixture.document,
+            lock,
+        });
+        const first = inputState();
+        const second = inputState();
+        const firstPlugin = createBrowserInputPlugin(firstFixture.host);
+        const secondPlugin = createBrowserInputPlugin(secondFixture.host);
+        for (const system of firstPlugin.systems ?? []) first.addSystem(system, firstPlugin.name);
+        for (const system of secondPlugin.systems ?? [])
+            second.addSystem(system, secondPlugin.name);
+        first.step(0);
+        second.step(0);
+        requestPointerLock(first);
+        firstFixture.emitLockChange();
+        if (pointerLockStatus(first) !== "locked") throw new Error("first lock did not engage");
+        firstFixture.exitLock();
+        if (pointerLockStatus(first) !== "unlocked") throw new Error("first lock did not exit");
+        requestPointerLock(second);
+        secondFixture.emitLockChange();
+        if (secondFixture.requestCount !== 1 || pointerLockStatus(second) !== "locked")
+            throw new Error("second live adapter could not acquire the released canvas");
+        first.dispose();
+        second.dispose();
+    },
+);
+
+check(
+    "Player lock intent stays behind the input adapter seam",
+    {
+        claim: "non-Player browser input requires lock, or Player lock behavior depends on direct DOM access",
+    },
+    () => {
+        const controlled = inputState();
+        controlled.addSystem(PlayerControlSystem, "Player");
+        controlled.step(0);
+        if (!devices(controlled).requireLock)
+            throw new Error("Player did not retain its lock gate without a browser producer");
+        controlled.dispose();
+        if (devices(controlled).requireLock)
+            throw new Error("Player disposal did not clear its lock intent");
+
+        const fixture = declaredHost();
+        const state = inputState();
+        const plugin = createBrowserInputPlugin(fixture.host);
+        for (const system of plugin.systems ?? []) state.addSystem(system, plugin.name);
+        state.addSystem(PlayerControlSystem, "Player");
+        state.step(0);
+        pointerButton(state, "left", true);
+        if (devices(state).mouse.left)
+            throw new Error("Player lock gate did not hold before engagement");
+        requestPointerLock(state);
+        fixture.emitLockChange();
+        pointerButton(state, "left", true);
+        if (!devices(state).mouse.left)
+            throw new Error("Player lock gate did not open after engagement");
+        state.dispose();
+        if (fixture.releaseCount !== 1)
+            throw new Error("Player disposal did not release through the adapter");
+    },
+);
+
+check(
     "input data owner omits browser producer even when a host is present",
     {
         claim: "a State with the plain input owner binds browser listeners merely because browser globals exist",
@@ -437,6 +523,9 @@ check(
         const state = browserInputState();
         try {
             state.step(0);
+            pointerButton(state, "left", true);
+            if (devices(state).requireLock || !devices(state).mouse.left)
+                throw new Error("non-Player browser input unexpectedly required pointer lock");
             requestPointerLock(state);
             if (listeners === 0 || requested !== 1)
                 throw new Error("browser input was not the default adapter");
