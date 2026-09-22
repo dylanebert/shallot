@@ -161,6 +161,41 @@ check(
 );
 
 check(
+    "browser producer composes without host globals",
+    {
+        claim: "composing the browser input producer without host globals preserves the plain input owner's transitions",
+    },
+    () => {
+        const restoreDocument = replaceGlobal("document", undefined);
+        const restoreWindow = replaceGlobal("window", undefined);
+        const state = browserInputState();
+        let pressed = false;
+        let released = false;
+        state.addSystem({
+            group: "simulation",
+            update(s: State) {
+                const keys = devices(s).keys;
+                pressed ||= keys.pressed.has("KeyW");
+                released ||= keys.released.has("KeyW");
+            },
+        });
+        try {
+            state.step(0);
+            pressKey(state, "KeyW");
+            state.step(Time.FIXED_DT);
+            releaseKey(state, "KeyW");
+            state.step(0);
+            if (!pressed || !released || devices(state).keys.held.has("KeyW"))
+                throw new Error("browser composition lost shared input transitions");
+        } finally {
+            state.dispose();
+            restoreWindow();
+            restoreDocument();
+        }
+    },
+);
+
+check(
     "controlled edges survive zero and multiple fixed ticks",
     {
         claim: "controlled input edges depend on frame cadence rather than the independent fixed and draw boundaries",
