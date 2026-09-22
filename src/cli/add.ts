@@ -18,6 +18,14 @@ const ADD_USAGE = `
   With a name, copies one recipe into a project.
   The destination defaults to the recipe name relative to the current directory.
   An occupied destination is refused.
+
+  Common examples
+    shallot add
+    shallot add first-person
+    shallot add first-person my-game
+
+  Options
+    -h, --help  Show this help
 `;
 
 interface Env {

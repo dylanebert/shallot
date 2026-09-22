@@ -1,24 +1,35 @@
 import { expect } from "bun:test";
-import { resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
-import { parseCliArgs } from "./index";
-
-const ROOT = resolve(import.meta.dir, "../..");
-const BIN = resolve(ROOT, "bin/shallot.ts");
+import { delegateExternal, main, parseCliArgs } from "./index";
 
 type Result = { code: number; stdout: string; stderr: string };
 
-function cli(...args: string[]): Result {
-    const result = Bun.spawnSync([process.execPath, BIN, ...args], {
-        cwd: ROOT,
-        stdout: "pipe",
-        stderr: "pipe",
-    });
-    return {
-        code: result.exitCode ?? -1,
-        stdout: result.stdout.toString(),
-        stderr: result.stderr.toString(),
-    };
+class ExitStatus extends Error {
+    constructor(readonly code: number) {
+        super(`exit ${code}`);
+    }
+}
+
+async function cli(...args: string[]): Promise<Result> {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const log = console.log;
+    const error = console.error;
+    console.log = (...values: unknown[]) => stdout.push(values.join(" "));
+    console.error = (...values: unknown[]) => stderr.push(values.join(" "));
+    let code = 0;
+    try {
+        await main(args, (status) => {
+            throw new ExitStatus(status);
+        });
+    } catch (caught) {
+        if (caught instanceof ExitStatus) code = caught.code;
+        else throw caught;
+    } finally {
+        console.log = log;
+        console.error = error;
+    }
+    return { code, stdout: stdout.join("\n"), stderr: stderr.join("\n") };
 }
 
 function position(text: string, section: string): number {
@@ -32,8 +43,8 @@ check(
     {
         claim: "shallot top-level help presents purpose, usage, commands, and common examples without operation-specific options",
     },
-    () => {
-        const result = cli();
+    async () => {
+        const result = await cli();
         expect(result.code).toBe(0);
         expect(result.stderr).toBe("");
         const help = result.stdout;
@@ -49,28 +60,40 @@ check(
         expect(help).toContain("shallot <command> --help");
         expect(help).not.toContain("Native release builds download");
         expect(help).not.toContain("--target <platform>");
+        expect(help).not.toContain("shallot build --target");
     },
 );
 
 check(
-    "create help is focused and successful",
-    { claim: "shallot create --help explains the create redirect without attempting creation" },
-    () => {
-        const result = cli("create", "--help");
-        expect(result.code).toBe(0);
+    "creation remains an external command",
+    {
+        claim: "shallot does not parse create as a built-in and keeps bun create discoverable",
+    },
+    async () => {
+        expect(parseCliArgs(["create", "my-game"])).toEqual({
+            kind: "external",
+            verb: "create",
+            rest: ["my-game"],
+        });
+        const result = await cli();
         expect(result.stdout).toContain("bun create shallot <name>");
-        expect(result.stdout).not.toContain("shallot — run and build a shallot project");
-        expect(result.stderr).toBe("");
+        expect(result.stdout).not.toContain("shallot create");
     },
 );
 
 check(
     "dev help is focused and successful",
     { claim: "shallot dev --help presents dev options without build-only options" },
-    () => {
-        const result = cli("dev", "--help");
+    async () => {
+        const result = await cli("dev", "--help");
         expect(result.code).toBe(0);
+        expect(result.stdout).toContain("Vite HMR");
+        expect(result.stdout).toContain("debug app without HMR");
+        expect(result.stdout).toContain("windows, mac, linux");
+        expect(result.stdout).toContain("--portable");
         expect(result.stdout).toContain("--strict-port");
+        expect(result.stdout).toContain("(web only)");
+        expect(result.stdout).toContain("shallot build --help");
         expect(result.stdout).not.toContain("--release");
         expect(result.stderr).toBe("");
     },
@@ -79,10 +102,16 @@ check(
 check(
     "build help is focused and successful",
     { claim: "shallot build --help presents build options without dev-only options" },
-    () => {
-        const result = cli("build", "--help");
+    async () => {
+        const result = await cli("build", "--help");
         expect(result.code).toBe(0);
         expect(result.stdout).toContain("--release");
+        expect(result.stdout).toContain("Native requirements");
+        expect(result.stdout).toContain("GitHub Releases");
+        expect(result.stdout).toContain("source checkout");
+        expect(result.stdout).toContain("Rust toolchain");
+        expect(result.stdout).toContain("per-target prerequisites");
+        expect(result.stdout).toContain("CEF_PATH");
         expect(result.stdout).not.toContain("--port <n>");
         expect(result.stderr).toBe("");
     },
@@ -91,10 +120,13 @@ check(
 check(
     "run help is focused and successful",
     { claim: "shallot run --help presents run options without strict dev-only options" },
-    () => {
-        const result = cli("run", "--help");
+    async () => {
+        const result = await cli("run", "--help");
         expect(result.code).toBe(0);
         expect(result.stdout).toContain("--port <n>");
+        expect(result.stdout).toContain("(web only)");
+        expect(result.stdout).toContain("Native requirements");
+        expect(result.stdout).toContain("shallot build --help");
         expect(result.stdout).not.toContain("--strict-port");
         expect(result.stderr).toBe("");
     },
@@ -103,10 +135,13 @@ check(
 check(
     "add help remains focused and successful",
     { claim: "shallot add --help presents add usage without writing a destination" },
-    () => {
-        const result = cli("add", "--help");
+    async () => {
+        const result = await cli("add", "--help");
         expect(result.code).toBe(0);
         expect(result.stdout).toContain("shallot add [name] [dir]");
+        expect(result.stdout).toContain("destination defaults to the recipe name");
+        expect(result.stdout).toContain("Common examples");
+        expect(result.stdout).toContain("Options");
         expect(result.stderr).toBe("");
     },
 );
@@ -120,27 +155,43 @@ check(
             verb: "lint",
             rest: ["--help"],
         });
+        const calls: { bin: string; args: string[]; stdio: string }[] = [];
+        const fakeSpawn = (bin: string, args: string[], options: { stdio: "inherit" }) => {
+            calls.push({ bin, args, stdio: options?.stdio ?? "" });
+            return {
+                status: 7,
+                signal: null,
+                output: [],
+                stdout: null,
+                stderr: null,
+                error: undefined,
+            };
+        };
+        expect(delegateExternal("shallot-lint", ["--help"], fakeSpawn)).toBe(7);
+        expect(calls).toEqual([{ bin: "shallot-lint", args: ["--help"], stdio: "inherit" }]);
     },
 );
 
 check(
     "invalid option is diagnosed without running a project",
     { claim: "an unknown option fails before project execution" },
-    () => {
-        const result = cli("dev", "--not-an-option");
+    async () => {
+        const result = await cli("dev", "--not-an-option");
         expect(result.code).toBe(1);
         expect(result.stdout).toBe("");
         expect(result.stderr).toContain("unknown option: --not-an-option");
+        expect(result.stderr).toContain("See `shallot dev --help`");
     },
 );
 
 check(
     "invalid target is diagnosed without running a project",
     { claim: "an unknown build target reports its invocation error" },
-    () => {
-        const result = cli("build", "--target", "not-a-platform");
+    async () => {
+        const result = await cli("build", "--target", "not-a-platform");
         expect(result.code).toBe(1);
         expect(result.stdout).toBe("");
         expect(result.stderr).toContain("unknown target: not-a-platform");
+        expect(result.stderr).toContain("See `shallot build --help`");
     },
 );

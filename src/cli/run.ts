@@ -68,6 +68,7 @@ export async function runProject(
 
     if (runTarget.kind === "unknown") {
         console.error(`unknown target: ${runTarget.target}`);
+        console.error("See `shallot run --help` for available targets and options.");
         process.exit(1);
     }
     await requireBackend(projectDir, runTarget.kind, portable);

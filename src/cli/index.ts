@@ -12,16 +12,14 @@ const usage = `
     shallot <command> [dir] [options]
 
   Commands
-    create    Start a new project: bun create shallot <name>
     dev       Run the project standalone, with hot reload
     build     Build for distribution
     run       Build and run
     add       Copy an example recipe out of the package (bare: list them)
 
   Common examples
+    bun create shallot <name>    Create a new project
     shallot dev                  Run with hot reload
-    shallot build --target mac   Build a macOS app (system WKWebView)
-    shallot build --target linux --portable   Build a self-contained Linux app
     shallot add first-person     Copy the first-person recipe into ./first-person
 
   Help
@@ -32,32 +30,30 @@ const usage = `
 `;
 
 const commandUsage = {
-    create: `
-  shallot create
-
-  Create a project with:
-    bun create shallot <name>
-`,
     dev: `
   shallot dev [dir] [options]
 
-  Run a project standalone with hot reload.
+  Run a project standalone. The web target uses Vite HMR; a native target builds and runs a debug app without HMR.
+  The directory defaults to the current directory (.).
 
   Common examples
     shallot dev
     shallot dev --no-open
+    shallot dev --target mac --portable
 
   Options
-    --target <platform>   Run a native debug build instead of starting the web server
-    --port <n>            Server port
-    --strict-port        Fail if the port is in use instead of picking another
-    --no-open             Don't open a browser tab — for a driver that brings its own
+    --target <platform>   web (default), windows, mac, linux. Native targets build and run a debug app without HMR.
+    --portable            Bundle CEF for a native target; see 'shallot build --help' for native requirements.
+    --port <n>            Web server port (web only)
+    --strict-port         Fail if the web port is in use instead of picking another (web only)
+    --no-open             Don't open a browser tab (web only) — for a driver that brings its own
     -h, --help            Show this help
 `,
     build: `
   shallot build [dir] [options]
 
   Build a project for distribution.
+  The directory defaults to the current directory (.).
 
   Common examples
     shallot build
@@ -65,22 +61,24 @@ const commandUsage = {
     shallot build --target linux --portable
 
   Options
-    --target <platform>   web (default), windows, mac, linux. Native release builds download a prebuilt
-                          shell from GitHub Releases when available (no Rust toolchain needed); any miss
-                          (404, offline, checksum mismatch, source checkout) silently falls back to
-                          compiling the Rust native host from source, which requires the Rust toolchain
-                          (+ per-target prerequisites; portable auto-downloads CEF on first build, or
-                          set CEF_PATH). Debug builds always compile from source.
+    --target <platform>   web (default), windows, mac, linux
     --release             Optimized build
     --portable            Bundle the Chromium runtime (CEF) instead of the system webview.
                           Larger, but self-contained and runs anywhere. Required on Linux
                           (WebKitGTK has no usable WebGPU) and for apps needing subgroups on macOS.
     -h, --help            Show this help
+
+  Native requirements
+    Native release builds use a prebuilt shell from GitHub Releases when available. A miss (404,
+    offline, checksum mismatch, or source checkout) falls back to compiling the Rust native host from
+    source; source builds require the Rust toolchain and per-target prerequisites. Debug builds always
+    compile from source. Portable builds download CEF on first build, or use CEF_PATH when set.
 `,
     run: `
   shallot run [dir] [options]
 
   Build and run a project.
+  The directory defaults to the current directory (.).
 
   Common examples
     shallot run
@@ -91,15 +89,17 @@ const commandUsage = {
     --target <platform>   web (default), windows, mac, linux
     --release             Optimized build
     --portable            Bundle the Chromium runtime (CEF) instead of the system webview
-    --port <n>            Preview server port (web)
+    --port <n>            Preview server port (web only)
     -h, --help            Show this help
+
+  Native requirements
+    Native targets use the requirements documented by 'shallot build --help'.
 `,
 } as const;
 
 export type CliArgs =
     | { kind: "add"; rest: string[] }
     | { kind: "command-help"; command: keyof typeof commandUsage }
-    | { kind: "create" }
     | { kind: "external"; verb: string; rest: string[] }
     | { kind: "usage"; exitCode: 0 | 1 }
     | {
@@ -115,6 +115,7 @@ export type CliArgs =
       };
 
 const PROJECT_VERBS = ["dev", "build", "run"];
+const TARGETS = ["web", "windows", "mac", "linux"];
 
 /**
  * parse `shallot`'s top-level flags and pick which subcommand handles them. `add` owns its own flag
@@ -124,11 +125,6 @@ const PROJECT_VERBS = ["dev", "build", "run"];
 export function parseCliArgs(raw: string[]): CliArgs {
     const verb = raw[0];
     if (verb === "add") return { kind: "add", rest: raw.slice(1) };
-    if (verb === "create") {
-        if (raw.slice(1).some((arg) => arg === "--help" || arg === "-h"))
-            return { kind: "command-help", command: "create" };
-        return { kind: "create" };
-    }
     if (verb && !verb.startsWith("-") && !PROJECT_VERBS.includes(verb))
         return { kind: "external", verb, rest: raw.slice(1) };
 
@@ -238,42 +234,68 @@ export function resolveExternal(
     }
 }
 
+/** Delegate an external verb without changing its argv or exit status. */
+type ExternalSpawn = (
+    bin: string,
+    args: string[],
+    options: { stdio: "inherit" },
+) => { status: number | null; error?: Error | null };
+
+export function delegateExternal(
+    bin: string,
+    args: string[],
+    spawn: ExternalSpawn = spawnSync,
+): number {
+    const child = spawn(bin, args, { stdio: "inherit" });
+    if (child.error) throw child.error;
+    return child.status ?? 1;
+}
+
+function helpHint(raw: string[]): string {
+    const command = raw[0] && PROJECT_VERBS.includes(raw[0]) ? `shallot ${raw[0]}` : "shallot";
+    return `See \`${command} --help\` for available options.`;
+}
+
 /** run the `shallot` CLI over argv (without the runtime and script) and exit with its status. */
-export async function main(raw: string[]): Promise<void> {
+export async function main(
+    raw: string[],
+    exit: (code: number) => never = process.exit,
+): Promise<void> {
     let parsed: CliArgs;
     try {
         parsed = parseCliArgs(raw);
     } catch (e) {
         console.error(e instanceof Error ? e.message : String(e));
-        process.exit(1);
+        console.error(helpHint(raw));
+        exit(1);
     }
 
     if (parsed.kind === "usage") {
         console.log(usage);
-        process.exit(parsed.exitCode);
+        exit(parsed.exitCode);
     }
     if (parsed.kind === "command-help") {
         console.log(commandUsage[parsed.command]);
-        process.exit(0);
-    }
-    if (parsed.kind === "create") {
-        console.error("Create a project with: bun create shallot <name>");
-        process.exit(2);
+        exit(0);
     }
     if (parsed.kind === "add") {
         const { runAdd } = await import("./add");
-        process.exit(await runAdd(parsed.rest));
+        exit(await runAdd(parsed.rest));
     }
     if (parsed.kind === "external") {
         const bin = resolveExternal(parsed.verb);
         if (!bin) {
             console.error(`unknown command: ${parsed.verb}`);
-            console.log(usage);
-            process.exit(1);
+            console.error("See `shallot --help` for available commands.");
+            exit(1);
         }
-        const child = spawnSync(bin, parsed.rest, { stdio: "inherit" });
-        if (child.error) throw child.error;
-        process.exit(child.status ?? 1);
+        exit(delegateExternal(bin, parsed.rest));
+    }
+
+    if (parsed.target && !TARGETS.includes(parsed.target)) {
+        console.error(`unknown target: ${parsed.target}`);
+        console.error(`See \`shallot ${parsed.subcmd} --help\` for available targets and options.`);
+        exit(1);
     }
 
     const projectDir = resolve(parsed.dir);

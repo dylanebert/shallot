@@ -151,6 +151,7 @@ export async function buildProject(
 
     if (target && target !== "web") {
         console.error(`unknown target: ${target}`);
+        console.error("See `shallot build --help` for available targets and options.");
         process.exit(1);
     }
 
