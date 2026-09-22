@@ -139,6 +139,7 @@ interface BrowserAdapter {
     readonly listeners: ListenerRegistration[];
     readonly canvasStyles: Map<HTMLCanvasElement, string>;
     readonly pendingLocks: Set<HTMLCanvasElement>;
+    readonly ownedCanvases: Set<HTMLCanvasElement>;
     activeCanvas: HTMLCanvasElement | null;
     lockCanvas: HTMLCanvasElement | null;
     disposed: boolean;
@@ -230,6 +231,17 @@ function record(state: State): DeviceRecord {
 
 const lockOwners = new WeakMap<HTMLCanvasElement, BrowserAdapter>();
 
+function ownLock(a: BrowserAdapter, canvas: HTMLCanvasElement): void {
+    lockOwners.set(canvas, a);
+    a.ownedCanvases.add(canvas);
+}
+
+function releaseOwnedLock(a: BrowserAdapter, canvas: HTMLCanvasElement): void {
+    a.ownedCanvases.delete(canvas);
+    if (lockOwners.get(canvas) === a) lockOwners.delete(canvas);
+    if (a.lockCanvas === canvas) a.lockCanvas = null;
+}
+
 function adapter(state: State, host: InputHost): BrowserAdapter {
     const existing = adapters.get(state);
     if (existing && !existing.disposed) return existing;
@@ -239,6 +251,7 @@ function adapter(state: State, host: InputHost): BrowserAdapter {
         listeners: [],
         canvasStyles: new Map(),
         pendingLocks: new Set(),
+        ownedCanvases: new Set(),
         activeCanvas: null,
         lockCanvas: null,
         disposed: false,
@@ -637,31 +650,24 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, state: State): void 
             const owner = lockOwners.get(element);
             if (owner && owner !== a) return;
             if (!owner && !a.pendingLocks.has(element)) return;
-            if (
-                a.lockCanvas !== null &&
-                a.lockCanvas !== element &&
-                lockOwners.get(a.lockCanvas) === a
-            )
-                lockOwners.delete(a.lockCanvas);
-            lockOwners.set(element, a);
+            for (const canvas of a.ownedCanvases) {
+                if (canvas !== element && !a.pendingLocks.has(canvas)) releaseOwnedLock(a, canvas);
+            }
+            ownLock(a, element);
             a.lockCanvas = element;
             pointerLockChanged(state, true);
         } else {
             if (d.pointer.lock.status === "locked") pointerLockChanged(state, false);
-            if (a.lockCanvas !== null && lockOwners.get(a.lockCanvas) === a) {
-                lockOwners.delete(a.lockCanvas);
-                a.lockCanvas = null;
+            for (const canvas of a.ownedCanvases) {
+                if (!a.pendingLocks.has(canvas)) releaseOwnedLock(a, canvas);
             }
         }
     };
     a.pointerLockError = () => {
-        if (a.disposed || (a.lockCanvas === null && a.pendingLocks.size === 0)) return;
+        if (a.disposed || a.ownedCanvases.size === 0) return;
         pointerLockChanged(state, false, "the browser rejected pointer lock");
-        if (a.lockCanvas !== null && lockOwners.get(a.lockCanvas) === a) {
-            if (a.host.document.pointerLockElement !== a.lockCanvas) {
-                lockOwners.delete(a.lockCanvas);
-                a.lockCanvas = null;
-            }
+        for (const canvas of a.ownedCanvases) {
+            if (a.host.document.pointerLockElement !== canvas) releaseOwnedLock(a, canvas);
         }
     };
     a.canvasClick = () => {
@@ -772,13 +778,13 @@ function disposeAdapter(a: BrowserAdapter): void {
                 captureCanvas.releasePointerCapture(a.activePointerId);
         } catch {}
     }
-    if (a.lockCanvas !== null && lockOwners.get(a.lockCanvas) === a) {
-        if (a.host.document.pointerLockElement === a.lockCanvas) {
+    for (const canvas of a.ownedCanvases) {
+        if (a.host.document.pointerLockElement === canvas) {
             try {
-                a.host.releasePointerLock(a.lockCanvas);
+                a.host.releasePointerLock(canvas);
             } catch {}
         }
-        if (a.pendingLocks.size === 0) lockOwners.delete(a.lockCanvas);
+        releaseOwnedLock(a, canvas);
     }
     for (let i = a.listeners.length - 1; i >= 0; i--) {
         const listener = a.listeners[i];
@@ -791,6 +797,7 @@ function disposeAdapter(a: BrowserAdapter): void {
     a.canvasStyles.clear();
     a.canvases.clear();
     a.pendingLocks.clear();
+    a.ownedCanvases.clear();
     releaseCapture(a);
     a.lockCanvas = null;
 }
@@ -845,7 +852,7 @@ export function requestPointerLock(state: State): void {
     }
     const owner = lockOwners.get(canvas);
     if (owner && owner !== a) return;
-    lockOwners.set(canvas, a);
+    ownLock(a, canvas);
     a.lockCanvas = canvas;
     try {
         const result = a.host.requestPointerLock(canvas);
@@ -884,8 +891,7 @@ function finishPointerLockRequest(
 ): void {
     a.pendingLocks.delete(canvas);
     if (rejected && !a.disposed && lockOwners.get(canvas) === a) {
-        lockOwners.delete(canvas);
-        if (a.lockCanvas === canvas) a.lockCanvas = null;
+        releaseOwnedLock(a, canvas);
     }
     if (a.disposed && lockOwners.get(canvas) === a) {
         if (a.host.document.pointerLockElement === canvas) {
@@ -893,7 +899,7 @@ function finishPointerLockRequest(
                 a.host.releasePointerLock(canvas);
             } catch {}
         }
-        lockOwners.delete(canvas);
+        releaseOwnedLock(a, canvas);
     } else if (a.disposed) {
         return;
     }
@@ -904,10 +910,10 @@ function finishPointerLockRequest(
 /** Release this adapter's lock, if it owns the currently locked canvas. */
 export function releasePointerLock(state: State): void {
     const a = adapters.get(state);
-    if (!a || a.disposed || a.lockCanvas === null) return;
-    if (lockOwners.get(a.lockCanvas) !== a) return;
-    if (a.host.document.pointerLockElement !== a.lockCanvas) return;
-    a.host.releasePointerLock(a.lockCanvas);
+    if (!a || a.disposed) return;
+    const element = a.host.document.pointerLockElement as HTMLCanvasElement | null;
+    if (!element || !a.ownedCanvases.has(element) || lockOwners.get(element) !== a) return;
+    a.host.releasePointerLock(element);
 }
 
 /** Suspend or resume one State's device producers. Suspension releases held inputs with normal edges. */

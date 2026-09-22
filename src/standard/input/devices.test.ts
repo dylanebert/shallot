@@ -69,30 +69,34 @@ function declaredHost(
     options: {
         failOn?: string;
         pendingLock?: boolean;
+        pendingCanvas?: number;
         canvas?: HTMLCanvasElement;
+        canvasCount?: number;
         lock?: { element: HTMLCanvasElement | null };
         documentTarget?: ReturnType<typeof fixtureTarget>;
     } = {},
 ) {
     const hostWindow = fixtureTarget();
     const hostDocument = options.documentTarget ?? fixtureTarget();
-    const canvasTarget = fixtureTarget();
     const lock = options.lock ?? { element: null as HTMLCanvasElement | null };
     let hidden = false;
     let captured: number | null = null;
     let requestCount = 0;
     let releaseCount = 0;
-    let rejectLock: ((error: unknown) => void) | null = null;
-    const canvas =
-        options.canvas ??
+    const canvasTargets = new Map<HTMLCanvasElement, ReturnType<typeof fixtureTarget>>();
+    const pendingResolvers = new Map<
+        HTMLCanvasElement,
+        { resolve: () => void; reject: (error: unknown) => void }
+    >();
+    const makeCanvas = (target: ReturnType<typeof fixtureTarget>) =>
         ({
             style: { touchAction: "auto" },
             addEventListener(type: string, listener: FixtureListener) {
                 if (options.failOn === type) throw new Error("fixture listener failure");
-                canvasTarget.addEventListener(type, listener);
+                target.addEventListener(type, listener);
             },
             removeEventListener(type: string, listener: FixtureListener) {
-                canvasTarget.removeEventListener(type, listener);
+                target.removeEventListener(type, listener);
             },
             setPointerCapture(pointerId: number) {
                 captured = pointerId;
@@ -104,22 +108,34 @@ function declaredHost(
                 if (captured === pointerId) captured = null;
             },
             getBoundingClientRect: () => ({ left: 10, top: 20 }),
-        } as unknown as HTMLCanvasElement);
+        }) as unknown as HTMLCanvasElement;
+    const canvasTarget = fixtureTarget();
+    const canvas = options.canvas ?? makeCanvas(canvasTarget);
+    canvasTargets.set(canvas, canvasTarget);
+    const canvases = [canvas];
+    for (let i = 1; i < (options.canvasCount ?? 1); i++) {
+        const target = fixtureTarget();
+        const extra = makeCanvas(target);
+        canvasTargets.set(extra, target);
+        canvases.push(extra);
+    }
+    const pendingCanvas = () => pendingResolvers.keys().next().value ?? null;
     const host = {
         window: Object.assign(hostWindow, { focus() {} }) as unknown as Window,
         document: Object.defineProperties(hostDocument, {
             hidden: { configurable: true, get: () => hidden },
             pointerLockElement: { configurable: true, get: () => lock.element },
         }) as unknown as Document,
-        queryCanvases: () => [canvas],
+        queryCanvases: () => canvases,
         supportsPointerLock: () => true,
-        requestPointerLock: () => {
+        requestPointerLock: (requested: HTMLCanvasElement) => {
             requestCount++;
-            if (options.pendingLock)
-                return new Promise<void>((_resolve, reject) => {
-                    rejectLock = reject;
+            const index = canvases.indexOf(requested);
+            if (options.pendingLock || options.pendingCanvas === index)
+                return new Promise<void>((resolve, reject) => {
+                    pendingResolvers.set(requested, { resolve, reject });
                 });
-            lock.element = canvas;
+            lock.element = requested;
         },
         releasePointerLock: (owned: HTMLCanvasElement) => {
             if (lock.element === owned) {
@@ -131,6 +147,8 @@ function declaredHost(
     return {
         host,
         canvas,
+        canvases,
+        lock,
         window: hostWindow,
         document: hostDocument,
         emitLockChange() {
@@ -140,14 +158,23 @@ function declaredHost(
             lock.element = null;
             hostDocument.emit("pointerlockchange");
         },
-        emitCanvas(type: string, event: Record<string, unknown> = {}) {
-            canvasTarget.emit(type, { ...event, target: canvas });
+        emitCanvas(
+            type: string,
+            event: Record<string, unknown> = {},
+            targetCanvas: HTMLCanvasElement = canvas,
+        ) {
+            canvasTargets.get(targetCanvas)?.emit(type, { ...event, target: targetCanvas });
         },
         setHidden(value: boolean) {
             hidden = value;
         },
-        rejectLock(error: unknown) {
-            rejectLock?.(error);
+        rejectLock(error: unknown, targetCanvas = pendingCanvas()) {
+            if (!targetCanvas) return;
+            pendingResolvers.get(targetCanvas)?.reject(error);
+        },
+        resolveLock(targetCanvas = pendingCanvas()) {
+            if (!targetCanvas) return;
+            pendingResolvers.get(targetCanvas)?.resolve();
         },
         get requestCount() {
             return requestCount;
@@ -156,11 +183,9 @@ function declaredHost(
             return releaseCount;
         },
         listenerCount() {
-            return (
-                hostWindow.listenerCount() +
-                hostDocument.listenerCount() +
-                canvasTarget.listenerCount()
-            );
+            let canvasListeners = 0;
+            for (const target of canvasTargets.values()) canvasListeners += target.listenerCount();
+            return hostWindow.listenerCount() + hostDocument.listenerCount() + canvasListeners;
         },
         captured() {
             return captured;
@@ -382,6 +407,63 @@ check(
             throw new Error("second live adapter could not acquire the released canvas");
         first.dispose();
         second.dispose();
+    },
+);
+
+check(
+    "pending lock on a second canvas cannot strand the first owner",
+    {
+        claim: "a pending second-canvas pointer-lock request leaks the first canvas ownership or lets its late settlement affect a replacement adapter",
+    },
+    async () => {
+        const fixture = declaredHost({ canvasCount: 2, pendingCanvas: 1 });
+        const first = inputState();
+        const plugin = createBrowserInputPlugin(fixture.host);
+        for (const system of plugin.systems ?? []) first.addSystem(system, plugin.name);
+        first.step(0);
+
+        requestPointerLock(first);
+        fixture.emitLockChange();
+        if (pointerLockStatus(first) !== "locked" || fixture.lock.element !== fixture.canvases[0])
+            throw new Error("first canvas did not engage");
+
+        fixture.emitCanvas(
+            "pointerdown",
+            { pointerId: 2, pointerType: "mouse", button: 0, buttons: 1, preventDefault() {} },
+            fixture.canvases[1],
+        );
+        focus(first, 1);
+        requestPointerLock(first);
+        if (Number(fixture.requestCount) !== 2 || fixture.lock.element !== fixture.canvases[0])
+            throw new Error("second canvas did not remain pending behind the first lock");
+
+        first.dispose();
+        if (fixture.releaseCount !== 1 || fixture.lock.element !== null)
+            throw new Error("disposing the pending request did not release canvas A");
+
+        const replacement = inputState();
+        const replacementPlugin = createBrowserInputPlugin(fixture.host);
+        for (const system of replacementPlugin.systems ?? [])
+            replacement.addSystem(system, replacementPlugin.name);
+        replacement.step(0);
+        requestPointerLock(replacement);
+        fixture.emitLockChange();
+        if (
+            pointerLockStatus(replacement) !== "locked" ||
+            fixture.lock.element !== fixture.canvases[0]
+        )
+            throw new Error("replacement adapter could not reuse canvas A");
+
+        fixture.resolveLock(fixture.canvases[1]);
+        await Promise.resolve();
+        if (
+            pointerLockStatus(replacement) !== "locked" ||
+            fixture.lock.element !== fixture.canvases[0] ||
+            fixture.releaseCount !== 1
+        )
+            throw new Error("late canvas B settlement affected the replacement lock");
+        replacement.dispose();
+        if (Number(fixture.releaseCount) !== 2) throw new Error("replacement lock did not release");
     },
 );
 
