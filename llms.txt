@@ -1,0 +1,28 @@
+# shallot
+
+> webgpu game engine. fast by default, instant iteration, runs where webgpu does.
+
+The source is the reference: every public export carries a JSDoc contract, and there is no docs site to drift from it. Start with the README; grep the examples index for the problem you have.
+
+## Read
+
+- [README](https://raw.githubusercontent.com/dylanebert/shallot/v0.9.5/README.md): setup, CLI, recipes, live demos and build targets.
+- [Examples index](https://raw.githubusercontent.com/dylanebert/shallot/v0.9.5/examples/AGENTS.md): one line per recipe and showcase project, with the concept each teaches.
+
+## Start
+
+```
+bun create shallot my-game
+cd my-game
+bun install
+bunx shallot dev
+```
+
+The site's `bun run demos` gate builds each ejected demo, then uses Shallot's public `captureFrame` contract on a positively identified real-device browser seat. The frame is diagnostic evidence; the fixed capture identity and adapter record carry the verdict.
+
+## Links
+
+- Source: https://github.com/dylanebert/shallot
+- Package: https://www.npmjs.com/package/@dylanebert/shallot
+- Demos: https://dylanebert.com/shallot/
+- Brand: https://dylanebert.com/shallot/brand/
