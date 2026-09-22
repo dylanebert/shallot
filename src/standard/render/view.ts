@@ -3,7 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute, pixelRatio, type State } from "../../engine";
 import { chunk, spliceNs } from "../../engine/utils";
-import { devices, resizeViewport } from "../input";
+import { devices, reportViewport } from "../input";
 import { Camera, Resolution } from "./camera";
 import { Render } from "./render";
 
@@ -217,7 +217,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, state?: Sta
             ? 0
             : Math.max(0, Array.from(document.querySelectorAll("canvas")).indexOf(canvas));
     const dpr = (typeof window === "undefined" ? 1 : window.devicePixelRatio) || 1;
-    if (state) resizeViewport(state, viewportIndex, rect.width, rect.height, dpr);
+    if (state) reportViewport(state, viewportIndex, rect.width, rect.height, dpr);
     const view: View = {
         canvas,
         context,
@@ -242,7 +242,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, state?: Sta
         view.clientWidth = r.width;
         view.clientHeight = r.height;
         const nextDpr = (typeof window === "undefined" ? 1 : window.devicePixelRatio) || 1;
-        if (state) resizeViewport(state, viewportIndex, r.width, r.height, nextDpr);
+        if (state) reportViewport(state, viewportIndex, r.width, r.height, nextDpr);
     });
     view.observer.observe(canvas);
     Views.set(eid, view);

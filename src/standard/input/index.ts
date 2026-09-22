@@ -1,5 +1,8 @@
 import type { Plugin, State, System } from "../../engine";
 
+/** Selects the host that produces device facts for one {@link State}. */
+export type InputSource = "browser" | "controlled";
+
 /** Keyboard facts owned by one {@link State}. `pressed`/`released` are the frame latches;
  * `tickPressed`/`tickReleased` are the independent fixed-clock latches. */
 export interface Keys {
@@ -86,6 +89,8 @@ export interface Viewport {
 }
 
 export interface Devices {
+    /** host producer selected before input setup; selection is State-scoped and immutable after setup */
+    readonly source: InputSource;
     readonly keys: Keys;
     readonly audio: AudioDevice;
     /** pointer facts for the same record */
@@ -103,21 +108,27 @@ export interface Devices {
 }
 
 interface DeviceRecord extends Devices {
+    source: InputSource;
     audio: AudioDevice;
     suspended: boolean;
     requireLock: boolean;
+    setupStarted: boolean;
     readonly touchPoints: Map<number, { x: number; y: number }>;
     pinchDistance: number | null;
     centroidX: number | null;
     centroidY: number | null;
+    pointerCanvasIndex: number;
+    readonly viewport: Map<number, Viewport>;
+}
+
+/** Browser handles and callbacks belong to this adapter, never to the State's plain device facts. */
+interface BrowserAdapter {
     readonly canvases: Map<HTMLCanvasElement, number>;
     activeCanvas: HTMLCanvasElement | null;
     lastPointerX: number;
     lastPointerY: number;
     activePointerId: number | null;
     activeButton: number | null;
-    pointerCanvasIndex: number;
-    readonly viewport: Map<number, Viewport>;
     pointerHover: (e: PointerEvent) => void;
     pointerEnter: (e: PointerEvent) => void;
     pointerLeave: (e: PointerEvent) => void;
@@ -140,6 +151,7 @@ interface DeviceRecord extends Devices {
 }
 
 const records = new WeakMap<State, DeviceRecord>();
+const adapters = new WeakMap<State, BrowserAdapter>();
 
 const DEFAULT_MOUSE: Mouse = {
     deltaX: 0,
@@ -161,6 +173,7 @@ const DEFAULT_POINTER_LOCK: PointerLock = { status: "unlocked", refusal: null };
 function emptyRecord(): DeviceRecord {
     const pointer: Pointer = { ...DEFAULT_MOUSE, lock: { ...DEFAULT_POINTER_LOCK } };
     return {
+        source: "browser",
         keys: {
             held: new Set(),
             pressed: new Set(),
@@ -181,13 +194,35 @@ function emptyRecord(): DeviceRecord {
         pinchDistance: null,
         centroidX: null,
         centroidY: null,
+        pointerCanvasIndex: -1,
+        setupStarted: false,
+    };
+}
+
+/** Return the device record belonging to `state`. No DOM or plugin setup is required. */
+export function devices(state: State): Devices {
+    let record = records.get(state);
+    if (!record) {
+        record = emptyRecord();
+        records.set(state, record);
+    }
+    return record;
+}
+
+function record(state: State): DeviceRecord {
+    return devices(state) as DeviceRecord;
+}
+
+function adapter(state: State): BrowserAdapter {
+    const existing = adapters.get(state);
+    if (existing) return existing;
+    const created: BrowserAdapter = {
         canvases: new Map(),
         activeCanvas: null,
         lastPointerX: 0,
         lastPointerY: 0,
         activePointerId: null,
         activeButton: null,
-        pointerCanvasIndex: -1,
         pointerHover: null!,
         pointerEnter: null!,
         pointerLeave: null!,
@@ -208,20 +243,20 @@ function emptyRecord(): DeviceRecord {
         canvasClick: null!,
         lockMove: null!,
     };
+    adapters.set(state, created);
+    return created;
 }
 
-/** Return the device record belonging to `state`. No DOM or plugin setup is required. */
-export function devices(state: State): Devices {
-    let record = records.get(state);
-    if (!record) {
-        record = emptyRecord();
-        records.set(state, record);
-    }
-    return record;
+/** Select the producer before the Input plugin's setup runs. */
+export function setInputSource(state: State, source: InputSource): void {
+    const d = record(state);
+    if (d.setupStarted) throw new Error("input source cannot change after input setup");
+    d.source = source;
 }
 
-function record(state: State): DeviceRecord {
-    return devices(state) as DeviceRecord;
+/** Read the producer selected for one State. */
+export function inputSource(state: State): InputSource {
+    return record(state).source;
 }
 
 function unit(value: number, size: number): number {
@@ -236,8 +271,7 @@ function updateNormalized(d: DeviceRecord, index: number): void {
     d.mouse.normalizedY = unit(d.mouse.y, viewport.cssHeight);
 }
 
-/** Produce the viewport row for one bound canvas/index. The DOM resize observer and headless callers use
- * the same seam; `dpr` is read by the DOM caller at resize time rather than by the renderer per frame. */
+/** Produce the viewport row for a controlled caller. The DOM adapter uses {@link reportViewport}. */
 export function resizeViewport(
     state: State,
     index: number,
@@ -255,9 +289,27 @@ export function resizeViewport(
     if (d.pointerCanvasIndex === index) updateNormalized(d, index);
 }
 
-/** Produce the browser audio context state for one State. */
+/** Report a viewport row from a browser adapter; controlled facts reject host reports. */
+export function reportViewport(
+    state: State,
+    index: number,
+    width: number,
+    height: number,
+    dpr: number,
+): void {
+    if (record(state).source === "controlled") return;
+    resizeViewport(state, index, width, height, dpr);
+}
+
+/** Produce the audio context state supplied by a controlled caller. */
 export function audioContextState(state: State, context: AudioContextState): void {
     record(state).audio.context = context;
+}
+
+/** Report audio context state from the browser adapter; controlled facts reject host reports. */
+export function reportAudioContextState(state: State, context: AudioContextState): void {
+    if (record(state).source === "controlled") return;
+    audioContextState(state, context);
 }
 
 /** Produce a keyboard press. Repeated presses do not retrigger an edge. */
@@ -417,7 +469,8 @@ function setPointerLock(d: DeviceRecord, status: PointerLockStatus, refusal: str
 /** Release every held input as the window loses focus. */
 export function blur(state: State): void {
     const d = record(state);
-    d.canvasFocused = false;
+    const a = adapters.get(state);
+    if (a) a.canvasFocused = false;
     d.focused = -1;
     releaseAll(state, d);
 }
@@ -426,7 +479,8 @@ export function blur(state: State): void {
 export function focus(state: State, canvasIndex = 0): void {
     const d = record(state);
     if (d.suspended) return;
-    d.canvasFocused = true;
+    const a = adapters.get(state);
+    if (a) a.canvasFocused = true;
     d.focused = canvasIndex;
     d.pointerCanvasIndex = canvasIndex;
     updateNormalized(d, canvasIndex);
@@ -475,21 +529,21 @@ function releaseAll(_state: State | null, d: DeviceRecord): void {
     clearTouch(d);
 }
 
-function releaseCapture(d: DeviceRecord): void {
-    d.activePointerId = null;
-    d.activeButton = null;
-    d.activeCanvas = null;
-    d.lastPointerX = 0;
-    d.lastPointerY = 0;
+function releaseCapture(a: BrowserAdapter): void {
+    a.activePointerId = null;
+    a.activeButton = null;
+    a.activeCanvas = null;
+    a.lastPointerX = 0;
+    a.lastPointerY = 0;
 }
 
-function recaptureTouch(d: DeviceRecord, canvas: HTMLCanvasElement): void {
+function recaptureTouch(a: BrowserAdapter, d: DeviceRecord, canvas: HTMLCanvasElement): void {
     const [nextId, pos] = [...d.touchPoints.entries()][0];
-    d.activePointerId = nextId;
-    d.activeButton = 0;
-    d.activeCanvas = canvas;
-    d.lastPointerX = pos.x;
-    d.lastPointerY = pos.y;
+    a.activePointerId = nextId;
+    a.activeButton = 0;
+    a.activeCanvas = canvas;
+    a.lastPointerX = pos.x;
+    a.lastPointerY = pos.y;
     try {
         canvas.setPointerCapture(nextId);
     } catch {}
@@ -497,6 +551,7 @@ function recaptureTouch(d: DeviceRecord, canvas: HTMLCanvasElement): void {
 
 function canvasPosition(
     state: State,
+    a: BrowserAdapter,
     target: HTMLCanvasElement,
     e: { clientX: number; clientY: number },
     hover = true,
@@ -506,77 +561,77 @@ function canvasPosition(
         x: e.clientX - rect.left,
         y: e.clientY - rect.top,
         hover,
-        canvasIndex: record(state).canvases.get(target),
+        canvasIndex: a.canvases.get(target),
     });
 }
 
-function createHandlers(d: DeviceRecord, state: State): void {
-    d.pointerHover = (e) => {
+function createHandlers(a: BrowserAdapter, d: DeviceRecord, state: State): void {
+    a.pointerHover = (e) => {
         const target = e.target as HTMLCanvasElement;
-        if (!d.canvases.has(target)) return;
-        canvasPosition(state, target, e);
+        if (!a.canvases.has(target)) return;
+        canvasPosition(state, a, target, e);
     };
-    d.pointerEnter = d.pointerHover;
-    d.pointerLeave = () => {
-        if (d.activePointerId === null) d.mouse.hover = false;
+    a.pointerEnter = a.pointerHover;
+    a.pointerLeave = () => {
+        if (a.activePointerId === null) d.mouse.hover = false;
     };
-    d.keyDown = (e) => {
+    a.keyDown = (e) => {
         if (d.suspended) return;
         const lockElement = document.pointerLockElement as HTMLCanvasElement | null;
-        if (!d.canvasFocused && !(lockElement && d.canvases.has(lockElement))) return;
+        if (!a.canvasFocused && !(lockElement && a.canvases.has(lockElement))) return;
         pressKey(state, e.code);
     };
-    d.keyUp = (e) => {
+    a.keyUp = (e) => {
         if (d.suspended) return;
         const lockElement = document.pointerLockElement as HTMLCanvasElement | null;
-        if (!d.canvasFocused && !(lockElement && d.canvases.has(lockElement))) return;
+        if (!a.canvasFocused && !(lockElement && a.canvases.has(lockElement))) return;
         releaseKey(state, e.code);
     };
-    d.pointerDown = (e) => {
+    a.pointerDown = (e) => {
         const target = e.target as HTMLCanvasElement;
-        const canvasIndex = d.canvases.get(target);
+        const canvasIndex = a.canvases.get(target);
         if (canvasIndex === undefined) return;
         window.focus();
         if (e.pointerType === "touch") touchPoint(state, e.pointerId, e.clientX, e.clientY);
-        if (d.activePointerId === null || d.activePointerId === e.pointerId) {
-            d.pointerHover(e);
+        if (a.activePointerId === null || a.activePointerId === e.pointerId) {
+            a.pointerHover(e);
             pointerButtons(state, gatedButtons(d, e.buttons));
         }
-        if (d.activePointerId === null) {
-            d.activePointerId = e.pointerId;
-            d.activeButton = e.button;
-            d.activeCanvas = target;
+        if (a.activePointerId === null) {
+            a.activePointerId = e.pointerId;
+            a.activeButton = e.button;
+            a.activeCanvas = target;
             d.focused = canvasIndex;
-            d.canvasFocused = true;
-            d.lastPointerX = e.clientX;
-            d.lastPointerY = e.clientY;
+            a.canvasFocused = true;
+            a.lastPointerX = e.clientX;
+            a.lastPointerY = e.clientY;
             try {
                 target.setPointerCapture(e.pointerId);
             } catch {}
         }
         e.preventDefault();
     };
-    d.windowPointerDown = (e) => {
-        if (!d.canvases.has(e.target as HTMLCanvasElement)) {
-            d.canvasFocused = false;
+    a.windowPointerDown = (e) => {
+        if (!a.canvases.has(e.target as HTMLCanvasElement)) {
+            a.canvasFocused = false;
             d.focused = -1;
             releaseAll(state, d);
         }
     };
-    d.windowBlur = () => blur(state);
-    d.visibilityChange = () => visibilityChanged(state, document.hidden);
-    d.pointerLockChange = () => {
+    a.windowBlur = () => blur(state);
+    a.visibilityChange = () => visibilityChanged(state, document.hidden);
+    a.pointerLockChange = () => {
         const element = document.pointerLockElement as HTMLCanvasElement | null;
-        if (element && d.canvases.has(element)) pointerLockChanged(state, true);
+        if (element && a.canvases.has(element)) pointerLockChanged(state, true);
         else if (d.pointer.lock.status === "locked") pointerLockChanged(state, false);
     };
-    d.pointerLockError = () => {
+    a.pointerLockError = () => {
         pointerLockChanged(state, false, "the browser rejected pointer lock");
     };
-    d.canvasClick = () => {
+    a.canvasClick = () => {
         if (d.requireLock) requestPointerLock(state);
     };
-    d.lockMove = (e) => {
+    a.lockMove = (e) => {
         if (d.pointer.lock.status !== "locked") return;
         pointerMove(state, {
             x: d.mouse.x,
@@ -587,90 +642,91 @@ function createHandlers(d: DeviceRecord, state: State): void {
             canvasIndex: d.pointerCanvasIndex,
         });
     };
-    d.pointerUp = (e) => {
+    a.pointerUp = (e) => {
         const wasTouch = d.touchPoints.has(e.pointerId);
         if (wasTouch) touchPoint(state, e.pointerId, e.clientX, e.clientY, false);
-        if (e.pointerId !== d.activePointerId) return;
+        if (e.pointerId !== a.activePointerId) return;
         pointerButtons(state, gatedButtons(d, e.buttons));
-        if (e.button === d.activeButton) {
-            const canvas = d.activeCanvas;
+        if (e.button === a.activeButton) {
+            const canvas = a.activeCanvas;
             if (canvas?.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
-            if (wasTouch && canvas && d.touchPoints.size > 0) recaptureTouch(d, canvas);
-            else releaseCapture(d);
+            if (wasTouch && canvas && d.touchPoints.size > 0) recaptureTouch(a, d, canvas);
+            else releaseCapture(a);
         }
     };
-    d.pointerCancel = (e) => {
+    a.pointerCancel = (e) => {
         const wasTouch = d.touchPoints.has(e.pointerId);
         if (wasTouch) touchPoint(state, e.pointerId, e.clientX, e.clientY, false);
-        if (e.pointerId !== d.activePointerId) return;
+        if (e.pointerId !== a.activePointerId) return;
         pointerButtons(state, 0);
-        const canvas = d.activeCanvas;
-        if (wasTouch && canvas && d.touchPoints.size > 0) recaptureTouch(d, canvas);
-        else releaseCapture(d);
+        const canvas = a.activeCanvas;
+        if (wasTouch && canvas && d.touchPoints.size > 0) recaptureTouch(a, d, canvas);
+        else releaseCapture(a);
     };
-    d.pointerMove = (e) => {
+    a.pointerMove = (e) => {
         if (d.touchPoints.has(e.pointerId)) touchPoint(state, e.pointerId, e.clientX, e.clientY);
-        if (e.pointerId !== d.activePointerId) return;
+        if (e.pointerId !== a.activePointerId) return;
         pointerButtons(state, gatedButtons(d, e.buttons));
         if (d.pointer.lock.status === "locked") return;
         e.preventDefault();
         pointerMove(state, {
-            x: e.clientX - (d.activeCanvas?.getBoundingClientRect().left ?? 0),
-            y: e.clientY - (d.activeCanvas?.getBoundingClientRect().top ?? 0),
-            deltaX: e.clientX - d.lastPointerX,
-            deltaY: e.clientY - d.lastPointerY,
+            x: e.clientX - (a.activeCanvas?.getBoundingClientRect().left ?? 0),
+            y: e.clientY - (a.activeCanvas?.getBoundingClientRect().top ?? 0),
+            deltaX: e.clientX - a.lastPointerX,
+            deltaY: e.clientY - a.lastPointerY,
             hover: true,
-            canvasIndex: d.activeCanvas === null ? undefined : d.canvases.get(d.activeCanvas),
+            canvasIndex: a.activeCanvas === null ? undefined : a.canvases.get(a.activeCanvas),
         });
-        d.lastPointerX = e.clientX;
-        d.lastPointerY = e.clientY;
+        a.lastPointerX = e.clientX;
+        a.lastPointerY = e.clientY;
     };
-    d.wheel = (e) => {
-        if (!d.canvases.has(e.target as HTMLCanvasElement)) return;
+    a.wheel = (e) => {
+        if (!a.canvases.has(e.target as HTMLCanvasElement)) return;
         pointerWheel(state, e.deltaY);
         e.preventDefault();
     };
-    d.contextMenu = (e) => {
-        if (d.canvases.has(e.target as HTMLCanvasElement)) e.preventDefault();
+    a.contextMenu = (e) => {
+        if (a.canvases.has(e.target as HTMLCanvasElement)) e.preventDefault();
     };
 }
 
-function attachCanvas(d: DeviceRecord, canvas: HTMLCanvasElement, signal: AbortSignal): void {
-    canvas.addEventListener("pointerdown", d.pointerDown, { signal });
-    canvas.addEventListener("pointermove", d.pointerHover, { signal });
-    canvas.addEventListener("pointerenter", d.pointerEnter, { signal });
-    canvas.addEventListener("pointerleave", d.pointerLeave, { signal });
-    canvas.addEventListener("wheel", d.wheel, { passive: false, signal });
-    canvas.addEventListener("contextmenu", d.contextMenu, { signal });
-    canvas.addEventListener("click", d.canvasClick, { signal });
+function attachCanvas(a: BrowserAdapter, canvas: HTMLCanvasElement, signal: AbortSignal): void {
+    canvas.addEventListener("pointerdown", a.pointerDown, { signal });
+    canvas.addEventListener("pointermove", a.pointerHover, { signal });
+    canvas.addEventListener("pointerenter", a.pointerEnter, { signal });
+    canvas.addEventListener("pointerleave", a.pointerLeave, { signal });
+    canvas.addEventListener("wheel", a.wheel, { passive: false, signal });
+    canvas.addEventListener("contextmenu", a.contextMenu, { signal });
+    canvas.addEventListener("click", a.canvasClick, { signal });
 }
 
-function attachGlobal(d: DeviceRecord, signal: AbortSignal): void {
-    window.addEventListener("keydown", d.keyDown, { signal });
-    window.addEventListener("keyup", d.keyUp, { signal });
-    window.addEventListener("pointerdown", d.windowPointerDown, { signal });
-    window.addEventListener("pointerup", d.pointerUp, { signal });
-    window.addEventListener("pointercancel", d.pointerCancel, { signal });
-    window.addEventListener("pointermove", d.pointerMove, { signal });
-    window.addEventListener("blur", d.windowBlur, { signal });
-    document.addEventListener("visibilitychange", d.visibilityChange, { signal });
-    document.addEventListener("pointerlockchange", d.pointerLockChange, { signal });
-    document.addEventListener("pointerlockerror", d.pointerLockError, { signal });
-    document.addEventListener("mousemove", d.lockMove, { signal });
+function attachGlobal(a: BrowserAdapter, signal: AbortSignal): void {
+    window.addEventListener("keydown", a.keyDown, { signal });
+    window.addEventListener("keyup", a.keyUp, { signal });
+    window.addEventListener("pointerdown", a.windowPointerDown, { signal });
+    window.addEventListener("pointerup", a.pointerUp, { signal });
+    window.addEventListener("pointercancel", a.pointerCancel, { signal });
+    window.addEventListener("pointermove", a.pointerMove, { signal });
+    window.addEventListener("blur", a.windowBlur, { signal });
+    document.addEventListener("visibilitychange", a.visibilityChange, { signal });
+    document.addEventListener("pointerlockchange", a.pointerLockChange, { signal });
+    document.addEventListener("pointerlockerror", a.pointerLockError, { signal });
+    document.addEventListener("mousemove", a.lockMove, { signal });
 }
 
 function setup(state: State, canvasElements: HTMLCanvasElement[]): void {
     const d = record(state);
-    if (d.canvases.size > 0) return;
+    const a = adapter(state);
+    if (a.canvases.size > 0) return;
     for (let i = 0; i < canvasElements.length; i++) {
-        d.canvases.set(canvasElements[i], i);
+        a.canvases.set(canvasElements[i], i);
         canvasElements[i].style.touchAction = "none";
     }
-    if (d.canvases.size === 0) return;
-    createHandlers(d, state);
-    attachGlobal(d, state.signal);
-    for (const canvas of d.canvases.keys()) attachCanvas(d, canvas, state.signal);
-    const supported = [...d.canvases.keys()].some(
+    if (a.canvases.size === 0) return;
+    createHandlers(a, d, state);
+    attachGlobal(a, state.signal);
+    for (const canvas of a.canvases.keys()) attachCanvas(a, canvas, state.signal);
+    const supported = [...a.canvases.keys()].some(
         (canvas) => typeof canvas.requestPointerLock === "function",
     );
     setPointerLock(
@@ -678,18 +734,20 @@ function setup(state: State, canvasElements: HTMLCanvasElement[]): void {
         supported ? "unlocked" : "unsupported",
         supported ? null : "canvas has no requestPointerLock",
     );
-    d.canvasFocused = true;
+    a.canvasFocused = true;
 }
 
 /** Request pointer lock from an engagement gesture. This is the only browser effect in the lock seam. */
 export function requestPointerLock(state: State): void {
     const d = record(state);
-    if (d.suspended) return;
+    if (d.suspended || d.source === "controlled") return;
     if (d.pointer.lock.status === "unsupported") return;
+    const a = adapters.get(state);
+    if (!a) return;
     const canvas =
-        d.activeCanvas ??
-        [...d.canvases.entries()].find(([, index]) => index === d.focused)?.[0] ??
-        [...d.canvases.keys()][0];
+        a.activeCanvas ??
+        [...a.canvases.entries()].find(([, index]) => index === d.focused)?.[0] ??
+        [...a.canvases.keys()][0];
     if (!canvas || typeof canvas.requestPointerLock !== "function") {
         setPointerLock(d, "unsupported", "canvas has no requestPointerLock");
         return;
@@ -747,8 +805,10 @@ export function pointerLockRefusal(state: State): string | null {
 const InputSystem: System = {
     group: "simulation",
     setup(state: State) {
-        // Ensure headless States have a record before their first producer call.
-        record(state);
+        const d = record(state);
+        d.setupStarted = true;
+        // Controlled production owns its facts and never probes or touches a host, even when one exists.
+        if (d.source === "controlled") return;
         if (typeof document === "undefined" || typeof document.querySelectorAll !== "function")
             return;
         const elements = Array.from(document.querySelectorAll("canvas"));

@@ -1,6 +1,9 @@
 import loadAudioWasm from "../../../crates/audio/pkg/shallot_audio.js";
 import type { State } from "../../engine";
-import { audioContextState, type AudioContextState as DeviceAudioContextState } from "../input";
+import {
+    type AudioContextState as DeviceAudioContextState,
+    reportAudioContextState,
+} from "../input";
 import { byId, getParamPairs, type Instrument } from "./instrument";
 import { flushSamples, resetSampleUploads } from "./sample";
 import { createWorkletURL } from "./worklet";
@@ -93,7 +96,7 @@ export async function initAudio(state: State): Promise<void> {
 
     const ctx = new AudioContext();
     Audio.ctx = ctx;
-    audioContextState(state, contextState(ctx.state));
+    reportAudioContextState(state, contextState(ctx.state));
     if (ctx.state === "suspended") {
         const resume = () => {
             ctx.resume();
@@ -118,7 +121,7 @@ export async function initAudio(state: State): Promise<void> {
 
     Audio.wasSuspended = ctx.state !== "running";
     Audio.onState = () => {
-        audioContextState(state, contextState(ctx.state));
+        reportAudioContextState(state, contextState(ctx.state));
         if (ctx.state === "running" && Audio.wasSuspended) {
             node.port.postMessage({ type: "reset" });
             reconnect();
@@ -173,7 +176,7 @@ export async function initAudio(state: State): Promise<void> {
 /** tear down the worklet, context, and all host listeners */
 export function disposeAudio(state: State): void {
     flush();
-    audioContextState(state, Audio.ctx ? "closed" : "none");
+    reportAudioContextState(state, Audio.ctx ? "closed" : "none");
     if (Audio.heartbeat) {
         clearInterval(Audio.heartbeat);
         Audio.heartbeat = null;

@@ -1,8 +1,10 @@
 import {
+    audioContextState,
     blur,
     devices,
     focus,
     InputPlugin,
+    inputSource,
     pointerButton,
     pointerLockChanged,
     pointerLockStatus,
@@ -10,22 +12,199 @@ import {
     pointerWheel,
     pressKey,
     releaseKey,
+    requestPointerLock,
     requirePointerLock,
     resizeViewport,
     State,
     setInputEnabled,
+    setInputSource,
     Time,
     touchPoint,
     visibilityChanged,
 } from "@dylanebert/shallot";
 import { check } from "@dylanebert/shallot/harness/check";
 import { sizeView, type View } from "@dylanebert/shallot/render";
+import { reportAudioContextState, reportViewport } from "./index";
 
 function inputState(): State {
     const state = new State();
     for (const system of InputPlugin.systems ?? []) state.addSystem(system, InputPlugin.name);
     return state;
 }
+
+function replaceGlobal(name: "document" | "window", value: unknown): () => void {
+    const prior = Object.getOwnPropertyDescriptor(globalThis, name);
+    Object.defineProperty(globalThis, name, { configurable: true, value });
+    return () => {
+        if (prior) Object.defineProperty(globalThis, name, prior);
+        else Reflect.deleteProperty(globalThis, name);
+    };
+}
+
+check(
+    "controlled input does not inspect absent host globals",
+    {
+        claim: "controlled input setup reads ambient browser globals when a headless State has none",
+    },
+    () => {
+        const restoreDocument = replaceGlobal("document", undefined);
+        const restoreWindow = replaceGlobal("window", undefined);
+        const state = inputState();
+        try {
+            setInputSource(state, "controlled");
+            state.step(0);
+            if (inputSource(state) !== "controlled") throw new Error("source was not selected");
+            pressKey(state, "KeyW");
+            state.step(Time.FIXED_DT);
+            if (!devices(state).keys.held.has("KeyW")) throw new Error("controlled input was lost");
+        } finally {
+            state.dispose();
+            restoreWindow();
+            restoreDocument();
+        }
+    },
+);
+
+check(
+    "controlled input ignores present host reports",
+    {
+        claim: "controlled input lets browser setup, viewport reports or audio callbacks overwrite supplied facts",
+    },
+    () => {
+        let queried = 0;
+        let listeners = 0;
+        let requested = 0;
+        const canvas = {
+            style: { touchAction: "" },
+            addEventListener: () => listeners++,
+            requestPointerLock: () => {
+                requested++;
+            },
+        } as unknown as HTMLCanvasElement;
+        const restoreDocument = replaceGlobal("document", {
+            querySelectorAll: () => {
+                queried++;
+                return [canvas];
+            },
+            addEventListener: () => listeners++,
+        });
+        const restoreWindow = replaceGlobal("window", {
+            addEventListener: () => listeners++,
+        });
+        const state = inputState();
+        try {
+            setInputSource(state, "controlled");
+            state.step(0);
+            requestPointerLock(state);
+            if (queried !== 0 || listeners !== 0 || requested !== 0)
+                throw new Error("controlled setup touched the host");
+
+            resizeViewport(state, 0, 100, 50, 2);
+            audioContextState(state, "running");
+            reportViewport(state, 0, 640, 360, 1);
+            reportAudioContextState(state, "closed");
+            const input = devices(state);
+            const viewport = input.viewport.get(0);
+            if (
+                viewport?.cssWidth !== 100 ||
+                viewport.cssHeight !== 50 ||
+                viewport.dpr !== 2 ||
+                input.audio.context !== "running"
+            )
+                throw new Error("a host report overwrote controlled facts");
+        } finally {
+            state.dispose();
+            restoreWindow();
+            restoreDocument();
+        }
+    },
+);
+
+check(
+    "browser remains the default input producer",
+    {
+        claim: "the default input source stops binding browser listeners or requesting pointer lock",
+    },
+    () => {
+        let listeners = 0;
+        let requested = 0;
+        const canvas = {
+            style: { touchAction: "" },
+            addEventListener: () => listeners++,
+            requestPointerLock: () => {
+                requested++;
+            },
+        } as unknown as HTMLCanvasElement;
+        const restoreDocument = replaceGlobal("document", {
+            querySelectorAll: () => [canvas],
+            addEventListener: () => listeners++,
+        });
+        const restoreWindow = replaceGlobal("window", {
+            addEventListener: () => listeners++,
+        });
+        const state = inputState();
+        try {
+            state.step(0);
+            requestPointerLock(state);
+            if (inputSource(state) !== "browser" || listeners === 0 || requested !== 1)
+                throw new Error("browser input was not the default adapter");
+        } finally {
+            state.dispose();
+            restoreWindow();
+            restoreDocument();
+        }
+    },
+);
+
+check(
+    "input source selection closes at setup",
+    {
+        claim: "changing a State's input producer after setup silently hot-switches its host boundary",
+    },
+    () => {
+        const state = inputState();
+        state.step(0);
+        let refused = false;
+        try {
+            setInputSource(state, "controlled");
+        } catch (error) {
+            refused = error instanceof Error && /input setup/i.test(error.message);
+        } finally {
+            state.dispose();
+        }
+        if (!refused) throw new Error("late input source selection was accepted");
+    },
+);
+
+check(
+    "controlled edges survive zero and multiple fixed ticks",
+    {
+        claim: "controlled input edges depend on frame cadence rather than the independent fixed and draw boundaries",
+    },
+    () => {
+        const state = inputState();
+        setInputSource(state, "controlled");
+        const fixedSeen: string[] = [];
+        state.addSystem({
+            group: "fixed",
+            update(s: State) {
+                if (devices(s).keys.tickPressed.has("KeyA")) fixedSeen.push("A");
+                if (devices(s).keys.tickPressed.has("KeyB")) fixedSeen.push("B");
+            },
+        });
+        pressKey(state, "KeyA");
+        state.step(0);
+        if (!devices(state).keys.tickPressed.has("KeyA"))
+            throw new Error("zero-tick frame reset a press");
+        state.step(Time.FIXED_DT * 2);
+        pressKey(state, "KeyB");
+        state.step(Time.FIXED_DT);
+        if (fixedSeen.join("") !== "AB") throw new Error(`unexpected fixed edges: ${fixedSeen}`);
+        if (devices(state).keys.pressed.has("KeyA") || devices(state).keys.tickPressed.size !== 0)
+            throw new Error("draw or fixed edge reset did not run");
+        state.dispose();
+    },
+);
 
 check(
     "device keyboard edges survive one frame",
