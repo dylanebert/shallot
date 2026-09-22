@@ -1,10 +1,10 @@
 import {
     audioContextState,
+    BrowserInputPlugin,
     blur,
     devices,
     focus,
     InputPlugin,
-    inputSource,
     pointerButton,
     pointerLockChanged,
     pointerLockStatus,
@@ -17,18 +17,23 @@ import {
     resizeViewport,
     State,
     setInputEnabled,
-    setInputSource,
     Time,
     touchPoint,
     visibilityChanged,
 } from "@dylanebert/shallot";
 import { check } from "@dylanebert/shallot/harness/check";
 import { sizeView, type View } from "@dylanebert/shallot/render";
-import { reportAudioContextState, reportViewport } from "./index";
 
 function inputState(): State {
     const state = new State();
     for (const system of InputPlugin.systems ?? []) state.addSystem(system, InputPlugin.name);
+    return state;
+}
+
+function browserInputState(): State {
+    const state = inputState();
+    for (const system of BrowserInputPlugin.systems ?? [])
+        state.addSystem(system, BrowserInputPlugin.name);
     return state;
 }
 
@@ -42,44 +47,16 @@ function replaceGlobal(name: "document" | "window", value: unknown): () => void 
 }
 
 check(
-    "controlled input does not inspect absent host globals",
+    "input data owner omits browser producer even when a host is present",
     {
-        claim: "controlled input setup reads ambient browser globals when a headless State has none",
-    },
-    () => {
-        const restoreDocument = replaceGlobal("document", undefined);
-        const restoreWindow = replaceGlobal("window", undefined);
-        const state = inputState();
-        try {
-            setInputSource(state, "controlled");
-            state.step(0);
-            if (inputSource(state) !== "controlled") throw new Error("source was not selected");
-            pressKey(state, "KeyW");
-            state.step(Time.FIXED_DT);
-            if (!devices(state).keys.held.has("KeyW")) throw new Error("controlled input was lost");
-        } finally {
-            state.dispose();
-            restoreWindow();
-            restoreDocument();
-        }
-    },
-);
-
-check(
-    "controlled input ignores present host reports",
-    {
-        claim: "controlled input lets browser setup, viewport reports or audio callbacks overwrite supplied facts",
+        claim: "a State with the plain input owner binds browser listeners merely because browser globals exist",
     },
     () => {
         let queried = 0;
         let listeners = 0;
-        let requested = 0;
         const canvas = {
             style: { touchAction: "" },
             addEventListener: () => listeners++,
-            requestPointerLock: () => {
-                requested++;
-            },
         } as unknown as HTMLCanvasElement;
         const restoreDocument = replaceGlobal("document", {
             querySelectorAll: () => {
@@ -93,25 +70,13 @@ check(
         });
         const state = inputState();
         try {
-            setInputSource(state, "controlled");
             state.step(0);
-            requestPointerLock(state);
-            if (queried !== 0 || listeners !== 0 || requested !== 0)
-                throw new Error("controlled setup touched the host");
-
-            resizeViewport(state, 0, 100, 50, 2);
-            audioContextState(state, "running");
-            reportViewport(state, 0, 640, 360, 1);
-            reportAudioContextState(state, "closed");
-            const input = devices(state);
-            const viewport = input.viewport.get(0);
-            if (
-                viewport?.cssWidth !== 100 ||
-                viewport.cssHeight !== 50 ||
-                viewport.dpr !== 2 ||
-                input.audio.context !== "running"
-            )
-                throw new Error("a host report overwrote controlled facts");
+            pressKey(state, "KeyW");
+            state.step(Time.FIXED_DT);
+            if (!devices(state).keys.held.has("KeyW"))
+                throw new Error("application input was lost");
+            if (queried !== 0 || listeners !== 0)
+                throw new Error("host producer was composed implicitly");
         } finally {
             state.dispose();
             restoreWindow();
@@ -121,9 +86,48 @@ check(
 );
 
 check(
-    "browser remains the default input producer",
+    "omitted host reports preserve supplied viewport and audio facts",
     {
-        claim: "the default input source stops binding browser listeners or requesting pointer lock",
+        claim: "browser viewport and audio-status producers overwrite application facts when those producers are omitted",
+    },
+    () => {
+        let listeners = 0;
+        const canvas = {
+            style: { touchAction: "" },
+            addEventListener: () => listeners++,
+        } as unknown as HTMLCanvasElement;
+        const restoreDocument = replaceGlobal("document", {
+            querySelectorAll: () => [canvas],
+            addEventListener: () => listeners++,
+        });
+        const restoreWindow = replaceGlobal("window", { addEventListener: () => listeners++ });
+        const state = inputState();
+        try {
+            resizeViewport(state, 0, 100, 50, 2);
+            audioContextState(state, "running");
+            state.step(0);
+            const input = devices(state);
+            const viewport = input.viewport.get(0);
+            if (
+                viewport?.cssWidth !== 100 ||
+                viewport.cssHeight !== 50 ||
+                viewport.dpr !== 2 ||
+                input.audio.context !== "running" ||
+                listeners !== 0
+            )
+                throw new Error("omitted host reports changed supplied facts");
+        } finally {
+            state.dispose();
+            restoreWindow();
+            restoreDocument();
+        }
+    },
+);
+
+check(
+    "browser producer remains an explicit ordinary composition",
+    {
+        claim: "the browser input producer fails to bind listeners or request pointer lock when composed",
     },
     () => {
         let listeners = 0;
@@ -142,11 +146,11 @@ check(
         const restoreWindow = replaceGlobal("window", {
             addEventListener: () => listeners++,
         });
-        const state = inputState();
+        const state = browserInputState();
         try {
             state.step(0);
             requestPointerLock(state);
-            if (inputSource(state) !== "browser" || listeners === 0 || requested !== 1)
+            if (listeners === 0 || requested !== 1)
                 throw new Error("browser input was not the default adapter");
         } finally {
             state.dispose();
@@ -157,33 +161,12 @@ check(
 );
 
 check(
-    "input source selection closes at setup",
-    {
-        claim: "changing a State's input producer after setup silently hot-switches its host boundary",
-    },
-    () => {
-        const state = inputState();
-        state.step(0);
-        let refused = false;
-        try {
-            setInputSource(state, "controlled");
-        } catch (error) {
-            refused = error instanceof Error && /input setup/i.test(error.message);
-        } finally {
-            state.dispose();
-        }
-        if (!refused) throw new Error("late input source selection was accepted");
-    },
-);
-
-check(
     "controlled edges survive zero and multiple fixed ticks",
     {
         claim: "controlled input edges depend on frame cadence rather than the independent fixed and draw boundaries",
     },
     () => {
         const state = inputState();
-        setInputSource(state, "controlled");
         const fixedSeen: string[] = [];
         state.addSystem({
             group: "fixed",

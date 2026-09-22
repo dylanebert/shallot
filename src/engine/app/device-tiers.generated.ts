@@ -4,7 +4,7 @@ export const DEVICE_TIER_CONTEXT = {
         tier: "gpu",
         required: ["BVH", "Fog", "Glaze", "Mirror", "Render", "Sear"],
         optional: ["Part", "Physics", "Slab", "Transforms"],
-        undeclared: ["Audio", "Character", "Input", "Player"],
+        undeclared: ["Audio", "BrowserInput", "Character", "Input", "Player"],
     },
     extras: {
         tier: "gpu",

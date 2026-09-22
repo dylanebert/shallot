@@ -1,8 +1,5 @@
 import type { Plugin, State, System } from "../../engine";
 
-/** Selects the host that produces device facts for one {@link State}. */
-export type InputSource = "browser" | "controlled";
-
 /** Keyboard facts owned by one {@link State}. `pressed`/`released` are the frame latches;
  * `tickPressed`/`tickReleased` are the independent fixed-clock latches. */
 export interface Keys {
@@ -89,8 +86,6 @@ export interface Viewport {
 }
 
 export interface Devices {
-    /** host producer selected before input setup; selection is State-scoped and immutable after setup */
-    readonly source: InputSource;
     readonly keys: Keys;
     readonly audio: AudioDevice;
     /** pointer facts for the same record */
@@ -108,11 +103,9 @@ export interface Devices {
 }
 
 interface DeviceRecord extends Devices {
-    source: InputSource;
     audio: AudioDevice;
     suspended: boolean;
     requireLock: boolean;
-    setupStarted: boolean;
     readonly touchPoints: Map<number, { x: number; y: number }>;
     pinchDistance: number | null;
     centroidX: number | null;
@@ -173,7 +166,6 @@ const DEFAULT_POINTER_LOCK: PointerLock = { status: "unlocked", refusal: null };
 function emptyRecord(): DeviceRecord {
     const pointer: Pointer = { ...DEFAULT_MOUSE, lock: { ...DEFAULT_POINTER_LOCK } };
     return {
-        source: "browser",
         keys: {
             held: new Set(),
             pressed: new Set(),
@@ -195,7 +187,6 @@ function emptyRecord(): DeviceRecord {
         centroidX: null,
         centroidY: null,
         pointerCanvasIndex: -1,
-        setupStarted: false,
     };
 }
 
@@ -247,18 +238,6 @@ function adapter(state: State): BrowserAdapter {
     return created;
 }
 
-/** Select the producer before the Input plugin's setup runs. */
-export function setInputSource(state: State, source: InputSource): void {
-    const d = record(state);
-    if (d.setupStarted) throw new Error("input source cannot change after input setup");
-    d.source = source;
-}
-
-/** Read the producer selected for one State. */
-export function inputSource(state: State): InputSource {
-    return record(state).source;
-}
-
 function unit(value: number, size: number): number {
     if (!Number.isFinite(value) || size <= 0) return 0;
     return Math.min(Math.max(value / size, 0), 1);
@@ -271,7 +250,7 @@ function updateNormalized(d: DeviceRecord, index: number): void {
     d.mouse.normalizedY = unit(d.mouse.y, viewport.cssHeight);
 }
 
-/** Produce the viewport row for a controlled caller. The DOM adapter uses {@link reportViewport}. */
+/** Produce a viewport row from an application or test driver. */
 export function resizeViewport(
     state: State,
     index: number,
@@ -289,7 +268,7 @@ export function resizeViewport(
     if (d.pointerCanvasIndex === index) updateNormalized(d, index);
 }
 
-/** Report a viewport row from a browser adapter; controlled facts reject host reports. */
+/** Report a viewport row from a host adapter. The adapter is optional; omission is composition. */
 export function reportViewport(
     state: State,
     index: number,
@@ -297,18 +276,16 @@ export function reportViewport(
     height: number,
     dpr: number,
 ): void {
-    if (record(state).source === "controlled") return;
     resizeViewport(state, index, width, height, dpr);
 }
 
-/** Produce the audio context state supplied by a controlled caller. */
+/** Produce the audio context state supplied by an application or test driver. */
 export function audioContextState(state: State, context: AudioContextState): void {
     record(state).audio.context = context;
 }
 
-/** Report audio context state from the browser adapter; controlled facts reject host reports. */
+/** Report audio context state from a host adapter. The adapter is optional; omission is composition. */
 export function reportAudioContextState(state: State, context: AudioContextState): void {
-    if (record(state).source === "controlled") return;
     audioContextState(state, context);
 }
 
@@ -740,7 +717,7 @@ function setup(state: State, canvasElements: HTMLCanvasElement[]): void {
 /** Request pointer lock from an engagement gesture. This is the only browser effect in the lock seam. */
 export function requestPointerLock(state: State): void {
     const d = record(state);
-    if (d.suspended || d.source === "controlled") return;
+    if (d.suspended) return;
     if (d.pointer.lock.status === "unsupported") return;
     const a = adapters.get(state);
     if (!a) return;
@@ -803,12 +780,20 @@ export function pointerLockRefusal(state: State): string | null {
 }
 
 const InputSystem: System = {
+    name: "state",
     group: "simulation",
     setup(state: State) {
-        const d = record(state);
-        d.setupStarted = true;
-        // Controlled production owns its facts and never probes or touches a host, even when one exists.
-        if (d.source === "controlled") return;
+        // The data owner has no host boundary. Producers may be absent even when a DOM is present.
+        record(state);
+    },
+    update() {},
+};
+
+/** Optional browser producer. It is composed separately from the plain-data input owner. */
+const BrowserInputSystem: System = {
+    name: "browser",
+    group: "simulation",
+    setup(state: State) {
         if (typeof document === "undefined" || typeof document.querySelectorAll !== "function")
             return;
         const elements = Array.from(document.querySelectorAll("canvas"));
@@ -846,8 +831,15 @@ const InputResetSystem: System = {
     },
 };
 
-/** Binds DOM listeners and installs the independent fixed- and frame-clock device-edge boundaries. */
+/** Owns plain device facts, transitions and independent fixed- and frame-clock boundaries. */
 export const InputPlugin: Plugin = {
     name: "Input",
     systems: [InputSystem, InputTickResetSystem, InputResetSystem],
+};
+
+/** Optional browser producer. Compose it with {@link InputPlugin} for ordinary browser gameplay. */
+export const BrowserInputPlugin: Plugin = {
+    name: "BrowserInput",
+    dependencies: [InputPlugin],
+    systems: [BrowserInputSystem],
 };
