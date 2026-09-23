@@ -42,11 +42,30 @@ The run summary names its JUnit report under `.artifacts/`; child stdout and std
 - A requirement tag names something the host must have. A host without it refuses and says why; it never runs a weaker version instead. A test with no tag is CPU only. `gpu` needs a real in-process WebGPU device. `display` shows in headed Chromium on a monitor the host declares, and takes that monitor, the keyboard and the cursor while it runs, because showing is what it measures. `src/harness/launch.ts` provides Chromium launch configuration, and `src/harness/browser.json` holds its browser arguments; a launch plan proves neither adapter availability nor display placement.
 - `captureFrame` from `@dylanebert/shallot/harness/capture` is the only way to capture a frame, so checks, saved artifacts and frames for people all show the same thing. Assertions run in the page on the stepped clock. A failure keeps its evidence and one real frame under `.artifacts/`.
 - Tests run on the scheduler's stepped clock, never wall time. Simulation state lives in registered components or behind a snapshot, restore and hash hook. Gameplay runs in the fixed group from per-tick actions; presentation and effects run in draw; `local` components stay out of the hash. Determinism holds within one runtime and engine version. Across them, a hash detects divergence; it is never assumed away.
-- Draws, dispatches, bytes uploaded and entities visited are deterministic unit work.
-- Their expected values come from the scene's content, never a hard-coded number.
 - Allocations are a binary integration check.
-- Timings come from real devices, labeled with the hardware, and are reported; no gate fails on wall time.
 - A claim about a frame is proved at the lowest level that can see it: a CPU property, then GPU readback, then browser pixels through `captureFrame`, then a person looking. A full-frame golden image is added only for a defect no lower level can see, and a golden is never edited to match. A screenshot helps while iterating and is never a verdict.
+
+### Measurement
+
+| Claim | Tier | Requirement tag | Instrument |
+|---|---|---|---|
+| Deterministic work and owned counts | unit | — | Stepped assertions for draws, dispatches, uploaded bytes and visited entities against scene-derived expectations; engine counters for owned counts; `FinalizationRegistry` under `Bun.gc(true)` for collectability where it fits the unit budget. |
+| WASM kernel memory | integration | — | A counting global allocator per crate behind a cargo feature for allocations, frees and live bytes; `memory.buffer.byteLength` for growth. |
+| Native heap per step | integration | cargo | `dhat` heap assertions; one profiler per process. |
+| Steady JavaScript allocation is zero | integration | node | The V8 sampling heap profiler over the composed subject in a Node child. |
+| GPU resources are released | integration | gpu | A harness-only counting wrapper over the real Dawn device; zero live resources after dispose. |
+| Presentation | integration | display | `captureFrame` checks presentation. |
+| Claims the suite cannot see | oracle | — | Sampler site attribution, memlab heap-snapshot diffs, CDP tracing queried with Perfetto, `measureUserAgentSpecificMemory`, and WebGPU `timestamp-query`. |
+| Look and feel | person | — | A person judges the look and feel. |
+
+- Timings come from real devices, carry hardware labels and are reported, never gated.
+- Every owned-memory check creates and destroys its subject, returns to baseline, and reds on a deliberately retained control.
+- Retention is its own claim and is measured after a GC.
+- Run an oracle once when its cross-checked check is created or its instrument changes.
+- Record that run in the same commit as the check's positive control.
+- Run an oracle again only for a named doubt: a suite red it cannot attribute or a leak seen outside the suite.
+- Oracles have no standing cadence.
+- Hosted observation is never a CI verdict.
 
 ## Allocation
 
@@ -54,6 +73,7 @@ The run summary names its JUnit report under `.artifacts/`; child stdout and std
 - Any steady allocation reds the binary integration check.
 - A red prints the sampler's sites for diagnosis.
 - Sampler sites do not decide the verdict.
+- Node's `v8.getHeapStatistics().total_allocated_bytes` replaces the sampler only after a no-op and known-allocation control on the real step.
 - Deferred allocation is recorded in its owner's roadmap note, never excused by a ledger.
 
 ## Heavy work
