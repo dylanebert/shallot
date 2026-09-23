@@ -52,19 +52,55 @@ check(
     },
 );
 
-const window = (sites: AllocationSample["windows"][number]["sites"]) => ({
-    windows: [{ label: "A/A repeat", sites, frames: 120, framesAtMost: 120 }],
+const steadySample = (sites: AllocationSample["windows"][number]["sites"]) => ({
+    warm: 120,
+    windows: [
+        { label: "after warm 120", sites: [], frames: 120, framesAtMost: 120 },
+        { label: "after warm 240", sites: [], frames: 120, framesAtMost: 120 },
+        { label: "A/A repeat", sites, frames: 120, framesAtMost: 120 },
+    ],
 });
 
 check(
-    "a zero steady window passes",
+    "three zero steady windows pass",
     {
-        claim: "the allocation gate passes when every steady window samples zero bytes at zero sites",
+        claim: "the allocation gate passes when all three expected steady windows sample zero bytes at zero sites",
     },
     () => {
-        const sample = window([]);
+        const sample = steadySample([]);
         expect(allocatesNothing(sample)).toBe(true);
         expect(allocationFailure(sample)).toBeUndefined();
+    },
+);
+
+check(
+    "an empty steady sample reds for missing windows",
+    {
+        claim: "the allocation gate reds with the names of all expected windows when a sampler returns no steady windows",
+    },
+    () => {
+        const sample = { warm: 120, windows: [] as AllocationSample["windows"] };
+        expect(allocatesNothing(sample)).toBe(false);
+        expect(allocationFailure(sample)).toBe(
+            "steady allocation sample is missing expected windows: after warm 120, after warm 240, A/A repeat",
+        );
+    },
+);
+
+check(
+    "an incomplete steady sample reds for its missing windows",
+    {
+        claim: "the allocation gate reds with the names of expected steady windows omitted by an incomplete sampler result",
+    },
+    () => {
+        const sample = {
+            warm: 120,
+            windows: [{ label: "after warm 120", sites: [], frames: 120, framesAtMost: 120 }],
+        };
+        expect(allocatesNothing(sample)).toBe(false);
+        expect(allocationFailure(sample)).toBe(
+            "steady allocation sample is missing expected windows: after warm 240, A/A repeat",
+        );
     },
 );
 
@@ -74,7 +110,7 @@ check(
         claim: "the allocation gate reds on any sampled steady allocation and prints its site only for diagnosis",
     },
     () => {
-        const sample = window([
+        const sample = steadySample([
             { site: "stepChunk src/standard/character/sweep.ts:42", bytes: 96, count: 3 },
         ]);
         expect(allocatesNothing(sample)).toBe(false);

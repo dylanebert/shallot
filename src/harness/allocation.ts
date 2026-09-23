@@ -80,22 +80,48 @@ export const TIER_FLAGS = [
 export const windowBytes = (window: { sites: readonly AllocationSite[] }) =>
     window.sites.reduce((total, row) => total + row.bytes, 0);
 
-/** True only when every window reads zero bytes at zero sites. */
-export const allocatesNothing = (sample: Pick<AllocationSample, "windows">) =>
-    sample.windows.every((window) => window.sites.length === 0 && windowBytes(window) === 0);
+const expectedSteadyWindows = (warm: number) => [
+    `after warm ${warm}`,
+    `after warm ${2 * warm}`,
+    "A/A repeat",
+];
+
+/** True only when every expected window is present and reads zero bytes at zero sites. */
+export const allocatesNothing = (sample: Pick<AllocationSample, "warm" | "windows">) => {
+    const expected = expectedSteadyWindows(sample.warm);
+    return (
+        expected.every((label) => sample.windows.some((window) => window.label === label)) &&
+        sample.windows.every((window) => window.sites.length === 0 && windowBytes(window) === 0)
+    );
+};
 
 /** A binary steady-allocation failure, with sampled sites printed only to diagnose the red. */
-export function allocationFailure(sample: Pick<AllocationSample, "windows">): string | undefined {
+export function allocationFailure(
+    sample: Pick<AllocationSample, "warm" | "windows">,
+): string | undefined {
     if (allocatesNothing(sample)) return undefined;
+    const missing = expectedSteadyWindows(sample.warm).filter(
+        (label) => !sample.windows.some((window) => window.label === label),
+    );
+    const failures: string[] = [];
+    if (missing.length > 0)
+        failures.push(
+            `steady allocation sample is missing expected windows: ${missing.join(", ")}`,
+        );
     const allocating = sample.windows.filter(
         (window) => window.sites.length > 0 || windowBytes(window) !== 0,
     );
-    const sites = allocating.flatMap((window) =>
-        window.sites.length > 0
-            ? window.sites.map((row) => `  ${window.label}: ${row.bytes} B at ${row.site}`)
-            : [`  ${window.label}: ${windowBytes(window)} B with no attributed sites`],
-    );
-    return `steady play allocated JavaScript heap; sampler sites are diagnosis only:\n${sites.join("\n")}`;
+    if (allocating.length > 0) {
+        const sites = allocating.flatMap((window) =>
+            window.sites.length > 0
+                ? window.sites.map((row) => `  ${window.label}: ${row.bytes} B at ${row.site}`)
+                : [`  ${window.label}: ${windowBytes(window)} B with no attributed sites`],
+        );
+        failures.push(
+            `steady play allocated JavaScript heap; sampler sites are diagnosis only:\n${sites.join("\n")}`,
+        );
+    }
+    return failures.join("\n");
 }
 
 /**

@@ -1,7 +1,7 @@
 // Allocation attribution for both samplers, and the Node sampler itself. `attribute`, `subjectSite` and
 // `originalPosition` are shared with the page sampler in `./allocation.ts`. The rest runs only when Node runs
-// this file, never Bun: V8's sampling heap profiler counts allocation exactly, where JSC's statistics hold
-// still between collections.
+// this file, never Bun: V8's sampling heap profiler detects allocation from samples, not exact counts.
+// JSC's statistics hold still between collections.
 // argv: <bundle.mjs> <warm frames> <window frames> <input file> [transition]. The bundle's default export
 // takes the input text and resolves to { step(), dispose() }, plus { spawn(), despawn() } for a transition;
 // its `control` export allocates one known literal per call. Prints one JSON sample on stdout.
