@@ -58,8 +58,7 @@ export function subjectSite(frame, map, base, fallback) {
  * @param {{ head: ProfileNode, samples: { nodeId: number, size: number }[] }} profile
  * @param {(frame: CallFrame) => string | undefined} runSite names a run frame, else undefined
  * @param {(frame: CallFrame) => string | undefined} siteOf names a subject frame, else undefined
- * At a one-byte sampling interval every allocation is sampled, so the number of samples at a site is the
- * number of allocations there: a sanctioned site's per-frame count is read from it, never from bytes.
+ * Sample counts and bytes describe observed sites; attribution identifies a caller for diagnosis, not ownership.
  * @returns {{ site: string, bytes: number, count: number }[]} most bytes first
  */
 export function attribute(profile, runSite, siteOf) {

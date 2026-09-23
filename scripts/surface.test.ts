@@ -694,9 +694,7 @@ check(
             expect(listedOutput).toContain(claim);
             expect(listedOutput).not.toContain("poison oracle must not run");
             expect(listedOutput).not.toContain("poison unit must not run");
-            expect(listedOutput).toContain(
-                "1 checks (parsed 3; 0 quarantined; 0 sanctioned, 0 unapproved; 0 red-circled, 0 unapproved)",
-            );
+            expect(listedOutput).toContain("1 checks (parsed 3; 0 quarantined)");
 
             const unknown = invoke("list", "--oracle", "unknown fixture oracle");
             expect(unknown.exitCode).toBe(1);
@@ -778,38 +776,6 @@ check(
         expect(orphan.err).toContain(
             'orphan quarantine row: claim "claim nobody declares" names no check in the population',
         );
-    },
-);
-
-check(
-    "unapproved, orphan and doubly declared sites red the reader",
-    {
-        claim: "check-surface.ts reds an unapproved row, a row whose site names an absent file, and a site declared as both a sanction and a red circle, in each of sanctions.json and red-circles.json, and leaves approved present rows alone",
-        size: "integration",
-    },
-    () => {
-        const { code, err } = reader("sanctions");
-        expect(code).toBe(1);
-        const lines = err
-            .split("\n")
-            .filter((line) => /sanction row|red-circle row|declared twice over/.test(line))
-            .map((line) => line.trim());
-        // Exact membership, so a rule that fires on the approved present rows, or one that stops firing,
-        // is as visible as one that never fired at all.
-        expect(lines.sort()).toEqual(
-            [
-                'unapproved sanction row: site "src/kept.test.ts:2" awaits the person\'s approval',
-                'orphan sanction row: site "src/gone.ts:3" names no file in the tree',
-                'unapproved red-circle row: site "src/kept.test.ts:6" awaits the person\'s approval',
-                'orphan red-circle row: site "src/vanished.ts:7" names no file in the tree',
-                'site declared twice over: site "src/kept.test.ts:4" is declared as a sanction and as a red-circle; a site classes once',
-            ].sort(),
-        );
-        // An absent declaration file is zero rows and no violation: the `clean` tree carries none of
-        // quarantine.json, sanctions.json or red-circles.json.
-        const absent = reader("clean");
-        expect(absent.code).toBe(0);
-        expect(absent.err).toBe("");
     },
 );
 

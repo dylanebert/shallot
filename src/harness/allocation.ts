@@ -21,32 +21,28 @@ import { resolveSeat } from "./seat";
 import { MissingPremise } from "./verdict";
 
 export interface AllocationSite {
-    /** function name and original source line */
+    /** attributed function name and original source line */
     site: string;
-    /** sampled bytes over the measured window, collected objects included */
+    /** sampled bytes attributed to this site over the measured window, collected objects included */
     bytes: number;
-    /** allocations at this site over the window: one sample per allocation at the one-byte interval */
+    /** samples attributed to this site over the window */
     count: number;
 }
 
 export interface AllocationWindow {
     label: string;
-    /** allocating sites in the bundled subject, most bytes first; builtin bytes credit their caller */
+    /** attributed sites, most bytes first; builtin bytes credit their caller */
     sites: readonly AllocationSite[];
-    /**
-     * the fewest frames this window can have stepped. The Node sampler steps its frames itself, so this is
-     * exact and equals {@link framesAtMost}; a page window is bracketed instead, because nothing in the
-     * page can be sampled once per frame reliably enough to count them (see {@link derivedFrames}).
-     */
+    /** the fewest frames this window can have stepped */
     frames: number;
-    /** the most frames this window can have stepped; equal to {@link frames} where that is exact */
+    /** the most frames this window can have stepped; equal to {@link frames} for the Node sampler */
     framesAtMost: number;
 }
 
 export interface AllocationSample {
     runtime: string;
     warm: number;
-    /** frames each window was asked to step; what it stepped is the window's own `frames` */
+    /** frames each window was asked to step; page samples bracket actual frames with `framesAtMost` */
     frames: number;
     /** windows read after `warm` frames, after twice that, and an A/A repeat, each after a collection */
     windows: readonly AllocationWindow[];
@@ -85,8 +81,22 @@ export const windowBytes = (window: { sites: readonly AllocationSite[] }) =>
     window.sites.reduce((total, row) => total + row.bytes, 0);
 
 /** True only when every window reads zero bytes at zero sites. */
-export const allocatesNothing = (sample: AllocationSample) =>
+export const allocatesNothing = (sample: Pick<AllocationSample, "windows">) =>
     sample.windows.every((window) => window.sites.length === 0 && windowBytes(window) === 0);
+
+/** A binary steady-allocation failure, with sampled sites printed only to diagnose the red. */
+export function allocationFailure(sample: Pick<AllocationSample, "windows">): string | undefined {
+    if (allocatesNothing(sample)) return undefined;
+    const allocating = sample.windows.filter(
+        (window) => window.sites.length > 0 || windowBytes(window) !== 0,
+    );
+    const sites = allocating.flatMap((window) =>
+        window.sites.length > 0
+            ? window.sites.map((row) => `  ${window.label}: ${row.bytes} B at ${row.site}`)
+            : [`  ${window.label}: ${windowBytes(window)} B with no attributed sites`],
+    );
+    return `steady play allocated JavaScript heap; sampler sites are diagnosis only:\n${sites.join("\n")}`;
+}
 
 /**
  * Bundle `entry` for Node, build its default export with `input`, step it `warm` frames, collect,
@@ -230,8 +240,7 @@ const FRAME_LOOP = { source: resolve(import.meta.dir, "../engine/app/index.ts"),
 
 /**
  * The harness's frame counter, injected into every document. It is read over CDP to step and bracket
- * windows; it is deliberately not an allocation, because an allocation cannot be counted reliably here —
- * see {@link derivedFrames}.
+ * windows; it is deliberately not an allocation.
  */
 const FRAME_TICK_SCRIPT = `(() => {
     const counter = window;
@@ -565,12 +574,7 @@ export async function samplePage(
             bounded("removeBreakpoint", cdp.send("Debugger.removeBreakpoint", { breakpointId }));
         // A window is bracketed, not measured. The counter is read before the profiler starts and after
         // it stops, and `advance` only returns once the page has stepped the frames asked for while the
-        // profiler was running, so the frames inside the profiled span are at least what was asked for and
-        // at most the counter's delta. What the span stepped exactly is derived from the declared rows by
-        // `derivedFrames`, because nothing in the page can be sampled once per frame reliably enough to
-        // count them: V8 attributes occasional tiering and deoptimisation allocations to whichever frame is
-        // running, so a per-frame allocation site over-reports, nondeterministically and by a margin larger
-        // than the bracket itself.
+        // profiler was running, so the page's own counter brackets the sampled span.
         const sample = async (count: number) => {
             await collect();
             const before = await frameCount();
@@ -725,196 +729,6 @@ export async function samplePage(
         server?.stop(true);
         rmSync(outDir, { recursive: true, force: true });
     }
-}
-
-/**
- * A measured site is `<function> <file>:<line>`; a declaration names the `<file>:<line>` half, the one a
- * minified production build keeps.
- *
- * The split is at the last space, not the first: V8 names an accessor frame `set transform`, so a getter or
- * setter site carries a space inside its function name and splitting at the first one leaves half the name
- * on the front of the path. A declaration for such a site then matches nothing, and reads as both undeclared
- * and stale in the same verdict.
- */
-export const where = (site: string): string => site.slice(site.lastIndexOf(" ") + 1);
-
-/**
- * The frames one window stepped, derived from the sanctioned sites rather than measured.
- *
- * Each sanctioned site allocates a fixed number of objects per frame, so over a window of F frames a row
- * declaring `count` must read exactly `count * F` allocations. Every row therefore divides to the same F,
- * and F must fall inside the window's bracket. That agreement is what makes the reading exact: one extra
- * allocation, in one frame, at one site either leaves a remainder or moves that row's quotient off the
- * others, and either way it is named.
- *
- * This is derived rather than measured because nothing in the page can be sampled once per frame reliably
- * enough to count them. A per-frame allocation site over-reports: V8 attributes occasional tiering and
- * deoptimisation allocations to whichever JS frame is running, nondeterministically and by more than the
- * bracket's own width, so such a site is an upper bound on frames and never a count. An inflated
- * denominator would shrink every per-frame figure and red the count assertion at the sanctioned sites
- * instead of naming its own cause, so it is not used.
- *
- * Returns the frames, or the reason no single count is consistent with the window.
- */
-export function derivedFrames(
-    window: AllocationWindow,
-    sanctions: readonly { site: string; count: number }[],
-): { frames: number } | { reason: string } {
-    const quotients = new Map<number, string[]>();
-    const ragged: string[] = [];
-    for (const row of sanctions) {
-        const seen = window.sites.find((site) => where(site.site) === row.site);
-        if (seen === undefined) continue;
-        if (seen.count % row.count !== 0) {
-            // The rate range the bracket allows, so the reading says what the site actually allocates
-            // rather than only that the declared count does not divide it.
-            const low = (seen.count / window.framesAtMost).toFixed(2);
-            const high = (seen.count / window.frames).toFixed(2);
-            ragged.push(
-                `  ${row.site} read ${seen.count} allocations, which is not a whole number of frames at the declared ${row.count}×/f; over this window's ${window.frames} to ${window.framesAtMost} frames that is ${low} to ${high} per frame`,
-            );
-            continue;
-        }
-        const frames = seen.count / row.count;
-        quotients.set(frames, [
-            ...(quotients.get(frames) ?? []),
-            `  ${row.site}: ${seen.count} allocations at ${row.count}×/f is ${frames} frames`,
-        ]);
-    }
-    if (ragged.length > 0)
-        return {
-            reason: `${window.label}: a sanctioned site did not allocate a whole number of frames' worth:\n${ragged.join("\n")}`,
-        };
-    if (quotients.size === 0)
-        return { reason: `${window.label}: no sanctioned site allocated, so it measured nothing` };
-    if (quotients.size > 1)
-        return {
-            reason: `${window.label}: the sanctioned sites disagree on how many frames this window stepped, so at least one of them is off its declared count:\n${[
-                ...quotients.values(),
-            ]
-                .flat()
-                .join("\n")}`,
-        };
-    const frames = [...quotients.keys()][0];
-    if (frames < window.frames || frames > window.framesAtMost)
-        return {
-            reason: `${window.label}: the sanctioned sites agree on ${frames} frames, which is outside the ${window.frames} to ${window.framesAtMost} frames the page's own counter bracketed this window at, so they agree on something other than the frame count`,
-        };
-    return { frames };
-}
-
-/**
- * The declared-site rule has two halves, split because they are claims about different things.
- * {@link undeclaredSiteFailures} is a claim about the sites a run measured: none allocates outside the
- * ledger, and every sanctioned site reads its derived count exactly. Any run can make it over the sites it
- * reaches. {@link staleRowFailures} is a claim about the whole ledger: no row names a site that allocates
- * nothing. Only a run that reaches every row can make it, so only the page oracle composes both.
- *
- * Membership and staleness are read over the **A/A repeat window alone**, the last of `windows`, as
- * § Gate narrowing locks: the page's warm is bounded by the row's own budget, and a JIT transition is not
- * steady-state cost, so a site that appears only in a warm window is warm-up telemetry rather than a
- * failure and a row that allocates only in the warm windows is not yet stale. The warm windows' extra and
- * absent sites are printed beside the verdict by {@link warmWindowTelemetry}, not thrown.
- *
- * Membership and staleness are the same for both classes. Only the count differs: a sanction is what the
- * platform forces, so its samples must equal `count * frames` exactly — no rounding, no tolerance, because
- * one extra allocation in one frame of one window is the defect the count exists to catch. That is
- * asserted by {@link derivedFrames} over every window, which fails unless every row agrees on one frame
- * count inside the window's bracket. A red-circle is real, unwanted allocation the person deferred to a
- * named later gate, so it carries no count and holds at any count until that gate closes it.
- *
- * An **empty sanction ledger** asserts no count. `derivedFrames` has no row to divide by, so its
- * reason would be about the ledger being empty rather than about anything the page did, and a failure that
- * a perfect page cannot clear is not a reading. The ledger is the person's decision; its own
- * "no sanctioned site allocated" reason stays for the case that matters, a non-empty ledger whose rows
- * have all gone silent.
- *
- * Returns one message per broken condition, empty when all hold.
- */
-export function undeclaredSiteFailures(
-    windows: readonly AllocationWindow[],
-    sanctions: readonly { site: string; count: number }[],
-    redCircles: readonly { site: string }[],
-): string[] {
-    const declared = new Set([...sanctions, ...redCircles].map((row) => row.site));
-    const failures: string[] = [];
-    const steady = windows[windows.length - 1];
-    if (steady === undefined) return failures;
-    const undeclared = steady.sites
-        .filter((row) => !declared.has(where(row.site)))
-        .map((row) => `  ${steady.label}: ${row.bytes} B at ${row.site}`);
-    if (undeclared.length > 0)
-        failures.push(
-            `warm page frames allocate outside the sanctions and red circles:\n${undeclared.join("\n")}`,
-        );
-    if (sanctions.length > 0)
-        for (const window of windows) {
-            const derived = derivedFrames(window, sanctions);
-            if ("reason" in derived) failures.push(derived.reason);
-        }
-    return failures;
-}
-
-/**
- * The ledger half of the declared-site rule: every sanction and red-circle row names a site the A/A
- * repeat window saw allocate. A row naming a site that allocates nothing is a row nobody retired. See
- * {@link undeclaredSiteFailures} for why this is read over the last window alone and why only a run that
- * reaches every row may apply it.
- *
- * Returns one message listing the stale rows, empty when none is stale.
- */
-export function staleRowFailures(
-    windows: readonly AllocationWindow[],
-    sanctions: readonly { site: string }[],
-    redCircles: readonly { site: string }[],
-): string[] {
-    const steady = windows[windows.length - 1];
-    if (steady === undefined) return [];
-    const stale: string[] = [];
-    for (const row of declaredRows(sanctions, redCircles))
-        if (!steady.sites.some((site) => where(site.site) === row.site))
-            stale.push(`  ${steady.label}: ${row.noun} ${row.site} allocates nothing`);
-    return stale.length > 0 ? [`stale declared rows:\n${stale.join("\n")}`] : [];
-}
-
-const declaredRows = (
-    sanctions: readonly { site: string }[],
-    redCircles: readonly { site: string }[],
-) => [
-    ...sanctions.map((row) => ({ site: row.site, noun: "sanction" })),
-    ...redCircles.map((row) => ({ site: row.site, noun: "red-circle" })),
-];
-
-/**
- * What the warm windows saw that the A/A repeat did not, and the reverse: printed beside the verdict as
- * telemetry, because § Gate narrowing reads membership and staleness over the A/A repeat alone. A site here
- * is a JIT transition settling, not a page defect — but it is worth seeing, since a site that keeps
- * appearing across runs is where the next red will come from.
- *
- * Empty lines mean the warm windows named exactly what the A/A repeat did.
- */
-export function warmWindowTelemetry(
-    windows: readonly AllocationWindow[],
-    sanctions: readonly { site: string; count: number }[],
-    redCircles: readonly { site: string }[],
-): string {
-    const declared = new Set([...sanctions, ...redCircles].map((row) => row.site));
-    const lines: string[] = [];
-    for (const window of windows.slice(0, -1)) {
-        for (const row of window.sites)
-            if (!declared.has(where(row.site)))
-                lines.push(
-                    `  ${window.label}: ${row.bytes} B at ${row.site} — undeclared in a warm window only`,
-                );
-        for (const row of declaredRows(sanctions, redCircles))
-            if (!window.sites.some((site) => where(site.site) === row.site))
-                lines.push(
-                    `  ${window.label}: ${row.noun} ${row.site} allocates nothing in this warm window`,
-                );
-    }
-    return lines.length === 0
-        ? "warm-window telemetry: the warm windows name exactly the sites the A/A repeat does"
-        : `warm-window telemetry (not gated; membership and staleness are read over the A/A repeat):\n${lines.join("\n")}`;
 }
 
 /** Empty when `sites` names exactly `named`; otherwise the unnamed sites by bytes and the named ones absent. */

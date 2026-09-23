@@ -12,12 +12,11 @@ import {
     Time,
 } from "@dylanebert/shallot";
 import {
+    allocationFailure,
     sampleAllocation,
-    undeclaredSiteFailures,
     windowBytes,
 } from "@dylanebert/shallot/harness/allocation";
 import { check } from "@dylanebert/shallot/harness/check";
-import { readRedCircles } from "@dylanebert/shallot/harness/surface";
 import { Demo } from "./demo";
 
 const SCENE = resolve(import.meta.dir, "../public/scenes/first-person.scene");
@@ -270,13 +269,8 @@ check(
             throw new Error(
                 "inconclusive: the sampler attributed no site to the entry's control literal",
             );
-        // The page oracle's declared-site rule over the same ledger: no byte outside the red circles.
-        const redCircled = readRedCircles(process.cwd());
-        const failures = [
-            ...redCircled.errors,
-            ...undeclaredSiteFailures(sample.windows, [], redCircled.rows),
-        ];
-        if (failures.length !== 0) throw new Error(failures.join("\n\n"));
+        const failure = allocationFailure(sample);
+        if (failure !== undefined) throw new Error(failure);
     },
 );
 

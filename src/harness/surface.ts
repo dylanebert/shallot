@@ -36,40 +36,6 @@ export interface DeclarationFile<Row> {
     errors: string[];
 }
 
-/**
- * one declared per-frame allocation the platform forces, read from `sanctions.json` beside
- * `quarantine.json`. `site` is the owning function site as `<file>:<line>`, the function's definition
- * line, which is the half of an allocation profile's site name a minified production build keeps;
- * `reason` names the function and the platform reason; `count` is the per-frame count derived
- * from the frame's structure (one per frame, one per pass, one per submitted buffer), never a byte
- * figure; `spec` owns it; `approved` carries the person's `(user, YYYY-MM-DD)` and is empty until they
- * approve the row. No agent approves a sanction, and `check` reds while a row is unapproved or its
- * file is absent from the tree.
- */
-export interface SanctionRow {
-    site: string;
-    reason: string;
-    count: number;
-    spec: string;
-    approved: string;
-}
-
-/**
- * one site the person has red-circled: real, unwanted per-frame allocation, neither platform-forced nor
- * fixed here, deferred to a named later gate. `site` is the owning function site as `<file>:<line>`, as a
- * sanction's is; `reason` says what allocates and why it is not fixed now; `owner` names the later gate in
- * prose, a roadmap item or spec slug. There is deliberately no `count`: a red-circle asserts membership
- * only and is meant to trend to zero, where a sanction is permanent and counted exactly. `approved`
- * carries the person's `(user, YYYY-MM-DD)`. No agent classes a site, and `check` reds while a row is
- * unapproved, its file is absent from the tree, or its site is also declared as a sanction.
- */
-export interface RedCircleRow {
-    site: string;
-    reason: string;
-    owner: string;
-    approved: string;
-}
-
 export interface UndeclaredFile {
     file: string;
     reason: string;
@@ -415,12 +381,9 @@ function isIsoDate(value: unknown): value is string {
     return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
 }
 
-const APPROVAL = /^\(user, \d{4}-\d{2}-\d{2}\)$/;
-
 /**
  * One root declaration file: which file it is, what one row is called in an error, the fields every row
- * must carry as non-empty strings, and any further per-row rules. The three declarations are data, so a
- * fourth costs a descriptor rather than another reader.
+ * must carry as non-empty strings, and any further per-row rules.
  */
 interface Declaration {
     file: string;
@@ -429,37 +392,11 @@ interface Declaration {
     rules?: readonly ((row: Record<string, unknown>) => string)[];
 }
 
-/** `approved` is the person's mark. Empty is valid shape in every declaration; `check` judges it, not this. */
-const approvedShape = (row: Record<string, unknown>) =>
-    typeof row.approved === "string" && (row.approved === "" || APPROVAL.test(row.approved))
-        ? ""
-        : 'approved must be "" or "(user, YYYY-MM-DD)"';
-
 const QUARANTINE: Declaration = {
     file: "quarantine.json",
     noun: "quarantine",
     strings: ["file", "claim", "reason", "expires", "spec"],
     rules: [(row) => (isIsoDate(row.expires) ? "" : "expires must be an ISO date")],
-};
-
-const SANCTIONS: Declaration = {
-    file: "sanctions.json",
-    noun: "sanction",
-    strings: ["site", "reason", "spec"],
-    rules: [
-        (row) =>
-            typeof row.count === "number" && Number.isInteger(row.count) && row.count >= 1
-                ? ""
-                : "count must be a positive integer",
-        approvedShape,
-    ],
-};
-
-const RED_CIRCLES: Declaration = {
-    file: "red-circles.json",
-    noun: "red-circle",
-    strings: ["site", "reason", "owner"],
-    rules: [approvedShape],
 };
 
 /**
@@ -502,28 +439,10 @@ function readDeclaration<Row>(root: string, declaration: Declaration): Declarati
 export const readQuarantine = (root: string): DeclarationFile<QuarantineRow> =>
     readDeclaration(root, QUARANTINE);
 
-/**
- * the declared per-frame allocation sanctions: what the platform forces, permanent and counted exactly.
- * Read by the same reader as {@link readQuarantine} so `list` and every verdict count them.
- */
-export const readSanctions = (root: string): DeclarationFile<SanctionRow> =>
-    readDeclaration(root, SANCTIONS);
-
-/**
- * the declared red-circled sites: real, unwanted allocation the person has classed and deferred to a
- * named later gate. Read by the same reader as {@link readSanctions}, and deliberately a separate file:
- * a sanction is never a ledger of known debt, and this is one. An absent file is zero rows, so the class
- * costs nothing until the person writes the first row.
- */
-export const readRedCircles = (root: string): DeclarationFile<RedCircleRow> =>
-    readDeclaration(root, RED_CIRCLES);
-
 export function formatPopulation(
     population: Population,
     quarantines: readonly QuarantineRow[] = readQuarantine(population.root).rows,
     rows: readonly SurfaceRow[] = population.rows,
-    sanctions: readonly SanctionRow[] = readSanctions(population.root).rows,
-    redCircles: readonly RedCircleRow[] = readRedCircles(population.root).rows,
 ): string {
     const cells = rows.map((row) => [
         row.claim,
@@ -544,7 +463,7 @@ export function formatPopulation(
     return [
         line(COLUMNS),
         ...cells.map(line),
-        `${rows.length} checks (parsed ${population.rows.length}; ${quarantines.length} quarantined; ${sanctions.length} sanctioned, ${sanctions.filter((row) => row.approved === "").length} unapproved; ${redCircles.length} red-circled, ${redCircles.filter((row) => row.approved === "").length} unapproved)`,
+        `${rows.length} checks (parsed ${population.rows.length}; ${quarantines.length} quarantined)`,
     ].join("\n");
 }
 
@@ -948,44 +867,6 @@ export function readSurface(root: string): string[] {
     }
     const quarantine = readQuarantine(root);
     violations.push(...quarantine.errors);
-    const sanctions = readSanctions(root);
-    violations.push(...sanctions.errors);
-    const redCircles = readRedCircles(root);
-    violations.push(...redCircles.errors);
-    // Both site declarations are judged by one rule with one message shape. A site classes once, so the
-    // two files partition: `check` reds a site declared in both, as well as one declared twice in either.
-    const declaredAt = new Map<string, string>();
-    for (const { noun, rows } of [
-        { noun: "sanction", rows: sanctions.rows as readonly { site: string; approved: string }[] },
-        {
-            noun: "red-circle",
-            rows: redCircles.rows as readonly { site: string; approved: string }[],
-        },
-    ]) {
-        for (const row of rows) {
-            const first = declaredAt.get(row.site);
-            if (first === noun)
-                violations.push(`duplicate ${noun} row: site "${row.site}" is declared twice`);
-            else if (first !== undefined)
-                violations.push(
-                    `site declared twice over: site "${row.site}" is declared as a ${first} and as a ${noun}; a site classes once`,
-                );
-            else declaredAt.set(row.site, noun);
-            // A sanction or a red-circle is the person's classification, so an unapproved row reds the gate
-            // that guards landing: the display oracle runs only by name, and without this a branch could
-            // land its own declarations unread.
-            if (row.approved === "")
-                violations.push(
-                    `unapproved ${noun} row: site "${row.site}" awaits the person's approval`,
-                );
-            // Structural only: the file must exist, so a rename or move reds here without a display run.
-            // The line is the display oracle's to catch as stale; reading it here would need source-text
-            // matching, which the harness does not do.
-            const file = row.site.slice(0, row.site.lastIndexOf(":"));
-            if (file === "" || !existsSync(resolve(root, file)))
-                violations.push(`orphan ${noun} row: site "${row.site}" names no file in the tree`);
-        }
-    }
     const files = new Set(population.rows.map((row) => row.file));
     const claims = new Set(population.rows.map((row) => row.claim));
     const exactRows = new Set(population.rows.map((row) => `${row.file}\u0000${row.claim}`));

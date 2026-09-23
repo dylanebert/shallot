@@ -42,12 +42,19 @@ The run summary names its JUnit report under `.artifacts/`; child stdout and std
 - A requirement tag names something the host must have. A host without it refuses and says why; it never runs a weaker version instead. A test with no tag is CPU only. `gpu` needs a real in-process WebGPU device. `display` shows in headed Chromium on a monitor the host declares, and takes that monitor, the keyboard and the cursor while it runs, because showing is what it measures. `src/harness/launch.ts` provides Chromium launch configuration, and `src/harness/browser.json` holds its browser arguments; a launch plan proves neither adapter availability nor display placement.
 - `captureFrame` from `@dylanebert/shallot/harness/capture` is the only way to capture a frame, so checks, saved artifacts and frames for people all show the same thing. Assertions run in the page on the stepped clock. A failure keeps its evidence and one real frame under `.artifacts/`.
 - Tests run on the scheduler's stepped clock, never wall time. Simulation state lives in registered components or behind a snapshot, restore and hash hook. Gameplay runs in the fixed group from per-tick actions; presentation and effects run in draw; `local` components stay out of the hash. Determinism holds within one runtime and engine version. Across them, a hash detects divergence; it is never assumed away.
-- Draws, dispatches, bytes uploaded, allocations and entities visited are deterministic, so they are unit tests whose expected value comes from the scene's content, never a hard-coded number. Timings come from real devices, labeled with the hardware, and are reported; no gate fails on wall time.
+- Draws, dispatches, bytes uploaded and entities visited are deterministic unit work.
+- Their expected values come from the scene's content, never a hard-coded number.
+- Allocations are a binary integration check.
+- Timings come from real devices, labeled with the hardware, and are reported; no gate fails on wall time.
 - A claim about a frame is proved at the lowest level that can see it: a CPU property, then GPU readback, then browser pixels through `captureFrame`, then a person looking. A full-frame golden image is added only for a defect no lower level can see, and a golden is never edited to match. A screenshot helps while iterating and is never a verdict.
 
 ## Allocation
 
-Steady play allocates nothing unaccounted for. `sanctions.json` lists each per-frame allocation the platform forces, with a count derived from the frame's structure. `red-circles.json` lists real, unwanted work deferred to a named owner. Neither has a byte budget. Work that could be hoisted, cached, pooled or moved to wasm is never sanctioned. The person approves every row in both files; an agent proposes one and stops.
+- Steady play allocates nothing.
+- Any steady allocation reds the binary integration check.
+- A red prints the sampler's sites for diagnosis.
+- Sampler sites do not decide the verdict.
+- Deferred allocation is recorded in its owner's roadmap note, never excused by a ledger.
 
 ## Heavy work
 

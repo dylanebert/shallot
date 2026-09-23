@@ -1,11 +1,9 @@
 import { expect } from "bun:test";
 import { resolve } from "node:path";
 import {
-    derivedFrames,
-    staleRowFailures,
-    undeclaredSiteFailures,
-    warmWindowTelemetry,
-    where,
+    type AllocationSample,
+    allocatesNothing,
+    allocationFailure,
 } from "@dylanebert/shallot/harness/allocation";
 import { check } from "@dylanebert/shallot/harness/check";
 
@@ -54,258 +52,34 @@ check(
     },
 );
 
-// The page sampler needs a display seat, so the declared-site rule is read here instead: it is the same
-// production function the oracle calls, driven over constructed windows. A window is bracketed at 120 to
-// 133 frames by the page's own counter, the sanctioned site allocates its declared 2 per frame over 120 of
-// them, and the red-circled site allocates at a rate nothing declares.
-const SANCTION = { site: "src/a.ts:10", count: 2 };
-const RED_CIRCLE = { site: "src/b.ts:20" };
-const sanctionSite = (count: number) => ({ site: `openFrame ${SANCTION.site}`, bytes: 96, count });
-const redCircleSite = (count: number) => ({
-    site: `upload ${RED_CIRCLE.site}`,
-    bytes: 4096,
-    count,
+const window = (sites: AllocationSample["windows"][number]["sites"]) => ({
+    windows: [{ label: "A/A repeat", sites, frames: 120, framesAtMost: 120 }],
 });
-const windows = (...sites: { site: string; bytes: number; count: number }[][]) =>
-    sites.map((rows, index) => ({
-        label: `window ${index}`,
-        sites: rows,
-        frames: 120,
-        framesAtMost: 133,
-    }));
-const STEADY = windows(
-    [sanctionSite(240), redCircleSite(517)],
-    [sanctionSite(240), redCircleSite(499)],
-);
 
 check(
-    "a declared site off its count by one allocation in one frame reds",
+    "a zero steady window passes",
     {
-        claim: "the declared-site rule holds a steady sample green, reds a sanctioned site whose window reads one allocation above its derived count, and reds a site no declaration names",
+        claim: "the allocation gate passes when every steady window samples zero bytes at zero sites",
     },
     () => {
-        // Non-vacuity: the rule reads green on the sample every mutation below starts from.
-        expect(undeclaredSiteFailures(STEADY, [SANCTION], [RED_CIRCLE])).toEqual([]);
-        // One extra allocation, in one frame, of one window: 241 against 2 per frame leaves a remainder,
-        // so the window has no whole frame count and the site that broke it is named. This is the defect
-        // rounding the count per frame used to hide.
-        const offByOne = windows(
-            [sanctionSite(240), redCircleSite(517)],
-            [sanctionSite(241), redCircleSite(499)],
-        );
-        const broken = undeclaredSiteFailures(offByOne, [SANCTION], [RED_CIRCLE]);
-        expect(broken).toHaveLength(1);
-        expect(broken[0]).toContain("not a whole number of frames at the declared 2×/f");
-        expect(broken[0]).toContain("1.81 to 2.01 per frame");
-        expect(broken[0]).toContain("src/a.ts:10 read 241 allocations");
-        // One below reds the same way, so the condition is exactness and not a ceiling.
-        expect(
-            undeclaredSiteFailures(
-                windows([sanctionSite(239), redCircleSite(517)]),
-                [SANCTION],
-                [RED_CIRCLE],
-            ),
-        ).toHaveLength(1);
-        // A site neither declaration names reds as undeclared, whatever the declared sites do.
-        const extra = windows([
-            sanctionSite(240),
-            redCircleSite(517),
-            { site: "leak src/c.ts:30", bytes: 64, count: 7 },
-        ]);
-        expect(undeclaredSiteFailures(extra, [SANCTION], [RED_CIRCLE])[0]).toContain(
-            "64 B at leak src/c.ts:30",
-        );
+        const sample = window([]);
+        expect(allocatesNothing(sample)).toBe(true);
+        expect(allocationFailure(sample)).toBeUndefined();
     },
 );
 
 check(
-    "an accessor site matches the declaration that names its file and line",
+    "any steady allocation reds and names its sampled site",
     {
-        claim: "a measured site whose function name is a V8 accessor, and so carries a space of its own, still resolves to the file and line a declaration names, rather than reading as undeclared and stale at once",
+        claim: "the allocation gate reds on any sampled steady allocation and prints its site only for diagnosis",
     },
     () => {
-        // V8 names a setter frame `set transform`, which is two words before the path. Splitting the site
-        // at its first space left `transform src/b.ts:20` as the "file", so the red-circle row for that
-        // site matched nothing: the verdict called it undeclared in the same breath as it called the row
-        // stale. The physics kernel's column setters are exactly this shape.
-        expect(where("set transform src/b.ts:20")).toBe("src/b.ts:20");
-        expect(where("get size src/b.ts:20")).toBe("src/b.ts:20");
-        expect(where("flush src/b.ts:20")).toBe("src/b.ts:20");
-        const accessor = windows([
-            sanctionSite(240),
-            { ...redCircleSite(517), site: "set transform src/b.ts:20" },
+        const sample = window([
+            { site: "stepChunk src/standard/character/sweep.ts:42", bytes: 96, count: 3 },
         ]);
-        expect(undeclaredSiteFailures(accessor, [SANCTION], [RED_CIRCLE])).toEqual([]);
-    },
-);
-
-check(
-    "sanctioned sites must agree on one frame count inside the page's bracket",
-    {
-        claim: "the derived frame count is the one every sanctioned site agrees on and lies inside the window's bracket; disagreeing rows, a count outside the bracket, and a window where nothing sanctioned allocated each red by their own name",
-    },
-    () => {
-        const other = { site: "src/d.ts:40", count: 1 };
-        // Two rows, both whole, agreeing on 120 frames: the window has a frame count.
-        const agreeing = windows([
-            sanctionSite(240),
-            { site: "submit src/d.ts:40", bytes: 8, count: 120 },
-        ]);
-        expect(derivedFrames(agreeing[0], [SANCTION, other])).toEqual({ frames: 120 });
-        // The same window with one row one allocation high: both quotients are whole, so nothing is
-        // ragged, but they disagree and the rule names every row's own reading rather than picking one.
-        const disagreeing = windows([
-            sanctionSite(240),
-            { site: "submit src/d.ts:40", bytes: 8, count: 121 },
-        ]);
-        const split = derivedFrames(disagreeing[0], [SANCTION, other]);
-        expect(split).toHaveProperty("reason");
-        expect((split as { reason: string }).reason).toContain("disagree on how many frames");
-        expect((split as { reason: string }).reason).toContain(
-            "240 allocations at 2×/f is 120 frames",
-        );
-        expect((split as { reason: string }).reason).toContain(
-            "121 allocations at 1×/f is 121 frames",
-        );
-        // Rows can agree on a number that is not the frame count. The page's own counter bracketed this
-        // window at 120 to 133, so an agreed 60 is rejected: it would halve every per-frame figure.
-        const halved = windows([
-            sanctionSite(120),
-            { site: "submit src/d.ts:40", bytes: 8, count: 60 },
-        ]);
-        const outside = derivedFrames(halved[0], [SANCTION, other]);
-        expect((outside as { reason: string }).reason).toContain("outside the 120 to 133 frames");
-        // A window where no sanctioned site allocated has no frame count and is not silently zero.
-        const silent = windows([redCircleSite(517)]);
-        expect((derivedFrames(silent[0], [SANCTION]) as { reason: string }).reason).toContain(
-            "no sanctioned site allocated",
-        );
-    },
-);
-
-check(
-    "a red circle asserts membership only, and reds when it is stale",
-    {
-        claim: "the sites half accepts a red-circled site at any count, and the ledger half reds it when a window shows it allocating nothing, and reds a stale sanction the same way",
-    },
-    () => {
-        // A red circle carries no count, so any rate holds: it is deferred debt meant to trend to zero,
-        // not a budget. Only a declaration that names a count is asserted against one.
-        const wild = windows(
-            [sanctionSite(240), redCircleSite(3)],
-            [sanctionSite(240), redCircleSite(40_000)],
-        );
-        expect(undeclaredSiteFailures(wild, [SANCTION], [RED_CIRCLE])).toEqual([]);
-        expect(staleRowFailures(wild, [SANCTION], [RED_CIRCLE])).toEqual([]);
-        // A red-circled site absent from a window is stale, exactly as a sanction is: a row that names a
-        // site allocating nothing is a row nobody retired.
-        const goneRedCircle = windows([sanctionSite(240), redCircleSite(517)], [sanctionSite(240)]);
-        expect(staleRowFailures(goneRedCircle, [SANCTION], [RED_CIRCLE])).toEqual([
-            "stale declared rows:\n  window 1: red-circle src/b.ts:20 allocates nothing",
-        ]);
-        const goneSanction = windows([sanctionSite(240), redCircleSite(517)], [redCircleSite(499)]);
-        expect(staleRowFailures(goneSanction, [SANCTION], [RED_CIRCLE])).toEqual([
-            "stale declared rows:\n  window 1: sanction src/a.ts:10 allocates nothing",
-        ]);
-        // and that window then has no frame count of its own, which the sites' half names
-        expect(undeclaredSiteFailures(goneSanction, [SANCTION], [RED_CIRCLE])).toEqual([
-            expect.stringContaining("no sanctioned site allocated"),
-        ]);
-    },
-);
-
-check(
-    "membership and staleness are read over the A/A repeat window alone",
-    {
-        claim: "both halves of the declared-site rule read over the last window, so a row that allocates in the A/A repeat but not in a warm window is green and one absent from the A/A repeat reds, and the warm windows' extra and absent sites print as telemetry instead",
-    },
-    () => {
-        // § Gate narrowing: the page's warm is bounded by the row's own budget and a JIT transition is not
-        // steady-state cost, so the warm windows are telemetry and the A/A repeat is the gate. Before this,
-        // an approved row absent from a warm window reded on every run by construction.
-        // Non-vacuity: the three-window steady sample the mutations below start from is green.
-        const steady = windows(
-            [sanctionSite(240), redCircleSite(517)],
-            [sanctionSite(240), redCircleSite(499)],
-            [sanctionSite(240), redCircleSite(503)],
-        );
-        expect(undeclaredSiteFailures(steady, [SANCTION], [RED_CIRCLE])).toEqual([]);
-        expect(staleRowFailures(steady, [SANCTION], [RED_CIRCLE])).toEqual([]);
-        // A row allocating in the A/A repeat but not in window 0: warm-up, not a stale row.
-        const warmSilent = windows(
-            [sanctionSite(240)],
-            [sanctionSite(240), redCircleSite(499)],
-            [sanctionSite(240), redCircleSite(503)],
-        );
-        expect(undeclaredSiteFailures(warmSilent, [SANCTION], [RED_CIRCLE])).toEqual([]);
-        expect(staleRowFailures(warmSilent, [SANCTION], [RED_CIRCLE])).toEqual([]);
-        // and it is not silently dropped: the warm window's absence is printed beside the verdict
-        expect(warmWindowTelemetry(warmSilent, [SANCTION], [RED_CIRCLE])).toContain(
-            "window 0: red-circle src/b.ts:20 allocates nothing in this warm window",
-        );
-        // A row absent from the A/A repeat is stale, and that is the only window that can say so.
-        const gone = windows(
-            [sanctionSite(240), redCircleSite(517)],
-            [sanctionSite(240), redCircleSite(499)],
-            [sanctionSite(240)],
-        );
-        expect(staleRowFailures(gone, [SANCTION], [RED_CIRCLE])).toEqual([
-            "stale declared rows:\n  window 2: red-circle src/b.ts:20 allocates nothing",
-        ]);
-        // Membership narrows the same way: an undeclared site seen only while the page warms is telemetry,
-        // and the same site in the A/A repeat reds.
-        const warmOnly = windows(
-            [
-                sanctionSite(240),
-                redCircleSite(517),
-                { site: "tier src/c.ts:30", bytes: 64, count: 7 },
-            ],
-            [sanctionSite(240), redCircleSite(499)],
-            [sanctionSite(240), redCircleSite(503)],
-        );
-        expect(undeclaredSiteFailures(warmOnly, [SANCTION], [RED_CIRCLE])).toEqual([]);
-        expect(warmWindowTelemetry(warmOnly, [SANCTION], [RED_CIRCLE])).toContain(
-            "window 0: 64 B at tier src/c.ts:30 — undeclared in a warm window only",
-        );
-        const steadyLeak = windows(
-            [sanctionSite(240), redCircleSite(517)],
-            [sanctionSite(240), redCircleSite(499)],
-            [
-                sanctionSite(240),
-                redCircleSite(503),
-                { site: "leak src/c.ts:30", bytes: 64, count: 7 },
-            ],
-        );
-        expect(undeclaredSiteFailures(steadyLeak, [SANCTION], [RED_CIRCLE])[0]).toContain(
-            "window 2: 64 B at leak src/c.ts:30",
-        );
-    },
-);
-
-check(
-    "an empty sanction ledger reds nothing on a page whose every site is red-circled",
-    {
-        claim: "the declared-site rule asserts no derived count when no sanction is declared, so an empty ledger — the person's decision, not a page defect — cannot manufacture a failure a perfect page is unable to clear",
-    },
-    () => {
-        // With `sanctions.json` at `[]` the derivation has nothing to divide by, and its reason would be
-        // about the ledger rather than about the page. Every measured site is red-circled here, so the page
-        // is exactly as clean as the declarations say it is, and the rule must be silent.
-        const measured = windows([redCircleSite(517)], [redCircleSite(499)], [redCircleSite(503)]);
-        expect(undeclaredSiteFailures(measured, [], [RED_CIRCLE])).toEqual([]);
-        // The reason itself stays, for the case that matters: a non-empty ledger whose rows went silent.
-        expect(undeclaredSiteFailures(measured, [SANCTION], [RED_CIRCLE])[0]).toContain(
-            "no sanctioned site allocated",
-        );
-        // and an empty ledger still reds a site no declaration names, so the skip is the count condition
-        // alone and not the whole rule
-        const undeclared = windows(
-            [redCircleSite(517)],
-            [redCircleSite(499)],
-            [redCircleSite(503), { site: "leak src/c.ts:30", bytes: 64, count: 7 }],
-        );
-        expect(undeclaredSiteFailures(undeclared, [], [RED_CIRCLE])[0]).toContain(
-            "64 B at leak src/c.ts:30",
+        expect(allocatesNothing(sample)).toBe(false);
+        expect(allocationFailure(sample)).toBe(
+            "steady play allocated JavaScript heap; sampler sites are diagnosis only:\n  A/A repeat: 96 B at stepChunk src/standard/character/sweep.ts:42",
         );
     },
 );
