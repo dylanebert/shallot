@@ -229,8 +229,6 @@ export function projectPlugin(projectDir?: string): Plugin {
         load(id) {
             if (id !== resolvedId) return;
             if (!projectDir) return generateModuleFromPlan(emptyPlan());
-            // one resolved plan, the same shape `planProject` returns (src/project/command.ts) — the
-            // browser module and the command entry classify a manifest exactly once.
             return generateModuleFromPlan(readProject(resolve(projectDir)));
         },
         configureServer(server) {

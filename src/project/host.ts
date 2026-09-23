@@ -117,7 +117,7 @@ export function discoverScenes(dir: string): string[] {
 }
 
 /** dir holds a shallot project — a shallot.json manifest or a .scene file. */
-export function isProject(dir: string): boolean {
+function isProject(dir: string): boolean {
     return existsSync(manifestPath(dir)) || discoverScenes(dir).length > 0;
 }
 
@@ -128,9 +128,8 @@ export function requireProject(dir: string): void {
     process.exit(1);
 }
 
-/** the diagnostic for a directory that is no project — one message, printed by every command that
- *  needs one (`requireProject`, `planProject`'s setup exit). */
-export function missingProjectMessage(dir: string): string[] {
+/** the diagnostic for a directory that is no project. */
+function missingProjectMessage(dir: string): string[] {
     return [
         `\n  ✗ No shallot project found at ${dir}`,
         "    Expected a shallot.json manifest or a .scene file\n",
@@ -177,39 +176,18 @@ function resolveFromProject(spec: string, dir: string): string | null {
     }
 }
 
-/**
- * the dependency errors of a plan: every enabled local plugin whose module does not resolve from the
- * project root — a missing install (`bare-plugin` never installed) or a missing file. Pure and
- * side-effect free: the caller refuses with an exit code before anything is imported, which is what
- * keeps a bad manifest from leaving a half-loaded project behind. A disabled plugin is never resolved.
- */
-export function localModuleErrors(
-    project: ProjectPlan,
-    resolver: (spec: string, dir: string) => string | null = resolveFromProject,
-): string[] {
-    return resolveModules(project, resolver).errors;
-}
-
-function resolveModules(
-    project: Pick<ProjectPlan, "dir" | "locals">,
-    resolver = resolveFromProject,
-) {
+/** resolve every enabled entry before evaluation, retaining browser-authored paths in the plan. */
+export function resolveLocalModules(project: Pick<ProjectPlan, "dir" | "locals">): PlannedLocal[] {
     const errors: string[] = [];
     const locals: PlannedLocal[] = [];
     for (const local of project.locals) {
-        const path = project.dir ? resolver(local.path, project.dir) : null;
+        const path = project.dir ? resolveFromProject(local.path, project.dir) : null;
         if (path) locals.push({ ...local, path });
         else
             errors.push(
                 `shallot.json plugin "${local.name}": cannot resolve its module "${local.spec}" from ${project.dir}`,
             );
     }
-    return { locals, errors };
-}
-
-/** resolve every enabled entry before evaluation, retaining browser-authored paths in the plan. */
-export function resolveLocalModules(project: Pick<ProjectPlan, "dir" | "locals">): PlannedLocal[] {
-    const { locals, errors } = resolveModules(project);
     if (errors.length) throw new Error(errors.join("\n"));
     return locals;
 }
