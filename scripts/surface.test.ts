@@ -310,7 +310,7 @@ check(
             expect(all.out).not.toContain("unit selector exclusion");
             expect(all.out).not.toContain("oracle selector exclusion");
 
-            const requires = run("surface.ts", tree, "--integration", "--requires", "chromium");
+            const requires = run("surface.ts", tree, "--integration", "--requires", "gpu");
             expect(requires.code).toBe(0);
             expect(requires.out).toContain("browser selector row");
             expect(requires.out).not.toContain("display selector row");
@@ -325,7 +325,7 @@ check(
                 tree,
                 "--integration",
                 "--requires",
-                "chromium",
+                "gpu",
                 "--subject",
                 "src/browser",
             );
@@ -378,7 +378,7 @@ check(
                 "alpha holds       unit         -         -        250ms    src/alpha.test.ts",
                 "alpha refuses     unit         -         -        250ms    src/alpha.test.ts",
                 "beta builds       integration  -         -        20000ms  scripts/beta.test.ts",
-                "demo recipe runs  integration  chromium  -        20000ms  examples/demo/check.test.ts",
+                "demo recipe runs  integration  gpu       -        20000ms  examples/demo/check.test.ts",
             ]);
         } finally {
             rmSync(tree, { recursive: true, force: true });
@@ -389,7 +389,7 @@ check(
             expect(code).toBe(0);
             expect(out).toContain("browser defaults");
             expect(out).toContain("integration");
-            expect(out).toContain("chromium");
+            expect(out).toContain("gpu");
             expect(out).toContain("20000ms");
         } finally {
             rmSync(defaults, { recursive: true, force: true });
@@ -544,11 +544,10 @@ check(
                 invalid: [],
                 files: [],
             });
-        expect(render(["chromium"])).toContain("playwright install --with-deps chromium");
         expect(render(["cargo"])).toContain("dtolnay/rust-toolchain@stable");
         expect(render(["node"])).toContain("actions/setup-node@v6");
-        expect(render(["gpu"])).not.toMatch(/playwright install|rust-toolchain|setup-node/);
-        expect(render(["chromium"], "tests/browser.oracle.ts")).toBe("");
+        expect(render(["gpu"])).not.toMatch(/rust-toolchain|setup-node/);
+        expect(render(["gpu"], "tests/browser.oracle.ts")).toBe("");
     },
 );
 

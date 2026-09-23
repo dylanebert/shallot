@@ -670,10 +670,6 @@ function workflowRows(population: Population): SurfaceRow[] {
     return population.rows.filter((row) => !ORACLE_SUFFIX.test(row.file));
 }
 
-function workflowNeedsChromium(population: Population): boolean {
-    return workflowRows(population).some((row) => row.requires.includes("chromium"));
-}
-
 function workflowNeedsCargo(population: Population): boolean {
     return workflowRows(population).some((row) => row.requires.includes("cargo"));
 }
@@ -753,8 +749,6 @@ export function renderWorkflow(population: Population): string {
         '          echo "SHALLOT_SURFACE_DIFF=$SURFACE_DIFF" >> "$GITHUB_ENV"',
         "      - run: bun install --frozen-lockfile",
     );
-    if (workflowNeedsChromium(population))
-        steps.push("      - run: bunx playwright install --with-deps chromium");
     steps.push(
         "      - run: bun run check",
         "      - run: bun run test",

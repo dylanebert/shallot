@@ -43,7 +43,7 @@ check(
         expect(() =>
             validateDeclaration("here", {
                 claim: "bad",
-                requires: ["gpu", "display", "deploy", "cargo", "node"],
+                requires: ["gpu", "display", "cargo", "node"],
             }),
         ).not.toThrow();
         expect(
@@ -84,7 +84,7 @@ check(
     "a declaration enforces size ceilings and requirement shape",
     { claim: "check() rejects invalid requires values and budgets over the size ceiling" },
     () => {
-        expect(() => validateDeclaration("here", { claim: "bad", requires: "chromium" })).toThrow(
+        expect(() => validateDeclaration("here", { claim: "bad", requires: "gpu" })).toThrow(
             "array of strings",
         );
         for (const budget of [0, -1, Number.NaN, "10"]) {

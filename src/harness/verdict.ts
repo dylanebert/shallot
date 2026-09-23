@@ -379,9 +379,6 @@ export function missingRequirement(
             if (reason !== null) return reason;
             continue;
         }
-        if (requirement === "chromium") {
-            return "chromium seat unavailable: retired until the device-seat roadmap item proves a real-adapter headless launch here";
-        }
         if (requirement !== "display") return `runner cannot supply requirement ${requirement}`;
         // `display` is declared by the host that has one rather than inferred: a host with a window server
         // still runs every other row headlessly.
