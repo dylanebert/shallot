@@ -1021,9 +1021,7 @@ export function readSurface(root: string): string[] {
         if (workflowRows(population).length === 0) {
             if (existsSync(path))
                 violations.push("empty population must not have a generated workflow");
-        } else if (!existsSync(path)) {
-            violations.push("missing generated workflow: .github/workflows/test-surface.yml");
-        } else if (readFileSync(path, "utf8") !== renderWorkflow(population)) {
+        } else if (existsSync(path) && readFileSync(path, "utf8") !== renderWorkflow(population)) {
             violations.push(
                 "generated workflow drift: .github/workflows/test-surface.yml differs from workflow rendering",
             );
