@@ -72,6 +72,11 @@ check(
                 "core/rendering/types.d.ts",
                 'import type { Input } from "@dylanebert/shallot/input";\n',
             );
+            put(
+                root,
+                "core/rendering/missing.d.ts",
+                'import type { Missing } from "not-installed";\nexport type Broken = Missing;\n',
+            );
             put(root, "core/rendering/ignored.test.ts", 'import "@dylanebert/shallot/extras";\n');
             put(root, "extras/index.ts", "export {};\n");
             put(root, "standard/loading/index.ts", 'import "@dylanebert/shallot/extras";\n');
@@ -99,27 +104,21 @@ check(
                 "// Destination: engine; owner: legacy.md.\nexport {};\n",
             );
 
-            const reds = checkImports(root);
-            expect(reds).toHaveLength(12);
-            for (const file of [
-                "src/core/rendering/index.ts",
-                "src/core/rendering/js-path.ts",
-                "src/core/rendering/alias.ts",
-                "src/core/rendering/view.tsx",
-                "src/core/rendering/view.mts",
-                "src/core/rendering/view.cts",
-                "src/core/rendering/types.d.ts",
-            ]) {
-                expect(reds.some((red) => red.startsWith(`${file}:`))).toBe(true);
-            }
-            expect(reds.some((red) => red.startsWith("src/standard/loading/index.ts:"))).toBe(true);
-            expect(reds.some((red) => red.startsWith("src/core/rendering/tooling.ts:"))).toBe(true);
-            expect(reds.some((red) => red.startsWith("src/extras/physics/index.ts:"))).toBe(true);
-            expect(reds.some((red) => red.startsWith("src/harness/index.ts:"))).toBe(true);
-            expect(
-                reds.some((red) => red.includes("// Destination: engine; owner: legacy.md.")),
-            ).toBe(true);
-            expect(reds.some((red) => red.includes("ignored.test.ts"))).toBe(false);
+            expect(checkImports(root)).toEqual([
+                "src/core/rendering/alias.ts:1: sibling import core/rendering → core/input",
+                "src/core/rendering/index.ts:1: sibling import core/rendering → core/input",
+                "src/core/rendering/js-path.ts:1: sibling import core/rendering → core/input",
+                'src/core/rendering/missing.d.ts:1: unresolved import "not-installed"',
+                "src/core/rendering/tooling.ts:1: game module core/rendering imports tooling module project",
+                "src/core/rendering/types.d.ts:1: sibling import core/rendering → core/input",
+                "src/core/rendering/view.cts:1: sibling import core/rendering → core/input",
+                "src/core/rendering/view.mts:1: sibling import core/rendering → core/input",
+                "src/core/rendering/view.tsx:1: sibling import core/rendering → core/input",
+                "src/extras/physics/index.ts:1: physics module extras/physics imports rendering module core/rendering",
+                "src/harness/index.ts:1: import past engine/runtime/index.ts → engine/runtime/internal.ts",
+                "src/standard/loading/index.ts:1: standard imports outward to extras/index",
+                "src/transitional/legacy/index.ts:1: // Destination: engine; owner: legacy.md.",
+            ]);
         });
         withFixture((root) => {
             writeFileSync(

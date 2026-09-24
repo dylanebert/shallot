@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { builtinModules } from "node:module";
 import { dirname, relative, resolve, sep } from "node:path";
 import { parse } from "@babel/parser";
 import { Glob } from "bun";
@@ -11,6 +12,12 @@ const MODULE_TIERS = new Set(["core", "standard", "extras"]);
 const DIRECT_LEAVES = new Set(["engine/runtime/floor.ts"]);
 const SOURCE_ROOT = "src";
 const TSC = resolve(import.meta.dir, "../node_modules/.bin/tsc");
+const RUNTIME_MODULES = new Set([
+    ...builtinModules.flatMap((name) => [name, name.startsWith("node:") ? name : `node:${name}`]),
+    "bun:ffi",
+    "bun:sqlite",
+    "bun:test",
+]);
 
 interface ImportReference {
     readonly specifier: string;
@@ -191,7 +198,10 @@ export function checkImports(root: string): string[] {
         for (const reference of references(readFileSync(file, "utf8"), path)) {
             const key = `${file}\u0000${reference.specifier}`;
             const resolution = resolutions.get(key);
-            if (!resolution?.complete) {
+            if (
+                !resolution?.complete ||
+                (!resolution.target && !RUNTIME_MODULES.has(reference.specifier))
+            ) {
                 violations.push(
                     `${path}:${reference.line}: unresolved import "${reference.specifier}"`,
                 );
