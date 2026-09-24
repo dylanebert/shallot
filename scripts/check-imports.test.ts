@@ -20,50 +20,70 @@ function put(root: string, path: string, source: string): void {
     writeFileSync(file, source);
 }
 
-function expectOne(root: string, reason: string): void {
-    const reds = checkImports(root);
-    expect(reds).toHaveLength(1);
-    expect(reds[0]).toContain(reason);
-}
-
 check(
-    "import boundary fixture rules red",
+    "import boundary resolves TypeScript specifiers",
     {
-        claim: "the import boundary rejects outward and tooling imports, sibling imports, physics-rendering imports, index bypasses and transitional modules",
+        claim: "the import boundary resolves self-name, extension and alias specifiers and scans each TypeScript source extension",
     },
     () => {
         withFixture((root) => {
-            put(root, "standard/rendering/index.ts", 'import "../../extras/fog";\n');
-            put(root, "extras/fog/index.ts", "export {};\n");
-            expectOne(root, "standard imports outward to extras/fog");
-        });
-        withFixture((root) => {
+            writeFileSync(
+                resolve(root, "package.json"),
+                JSON.stringify({
+                    name: "@dylanebert/shallot",
+                    exports: {
+                        "./input": "./src/core/input/index.ts",
+                        "./extras": "./src/extras/index.ts",
+                    },
+                }),
+            );
+            writeFileSync(
+                resolve(root, "tsconfig.json"),
+                JSON.stringify({
+                    compilerOptions: {
+                        module: "ESNext",
+                        moduleResolution: "Bundler",
+                        target: "ESNext",
+                        noEmit: true,
+                        strict: true,
+                        skipLibCheck: true,
+                        types: [],
+                        paths: { "@core/*": ["./src/core/*"] },
+                    },
+                    include: ["src"],
+                }),
+            );
+
+            put(root, "core/input/index.ts", "export interface Input {}\n");
+            put(root, "core/rendering/index.ts", 'import "@dylanebert/shallot/input";\n');
+            put(root, "core/rendering/js-path.ts", 'import "../input/index.js";\n');
+            put(root, "core/rendering/alias.ts", 'import "@core/input";\n');
+            put(root, "core/rendering/view.tsx", 'import "@dylanebert/shallot/input";\n');
+            put(root, "core/rendering/view.mts", 'import "@dylanebert/shallot/input";\n');
             put(
                 root,
-                "core/rendering/index.ts",
-                'import type { Plan } from "../../project/generate";\n',
+                "core/rendering/view.cts",
+                'import type { Input } from "@dylanebert/shallot/input";\n',
+            );
+            put(
+                root,
+                "core/rendering/types.d.ts",
+                'import type { Input } from "@dylanebert/shallot/input";\n',
+            );
+            put(root, "core/rendering/ignored.test.ts", 'import "@dylanebert/shallot/extras";\n');
+            put(root, "extras/index.ts", "export {};\n");
+            put(root, "standard/loading/index.ts", 'import "@dylanebert/shallot/extras";\n');
+            put(
+                root,
+                "core/rendering/tooling.ts",
+                'import type { Plan } from "../../project/generate";\nvoid (0 as unknown as Plan);\n',
             );
             put(root, "project/generate.ts", "export interface Plan {}\n");
-            expectOne(root, "game module core/rendering imports tooling module project");
-        });
-        withFixture((root) => {
-            put(root, "core/rendering/index.ts", 'export { input } from "../input";\n');
-            put(root, "core/input/index.ts", "export const input = 1;\n");
-            expectOne(root, "sibling import core/rendering → core/input");
-        });
-        withFixture((root) => {
             put(
                 root,
                 "extras/physics/index.ts",
                 'export const load = () => import("../../core/rendering");\n',
             );
-            put(root, "core/rendering/index.ts", "export {};\n");
-            expectOne(
-                root,
-                "physics module extras/physics imports rendering module core/rendering",
-            );
-        });
-        withFixture((root) => {
             put(
                 root,
                 "harness/index.ts",
@@ -71,15 +91,33 @@ check(
             );
             put(root, "engine/runtime/index.ts", "export {};\n");
             put(root, "engine/runtime/internal.ts", "export interface Internal {}\n");
-            expectOne(root, "import past engine/runtime/index.ts → engine/runtime/internal.ts");
-        });
-        withFixture((root) => {
             put(
                 root,
                 "transitional/legacy/index.ts",
                 "// Destination: engine; owner: legacy.md.\nexport {};\n",
             );
-            expectOne(root, "// Destination: engine; owner: legacy.md.");
+
+            const reds = checkImports(root);
+            expect(reds).toHaveLength(12);
+            for (const file of [
+                "src/core/rendering/index.ts",
+                "src/core/rendering/js-path.ts",
+                "src/core/rendering/alias.ts",
+                "src/core/rendering/view.tsx",
+                "src/core/rendering/view.mts",
+                "src/core/rendering/view.cts",
+                "src/core/rendering/types.d.ts",
+            ]) {
+                expect(reds.some((red) => red.startsWith(`${file}:`))).toBe(true);
+            }
+            expect(reds.some((red) => red.startsWith("src/standard/loading/index.ts:"))).toBe(true);
+            expect(reds.some((red) => red.startsWith("src/core/rendering/tooling.ts:"))).toBe(true);
+            expect(reds.some((red) => red.startsWith("src/extras/physics/index.ts:"))).toBe(true);
+            expect(reds.some((red) => red.startsWith("src/harness/index.ts:"))).toBe(true);
+            expect(
+                reds.some((red) => red.includes("// Destination: engine; owner: legacy.md.")),
+            ).toBe(true);
+            expect(reds.some((red) => red.includes("ignored.test.ts"))).toBe(false);
         });
     },
 );

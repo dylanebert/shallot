@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { dirname, extname, relative, resolve, sep } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, relative, resolve, sep } from "node:path";
 import { parse } from "@babel/parser";
 import { Glob } from "bun";
 
@@ -10,6 +10,7 @@ const MODULE_TIERS = new Set(["core", "standard", "extras"]);
 // The runtime barrel is browser-safe; this host-only admission leaf is intentionally reached directly.
 const DIRECT_LEAVES = new Set(["engine/runtime/floor.ts"]);
 const SOURCE_ROOT = "src";
+const TSC = resolve(import.meta.dir, "../node_modules/.bin/tsc");
 
 interface ImportReference {
     readonly specifier: string;
@@ -42,7 +43,9 @@ export function references(source: string, file = "<source>"): ImportReference[]
     try {
         ast = parse(source, {
             sourceType: "unambiguous",
-            plugins: ["typescript", "decorators-legacy"],
+            plugins: file.endsWith(".tsx")
+                ? ["typescript", "jsx", "decorators-legacy"]
+                : ["typescript", "decorators-legacy"],
         });
     } catch (error) {
         throw new Error(`${file}: cannot parse: ${(error as Error).message}`);
@@ -106,30 +109,40 @@ function gameTierAt(src: string, file: string): string | undefined {
     return TIER_ORDER.has(top as (typeof GAME_TIERS)[number]) ? top : undefined;
 }
 
-function resolveImport(src: string, fromFile: string, specifier: string): string | undefined {
-    if (!specifier.startsWith(".")) return undefined;
-    const target = resolve(dirname(fromFile), specifier);
-    const candidates = extname(target)
-        ? [target]
-        : [
-              target,
-              `${target}.ts`,
-              `${target}.tsx`,
-              `${target}.js`,
-              `${target}.mjs`,
-              `${target}.cjs`,
-              resolve(target, "index.ts"),
-              resolve(target, "index.tsx"),
-              resolve(target, "index.js"),
-          ];
-    const found = candidates.find((candidate) => {
-        try {
-            return statSync(candidate).isFile();
-        } catch {
-            return false;
+// TypeScript 7 no longer exports the legacy JS resolver; its compiler trace uses the same resolver and project options.
+function moduleResolutions(root: string): Map<string, string> {
+    const project = resolve(root, "tsconfig.json");
+    const result = Bun.spawnSync(
+        [TSC, "--project", project, "--noEmit", "--traceResolution", "--pretty", "false"],
+        { cwd: root, stdout: "pipe", stderr: "pipe" },
+    );
+    if (!result.success)
+        throw new Error(
+            `TypeScript module resolution failed for ${project}:\n${result.stdout.toString()}${result.stderr.toString()}`,
+        );
+
+    const resolutions = new Map<string, string>();
+    let current: { specifier: string; importer: string } | undefined;
+    for (const line of result.stdout.toString().split("\n")) {
+        const start = line.match(/^======== Resolving module '(.+)' from '(.+)'\. ========$/);
+        if (start) {
+            current = { specifier: start[1], importer: resolve(start[2]) };
+            continue;
         }
-    });
-    return found && (found === src || found.startsWith(`${src}${sep}`)) ? found : undefined;
+        const resolved = line.match(
+            /^======== Module name '(.+)' was successfully resolved to '(.+?)'(?: with Package ID .*)?\. ========$/,
+        );
+        if (current && resolved && resolved[1] === current.specifier) {
+            resolutions.set(`${current.importer}\u0000${current.specifier}`, resolve(resolved[2]));
+            current = undefined;
+        } else if (
+            line.startsWith("======== Module name '") &&
+            line.endsWith(" could not be resolved. ========")
+        ) {
+            current = undefined;
+        }
+    }
+    return resolutions;
 }
 
 function modulePath(module: Module): string {
@@ -155,10 +168,11 @@ function transitionalRed(src: string, module: Module): string {
 /** Return all import-boundary reds in a source tree. */
 export function checkImports(root: string): string[] {
     const src = resolve(root, SOURCE_ROOT);
-    const files = [...new Glob("**/*.ts").scanSync(src)]
-        .filter((file) => !file.endsWith(".test.ts") && !file.endsWith(".d.ts"))
+    const files = [...new Glob("**/*.{ts,tsx,mts,cts}").scanSync(src)]
+        .filter((file) => !/\.test\.(?:ts|tsx|mts|cts)$/.test(file))
         .map((file) => resolve(src, file))
         .sort();
+    const resolutions = moduleResolutions(root);
     const violations: string[] = [];
     const transitional = new Map<string, Module>();
 
@@ -171,8 +185,8 @@ export function checkImports(root: string): string[] {
         const sourceTier = gameTierAt(src, file);
         const path = relative(root, file).split(sep).join("/");
         for (const reference of references(readFileSync(file, "utf8"), path)) {
-            const target = resolveImport(src, file, reference.specifier);
-            if (!target) continue;
+            const target = resolutions.get(`${file}\u0000${reference.specifier}`);
+            if (!target || (target !== src && !target.startsWith(`${src}${sep}`))) continue;
             const targetModule = moduleAt(src, target);
             const targetTier = gameTierAt(src, target);
             const location = `${path}:${reference.line}`;
