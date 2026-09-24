@@ -9,8 +9,8 @@ A game's code sits in tiers by what removing it means. A module depends only on 
 ```
 src/
   engine/        Shallot itself; cannot be removed: app lifecycle, ECS, scenes, runtime, utils. Knows nothing of rendering, physics, audio or input.
-  core/          One plugin per field, universal to any approach in it, and the transforms they share. Removable, never expected to be.
-  standard/      The expected, extensible implementation of each field over core. Replaced, not removed.
+  core/          One plugin each for rendering, physics, audio and input, universal to any approach, and the transforms they share. Removable, never expected to be.
+  standard/      The expected, extensible implementation of each over core. Replaced, not removed.
   extras/        Expected and bundled; sanctioned for easy removal. A plugin moves here from its own package once stable there for a release cycle.
   project/       What a project is at build time: manifest, plan, generation, the Vite plugin.
   cli/           The commands and their dispatcher.
@@ -23,17 +23,17 @@ assets.json      Every asset but the shipped icon, fetched by URL and sha256 by 
 ```
 
 - `engine`, `core`, `standard` and `extras` are the game tiers. `project`, `cli`, `native` and `harness` are tooling: they build, run and verify a game, may import any tier, and no game tier imports them.
-- Each sibling can be removed or replaced alone, so a module never imports a sibling. `core/transforms` is the one exception: it is the pose every field reads.
+- Each sibling can be removed or replaced alone, so a module never imports a sibling. `core/transforms` is the one exception: it is the pose the others all read.
 - A folder is one module. Its `index.ts` is its only entry and holds its plugin; every other file is internal. A tier's own `index.ts` is its barrel and holds nothing else, and `standard/index.ts` also holds the default plugin set.
 - A module is a plugin only when it registers systems or resources. Plain data and functions stay plain modules.
 - Every public module has one subpath. The root re-exports every tier with `export *`, so a duplicate name fails `tsc` and no import needs `as`.
 - Every module has one useful, fulfilled promise. One without it is hardened, split, extracted or removed.
 
-### Fields
+### Core and standard
 
-Rendering, physics, audio and input are fields. A field's `core` module holds the data, semantics and minimal shared mechanisms any approach to that field needs, so games interoperate across approaches. Its `standard` module is one opinionated, extensible approach. Core grows only where two different approaches share a meaning; reuse alone does not make code universal.
+A `core` module holds the data, semantics and minimal shared mechanisms any approach to rendering, physics, audio or input needs, so games interoperate across approaches. Its `standard` module is one opinionated, extensible approach. Core grows only where two different approaches share a meaning; reuse alone does not make code universal.
 
-- A module is named for what it owns, not its technique. Core takes the field's noun, and standard the same noun: `core/rendering` at `/rendering`, `standard/rendering` at `/standard/rendering`.
+- A module is named for what it owns, not its technique. Core takes the plain noun, and standard the same noun: `core/rendering` at `/rendering`, `standard/rendering` at `/standard/rendering`.
 - Core owns the plain names. A standard export takes the `Standard` prefix where it plays a role core also names, such as `StandardRenderingPlugin`, and keeps its plain name otherwise. An alternative implementation qualifies its own names, such as `AvbdPhysicsPlugin`.
 - Physics never depends on rendering, in any tier.
 
@@ -47,7 +47,7 @@ Presentation reaches the screen through one final pass per view. The scene image
 
 ### Hardening
 
-Hardening proves a promise from both ends: owner-local evidence, and the builder-facing examples that use it. That covers integration, resource lifetime, measured performance and allocation as the claim needs, not a universal tier checklist. Each owned-memory instrument lands with its field and its oracle cross-check. Unavoidable platform work and avoidable allocation stay distinct, and the person classifies which is which.
+Hardening proves a promise from both ends: owner-local evidence, and the builder-facing examples that use it. That covers integration, resource lifetime, measured performance and allocation as the claim needs, not a universal tier checklist. Each owned-memory instrument lands with the module it measures and its oracle cross-check. Unavoidable platform work and avoidable allocation stay distinct, and the person classifies which is which.
 
 ## Commands
 
