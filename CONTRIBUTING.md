@@ -15,7 +15,7 @@ Shallot is layered like an onion: `engine` at the center, then `core`, `standard
 ```
 src/
   engine/        Shallot itself: app lifecycle, ECS, scenes, runtime, utils.
-  core/          One plugin each for rendering, physics, audio and input, with only what every approach needs. Also transforms.
+  core/          One plugin each for rendering, physics, audio and input, with only what every approach needs.
   standard/      Shallot's default approach to each, built on core and extensible.
   extras/        Features most games use. A plugin moves here after a stable release cycle as its own package.
   project/       Build-time project handling: manifest, plan, code generation, the Vite plugin.
@@ -29,7 +29,7 @@ assets.json      Every asset except the shipped icon, fetched by URL and sha256 
 ```
 
 - `engine`, `core`, `standard` and `extras` are the game layers. `project`, `cli`, `native` and `harness` are tooling. Tooling can import any layer; game layers never import tooling.
-- Modules in the same layer don't import each other, so a game can use one without the others. The exception is `core/transforms`, which the others read positions from.
+- Modules in the same layer don't import each other, so a game can use one without the others.
 - Each folder is one module. Its `index.ts` is the only entry point and defines its plugin; other files are internal. A layer's `index.ts` only re-exports its modules, except that `standard/index.ts` also defines the default plugin set.
 - A module is a plugin only if it registers systems or resources. Otherwise it exports plain data and functions.
 - Each public module has one import path, its subpath in `package.json` `exports`. The root re-exports every layer with `export *`, so duplicate names fail `tsc`.
