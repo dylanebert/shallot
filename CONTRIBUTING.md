@@ -32,7 +32,7 @@ assets.json      Every asset except the shipped icon, fetched by URL and sha256 
 - Modules in the same layer don't import each other, so a game can use one without the others. The exception is `core/transforms`, which the others read positions from.
 - Each folder is one module. Its `index.ts` is the only entry point and defines its plugin; other files are internal. A layer's `index.ts` only re-exports its modules, except that `standard/index.ts` also defines the default plugin set.
 - A module is a plugin only if it registers systems or resources. Otherwise it exports plain data and functions.
-- Each public module has one subpath. The root re-exports every layer with `export *`, so duplicate names fail `tsc`.
+- Each public module has one import path, its subpath in `package.json` `exports`. The root re-exports every layer with `export *`, so duplicate names fail `tsc`.
 - Each module does one useful thing completely. If it doesn't, fix it, split it, move it out or remove it.
 
 ### Core and standard
@@ -90,9 +90,9 @@ Test each promise twice: with tests beside the module, and through the examples 
 
 ## Examples
 
-Examples are where builders meet the engine. What an example can't do shows what the engine is missing.
+Examples are where builders, the people and agents making games, meet the engine. What an example can't do shows what the engine is missing. A recipe is a small project that solves one problem; a showcase is a full game.
 
-- A recipe solves one builder problem, stated in its manifest's `problem`, and has a check that fails when the solution breaks. Remove a recipe that no check can prove.
+- A recipe states its problem in its manifest's `problem` and has a check that fails when the solution breaks. Remove a recipe that no check can prove.
 - A showcase is a game a person would want to play, and runs only the checks a user's project can run.
 - When an example finds a gap, fix it in the module that owns it. Never work around it in the example.
 
@@ -106,7 +106,7 @@ Heavy work runs in WASM or on the GPU. TypeScript coordinates and runs light gam
 - The root links to itself, so examples import the package by name. `@types/node` and `@webgpu/types` are runtime dependencies, because `types` points at source.
 - A link doesn't prove what ships; installing a packed tarball into a scratch project does. Changes to the CLI, manifest, dependencies, runtime or native shell need one.
 - `main` can be mid-change. A release is a `v*` tag; its workflow builds the native shells and publishes to npm. Never publish to try a change. Consumers pin a published version or a full commit SHA.
-- To retire a unit, tag its last commit, add a row to [`ARCHIVE.md`](ARCHIVE.md) and delete it. There is no archive directory.
+- To retire a module, example or tool, tag its last commit, add a row to [`ARCHIVE.md`](ARCHIVE.md) and delete it. There is no archive directory.
 
 ## Device tiers
 
