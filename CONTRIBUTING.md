@@ -8,7 +8,7 @@ A game's code sits in tiers by what removing it means. A module depends only on 
 
 ```
 src/
-  engine/        Shallot itself; cannot be removed. Knows no field: app lifecycle, ECS, scenes, runtime, utils.
+  engine/        Shallot itself; cannot be removed: app lifecycle, ECS, scenes, runtime, utils. Knows nothing of rendering, physics, audio or input.
   core/          One plugin per field, universal to any approach in it, and the transforms they share. Removable, never expected to be.
   standard/      The expected, extensible implementation of each field over core. Replaced, not removed.
   extras/        Expected and bundled; sanctioned for easy removal. A plugin moves here from its own package once stable there for a release cycle.
