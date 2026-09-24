@@ -4,6 +4,7 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
+    readdirSync,
     readFileSync,
     rmSync,
     writeFileSync,
@@ -23,6 +24,14 @@ import { unfixture } from "./unfixture";
 
 const ROOT = resolve(import.meta.dir, "..");
 const FIXTURES = resolve(ROOT, "scripts/fixtures/surface");
+
+function killProcess(pid: number): void {
+    try {
+        process.kill(pid, "SIGKILL");
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+}
 
 function retainedOutput(tree: string, invocationOutput: string): string {
     const reported = invocationOutput
@@ -823,5 +832,82 @@ check(
         expect(proc.exitCode).toBe(0);
         expect(proc.stdout.toString()).toMatch(/^\d+ declared checks/);
         expect(Number(proc.stdout.toString().split(" ")[0])).toBeGreaterThan(0);
+    },
+);
+
+check(
+    "the installed bin preserves runner signal death",
+    {
+        claim: "the installed Shallot bin dies by the runner's signal instead of converting cancellation into exit 1",
+        size: "integration",
+        subject: "bin/shallot.ts",
+    },
+    async () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-bin-runner-signal-"));
+        const tests = join(tree, "tests");
+        const childMarker = join(tree, "child.json");
+        const runnerBin = resolve(ROOT, "bin/shallot.ts");
+        const checkModule = resolve(ROOT, "src/harness/check");
+        const preload = resolve(ROOT, "src/harness/preload.ts");
+        let bin: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
+        let childPid: number | undefined;
+        try {
+            mkdirSync(tests, { recursive: true });
+            writeFileSync(
+                join(tree, "bunfig.toml"),
+                `[test]\npreload = [${JSON.stringify(preload)}]\n`,
+            );
+            writeFileSync(
+                join(tests, "hang.test.ts"),
+                `import { check } from ${JSON.stringify(checkModule)};\n` +
+                    `import { writeFileSync } from "node:fs";\n` +
+                    `check("hang", { claim: "fixture bin runner signal", size: "unit" }, () => {});\n` +
+                    `console.log("bin signal fixture output");\n` +
+                    `writeFileSync(${JSON.stringify(childMarker)}, JSON.stringify({ pid: process.pid, runner: process.ppid }));\n` +
+                    `await new Promise(() => {});\n`,
+            );
+            bin = Bun.spawn(["bun", runnerBin, "test"], {
+                cwd: tree,
+                stdout: "pipe",
+                stderr: "pipe",
+                detached: true,
+            });
+            const stdout = new Response(bin.stdout).text();
+            const stderr = new Response(bin.stderr).text();
+            const deadline = Date.now() + 10_000;
+            while (!existsSync(childMarker) && Date.now() < deadline) await Bun.sleep(10);
+            expect(existsSync(childMarker)).toBe(true);
+            const child = JSON.parse(readFileSync(childMarker, "utf8")) as {
+                pid: number;
+                runner: number;
+            };
+            childPid = child.pid;
+            expect(child.runner).not.toBe(bin.pid);
+            process.kill(child.runner, "SIGTERM");
+            await bin.exited;
+            const output = (await stdout) + (await stderr);
+            expect(output).toContain("bin signal fixture output");
+            const runDirectory = readdirSync(join(tree, ".artifacts")).find((entry) =>
+                entry.startsWith("shallot-run-"),
+            );
+            expect(runDirectory).toBeDefined();
+            const report = readFileSync(
+                join(tree, ".artifacts", runDirectory!, "junit.xml"),
+                "utf8",
+            );
+            expect(report).toContain("runner received SIGTERM during unit sweep");
+            expect(report).toMatch(/<testsuites\b[^>]*\btests="1"[^>]*\bfailures="1"/);
+            if (bin.signalCode !== "SIGTERM")
+                throw new Error(
+                    `bin status: exit=${bin.exitCode}, signal=${bin.signalCode}; output=${output}`,
+                );
+        } finally {
+            if (bin !== undefined && bin.exitCode === null) {
+                bin.kill("SIGKILL");
+                await bin.exited;
+            }
+            if (childPid !== undefined) killProcess(childPid);
+            rmSync(tree, { recursive: true, force: true });
+        }
     },
 );
