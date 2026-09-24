@@ -4,39 +4,50 @@ For anyone changing the engine, person or agent. Using Shallot is the [README](R
 
 ## Layout
 
-Dependencies point inward: `src/extras` depends on `src/standard`, which depends on `src/engine`, which imports nothing else under `src`. Each module has one barrel file, and the subpaths in `package.json` `exports` are the only public entry points.
+A game's code sits in tiers by what removing it means. A module depends only on tiers inward of its own, so removing anything never breaks what is harder to remove. Anything a game is not expected to need is a separate package, not a tier.
 
-| Path | Owns |
-|---|---|
-| `src/engine` | The core: app lifecycle, ECS, scenes, the runtime (device and platform setup) and utils. |
-| `src/domains` | The domain foundations: `render`, `physics`, `audio`, `transforms` and `input`. |
-| `src/standard` | The standard implementations and default plugins. |
-| `src/extras` | Opt-in plugins, published at `/extras`. A plugin starts in its own repo and moves here once it has been stable for a release cycle. |
-| `src/harness` | The in-page verdict hook a project publishes, the seat policy, the capture contract and the display seat. |
-| `src/project` | The manifest, scene and asset generation, host toolchain resolution and the Vite plugin. |
-| `src/native` | The desktop shell: prebuilt download, with a source build as fallback. |
-| `src/cli`, `bin` | The commands, their dispatcher and the one-line entry. |
-| `crates/audio` | The DSP kernel, compiled to WASM. |
-| `crates/physics` | The solver kernel, inlined into committed `.wasm.ts` files. |
-| `crates/native` | The desktop window host, compiled per project by `build --target`. |
-| `examples` | One flat directory per example. `examples/AGENTS.md` is generated from their manifests by `bun run format`. |
-| `assets.json` | Every asset but the shipped icon is fetched by URL and sha256 from here, by `bun run assets`. |
+```
+src/
+  engine/        Shallot itself; cannot be removed. Knows no field: app lifecycle, ECS, scenes, runtime, utils.
+  core/          One plugin per field, universal to any approach in it, and the transforms they share. Removable, never expected to be.
+  standard/      The expected, extensible implementation of each field over core. Replaced, not removed.
+  extras/        Expected and bundled; sanctioned for easy removal. A plugin moves here from its own package once stable there for a release cycle.
+  project/       What a project is at build time: manifest, plan, generation, the Vite plugin.
+  cli/           The commands and their dispatcher.
+  native/        The desktop shell.
+  harness/       The verification protocol a project publishes and the check framework that drives it.
+  types/         Ambient declarations.
+crates/          The WASM kernels (audio, physics) and the native window host.
+examples/        One flat directory per example; `examples/AGENTS.md` is generated from their manifests.
+assets.json      Every asset but the shipped icon, fetched by URL and sha256 by `bun run assets`.
+```
 
-### Domains
-
-Rendering, physics and audio are domains. A domain's foundation holds its implementation-neutral data, semantics and minimal shared mechanisms. Its standard implementation honors that contract and is extensible: `standard/render` is the mesh pipeline, `standard/physics` is Box3D-based and `standard/audio` plays clips. Implementations do not inherit one another's techniques or need the same kernel. Reuse alone does not make code generic.
-
-- Layers run inward: applications, then extras, then implementations, then foundations, then the engine. A module's layer is declared once, where the import check reads it.
-- An implementation depends on foundations and the engine, never on another implementation.
-- A foundation depends on the engine and on `transforms`, the one shared foundation, never on an implementation. Physics and transforms never depend on rendering or a device.
-- Foundations live in `src/domains`, standard implementations in `src/standard` and opt-in plugins in `src/extras`, each a flat set of siblings. The import check, not the directory, enforces direction.
-- A module is named for what it owns, not its technique. A foundation takes the domain's noun and a standard implementation the same noun: `domains/physics` at `/physics`, `standard/physics` at `/standard/physics`.
-- The foundation owns the plain names. A standard export takes the `Standard` prefix where it plays a role the foundation also names, such as `StandardPhysicsPlugin` or a default `StandardMaterial`, and keeps its plain name otherwise. An alternative implementation qualifies its own names, such as `AvbdPhysicsPlugin`.
-- Every public module has one barrel and one subpath. The root re-exports them with `export *`, so a duplicate name fails `tsc` and no import needs `as`. An extension surface, such as a custom render pass, is imported from its subpath.
-- A module is a plugin only when it registers systems or resources an app opts into. Plain data and functions stay plain modules.
+- `engine`, `core`, `standard` and `extras` are the game tiers. `project`, `cli`, `native` and `harness` are tooling: they build, run and verify a game, may import any tier, and no game tier imports them.
+- Each sibling can be removed or replaced alone, so a module never imports a sibling. `core/transforms` is the one exception: it is the pose every field reads.
+- A folder is one module. Its `index.ts` is its only entry and holds its plugin; every other file is internal. A tier's own `index.ts` is its barrel and holds nothing else, and `standard/index.ts` also holds the default plugin set.
+- A module is a plugin only when it registers systems or resources. Plain data and functions stay plain modules.
+- Every public module has one subpath. The root re-exports every tier with `export *`, so a duplicate name fails `tsc` and no import needs `as`.
 - Every module has one useful, fulfilled promise. One without it is hardened, split, extracted or removed.
 
-Hardening proves a promise from both ends: owner-local evidence, and the builder-facing examples that use it. That covers integration, resource lifetime, measured performance and allocation as the claim needs, not a universal tier checklist. Each owned-memory instrument lands with its domain and its oracle cross-check. Unavoidable platform work and avoidable allocation stay distinct, and the person classifies which is which.
+### Fields
+
+Rendering, physics, audio and input are fields. A field's `core` module holds the data, semantics and minimal shared mechanisms any approach to that field needs, so games interoperate across approaches. Its `standard` module is one opinionated, extensible approach. Core grows only where two different approaches share a meaning; reuse alone does not make code universal.
+
+- A module is named for what it owns, not its technique. Core takes the field's noun, and standard the same noun: `core/rendering` at `/rendering`, `standard/rendering` at `/standard/rendering`.
+- Core owns the plain names. A standard export takes the `Standard` prefix where it plays a role core also names, such as `StandardRenderingPlugin`, and keeps its plain name otherwise. An alternative implementation qualifies its own names, such as `AvbdPhysicsPlugin`.
+- Physics never depends on rendering, in any tier.
+
+### Rendering
+
+`core/rendering` assumes no way of producing an image. Mesh rasterization, texel splatting, Gaussian splatting and generative rendering each build on it alone, and draw into the same views. It holds what all of them share: cameras and projection, views and their targets, the coordinate conventions and GPU layouts shared data takes, the frame, color space and presentation. Meshes, materials and draw submission are not in it.
+
+`standard/rendering` is the extensible mesh pipeline over it. Replacing it is how a game changes rendering approach; the camera, its views and its presentation carry over.
+
+Presentation reaches the screen through one final pass per view. The scene image declares its color space; the final pass display-transforms a scene-referred image, then grades and encodes. An effect that reads only its own pixel is a stage fused into that pass, before or after the display transform, and may bind its own texture. An effect that reads other pixels is its own pass in the chain before it. The final pass is replaceable. `standard/rendering` owns no presentation; it publishes the lanes effects read.
+
+### Hardening
+
+Hardening proves a promise from both ends: owner-local evidence, and the builder-facing examples that use it. That covers integration, resource lifetime, measured performance and allocation as the claim needs, not a universal tier checklist. Each owned-memory instrument lands with its field and its oracle cross-check. Unavoidable platform work and avoidable allocation stay distinct, and the person classifies which is which.
 
 ## Commands
 
