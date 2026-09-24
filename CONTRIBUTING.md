@@ -68,7 +68,7 @@ Each run replaces `.artifacts/` with its report and the output of its child proc
 
 ## Verification
 
-Test each promise twice: with tests beside the module, and through the examples builders use. Test each claim at the cheapest level that can see it. A check's result depends only on what it declares.
+Test each promise a module makes twice: with tests beside the module, and through the examples builders use. Test each claim at the cheapest level that can see it. A check's result depends only on what it declares.
 
 - A check declares its claim, size and required host capabilities in `check()`. A host missing one refuses and says why, instead of running a weaker version. No tag means CPU only. `gpu` needs a real WebGPU device. `display` needs a declared monitor, and uses its keyboard and cursor.
 - Checks run on the scheduler's stepped clock, never wall time. Simulation state is kept in registered components or behind a snapshot, restore and hash hook. Gameplay runs in the fixed group from per-tick actions, presentation runs in draw, and `local` components are left out of the hash. Runs are deterministic within one runtime and engine version; across versions, a hash detects divergence.
