@@ -23,7 +23,9 @@ function put(root: string, path: string, source: string): void {
 check(
     "import boundary resolves TypeScript specifiers",
     {
-        claim: "the import boundary resolves self-name, extension and alias specifiers and scans each TypeScript source extension",
+        claim: "the import boundary resolves TypeScript specifiers, scans each source extension and rejects imports missing from the compiler trace",
+        size: "integration",
+        subject: "scripts/check-imports",
     },
     () => {
         withFixture((root) => {
@@ -118,6 +120,24 @@ check(
                 reds.some((red) => red.includes("// Destination: engine; owner: legacy.md.")),
             ).toBe(true);
             expect(reds.some((red) => red.includes("ignored.test.ts"))).toBe(false);
+        });
+        withFixture((root) => {
+            writeFileSync(
+                resolve(root, "tsconfig.json"),
+                JSON.stringify({
+                    compilerOptions: {
+                        module: "ESNext",
+                        moduleResolution: "Bundler",
+                        noEmit: true,
+                    },
+                    include: ["src/extras"],
+                }),
+            );
+            put(root, "core/rendering/index.ts", 'import "../../extras/fog";\n');
+            put(root, "extras/fog/index.ts", "export {};\n");
+            expect(checkImports(root)).toEqual([
+                'src/core/rendering/index.ts:1: unresolved import "../../extras/fog"',
+            ]);
         });
     },
 );

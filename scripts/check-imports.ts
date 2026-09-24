@@ -17,6 +17,11 @@ interface ImportReference {
     readonly line: number;
 }
 
+interface ModuleResolution {
+    readonly target: string | null;
+    readonly complete: boolean;
+}
+
 interface Module {
     readonly tier: string;
     readonly name: string;
@@ -43,9 +48,11 @@ export function references(source: string, file = "<source>"): ImportReference[]
     try {
         ast = parse(source, {
             sourceType: "unambiguous",
-            plugins: file.endsWith(".tsx")
-                ? ["typescript", "jsx", "decorators-legacy"]
-                : ["typescript", "decorators-legacy"],
+            plugins: [
+                ["typescript", { dts: /\.d\.(?:ts|mts|cts)$/.test(file) }],
+                ...(file.endsWith(".tsx") ? (["jsx"] as const) : []),
+                "decorators-legacy" as const,
+            ],
         });
     } catch (error) {
         throw new Error(`${file}: cannot parse: ${(error as Error).message}`);
@@ -110,36 +117,34 @@ function gameTierAt(src: string, file: string): string | undefined {
 }
 
 // TypeScript 7 no longer exports the legacy JS resolver; its compiler trace uses the same resolver and project options.
-function moduleResolutions(root: string): Map<string, string> {
+function moduleResolutions(root: string): Map<string, ModuleResolution> {
     const project = resolve(root, "tsconfig.json");
     const result = Bun.spawnSync(
         [TSC, "--project", project, "--noEmit", "--traceResolution", "--pretty", "false"],
         { cwd: root, stdout: "pipe", stderr: "pipe" },
     );
-    if (!result.success)
-        throw new Error(
-            `TypeScript module resolution failed for ${project}:\n${result.stdout.toString()}${result.stderr.toString()}`,
-        );
-
-    const resolutions = new Map<string, string>();
-    let current: { specifier: string; importer: string } | undefined;
+    const resolutions = new Map<string, ModuleResolution>();
+    let current: { key: string; specifier: string } | undefined;
     for (const line of result.stdout.toString().split("\n")) {
         const start = line.match(/^======== Resolving module '(.+)' from '(.+)'\. ========$/);
         if (start) {
-            current = { specifier: start[1], importer: resolve(start[2]) };
+            const key = `${resolve(start[2])}\u0000${start[1]}`;
+            if (!resolutions.has(key)) resolutions.set(key, { target: null, complete: false });
+            current = { key, specifier: start[1] };
             continue;
         }
         const resolved = line.match(
             /^======== Module name '(.+)' was successfully resolved to '(.+?)'(?: with Package ID .*)?\. ========$/,
         );
         if (current && resolved && resolved[1] === current.specifier) {
-            resolutions.set(`${current.importer}\u0000${current.specifier}`, resolve(resolved[2]));
+            resolutions.set(current.key, { target: resolve(resolved[2]), complete: true });
             current = undefined;
-        } else if (
-            line.startsWith("======== Module name '") &&
-            line.endsWith(" could not be resolved. ========")
-        ) {
-            current = undefined;
+        } else {
+            const failed = line.match(/^======== Module name '(.+)' was not resolved\. ========$/);
+            if (current && failed && failed[1] === current.specifier) {
+                resolutions.set(current.key, { target: null, complete: true });
+                current = undefined;
+            }
         }
     }
     return resolutions;
@@ -178,14 +183,22 @@ export function checkImports(root: string): string[] {
 
     for (const file of files) {
         const sourceModule = moduleAt(src, file);
-        if (sourceModule?.kind === "transitional") {
+        const transition = sourceModule?.kind === "transitional";
+        if (sourceModule?.kind === "transitional")
             transitional.set(sourceModule.directory, sourceModule);
-            continue;
-        }
         const sourceTier = gameTierAt(src, file);
         const path = relative(root, file).split(sep).join("/");
         for (const reference of references(readFileSync(file, "utf8"), path)) {
-            const target = resolutions.get(`${file}\u0000${reference.specifier}`);
+            const key = `${file}\u0000${reference.specifier}`;
+            const resolution = resolutions.get(key);
+            if (!resolution?.complete) {
+                violations.push(
+                    `${path}:${reference.line}: unresolved import "${reference.specifier}"`,
+                );
+                continue;
+            }
+            if (transition) continue;
+            const target = resolution.target;
             if (!target || (target !== src && !target.startsWith(`${src}${sep}`))) continue;
             const targetModule = moduleAt(src, target);
             const targetTier = gameTierAt(src, target);
