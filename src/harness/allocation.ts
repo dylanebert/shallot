@@ -456,8 +456,7 @@ export async function samplePage(
     let server: ReturnType<typeof Bun.serve> | undefined;
     let browser: import("playwright").Browser | undefined;
     try {
-        // A second small static server beside the fixtures': none of those serves a directory with the
-        // cross-origin isolation headers the build needs.
+        // Serve the generated page with the cross-origin isolation headers the build needs.
         server = Bun.serve({
             port: 0,
             fetch(request) {

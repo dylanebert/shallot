@@ -77,7 +77,6 @@
         "!examples/*/build",
         "!examples/*/dist",
         "!examples/*/tsconfig.json",
-        "!src/harness/fixtures",
         "!src/extras/gltf/fixtures",
         "!src/standard/physics/solver/fixtures",
         "scripts/check-surface.ts",
