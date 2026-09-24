@@ -1,20 +1,29 @@
 import { expect } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readdirSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
 
 const ROOT = resolve(import.meta.dir, "..");
 const CHECK_MODULE = resolve(ROOT, "src/harness/check");
 const PRELOAD = resolve(ROOT, "src/harness/preload.ts");
 
-function runRunner(tree: string, ...args: string[]) {
+function runRunnerWithEnv(tree: string, environment: NodeJS.ProcessEnv, ...args: string[]) {
     return Bun.spawnSync(
         ["bun", resolve(ROOT, "scripts/test-runner.ts"), "--root", tree, ...args],
         {
             cwd: ROOT,
             env: {
                 ...process.env,
+                ...environment,
                 SHALLOT_HOST: "invented-seat",
                 HYPRLAND_INSTANCE_SIGNATURE: "invented-compositor",
                 SHALLOT_DISPLAY_SEAT: "",
@@ -23,6 +32,10 @@ function runRunner(tree: string, ...args: string[]) {
             stderr: "pipe",
         },
     );
+}
+
+function runRunner(tree: string, ...args: string[]) {
+    return runRunnerWithEnv(tree, {}, ...args);
 }
 
 function outputOf(run: ReturnType<typeof runRunner>): string {
@@ -484,6 +497,138 @@ check(
             expect(mixedReport).toContain("fixture was not executed");
             expect(existsSync(marker)).toBe(false);
         } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
+    "runner child Git and temp isolation",
+    {
+        claim: "runner children isolate Git and temporary state, and each run replaces its prior report directory",
+        size: "integration",
+        subject: "scripts/test-runner.ts",
+    },
+    () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-runner-git-isolation-"));
+        const tests = join(tree, "tests");
+        const artifacts = join(tree, ".artifacts");
+        const globalConfig = join(tree, "host.gitconfig");
+        const hostGit = join(tree, "host-git");
+        const hostGitDirectory = join(hostGit, ".git");
+        const hostIndex = join(hostGitDirectory, "index");
+        const hostTemporary = mkdtempSync(join(tmpdir(), "shallot-host-tmp-"));
+        try {
+            mkdirSync(tests, { recursive: true });
+            writeFileSync(join(tree, "shallot.json"), "{}\n");
+            writeFileSync(globalConfig, "[commit]\n\tgpgsign = true\n[gpg]\n\tprogram = false\n");
+            writeFileSync(
+                join(tests, "isolation.oracle.ts"),
+                `import { expect } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { check } from ${JSON.stringify(CHECK_MODULE)};
+
+check("isolated child", { claim: "isolated child environment", size: "integration" }, () => {
+    const artifacts = resolve(import.meta.dir, "../.artifacts");
+    expect(process.env.GIT_DIR).toBeUndefined();
+    expect(process.env.GIT_INDEX_FILE).toBeUndefined();
+    expect(process.env.GIT_CONFIG_GLOBAL).toBe("/dev/null");
+    expect(process.env.GIT_CONFIG_NOSYSTEM).toBe("1");
+    expect(process.env.GIT_CEILING_DIRECTORIES).toBe(artifacts);
+    expect(process.env.TMPDIR).toBeDefined();
+    expect(tmpdir()).toBe(process.env.TMPDIR);
+    expect(process.env.TMPDIR?.startsWith(join(artifacts, "shallot-run-"))).toBe(true);
+
+    const beforeInit = mkdtempSync(join(tmpdir(), "shallot-before-init-"));
+    try {
+        const discovery = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
+            cwd: beforeInit,
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        expect(discovery.exitCode).not.toBe(0);
+    } finally {
+        rmSync(beforeInit, { recursive: true, force: true });
+    }
+
+    const repository = mkdtempSync(join(tmpdir(), "shallot-no-signing-"));
+    try {
+        const git = (...args: string[]) => {
+            const proc = Bun.spawnSync(["git", ...args], {
+                cwd: repository,
+                stdout: "pipe",
+                stderr: "pipe",
+            });
+            expect(proc.exitCode).toBe(0);
+        };
+        git("init", "-q");
+        git("config", "user.email", "surface@example.test");
+        git("config", "user.name", "surface");
+        writeFileSync(join(repository, "tracked"), "isolated\\n");
+        git("add", ".");
+        git("commit", "-qm", "unsigned fixture commit");
+    } finally {
+        rmSync(repository, { recursive: true, force: true });
+    }
+});
+`,
+            );
+            mkdirSync(hostGit, { recursive: true });
+            const init = Bun.spawnSync(["git", "-C", hostGit, "init", "-q"], {
+                cwd: ROOT,
+                stdout: "pipe",
+                stderr: "pipe",
+            });
+            expect(init.exitCode).toBe(0);
+            writeFileSync(join(hostGit, "tracked"), "host index\n");
+            const add = Bun.spawnSync(["git", "-C", hostGit, "add", "tracked"], {
+                cwd: ROOT,
+                stdout: "pipe",
+                stderr: "pipe",
+            });
+            expect(add.exitCode).toBe(0);
+            const configBefore = readFileSync(join(hostGitDirectory, "config"));
+            const indexBefore = readFileSync(hostIndex);
+            const priorDirectory = join(artifacts, "shallot-run-stale");
+            mkdirSync(priorDirectory, { recursive: true });
+            writeFileSync(join(priorDirectory, "old.log"), "stale\n");
+
+            const environment = {
+                GIT_CONFIG_GLOBAL: globalConfig,
+                GIT_DIR: hostGitDirectory,
+                GIT_INDEX_FILE: hostIndex,
+                TMPDIR: hostTemporary,
+            };
+            const first = runRunnerWithEnv(
+                tree,
+                environment,
+                "--oracle",
+                "isolated child environment",
+            );
+            if (first.exitCode !== 0) throw new Error(outputOf(first));
+            const firstReport = reportPathOf(tree, outputOf(first));
+            expect(readFileSync(join(hostGitDirectory, "config"))).toEqual(configBefore);
+            expect(readFileSync(hostIndex)).toEqual(indexBefore);
+            expect(readdirSync(hostTemporary)).toEqual([]);
+            expect(readdirSync(artifacts)).toEqual([basename(dirname(firstReport))]);
+            expect(readdirSync(dirname(firstReport)).sort()).toEqual(["junit.xml", "output.log"]);
+
+            const second = runRunnerWithEnv(
+                tree,
+                environment,
+                "--oracle",
+                "isolated child environment",
+            );
+            expect(second.exitCode).toBe(0);
+            const secondReport = reportPathOf(tree, outputOf(second));
+            expect(secondReport).not.toBe(firstReport);
+            expect(readdirSync(hostTemporary)).toEqual([]);
+            expect(readdirSync(artifacts)).toEqual([basename(dirname(secondReport))]);
+            expect(readdirSync(dirname(secondReport)).sort()).toEqual(["junit.xml", "output.log"]);
+        } finally {
+            rmSync(hostTemporary, { recursive: true, force: true });
             rmSync(tree, { recursive: true, force: true });
         }
     },

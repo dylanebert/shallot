@@ -34,7 +34,10 @@ bun run list      # what the same selectors would run: claim, size, requirements
 bun run format    # biome, the scene formatter and the examples index, writing
 ```
 
-The run summary names its JUnit report under `.artifacts/`; child stdout and stderr are retained in `output.log` beside it. A selector that matches no test fails.
+The run summary names its JUnit report under `.artifacts/`.
+Each run replaces the prior run directory.
+Child stdout and stderr are retained in `output.log` beside the report.
+A selector that matches no test fails.
 
 ## Tests
 

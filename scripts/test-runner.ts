@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import {
     CHECK_REQUIREMENTS,
@@ -39,8 +39,13 @@ interface RunArtifacts {
 
 function openArtifacts(): RunArtifacts | null {
     try {
-        mkdirSync(resolve(root, ".artifacts"), { recursive: true });
-        const directory = mkdtempSync(resolve(root, ".artifacts", "shallot-run-"));
+        const artifactsRoot = resolve(root, ".artifacts");
+        mkdirSync(artifactsRoot, { recursive: true });
+        for (const entry of readdirSync(artifactsRoot, { withFileTypes: true })) {
+            if (entry.name.startsWith("shallot-run-"))
+                rmSync(resolve(artifactsRoot, entry.name), { recursive: true, force: true });
+        }
+        const directory = mkdtempSync(resolve(artifactsRoot, "shallot-run-"));
         return {
             directory,
             report: resolve(directory, "junit.xml"),
@@ -98,22 +103,52 @@ function readJunitSummary(path: string): JunitSummary | null {
     }
 }
 
+function childEnvironment(
+    environment: NodeJS.ProcessEnv,
+    temporaryDirectory?: string,
+): NodeJS.ProcessEnv {
+    return {
+        ...Object.fromEntries(
+            Object.entries(environment).filter(([key]) => !key.startsWith("GIT_")),
+        ),
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_CEILING_DIRECTORIES: resolve(root, ".artifacts"),
+        ...(temporaryDirectory === undefined ? {} : { TMPDIR: temporaryDirectory }),
+    };
+}
+
+function spawnTest(
+    artifacts: RunArtifacts,
+    environment: NodeJS.ProcessEnv,
+    command: string[],
+): Bun.ReadableSyncSubprocess {
+    const temporaryDirectory = mkdtempSync(resolve(artifacts.directory, "tmp-"));
+    try {
+        return Bun.spawnSync(command, {
+            cwd: root,
+            env: childEnvironment(environment, temporaryDirectory),
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+    } finally {
+        rmSync(temporaryDirectory, { recursive: true, force: true });
+    }
+}
+
 function run(files: string[], environment: NodeJS.ProcessEnv): number {
     if (files.length === 0) refuse("empty population; an empty run is never green");
     const artifacts = openArtifacts();
     if (artifacts === null) return 1;
-    const proc = Bun.spawnSync(
-        [
-            process.execPath,
-            "test",
-            "--max-concurrency=1",
-            "--pass-with-no-tests",
-            "--reporter=junit",
-            `--reporter-outfile=${artifacts.report}`,
-            ...files.map((file) => `./${file}`),
-        ],
-        { cwd: root, env: environment, stdout: "pipe", stderr: "pipe" },
-    );
+    const proc = spawnTest(artifacts, environment, [
+        process.execPath,
+        "test",
+        "--max-concurrency=1",
+        "--pass-with-no-tests",
+        "--reporter=junit",
+        `--reporter-outfile=${artifacts.report}`,
+        ...files.map((file) => `./${file}`),
+    ]);
     const stdout = proc.stdout.toString();
     const stderr = proc.stderr.toString();
     let code = proc.exitCode ?? 1;
@@ -168,18 +203,15 @@ function selectedRun(
     index: number,
 ): SelectedRun {
     const nativeReport = resolve(artifacts.directory, `child-${index}.xml`);
-    const proc = Bun.spawnSync(
-        [
-            process.execPath,
-            "test",
-            "--max-concurrency=1",
-            "--pass-with-no-tests",
-            "--reporter=junit",
-            `--reporter-outfile=${nativeReport}`,
-            `./${row.file}`,
-        ],
-        { cwd: root, env: { ...envBase, KEX_S3_ROW: row.claim }, stdout: "pipe", stderr: "pipe" },
-    );
+    const proc = spawnTest(artifacts, { ...envBase, KEX_S3_ROW: row.claim }, [
+        process.execPath,
+        "test",
+        "--max-concurrency=1",
+        "--pass-with-no-tests",
+        "--reporter=junit",
+        `--reporter-outfile=${nativeReport}`,
+        `./${row.file}`,
+    ]);
     const stdout = proc.stdout.toString();
     const stderr = proc.stderr.toString();
     const exitCode = proc.exitCode ?? 1;
@@ -350,7 +382,7 @@ if (!integration) {
 function isCommitObject(ref: string): boolean {
     const resolved = Bun.spawnSync(
         ["git", "rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`],
-        { cwd: root, stdout: "pipe", stderr: "pipe" },
+        { cwd: root, env: childEnvironment(envBase), stdout: "pipe", stderr: "pipe" },
     );
     return resolved.success && resolved.stdout.toString().trim() !== "";
 }
