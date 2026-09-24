@@ -62,48 +62,48 @@ bun run list      # what the same selectors would run: claim, size, requirements
 bun run format    # biome, the scene formatter and the examples index, writing
 ```
 
-Each run replaces `.artifacts/` with its report and the output of its child processes.
+Each run replaces `.artifacts/` with its report and child process output.
 
 ## Verification
 
-Test each promise a module makes twice: with tests beside the module, and through the examples builders use. Test each claim at the cheapest level that can see it. A check's result depends only on what it declares.
+A module's promises are tested beside the module and through the examples that use it. Test each claim at the cheapest level that can observe it. A check's result depends only on its declared inputs.
 
-- A check declares its claim, size and required host capabilities in `check()`. A host missing one refuses and says why, instead of running a weaker version. No tag means CPU only. `gpu` needs a real WebGPU device. `display` needs a declared monitor, and uses its keyboard and cursor.
-- Checks run on the scheduler's stepped clock, never wall time. Simulation state is kept in registered components or behind a snapshot, restore and hash hook. Gameplay runs in the fixed group from per-tick actions, presentation runs in draw, and `local` components are left out of the hash. Runs are deterministic within one runtime and engine version; across versions, a hash detects divergence.
-- Test a frame with a CPU property first, then GPU readback, then browser pixels, then a person looking. `captureFrame` is the only way to capture a frame, so checks, artifacts and people see the same thing. Add a golden image only for a defect nothing cheaper can catch, and never edit one to match. Screenshots are never a pass or fail.
-- Steady play allocates nothing. Any steady allocation fails the integration check. The sampler's allocation sites help find the cause but don't decide the result.
-- A memory check creates and destroys its subject, confirms memory returns to baseline, and must fail on a control that deliberately leaks. Retention is checked separately, after a GC.
-- Timings come from real devices, are labeled with the hardware, and are reported but never pass or fail.
-- An oracle is a tool the test suite can't run. Run it once when the check it confirms is created or its tool changes, and note it in that commit. Run it again only when a result is in doubt. It never decides pass or fail.
-- A known failure stays failing until it's fixed. It is never skipped or excused.
+- A check declares its claim, size and required host capabilities in `check()`. A host without a required capability refuses with the reason; it never runs a weaker version. Untagged checks are CPU-only, `gpu` requires a WebGPU device, and `display` requires a declared monitor and takes its keyboard and cursor.
+- Checks run on the scheduler's stepped clock, never wall time. Simulation state lives in registered components or behind a snapshot, restore and hash hook. Gameplay runs in `fixed` from per-tick actions, presentation runs in `draw`, and `local` components are excluded from the hash. Runs are deterministic within one runtime and engine version; across versions, the hash detects divergence.
+- Test a frame at the cheapest level that shows the defect: CPU state, GPU readback, browser pixels, then a person. Capture frames only with `captureFrame`. Add a golden image only for a defect no cheaper level shows, and never update one to make it pass. Screenshots are not results.
+- Steady play allocates nothing; the integration check fails on any steady allocation. Sampler allocation sites are diagnostics, not results.
+- A memory check creates and disposes its subject, verifies memory returns to baseline, and fails on a deliberately leaking control. Retention is a separate check, taken after GC.
+- Timings are measured on real hardware, labeled with it, and reported, never asserted.
+- An oracle is a tool the suite can't run. Run it when the check it validates is created or its tool changes, record the result in that commit, and rerun it only for a specific doubt. It never determines a result.
+- A known failure stays failing until fixed; it is never skipped.
 
 | Claim | Size | Tool |
 |---|---|---|
-| Deterministic work and owned counts | unit | Stepped assertions against expected values from the scene; engine counters; `FinalizationRegistry` under `Bun.gc(true)` |
+| Deterministic work and owned counts | unit | Stepped assertions against values derived from the scene; engine counters; `FinalizationRegistry` under `Bun.gc(true)` |
 | WASM kernel memory | integration | A counting allocator per crate behind a cargo feature; `memory.buffer.byteLength` |
 | Native heap per step | integration (`cargo`) | `dhat` assertions, one profiler per process |
 | Steady JavaScript allocation | integration (`node`) | The V8 sampling heap profiler over the composed subject in a Node child process |
 | GPU resources released | integration (`gpu`) | A counting wrapper over the real Dawn device |
-| What the suite can't see | oracle | Heap-snapshot diffs, CDP tracing, `measureUserAgentSpecificMemory`, WebGPU `timestamp-query` |
+| Beyond the suite | oracle | Heap-snapshot diffs, CDP tracing, `measureUserAgentSpecificMemory`, WebGPU `timestamp-query` |
 
 ## Examples
 
-Examples are where builders, the people and agents making games, meet the engine. What an example can't do shows what the engine is missing. A recipe is a small project that solves one problem; a showcase is a full game.
+A recipe is a small project that solves one problem; a showcase is a complete game. Something an example can't do is a gap in the engine.
 
-- A recipe states its problem in its manifest's `problem` and has a check that fails when the solution breaks. Remove a recipe that no check can prove.
-- A showcase is a game a person would want to play, and runs only the checks a user's project can run.
-- When an example finds a gap, fix it in the module that owns it. Never work around it in the example.
+- A recipe states its problem in its manifest's `problem` field and has a check that fails when the solution breaks. A recipe without such a check is removed.
+- A showcase runs only the checks a user's project can run.
+- Fix a gap in the module that owns it, not in the example.
 
 ## Heavy work
 
-Heavy work runs in WASM or on the GPU. TypeScript coordinates and runs light gameplay. If TypeScript only meets a performance target through tricks aimed at the runtime's internals, move that work to WASM or the GPU.
+Heavy computation runs in WASM or on the GPU; TypeScript coordinates it and runs lightweight gameplay. TypeScript that needs runtime-specific tricks to meet a performance target belongs in WASM or on the GPU.
 
 ## Dependencies and releases
 
-- A pin records the version last verified. Bump a pin in every doc and fixture in one commit; `check-pins` fails on drift.
+- A pin is the last verified version. Update a pin everywhere it appears in one commit; `check-pins` fails on drift.
 - The root links to itself, so examples import the package by name. `@types/node` and `@webgpu/types` are runtime dependencies, because `types` points at source.
-- A link doesn't prove what ships; installing a packed tarball into a scratch project does. Changes to the CLI, manifest, dependencies, runtime or native shell need one.
-- `main` can be mid-change. A release is a `v*` tag; its workflow builds the native shells and publishes to npm. Never publish to try a change. Consumers pin a published version or a full commit SHA.
+- A link doesn't prove what ships; a packed tarball installed in a scratch project does. Changes to the CLI, manifest, dependencies, runtime or native shell require that test.
+- `main` may be mid-change. A release is a `v*` tag; its workflow builds the native shells and publishes to npm. Publish only to release. Consumers pin a published version or a full commit SHA.
 - To retire a module, example or tool, tag its last commit, add a row to [`ARCHIVE.md`](ARCHIVE.md) and delete it. There is no archive directory.
 
 ## Device tiers
