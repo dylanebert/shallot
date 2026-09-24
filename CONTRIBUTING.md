@@ -2,6 +2,12 @@
 
 For modifying the engine. For using Shallot, see the [README](README.md). Each API is documented in the JSDoc beside it. This page covers what the code, the CLI and failing checks don't.
 
+## Architecture
+
+Shallot is a WebGPU game engine for TypeScript, built on an entity component system (ECS). An entity is an id. A component is plain typed data stored per entity. A system is a function the scheduler runs every frame, in ordered groups such as `fixed` for gameplay on a fixed tick and `draw` for presentation. A scene is a file of entities and their components, loaded into the same data.
+
+A plugin is how behavior gets into a game: a named bundle of components, systems and lifecycle hooks (`initialize`, `warm`, `dispose`), plus the plugins it needs. A project lists its plugins in `shallot.json`, and `build()` composes them into an app. Games, checks and agents all run the same composed app on the same stepped clock.
+
 ## Layout
 
 Shallot is layered like an onion: `engine` at the center, then `core`, `standard` and `extras`, then external packages outside the repo. Code only imports from layers inside its own. Outer layers make more choices for a game, so games are more likely to replace or remove them.
