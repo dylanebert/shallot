@@ -8,23 +8,29 @@ import tgpu from "typegpu";
 import type { AnyData, AnyWgslData } from "typegpu/data";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import type { Draw, Mesh } from "../../core/rendering";
-import { Draws, Frame, LightCull, Lighting, Meshes, Render } from "../../core/rendering";
 import type {
     Background,
     BgLayout,
     Binding,
+    Draw,
+    Mesh,
     Surface,
     SurfaceLayout,
-} from "../../core/rendering/contract";
+} from "../../core/rendering";
 import {
     assertOwnFn,
     Backgrounds,
     BgCtx,
+    Draws,
+    Frame,
     type fsCtxSchema,
+    LightCull,
+    Lighting,
+    Meshes,
+    Render,
     Surfaces,
     VsIn,
-} from "../../core/rendering/contract";
+} from "../../core/rendering";
 import { Compute, type Registry } from "../../engine";
 import {
     decodePos,

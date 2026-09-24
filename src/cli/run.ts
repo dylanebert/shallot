@@ -1,8 +1,8 @@
 import { execSync } from "node:child_process";
 import { basename, resolve } from "node:path";
 import { preview } from "vite";
-import { requireBackend } from "../engine/runtime/floor";
 import { bundleNativeLinux, bundleNativeMac, bundleNativeWindows, nativeOutDir } from "../native";
+import { requireBackend } from "../project/floor";
 import { CROSS_ORIGIN_ISOLATION } from "../project/vite";
 import { buildWeb } from "./build";
 

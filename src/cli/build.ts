@@ -2,8 +2,8 @@ import { execSync } from "node:child_process";
 import { cpSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { basename, relative, resolve } from "node:path";
 import { build as viteBuild } from "vite";
-import { requireBackend } from "../engine/runtime/floor";
 import { bundleNativeLinux, bundleNativeMac, bundleNativeWindows, nativeOutDir } from "../native";
+import { requireBackend } from "../project/floor";
 import { composeViteConfig, loadProjectConfig } from "../project/toolchain";
 import {
     discoverScenes,

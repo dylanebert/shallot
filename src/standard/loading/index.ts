@@ -8,7 +8,7 @@
 import pkg from "../../../package.json" with { type: "json" };
 import { UnsupportedError } from "../../engine";
 import type { Loading } from "../../engine/app";
-import type { AdapterVerdict } from "../../engine/runtime/adapter";
+import type { AdapterVerdict } from "../../engine/runtime";
 import { DARK, END_TICK, LIGHT, type Palette, type Splash, splash, toSvg } from "./brand";
 import {
     initialPresentation,

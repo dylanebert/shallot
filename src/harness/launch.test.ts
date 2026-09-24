@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 import { check } from "@dylanebert/shallot/harness/check";
-import type { AdapterFacts } from "../engine/runtime/adapter";
+import type { AdapterFacts } from "../engine/runtime";
 import floor from "./browser.json" with { type: "json" };
 import { launchPlan } from "./launch";
 import { resolveSeat, type SeatResolution } from "./seat";

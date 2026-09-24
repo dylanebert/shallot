@@ -8,7 +8,7 @@ import { emptyPlan, plan, readProject } from "./host";
 import { normalize } from "./manifest";
 
 // the manifest descriptor half of `assets.ts` is part of this subpath's published surface — the CLI
-// (`src/cli/build.ts`, `src/engine/runtime/floor.ts`, `toolchain.ts`) and consumers already resolve both through
+// (`src/cli/build.ts`, `src/project/floor.ts`, `toolchain.ts`) and consumers already resolve both through
 // `@dylanebert/shallot/vite`. The readers beside them stay internal to `src/project/`.
 export { manifestPath, manifestWarnings } from "./assets";
 // scene discovery is the project host's (`host.ts`) — re-exported here because the CLI and consumers

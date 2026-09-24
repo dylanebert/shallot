@@ -532,32 +532,7 @@ export {
     sliceDepth,
     zSlice,
 } from "./cluster";
-export type {
-    Background,
-    BgFn,
-    BgLayout,
-    Binding,
-    FsFn,
-    Specialize,
-    Surface,
-    SurfaceLayout,
-    TagFn,
-    VsFn,
-} from "./contract";
-export {
-    assertOwnFn,
-    Backgrounds,
-    BgCtx,
-    backgroundLayout,
-    fsCtxSchema,
-    registerBackground,
-    registerSurface,
-    SURFACE_GROUP,
-    Surfaces,
-    surfaceLayout,
-    VsIn,
-    vsPatchSchema,
-} from "./contract";
+export * from "./contract";
 export { Frame, FrameGpu, frameWgsl } from "./frame";
 export { CULL_FRUSTUM, CULL_VOLUME_FLOATS, FRUSTUM_FLOATS, frustumPlanes } from "./frustum";
 // the shared image→`texture_2d_array` upload path — the producer substrate glTF baseColor + the sprite atlas

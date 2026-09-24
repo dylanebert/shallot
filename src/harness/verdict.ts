@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { relative, resolve } from "node:path";
-import type { AdapterFacts } from "../engine/runtime/adapter";
+import type { AdapterFacts } from "../engine/runtime";
 import { launchPlan } from "./launch";
 import { resolveSeat } from "./seat";
 

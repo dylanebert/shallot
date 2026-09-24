@@ -3,7 +3,7 @@
 // fixture and a host nobody has run yet. Nothing here launches, probes or reads the environment; `./launch`
 // supplies only the operational launch dispatch.
 
-import { type AdapterFacts, classifyAdapter } from "../engine/runtime/adapter";
+import { type AdapterFacts, classifyAdapter } from "../engine/runtime";
 import type { LaunchPlan } from "./launch";
 
 /** the seats this policy resolves. `cpu` is the absence of a requirement, not a tag. */

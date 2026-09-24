@@ -22,25 +22,23 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { Draw, MeshBinding, MeshIndex, View } from "../../core/rendering";
 import {
+    type Background,
+    Backgrounds,
     BeginFrameSystem,
     Camera,
     Draws,
+    fsCtxSchema,
     Meshes,
     Render,
     RenderPlugin,
-    Views,
-} from "../../core/rendering";
-import {
-    type Background,
-    Backgrounds,
-    fsCtxSchema,
     type Surface,
     Surfaces,
     surfaceLayout as typedLayout,
     registerSurface as typedRegister,
+    Views,
     VsIn,
     vsPatchSchema,
-} from "../../core/rendering/contract";
+} from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
 import { Compute, capacity, f16x4, laneAlias, sparse, u32, unpackColor } from "../../engine";
 import { precompile } from "../../engine/runtime";

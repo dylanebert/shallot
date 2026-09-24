@@ -1,11 +1,4 @@
-export {
-    type AdapterClass,
-    type AdapterFacts,
-    type AdapterInfoFacts,
-    type AdapterVerdict,
-    adapterIdentity,
-    classifyAdapter,
-} from "./adapter";
+export * from "./adapter";
 export {
     Compute,
     checkStorageBinding,
