@@ -4,14 +4,14 @@ For anyone changing the engine, person or agent. Using Shallot is the [README](R
 
 ## Layout
 
-A game's code sits in tiers by what removing it means. A module depends only on tiers inward of its own, so removing anything never breaks what is harder to remove. Anything a game is not expected to need is a separate package, not a tier.
+Each tier assumes more about a game than the one inside it, and a game removes code only when it assumes something the game does not want. A module depends only on tiers inward of its own, so removing one never breaks what assumes less. Anything a game is not expected to need is a separate package, not a tier.
 
 ```
 src/
-  engine/        Shallot itself; cannot be removed: app lifecycle, ECS, scenes, runtime, utils. Knows nothing of rendering, physics, audio or input.
-  core/          One plugin each for rendering, physics, audio and input, universal to any approach, and the transforms they share. Removable, never expected to be.
-  standard/      The default, extensible approach to each over core. A game may swap in its own.
-  extras/        Expected and bundled; sanctioned for easy removal. A plugin moves here from its own package once stable there for a release cycle.
+  engine/        Shallot itself, assuming nothing about the game: app lifecycle, ECS, scenes, runtime, utils. Knows nothing of rendering, physics, audio or input.
+  core/          One plugin each for rendering, physics, audio and input, assuming only what every approach to it shares, plus the transforms they read.
+  standard/      One default, extensible approach to each over core; a game with another approach swaps it.
+  extras/        Features most games reach for, bundled and removed freely. A plugin moves here from its own package once stable there for a release cycle.
   project/       What a project is at build time: manifest, plan, generation, the Vite plugin.
   cli/           The commands and their dispatcher.
   native/        The desktop shell.
@@ -23,7 +23,7 @@ assets.json      Every asset but the shipped icon, fetched by URL and sha256 by 
 ```
 
 - `engine`, `core`, `standard` and `extras` are the game tiers. `project`, `cli`, `native` and `harness` are tooling: they build, run and verify a game, may import any tier, and no game tier imports them.
-- Each sibling can be removed or replaced alone, so a module never imports a sibling. `core/transforms` is the one exception: it is the pose the others all read.
+- A game may want one sibling without another, so a module never imports a sibling. `core/transforms` is the one exception: it is the pose the others read.
 - A folder is one module. Its `index.ts` is its only entry and holds its plugin; every other file is internal. A tier's own `index.ts` is its barrel and holds nothing else, and `standard/index.ts` also holds the default plugin set.
 - A module is a plugin only when it registers systems or resources. Plain data and functions stay plain modules.
 - Every public module has one subpath. The root re-exports every tier with `export *`, so a duplicate name fails `tsc` and no import needs `as`.
@@ -31,7 +31,7 @@ assets.json      Every asset but the shipped icon, fetched by URL and sha256 by 
 
 ### Core and standard
 
-A `core` module holds the data, semantics and minimal shared mechanisms any approach to rendering, physics, audio or input needs, so games interoperate across approaches. Its `standard` module is one opinionated, extensible approach. Core grows only where two different approaches share a meaning; reuse alone does not make code universal.
+A `core` module is the data, semantics and minimal mechanisms every approach shares, so a game keeps them when it changes approach. It grows only where two different approaches share a meaning; reuse alone does not make code universal. The `standard` module beside it is one opinionated, extensible approach.
 
 - A module is named for what it owns, not its technique. Core takes the plain noun, and standard the same noun: `core/rendering` at `/rendering`, `standard/rendering` at `/standard/rendering`.
 - Core owns the plain names. A standard export takes the `Standard` prefix where it plays a role core also names, such as `StandardRenderingPlugin`, and keeps its plain name otherwise. An alternative implementation qualifies its own names, such as `AvbdPhysicsPlugin`.
