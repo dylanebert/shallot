@@ -104,7 +104,7 @@ Heavy computation runs in WASM or on the GPU; TypeScript coordinates it and runs
 - The root links to itself, so examples import the package by name. `@types/node` and `@webgpu/types` are runtime dependencies, because `types` points at source.
 - A link doesn't prove what ships; a packed tarball installed in a scratch project does. Changes to the CLI, manifest, dependencies, runtime or native shell require that test.
 - `main` may be mid-change. A release is a `v*` tag; its workflow builds the native shells and publishes to npm. Publish only to release. Consumers pin a published version or a full commit SHA.
-- To retire a module, example or tool, tag its last commit, add a row to [`ARCHIVE.md`](ARCHIVE.md) and delete it. There is no archive directory.
+- To retire a module, example or tool, tag its last commit `archive/<name>`, then delete it in a commit that says why. There is no archive directory.
 
 ## Device tiers
 
