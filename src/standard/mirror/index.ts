@@ -19,6 +19,7 @@ function unwrap(source: MirrorSource): GPUBuffer {
  *
  * Mirror operates at buffer granularity, not field granularity — the
  * snapshot is opaque bytes. It has no opinion about what they mean.
+ * Snapshot availability depends on device timing; derived state stays out of the determinism hash.
  * Compaction stays a consumer concern: write a smaller GPU-only buffer in
  * your compute graph and point Mirror at that.
  *
