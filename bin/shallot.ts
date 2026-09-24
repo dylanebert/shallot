@@ -15,9 +15,8 @@ if (command === "list" || command === "workflow" || command === "check" || comma
         const signal = proc.signalCode as NodeJS.Signals;
         process.removeAllListeners(signal);
         process.kill(process.pid, signal);
-    } else {
-        process.exit(proc.exitCode ?? 1);
     }
+    process.exit(proc.exitCode ?? 1);
 }
 
 await main(args);
