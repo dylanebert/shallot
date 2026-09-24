@@ -110,10 +110,7 @@ function childEnvironment(
     return {
         ...Object.fromEntries(
             Object.entries(environment).filter(
-                ([key]) =>
-                    !key.startsWith("GIT_") &&
-                    key !== "SHALLOT_TEST_RUNNER_TRIPWIRE_MS" &&
-                    key !== "SHALLOT_TEST_RUNNER_ROW_GAP_MS",
+                ([key]) => !key.startsWith("GIT_") && key !== "SHALLOT_TEST_RUNNER_TRIPWIRE_MS",
             ),
         ),
         GIT_CONFIG_GLOBAL: "/dev/null",
@@ -139,7 +136,6 @@ const TRIPWIRES: Record<ChildKind, number> = {
     oracle: 300_000,
 };
 const FIXTURE_TRIPWIRE_LIMIT_MS = 1_000;
-const FIXTURE_ROW_GAP_LIMIT_MS = 1_000;
 const TEARDOWN_GRACE_MS = 10_000;
 
 function childTripwire(environment: NodeJS.ProcessEnv, kind: ChildKind): number {
@@ -149,16 +145,6 @@ function childTripwire(environment: NodeJS.ProcessEnv, kind: ChildKind): number 
     return milliseconds > 0 && milliseconds <= FIXTURE_TRIPWIRE_LIMIT_MS
         ? Math.min(TRIPWIRES[kind], milliseconds)
         : TRIPWIRES[kind];
-}
-
-async function waitForFixtureRowGap(environment: NodeJS.ProcessEnv): Promise<void> {
-    const milliseconds = Number(environment.SHALLOT_TEST_RUNNER_ROW_GAP_MS);
-    if (
-        Number.isInteger(milliseconds) &&
-        milliseconds > 0 &&
-        milliseconds <= FIXTURE_ROW_GAP_LIMIT_MS
-    )
-        await Bun.sleep(milliseconds);
 }
 
 function groupAlive(group: number): boolean {
@@ -695,8 +681,6 @@ for (const [index, row] of selected.entries()) {
         process.stdout.write(outcome.stdout);
         process.stderr.write(outcome.stderr);
     }
-    if (index + 1 < selected.length && receivedSignal === undefined)
-        await waitForFixtureRowGap(envBase);
 }
 const signalFailure =
     receivedSignal !== undefined &&
