@@ -21,16 +21,6 @@ bunx shallot dev
 
 `bunx shallot --help` lists every command.
 
-## desktop
-
-building the desktop shell from source needs [rust](https://rustup.rs) and, per target:
-
-| target | system webview | portable (cef) |
-|---|---|---|
-| mac | xcode command line tools | same |
-| linux | not supported: webkitgtk has no usable webgpu | `libx11-dev` |
-| windows | cross-compiled with cargo-xwin | a windows host with visual studio, the c++ workload and atl |
-
 ## more
 
 - demos: [dylanebert.com/shallot](https://dylanebert.com/shallot/)

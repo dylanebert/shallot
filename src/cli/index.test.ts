@@ -110,7 +110,7 @@ check(
         expect(result.stdout).toContain("GitHub Releases");
         expect(result.stdout).toContain("source checkout");
         expect(result.stdout).toContain("Rust toolchain");
-        expect(result.stdout).toContain("per-target prerequisites");
+        expect(result.stdout).toContain("cargo-xwin");
         expect(result.stdout).toContain("CEF_PATH");
         expect(result.stdout).not.toContain("--port <n>");
         expect(result.stderr).toBe("");

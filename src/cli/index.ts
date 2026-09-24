@@ -71,8 +71,13 @@ const commandUsage = {
   Native requirements
     Native release builds use a prebuilt shell from GitHub Releases when available. A miss (404,
     offline, checksum mismatch, or source checkout) falls back to compiling the Rust native host from
-    source; source builds require the Rust toolchain and per-target prerequisites. Debug builds always
-    compile from source. Portable builds download CEF on first build, or use CEF_PATH when set.
+    source. Debug builds always compile from source. Source builds need the Rust toolchain
+    (https://rustup.rs) and, per target:
+      mac       Xcode command line tools
+      linux     --portable only (WebKitGTK has no usable WebGPU), with libx11-dev
+      windows   cargo-xwin to cross-compile; --portable needs a Windows host with Visual Studio,
+                its C++ workload and ATL
+    Portable builds download CEF on first build, or use CEF_PATH when set.
 `,
     run: `
   shallot run [dir] [options]
