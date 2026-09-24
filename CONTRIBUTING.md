@@ -4,7 +4,7 @@ For anyone changing the engine, person or agent. Using Shallot is the [README](R
 
 ## Layout
 
-Shallot is an onion: the engine at the center, then `core`, `standard` and `extras`. Code depends only on layers inside its own. Each layer out decides more for a game, so a game is more likely to swap or drop it. What most games won't use is a separate package.
+Shallot is an onion: the engine at the center, then `core`, `standard`, `extras`, and outside the repo, external packages for what most games won't use. Code depends only on layers inside its own. Each layer out decides more for a game, so a game is more likely to swap or drop it.
 
 ```
 src/
