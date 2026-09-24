@@ -12,9 +12,9 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import { fsCtxSchema, surfaceLayout, VsIn, vsPatchSchema } from "../../core/rendering";
 import { unpackLdrColor } from "../../engine/utils";
-import { fsCtxSchema, surfaceLayout, VsIn, vsPatchSchema } from "../../standard/render";
-import { engineLayout } from "../../standard/sear";
+import { engineLayout } from "../../standard/rendering";
 
 /** one debug segment: two world endpoints + a pixel width + a packed sRGBA color. 32 B, the layout
  *  `segments.ts` stages (`a.xyz` shares its 16-byte slot with `width`, `b.xyz` with `color`). */

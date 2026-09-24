@@ -248,7 +248,7 @@ export function chunk(
  *  there is no hook — and `$uses` throws on a kernel whose metadata came from `unplugin-typegpu`. There,
  *  the directive rides a no-argument WGSL-bodied `tgpu.fn` called as the kernel's *first* statement:
  *  typegpu emits declarations in first-use order and WGSL requires every directive ahead of every global
- *  declaration, so anything later emits invalid WGSL. `uniformityOptOut` in `standard/bvh/sort.ts` is
+ *  declaration, so anything later emits invalid WGSL. `uniformityOptOut` in `transitional/bvh/sort.ts` is
  *  the worked case.
  *  @example tgpu.resolve([subgroupUniformityOff, myKernel]) // resolve only — see above for a pipeline */
 export const subgroupUniformityOff = tgpu["~unstable"].declare(

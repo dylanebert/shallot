@@ -14,7 +14,6 @@
 
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
-import { Compute, formatHex, type Plugin, Registry, type State, type System } from "../../engine";
 import {
     BeginFrameSystem,
     DrawIndexedIndirect,
@@ -24,9 +23,10 @@ import {
     mesh,
     RenderPlugin,
     registerSurface,
-} from "../../standard/render";
-import { PrepassSystem } from "../../standard/sear";
-import { Transform, TransformsPlugin } from "../../standard/transforms";
+} from "../../core/rendering";
+import { Compute, formatHex, type Plugin, Registry, type State, type System } from "../../engine";
+import { PrepassSystem } from "../../standard/rendering";
+import { Transform, TransformsPlugin } from "../../transitional/transforms";
 import {
     BUCKETS,
     INITIAL,

@@ -8,7 +8,7 @@ import {
     StepSystem,
     type World,
     zeroProfile,
-} from "../../standard/physics";
+} from "../../transitional/physics";
 
 /** A wall-clock physics step clock (b3GetTicks / b3GetMillisecondsAndReset), read back through
  * `World.getProfile`. Only the profiler composes it, so the default step does no timing work. */

@@ -17,7 +17,7 @@ use shallot_physics::narrowphase::{
     compute_convex_manifold, ConvexContactCache, ConvexShape, Manifold, ManifoldPoint,
 };
 
-const GOLD: &str = include_str!("../../../src/standard/physics/kernel/convex_manifold.gold.json");
+const GOLD: &str = include_str!("../../../src/transitional/physics/kernel/convex_manifold.gold.json");
 
 fn from_bits(hex: &str) -> f32 {
     let bits = u32::from_str_radix(hex.trim_start_matches("0x"), 16).expect("hex");

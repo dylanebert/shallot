@@ -757,7 +757,7 @@ if (_globals.__SHALLOT_TYPEGPU_WRITES__ === undefined) {
  * (non-prebundled, individually-transformed) engine module regardless of import-statement order in the
  * consumer's own source, so this isn't specific to that one project. **In that same run `checkTgsl`
  * never got the chance to matter anyway**: the corruption crashed at *module-evaluation* time, inside
- * `standard/render/image.ts`'s top-level `tgpu.fragmentFn(...)` call — a plain `const`, evaluated as
+ * `core/rendering/image.ts`'s top-level `tgpu.fragmentFn(...)` call — a plain `const`, evaluated as
  * part of the import graph — and `checkTgsl` only runs later, inside {@link requestGPU} at actual boot
  * time, well after every module (image.ts included) has already finished evaluating. No pre-device
  * check, however placed, can preempt a crash that happens earlier in program execution than the check
@@ -986,7 +986,7 @@ async function compileBody(
         // (b) an array is awaited element-wise — the natural generalization of the sear forcer's
         // shape is an array of typegpu pipelines, and skipping the whole array unconditionally
         // would silently warm nothing for that caller. Each entry exposing initAsync is awaited;
-        // the sear variant's (standard/sear/forward.ts) own already-unwrapped raw pipelines expose
+        // the sear variant's (standard/rendering/forward.ts) own already-unwrapped raw pipelines expose
         // none, so they're skipped element-wise too, same as `[]` when nothing specializes. `warmed`
         // tracks whether any entry actually did — an all-skip array must not report a compile span
         // below, since that's the one still-unwarmed path and the profiler must not call it warm

@@ -170,7 +170,7 @@ export const finalizeLayout = tgpu.bindGroupLayout({
 });
 
 // a fullscreen triangle covering the viewport, uv 0..1 across the covered quad — the same three-vertex
-// form the mipmap blit uses (`standard/render/image.ts`)
+// form the mipmap blit uses (`core/rendering/image.ts`)
 const fullscreenUv = tgpu.fn(
     [d.u32],
     d.vec2f,

@@ -9,9 +9,6 @@
 // primitive. The segment staging + upload + immediate API live in `segments.ts`, the surface in
 // `surface.ts`.
 
-import type { Plugin, State, System } from "../../engine";
-import { Compute, f32, formatHex, sparse, vec4 } from "../../engine";
-import { packColor } from "../../engine/utils";
 import {
     BeginFrameSystem,
     Draws,
@@ -19,9 +16,12 @@ import {
     mesh,
     RenderPlugin,
     registerSurface,
-} from "../../standard/render";
-import { PrepassSystem } from "../../standard/sear";
-import { composeTransform, Transform, TransformsPlugin } from "../../standard/transforms";
+} from "../../core/rendering";
+import type { Plugin, State, System } from "../../engine";
+import { Compute, f32, formatHex, sparse, vec4 } from "../../engine";
+import { packColor } from "../../engine/utils";
+import { PrepassSystem } from "../../standard/rendering";
+import { composeTransform, Transform, TransformsPlugin } from "../../transitional/transforms";
 import {
     disposeSegments,
     flushSegments,

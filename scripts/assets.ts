@@ -14,7 +14,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { normalize } from "../src/project/manifest";
-import { compose, DARK, fromBlocks, MARK, toSvg } from "../src/standard/loading/mark";
+import { compose, DARK, fromBlocks, MARK, toSvg } from "../src/standard/loading/brand";
 import { toPng } from "./png";
 
 // Each asset links under the `public/` of every example whose `shallot.json` names it in `assets`, so

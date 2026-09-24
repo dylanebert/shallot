@@ -6,10 +6,10 @@
 // its object as the default export only (bun synthesizes named ones). Either way a Node-side consumer of
 // this package — a Playwright driver, a vite/playwright config — dies before running.
 import pkg from "../../../package.json" with { type: "json" };
-import { DARK, END_TICK, LIGHT, type Palette, type Splash, splash, toSvg } from "../../brand";
 import { UnsupportedError } from "../../engine";
 import type { Loading } from "../../engine/app";
 import type { AdapterVerdict } from "../../engine/runtime/adapter";
+import { DARK, END_TICK, LIGHT, type Palette, type Splash, splash, toSvg } from "./brand";
 import {
     initialPresentation,
     type PresentationEvent,

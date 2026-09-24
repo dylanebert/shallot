@@ -1,6 +1,6 @@
 // Shim until the engine stops reading browser globals at module top level; then delete.
 // Install the fixed WebGPU enum bit-flag constants as globals. The engine barrel references them at module
-// top-level (sear's `GPUShaderStage`, the slab/render buffer-usage masks), so importing it under the plain
+// top-level (`standard/rendering`'s `GPUShaderStage`, the slab/render buffer-usage masks), so importing it under the plain
 // `bun` CLI — the build-time feature scan in `features.ts` — needs them defined (a browser has them for
 // free). The values are spec-fixed, so this is a self-contained shim: the shipped CLI never reaches for the
 // dev-only `bun-webgpu` test package (which carries native wgpu bindings no browser user wants installed).

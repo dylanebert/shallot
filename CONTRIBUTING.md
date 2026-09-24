@@ -113,6 +113,7 @@ Generated from the plugin declarations, which decide whether a composition needs
 <!-- device-tiers:start -->
 | Plugin set | Composition tier | `required` (GPU) | `optional` (CPU/GPU) | absent declaration (CPU) |
 | --- | --- | --- | --- | --- |
-| standard | gpu | BVH, Fog, Glaze, Mirror, Render, Sear | Part, Physics, Slab, Transforms | Audio, BrowserInput, Character, Input, Player |
-| extras | gpu | Profile | Cells, Gltf, Lines, Outline, Skin, Sky, Sprite, Text | Orbit, OrbitOverlay, PhysicsProfile |
+| core | gpu | Render | — | BrowserInput, Input |
+| standard | gpu | BVH, Glaze, Mirror, Sear | Part, Physics, Slab, Transforms | Audio, Character |
+| extras | gpu | Fog, Profile | Cells, Gltf, Lines, Outline, Skin, Sky, Sprite, Text | Orbit, OrbitOverlay, PhysicsProfile, Player |
 <!-- device-tiers:end -->

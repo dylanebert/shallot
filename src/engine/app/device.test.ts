@@ -1,15 +1,15 @@
 import { afterEach, expect } from "bun:test";
 import { check } from "../../harness/check";
 // Registers DEFAULT_PLUGINS as the build default set that the default-build refusal row reads.
-import { DEFAULT_PLUGINS } from "../../standard/defaults";
+import { DEFAULT_PLUGINS } from "../../standard";
 import {
     Body,
     hash as hashPhysics,
     PhysicsPlugin,
     readBody,
     ShapeKind,
-} from "../../standard/physics";
-import { Slab } from "../../standard/slab";
+} from "../../transitional/physics";
+import { Slab } from "../../transitional/slab";
 import { Compute, State, stampAdapter, Time } from "../index";
 import { diagnose, load, parse } from "../scene";
 import { build } from "./index";

@@ -1,14 +1,14 @@
-import { decodeDraco, loadDraco } from "../../src/extras/gltf/draco";
-import { isGlb, parseGlb } from "../../src/extras/gltf/glb";
-import { type GltfJson, type GltfScene, parse } from "../../src/extras/gltf/gltf";
-import { decodeMeshopt, loadMeshopt } from "../../src/extras/gltf/meshopt";
+import { decodeDraco, loadDraco } from "../../src/transitional/gltf/draco";
+import { isGlb, parseGlb } from "../../src/transitional/gltf/glb";
+import { type GltfJson, type GltfScene, parse } from "../../src/transitional/gltf/gltf";
+import { decodeMeshopt, loadMeshopt } from "../../src/transitional/gltf/meshopt";
 import { cachedFiles, load } from "../assets";
 
 // the shared corpus walk for the glTF conformance generator. The CPU half of `loadGltf` — glb-split → resolve
 // buffers → inject the Draco/meshopt codecs → `parse` — run over the Khronos glTF-Sample-Assets models pinned
 // in `assets.json`, read from the assets cache by hash. `parse` is deviceless (no GPU, no State; KTX2
 // transcode is GPU-side, so a KTX variant parses on the CPU like any other); nothing here reaches into
-// `src/extras/gltf` beyond its public parse surface.
+// `src/transitional/gltf` beyond its public parse surface.
 
 const KHRONOS = "KhronosGroup/glTF-Sample-Assets/";
 

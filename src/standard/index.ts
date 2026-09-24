@@ -12,61 +12,12 @@ export {
     Sound,
     sample,
     sfx,
-} from "./audio";
-export { BvhPlugin } from "./bvh";
-export { Character, CharacterPlugin, CharacterSweepSystem } from "./character";
-export * from "./defaults";
-export { Fog, FogPlugin } from "./fog";
-export { Glaze, GlazePlugin, Tonemap } from "./glaze";
-export {
-    type AudioContextState,
-    type AudioDevice,
-    audioContextState,
-    BrowserInputPlugin,
-    blur,
-    createBrowserInputPlugin,
-    type Devices,
-    devices,
-    focus,
-    type InputHost,
-    InputPlugin,
-    inputEnabled,
-    type Keys,
-    type Mouse,
-    type Pointer,
-    type PointerButton,
-    type PointerLock,
-    pointerButton,
-    pointerButtons,
-    pointerLockChanged,
-    pointerMove,
-    pointerWheel,
-    pressKey,
-    releaseKey,
-    releasePointerLock,
-    reportAudioContextState,
-    reportViewport,
-    requestPointerLock,
-    requirePointerLock,
-    resizeViewport,
-    setInputEnabled,
-    type Touch,
-    touchPoint,
-    type Viewport,
-    visibilityChanged,
-    wheel,
-} from "./input";
-export {
-    type LoadingOptions,
-    minimalDark,
-    minimalLight,
-    type SplashOptions,
-    type SplashProfile,
-    shallotDark,
-    shallotLight,
-} from "./loading";
-export { Mirror, MirrorPlugin, MirrorSystem, mirror } from "./mirror";
-export { Color, Part, PartPlugin } from "./part";
+} from "../transitional/audio";
+export { BvhPlugin } from "../transitional/bvh";
+export { Character, CharacterPlugin, CharacterSweepSystem } from "../transitional/character";
+export { Glaze, GlazePlugin, Tonemap } from "../transitional/glaze";
+export { Mirror, MirrorPlugin, MirrorSystem, mirror } from "../transitional/mirror";
+export { Color, Part, PartPlugin } from "../transitional/part";
 export {
     Body,
     BodyType,
@@ -101,28 +52,18 @@ export {
     snapshot,
     type WheelJointConfig,
     World,
-} from "./physics";
+} from "../transitional/physics";
+export { Slab, SlabPlugin, SlabSystem, slab } from "../transitional/slab";
+export { composeTransform, Transform, TransformsPlugin } from "../transitional/transforms";
 export {
-    Player,
-    PlayerControlSystem,
-    PlayerPlugin,
-    type PointerLockStatus,
-    pointerLockRefusal,
-    pointerLockStatus,
-} from "./player";
-export {
-    AmbientLight,
-    Camera,
-    CameraMode,
-    DirectionalLight,
-    type Mesh,
-    mesh,
-    PointLight,
-    RenderPlugin,
-    Resolution,
-    Spot,
-    Volumetric,
-} from "./render";
+    type LoadingOptions,
+    minimalDark,
+    minimalLight,
+    type SplashOptions,
+    type SplashProfile,
+    shallotDark,
+    shallotLight,
+} from "./loading";
 export {
     Backdrop,
     Depth,
@@ -135,8 +76,29 @@ export {
     Shadow,
     SunShadows,
     Tag,
-} from "./sear";
-export { Slab, SlabPlugin, SlabSystem, slab } from "./slab";
-export { composeTransform, Transform, TransformsPlugin } from "./transforms";
+} from "./rendering";
 
-import "./defaults";
+import { BrowserInputPlugin, InputPlugin } from "../core/input";
+import { RenderPlugin } from "../core/rendering";
+import type { Plugin } from "../engine";
+import { setDefaultLoading, setDefaultPlugins } from "../engine/app";
+import { GlazePlugin } from "../transitional/glaze";
+import { PartPlugin } from "../transitional/part";
+import { SlabPlugin } from "../transitional/slab";
+import { TransformsPlugin } from "../transitional/transforms";
+import { shallotDark } from "./loading";
+import { SearPlugin } from "./rendering";
+
+export const DEFAULT_PLUGINS: readonly Plugin[] = [
+    SlabPlugin,
+    TransformsPlugin,
+    InputPlugin,
+    BrowserInputPlugin,
+    RenderPlugin,
+    PartPlugin,
+    SearPlugin,
+    GlazePlugin,
+];
+
+setDefaultPlugins(DEFAULT_PLUGINS);
+setDefaultLoading(shallotDark);

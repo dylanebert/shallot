@@ -4,10 +4,11 @@
 // `Lighting` singleton and writes nothing; a day-night cycle that writes the sun is a separate, deferred
 // plugin, so sky and lights never depend on each other. One `Sky` singleton holds the look; a camera opts
 // in with sear's `Backdrop` component (`backdrop="name: sky"`). Not in `DEFAULT_PLUGINS`.
+
+import { BeginFrameSystem, RenderPlugin, registerBackground } from "../../core/rendering";
 import type { Plugin, System } from "../../engine";
 import { Compute, f32, formatHex, sparse } from "../../engine";
-import { BeginFrameSystem, RenderPlugin, registerBackground } from "../../standard/render";
-import { ColorSystem, SearPlugin } from "../../standard/sear";
+import { ColorSystem, SearPlugin } from "../../standard/rendering";
 import { packSky } from "./pack";
 import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
 

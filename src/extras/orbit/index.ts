@@ -1,3 +1,5 @@
+import { devices, InputPlugin, type Mouse } from "../../core/input";
+import { Camera, CameraMode } from "../../core/rendering";
 import {
     entity,
     f32,
@@ -10,9 +12,7 @@ import {
     vec4,
 } from "../../engine";
 import { aim, angle, clamp } from "../../engine/utils";
-import { devices, InputPlugin, type Mouse } from "../../standard/input";
-import { Camera, CameraMode } from "../../standard/render";
-import { Transform, TransformsPlugin } from "../../standard/transforms";
+import { Transform, TransformsPlugin } from "../../transitional/transforms";
 import { OrbitSmooth } from "./smooth";
 
 const Tau = Math.PI * 2;

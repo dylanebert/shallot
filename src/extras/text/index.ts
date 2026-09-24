@@ -12,6 +12,19 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import {
+    BeginFrameSystem,
+    DrawIndexedIndirect,
+    Draws,
+    fsCtxSchema,
+    Meshes,
+    mesh,
+    RenderPlugin,
+    registerSurface,
+    surfaceLayout,
+    VsIn,
+    vsPatchSchema,
+} from "../../core/rendering";
+import {
     Compute,
     f32,
     formatHex,
@@ -24,21 +37,8 @@ import {
     vec2,
 } from "../../engine";
 import { packColor, Xform, xformPoint } from "../../engine/utils";
-import {
-    BeginFrameSystem,
-    DrawIndexedIndirect,
-    Draws,
-    fsCtxSchema,
-    Meshes,
-    mesh,
-    RenderPlugin,
-    registerSurface,
-    surfaceLayout,
-    VsIn,
-    vsPatchSchema,
-} from "../../standard/render";
-import { PrepassSystem } from "../../standard/sear";
-import { Transform, TransformsPlugin } from "../../standard/transforms";
+import { PrepassSystem } from "../../standard/rendering";
+import { Transform, TransformsPlugin } from "../../transitional/transforms";
 import {
     createGlyphAtlas,
     disposeAtlases,
@@ -148,7 +148,7 @@ function typedTextSurface(id: number) {
     });
     // `vsPatchSchema`/`fsCtxSchema` are plain host functions (no "use gpu"), so they must be called OUTSIDE
     // any traced body — a call from inside a "use gpu" closure throws "not marked with the 'use gpu'
-    // directive" at pipeline-resolution time (`standard/sear/forward.ts`'s `typedVertexPatch` is the
+    // directive" at pipeline-resolution time (`standard/rendering/forward.ts`'s `typedVertexPatch` is the
     // reference pattern). Hoisted once here, the vs body below references the constructor only
     const VertexPatch = vsPatchSchema(textVaryings);
     const vs = tgpu
@@ -543,7 +543,7 @@ export const TextPlugin: Plugin = {
 // Text's extension surface — the shared SDF glyph atlas substrate for a producer that needs it
 // without the retained `Text` component + its layout/anchor machinery: atlas creation/warming, plus the
 // SDF decode (`sdfToSignedDistance`) and packed-color decode (`textSrgbToLinear`) a consuming fragment
-// stage evaluates the same way this module's own `fs` does. First consumer: `extras/cells`, the ASCII
+// stage evaluates the same way this module's own `fs` does. First consumer: `transitional/cells`, the ASCII
 // cell renderer's glyph atlas, which renders directly on the GPU through the existing instanced SDF
 // glyph atlas — a simplification of this system, monospace and anchor-free, reusing the same atlas
 // rather than building a second one. A sibling module imports these through this barrel, never

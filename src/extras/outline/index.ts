@@ -32,11 +32,6 @@ import type {
     UniformFlag,
 } from "typegpu";
 import * as d from "typegpu/data";
-import type { Plugin, State, System } from "../../engine";
-import { Compute, f32, sparse, vec4 } from "../../engine";
-import { precompile } from "../../engine/runtime";
-import { GlazeSystem } from "../../standard/glaze";
-import { Part, PartPlugin } from "../../standard/part";
 import {
     Camera,
     type Mesh,
@@ -47,9 +42,14 @@ import {
     sceneTransform,
     type View,
     Views,
-} from "../../standard/render";
-import { ColorSystem, DEPTH_FORMAT } from "../../standard/sear";
-import { Transform, TransformsPlugin } from "../../standard/transforms";
+} from "../../core/rendering";
+import type { Plugin, State, System } from "../../engine";
+import { Compute, f32, sparse, vec4 } from "../../engine";
+import { precompile } from "../../engine/runtime";
+import { ColorSystem, DEPTH_FORMAT } from "../../standard/rendering";
+import { GlazeSystem } from "../../transitional/glaze";
+import { Part, PartPlugin } from "../../transitional/part";
+import { Transform, TransformsPlugin } from "../../transitional/transforms";
 import {
     compositeKernel,
     compositeLayout,

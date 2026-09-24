@@ -1,0 +1,8 @@
+import { Compute } from "../../engine";
+
+export const TransitionalRoguePlugin = {
+    name: "TransitionalRogue",
+    initialize() {
+        void Compute.device;
+    },
+};

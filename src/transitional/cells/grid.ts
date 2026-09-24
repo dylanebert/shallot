@@ -1,0 +1,122 @@
+// The cell grid's compute-pass contract: the bind group layout + kernel a fill pass writes cells
+// through, and the headless grid allocator (`createCellGrid`), read back through `transitional/mirror`'s
+// existing buffer-level readback with no readback machinery of its own. The web sink and the terminal
+// encoder both consume the same `CellGrid.buffer`; the fill kernel writes a deterministic test pattern
+// standing in for a real scene sample.
+
+import tgpu, { type StorageFlag, type TgpuBuffer } from "typegpu";
+import * as d from "typegpu/data";
+import { Compute } from "../../engine";
+import { Cell, packCell } from "./cell";
+
+const WG = 8; // 2D workgroup — matches the grid's own 2D shape rather than a flattened 1D index
+
+/** Target device-pixel cell edge for a web surface. Eleven keeps rounding within the locked 10–12px band. */
+export const CELL_TARGET_DEVICE_PX = 11;
+
+export interface CellGridSize {
+    readonly cols: number;
+    readonly rows: number;
+}
+
+/** Derive a grid from an output surface and the physical width and height of one cell. */
+export function deriveCellGridSize(
+    width: number,
+    height: number,
+    cellWidth = CELL_TARGET_DEVICE_PX,
+    cellHeight = cellWidth,
+): CellGridSize {
+    if (
+        ![width, height, cellWidth, cellHeight].every(
+            (value) => Number.isFinite(value) && value > 0,
+        )
+    ) {
+        throw new Error(`[cells] grid surface and cell dimensions must be finite and positive`);
+    }
+    return {
+        cols: Math.max(1, Math.round(width / cellWidth)),
+        rows: Math.max(1, Math.round(height / cellHeight)),
+    };
+}
+
+/** the fill pass's dims: grid width/height + the glyph ramp length the test pattern wraps against.
+ *  @internal */
+export const GridParams = d.struct({ cols: d.u32, rows: d.u32, glyphCount: d.u32 });
+
+/** the fill pass's one bind group: the dims uniform in, the cell buffer out.
+ *  @internal */
+export const gridLayout = tgpu.bindGroupLayout({
+    params: { uniform: GridParams },
+    cells: { storage: (n: number) => d.arrayOf(Cell, n), access: "mutable" },
+});
+
+// A diagonal glyph-ramp sweep with a fg/bg gradient over cell coordinates — deterministic, no scene
+// input, standing in for a real render-target sample until a sink supplies one. The schema, bind
+// group, and dispatch shape are what a real producer reuses; only this body's content source is expected
+// to change.
+const fillKernel = tgpu.computeFn({
+    workgroupSize: [WG, WG],
+    in: { gid: d.builtin.globalInvocationId },
+})((input) => {
+    "use gpu";
+    const x = input.gid.x;
+    const y = input.gid.y;
+    const cols = gridLayout.$.params.cols;
+    const rows = gridLayout.$.params.rows;
+    if (x >= cols || y >= rows) return;
+    const i = y * cols + x;
+    const glyph = (x + y) % gridLayout.$.params.glyphCount;
+    const one = d.f32(1);
+    const u = d.f32(x) / d.f32(cols);
+    const v = d.f32(y) / d.f32(rows);
+    // Alpha is linear and inverted to keep the pattern near opaque. Its ideal scaled
+    // values lie on unorm8 half boundaries; intermediate rounding and reassociation
+    // can place the packed result on either neighboring byte. The cells scenario
+    // checks operation-derived admissible sets and separate exact packing inputs.
+    const alphaFg = one - (d.f32(x) + d.f32(0.5)) / d.f32(255);
+    const alphaBg = one - (d.f32(y) + d.f32(0.5)) / d.f32(255);
+    const packed = packCell(
+        glyph,
+        d.vec4f(u, v, one - u, alphaFg),
+        d.vec4f(one - u, one - v, v, alphaBg),
+    );
+    gridLayout.$.cells[i].glyph = packed.x;
+    gridLayout.$.cells[i].fg = packed.y;
+    gridLayout.$.cells[i].bg = packed.z;
+});
+
+/**
+ * a headless cell grid: the GPU-owned buffer plus the dims a fill pass needs, sized `cols * rows *`
+ * {@link CELL_BYTES}. Sibling of `extras/text`'s glyph buffer — `buffer` is a plain `TgpuBuffer`, so a
+ * caller reads it back through `mirror(grid.buffer)` (`transitional/mirror`), with no cells-owned readback
+ * path.
+ */
+export interface CellGrid {
+    readonly cols: number;
+    readonly rows: number;
+    readonly glyphCount: number;
+    readonly buffer: TgpuBuffer<d.WgslArray<typeof Cell>> & StorageFlag;
+}
+
+/**
+ * allocate a headless cell grid of `cols * rows` cells against the adopted device (`Compute.root`).
+ * Empty until a fill pass dispatches over it. `glyphCount` must be at least 1 — the
+ * fill kernel wraps the test-pattern glyph index against it.
+ *
+ * @example const grid = createCellGrid(80, 24, CELL_GLYPH_COUNT); // the printable-ASCII ramp, ramp.ts
+ */
+export function createCellGrid(cols: number, rows: number, glyphCount: number): CellGrid {
+    if (glyphCount < 1)
+        throw new Error(`[cells] createCellGrid: glyphCount must be >= 1, got ${glyphCount}`);
+    const buffer = Compute.root
+        .createBuffer(d.arrayOf(Cell, cols * rows))
+        .$usage("storage")
+        .$name("cells-grid");
+    return { cols, rows, glyphCount, buffer };
+}
+
+/** the emitted fill-pass WGSL — the device-free structural seam its test resolves.
+ *  @internal */
+export function gridWgsl(): string {
+    return tgpu.resolve([fillKernel], { names: "strict" });
+}

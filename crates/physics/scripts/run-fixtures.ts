@@ -11,7 +11,7 @@ import { resolve } from "node:path";
 import { Glob } from "bun";
 
 const owner = resolve(import.meta.dir, "../../..");
-const files = [...new Glob("src/standard/physics/**/*.fixture.ts").scanSync(owner)].map(
+const files = [...new Glob("src/transitional/physics/**/*.fixture.ts").scanSync(owner)].map(
     (f) => `./${f}`,
 );
 if (files.length === 0) {

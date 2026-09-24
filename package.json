@@ -3,8 +3,7 @@
     "version": "0.10.0",
     "description": "WebGPU game engine for TypeScript: scenes as data, behavior as plugins, web and native desktop builds.",
     "sideEffects": [
-        "./src/standard/index.ts",
-        "./src/standard/defaults.ts"
+        "./src/standard/index.ts"
     ],
     "license": "MIT",
     "packageManager": "bun@1.4.2",
@@ -29,7 +28,7 @@
     "exports": {
         ".": "./src/index.ts",
         "./extras": "./src/extras/index.ts",
-        "./brand": "./src/brand/index.ts",
+        "./brand": "./src/standard/loading/brand.ts",
         "./harness": "./src/harness/index.ts",
         "./harness/check": "./src/harness/check.ts",
         "./harness/allocation": "./src/harness/allocation.ts",
@@ -44,12 +43,15 @@
         "./runtime": "./src/engine/runtime/index.ts",
         "./ecs": "./src/engine/ecs/index.ts",
         "./utils": "./src/engine/utils/index.ts",
-        "./render": "./src/standard/render/index.ts",
-        "./sear": "./src/standard/sear/index.ts",
-        "./glaze": "./src/standard/glaze/index.ts",
-        "./physics": "./src/standard/physics/index.ts",
-        "./character": "./src/standard/character/index.ts",
-        "./bvh": "./src/standard/bvh/index.ts"
+        "./app": "./src/engine/app/index.ts",
+        "./scene": "./src/engine/scene/index.ts",
+        "./input": "./src/core/input/index.ts",
+        "./rendering": "./src/core/rendering/index.ts",
+        "./standard/rendering": "./src/standard/rendering/index.ts",
+        "./glaze": "./src/transitional/glaze/index.ts",
+        "./physics": "./src/transitional/physics/index.ts",
+        "./character": "./src/transitional/character/index.ts",
+        "./bvh": "./src/transitional/bvh/index.ts"
     },
     "bin": {
         "shallot": "./bin/shallot.ts"
@@ -77,8 +79,8 @@
         "!examples/*/build",
         "!examples/*/dist",
         "!examples/*/tsconfig.json",
-        "!src/extras/gltf/fixtures",
-        "!src/standard/physics/solver/fixtures",
+        "!src/transitional/gltf/fixtures",
+        "!src/transitional/physics/solver/fixtures",
         "scripts/check-surface.ts",
         "scripts/surface.ts",
         "scripts/test-runner.ts",

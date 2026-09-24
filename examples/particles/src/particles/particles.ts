@@ -20,8 +20,8 @@ import {
     surfaceLayout,
     VsIn,
     vsPatchSchema,
-} from "@dylanebert/shallot/render";
-import { PrepassSystem } from "@dylanebert/shallot/sear";
+} from "@dylanebert/shallot/rendering";
+import { PrepassSystem } from "@dylanebert/shallot/standard/rendering";
 import tgpu, { type TgpuBindGroup, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";

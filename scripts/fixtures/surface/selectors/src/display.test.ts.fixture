@@ -2,6 +2,6 @@ import { check } from "@dylanebert/shallot/harness/check";
 
 check(
     "display selector row",
-    { claim: "display selector row", size: "integration", requires: ["display"], subject: "src/render/frame.ts" },
+    { claim: "display selector row", size: "integration", requires: ["display"], subject: "src/core/rendering/frame.ts" },
     () => {},
 );

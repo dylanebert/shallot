@@ -1,5 +1,5 @@
+import { devices } from "../../core/input";
 import { mountOverlay, type Plugin, type State, type System } from "../../engine";
-import { devices } from "../../standard/input";
 import { Orbit } from "./index";
 import { OrbitSmooth } from "./smooth";
 

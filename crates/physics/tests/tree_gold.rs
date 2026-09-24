@@ -13,7 +13,7 @@ use serde_json::Value;
 use shallot_physics::tree::{self, Rebuild, STACK_SIZE, STRIDE};
 
 fn load() -> Value {
-    let raw = include_str!("../../../src/standard/physics/collision/tree.gold.json");
+    let raw = include_str!("../../../src/transitional/physics/collision/tree.gold.json");
     serde_json::from_str(raw).expect("parse tree.gold.json")
 }
 

@@ -1,15 +1,15 @@
-// Generates `extras/cells/ramp-table.ts`: the coverage-ordered fill glyph ramp, sorted
+// Generates `transitional/cells/ramp-table.ts`: the coverage-ordered fill glyph ramp, sorted
 // by measured ink coverage, not a hand-authored character set in code-point order. Renders each
 // candidate printable-ASCII glyph's outline against the cells face (the `cells-face` asset, the house
 // monospace) and measures its ink coverage: the glyph's TrueType contour area (Green's theorem over
 // the parsed outline, `extras/text/font.ts`'s own `glyphPath`) divided by the font's em-square area,
 // sorted ascending.
 //
-// Lives under `scripts/`, not under `src/extras/cells/` — a generator that reaches across module
+// Lives under `scripts/`, not under `src/transitional/cells/` — a generator that reaches across module
 // boundaries (`extras/text/font.ts`) and touches Node-only `readFileSync`/`writeFileSync` belongs in the
 // script tree. `check-imports.ts` only walks `src/`, so this keeps cross-module tooling out of the
 // browser-importable graph. `computeRampTable` and `glyphCoverage` are exported pure functions so
-// `extras/cells/ramp-table.test.ts` can call the identical derivation the committed table came from and
+// `transitional/cells/ramp-table.test.ts` can call the identical derivation the committed table came from and
 // assert they still agree — the arm that makes `ramp-table.ts` a reproducible derivation rather than a
 // hand-authored guess with a script beside it.
 //
@@ -26,11 +26,14 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { CELL_DIRECTIONAL_GLYPHS, CELL_FILL_EXCLUDED_GLYPHS } from "../../src/extras/cells/ramp";
 import { type Font, parseFont } from "../../src/extras/text/font";
+import {
+    CELL_DIRECTIONAL_GLYPHS,
+    CELL_FILL_EXCLUDED_GLYPHS,
+} from "../../src/transitional/cells/ramp";
 import { cached } from "../assets";
 
-const OUTPUT_URL = new URL("../../src/extras/cells/ramp-table.ts", import.meta.url);
+const OUTPUT_URL = new URL("../../src/transitional/cells/ramp-table.ts", import.meta.url);
 
 /** one point in a flattened glyph contour, font units. */
 interface Point {

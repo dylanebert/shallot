@@ -97,7 +97,7 @@ CharacterSweepSystem.update
   -> physics body transform / linear-velocity bindings
 ```
 
-`src/standard/character/sweep.ts` reuses its geometry scratch, and `src/standard/physics/index.ts` reuses the `kinPos`, `kinQuat`, and `kinVel` records in `setKinematic`; those facts make an avoidable allocation at this boundary surprising, but they do not prove that no binding or runtime wrapper allocates. The controls localize the path, not the exact line.
+`src/transitional/character/sweep.ts` reuses its geometry scratch, and `src/transitional/physics/index.ts` reuses the `kinPos`, `kinQuat`, and `kinVel` records in `setKinematic`; those facts make an avoidable allocation at this boundary surprising, but they do not prove that no binding or runtime wrapper allocates. The controls localize the path, not the exact line.
 
 ## Observations, inferences, unknowns
 

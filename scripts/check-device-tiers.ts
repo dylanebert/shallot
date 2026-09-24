@@ -14,6 +14,8 @@ interface PluginDeclaration {
     readonly device: "required" | "optional" | undefined;
 }
 
+export const GAME_TIERS = ["core", "standard", "extras", "transitional"] as const;
+
 const DEVICE_READ = /\bCompute\.(?:device|root|buffers)\b/;
 const PLUGIN_DECLARATION = /Plugin$/;
 
@@ -79,7 +81,7 @@ function declarations(source: string, file: string): PluginDeclaration[] {
 
 function moduleRoot(root: string, file: string): string | undefined {
     const relativeFile = relative(root, file).split("\\").join("/");
-    const match = /^(src\/(?:standard|extras)\/[^/]+)/.exec(relativeFile);
+    const match = /^(src\/(?:core|standard|extras|transitional)\/[^/]+)/.exec(relativeFile);
     return match ? resolve(root, match[1]) : undefined;
 }
 
@@ -87,10 +89,7 @@ function moduleRoot(root: string, file: string): string | undefined {
 export function readDeviceTierViolations(root: string): string[] {
     const violations: string[] = [];
     const modules = new Map<string, PluginDeclaration[]>();
-    const files = [
-        ...new Glob("src/standard/**/*.ts").scanSync(root),
-        ...new Glob("src/extras/**/*.ts").scanSync(root),
-    ]
+    const files = GAME_TIERS.flatMap((tier) => [...new Glob(`src/${tier}/**/*.ts`).scanSync(root)])
         .map((file) => resolve(root, file))
         .sort();
     for (const file of files) {
@@ -145,6 +144,6 @@ if (import.meta.main) {
     if (violations.length > 0) process.exit(1);
     const context = await deviceTierContext();
     console.log(
-        `device declarations pass; standard=${context.standard.tier}, extras=${context.extras.tier}`,
+        `device declarations pass; core=${context.core.tier}, standard=${context.standard.tier}, extras=${context.extras.tier}`,
     );
 }

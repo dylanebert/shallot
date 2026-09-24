@@ -30,7 +30,7 @@ check(
         const inputs = built.metafile.inputs;
         const paths = Object.keys(inputs).map((path) => resolve(ROOT, path).slice(ROOT.length + 1));
         // Non-vacuity: the graph reaches the physics step whose timers this row is about.
-        if (!paths.includes("src/standard/physics/solver/step.ts"))
+        if (!paths.includes("src/transitional/physics/solver/step.ts"))
             throw new Error(
                 `inconclusive: gated bundle graph lacks the physics step (${paths.length} modules)`,
             );
@@ -111,11 +111,11 @@ check(
     },
     () => {
         const sample = steadySample([
-            { site: "stepChunk src/standard/character/sweep.ts:42", bytes: 96, count: 3 },
+            { site: "stepChunk src/transitional/character/sweep.ts:42", bytes: 96, count: 3 },
         ]);
         expect(allocatesNothing(sample)).toBe(false);
         expect(allocationFailure(sample)).toBe(
-            "steady play allocated JavaScript heap; sampler sites are diagnosis only:\n  A/A repeat: 96 B at stepChunk src/standard/character/sweep.ts:42",
+            "steady play allocated JavaScript heap; sampler sites are diagnosis only:\n  A/A repeat: 96 B at stepChunk src/transitional/character/sweep.ts:42",
         );
     },
 );
