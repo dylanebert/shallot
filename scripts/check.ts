@@ -5,7 +5,9 @@ import { Glob } from "bun";
 // `bun run` puts node_modules/.bin on PATH, so `tsc` and `biome` resolve to the pinned copies.
 
 const root = resolve(import.meta.dir, "..");
-const readers = [...new Glob("check-*.ts").scanSync(import.meta.dir)].sort();
+const readers = [...new Glob("check-*.ts").scanSync(import.meta.dir)]
+    .filter((file) => !file.endsWith(".test.ts"))
+    .sort();
 const arms: [string, string[]][] = [
     ["tsc", ["tsc"]],
     ["biome", ["biome", "check"]],
@@ -22,6 +24,7 @@ const arms: [string, string[]][] = [
     ],
 ];
 
+let failed = false;
 for (const [name, command] of arms) {
     const start = performance.now();
     const proc = Bun.spawnSync(command, { cwd: root, stdout: "pipe", stderr: "pipe" });
@@ -30,7 +33,9 @@ for (const [name, command] of arms) {
         process.stdout.write(proc.stdout);
         process.stderr.write(proc.stderr);
         console.error(`✗ ${name} (${seconds}s)`);
-        process.exit(proc.exitCode || 1);
+        failed = true;
+        continue;
     }
     console.log(`✓ ${name} (${seconds}s)`);
 }
+if (failed) process.exit(1);
