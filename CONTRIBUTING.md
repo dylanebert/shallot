@@ -4,14 +4,14 @@ For anyone changing the engine, person or agent. Using Shallot is the [README](R
 
 ## Layout
 
-Shallot is an onion: the engine at the center, then `core`, `standard`, `extras`, and outside the repo, external packages for what most games won't use. Code depends only on layers inside its own. Each layer out decides more for a game, so a game is more likely to swap or drop it.
+Shallot is an onion: the engine at the center, then `core`, `standard`, `extras`, and outside the repo, external packages. Code depends only on layers inside its own. Each layer out decides more for a game, so a game is more likely to swap or drop it.
 
 ```
 src/
-  engine/        Shallot itself: app lifecycle, ECS, scenes, runtime, utils. Nothing about rendering, physics, audio or input.
+  engine/        Shallot itself: app lifecycle, ECS, scenes, runtime, utils.
   core/          One plugin each for rendering, physics, audio and input, holding only what every way of doing it needs, plus transforms.
-  standard/      Shallot's default way of doing each, built on core and made to extend. A game that wants another way swaps it.
-  extras/        Features most games use, included and easy to drop. A plugin moves here from its own package once stable there for a release cycle.
+  standard/      Shallot's default way of doing each, built on core and made to extend.
+  extras/        Features most games use. A plugin moves here from its own package once stable there for a release cycle.
   project/       What a project is at build time: manifest, plan, generation, the Vite plugin.
   cli/           The commands and their dispatcher.
   native/        The desktop shell.
@@ -24,14 +24,14 @@ assets.json      Every asset but the shipped icon, fetched by URL and sha256 by 
 
 - `engine`, `core`, `standard` and `extras` are the game layers. `project`, `cli`, `native` and `harness` are tooling: they build, run and verify a game, may import any layer, and no game layer imports them.
 - Modules in the same layer never import each other, so a game can take one without the rest. `core/transforms` is the exception: the others read positions from it.
-- A folder is one module. Its `index.ts` is its only entry and holds its plugin; every other file is internal. A layer's own `index.ts` is its barrel and holds nothing else, and `standard/index.ts` also holds the default plugin set.
+- A folder is one module. Its `index.ts` is its only entry and holds its plugin; every other file is internal. A layer's own `index.ts` only re-exports its modules; `standard/index.ts` also holds the default plugin set.
 - A module is a plugin only when it registers systems or resources. Plain data and functions stay plain modules.
 - Every public module has one subpath. The root re-exports every layer with `export *`, so a duplicate name fails `tsc` and no import needs `as`.
 - Every module does one useful thing, fully. One that doesn't is fixed, split, moved out or removed.
 
 ### Core and standard
 
-A `core` module holds only the data, rules and small mechanisms every way of doing its job needs, so a game keeps it when it changes approach. Something moves into core only once two different approaches need it to mean the same thing; being reused is not enough. The `standard` module beside it is one opinionated, extensible approach.
+A `core` module holds only the data, rules and small mechanisms every way of doing its job needs. Something moves into core only once two different approaches need it to mean the same thing; being reused is not enough.
 
 - A module is named for what it owns, not its technique. Core takes the plain noun, and standard the same noun: `core/rendering` at `/rendering`, `standard/rendering` at `/standard/rendering`.
 - Core owns the plain names. A standard export takes the `Standard` prefix where it plays a role core also names, such as `StandardRenderingPlugin`, and keeps its plain name otherwise. An alternative implementation qualifies its own names, such as `AvbdPhysicsPlugin`.
@@ -41,7 +41,7 @@ A `core` module holds only the data, rules and small mechanisms every way of doi
 
 `core/rendering` makes no assumption about how an image is made. Mesh rasterization, texel splatting, Gaussian splatting and generative rendering each build on it alone, and draw into the same views. It holds what all of them share: cameras and projection, views and their targets, the coordinate system and the GPU layout of shared data, the frame, color space and presentation. Meshes, materials and draw submission are not in it.
 
-`standard/rendering` is the extensible mesh pipeline over it. Replacing it is how a game changes rendering approach; the camera, its views and its presentation carry over.
+`standard/rendering` is the extensible mesh pipeline over it.
 
 Each view reaches the screen through one final pass. The scene image says whether it is HDR or already display-ready; the final pass tonemaps HDR, then grades and encodes for the screen. An effect that needs only its own pixel, like a vignette, runs as a step inside that pass, before or after tonemapping, and may read its own texture. An effect that needs other pixels, like fog or an outline, runs as its own pass before it. A game can replace the final pass. `standard/rendering` has no post-processing of its own; it publishes what effects read, such as depth.
 
@@ -64,7 +64,7 @@ Each run replaces `.artifacts/` with its report and its children's output.
 
 Every promise is checked from both sides: tests beside the module, and the examples builders use. Check each claim at the cheapest level that can see it. A check's result depends only on what it declares.
 
-- A check declares its claim, size and required host capabilities in `check()`. A host without one refuses and says why; it never runs a weaker version. No tag means CPU only, `gpu` a real WebGPU device, and `display` a declared monitor with its keyboard and cursor, because showing is what it measures.
+- A check declares its claim, size and required host capabilities in `check()`. A host without one refuses and says why; it never runs a weaker version. No tag means CPU only, `gpu` a real WebGPU device, and `display` a declared monitor with its keyboard and cursor.
 - Checks run on the scheduler's stepped clock, never wall time. Simulation state lives in registered components or behind a snapshot, restore and hash hook: gameplay runs in the fixed group from per-tick actions, presentation in draw, and `local` components stay out of the hash. Determinism holds within one runtime and engine version; across them, a hash detects divergence.
 - A frame is proved by a CPU property, then GPU readback, then browser pixels, then a person looking. `captureFrame` is the only capture, so checks, artifacts and people see the same frame. A golden image is added only for a defect nothing lower can see and is never edited to match; a screenshot is never a verdict.
 - Steady play allocates nothing. Any steady allocation fails the integration check; the sampler's sites help find the cause but don't decide the result.
