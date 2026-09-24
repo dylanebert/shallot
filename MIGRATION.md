@@ -34,24 +34,35 @@ import { Xform } from "@dylanebert/shallot/utils";
 
 Likewise `/ecs/core` is `/ecs`, `/scene/core` is `/scene` and `/physics/core` is `/physics`. The `/src/*` wildcard is gone: only the paths in `package.json` `exports` resolve.
 
-## `Inputs` is gone
+## `Inputs` is now `devices(state)`
 
-Input is read per State with `devices(state)`, and `setInputEnabled` takes the State. `isKeyPressedWithin` is gone: key presses record the fixed update they happened on, so a time window is counted in updates. `Mouse.canvasWidth` and `Mouse.canvasHeight` are gone: the focused canvas's size is in `viewport`.
+Input is plain data on each State: `devices(state)` returns its keys, mouse, touch and viewport. With the default plugins the browser fills it; a test or replay fills the same record with `pressKey`, `pointerMove` and the other producers, with no browser. `setInputEnabled` takes the State, and the canvas size moved from `mouse` to `viewport`.
 
 ```ts
 // 0.9.5
 if (Inputs.isKeyDown("KeyW")) moveForward();
-if (Inputs.isKeyPressedWithin("Space", 0.1)) jump();
+if (Inputs.isKeyPressed("Space")) jump();
 const width = Inputs.mouse.canvasWidth;
 setInputEnabled(false);
 
 // 0.10
 const input = devices(state);
 if (input.keys.held.has("KeyW")) moveForward();
-const pressedAt = input.keys.pressedTick.get("Space");
-if (pressedAt !== undefined && state.time.fixedTick - pressedAt < 6) jump();
+if (input.keys.pressed.has("Space")) jump();
 const width = input.viewport.get(input.focused)?.cssWidth ?? 0;
 setInputEnabled(state, false);
+
+// a test drives the same record
+pressKey(state, "KeyW");
+```
+
+`keys.pressed` holds a press until the next frame. A `fixed` system reads `keys.tickPressed`, which holds it until the next fixed update.
+
+`isKeyPressedWithin(code, seconds)` measured wall time, so its replacement counts fixed updates: `keys.pressedTick` records the update each key was pressed on.
+
+```ts
+const at = input.keys.pressedTick.get("Space");
+if (at !== undefined && state.time.fixedTick - at < 6) jump(); // pressed within the last 6 updates
 ```
 
 ## `Tumble` is now `Physics`, and `Physics.backend` is gone
