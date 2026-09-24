@@ -98,6 +98,16 @@ function killGroup(group: number): void {
     }
 }
 
+function processAlive(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+        throw error;
+    }
+}
+
 function outputOf(run: ReturnType<typeof runRunner>): string {
     return `${run.stdout.toString()}\n${run.stderr.toString()}`;
 }
@@ -849,7 +859,7 @@ check(
             interruptedRunner.kill("SIGTERM");
             await interruptedRunner.exited;
             const interruptedOutput = (await interruptedStdout) + (await interruptedStderr);
-            expect(interruptedRunner.exitCode).not.toBe(0);
+            expect(interruptedRunner.signalCode).toBe("SIGTERM");
             expect(interruptedOutput).toContain("runner received SIGTERM during integration row");
             expect(interruptedOutput).toContain("interrupted fixture retained output");
             expect(existsSync(laterRowStarted)).toBe(false);
@@ -1011,6 +1021,180 @@ check(
             await expectGroupGone(group);
         } finally {
             if (group !== undefined && groupMembers(group).length > 0) killGroup(group);
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
+    "runner signal during final output keeps the default disposition",
+    {
+        claim: "a signal during final output terminates the runner by that signal instead of returning green",
+        size: "integration",
+        subject: "scripts/test-runner.ts",
+        budget: 20_000,
+    },
+    async () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-runner-final-signal-"));
+        const tests = join(tree, "tests");
+        const artifacts = join(tree, ".artifacts");
+        const childPidFile = join(tree, "child.pid");
+        let runner: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
+        let childPid: number | undefined;
+        try {
+            mkdirSync(tests, { recursive: true });
+            writeFileSync(
+                join(tree, "bunfig.toml"),
+                `[test]\npreload = [${JSON.stringify(PRELOAD)}]\n`,
+            );
+            writeFileSync(
+                join(tests, "large-output.test.ts"),
+                `import { check } from ${JSON.stringify(CHECK_MODULE)};\n` +
+                    `import { writeFileSync } from "node:fs";\n` +
+                    `check("large output", { claim: "fixture finalization signal row", size: "integration", subject: "src/final-signal.ts" }, async () => {\n` +
+                    `    writeFileSync(${JSON.stringify(childPidFile)}, String(process.pid));\n` +
+                    `    console.log("finalization output fixture");\n` +
+                    `    await new Promise((resolve) => process.stdout.write("x".repeat(80_000_000) + "\\n", resolve));\n` +
+                    `});\n`,
+            );
+            runner = spawnRunnerWithEnv(tree, {}, "--integration", "--subject", "src/final-signal");
+            const stdout = new Response(runner.stdout).text();
+            const stderr = new Response(runner.stderr).text();
+            await waitForFile(childPidFile);
+            childPid = Number(readFileSync(childPidFile, "utf8"));
+            const deadline = Date.now() + 15_000;
+            let interruptedDuringOutput = false;
+            while (Date.now() < deadline && runner.exitCode === null) {
+                const runDirectory = existsSync(artifacts)
+                    ? readdirSync(artifacts).find((entry) => entry.startsWith("shallot-run-"))
+                    : undefined;
+                const reportFile =
+                    runDirectory === undefined
+                        ? undefined
+                        : join(artifacts, runDirectory, "junit.xml");
+                const outputPath =
+                    runDirectory === undefined
+                        ? undefined
+                        : join(artifacts, runDirectory, "output.log");
+                const rowFinished =
+                    reportFile !== undefined &&
+                    existsSync(reportFile) &&
+                    readFileSync(reportFile, "utf8").includes(
+                        'name="fixture finalization signal row"',
+                    );
+                if (
+                    rowFinished &&
+                    !processAlive(childPid) &&
+                    outputPath !== undefined &&
+                    existsSync(outputPath)
+                ) {
+                    runner.kill("SIGTERM");
+                    interruptedDuringOutput = true;
+                    break;
+                }
+                await Bun.sleep(1);
+            }
+            await runner.exited;
+            await Promise.all([stdout, stderr]);
+            expect(interruptedDuringOutput).toBe(true);
+            expect(runner.signalCode).toBe("SIGTERM");
+            const runDirectory = readdirSync(artifacts).find((entry) =>
+                entry.startsWith("shallot-run-"),
+            );
+            expect(runDirectory).toBeDefined();
+            const report = readFileSync(join(artifacts, runDirectory!, "junit.xml"), "utf8");
+            expect(report).toMatch(/<testsuites\b[^>]*\btests="1"[^>]*\bfailures="0"/);
+            expect(report).toContain('name="fixture finalization signal row"');
+            await expectGroupGone(childPid);
+        } finally {
+            if (runner !== undefined && runner.exitCode === null) {
+                runner.kill("SIGKILL");
+                await runner.exited;
+            }
+            if (childPid !== undefined && groupMembers(childPid).length > 0) killGroup(childPid);
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
+    "runner signal between rows uses the default disposition",
+    {
+        claim: "a signal between integration child groups starts no later row and ends the runner by that signal",
+        size: "integration",
+        subject: "scripts/test-runner.ts",
+        budget: 20_000,
+    },
+    async () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-runner-between-rows-"));
+        const tests = join(tree, "tests");
+        const artifacts = join(tree, ".artifacts");
+        const firstPidFile = join(tree, "first.pid");
+        const laterStarted = join(tree, "later-started");
+        let runner: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
+        let firstPid: number | undefined;
+        try {
+            mkdirSync(tests, { recursive: true });
+            writeFileSync(
+                join(tree, "bunfig.toml"),
+                `[test]\npreload = [${JSON.stringify(PRELOAD)}]\n`,
+            );
+            writeFileSync(
+                join(tests, "a-first.test.ts"),
+                `import { check } from ${JSON.stringify(CHECK_MODULE)};\n` +
+                    `import { writeFileSync } from "node:fs";\n` +
+                    `check("first row", { claim: "fixture between rows first", size: "integration", subject: "src/signal-gap.ts" }, async () => {\n` +
+                    `    writeFileSync(${JSON.stringify(firstPidFile)}, String(process.pid));\n` +
+                    `    console.log("first row completed");\n` +
+                    `});\n`,
+            );
+            writeFileSync(
+                join(tests, "b-later.test.ts"),
+                `import { check } from ${JSON.stringify(CHECK_MODULE)};\n` +
+                    `import { writeFileSync } from "node:fs";\n` +
+                    `check("later row", { claim: "fixture between rows later", size: "integration", subject: "src/signal-gap.ts" }, () => {\n` +
+                    `    writeFileSync(${JSON.stringify(laterStarted)}, "started");\n` +
+                    `});\n`,
+            );
+            runner = spawnRunnerWithEnv(
+                tree,
+                { SHALLOT_TEST_RUNNER_ROW_GAP_MS: "1000" },
+                "--integration",
+                "--subject",
+                "src/signal-gap",
+            );
+            const stdout = new Response(runner.stdout).text();
+            const stderr = new Response(runner.stderr).text();
+            await waitForFile(firstPidFile);
+            firstPid = Number(readFileSync(firstPidFile, "utf8"));
+            const deadline = Date.now() + 15_000;
+            let interruptedBetweenRows = false;
+            while (Date.now() < deadline && runner.exitCode === null) {
+                if (!processAlive(firstPid) && groupMembers(firstPid).length === 0) {
+                    await Bun.sleep(100);
+                    runner.kill("SIGTERM");
+                    interruptedBetweenRows = true;
+                    break;
+                }
+                await Bun.sleep(1);
+            }
+            await runner.exited;
+            await Promise.all([stdout, stderr]);
+            expect(interruptedBetweenRows).toBe(true);
+            expect(existsSync(laterStarted)).toBe(false);
+            expect(runner.signalCode).toBe("SIGTERM");
+            const runDirectory = readdirSync(artifacts).find((entry) =>
+                entry.startsWith("shallot-run-"),
+            );
+            expect(runDirectory).toBeDefined();
+            expect(existsSync(join(artifacts, runDirectory!, "junit.xml"))).toBe(false);
+            await expectGroupGone(firstPid);
+        } finally {
+            if (runner !== undefined && runner.exitCode === null) {
+                runner.kill("SIGKILL");
+                await runner.exited;
+            }
+            if (firstPid !== undefined && groupMembers(firstPid).length > 0) killGroup(firstPid);
             rmSync(tree, { recursive: true, force: true });
         }
     },
