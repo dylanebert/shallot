@@ -21,6 +21,21 @@ Dependencies point inward: `src/extras` depends on `src/standard`, which depends
 | `examples` | One flat directory per example. `examples/AGENTS.md` is generated from their manifests by `bun run format`. |
 | `assets.json` | Every asset but the shipped icon is fetched by URL and sha256 from here, by `bun run assets`. |
 
+### Domains
+
+Rendering, physics and audio are domains. A domain's foundation holds its implementation-neutral data, semantics and minimal shared mechanisms. Its standard implementation honors that contract and is extensible: Sear for rendering, Toss for physics (Box3D-based), Simmer for audio. Implementations do not inherit one another's techniques or need the same kernel. Reuse alone does not make code generic.
+
+- Layers run inward: applications, then extras, then implementations, then foundations, then the engine. A module's layer is declared once, where the import check reads it.
+- An implementation depends on foundations and the engine, never on another implementation.
+- A foundation depends on the engine and on `transforms`, the one shared foundation, never on an implementation. Physics and transforms never depend on rendering or a device.
+- Modules are flat siblings under `src/standard` and `src/extras`; the direction is in their imports, not their directories.
+- A foundation takes the domain's noun: `render`, `physics`, `audio`, `transforms`, `input`. A standard implementation takes its own name: `sear`, `toss`, `simmer`. A module is named for what it owns, not its technique, and its plugin is `<Name>Plugin`.
+- Every public module has one barrel and one subpath. The root re-exports them for ordinary use; an extension surface, such as a custom Sear pass, is imported from its subpath.
+- A module is a plugin only when it registers systems or resources an app opts into. Plain data and functions stay plain modules.
+- Every module has one useful, fulfilled promise. One without it is hardened, split, extracted or removed.
+
+Hardening proves a promise from both ends: owner-local evidence, and the builder-facing examples that use it. That covers integration, resource lifetime, measured performance and allocation as the claim needs, not a universal tier checklist. Each owned-memory instrument lands with its domain and its oracle cross-check. Unavoidable platform work and avoidable allocation stay distinct, and the person classifies which is which.
+
 ## Commands
 
 ```bash
