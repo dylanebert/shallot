@@ -37,8 +37,6 @@ assets.json      Every asset except the shipped icon, fetched by URL and sha256 
 
 ### Core and standard
 
-A `core` module contains only the data, rules and small mechanisms that every approach needs. Add something to core only when two different approaches need it with the same meaning. Reuse alone isn't enough.
-
 - Name a module for what it owns, not its technique. Core and standard use the same noun: `core/rendering` at `/rendering`, `standard/rendering` at `/standard/rendering`.
 - Core gets the plain names. A standard export adds the `Standard` prefix when core has the same role, like `StandardRenderingPlugin`. Other implementations use their own prefix, like `AvbdPhysicsPlugin`.
 - Physics never imports rendering, in any layer.
