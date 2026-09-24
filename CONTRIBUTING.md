@@ -46,6 +46,7 @@ A selector that matches no test fails.
 - `captureFrame` from `@dylanebert/shallot/harness/capture` is the only way to capture a frame, so checks, saved artifacts and frames for people all show the same thing. Assertions run in the page on the stepped clock. A failure keeps its evidence and one real frame under `.artifacts/`.
 - Tests run on the scheduler's stepped clock, never wall time. Simulation state lives in registered components or behind a snapshot, restore and hash hook. Gameplay runs in the fixed group from per-tick actions; presentation and effects run in draw; `local` components stay out of the hash. Determinism holds within one runtime and engine version. Across them, a hash detects divergence; it is never assumed away.
 - Allocations are a binary integration check.
+- Every deferred red stays red and is recorded in its owner's roadmap note, never excused by a ledger or a skip.
 - A claim about a frame is proved at the lowest level that can see it: a CPU property, then GPU readback, then browser pixels through `captureFrame`, then a person looking. A full-frame golden image is added only for a defect no lower level can see, and a golden is never edited to match. A screenshot helps while iterating and is never a verdict.
 
 ### Measurement
@@ -77,7 +78,6 @@ A selector that matches no test fails.
 - A red prints the sampler's sites for diagnosis.
 - Sampler sites do not decide the verdict.
 - Node's `v8.getHeapStatistics().total_allocated_bytes` replaces the sampler only after a no-op and known-allocation control on the real step.
-- Deferred allocation is recorded in its owner's roadmap note, never excused by a ledger.
 
 ## Heavy work
 

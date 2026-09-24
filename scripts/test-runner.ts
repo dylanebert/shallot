@@ -109,7 +109,9 @@ function childEnvironment(
 ): NodeJS.ProcessEnv {
     return {
         ...Object.fromEntries(
-            Object.entries(environment).filter(([key]) => !key.startsWith("GIT_")),
+            Object.entries(environment).filter(
+                ([key]) => !key.startsWith("GIT_") && key !== "SHALLOT_TEST_RUNNER_TRIPWIRE_MS",
+            ),
         ),
         GIT_CONFIG_GLOBAL: "/dev/null",
         GIT_CONFIG_NOSYSTEM: "1",
@@ -118,51 +120,268 @@ function childEnvironment(
     };
 }
 
-function spawnTest(
+type ChildKind = "unit sweep" | "integration row" | "oracle";
+
+interface GroupProcess {
+    pid: number;
+    command: string;
+}
+
+interface ChildExecution {
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+    redReason?: string;
+}
+
+const TRIPWIRES: Record<ChildKind, number> = {
+    "unit sweep": 60_000,
+    "integration row": 300_000,
+    oracle: 300_000,
+};
+const FIXTURE_TRIPWIRE_LIMIT_MS = 1_000;
+const TEARDOWN_GRACE_MS = 10_000;
+
+function childTripwire(environment: NodeJS.ProcessEnv, kind: ChildKind): number {
+    const override = environment.SHALLOT_TEST_RUNNER_TRIPWIRE_MS;
+    if (override === undefined || !/^\d+$/.test(override)) return TRIPWIRES[kind];
+    const milliseconds = Number(override);
+    return milliseconds > 0 && milliseconds <= FIXTURE_TRIPWIRE_LIMIT_MS
+        ? Math.min(TRIPWIRES[kind], milliseconds)
+        : TRIPWIRES[kind];
+}
+
+function groupProcesses(group: number): GroupProcess[] {
+    try {
+        process.kill(-group, 0);
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ESRCH") return [];
+        if (code !== "EPERM") throw error;
+    }
+    const listing = Bun.spawnSync(["ps", "-axo", "pid=,pgid=,command="], {
+        cwd: root,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    if (listing.exitCode !== 0)
+        throw new Error(
+            `could not inspect process group ${group}: ${listing.stderr.toString().trim()}`,
+        );
+    return listing.stdout
+        .toString()
+        .split("\n")
+        .flatMap((line) => {
+            const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+            return match === null || Number(match[2]) !== group
+                ? []
+                : [{ pid: Number(match[1]), command: match[3] }];
+        });
+}
+
+function signalGroup(group: number, signal: NodeJS.Signals): void {
+    try {
+        process.kill(-group, signal);
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== "ESRCH" && code !== "EPERM") throw error;
+    }
+}
+
+async function waitForGroupExit(group: number, milliseconds: number): Promise<GroupProcess[]> {
+    const deadline = Date.now() + milliseconds;
+    let remaining = groupProcesses(group);
+    while (remaining.length > 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        remaining = groupProcesses(group);
+    }
+    return remaining;
+}
+
+async function teardownGroup(group: number): Promise<GroupProcess[]> {
+    signalGroup(group, "SIGTERM");
+    let remaining = await waitForGroupExit(group, TEARDOWN_GRACE_MS);
+    if (remaining.length > 0) {
+        signalGroup(group, "SIGKILL");
+        remaining = await waitForGroupExit(group, TEARDOWN_GRACE_MS);
+    }
+    return remaining;
+}
+
+function processNames(processes: readonly GroupProcess[]): string {
+    return processes.map(({ pid, command }) => `pid ${pid} (${command})`).join(", ");
+}
+
+async function spawnTest(
     artifacts: RunArtifacts,
     environment: NodeJS.ProcessEnv,
     command: string[],
-): Bun.ReadableSyncSubprocess {
+    kind: ChildKind,
+): Promise<ChildExecution> {
     const temporaryDirectory = mkdtempSync(resolve(artifacts.directory, "tmp-"));
+    let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
     try {
-        return Bun.spawnSync(command, {
+        proc = Bun.spawn(command, {
             cwd: root,
             env: childEnvironment(environment, temporaryDirectory),
             stdout: "pipe",
             stderr: "pipe",
+            detached: true,
         });
+    } catch (error) {
+        rmSync(temporaryDirectory, { recursive: true, force: true });
+        throw error;
+    }
+    const stdoutPromise = new Response(proc.stdout).text().catch(() => "");
+    const stderrPromise = new Response(proc.stderr).text().catch(() => "");
+    const tripwire = childTripwire(environment, kind);
+    let receivedSignal: NodeJS.Signals | undefined;
+    let resolveSignal: ((signal: NodeJS.Signals) => void) | undefined;
+    const signalPromise = new Promise<NodeJS.Signals>((resolve) => {
+        resolveSignal = resolve;
+    });
+    const forward = (signal: NodeJS.Signals) => {
+        receivedSignal ??= signal;
+        signalGroup(proc.pid, signal);
+        resolveSignal?.(signal);
+    };
+    const handlers = new Map<NodeJS.Signals, () => void>();
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+        const handler = () => forward(signal);
+        handlers.set(signal, handler);
+        process.on(signal, handler);
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const redReasons: string[] = [];
+    let exitCode = 1;
+    try {
+        const stop = await Promise.race([
+            proc.exited.then((code) => ({ kind: "exit" as const, code })),
+            signalPromise.then((signal) => ({ kind: "signal" as const, signal })),
+            new Promise<{ kind: "tripwire" }>((resolve) => {
+                timer = setTimeout(() => resolve({ kind: "tripwire" }), tripwire);
+            }),
+        ]);
+        if (receivedSignal !== undefined) {
+            redReasons.push(`runner received ${receivedSignal} during ${kind}`);
+        } else if (stop.kind === "tripwire" && proc.exitCode === null) {
+            redReasons.push(`${kind} exceeded its ${tripwire} ms tripwire`);
+        }
+
+        if (stop.kind === "exit" || proc.exitCode !== null) {
+            try {
+                const lingering = groupProcesses(proc.pid);
+                if (lingering.length > 0)
+                    redReasons.push(
+                        `process remained after child exit: ${processNames(lingering)}`,
+                    );
+            } catch (error) {
+                redReasons.push((error as Error).message);
+            }
+        }
+        const remaining = await teardownGroup(proc.pid);
+        if (remaining.length > 0)
+            redReasons.push(`process remained after SIGKILL: ${processNames(remaining)}`);
+        if (
+            receivedSignal !== undefined &&
+            !redReasons.some((reason) => reason.includes(receivedSignal!))
+        )
+            redReasons.push(`runner received ${receivedSignal} during ${kind}`);
+        exitCode = redReasons.length > 0 ? 1 : (proc.exitCode ?? 1);
+        await proc.exited;
+        const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
+        return {
+            exitCode,
+            stdout,
+            stderr,
+            ...(redReasons.length === 0 ? {} : { redReason: redReasons.join("; ") }),
+        };
     } finally {
+        if (timer !== undefined) clearTimeout(timer);
+        for (const [signal, handler] of handlers) process.removeListener(signal, handler);
         rmSync(temporaryDirectory, { recursive: true, force: true });
     }
 }
 
-function run(files: string[], environment: NodeJS.ProcessEnv): number {
+function failedJunit(name: string, reason: string, stdout: string, stderr: string): string {
+    const details = outputText(stdout, stderr);
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<testsuites name="shallot test run" tests="1" failures="1" errors="0" skipped="0" time="0">\n<testsuite name="runner child" tests="1" failures="1" errors="0" skipped="0" time="0">\n  <testcase name="${xml(name)}" time="0">\n    <failure type="failure" message="${xml(reason)}">${xml(details)}</failure>\n    <system-out>${xml(stdout)}</system-out>\n    <system-err>${xml(stderr)}</system-err>\n  </testcase>\n</testsuite>\n</testsuites>\n`;
+}
+
+function appendRunnerFailure(xmlText: string, name: string, reason: string): string {
+    const failure = `  <testcase name="${xml(name)}" time="0">\n    <failure type="failure" message="${xml(reason)}" />\n  </testcase>\n`;
+    const increment = (tag: string) =>
+        tag.replace(/\b(tests|failures)="(\d+)"/g, (attribute, key, value) =>
+            key === "tests" || key === "failures" ? `${key}="${Number(value) + 1}"` : attribute,
+        );
+    const updated = xmlText.replace(/<(testsuites|testsuite)\b[^>]*>/g, increment);
+    return updated.replace("</testsuite>", `${failure}</testsuite>`);
+}
+
+async function run(
+    files: string[],
+    environment: NodeJS.ProcessEnv,
+    kind: "unit sweep" | "oracle",
+    name: string,
+): Promise<number> {
     if (files.length === 0) refuse("empty population; an empty run is never green");
     const artifacts = openArtifacts();
     if (artifacts === null) return 1;
-    const proc = spawnTest(artifacts, environment, [
-        process.execPath,
-        "test",
-        "--max-concurrency=1",
-        "--pass-with-no-tests",
-        "--reporter=junit",
-        `--reporter-outfile=${artifacts.report}`,
-        ...files.map((file) => `./${file}`),
-    ]);
-    const stdout = proc.stdout.toString();
-    const stderr = proc.stderr.toString();
-    let code = proc.exitCode ?? 1;
-    if (!saveOutput(artifacts, outputText(stdout, stderr))) code = 1;
-    const summary = readJunitSummary(artifacts.report);
+    const child = await spawnTest(
+        artifacts,
+        environment,
+        [
+            process.execPath,
+            "test",
+            "--max-concurrency=1",
+            "--pass-with-no-tests",
+            "--reporter=junit",
+            `--reporter-outfile=${artifacts.report}`,
+            ...files.map((file) => `./${file}`),
+        ],
+        kind,
+    );
+    let code = child.exitCode;
+    if (!saveOutput(artifacts, outputText(child.stdout, child.stderr))) code = 1;
+    let summary = readJunitSummary(artifacts.report);
+    if (child.redReason !== undefined) {
+        try {
+            const report = readFileSync(artifacts.report, "utf8");
+            writeFileSync(artifacts.report, appendRunnerFailure(report, name, child.redReason));
+            summary = readJunitSummary(artifacts.report);
+        } catch {
+            try {
+                writeFileSync(
+                    artifacts.report,
+                    failedJunit(name, child.redReason, child.stdout, child.stderr),
+                );
+                summary = readJunitSummary(artifacts.report);
+            } catch {
+                summary = null;
+            }
+        }
+    }
+    if (summary === null && child.redReason !== undefined) {
+        try {
+            writeFileSync(
+                artifacts.report,
+                failedJunit(name, child.redReason, child.stdout, child.stderr),
+            );
+            summary = readJunitSummary(artifacts.report);
+        } catch {
+            summary = null;
+        }
+    }
     if (summary === null) {
         console.error(
             `surface refused: runner did not write a valid report: ${reportPath(artifacts)}`,
         );
         return 1;
     }
+    if (child.redReason !== undefined) console.error(`${kind}: ${child.redReason}`);
     if (code !== 0) {
-        process.stdout.write(stdout);
-        process.stderr.write(stderr);
+        process.stdout.write(child.stdout);
+        process.stderr.write(child.stderr);
     }
     const passed = Math.max(0, summary.tests - summary.failures - summary.errors - summary.skipped);
     console.log(
@@ -197,24 +416,28 @@ function normalizeChildOutcome(verdict: ChildVerdict, exitCode: number): ChildVe
     return { ...verdict, result: "fail", reason: undefined };
 }
 
-function selectedRun(
+async function selectedRun(
     row: (typeof population.rows)[number],
     artifacts: RunArtifacts,
     index: number,
-): SelectedRun {
+): Promise<SelectedRun> {
     const nativeReport = resolve(artifacts.directory, `child-${index}.xml`);
-    const proc = spawnTest(artifacts, { ...envBase, KEX_S3_ROW: row.claim }, [
-        process.execPath,
-        "test",
-        "--max-concurrency=1",
-        "--pass-with-no-tests",
-        "--reporter=junit",
-        `--reporter-outfile=${nativeReport}`,
-        `./${row.file}`,
-    ]);
-    const stdout = proc.stdout.toString();
-    const stderr = proc.stderr.toString();
-    const exitCode = proc.exitCode ?? 1;
+    const child = await spawnTest(
+        artifacts,
+        { ...envBase, KEX_S3_ROW: row.claim },
+        [
+            process.execPath,
+            "test",
+            "--max-concurrency=1",
+            "--pass-with-no-tests",
+            "--reporter=junit",
+            `--reporter-outfile=${nativeReport}`,
+            `./${row.file}`,
+        ],
+        "integration row",
+    );
+    const { stdout, stderr } = child;
+    const exitCode = child.exitCode;
     rmSync(nativeReport, { force: true });
     const verdict = `${stdout}\n${stderr}`
         .split("\n")
@@ -248,16 +471,23 @@ function selectedRun(
             exitCode,
             stdout,
             stderr,
+            ...(child.redReason === undefined ? {} : { reason: child.redReason }),
             noVerdict: true,
         };
     }
     const normalized = normalizeChildOutcome(verdict, exitCode);
     return {
-        result: normalized.result,
+        result: child.redReason === undefined ? normalized.result : "fail",
         exitCode,
         stdout,
         stderr,
-        ...(normalized.reason === undefined ? {} : { reason: normalized.reason }),
+        ...(normalized.reason === undefined && child.redReason === undefined
+            ? {}
+            : {
+                  reason: [normalized.reason, child.redReason]
+                      .filter((reason): reason is string => reason !== undefined)
+                      .join("; "),
+              }),
         ...(normalized.duration === undefined ? {} : { duration: normalized.duration }),
     };
 }
@@ -372,12 +602,14 @@ if (population.invalid.length > 0 || population.undeclared.length > 0) {
 if (oracle !== undefined) {
     const selected = selectOracleRows(population, oracle);
     if (selected.length !== 1) refuse(`named oracle not found: ${oracle}`);
-    process.exit(run([selected[0].file], { ...envBase, KEX_S3_ROW: oracle }));
+    process.exit(
+        await run([selected[0].file], { ...envBase, KEX_S3_ROW: oracle }, "oracle", oracle),
+    );
 }
 const files = discoverTestFiles(root);
 if (!integration) {
     const environment = { ...envBase, SHALLOT_UNIT_ONLY: "1" };
-    process.exit(run(files, environment));
+    process.exit(await run(files, environment, "unit sweep", "unit sweep"));
 }
 function isCommitObject(ref: string): boolean {
     const resolved = Bun.spawnSync(
@@ -400,7 +632,9 @@ const selected = selectIntegrationRows(population, { all, requires, subject, bas
 if (selectorRequested && selected.length === 0) refuse("selector matched no integration rows");
 if (selected.length === 0) {
     // Unit rows still get their normal hermetic proof, but no integration/no-op command is claimed.
-    process.exit(run(files, { ...envBase, SHALLOT_UNIT_ONLY: "1" }));
+    process.exit(
+        await run(files, { ...envBase, SHALLOT_UNIT_ONLY: "1" }, "unit sweep", "unit sweep"),
+    );
 }
 const artifacts = openArtifacts();
 if (artifacts === null) process.exit(1);
@@ -411,7 +645,7 @@ let ran = 0;
 let refused = 0;
 let unrun = 0;
 for (const [index, row] of selected.entries()) {
-    const outcome = selectedRun(row, artifacts, index);
+    const outcome = await selectedRun(row, artifacts, index);
     outcomes.push(outcome);
     evidence.push(
         `=== ${row.claim} (${outcome.result}) ===\n${outputText(outcome.stdout, outcome.stderr)}`,
@@ -423,7 +657,7 @@ for (const [index, row] of selected.entries()) {
         failed = true;
     if (outcome.result === "fail" || outcome.result === "refused") {
         console.error(
-            `selected integration: ${row.claim} (${outcome.result}${outcome.noVerdict ? `; no verdict; child exited ${outcome.exitCode}` : ""})`,
+            `selected integration: ${row.claim} (${outcome.result}${outcome.reason === undefined ? (outcome.noVerdict ? `; no verdict; child exited ${outcome.exitCode}` : "") : `; ${outcome.reason}`})`,
         );
         process.stdout.write(outcome.stdout);
         process.stderr.write(outcome.stderr);
