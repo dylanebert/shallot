@@ -9,7 +9,8 @@ Dependencies point inward: `src/extras` depends on `src/standard`, which depends
 | Path | Owns |
 |---|---|
 | `src/engine` | The core: app lifecycle, ECS, scenes, the runtime (device and platform setup) and utils. |
-| `src/standard` | The default plugins. |
+| `src/domains` | The domain foundations: `render`, `physics`, `audio`, `transforms` and `input`. |
+| `src/standard` | The standard implementations and default plugins. |
 | `src/extras` | Opt-in plugins, published at `/extras`. A plugin starts in its own repo and moves here once it has been stable for a release cycle. |
 | `src/harness` | The in-page verdict hook a project publishes, the seat policy, the capture contract and the display seat. |
 | `src/project` | The manifest, scene and asset generation, host toolchain resolution and the Vite plugin. |
@@ -23,14 +24,15 @@ Dependencies point inward: `src/extras` depends on `src/standard`, which depends
 
 ### Domains
 
-Rendering, physics and audio are domains. A domain's foundation holds its implementation-neutral data, semantics and minimal shared mechanisms. Its standard implementation honors that contract and is extensible: Sear for rendering, Toss for physics (Box3D-based), Simmer for audio. Implementations do not inherit one another's techniques or need the same kernel. Reuse alone does not make code generic.
+Rendering, physics and audio are domains. A domain's foundation holds its implementation-neutral data, semantics and minimal shared mechanisms. Its standard implementation honors that contract and is extensible: `standard/render` is the mesh pipeline, `standard/physics` is Box3D-based and `standard/audio` plays clips. Implementations do not inherit one another's techniques or need the same kernel. Reuse alone does not make code generic.
 
 - Layers run inward: applications, then extras, then implementations, then foundations, then the engine. A module's layer is declared once, where the import check reads it.
 - An implementation depends on foundations and the engine, never on another implementation.
 - A foundation depends on the engine and on `transforms`, the one shared foundation, never on an implementation. Physics and transforms never depend on rendering or a device.
-- Modules are flat siblings under `src/standard` and `src/extras`; the direction is in their imports, not their directories.
-- A foundation takes the domain's noun: `render`, `physics`, `audio`, `transforms`, `input`. A standard implementation takes its own name: `sear`, `toss`, `simmer`. A module is named for what it owns, not its technique, and its plugin is `<Name>Plugin`.
-- Every public module has one barrel and one subpath. The root re-exports them for ordinary use; an extension surface, such as a custom Sear pass, is imported from its subpath.
+- Foundations live in `src/domains`, standard implementations in `src/standard` and opt-in plugins in `src/extras`, each a flat set of siblings. The import check, not the directory, enforces direction.
+- A module is named for what it owns, not its technique. A foundation takes the domain's noun and a standard implementation the same noun: `domains/physics` at `/physics`, `standard/physics` at `/standard/physics`.
+- The foundation owns the plain names. A standard export takes the `Standard` prefix where it plays a role the foundation also names, such as `StandardPhysicsPlugin` or a default `StandardMaterial`, and keeps its plain name otherwise. An alternative implementation qualifies its own names, such as `AvbdPhysicsPlugin`.
+- Every public module has one barrel and one subpath. The root re-exports them with `export *`, so a duplicate name fails `tsc` and no import needs `as`. An extension surface, such as a custom render pass, is imported from its subpath.
 - A module is a plugin only when it registers systems or resources an app opts into. Plain data and functions stay plain modules.
 - Every module has one useful, fulfilled promise. One without it is hardened, split, extracted or removed.
 
