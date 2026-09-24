@@ -1,5 +1,6 @@
 import { expect } from "bun:test";
 import {
+    chmodSync,
     existsSync,
     mkdirSync,
     mkdtempSync,
@@ -710,6 +711,7 @@ check(
         const leakGroup = join(tree, "leak-group.pid");
         const leakPidFile = join(tree, "leak.pid");
         const interruptGroup = join(tree, "interrupt-group.pid");
+        const laterRowStarted = join(tree, "later-row-started");
         const grandchildReady = join(tree, "grandchild-ready");
         const groupIds: number[] = [];
         let interruptedRunner: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
@@ -747,9 +749,14 @@ check(
             );
             writeFileSync(
                 join(tests, "interrupted.test.ts"),
-                `${head}check("interrupted fixture", { claim: "fixture interrupted row", size: "integration", subject: "src/lifetime-interrupted.ts" }, async () => {\n` +
+                `${head}check("interrupted fixture", { claim: "fixture interrupted first row", size: "integration", subject: "src/lifetime-interrupted.ts" }, async () => {\n` +
                     `    console.log("interrupted fixture retained output");\n    writeFileSync(${JSON.stringify(interruptGroup)}, String(process.pid));\n` +
                     `    await new Promise(() => {});\n});\n`,
+            );
+            writeFileSync(
+                join(tests, "later-row.test.ts"),
+                `${head}check("later fixture", { claim: "fixture later row not started after signal", size: "integration", subject: "src/lifetime-interrupted.ts" }, () => {\n` +
+                    `    writeFileSync(${JSON.stringify(laterRowStarted)}, "started");\n    return { ok: true };\n});\n`,
             );
 
             const tripwireEnvironment = { SHALLOT_TEST_RUNNER_TRIPWIRE_MS: "1000" };
@@ -845,9 +852,15 @@ check(
             expect(interruptedRunner.exitCode).not.toBe(0);
             expect(interruptedOutput).toContain("runner received SIGTERM during integration row");
             expect(interruptedOutput).toContain("interrupted fixture retained output");
+            expect(existsSync(laterRowStarted)).toBe(false);
             await expectGroupGone(interruptPid);
             const interruptedReport = reportOf(tree, interruptedOutput);
             expect(interruptedReport).toContain("runner received SIGTERM during integration row");
+            expect(interruptedReport).toContain(
+                'name="fixture later row not started after signal"',
+            );
+            expect(interruptedReport).toContain("runner received SIGTERM before child start");
+            expect(interruptedOutput).toContain("0 passed, 1 failed, 0 refused, 1 unrun");
             expect(
                 readFileSync(
                     reportPathOf(tree, interruptedOutput).replace("junit.xml", "output.log"),
@@ -860,6 +873,144 @@ check(
             for (const group of groupIds) {
                 if (groupMembers(group).length > 0) killGroup(group);
             }
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
+    "runner tripwire writes a red JUnit report",
+    {
+        claim: "a runner tripwire replaces partial child JUnit with a well-formed report whose totals count the timeout and preserve output",
+        size: "integration",
+        subject: "scripts/test-runner.ts",
+    },
+    async () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-runner-partial-junit-"));
+        const tests = join(tree, "tests");
+        const childPidFile = join(tree, "child.pid");
+        let childPid: number | undefined;
+        let runner: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
+        try {
+            mkdirSync(tests, { recursive: true });
+            writeFileSync(
+                join(tree, "bunfig.toml"),
+                `[test]\npreload = [${JSON.stringify(PRELOAD)}]\n`,
+            );
+            const partialReport = `<?xml version="1.0"?><testsuites tests="2"><testsuite tests="2">`;
+            writeFileSync(
+                join(tests, "partial.test.ts"),
+                `import { check } from ${JSON.stringify(CHECK_MODULE)};\n` +
+                    `import { readdirSync, writeFileSync } from "node:fs";\n` +
+                    `import { join } from "node:path";\n` +
+                    `check("fixture", { claim: "fixture partial JUnit tripwire", size: "unit" }, () => {});\n` +
+                    `console.log("partial JUnit fixture retained output");\n` +
+                    `const artifacts = ${JSON.stringify(join(tree, ".artifacts"))};\n` +
+                    `const run = readdirSync(artifacts).find((entry) => entry.startsWith("shallot-run-"));\n` +
+                    `if (run === undefined) throw new Error("runner artifacts missing");\n` +
+                    `writeFileSync(join(artifacts, run, "junit.xml"), ${JSON.stringify(partialReport)});\n` +
+                    `writeFileSync(${JSON.stringify(childPidFile)}, String(process.pid));\n` +
+                    `await new Promise(() => {});\n`,
+            );
+            runner = spawnRunnerWithEnv(tree, {
+                SHALLOT_TEST_RUNNER_TRIPWIRE_MS: "1000",
+            });
+            const stdout = new Response(runner.stdout).text();
+            const stderr = new Response(runner.stderr).text();
+            await waitForFile(childPidFile);
+            childPid = Number(readFileSync(childPidFile, "utf8"));
+            const completed = await Promise.race([
+                runner.exited.then(() => true),
+                Bun.sleep(3000).then(() => false),
+            ]);
+            if (!completed) {
+                runner.kill("SIGTERM");
+                await runner.exited;
+                killGroup(childPid);
+            }
+            const output = (await stdout) + (await stderr);
+            expect(completed).toBe(true);
+            expect(runner.exitCode).not.toBe(0);
+            expect(output).toContain("unit sweep exceeded its 1000 ms tripwire");
+            expect(output).toContain("partial JUnit fixture retained output");
+            expect(output).toContain("shallot test: 0 passed, 1 failed, 0 refused, 0 skipped");
+            const report = reportOf(tree, output);
+            expect(report).toMatch(/<testsuites\b[^>]*\btests="1"[^>]*\bfailures="1"/);
+            expect(report).toMatch(/<testsuite\b[^>]*\btests="1"[^>]*\bfailures="1"/);
+            expect(report).toContain('<failure type="failure"');
+            expect(report.trimEnd()).toEndWith("</testsuites>");
+            expect(report).not.toContain('<testsuites tests="2">');
+            expect(
+                readFileSync(reportPathOf(tree, output).replace("junit.xml", "output.log"), "utf8"),
+            ).toContain("partial JUnit fixture retained output");
+        } finally {
+            if (runner !== undefined && runner.exitCode === null) runner.kill("SIGKILL");
+            if (childPid !== undefined && groupMembers(childPid).length > 0) killGroup(childPid);
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
+    "runner teardown survives process-name lookup failure",
+    {
+        claim: "a process-name lookup failure cannot prevent the runner from escalating teardown to SIGKILL",
+        size: "integration",
+        subject: "scripts/test-runner.ts",
+    },
+    async () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-runner-no-ps-"));
+        const tests = join(tree, "tests");
+        const bin = join(tree, "bin");
+        const ps = join(bin, "ps");
+        const ready = join(tree, "grandchild-ready");
+        const groupFile = join(tree, "group.pid");
+        const childFile = join(tree, "child.pid");
+        const grandchild = `process.on("SIGTERM", () => {}); require("node:fs").writeFileSync(${JSON.stringify(ready)}, "ready"); setInterval(() => {}, 1000);`;
+        let group: number | undefined;
+        try {
+            mkdirSync(tests, { recursive: true });
+            mkdirSync(bin, { recursive: true });
+            writeFileSync(
+                join(tree, "bunfig.toml"),
+                `[test]\npreload = [${JSON.stringify(PRELOAD)}]\n`,
+            );
+            writeFileSync(
+                ps,
+                "#!/bin/sh\nprintf 'ps: unsupported fixture lookup\\n' >&2\nexit 1\n",
+            );
+            chmodSync(ps, 0o755);
+            writeFileSync(
+                join(tests, "leak.test.ts"),
+                `import { check } from ${JSON.stringify(CHECK_MODULE)};\n` +
+                    `import { existsSync, writeFileSync } from "node:fs";\n` +
+                    `check("leak", { claim: "fixture ps lookup failure", size: "integration", subject: "src/no-ps.ts" }, async () => {\n` +
+                    `    console.log("ps failure fixture retained output");\n` +
+                    `    const child = Bun.spawn([process.execPath, "-e", ${JSON.stringify(grandchild)}], { stdout: "ignore", stderr: "ignore" });\n` +
+                    `    const deadline = Date.now() + 5000;\n    while (!existsSync(${JSON.stringify(ready)}) && Date.now() < deadline) await Bun.sleep(10);\n` +
+                    `    if (!existsSync(${JSON.stringify(ready)})) throw new Error("grandchild did not start");\n` +
+                    `    writeFileSync(${JSON.stringify(groupFile)}, String(process.pid));\n    writeFileSync(${JSON.stringify(childFile)}, String(child.pid));\n` +
+                    `});\n`,
+            );
+
+            const result = runRunnerWithEnv(
+                tree,
+                { PATH: `${bin}:${process.env.PATH ?? ""}` },
+                "--integration",
+                "--subject",
+                "src/no-ps",
+            );
+            const output = outputOf(result);
+            group = Number(readFileSync(groupFile, "utf8"));
+            const grandchildPid = Number(readFileSync(childFile, "utf8"));
+            expect(result.exitCode).not.toBe(0);
+            expect(output).toContain(`process remained after child exit: process group ${group}`);
+            expect(reportOf(tree, output)).toContain(`process group ${group}`);
+            expect(reportOf(tree, output)).toContain("ps failure fixture retained output");
+            expect(groupMembers(group)).not.toContain(grandchildPid);
+            await expectGroupGone(group);
+        } finally {
+            if (group !== undefined && groupMembers(group).length > 0) killGroup(group);
             rmSync(tree, { recursive: true, force: true });
         }
     },
