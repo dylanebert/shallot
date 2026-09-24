@@ -71,6 +71,15 @@ A selector that matches no test fails.
 - Oracles have no standing cadence.
 - Hosted observation is never a CI verdict.
 
+## Examples
+
+Examples are where a builder meets the engine, so what one cannot do names what the engine is missing.
+
+- A recipe answers one builder problem, stated in its manifest's `problem` in the builder's words, and carries a check that reds when its answer breaks.
+- A recipe whose promise no check can prove is removed.
+- A showcase is a game a person would play, and runs only the checks a user's project can run.
+- A gap an example names goes to the owner of that boundary. It is never worked around inside the example.
+
 ## Allocation
 
 - Steady play allocates nothing.
