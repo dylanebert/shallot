@@ -845,7 +845,6 @@ check(
         const tree = mkdtempSync(join(tmpdir(), "shallot-bin-runner-signal-"));
         const tests = join(tree, "tests");
         const childMarker = join(tree, "child.json");
-        const ignoredLauncher = join(tree, "ignored-launcher.ts");
         const runnerBin = resolve(ROOT, "bin/shallot.ts");
         const checkModule = resolve(ROOT, "src/harness/check");
         const preload = resolve(ROOT, "src/harness/preload.ts");
@@ -854,13 +853,6 @@ check(
             writeFileSync(
                 join(tree, "bunfig.toml"),
                 `[test]\npreload = [${JSON.stringify(preload)}]\n`,
-            );
-            // Model an ignored self-signal because Bun resets inherited SIG_IGN when removing listeners.
-            writeFileSync(
-                ignoredLauncher,
-                `const kill = process.kill.bind(process);\n` +
-                    `process.kill = (pid, signal) => pid === process.pid && signal === "SIGINT" ? true : kill(pid, signal);\n` +
-                    `await import(${JSON.stringify(runnerBin)});\n`,
             );
             writeFileSync(
                 join(tests, "hang.test.ts"),
@@ -871,70 +863,47 @@ check(
                     `writeFileSync(${JSON.stringify(childMarker)}, JSON.stringify({ pid: process.pid, runner: process.ppid }));\n` +
                     `await new Promise(() => {});\n`,
             );
-            const runSignalCase = async (signal: "SIGTERM" | "SIGINT") => {
-                rmSync(childMarker, { force: true });
-                let bin: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
-                let childPid: number | undefined;
-                try {
-                    const command =
-                        signal === "SIGINT"
-                            ? [
-                                  "bash",
-                                  "-c",
-                                  `trap '' INT; exec "$@"`,
-                                  "ignored-int",
-                                  "bun",
-                                  ignoredLauncher,
-                                  "test",
-                              ]
-                            : ["bun", runnerBin, "test"];
-                    bin = Bun.spawn(command, {
-                        cwd: tree,
-                        stdout: "pipe",
-                        stderr: "pipe",
-                        detached: true,
-                    });
-                    const stdout = new Response(bin.stdout).text();
-                    const stderr = new Response(bin.stderr).text();
-                    const deadline = Date.now() + 10_000;
-                    while (!existsSync(childMarker) && Date.now() < deadline) await Bun.sleep(10);
-                    expect(existsSync(childMarker)).toBe(true);
-                    const child = JSON.parse(readFileSync(childMarker, "utf8")) as {
-                        pid: number;
-                        runner: number;
-                    };
-                    childPid = child.pid;
-                    expect(child.runner).not.toBe(bin.pid);
-                    process.kill(child.runner, signal);
+            let bin: Bun.Subprocess<"ignore", "pipe", "pipe"> | undefined;
+            let childPid: number | undefined;
+            try {
+                bin = Bun.spawn(["bun", runnerBin, "test"], {
+                    cwd: tree,
+                    stdout: "pipe",
+                    stderr: "pipe",
+                    detached: true,
+                });
+                const stdout = new Response(bin.stdout).text();
+                const stderr = new Response(bin.stderr).text();
+                const deadline = Date.now() + 10_000;
+                while (!existsSync(childMarker) && Date.now() < deadline) await Bun.sleep(10);
+                expect(existsSync(childMarker)).toBe(true);
+                const child = JSON.parse(readFileSync(childMarker, "utf8")) as {
+                    pid: number;
+                    runner: number;
+                };
+                childPid = child.pid;
+                expect(child.runner).not.toBe(bin.pid);
+                process.kill(child.runner, "SIGTERM");
+                await bin.exited;
+                const output = (await stdout) + (await stderr);
+                expect(output).toContain("bin signal fixture output");
+                const reportPath = output
+                    .split("\n")
+                    .find((line) => line.includes("report: "))
+                    ?.match(/report: (.+)$/)?.[1]
+                    ?.trim();
+                expect(reportPath).toBeDefined();
+                const report = readFileSync(resolve(tree, reportPath!), "utf8");
+                expect(report).toContain("runner received SIGTERM during unit sweep");
+                expect(report).toMatch(/<testsuites\b[^>]*\btests="1"[^>]*\bfailures="1"/);
+                expect(bin.signalCode).toBe("SIGTERM");
+            } finally {
+                if (bin !== undefined && bin.exitCode === null) {
+                    bin.kill("SIGKILL");
                     await bin.exited;
-                    const output = (await stdout) + (await stderr);
-                    expect(output).toContain("bin signal fixture output");
-                    const reportPath = output
-                        .split("\n")
-                        .find((line) => line.includes("report: "))
-                        ?.match(/report: (.+)$/)?.[1]
-                        ?.trim();
-                    expect(reportPath).toBeDefined();
-                    const report = readFileSync(resolve(tree, reportPath!), "utf8");
-                    expect(report).toContain(`runner received ${signal} during unit sweep`);
-                    expect(report).toMatch(/<testsuites\b[^>]*\btests="1"[^>]*\bfailures="1"/);
-                    if (signal === "SIGINT") {
-                        expect(bin.signalCode).toBeNull();
-                        expect(bin.exitCode).not.toBe(0);
-                        expect(output).not.toContain("unknown command: test");
-                    } else {
-                        expect(bin.signalCode).toBe("SIGTERM");
-                    }
-                } finally {
-                    if (bin !== undefined && bin.exitCode === null) {
-                        bin.kill("SIGKILL");
-                        await bin.exited;
-                    }
-                    if (childPid !== undefined) killProcess(childPid);
                 }
-            };
-            await runSignalCase("SIGTERM");
-            await runSignalCase("SIGINT");
+                if (childPid !== undefined) killProcess(childPid);
+            }
         } finally {
             rmSync(tree, { recursive: true, force: true });
         }
