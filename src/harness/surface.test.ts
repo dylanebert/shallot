@@ -109,15 +109,23 @@ check(
                         `export const ${name} = tgpu.fn([d.f32], d.f32)((x) => { "use gpu"; return x + ${value}; });\n`,
                 );
             }
+            mkdirSync(join(tree, "src", "dist"));
+            writeFileSync(
+                join(tree, "src", "dist", "selected-shader.js"),
+                `import tgpu from ${TYPEGPU_MODULE};\n` +
+                    `import * as d from ${TYPEGPU_DATA_MODULE};\n` +
+                    `export const distShader = tgpu.fn([d.f32], d.f32)((x) => { "use gpu"; return x + 3; });\n`,
+            );
             writeFileSync(
                 join(tree, "src", "transform.test.ts"),
                 `import { appendFileSync } from "node:fs";\n` +
                     `import tgpu from ${TYPEGPU_MODULE};\n` +
                     `import { shader } from "./selected-shader.js";\n` +
                     `import { moduleShader } from "./selected-shader.mjs";\n` +
+                    `import { distShader } from "./dist/selected-shader.js";\n` +
                     `import { check } from ${CHECK_MODULE};\n` +
                     `appendFileSync(${JSON.stringify(transformLoaded)}, "loaded");\n` +
-                    `check("transform", { claim: "user GPU rows transform imported JS and MJS shader modules", size: "integration", subject: "src/selected.ts" }, () => tgpu.resolve([shader, moduleShader]));\n`,
+                    `check("transform", { claim: "user GPU rows transform JS and MJS shaders including src/dist", size: "integration", subject: "src/selected.ts" }, () => tgpu.resolve([shader, moduleShader, distShader]));\n`,
             );
             const selected = runner("--integration", "--subject", "src/selected");
             if (selected.exitCode !== 0) throw new Error(selected.stderr);

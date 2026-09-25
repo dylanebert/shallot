@@ -2,11 +2,11 @@ import { resolve } from "node:path";
 import { plugin } from "bun";
 import typegpu from "unplugin-typegpu/bun";
 
-// Avoid intercepting JavaScript dependencies; allow project code and Shallot's own package sources.
+// Exclude dependency JavaScript: the Bun hook breaks picomatch's default export; admit project and Shallot source.
 plugin(
     typegpu({
         include:
-            /^(?:.*\.(?:[cm]?ts|tsx)|(?:(?!.*[/\\](?:node_modules|dist)[/\\]).*|.*[/\\]node_modules[/\\]@dylanebert[/\\]shallot[/\\]src[/\\].*)\.(?:[cm]?js|jsx))$/,
+            /^(?:.*\.(?:[cm]?ts|tsx)|(?:(?!.*[/\\]node_modules[/\\]).*|.*[/\\]node_modules[/\\]@dylanebert[/\\]shallot[/\\]src[/\\].*)\.(?:[cm]?js|jsx))$/,
     }),
 );
 
