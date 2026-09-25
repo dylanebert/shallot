@@ -24,7 +24,7 @@ bunx shallot dev
 ## more
 
 - demos: [dylanebert.com/shallot](https://dylanebert.com/shallot/)
-- recipes: `bunx shallot add`, or [`examples/AGENTS.md`](examples/AGENTS.md)
+- examples: `bunx shallot add`, or [`examples/AGENTS.md`](examples/AGENTS.md)
 - questions: [discord](https://discord.gg/eEY75Nqk3C). bugs: [issues](https://github.com/dylanebert/shallot/issues). releases: [npm](https://www.npmjs.com/package/@dylanebert/shallot)
 - changing the engine: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 

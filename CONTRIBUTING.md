@@ -90,10 +90,10 @@ A module's promises are tested beside the module and through the examples that u
 
 Shallot is built from both ends, as a double loop. An example, built as a user would build it, is the outer loop: what it can't do is a gap in the engine. The module that owns the gap is the inner loop: the gap is fixed and proved there, never in the example.
 
-A recipe is a small project that solves one problem; a showcase is a complete game.
+An example is an app in the shape of a user's project, under `examples/<name>/`, and states its problem in its manifest's `problem` field.
 
-- A recipe states its problem in its manifest's `problem` field and has a check that fails when the solution breaks. A recipe without such a check is removed.
-- A showcase runs only the checks a user's project can run.
+- An example has a check that fails when its answer breaks. An example without one is removed.
+- An example imports only published names, and the harness only from its checks. The package export is where it meets the engine's internals.
 
 ## Heavy work
 
