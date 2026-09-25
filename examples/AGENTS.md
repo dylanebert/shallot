@@ -15,4 +15,3 @@ From `bun run format` and `examples/*/shallot.json`; edit manifests. Use `bunx s
 | `play-sound` | I want a sound that comes from a place in the world and pans as it moves. (check: unit) | `bunx shallot add play-sound` |
 | `respond-to-input` | I want to move a thing with WASD and react to a click and a key press. (check: unit) | `bunx shallot add respond-to-input` |
 | `save-and-restore` | I want to save the game and load it back later. (check: unit) | `bunx shallot add save-and-restore` |
-| `svelte-ui` | I want a live-game HUD that updates every frame. | `bunx shallot add svelte-ui` |

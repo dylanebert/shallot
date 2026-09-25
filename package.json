@@ -72,7 +72,6 @@
         "examples/play-sound",
         "examples/respond-to-input",
         "examples/save-and-restore",
-        "examples/svelte-ui",
         "!examples/AGENTS.md",
         "!examples/*/node_modules",
         "!examples/*/build",
