@@ -1,0 +1,2 @@
+stage: 3
+finding: src/harness/preload.ts:6 restricts the TypeGPU transform to .ts/.mts/.cts/.tsx, so a project GPU row importing a Bun-supported .js or .mjs shader module gets an untransformed tgpu.fn. Reproduced with a scratch project row importing .js containing a use-gpu function: tgpu.resolve failed with “Missing metadata for tgpu.fn function body”; the added surface fixture only tests inline TypeScript. This breaks the claim that every user GPU row can build its shader source; include project JavaScript shader sources before landing.
