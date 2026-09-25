@@ -1,5 +1,9 @@
 import { resolve } from "node:path";
 import { plugin } from "bun";
+import typegpu from "unplugin-typegpu/bun";
+
+// Keep the Bun hook on TypeScript; its default also intercepts JavaScript dependencies.
+plugin(typegpu({ include: /\.(?:[cm]?ts|tsx)$/ }));
 
 // Bun test preload: every `.test.ts` and `.oracle.ts` file must declare its checks
 // through `check()`. A file that reaches for `bun:test` directly, or that declares nothing at all,

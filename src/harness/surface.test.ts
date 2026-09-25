@@ -7,6 +7,8 @@ import { collectPopulation } from "./surface";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const CHECK_MODULE = JSON.stringify(resolve(import.meta.dir, "check.ts"));
+const TYPEGPU_MODULE = JSON.stringify(import.meta.resolve("typegpu"));
+const TYPEGPU_DATA_MODULE = JSON.stringify(import.meta.resolve("typegpu/data"));
 
 check(
     "load refuses self subjects, import-time spawns and in-repository temp dirs",
@@ -95,10 +97,22 @@ check(
                         `check(${JSON.stringify(name)}, { claim: ${JSON.stringify(name)}, size: "integration", subject: "src/${name}.ts" }, () => {});\n`,
                 );
             }
+            const transformLoaded = join(tree, "transform-loaded");
+            writeFileSync(
+                join(tree, "src", "transform.test.ts"),
+                `import { appendFileSync } from "node:fs";\n` +
+                    `import tgpu from ${TYPEGPU_MODULE};\n` +
+                    `import * as d from ${TYPEGPU_DATA_MODULE};\n` +
+                    `import { check } from ${CHECK_MODULE};\n` +
+                    `appendFileSync(${JSON.stringify(transformLoaded)}, "loaded");\n` +
+                    `const shader = tgpu.fn([d.f32], d.f32)((x) => { "use gpu"; return x + 1; });\n` +
+                    `check("transform", { claim: "user GPU row receives TGSL transform", size: "integration", subject: "src/selected.ts" }, () => tgpu.resolve([shader]));\n`,
+            );
             const selected = runner("--integration", "--subject", "src/selected");
             expect(selected.exitCode).toBe(0);
             expect(existsSync(loaded("selected"))).toBe(true);
             expect(existsSync(loaded("other"))).toBe(false);
+            expect(existsSync(transformLoaded)).toBe(true);
         } finally {
             rmSync(tree, { recursive: true, force: true });
         }

@@ -20,6 +20,7 @@ const all = args.includes("--all");
 const oracle = valueAfter("--oracle");
 const oracleRequested = args.includes("--oracle");
 const envBase = { ...process.env, SHALLOT_PROJECT_ROOT: root };
+const HARNESS_PRELOAD = resolve(import.meta.dir, "../src/harness/preload.ts");
 
 function valueAfter(flag: string): string | undefined {
     const index = args.indexOf(flag);
@@ -327,6 +328,8 @@ async function run(
         [
             process.execPath,
             "test",
+            "--preload",
+            HARNESS_PRELOAD,
             "--max-concurrency=1",
             "--pass-with-no-tests",
             "--reporter=junit",
@@ -413,6 +416,8 @@ async function selectedRun(
         [
             process.execPath,
             "test",
+            "--preload",
+            HARNESS_PRELOAD,
             "--max-concurrency=1",
             "--pass-with-no-tests",
             "--reporter=junit",

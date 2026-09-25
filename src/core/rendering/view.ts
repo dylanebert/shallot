@@ -407,7 +407,11 @@ export function offscreen(eid: number, w: number, h: number): GPUTextureView {
         label: `shallot-offscreen-${eid}`,
         size: { width: w, height: h },
         format: Render.format,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+        // Keep the actual scene target readable by `probeTexture` without inserting a render pass.
+        usage:
+            GPUTextureUsage.RENDER_ATTACHMENT |
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_SRC,
     });
     const view = texture.createView();
     _offscreen.set(eid, { texture, view, w, h });

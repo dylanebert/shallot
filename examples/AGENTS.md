@@ -6,12 +6,12 @@ From `bun run format` and `examples/*/shallot.json`; edit manifests. Use `bunx s
 
 | name | description | add |
 | --- | --- | --- |
-| `ascii` | I want my scene drawn as ASCII characters. | `bunx shallot add ascii` |
-| `custom-material` | I want to write my own shader for a material and for the background. | `bunx shallot add custom-material` |
+| `ascii` | I want my scene drawn as ASCII characters. (check: integration) | `bunx shallot add ascii` |
+| `custom-material` | I want to write my own shader for a material and for the background. (check: integration) | `bunx shallot add custom-material` |
 | `day-night-sky` | I want a day and night cycle where the sun moves and the sky follows it. (check: unit) | `bunx shallot add day-night-sky` |
 | `drive-a-vehicle` | I want a car I can drive with WASD. (check: unit) | `bunx shallot add drive-a-vehicle` |
 | `first-person` | I want a first-person character to climb a route with a moving lift. (check: unit/integration) | `bunx shallot add first-person` |
-| `particles` | I want to simulate and draw many particles on the GPU. | `bunx shallot add particles` |
+| `particles` | I want to simulate and draw many particles on the GPU. (check: integration) | `bunx shallot add particles` |
 | `play-sound` | I want a sound that comes from a place in the world and pans as it moves. (check: unit) | `bunx shallot add play-sound` |
 | `respond-to-input` | I want to move a thing with WASD and react to a click and a key press. (check: unit) | `bunx shallot add respond-to-input` |
 | `save-and-restore` | I want to save the game and load it back later. (check: unit) | `bunx shallot add save-and-restore` |
