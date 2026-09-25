@@ -92,6 +92,7 @@ Shallot is built from both ends, as a double loop. An example, built as a user w
 
 An example is an app in the shape of a user's project, under `examples/<name>/`. Its manifest's `problem` field names what its user wants, as a piece of a game.
 
+- An example answers one problem a user meets while making any game. Only `first-person` composes many.
 - Every public promise the engine keeps is used by some example whose answer depends on it. A promise no example uses is a gap.
 - No example only repeats what another shows. Of two that would show the same promises, the one kept shows the engine at its best.
 - An example has a check that fails when its answer breaks. An example without one is removed.
