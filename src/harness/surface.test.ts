@@ -98,18 +98,29 @@ check(
                 );
             }
             const transformLoaded = join(tree, "transform-loaded");
+            for (const [extension, name, value] of [
+                ["js", "shader", 1],
+                ["mjs", "moduleShader", 2],
+            ] as const) {
+                writeFileSync(
+                    join(tree, "src", `selected-shader.${extension}`),
+                    `import tgpu from ${TYPEGPU_MODULE};\n` +
+                        `import * as d from ${TYPEGPU_DATA_MODULE};\n` +
+                        `export const ${name} = tgpu.fn([d.f32], d.f32)((x) => { "use gpu"; return x + ${value}; });\n`,
+                );
+            }
             writeFileSync(
                 join(tree, "src", "transform.test.ts"),
                 `import { appendFileSync } from "node:fs";\n` +
                     `import tgpu from ${TYPEGPU_MODULE};\n` +
-                    `import * as d from ${TYPEGPU_DATA_MODULE};\n` +
+                    `import { shader } from "./selected-shader.js";\n` +
+                    `import { moduleShader } from "./selected-shader.mjs";\n` +
                     `import { check } from ${CHECK_MODULE};\n` +
                     `appendFileSync(${JSON.stringify(transformLoaded)}, "loaded");\n` +
-                    `const shader = tgpu.fn([d.f32], d.f32)((x) => { "use gpu"; return x + 1; });\n` +
-                    `check("transform", { claim: "user GPU row receives TGSL transform", size: "integration", subject: "src/selected.ts" }, () => tgpu.resolve([shader]));\n`,
+                    `check("transform", { claim: "user GPU rows transform imported JS and MJS shader modules", size: "integration", subject: "src/selected.ts" }, () => tgpu.resolve([shader, moduleShader]));\n`,
             );
             const selected = runner("--integration", "--subject", "src/selected");
-            expect(selected.exitCode).toBe(0);
+            if (selected.exitCode !== 0) throw new Error(selected.stderr);
             expect(existsSync(loaded("selected"))).toBe(true);
             expect(existsSync(loaded("other"))).toBe(false);
             expect(existsSync(transformLoaded)).toBe(true);
