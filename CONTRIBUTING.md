@@ -90,10 +90,14 @@ A module's promises are tested beside the module and through the examples that u
 
 Shallot is built from both ends, as a double loop. An example, built as a user would build it, is the outer loop: what it can't do is a gap in the engine. The module that owns the gap is the inner loop: the gap is fixed and proved there, never in the example.
 
-An example is an app in the shape of a user's project, under `examples/<name>/`, and states its problem in its manifest's `problem` field.
+An example is an app in the shape of a user's project, under `examples/<name>/`. Its manifest's `problem` field names what its user wants, as a piece of a game.
 
+- The examples are the smallest set that together use every public promise the engine keeps. A promise without an example is a gap; an example that witnesses no promise is removed.
+- Where several examples would witness the same promises, the one kept best shows the engine's strengths.
 - An example has a check that fails when its answer breaks. An example without one is removed.
-- An example imports only published names, and the harness only from its checks. The package export is where it meets the engine's internals.
+- An example imports only published names, and the harness only from its checks.
+- An example lives in the `examples/` of the repository whose promise it witnesses: the engine's or a package's.
+- Code that two examples or a real game repeat becomes a package, and its examples then use it.
 
 ## Heavy work
 
