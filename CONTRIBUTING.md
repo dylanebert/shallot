@@ -92,12 +92,11 @@ Shallot is built from both ends, as a double loop. An example, built as a user w
 
 An example is an app in the shape of a user's project, under `examples/<name>/`. Its manifest's `problem` field names what its user wants, as a piece of a game.
 
-- The examples are the smallest set that together use every public promise the engine keeps. A promise without an example is a gap; an example that witnesses no promise is removed.
-- Where several examples would witness the same promises, the one kept best shows the engine's strengths.
+- Every public promise the engine keeps is used by some example whose answer depends on it. A promise no example uses is a gap.
+- No example only repeats what another shows. Of two that would show the same promises, the one kept shows the engine at its best.
 - An example has a check that fails when its answer breaks. An example without one is removed.
 - An example imports only published names, and the harness only from its checks.
-- An example lives in the `examples/` of the repository whose promise it witnesses: the engine's or a package's.
-- Code that two examples or a real game repeat becomes a package, and its examples then use it.
+- An example lives in the `examples/` of the repository whose promise its answer is about: the engine's or a package's.
 
 ## Heavy work
 
