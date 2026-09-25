@@ -88,11 +88,12 @@ A module's promises are tested beside the module and through the examples that u
 
 ## Examples
 
-A recipe is a small project that solves one problem; a showcase is a complete game. Something an example can't do is a gap in the engine.
+Shallot is built from both ends, as a double loop. An example, built as a user would build it, is the outer loop: what it can't do is a gap in the engine. The module that owns the gap is the inner loop: the gap is fixed and proved there, never in the example.
+
+A recipe is a small project that solves one problem; a showcase is a complete game.
 
 - A recipe states its problem in its manifest's `problem` field and has a check that fails when the solution breaks. A recipe without such a check is removed.
 - A showcase runs only the checks a user's project can run.
-- Fix a gap in the module that owns it, not in the example.
 
 ## Heavy work
 
