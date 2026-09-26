@@ -1,4 +1,5 @@
 // Destination: engine; owner: engine-gpu-core.md.
+// Hosted checks exercise this source on macOS.
 import { isBuffer, type TgpuBuffer } from "typegpu";
 import type { AnyData } from "typegpu/data";
 import { Compute, type Plugin, type State, type System } from "../../engine";
