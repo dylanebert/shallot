@@ -1,0 +1,88 @@
+name: temporary first-person allocation qualification
+
+on:
+  push:
+    branches:
+      - qualify-first-person-allocation-*
+
+permissions:
+  contents: read
+
+env:
+  QUALIFICATION_SOURCE: e5db4695388e3b6199bc9b31989a5c71e7dc97b6
+
+jobs:
+  qualify:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.QUALIFICATION_SOURCE }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - name: record host and source identity
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$QUALIFICATION_SOURCE"
+          mkdir -p /tmp/qualification/host
+          {
+            git rev-parse HEAD
+            uname -a
+            bun --version
+            node --version
+            rustc --version
+            cargo --version
+          } | tee /tmp/qualification/host/record.txt
+      - name: install declared dependencies
+        run: bun install --frozen-lockfile
+      - name: static gates
+        if: always()
+        run: |
+          set +e
+          bun run check 2>&1 | tee /tmp/check.log
+          status=${PIPESTATUS[0]}
+          echo "exit=$status" | tee /tmp/qualification-check-status
+          mkdir -p /tmp/qualification/check
+          cp /tmp/check.log /tmp/qualification/check/
+          cp /tmp/qualification-check-status /tmp/qualification/check/status.txt
+      - name: unit sweep
+        if: always()
+        run: |
+          rm -rf .artifacts
+          set +e
+          bun run test 2>&1 | tee /tmp/test.log
+          status=${PIPESTATUS[0]}
+          echo "exit=$status" | tee /tmp/qualification-test-status
+          mkdir -p /tmp/qualification/test
+          cp /tmp/test.log /tmp/qualification/test/
+          cp -R .artifacts /tmp/qualification/test/artifacts 2>/dev/null || true
+          cp /tmp/qualification-test-status /tmp/qualification/test/status.txt
+      - name: full CPU integration population
+        if: always()
+        run: |
+          rm -rf .artifacts
+          set +e
+          bun run test -- --integration --all --requires '!gpu' --requires '!browser' --requires '!display' --no-unit-fallback 2>&1 | tee /tmp/cpu.log
+          status=${PIPESTATUS[0]}
+          echo "exit=$status" | tee /tmp/qualification-cpu-status
+          mkdir -p /tmp/qualification/cpu
+          cp /tmp/cpu.log /tmp/qualification/cpu/
+          cp -R .artifacts /tmp/qualification/cpu/artifacts 2>/dev/null || true
+          cp /tmp/qualification-cpu-status /tmp/qualification/cpu/status.txt
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: qualification-${{ runner.os }}-${{ github.run_id }}
+          path: /tmp/qualification/
+          if-no-files-found: error
