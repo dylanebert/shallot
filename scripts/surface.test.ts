@@ -342,6 +342,7 @@ check(
             for (const claim of [
                 "browser selector row",
                 "gpu selector row",
+                "gpu browser selector row",
                 "display selector row",
                 "cargo selector row",
                 "node selector row",
@@ -381,6 +382,8 @@ check(
                 "--integration",
                 "--requires",
                 "gpu",
+                "--requires",
+                "!browser",
                 "--base",
                 base,
                 "--diff",
@@ -388,6 +391,7 @@ check(
             );
             expect(macos.code).toBe(0);
             expect(macos.out).toContain("gpu selector row");
+            expect(macos.out).not.toContain("gpu browser selector row");
             expect(macos.out).not.toContain("browser selector row");
             for (const claim of [
                 "display selector row",
@@ -410,11 +414,13 @@ check(
             );
             expect(browser.code).toBe(0);
             expect(browser.out).toContain("browser selector row");
+            expect(browser.out).toContain("gpu browser selector row");
             expect(browser.out).not.toContain("gpu selector row");
 
             for (const claim of [
                 "browser selector row",
                 "gpu selector row",
+                "gpu browser selector row",
                 "display selector row",
                 "cargo selector row",
                 "node selector row",

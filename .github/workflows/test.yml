@@ -139,7 +139,7 @@ jobs:
         run: bunx playwright install chromium
       - name: changed GPU integration rows
         if: always()
-        run: bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires gpu --no-unit-fallback
+        run: bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires gpu --requires '!browser' --no-unit-fallback
       - name: changed browser integration rows
         if: always()
         run: bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires browser --no-unit-fallback

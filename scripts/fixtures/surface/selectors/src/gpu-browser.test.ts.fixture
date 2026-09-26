@@ -1,0 +1,12 @@
+import { check } from "@dylanebert/shallot/harness/check";
+
+check(
+    "gpu browser selector row",
+    {
+        claim: "gpu browser selector row",
+        size: "integration",
+        requires: ["gpu", "browser"],
+        subject: "src/core/rendering/frame.ts",
+    },
+    () => {},
+);
