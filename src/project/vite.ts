@@ -16,7 +16,7 @@ export { manifestPath, manifestWarnings } from "./assets";
 export { discoverScenes } from "./host";
 
 /**
- * cross-origin isolation headers, applied by every serve surface (`shallot dev`, `shallot run`'s preview,
+ * cross-origin isolation headers, applied by every serve surface (`shallot dev`, `shallot preview`,
  * the dev/ejected/dist boots). physics multithreads only when the page can hold a
  * shared `WebAssembly.Memory`, which a browser grants only to a cross-origin-isolated document — so the
  * dev/preview server sends COOP/COEP to enable the multithreaded kernel. A static host that can't set

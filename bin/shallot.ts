@@ -7,7 +7,9 @@ const command = args[0];
 const carrier = resolve(import.meta.dir, "../scripts");
 const root = process.cwd();
 
-if (command === "test") {
+if (command === "test" && args.slice(1).some((arg) => arg === "--help" || arg === "-h")) {
+    await main(args);
+} else if (command === "test") {
     const proc = Bun.spawnSync([process.execPath, resolve(carrier, "test-runner.ts"), ...args.slice(1), "--root", root], { cwd: root, stdout: "inherit", stderr: "inherit" });
     if (proc.signalCode) {
         const signal = proc.signalCode as NodeJS.Signals;

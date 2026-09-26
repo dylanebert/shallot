@@ -1,10 +1,10 @@
 import { resolve } from "node:path";
 import { buildProject } from "./build";
 import { startDev } from "./dev";
-import { runProject } from "./run";
+import { MissingBuildError, previewProject } from "./preview";
 
 const usage = `
-  shallot — run and build a shallot project
+  shallot — build and preview a Shallot project
 
   Usage
     shallot <command> [dir] [options]
@@ -12,13 +12,15 @@ const usage = `
   Commands
     dev       Run the project standalone, with hot reload
     build     Build for distribution
-    run       Build and run
+    preview   Launch an existing build
     add       Copy an example recipe out of the package (bare: list them)
+    test      Run declared checks and list their population
 
   Common examples
     bun create shallot <name>    Create a new project
     shallot dev                  Run with hot reload
     shallot add first-person     Copy the first-person recipe into ./first-person
+    shallot build && shallot preview
 
   Help
     shallot <command> --help    Show options and examples for one command
@@ -76,26 +78,47 @@ const commandUsage = {
                 its C++ workload and ATL
     Portable builds download CEF on first build, or use CEF_PATH when set.
 `,
-    run: `
-  shallot run [dir] [options]
+    preview: `
+  shallot preview [dir] [options]
 
-  Build and run a project.
-  The directory defaults to the current directory (.).
+  Launch an existing build without rebuilding it.
+  The directory defaults to the current directory (.). Run 'shallot build' first.
 
   Common examples
-    shallot run
-    shallot run --target mac
-    shallot run --target linux --portable
+    shallot preview
+    shallot preview --target mac
+    shallot preview --target linux --portable
 
   Options
     --target <platform>   web (default), windows, mac, linux
-    --release             Optimized build
-    --portable            Bundle the Chromium runtime (CEF) instead of the system webview
+    --release             Launch the optimized build
+    --portable            Launch the build with its bundled Chromium runtime (CEF)
     --port <n>            Preview server port (web only)
+    --no-open             Don't open a browser tab (web only)
     -h, --help            Show this help
 
-  Native requirements
-    Native targets use the requirements documented by 'shallot build --help'.
+  Native targets use the requirements documented by 'shallot build --help'.
+`,
+    test: `
+  shallot test [options]
+
+  Run declared checks, or select and list them without running.
+
+  Common examples
+    shallot test
+    shallot test --list
+    shallot test --integration --base origin/main --diff HEAD
+
+  Options
+    --list                  List the selected checks without running them
+    --integration           Select integration checks; requires --base and --diff unless a selector is used
+    --base <ref>            Base commit for changed-subject integration checks (with --diff)
+    --diff <ref>            Diff commit for changed-subject integration checks (with --base)
+    --all                   Select all integration checks (with --integration)
+    --requires <tag>        Select integration checks by requirement (with --integration)
+    --subject <prefix>      Select integration checks by subject path (with --integration)
+    --oracle <claim>        Select one named oracle
+    -h, --help              Show this help
 `,
 } as const;
 
@@ -106,7 +129,7 @@ export type CliArgs =
     | { kind: "usage"; exitCode: 0 | 1 }
     | {
           kind: "run";
-          subcmd: "dev" | "build" | "run";
+          subcmd: "dev" | "build" | "preview";
           dir: string;
           target?: string;
           release: boolean;
@@ -116,17 +139,19 @@ export type CliArgs =
           open: boolean;
       };
 
-const PROJECT_VERBS = ["dev", "build", "run"];
+const PROJECT_VERBS = ["dev", "build", "preview"];
 const TARGETS = ["web", "windows", "mac", "linux"];
 
 /**
  * parse `shallot`'s top-level flags and pick which subcommand handles them. `add` owns its own flag
- * set, and unknown verbs refuse before the shared dev/build/run parse. Throws on an unrecognized
+ * set, and unknown verbs refuse before the shared dev/build/preview parse. Throws on an unrecognized
  * `-`-prefixed option.
  */
 export function parseCliArgs(raw: string[]): CliArgs {
     const verb = raw[0];
     if (verb === "add") return { kind: "add", rest: raw.slice(1) };
+    if (verb === "test" && raw.slice(1).some((arg) => arg === "--help" || arg === "-h"))
+        return { kind: "command-help", command: "test" };
     if (verb && !verb.startsWith("-") && !PROJECT_VERBS.includes(verb))
         return { kind: "unknown", verb };
 
@@ -180,7 +205,7 @@ export function parseCliArgs(raw: string[]): CliArgs {
     }
 
     const subcmd = positionalArgs[0];
-    if (help && subcmd !== undefined && PROJECT_VERBS.includes(subcmd))
+    if (help && subcmd !== undefined && Object.hasOwn(commandUsage, subcmd))
         return { kind: "command-help", command: subcmd as keyof typeof commandUsage };
     if (help) return { kind: "usage", exitCode: 0 };
 
@@ -189,7 +214,7 @@ export function parseCliArgs(raw: string[]): CliArgs {
 
     return {
         kind: "run",
-        subcmd: subcmd as "dev" | "build" | "run",
+        subcmd: subcmd as "dev" | "build" | "preview",
         dir: positionalArgs[1] || ".",
         target,
         release,
@@ -247,9 +272,13 @@ export async function main(
     if (parsed.subcmd === "dev") {
         // native webviews can't HMR — `dev --target <native>` is a debug build + run (run without --release)
         if (parsed.target && parsed.target !== "web") {
-            await runProject(projectDir, {
+            await buildProject(projectDir, {
                 target: parsed.target,
-                port: parsed.port,
+                release: false,
+                portable: parsed.portable,
+            });
+            await previewProject(projectDir, {
+                target: parsed.target,
                 release: false,
                 portable: parsed.portable,
             });
@@ -266,12 +295,19 @@ export async function main(
             release: parsed.release,
             portable: parsed.portable,
         });
-    } else if (parsed.subcmd === "run") {
-        await runProject(projectDir, {
-            target: parsed.target,
-            port: parsed.port,
-            release: parsed.release,
-            portable: parsed.portable,
-        });
+    } else if (parsed.subcmd === "preview") {
+        try {
+            await previewProject(projectDir, {
+                target: parsed.target,
+                port: parsed.port,
+                release: parsed.release,
+                portable: parsed.portable,
+                open: parsed.open,
+            });
+        } catch (error) {
+            if (!(error instanceof MissingBuildError)) throw error;
+            console.error(error.message);
+            exit(1);
+        }
     }
 }

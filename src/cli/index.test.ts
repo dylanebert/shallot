@@ -1,4 +1,5 @@
 import { expect } from "bun:test";
+import { resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
 import { main, parseCliArgs } from "./index";
 
@@ -48,16 +49,24 @@ check(
         expect(result.code).toBe(0);
         expect(result.stderr).toBe("");
         const help = result.stdout;
-        expect(position(help, "shallot — run and build a shallot project")).toBeLessThan(
+        expect(position(help, "shallot — build and preview a Shallot project")).toBeLessThan(
             position(help, "Usage"),
         );
         expect(position(help, "Usage")).toBeLessThan(position(help, "Commands"));
         expect(position(help, "Commands")).toBeLessThan(position(help, "Common examples"));
         expect(help).toContain("shallot dev                  Run with hot reload");
+        expect(help).toContain("preview   Launch an existing build");
         expect(help).toContain(
             "shallot add first-person     Copy the first-person recipe into ./first-person",
         );
+        const commands = help
+            .split("  Commands\n")[1]
+            ?.split("\n\n")[0]
+            .split("\n")
+            .map((line) => line.trim().split(/\s+/)[0]);
+        expect(commands).toEqual(["dev", "build", "preview", "add", "test"]);
         expect(help).toContain("shallot <command> --help");
+        expect(help).toContain("shallot build && shallot preview");
         expect(help).not.toContain("Native release builds download");
         expect(help).not.toContain("--target <platform>");
         expect(help).not.toContain("shallot build --target");
@@ -114,16 +123,63 @@ check(
 );
 
 check(
-    "run help is focused and successful",
-    { claim: "shallot run --help presents run options without strict dev-only options" },
+    "preview help is focused and successful",
+    {
+        claim: "shallot preview --help presents launch options without rebuilding or dev-only options",
+    },
     async () => {
-        const result = await cli("run", "--help");
+        const result = await cli("preview", "--help");
         expect(result.code).toBe(0);
+        expect(result.stdout).toContain("Launch an existing build without rebuilding it.");
         expect(result.stdout).toContain("--port <n>");
         expect(result.stdout).toContain("(web only)");
-        expect(result.stdout).toContain("Native requirements");
+        expect(result.stdout).toContain("Native targets use the requirements");
         expect(result.stdout).toContain("shallot build --help");
+        expect(result.stdout).not.toContain("shallot run");
+        expect(result.stdout).toContain("--no-open");
         expect(result.stdout).not.toContain("--strict-port");
+        expect(result.stderr).toBe("");
+    },
+);
+
+check(
+    "the installed bin handles test help before starting the runner",
+    {
+        claim: "shallot test --help prints its command help instead of starting the test runner",
+        size: "integration",
+        subject: "bin/shallot.ts",
+    },
+    () => {
+        const root = resolve(import.meta.dir, "../..");
+        const result = Bun.spawnSync(
+            [process.execPath, resolve(root, "bin/shallot.ts"), "test", "--help"],
+            { cwd: root, stdout: "pipe", stderr: "pipe" },
+        );
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout.toString()).toContain("shallot test [options]");
+        expect(result.stdout.toString()).toContain("--oracle <claim>");
+        expect(result.stdout.toString()).not.toContain("checks (parsed");
+        expect(result.stderr.toString()).toBe("");
+    },
+);
+
+check(
+    "test help describes the accepted selectors",
+    {
+        claim: "shallot test --help lists the runner's population, integration, selector, and oracle options",
+    },
+    async () => {
+        const result = await cli("test", "--help");
+        expect(result.code).toBe(0);
+        expect(result.stdout).toContain("shallot test [options]");
+        expect(result.stdout).toContain("--list");
+        expect(result.stdout).toContain("--integration");
+        expect(result.stdout).toContain("--base <ref>");
+        expect(result.stdout).toContain("--diff <ref>");
+        expect(result.stdout).toContain("--all");
+        expect(result.stdout).toContain("--requires <tag>");
+        expect(result.stdout).toContain("--subject <prefix>");
+        expect(result.stdout).toContain("--oracle <claim>");
         expect(result.stderr).toBe("");
     },
 );
@@ -139,6 +195,18 @@ check(
         expect(result.stdout).toContain("Common examples");
         expect(result.stdout).toContain("Options");
         expect(result.stderr).toBe("");
+    },
+);
+
+check(
+    "the retired run command refuses",
+    { claim: "shallot run is no longer accepted and points users to the command list" },
+    async () => {
+        const result = await cli("run");
+        expect(result.code).toBe(1);
+        expect(result.stdout).toBe("");
+        expect(result.stderr).toContain("unknown command: run");
+        expect(result.stderr).toContain("See `shallot --help` for available commands.");
     },
 );
 

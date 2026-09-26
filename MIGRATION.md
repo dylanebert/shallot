@@ -12,6 +12,14 @@ bunx shallot recipe first-person
 bunx shallot add first-person
 ```
 
+## The CLI command set changed
+
+- `shallot list` is now `shallot test --list`.
+- `shallot check` is now `shallot test --list`; declaration violations refuse both `shallot test --list` and `shallot test`.
+- `shallot workflow` has no replacement; the workflow file it wrote is yours to edit and is no longer regenerated.
+- `shallot <verb>` no longer resolves to `shallot-<verb>` on `PATH`; there is no replacement.
+- `shallot run` is now `shallot build` followed by `shallot preview`. Preview never rebuilds.
+
 ## `shallot tui` and `shallot verify` are gone
 
 Neither has a replacement command. `@dylanebert/shallot/harness/check` exports `check()` for writing checks as Bun tests; it does not launch a browser.

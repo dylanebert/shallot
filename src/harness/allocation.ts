@@ -403,8 +403,8 @@ async function adapterFacts(page: import("playwright").Page): Promise<AdapterFac
 }
 
 /**
- * Build `projectDir` for the web as `shallot run` does, with source maps, serve it in-process, and open it in
- * the display seat's headed Chromium, resolving the seat on the adapter the page reaches. The page's own
+ * Build `projectDir` for the web with source maps, serve it in-process, and open it in the display seat's
+ * headed Chromium, resolving the seat on the adapter the page reaches. The page's own
  * frame loop is the run frame, attributed by the same rule as {@link sampleAllocation}. Once the loop runs,
  * wait `warm` frames, then sample `frames` after warm, after twice that, and an A/A repeat, each after a
  * collection. The control runs last, over {@link CONTROL_FRAMES} frames: a conditional breakpoint where the
