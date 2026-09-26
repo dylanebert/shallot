@@ -103,17 +103,12 @@ function seed(name: string): string {
     return tree;
 }
 
-function run(
-    script: string,
-    tree: string,
-    ...args: string[]
-): { code: number; out: string; err: string } {
-    const proc = Bun.spawnSync(
-        ["bun", resolve(ROOT, "scripts", script), "--list", ...args, "--root", tree],
-        {
-            cwd: ROOT,
-        },
-    );
+function run(tree: string, ...args: string[]): { code: number; out: string; err: string } {
+    const proc = Bun.spawnSync(["bun", resolve(ROOT, "bin/shallot.ts"), "test", ...args], {
+        cwd: tree,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
     return {
         code: proc.exitCode ?? -1,
         out: proc.stdout.toString().trim(),
@@ -124,7 +119,7 @@ function run(
 function reader(name: string): { code: number; out: string; err: string } {
     const tree = seed(name);
     try {
-        return run("check-surface.ts", tree);
+        return run(tree, "--list");
     } finally {
         rmSync(tree, { recursive: true, force: true });
     }
@@ -311,26 +306,26 @@ check(
     () => {
         const tree = seed("selectors");
         try {
-            const all = run("surface.ts", tree, "--integration", "--all");
+            const all = run(tree, "--list", "--integration", "--all");
             expect(all.code).toBe(0);
             expect(all.out).toContain("browser selector row");
             expect(all.out).toContain("display selector row");
             expect(all.out).not.toContain("unit selector exclusion");
             expect(all.out).not.toContain("oracle selector exclusion");
 
-            const requires = run("surface.ts", tree, "--integration", "--requires", "gpu");
+            const requires = run(tree, "--list", "--integration", "--requires", "gpu");
             expect(requires.code).toBe(0);
             expect(requires.out).toContain("browser selector row");
             expect(requires.out).not.toContain("display selector row");
 
-            const subject = run("surface.ts", tree, "--integration", "--subject", "src/browser");
+            const subject = run(tree, "--list", "--integration", "--subject", "src/browser");
             expect(subject.code).toBe(0);
             expect(subject.out).toContain("browser selector row");
             expect(subject.out).not.toContain("display selector row");
 
             const composed = run(
-                "surface.ts",
                 tree,
+                "--list",
                 "--integration",
                 "--requires",
                 "gpu",
@@ -342,8 +337,8 @@ check(
             expect(composed.out).not.toContain("display selector row");
 
             const conflict = run(
-                "surface.ts",
                 tree,
+                "--list",
                 "--integration",
                 "--all",
                 "--base",
@@ -357,7 +352,7 @@ check(
             for (const args of [["--all"], ["--requires", "gpu"], ["--subject", "missing"]]) {
                 const emptyTree = seed("unit-only");
                 try {
-                    const empty = run("surface.ts", emptyTree, "--integration", ...args);
+                    const empty = run(emptyTree, "--list", "--integration", ...args);
                     expect(empty.code).toBe(1);
                     expect(empty.err).toContain("selector matched no integration rows");
                 } finally {
@@ -371,15 +366,15 @@ check(
 );
 
 check(
-    "--list prints exactly the declared population",
+    "test --list prints exactly the declared population",
     {
-        claim: "surface.ts --list prints one row per declared check in the convention-discovered tree",
+        claim: "shallot test --list prints one row per declared check in the convention-discovered tree",
         size: "integration",
     },
     () => {
         const tree = seed("clean");
         try {
-            const { code, out } = run("surface.ts", tree);
+            const { code, out } = run(tree, "--list");
             expect(code).toBe(0);
             expect(out.split("\n").slice(0, -1)).toEqual([
                 "claim             size         requires  subject  budget   file",
@@ -393,7 +388,7 @@ check(
         }
         const defaults = seed("defaults");
         try {
-            const { code, out } = run("surface.ts", defaults);
+            const { code, out } = run(defaults, "--list");
             expect(code).toBe(0);
             expect(out).toContain("browser defaults");
             expect(out).toContain("integration");
@@ -696,7 +691,7 @@ check(
             }),
         );
         try {
-            const listed = invoke("list", "--oracle", claim);
+            const listed = invoke("test", "--list", "--oracle", claim);
             const listedOutput = listed.stdout.toString() + listed.stderr.toString();
             expect(listed.exitCode).toBe(0);
             expect(listedOutput).toContain(claim);
@@ -704,7 +699,7 @@ check(
             expect(listedOutput).not.toContain("poison unit must not run");
             expect(listedOutput).toContain("1 checks (parsed 3; 0 quarantined)");
 
-            const unknown = invoke("list", "--oracle", "unknown fixture oracle");
+            const unknown = invoke("test", "--list", "--oracle", "unknown fixture oracle");
             expect(unknown.exitCode).toBe(1);
             expect(unknown.stderr.toString()).toContain(
                 "named oracle not found: unknown fixture oracle",
@@ -728,9 +723,9 @@ check(
 );
 
 check(
-    "an undeclared check file reds the reader",
+    "test --list refuses an undeclared check file",
     {
-        claim: "check-surface.ts reds on a test-suffix file that registers no check() declaration",
+        claim: "shallot test --list refuses a test-suffix file that registers no check() declaration",
         size: "integration",
     },
     () => {
@@ -743,24 +738,32 @@ check(
 );
 
 check(
-    "a duplicate claim reds the reader",
+    "test refuses duplicate claims before running any row",
     {
-        claim: "check-surface.ts reds when two checks declare the same claim, naming both files",
+        claim: "shallot test and test --list refuse duplicate claims before execution, naming both declaration files",
         size: "integration",
     },
     () => {
-        const { code, err } = reader("duplicate");
-        expect(code).toBe(1);
-        expect(err).toContain('duplicate claim: "same claim" declared in');
-        expect(err).toContain("src/one.test.ts");
-        expect(err).toContain("src/two.test.ts");
+        const tree = seed("duplicate");
+        try {
+            const expected =
+                'duplicate claim: "same claim" declared in src/one.test.ts and src/two.test.ts';
+            for (const args of [["--list"], []]) {
+                const refusal = run(tree, ...args);
+                expect(refusal.code).toBe(1);
+                expect(refusal.err).toContain(expected);
+                expect(existsSync(join(tree, ".duplicate-row-ran"))).toBe(false);
+            }
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
     },
 );
 
 check(
-    "an over-budget unit declaration reds the reader",
+    "test --list refuses an over-budget unit declaration",
     {
-        claim: "check-surface.ts reds on a unit declaration whose budget is above the 250 ms ceiling",
+        claim: "shallot test --list refuses a unit declaration whose budget is above the 250 ms ceiling",
         size: "integration",
     },
     () => {
@@ -773,9 +776,9 @@ check(
 );
 
 check(
-    "an orphan quarantine row reds the reader",
+    "test --list refuses an orphan quarantine row",
     {
-        claim: "check-surface.ts reds when quarantine.json names a claim no check declares",
+        claim: "shallot test --list refuses a quarantine row that names no declared claim",
         size: "integration",
     },
     () => {
@@ -788,9 +791,9 @@ check(
 );
 
 check(
-    "a non-literal declaration reds the reader",
+    "test --list refuses non-literal declarations",
     {
-        claim: "check-surface.ts reds a check whose options use a spread, identifier or computed value, naming its file",
+        claim: "shallot test --list refuses non-literal declarations and names their files",
         size: "integration",
     },
     () => {
@@ -805,9 +808,9 @@ check(
 );
 
 check(
-    "an expired quarantine row reds the reader",
+    "test --list refuses an expired quarantine row",
     {
-        claim: "check-surface.ts reds a quarantine row whose ISO expiry is in the past",
+        claim: "shallot test --list refuses a quarantine row whose ISO expiry is in the past",
         size: "integration",
     },
     () => {
@@ -818,19 +821,18 @@ check(
 );
 
 check(
-    "the reader passes the shipped tree",
+    "test --list prints the shipped population",
     {
-        claim: "check-surface.ts is green on the engine's own tree, so the population is never an empty scan",
+        claim: "shallot test --list prints the engine's population, so the declared population is never an empty scan",
         size: "integration",
     },
     () => {
-        const proc = Bun.spawnSync(["bun", resolve(ROOT, "scripts/check-surface.ts")], {
-            cwd: ROOT,
-        });
-        expect(proc.stderr.toString().trim()).toBe("");
-        expect(proc.exitCode).toBe(0);
-        expect(proc.stdout.toString()).toMatch(/^\d+ declared checks/);
-        expect(Number(proc.stdout.toString().split(" ")[0])).toBeGreaterThan(0);
+        const listed = run(ROOT, "--list");
+        expect(listed.err).toBe("");
+        expect(listed.code).toBe(0);
+        const population = listed.out.match(/\n\d+ checks \(parsed (\d+); \d+ quarantined\)$/);
+        expect(population).not.toBeNull();
+        expect(Number(population?.[1])).toBeGreaterThan(0);
     },
 );
 

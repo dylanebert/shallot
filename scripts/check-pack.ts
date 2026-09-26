@@ -41,7 +41,7 @@ const packageFiles = JSON.parse(readFileSync(resolve(pkgDir, "package.json"), "u
 const negated = packageFiles
     .filter((entry) => entry.startsWith("!"))
     .map((entry) => new Glob(entry.slice(1)));
-const carriers = ["scripts/check-surface.ts", "scripts/surface.ts", "scripts/test-runner.ts"];
+const carriers = ["scripts/surface.ts", "scripts/test-runner.ts"];
 const requiredNegations = [
     "!scripts/check.ts",
     "!scripts/check-pack.ts",

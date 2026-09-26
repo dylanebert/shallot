@@ -15,6 +15,7 @@ const arms: [string, string[]][] = [
         file.replace(/\.ts$/, ""),
         ["bun", resolve(import.meta.dir, file)],
     ]),
+    ["test population", ["bun", resolve(root, "bin/shallot.ts"), "test", "--list"]],
     ["examples index", ["bun", resolve(import.meta.dir, "examples-index.ts"), "--check"]],
     ["scene format", ["bun", resolve(import.meta.dir, "format.ts"), "--check"]],
     ["cargo fmt", ["cargo", "fmt", "--all", "--check"]],

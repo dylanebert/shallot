@@ -838,8 +838,7 @@ function dependencyViolations(root: string): string[] {
     return violations;
 }
 
-export function readSurface(root: string): string[] {
-    const population = collectPopulation(root);
+export function readSurface(root: string, population = collectPopulation(root)): string[] {
     const violations = [
         ...population.invalid,
         ...population.undeclared.map(

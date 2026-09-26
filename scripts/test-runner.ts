@@ -5,6 +5,8 @@ import {
     CHECK_REQUIREMENTS,
     collectPopulation,
     discoverTestFiles,
+    formatPopulation,
+    readSurface,
     selectIntegrationRows,
     selectOracleRows,
 } from "../src/harness/surface";
@@ -16,6 +18,7 @@ const root = resolve(
     rootIndex === -1 ? resolve(import.meta.dir, "..") : (args[rootIndex + 1] ?? process.cwd()),
 );
 const integration = args.includes("--integration");
+const list = args.includes("--list");
 const all = args.includes("--all");
 const oracle = valueAfter("--oracle");
 const oracleRequested = args.includes("--oracle");
@@ -594,23 +597,25 @@ if (integration && !selectorRequested && (base === undefined || diff === undefin
     refuse("integration test requires --base <ref> and --diff <ref>");
 
 const population = collectPopulation(root);
-if (population.invalid.length > 0 || population.undeclared.length > 0) {
-    refuse(
-        [
-            ...population.invalid,
-            ...population.undeclared.map((file) => `${file.file} ${file.reason}`),
-        ].join("; "),
-    );
-}
+const violations = readSurface(root, population);
+if (violations.length > 0) refuse(violations.join("; "));
 if (oracle !== undefined) {
     const selected = selectOracleRows(population, oracle);
     if (selected.length !== 1) refuse(`named oracle not found: ${oracle}`);
+    if (list) {
+        console.log(formatPopulation(population, undefined, selected));
+        process.exit(0);
+    }
     process.exit(
         await run([selected[0].file], { ...envBase, KEX_S3_ROW: oracle }, "oracle", oracle),
     );
 }
 const files = discoverTestFiles(root);
 if (!integration) {
+    if (list) {
+        console.log(formatPopulation(population));
+        process.exit(0);
+    }
     const environment = { ...envBase, SHALLOT_UNIT_ONLY: "1" };
     process.exit(await run(files, environment, "unit sweep", "unit sweep"));
 }
@@ -633,6 +638,10 @@ if (base !== undefined && diff !== undefined && (!isCommitObject(base) || !isCom
     refuse(`integration refs must be existing commit objects: base=${base} diff=${diff}`);
 const selected = selectIntegrationRows(population, { all, requires, subject, base, diff });
 if (selectorRequested && selected.length === 0) refuse("selector matched no integration rows");
+if (list) {
+    console.log(formatPopulation(population, undefined, selected));
+    process.exit(0);
+}
 if (selected.length === 0) {
     // Unit rows still get their normal hermetic proof, but no integration/no-op command is claimed.
     process.exit(

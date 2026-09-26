@@ -71,7 +71,6 @@
         "!examples/*/tsconfig.json",
         "!src/transitional/gltf/fixtures",
         "!src/transitional/physics/solver/fixtures",
-        "scripts/check-surface.ts",
         "scripts/surface.ts",
         "scripts/test-runner.ts",
         "!scripts/check.ts",
@@ -100,7 +99,6 @@
         "check": "bun run scripts/check.ts",
         "format": "biome check --write && bun run scripts/format.ts && bun run scripts/examples-index.ts",
         "test": "bun run scripts/test-runner.ts --unit",
-        "list": "bun run scripts/surface.ts --list",
         "workflow": "bun run scripts/surface.ts --workflow",
         "assets": "bun run scripts/assets.ts",
         "prepack": "bun run ./scripts/tooling.ts"

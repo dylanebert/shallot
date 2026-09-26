@@ -53,12 +53,12 @@ Each view reaches the screen through one final pass. The scene image is marked H
 
 ```bash
 bun run build     # regenerate committed audio WASM, dist/vite.js, physics kernel
-bun run check     # structure, population, workflow and static gates; run before every push
+bun run check     # declared population, workflow and static gates; run before every push
 bun run test      # every unit test, hermetic, under the 250ms unit limit
+bun run test -- --list   # declared population and selectors without running checks
 bun run test -- --integration --base <ref> --diff <ref>   # tests whose subject changed, plus tests with no subject
 bun run test -- --integration --all | --requires <tag> | --subject <prefix>   # combine freely, but not with --base/--diff
 bun run test -- --oracle <claim>   # one named oracle, never part of a sweep
-bun run list      # what the same selectors would run: claim, size, requirements, budget, file
 bun run format    # biome, the scene formatter and the examples index, writing
 ```
 
