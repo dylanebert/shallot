@@ -1,4 +1,4 @@
-[![test-surface](https://github.com/dylanebert/shallot/actions/workflows/test-surface.yml/badge.svg?branch=main)](https://github.com/dylanebert/shallot/actions/workflows/test-surface.yml)
+[![test](https://github.com/dylanebert/shallot/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/dylanebert/shallot/actions/workflows/test.yml)
 
 # shallot
 
