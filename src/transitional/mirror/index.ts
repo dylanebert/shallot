@@ -9,7 +9,8 @@ import { deviceLost, type LazyAlloc } from "../../engine/runtime";
 export type MirrorSource = GPUBuffer | TgpuBuffer<AnyData>;
 
 function unwrap(source: MirrorSource): GPUBuffer {
-    return isBuffer(source) ? Compute.root.unwrap(source) : source;
+    if (!isBuffer(source)) return source;
+    return Compute.root.unwrap(source);
 }
 
 /**
