@@ -22,12 +22,15 @@ The omission comparisons distinguish the allocating operation: the unconditional
 ## Focused behavior checks
 
 - `bun test examples/first-person/src/demo.test.ts --test-name-pattern 'first-person warm frame allocates nothing|first-person lift carries the actual character upward'`: 2 pass after repair. The allocation check's built-in positive allocation control remains nonzero, otherwise the check is inconclusive.
+- A passing unchanged allocation check means all three required windows (`after warm 6000`, `after warm 12000`, `A/A repeat`) contain zero sites and zero bytes. Its in-entry positive-allocation control must have sites and bytes, or the check fails as inconclusive.
 - `bun test examples/first-person/src/demo.test.ts`: 6 pass, including the unchanged allocation claim and composed lift behavior.
 - `bunx biome check src/transitional/physics/index.ts` and `git diff --check`: pass.
 
 ## Declared-toolchain two-host qualification
 
 Temporary workflow run: https://github.com/dylanebert/shallot/actions/runs/36259184521
+
+The host/source records, command logs and run artifacts are available as [Ubuntu artifact 10911607725](https://github.com/dylanebert/shallot/actions/runs/36259184521/artifacts/10911607725) and [macOS artifact 10911449052](https://github.com/dylanebert/shallot/actions/runs/36259184521/artifacts/10911449052). The CPU output logs show the unchanged allocation row passing on each host.
 
 It checked out and verified exactly the repair source SHA above. Both runners used Bun 1.4.2, Node v26.8.1, rustc 1.98.1 and Cargo 1.98.1; Ubuntu runner was Linux x86_64 and macOS runner was Darwin arm64.
 
