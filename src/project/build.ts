@@ -2,14 +2,10 @@ import { execSync } from "node:child_process";
 import { cpSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { basename, relative, resolve } from "node:path";
 import { build as viteBuild } from "vite";
+import { manifestPath } from "./assets";
+import { discoverScenes } from "./host";
 import { composeViteConfig, loadProjectConfig } from "./toolchain";
-import {
-    discoverScenes,
-    findPublicDirs,
-    manifestPath,
-    projectPlugin,
-    typegpuPlugin,
-} from "./vite";
+import { findPublicDirs, projectPlugin, typegpuPlugin } from "./vite";
 
 // the entry a manifest project lacks: a page that runs the project's manifest. resolves the same
 // `virtual:project` `shallot dev` reads (one resolver, no second manifest reader) — its `plugins` are the

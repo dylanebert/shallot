@@ -141,6 +141,33 @@ function resolveAssetPath(dir, pathname) {
   return existsSync(filePath) && statSync(filePath).isFile() ? filePath : null;
 }
 
+// src/project/generate.ts
+var ENGINE = "@dylanebert/shallot";
+function generateModuleFromPlan(project) {
+  const { dir, manifest, scenes, engine, locals } = project;
+  const idents = engine.map((n) => `${n}Plugin`);
+  const lines = [];
+  if (idents.length > 0) {
+    lines.push(`import { ${idents.join(", ")} } from ${JSON.stringify(ENGINE)};`);
+  }
+  for (let i = 0;i < locals.length; i++) {
+    lines.push(`import _l${i} from ${JSON.stringify(locals[i].path)};`);
+  }
+  lines.push(`const engine = [${idents.join(", ")}];`);
+  lines.push(`const locals = [${locals.map((l, i) => `{ name: ${JSON.stringify(l.name)}, plugin: _l${i} }`).join(", ")}];`);
+  lines.push(`for (const l of locals) if (!l.plugin || typeof l.plugin.name !== "string") throw new Error("shallot.json plugin \\"" + l.name + "\\": its module must default-export a Plugin");`);
+  lines.push(`const manifest = ${JSON.stringify(manifest)};`);
+  lines.push(`const scenes = ${JSON.stringify(scenes)};`);
+  lines.push(`const scene = ${JSON.stringify(manifest.scene ?? null)};`);
+  lines.push(`const capacity = ${JSON.stringify(manifest.capacity ?? null)};`);
+  lines.push(`const pixelRatio = ${JSON.stringify(manifest.pixelRatio ?? null)};`);
+  lines.push(`const dir = ${JSON.stringify(dir)};`);
+  lines.push(`const project = { dir, scene, capacity, pixelRatio, scenes, manifest, locals, plugins: [...engine, ...locals.map((l) => l.plugin)] };`);
+  lines.push(`export default project;`);
+  return lines.join(`
+`);
+}
+
 // src/project/host.ts
 import { existsSync as existsSync2, readdirSync, readFileSync as readFileSync2, statSync as statSync2 } from "node:fs";
 import { join as join2, relative } from "node:path";
@@ -225,33 +252,6 @@ function readProject(dir, io = REAL_IO) {
 }
 function emptyPlan() {
   return { dir: null, manifest: {}, scenes: [], ...plan({}, null) };
-}
-
-// src/project/generate.ts
-var ENGINE = "@dylanebert/shallot";
-function generateModuleFromPlan(project) {
-  const { dir, manifest, scenes, engine, locals } = project;
-  const idents = engine.map((n) => `${n}Plugin`);
-  const lines = [];
-  if (idents.length > 0) {
-    lines.push(`import { ${idents.join(", ")} } from ${JSON.stringify(ENGINE)};`);
-  }
-  for (let i = 0;i < locals.length; i++) {
-    lines.push(`import _l${i} from ${JSON.stringify(locals[i].path)};`);
-  }
-  lines.push(`const engine = [${idents.join(", ")}];`);
-  lines.push(`const locals = [${locals.map((l, i) => `{ name: ${JSON.stringify(l.name)}, plugin: _l${i} }`).join(", ")}];`);
-  lines.push(`for (const l of locals) if (!l.plugin || typeof l.plugin.name !== "string") throw new Error("shallot.json plugin \\"" + l.name + "\\": its module must default-export a Plugin");`);
-  lines.push(`const manifest = ${JSON.stringify(manifest)};`);
-  lines.push(`const scenes = ${JSON.stringify(scenes)};`);
-  lines.push(`const scene = ${JSON.stringify(manifest.scene ?? null)};`);
-  lines.push(`const capacity = ${JSON.stringify(manifest.capacity ?? null)};`);
-  lines.push(`const pixelRatio = ${JSON.stringify(manifest.pixelRatio ?? null)};`);
-  lines.push(`const dir = ${JSON.stringify(dir)};`);
-  lines.push(`const project = { dir, scene, capacity, pixelRatio, scenes, manifest, locals, plugins: [...engine, ...locals.map((l) => l.plugin)] };`);
-  lines.push(`export default project;`);
-  return lines.join(`
-`);
 }
 
 // src/project/vite.ts

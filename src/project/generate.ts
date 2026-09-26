@@ -1,5 +1,4 @@
-import { type ProjectPlan, plan } from "./host";
-import type { Manifest } from "./manifest";
+import type { ProjectPlan } from "./host";
 
 // Generates the `virtual:project` module source from a `shallot.json` manifest — the one place a manifest
 // becomes static imports. Pure over (manifest, absDir, scenes), so `generate.test.ts` pins the emitted
@@ -11,22 +10,7 @@ import type { Manifest } from "./manifest";
 
 const ENGINE = "@dylanebert/shallot";
 
-// Planning itself lives in `host.ts` — the browser generator and the command entry consume the same
-// resolved plan, so a manifest classifies once. Re-exported here because the CLI's feature reader
-// already imports `plan` through this module.
-export { plan };
-
-/**
- * build the `virtual:project` module source for a project dir with a (possibly empty) manifest. The
- * module is static imports + the project object, no HMR self-accept — vite full-reloads it on a plugin
- * edit, which the page reload cleans up (dev and a production build agree).
- */
-export function generateModule(manifest: Manifest, dir: string | null, scenes: string[]): string {
-    return generateModuleFromPlan({ dir, manifest, scenes, ...plan(manifest, dir) });
-}
-
-/** the same module source, built from an already-resolved {@link ProjectPlan} — the shape both consumers
- *  share, so the command entry and this generator provably run the same plugin set. */
+/** Generate the virtual module from its resolved project plan. */
 export function generateModuleFromPlan(project: ProjectPlan): string {
     const { dir, manifest, scenes, engine, locals } = project;
     const idents = engine.map((n) => `${n}Plugin`);
