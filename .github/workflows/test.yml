@@ -27,6 +27,8 @@ jobs:
         with:
           bun-version-file: .bun-version
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
