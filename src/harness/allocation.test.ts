@@ -1,5 +1,7 @@
 import { expect } from "bun:test";
-import { resolve } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import {
     type AllocationSample,
     allocatesNothing,
@@ -9,6 +11,54 @@ import { check } from "@dylanebert/shallot/harness/check";
 
 const ENTRY = resolve(import.meta.dir, "../../examples/first-person/src/allocation.entry.ts");
 const ROOT = resolve(import.meta.dir, "../..");
+
+check(
+    "Node allocation import leaves Vite unloaded",
+    {
+        claim: "importing the allocation instrument for Node-only rows does not resolve Vite before the page-build path is requested",
+        size: "integration",
+        requires: ["node"],
+    },
+    async () => {
+        const dir = mkdtempSync(join(tmpdir(), "shallot-allocation-import-"));
+        try {
+            const loader = resolve(dir, "reject-vite.mjs");
+            writeFileSync(
+                loader,
+                `import { existsSync, statSync } from "node:fs";\nimport { fileURLToPath, pathToFileURL } from "node:url";\nexport async function resolve(specifier, context, nextResolve) {\n    if (specifier === "vite") throw new Error("Node allocation import resolved vite");\n    if (specifier.startsWith(".")) {\n        const path = fileURLToPath(new URL(specifier, context.parentURL));\n        for (const candidate of [path + ".ts", path + "/index.ts", path]) if (existsSync(candidate) && statSync(candidate).isFile()) return { url: pathToFileURL(candidate).href, shortCircuit: true };\n    }\n    return nextResolve(specifier, context);\n}\nexport async function load(url, context, nextLoad) {\n    const loaded = await nextLoad(url, context);\n    if (url === ${JSON.stringify(new URL("./allocation.ts", import.meta.url).href)}) return { ...loaded, source: loaded.source.toString().replaceAll("import.meta.dir", ${JSON.stringify(JSON.stringify(resolve(import.meta.dir)))}) };\n    return loaded;\n}\n`,
+            );
+            const preload = resolve(dir, "reject-vite-require.mjs");
+            writeFileSync(
+                preload,
+                `import { createRequire } from "node:module";\nconst Module = createRequire(import.meta.url)("node:module");\nconst require = Module.prototype.require;\nModule.prototype.require = function (specifier, ...args) {\n    if (specifier === "vite") throw new Error("Node allocation import required vite");\n    return require.call(this, specifier, ...args);\n};\n`,
+            );
+            const probe = resolve(dir, "probe.mjs");
+            writeFileSync(
+                probe,
+                `import { allocationFailure } from ${JSON.stringify(new URL("./allocation.ts", import.meta.url).href)};\nif (allocationFailure({ warm: 1, windows: [] }) === undefined) throw new Error("probe did not evaluate allocation exports");\n`,
+            );
+            const proc = Bun.spawnSync(
+                [
+                    "node",
+                    "--no-warnings",
+                    "--import",
+                    preload,
+                    "--experimental-loader",
+                    loader,
+                    probe,
+                ],
+                {
+                    stdout: "pipe",
+                    stderr: "pipe",
+                },
+            );
+            if (proc.exitCode !== 0)
+                throw new Error(`Node allocation import failed: ${proc.stderr.toString()}`);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    },
+);
 
 // Profiler modules: the `profile` extra, which owns the physics step's timing clock.
 const PROFILER = [/^src\/extras\/profile\//];

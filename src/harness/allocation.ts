@@ -10,8 +10,8 @@ import {
 import { SourceMap } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
+import { CROSS_ORIGIN_ISOLATION } from "@dylanebert/shallot/vite";
 import { type AdapterFacts, classifyAdapter } from "../engine/runtime";
-import { CROSS_ORIGIN_ISOLATION } from "../project";
 import { attribute, originalPosition, subjectSite } from "./allocation-sampler.mjs";
 import { CAPTURE_CONTRACT } from "./capture";
 import { confirmOnDisplay, openOnDisplay } from "./display";
