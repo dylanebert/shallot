@@ -46,7 +46,7 @@ jobs:
         if: always()
         run: |
           rm -rf .artifacts
-          bun run test -- --integration --base HEAD --diff HEAD --no-unit-fallback
+          bun run test -- --integration --base HEAD --diff HEAD --requires gpu --requires browser --no-unit-fallback
       - name: upload empty selection evidence
         if: always()
         uses: actions/upload-artifact@v6
