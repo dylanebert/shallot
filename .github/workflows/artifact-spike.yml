@@ -1,7 +1,9 @@
 name: artifact upload spike
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - spike/portable-cpu-artifact-upload
 
 jobs:
   evidence:
