@@ -96,6 +96,14 @@ A module's promises are tested beside the module and through the examples that u
 | GPU resources released | integration (`gpu`) | A counting wrapper over the real Dawn device |
 | Beyond the suite | oracle | Heap-snapshot diffs, CDP tracing, `measureUserAgentSpecificMemory`, WebGPU `timestamp-query` |
 
+### CI coverage
+
+CI runs static gates, the unit sweep and changed CPU integrations on GitHub-hosted Ubuntu and macOS with the repository's pinned Bun, Node and Rust versions.
+CPU selection excludes checks requiring a GPU, browser or physical display; Node and Cargo remain available to checks that require them.
+GPU and browser checks run separately on macOS and must still supply their declared capabilities.
+CI uploads each test invocation's evidence before another invocation can replace it.
+This coverage does not qualify a physical-display seat, a Windows runner or native packaging.
+
 ## Examples
 
 Shallot is built from both ends, as a double loop. An example, built as a user would build it, is the outer loop: what it can't do is a gap in the engine. The module that owns the gap is the inner loop: the gap is fixed and proved there, never in the example.
