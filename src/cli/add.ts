@@ -14,9 +14,9 @@ const ENGINE = "@dylanebert/shallot";
 const ADD_USAGE = `
   shallot add [name] [dir]
 
-  Without a name, lists available recipes.
-  With a name, copies one recipe into a project.
-  The destination defaults to the recipe name relative to the current directory.
+  Without a name, lists available examples.
+  With a name, copies one example into a project.
+  The destination defaults to the example name relative to the current directory.
   An occupied destination is refused.
 
   Common examples
@@ -131,7 +131,7 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
 
     if (available.length === 0) {
         console.error(
-            `no recipes found (looked in ${recipesDir}). Run this from an installed ${ENGINE} package.`,
+            `no examples found (looked in ${recipesDir}). Run this from an installed ${ENGINE} package.`,
         );
         return 1;
     }
@@ -141,14 +141,14 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
         write(`  ${recipe.name}${recipe.intent ? ` — ${recipe.intent}` : ""}`);
 
     if (name == null) {
-        console.log("Available recipes:\n");
+        console.log("Available examples:\n");
         for (const recipe of available) printRecipe(recipe, console.log);
-        console.log("\nCopy one out with:\n  bunx shallot add <name> [dir]");
+        console.log("\nCopy an example with:\n  bunx shallot add <name> [dir]");
         return 0;
     }
 
     if (!available.some((recipe) => recipe.name === name)) {
-        console.error(`unknown recipe: ${name}\n\nAvailable recipes:`);
+        console.error(`unknown example: ${name}\n\nAvailable examples:`);
         for (const recipe of available) printRecipe(recipe, console.error);
         return 1;
     }
@@ -182,7 +182,7 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
     const tsconfig = resolve(dest, "tsconfig.json");
     if (!existsSync(tsconfig)) writeFileSync(tsconfig, RECIPE_TSCONFIG);
 
-    console.log(`copied ${name} → ${dest}`);
+    console.log(`copied example ${name} → ${dest}`);
     console.log(`  cd ${args[1] || name} && bun install && bunx shallot dev`);
     return 0;
 }

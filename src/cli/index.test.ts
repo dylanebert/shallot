@@ -33,12 +33,6 @@ async function cli(...args: string[]): Promise<Result> {
     return { code, stdout: stdout.join("\n"), stderr: stderr.join("\n") };
 }
 
-function position(text: string, section: string): number {
-    const index = text.indexOf(section);
-    expect(index).toBeGreaterThanOrEqual(0);
-    return index;
-}
-
 check(
     "top-level help leads with common use",
     {
@@ -48,28 +42,31 @@ check(
         const result = await cli();
         expect(result.code).toBe(0);
         expect(result.stderr).toBe("");
-        const help = result.stdout;
-        expect(position(help, "shallot — build and preview a Shallot project")).toBeLessThan(
-            position(help, "Usage"),
+        expect(result.stdout.trim()).toBe(
+            `
+  shallot — develop, build and test a Shallot project
+
+  Usage
+    shallot <command> [dir] [options]
+
+  Commands
+    dev       Run the project with hot reload
+    build     Build for distribution
+    preview   Run the last build without rebuilding
+    add       Copy an example into your project; with no name, list them
+    test      Run the project's checks; --list shows which would run
+
+  Common examples
+    bun create shallot <name>          Create a project
+    shallot dev                        Run with hot reload
+    shallot test                       Run the checks
+    shallot add first-person           Copy the first-person example into ./first-person
+    shallot build && shallot preview   Build, then run the build
+
+  Help
+    shallot <command> --help    Show options and examples for one command
+    -h, --help                  Show this help`.trim(),
         );
-        expect(position(help, "Usage")).toBeLessThan(position(help, "Commands"));
-        expect(position(help, "Commands")).toBeLessThan(position(help, "Common examples"));
-        expect(help).toContain("shallot dev                  Run with hot reload");
-        expect(help).toContain("preview   Launch an existing build");
-        expect(help).toContain(
-            "shallot add first-person     Copy the first-person recipe into ./first-person",
-        );
-        const commands = help
-            .split("  Commands\n")[1]
-            ?.split("\n\n")[0]
-            .split("\n")
-            .map((line) => line.trim().split(/\s+/)[0]);
-        expect(commands).toEqual(["dev", "build", "preview", "add", "test"]);
-        expect(help).toContain("shallot <command> --help");
-        expect(help).toContain("shallot build && shallot preview");
-        expect(help).not.toContain("Native release builds download");
-        expect(help).not.toContain("--target <platform>");
-        expect(help).not.toContain("shallot build --target");
     },
 );
 
@@ -92,14 +89,26 @@ check(
     async () => {
         const result = await cli("dev", "--help");
         expect(result.code).toBe(0);
-        expect(result.stdout).toContain("Vite HMR");
-        expect(result.stdout).toContain("debug app without HMR");
-        expect(result.stdout).toContain("windows, mac, linux");
-        expect(result.stdout).toContain("--portable");
-        expect(result.stdout).toContain("--strict-port");
-        expect(result.stdout).toContain("(web only)");
-        expect(result.stdout).toContain("shallot build --help");
-        expect(result.stdout).not.toContain("--release");
+        expect(result.stdout.trim()).toBe(
+            `
+  shallot dev [dir] [options]
+
+  Run a project with hot reload. A native target builds and runs a debug app instead, without hot reload.
+  The directory defaults to the current directory (.).
+
+  Common examples
+    shallot dev
+    shallot dev --no-open
+    shallot dev --target mac --portable
+
+  Options
+    --target <platform>   web (default), windows, mac, linux
+    --portable            Bundle the Chromium runtime (CEF); see 'shallot build --help'
+    --port <n>            Web server port (web only)
+    --strict-port         Fail if the web port is in use instead of picking another (web only)
+    --no-open             Don't open a browser tab (web only)
+    -h, --help            Show this help`.trim(),
+        );
         expect(result.stderr).toBe("");
     },
 );
@@ -171,15 +180,28 @@ check(
     async () => {
         const result = await cli("test", "--help");
         expect(result.code).toBe(0);
-        expect(result.stdout).toContain("shallot test [options]");
-        expect(result.stdout).toContain("--list");
-        expect(result.stdout).toContain("--integration");
-        expect(result.stdout).toContain("--base <ref>");
-        expect(result.stdout).toContain("--diff <ref>");
-        expect(result.stdout).toContain("--all");
-        expect(result.stdout).toContain("--requires <tag>");
-        expect(result.stdout).toContain("--subject <prefix>");
-        expect(result.stdout).toContain("--oracle <claim>");
+        expect(result.stdout.trim()).toBe(
+            `
+  shallot test [options]
+
+  Run the project's checks. Unit checks run by default; integration checks run only when selected.
+
+  Common examples
+    shallot test
+    shallot test --list
+    shallot test --integration --base origin/main --diff HEAD
+
+  Options
+    --list                  List the selected checks without running them
+    --integration           Select integration checks; requires --base and --diff unless a selector is used
+    --base <ref>            Base commit for changed-subject integration checks (with --diff)
+    --diff <ref>            Diff commit for changed-subject integration checks (with --base)
+    --all                   Select all integration checks (with --integration)
+    --requires <tag>        Select integration checks by requirement (with --integration)
+    --subject <prefix>      Select integration checks by subject path (with --integration)
+    --oracle <claim>        Select one named oracle
+    -h, --help              Show this help`.trim(),
+        );
         expect(result.stderr).toBe("");
     },
 );
@@ -190,10 +212,23 @@ check(
     async () => {
         const result = await cli("add", "--help");
         expect(result.code).toBe(0);
-        expect(result.stdout).toContain("shallot add [name] [dir]");
-        expect(result.stdout).toContain("destination defaults to the recipe name");
-        expect(result.stdout).toContain("Common examples");
-        expect(result.stdout).toContain("Options");
+        expect(result.stdout.trim()).toBe(
+            `
+  shallot add [name] [dir]
+
+  Without a name, lists available examples.
+  With a name, copies one example into a project.
+  The destination defaults to the example name relative to the current directory.
+  An occupied destination is refused.
+
+  Common examples
+    shallot add
+    shallot add first-person
+    shallot add first-person my-game
+
+  Options
+    -h, --help  Show this help`.trim(),
+        );
         expect(result.stderr).toBe("");
     },
 );

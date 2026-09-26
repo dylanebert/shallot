@@ -11,9 +11,9 @@
 export const ENGINE_REFERENCE = `## Engine reference
 
 The engine is the documentation. Read \`node_modules/@dylanebert/shallot/README.md\` for the setup,
-and every public export carries JSDoc. The recipes live at \`node_modules/@dylanebert/shallot/examples/\`;
+and every public export carries JSDoc. The examples live at \`node_modules/@dylanebert/shallot/examples/\`;
 read the one closest to your problem before writing a pattern from scratch.
-\`bunx shallot add <name> [dir]\` copies a recipe out of the installed package into a runnable project
+\`bunx shallot add <name> [dir]\` copies an example out of the installed package into a runnable project
 (bare: lists them).`;
 
 // one contract, two entrypoints: Codex reads AGENTS.md, Claude Code reads CLAUDE.md and expands the
@@ -30,7 +30,7 @@ If the import line above is showing as literal text, this file was loaded from a
 export function recipeDoc(name: string): string {
     return `# ${name}
 
-A shallot recipe — a minimal project demonstrating one concept, copied out of \`@dylanebert/shallot\`.
+A Shallot example — a minimal project demonstrating one concept, copied out of \`@dylanebert/shallot\`.
 
 ## Develop
 

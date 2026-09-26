@@ -4,23 +4,24 @@ import { startDev } from "./dev";
 import { MissingBuildError, previewProject } from "./preview";
 
 const usage = `
-  shallot — build and preview a Shallot project
+  shallot — develop, build and test a Shallot project
 
   Usage
     shallot <command> [dir] [options]
 
   Commands
-    dev       Run the project standalone, with hot reload
+    dev       Run the project with hot reload
     build     Build for distribution
-    preview   Launch an existing build
-    add       Copy an example recipe out of the package (bare: list them)
-    test      Run declared checks and list their population
+    preview   Run the last build without rebuilding
+    add       Copy an example into your project; with no name, list them
+    test      Run the project's checks; --list shows which would run
 
   Common examples
-    bun create shallot <name>    Create a new project
-    shallot dev                  Run with hot reload
-    shallot add first-person     Copy the first-person recipe into ./first-person
-    shallot build && shallot preview
+    bun create shallot <name>          Create a project
+    shallot dev                        Run with hot reload
+    shallot test                       Run the checks
+    shallot add first-person           Copy the first-person example into ./first-person
+    shallot build && shallot preview   Build, then run the build
 
   Help
     shallot <command> --help    Show options and examples for one command
@@ -32,7 +33,7 @@ const commandUsage = {
     dev: `
   shallot dev [dir] [options]
 
-  Run a project standalone. The web target uses Vite HMR; a native target builds and runs a debug app without HMR.
+  Run a project with hot reload. A native target builds and runs a debug app instead, without hot reload.
   The directory defaults to the current directory (.).
 
   Common examples
@@ -41,11 +42,11 @@ const commandUsage = {
     shallot dev --target mac --portable
 
   Options
-    --target <platform>   web (default), windows, mac, linux. Native targets build and run a debug app without HMR.
-    --portable            Bundle CEF for a native target; see 'shallot build --help' for native requirements.
+    --target <platform>   web (default), windows, mac, linux
+    --portable            Bundle the Chromium runtime (CEF); see 'shallot build --help'
     --port <n>            Web server port (web only)
     --strict-port         Fail if the web port is in use instead of picking another (web only)
-    --no-open             Don't open a browser tab (web only) — for a driver that brings its own
+    --no-open             Don't open a browser tab (web only)
     -h, --help            Show this help
 `,
     build: `
@@ -102,7 +103,7 @@ const commandUsage = {
     test: `
   shallot test [options]
 
-  Run declared checks, or select and list them without running.
+  Run the project's checks. Unit checks run by default; integration checks run only when selected.
 
   Common examples
     shallot test

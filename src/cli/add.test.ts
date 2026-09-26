@@ -62,10 +62,23 @@ check(
                 expect(output.value).toBe(0);
                 expect(output.stderr).toBe("");
                 expect(output.stdout).toContain("shallot add [name] [dir]");
-                expect(output.stdout).toContain("Without a name, lists available recipes.");
-                expect(output.stdout).toContain("With a name, copies one recipe");
-                expect(output.stdout).toContain("destination defaults to the recipe name");
-                expect(output.stdout).toContain("An occupied destination is refused.");
+                expect(output.stdout.trim()).toBe(
+                    `
+  shallot add [name] [dir]
+
+  Without a name, lists available examples.
+  With a name, copies one example into a project.
+  The destination defaults to the example name relative to the current directory.
+  An occupied destination is refused.
+
+  Common examples
+    shallot add
+    shallot add first-person
+    shallot add first-person my-game
+
+  Options
+    -h, --help  Show this help`.trim(),
+                );
                 expect(existsSync(dest)).toBe(false);
             }
         } finally {
@@ -91,7 +104,7 @@ check(
             expect(output.value).toBe(0);
             expect(output.stderr).toBe("");
             expect(output.stdout).toContain(
-                "Available recipes:\n\n  alpha — declared problem\n  legacy\n  zeta — description fallback\n\nCopy one out with:\n  bunx shallot add <name> [dir]",
+                "Available examples:\n\n  alpha — declared problem\n  legacy\n  zeta — description fallback\n\nCopy an example with:\n  bunx shallot add <name> [dir]",
             );
             expect(output.stdout).not.toContain("showcase");
         } finally {
@@ -105,19 +118,26 @@ check(
     { claim: "shallot add gives a copied recipe the canonical .gitignore" },
     async () => {
         const root = recipes();
-        const log = console.log;
-        console.log = () => {};
         try {
             const dest = join(root, "out");
-            expect(
-                await runAdd(["demo", dest], {
+            const output = await captureOutput(() =>
+                runAdd(["demo", dest], {
                     recipesDir: join(root, "examples"),
                     version: "0.0.0",
                 }),
-            ).toBe(0);
+            );
+            expect(output.value).toBe(0);
+            expect(output.stdout).toBe(
+                `copied example demo → ${dest}\n  cd ${dest} && bun install && bunx shallot dev`,
+            );
             expect(readFileSync(join(dest, ".gitignore"), "utf8")).toBe(PROJECT_GITIGNORE);
+            const agents = readFileSync(join(dest, "AGENTS.md"), "utf8");
+            expect(agents).toContain(
+                "A Shallot example — a minimal project demonstrating one concept",
+            );
+            expect(agents).toContain("The examples live at");
+            expect(agents).not.toContain("recipe");
         } finally {
-            console.log = log;
             rmSync(root, { recursive: true, force: true });
         }
     },
