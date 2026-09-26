@@ -26,7 +26,10 @@ export { discoverScenes } from "./host";
  * cross-origin load (`<img src="https://…">` from a host without CORP) is blocked in the isolated
  * document. Consumer-facing note: AGENTS.md "Build, run, verify".
  */
-export { CROSS_ORIGIN_ISOLATION } from "../isolation";
+export const CROSS_ORIGIN_ISOLATION = {
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Embedder-Policy": "require-corp",
+};
 
 /**
  * the TGSL build transform (`unplugin-typegpu`). The engine's shaders are JS function bodies

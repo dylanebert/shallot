@@ -1,6 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import { CROSS_ORIGIN_ISOLATION } from "../isolation";
+import { CROSS_ORIGIN_ISOLATION } from "../project/vite";
 
 /** Serve a built page from localhost with the isolation headers every app boot receives. */
 export function servePage(outDir: string): {
