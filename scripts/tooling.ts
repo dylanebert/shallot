@@ -2,9 +2,9 @@
 // `vite.config.ts` resolves through Node's plain ESM loader, which throws `ERR_UNKNOWN_FILE_EXTENSION` on
 // the package's raw `.ts` source — the reason every other export stays raw `.ts` (the mandatory TypeGPU
 // transform must see engine source untransformed) doesn't reach `./vite`, whose only consumption context
-// is Node. `./harness/browser` is pure data and ships as JSON, so it needs no compile. `dist/` is generated here by `bun run build` and
-// `prepack`, gitignored, never committed. `tsc` still type-checks against source (`package.json`'s `types` condition, which only
-// `tsc` reads — a bundler resolves straight to `default`, not `types`), so this emits no `.d.ts`.
+// is Node. `./harness/browser` is pure data and ships as JSON, so it needs no compile. `dist/vite.js` is generated here by
+// `bun run build` and `prepack`, and is committed so SHA-pinned Git installs can resolve `./vite`. `tsc` reads
+// `package.json`'s `types` condition, while bundlers resolve `default`, so this emits no `.d.ts`.
 //
 // `src/project/` is a closed island — node builtins plus the `vite` / `unplugin-typegpu` externals it
 // imports, no engine runtime, no TGSL — so bundling it carries no duplicate-TypeGPU-identity risk. Kept
