@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Shallot browser input</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            html, body { width: 100%; height: 100%; }
+            body { display: grid; place-items: center; gap: 1rem; }
+            canvas { width: 640px; height: 360px; }
+        </style>
+    </head>
+    <body>
+        <canvas id="canvas" tabindex="0"></canvas>
+        <button id="outside" type="button">Outside canvas</button>
+        <script type="module" src="./browser-input.ts"></script>
+    </body>
+</html>
