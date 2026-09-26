@@ -76,7 +76,7 @@ jobs:
         run: bun run test
       - name: changed integration rows without GPU requirements
         if: always()
-        run: bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires '!gpu' --requires '!browser' --requires '!display'
+        run: bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires '!gpu' --requires '!browser' --no-unit-fallback
       - name: upload test artifacts
         if: always()
         uses: actions/upload-artifact@v6
@@ -139,10 +139,10 @@ jobs:
         run: bunx playwright install chromium
       - name: changed GPU integration rows
         if: always()
-        run: bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires gpu
+        run: bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires gpu --no-unit-fallback
       - name: changed browser integration rows
         if: always()
-        run: bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires browser
+        run: bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires browser --no-unit-fallback
       - name: upload test artifacts
         if: always()
         uses: actions/upload-artifact@v6

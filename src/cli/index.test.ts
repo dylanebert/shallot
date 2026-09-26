@@ -190,11 +190,12 @@ check(
     shallot test
     shallot test --list
     shallot test --integration --base origin/main --diff HEAD
-    shallot test --integration --base origin/main --diff HEAD --requires '!gpu' --requires '!browser' --requires '!display'
+    shallot test --integration --base origin/main --diff HEAD --requires '!gpu' --requires '!browser' --no-unit-fallback
 
   Options
     --list                  List the selected checks without running them
     --integration           Select integration checks; requires --base and --diff unless a selector is used
+    --no-unit-fallback      Do not run the unit sweep when no integration checks are selected
     --base <ref>            Base commit for changed-subject integration checks (with --diff)
     --diff <ref>            Diff commit for changed-subject integration checks (with --base)
     --all                   Select all integration checks (with --integration)

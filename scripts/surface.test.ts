@@ -359,19 +359,21 @@ check(
                 "!gpu",
                 "--requires",
                 "!browser",
-                "--requires",
-                "!display",
                 "--base",
                 base,
                 "--diff",
                 diff,
             );
             expect(ubuntu.code).toBe(0);
-            for (const claim of ["cargo selector row", "node selector row", "none selector row"])
+            for (const claim of [
+                "display selector row",
+                "cargo selector row",
+                "node selector row",
+                "none selector row",
+            ])
                 expect(ubuntu.out).toContain(claim);
             expect(ubuntu.out).not.toContain("browser selector row");
             expect(ubuntu.out).not.toContain("gpu selector row");
-            expect(ubuntu.out).not.toContain("display selector row");
 
             const macos = run(
                 tree,
@@ -410,17 +412,35 @@ check(
             expect(browser.out).toContain("browser selector row");
             expect(browser.out).not.toContain("gpu selector row");
 
+            for (const claim of [
+                "browser selector row",
+                "gpu selector row",
+                "display selector row",
+                "cargo selector row",
+                "node selector row",
+                "none selector row",
+            ]) {
+                const selectedBy = [ubuntu.out, macos.out, browser.out].filter((output) =>
+                    output.includes(claim),
+                ).length;
+                expect(selectedBy).toBe(1);
+            }
+
             const unsupported = run(
                 tree,
                 "--integration",
                 "--requires",
-                "display",
+                "!gpu",
+                "--requires",
+                "!browser",
                 "--base",
                 base,
                 "--diff",
                 diff,
+                "--no-unit-fallback",
             );
             expect(unsupported.code).not.toBe(0);
+            expect(unsupported.err).toContain("display selector row (refused");
             expect(`${unsupported.out}\n${unsupported.err}`).toContain("display seat unavailable");
 
             const emptyDiff = run(
@@ -432,11 +452,11 @@ check(
                 diff,
                 "--diff",
                 diff,
+                "--no-unit-fallback",
             );
             expect(emptyDiff.code).toBe(0);
-            expect(`${emptyDiff.out}\n${emptyDiff.err}`).not.toContain(
-                "selector matched no integration rows",
-            );
+            expect(emptyDiff.out).toBe("");
+            expect(emptyDiff.err).toBe("");
 
             const subject = run(tree, "--list", "--integration", "--subject", "src/browser");
             expect(subject.code).toBe(0);

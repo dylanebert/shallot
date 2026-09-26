@@ -18,6 +18,7 @@ const root = resolve(
     rootIndex === -1 ? resolve(import.meta.dir, "..") : (args[rootIndex + 1] ?? process.cwd()),
 );
 const integration = args.includes("--integration");
+const noUnitFallback = args.includes("--no-unit-fallback");
 const list = args.includes("--list");
 const all = args.includes("--all");
 const oracle = valueAfter("--oracle");
@@ -604,6 +605,7 @@ for (const filter of requires) {
 }
 if (subject !== undefined && subject.trim() === "") refuse("--subject needs a path prefix");
 if (selectorRequested && !integration) refuse("integration selectors require --integration");
+if (noUnitFallback && !integration) refuse("--no-unit-fallback requires --integration");
 if (
     (all || args.includes("--subject")) &&
     (base !== undefined || diff !== undefined || args.includes("--base") || args.includes("--diff"))
@@ -666,6 +668,7 @@ if (list) {
     process.exit(0);
 }
 if (selected.length === 0) {
+    if (noUnitFallback) process.exit(0);
     // Unit rows still get their normal hermetic proof, but no integration/no-op command is claimed.
     process.exit(
         await run(files, { ...envBase, SHALLOT_UNIT_ONLY: "1" }, "unit sweep", "unit sweep"),
