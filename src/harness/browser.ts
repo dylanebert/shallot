@@ -1,6 +1,7 @@
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
+import { CROSS_ORIGIN_ISOLATION } from "@dylanebert/shallot/vite";
 import type { Page } from "playwright";
 import { type AdapterFacts, classifyAdapter } from "../engine/runtime";
 import floor from "./browser.json" with { type: "json" };
@@ -101,7 +102,7 @@ export async function runBrowserCheck(
             }),
         );
 
-        const hosted = servePage(outDir);
+        const hosted = servePage(outDir, CROSS_ORIGIN_ISOLATION);
         server = hosted.server;
         const { chromium } = await import("playwright");
         try {

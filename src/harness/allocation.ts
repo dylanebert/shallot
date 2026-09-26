@@ -11,6 +11,7 @@ import { SourceMap } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { type AdapterFacts, classifyAdapter } from "../engine/runtime";
+import { CROSS_ORIGIN_ISOLATION } from "../project/vite";
 import { attribute, originalPosition, subjectSite } from "./allocation-sampler.mjs";
 import { CAPTURE_CONTRACT } from "./capture";
 import { confirmOnDisplay, openOnDisplay } from "./display";
@@ -455,7 +456,7 @@ export async function samplePage(
     let server: ReturnType<typeof Bun.serve> | undefined;
     let browser: import("playwright").Browser | undefined;
     try {
-        const pageServer = servePage(outDir);
+        const pageServer = servePage(outDir, CROSS_ORIGIN_ISOLATION);
         server = pageServer.server;
         // Loaded here, as playwright is, so Node allocation rows never load vite on import.
         const { buildWeb } = await import("../cli/build");

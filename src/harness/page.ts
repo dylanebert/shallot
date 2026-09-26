@@ -1,9 +1,10 @@
 import { existsSync, statSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import { CROSS_ORIGIN_ISOLATION } from "../project/vite";
-
-/** Serve a built page from localhost with the isolation headers every app boot receives. */
-export function servePage(outDir: string): {
+/** Serve a built page with the isolation headers the app's Vite entry provides. */
+export function servePage(
+    outDir: string,
+    isolationHeaders: Record<string, string>,
+): {
     server: ReturnType<typeof Bun.serve>;
     origin: string;
 } {
@@ -22,7 +23,7 @@ export function servePage(outDir: string): {
             }
             const body = Bun.file(file);
             return new Response(body, {
-                headers: { ...CROSS_ORIGIN_ISOLATION, "Content-Type": body.type },
+                headers: { ...isolationHeaders, "Content-Type": body.type },
             });
         },
     });

@@ -8,8 +8,9 @@ const GAME_TIERS = ["engine", "core", "standard", "extras"] as const;
 const TIER_ORDER = new Map(GAME_TIERS.map((tier, index) => [tier, index]));
 const TOOLING = new Set(["project", "cli", "native", "harness", "types"]);
 const MODULE_TIERS = new Set(["core", "standard", "extras"]);
-// The runtime barrel is browser-safe; this host-only admission leaf is intentionally reached directly.
+// The runtime floor is a host-only leaf; Vite is public only through this package subpath.
 const DIRECT_LEAVES = new Set(["engine/runtime/floor.ts"]);
+const PUBLIC_ENTRIES = new Map([["@dylanebert/shallot/vite", "project/vite.ts"]]);
 const SOURCE_ROOT = "src";
 const TSC = resolve(import.meta.dir, "../node_modules/.bin/tsc");
 const RUNTIME_MODULES = new Set([
@@ -254,12 +255,14 @@ export function checkImports(root: string): string[] {
                 );
                 continue;
             }
+            const targetPath = relative(src, target).split(sep).join("/");
             if (
                 sourceModule &&
                 targetModule &&
                 sourceModule.directory !== targetModule.directory &&
                 !isModuleEntry(targetModule, target) &&
-                !DIRECT_LEAVES.has(relative(src, target).split(sep).join("/"))
+                !DIRECT_LEAVES.has(targetPath) &&
+                PUBLIC_ENTRIES.get(reference.specifier) !== targetPath
             ) {
                 violations.push(
                     `${location}: import past ${modulePath(targetModule)}/index.ts → ${relative(src, target).split(sep).join("/")}`,

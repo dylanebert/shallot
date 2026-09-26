@@ -36,6 +36,10 @@ check(
                     exports: {
                         "./input": "./src/core/input/index.ts",
                         "./extras": "./src/extras/index.ts",
+                        "./vite": {
+                            types: "./src/project/vite.ts",
+                            default: "./dist/vite.js",
+                        },
                     },
                 }),
             );
@@ -57,6 +61,8 @@ check(
             );
 
             put(root, "core/input/index.ts", "export interface Input {}\n");
+            put(root, "project/vite.ts", "export {};\n");
+            put(root, "harness/page.ts", 'import "@dylanebert/shallot/vite";\n');
             put(root, "core/rendering/index.ts", 'import "@dylanebert/shallot/input";\n');
             put(root, "core/rendering/js-path.ts", 'import "../input/index.js";\n');
             put(root, "core/rendering/alias.ts", 'import "@core/input";\n');
