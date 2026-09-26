@@ -7,10 +7,8 @@ const command = args[0];
 const carrier = resolve(import.meta.dir, "../scripts");
 const root = process.cwd();
 
-if (command === "workflow" || command === "test") {
-    const script = command === "workflow" ? "surface.ts" : "test-runner.ts";
-    const scriptArgs = command === "workflow" ? ["--workflow"] : args.slice(1);
-    const proc = Bun.spawnSync([process.execPath, resolve(carrier, script), ...scriptArgs, "--root", root], { cwd: root, stdout: "inherit", stderr: "inherit" });
+if (command === "test") {
+    const proc = Bun.spawnSync([process.execPath, resolve(carrier, "test-runner.ts"), ...args.slice(1), "--root", root], { cwd: root, stdout: "inherit", stderr: "inherit" });
     if (proc.signalCode) {
         const signal = proc.signalCode as NodeJS.Signals;
         process.removeAllListeners(signal);

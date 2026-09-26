@@ -1,7 +1,7 @@
 import { expect } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
 import { validateDeclaration } from "./declaration";
 
@@ -184,22 +184,44 @@ check(
 );
 
 check(
-    "the installed bin refuses unknown commands",
+    "the installed bin refuses unknown commands without resolving PATH helpers",
     {
-        claim: "the installed shallot bin exits non-zero instead of silently accepting an unknown command",
+        claim: "the installed shallot bin refuses an unknown verb with a shallot-verb executable on PATH and points to shallot --help without running it",
         size: "integration",
+        subject: ["bin/shallot.ts", "src/cli/index.ts"],
     },
     () => {
         const root = resolve(import.meta.dir, "../..");
-        const proc = Bun.spawnSync(["bun", resolve(root, "bin/shallot.ts"), "test:integration"], {
-            cwd: root,
-            stdout: "pipe",
-            stderr: "pipe",
-        });
-        expect(proc.exitCode).toBe(1);
-        expect(proc.stdout.toString() + proc.stderr.toString()).toContain(
-            "unknown command: test:integration",
-        );
+        const tree = mkdtempSync(join(tmpdir(), "shallot-unknown-command-"));
+        const fixtureDir = join(tree, "bin");
+        const marker = join(tree, "fixture-ran");
+        try {
+            mkdirSync(fixtureDir);
+            const fixture = join(fixtureDir, "shallot-fixture");
+            writeFileSync(fixture, `#!/bin/sh\nprintf ran > "$SHALLOT_FIXTURE_MARKER"\nexit 0\n`);
+            chmodSync(fixture, 0o755);
+            const proc = Bun.spawnSync(
+                [process.execPath, resolve(root, "bin/shallot.ts"), "fixture"],
+                {
+                    cwd: root,
+                    env: {
+                        ...process.env,
+                        PATH: `${fixtureDir}${delimiter}${process.env.PATH ?? ""}`,
+                        SHALLOT_FIXTURE_MARKER: marker,
+                    },
+                    stdout: "pipe",
+                    stderr: "pipe",
+                },
+            );
+            expect(proc.exitCode).toBe(1);
+            expect(proc.stdout.toString()).toBe("");
+            expect(proc.stderr.toString().trim()).toBe(
+                "unknown command: fixture\nSee `shallot --help` for available commands.",
+            );
+            expect(existsSync(marker)).toBe(false);
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
     },
 );
 

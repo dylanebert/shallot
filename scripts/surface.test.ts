@@ -15,7 +15,6 @@ import {
     collectPopulation,
     discoverTestFiles,
     readSurface,
-    renderWorkflow,
     selectIntegrationRows,
     subjectTokens,
 } from "@dylanebert/shallot/harness/surface";
@@ -525,36 +524,6 @@ check(
 );
 
 check(
-    "workflow requirement setup is conditional",
-    {
-        claim: "the rendered workflow installs setup only for declared ordinary requirements and renders nothing for an oracle-only population",
-        size: "integration",
-    },
-    () => {
-        const row = {
-            name: "row",
-            claim: "row runs",
-            size: "integration" as const,
-            budget: 20000,
-            file: "src/row.test.ts",
-            subjects: [],
-        };
-        const render = (requires: string[], file = row.file) =>
-            renderWorkflow({
-                root: "/tmp/project",
-                rows: [{ ...row, requires, file }],
-                undeclared: [],
-                invalid: [],
-                files: [],
-            });
-        expect(render(["cargo"])).toContain("dtolnay/rust-toolchain@stable");
-        expect(render(["node"])).toContain("actions/setup-node@v6");
-        expect(render(["gpu"])).not.toMatch(/rust-toolchain|setup-node/);
-        expect(render(["gpu"], "tests/browser.oracle.ts")).toBe("");
-    },
-);
-
-check(
     "integration runner rejects non-commit refs before reading subjects",
     {
         claim: "test-runner refuses zero and absent integration refs instead of treating missing files as empty trees",
@@ -646,12 +615,7 @@ check(
     {
         claim: "the installed shallot bin runs and lists exactly one selected oracle, refusing unknown and composed requests",
         size: "integration",
-        subject: [
-            "bin/shallot.ts",
-            "scripts/test-runner.ts",
-            "scripts/surface.ts",
-            "src/harness/surface.ts",
-        ],
+        subject: ["bin/shallot.ts", "scripts/test-runner.ts", "src/harness/surface.ts"],
     },
     () => {
         const tree = mkdtempSync(join(tmpdir(), "shallot-surface-installed-oracle-"));

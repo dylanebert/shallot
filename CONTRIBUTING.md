@@ -53,7 +53,7 @@ Each view reaches the screen through one final pass. The scene image is marked H
 
 ```bash
 bun run build     # regenerate committed audio WASM, dist/vite.js, physics kernel
-bun run check     # declared population, workflow and static gates; run before every push
+bun run check     # declared population and static gates; run before every push
 bun run test      # every unit test, hermetic, under the 250ms unit limit
 bun run test -- --list   # declared population and selectors without running checks
 bun run test -- --integration --base <ref> --diff <ref>   # tests whose subject changed, plus tests with no subject

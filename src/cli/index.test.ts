@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 import { check } from "@dylanebert/shallot/harness/check";
-import { delegateExternal, main, parseCliArgs } from "./index";
+import { main, parseCliArgs } from "./index";
 
 type Result = { code: number; stdout: string; stderr: string };
 
@@ -65,16 +65,12 @@ check(
 );
 
 check(
-    "creation remains an external command",
+    "creation remains discoverable through Bun",
     {
-        claim: "shallot does not parse create as a built-in and keeps bun create discoverable",
+        claim: "shallot help points to bun create without accepting create as a Shallot command",
     },
     async () => {
-        expect(parseCliArgs(["create", "my-game"])).toEqual({
-            kind: "external",
-            verb: "create",
-            rest: ["my-game"],
-        });
+        expect(parseCliArgs(["create", "my-game"])).toEqual({ kind: "unknown", verb: "create" });
         const result = await cli();
         expect(result.stdout).toContain("bun create shallot <name>");
         expect(result.stdout).not.toContain("shallot create");
@@ -143,32 +139,6 @@ check(
         expect(result.stdout).toContain("Common examples");
         expect(result.stdout).toContain("Options");
         expect(result.stderr).toBe("");
-    },
-);
-
-check(
-    "external verbs remain delegated",
-    { claim: "an unknown verb remains an external shallot command candidate" },
-    () => {
-        expect(parseCliArgs(["lint", "--help"])).toEqual({
-            kind: "external",
-            verb: "lint",
-            rest: ["--help"],
-        });
-        const calls: { bin: string; args: string[]; stdio: string }[] = [];
-        const fakeSpawn = (bin: string, args: string[], options: { stdio: "inherit" }) => {
-            calls.push({ bin, args, stdio: options?.stdio ?? "" });
-            return {
-                status: 7,
-                signal: null,
-                output: [],
-                stdout: null,
-                stderr: null,
-                error: undefined,
-            };
-        };
-        expect(delegateExternal("shallot-lint", ["--help"], fakeSpawn)).toBe(7);
-        expect(calls).toEqual([{ bin: "shallot-lint", args: ["--help"], stdio: "inherit" }]);
     },
 );
 

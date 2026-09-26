@@ -1,6 +1,4 @@
-import { spawnSync } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { buildProject } from "./build";
 import { startDev } from "./dev";
 import { runProject } from "./run";
@@ -26,7 +24,6 @@ const usage = `
     shallot <command> --help    Show options and examples for one command
     -h, --help                  Show this help
 
-  Other verbs resolve to shallot-<verb> on your PATH.
 `;
 
 const commandUsage = {
@@ -105,7 +102,7 @@ const commandUsage = {
 export type CliArgs =
     | { kind: "add"; rest: string[] }
     | { kind: "command-help"; command: keyof typeof commandUsage }
-    | { kind: "external"; verb: string; rest: string[] }
+    | { kind: "unknown"; verb: string }
     | { kind: "usage"; exitCode: 0 | 1 }
     | {
           kind: "run";
@@ -124,14 +121,14 @@ const TARGETS = ["web", "windows", "mac", "linux"];
 
 /**
  * parse `shallot`'s top-level flags and pick which subcommand handles them. `add` owns its own flag
- * set and an unknown verb belongs to its external command, so both route before the shared
- * dev/build/run parse. Throws on an unrecognized `-`-prefixed option.
+ * set, and unknown verbs refuse before the shared dev/build/run parse. Throws on an unrecognized
+ * `-`-prefixed option.
  */
 export function parseCliArgs(raw: string[]): CliArgs {
     const verb = raw[0];
     if (verb === "add") return { kind: "add", rest: raw.slice(1) };
     if (verb && !verb.startsWith("-") && !PROJECT_VERBS.includes(verb))
-        return { kind: "external", verb, rest: raw.slice(1) };
+        return { kind: "unknown", verb };
 
     const positionalArgs: string[] = [];
     let target: string | undefined;
@@ -203,59 +200,6 @@ export function parseCliArgs(raw: string[]): CliArgs {
     };
 }
 
-function executable(path: string): boolean {
-    try {
-        return statSync(path).isFile();
-    } catch {
-        return false;
-    }
-}
-
-/**
- * the executable an external verb resolves to, on the Cargo/git model: `shallot-<verb>` on `PATH`, then
- * a package bin of that name in the nearest `node_modules/.bin` from `cwd` upward. Null when neither
- * exists or the verb is not a plain command name.
- */
-export function resolveExternal(
-    verb: string,
-    env: Record<string, string | undefined> = process.env,
-    cwd = process.cwd(),
-): string | null {
-    if (!/^[a-z0-9][a-z0-9-]*$/i.test(verb)) return null;
-    const name = `shallot-${verb}`;
-    const exts = process.platform === "win32" ? (env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
-    const candidates = (dir: string) => exts.map((ext) => join(dir, name + ext));
-    for (const dir of (env.PATH ?? "").split(delimiter).filter(Boolean)) {
-        const hit = candidates(dir).find(executable);
-        if (hit) return hit;
-    }
-    for (let dir = resolve(cwd); ; dir = dirname(dir)) {
-        const bin = join(dir, "node_modules", ".bin");
-        if (existsSync(bin)) {
-            const hit = candidates(bin).find(executable);
-            if (hit) return hit;
-        }
-        if (dirname(dir) === dir) return null;
-    }
-}
-
-/** Delegate an external verb without changing its argv or exit status. */
-type ExternalSpawn = (
-    bin: string,
-    args: string[],
-    options: { stdio: "inherit" },
-) => { status: number | null; error?: Error | null };
-
-export function delegateExternal(
-    bin: string,
-    args: string[],
-    spawn: ExternalSpawn = spawnSync,
-): number {
-    const child = spawn(bin, args, { stdio: "inherit" });
-    if (child.error) throw child.error;
-    return child.status ?? 1;
-}
-
 function helpHint(raw: string[]): string {
     const command = raw[0] && PROJECT_VERBS.includes(raw[0]) ? `shallot ${raw[0]}` : "shallot";
     return `See \`${command} --help\` for available options.`;
@@ -287,14 +231,10 @@ export async function main(
         const { runAdd } = await import("./add");
         exit(await runAdd(parsed.rest));
     }
-    if (parsed.kind === "external") {
-        const bin = resolveExternal(parsed.verb);
-        if (!bin) {
-            console.error(`unknown command: ${parsed.verb}`);
-            console.error("See `shallot --help` for available commands.");
-            exit(1);
-        }
-        exit(delegateExternal(bin, parsed.rest));
+    if (parsed.kind === "unknown") {
+        console.error(`unknown command: ${parsed.verb}`);
+        console.error("See `shallot --help` for available commands.");
+        exit(1);
     }
 
     if (parsed.target && !TARGETS.includes(parsed.target)) {

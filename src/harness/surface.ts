@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { parse } from "@babel/parser";
 import { Glob } from "bun";
@@ -467,10 +467,6 @@ export function formatPopulation(
     ].join("\n");
 }
 
-function projectPackage(root: string): boolean {
-    return existsSync(resolve(root, "package.json"));
-}
-
 /** Strip comments while preserving strings, then return the complete lexical token stream. */
 export function subjectTokens(source: string): string[] {
     const withoutComments = source.replace(
@@ -583,125 +579,6 @@ export function selectIntegrationRows(
             return subjectChanged(population.root, row.subjects, selection.base, selection.diff);
         return true;
     });
-}
-
-function workflowRows(population: Population): SurfaceRow[] {
-    return population.rows.filter((row) => !ORACLE_SUFFIX.test(row.file));
-}
-
-function workflowNeedsCargo(population: Population): boolean {
-    return workflowRows(population).some((row) => row.requires.includes("cargo"));
-}
-
-function workflowNeedsNode(population: Population): boolean {
-    return workflowRows(population).some((row) => row.requires.includes("node"));
-}
-
-function workflowPath(root: string): string {
-    return resolve(root, ".github/workflows/test-surface.yml");
-}
-
-/** Render only portable Bun/project steps. The carrier never names a member, branch or engine. */
-export function renderWorkflow(population: Population): string {
-    if (workflowRows(population).length === 0) return "";
-    const steps = [
-        "      - uses: actions/checkout@v7",
-        "        with:",
-        "          fetch-depth: 0",
-        "      - uses: oven-sh/setup-bun@v2",
-    ];
-    if (workflowNeedsCargo(population))
-        steps.push(
-            "      - uses: dtolnay/rust-toolchain@stable",
-            "      - uses: actions/cache@v6",
-            "        with:",
-            "          path: target",
-            "          key: $" +
-                "{{ runner.os }}-cargo-$" +
-                "{{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}",
-            "          restore-keys: |",
-            "            $" + "{{ runner.os }}-cargo-",
-        );
-    if (workflowNeedsNode(population))
-        steps.push(
-            "      - uses: actions/setup-node@v6",
-            "        with:",
-            "          node-version-file: .node-version",
-        );
-    steps.push(
-        "      - name: resolve surface refs",
-        "        env:",
-        "          SURFACE_EVENT: $" + "{{ github.event_name }}",
-        "          SURFACE_PR_BASE: $" + "{{ github.event.pull_request.base.sha }}",
-        "          SURFACE_BEFORE: $" + "{{ github.event.before }}",
-        "          SURFACE_DIFF: $" + "{{ github.sha }}",
-        "          SURFACE_REF: $" + "{{ github.ref }}",
-        "          SURFACE_DEFAULT_BRANCH: $" + "{{ github.event.repository.default_branch }}",
-        "        run: |",
-        "          set -euo pipefail",
-        "          zero=0000000000000000000000000000000000000000",
-        '          if [ "$SURFACE_EVENT" = "pull_request" ]; then',
-        '            base="$SURFACE_PR_BASE"',
-        '          elif [ -n "$SURFACE_BEFORE" ] && [ "$SURFACE_BEFORE" != "$zero" ]; then',
-        '            base="$SURFACE_BEFORE"',
-        '          elif [ "$SURFACE_REF" = "refs/heads/$SURFACE_DEFAULT_BRANCH" ]; then',
-        '            base="$(git rev-parse --verify --quiet --end-of-options "$SURFACE_DIFF^")" || {',
-        '              echo "surface refused: the initial default-branch push has no parent commit" >&2',
-        "              exit 1",
-        "            }",
-        "          else",
-        '            base="$(git merge-base "$SURFACE_DIFF" "origin/$SURFACE_DEFAULT_BRANCH")" || {',
-        '              echo "surface refused: could not derive a merge base for the new branch push" >&2',
-        "              exit 1",
-        "            }",
-        "          fi",
-        '          git rev-parse --verify --quiet --end-of-options "$base^{commit}" >/dev/null || {',
-        '            echo "surface refused: base is not an existing commit object: $base" >&2',
-        "            exit 1",
-        "          }",
-        '          git rev-parse --verify --quiet --end-of-options "$SURFACE_DIFF^{commit}" >/dev/null || {',
-        '            echo "surface refused: diff is not an existing commit object: $SURFACE_DIFF" >&2',
-        "            exit 1",
-        "          }",
-        '          echo "surface refs: base=$base diff=$SURFACE_DIFF"',
-        '          echo "SHALLOT_SURFACE_BASE=$base" >> "$GITHUB_ENV"',
-        '          echo "SHALLOT_SURFACE_DIFF=$SURFACE_DIFF" >> "$GITHUB_ENV"',
-        "      - run: bun install --frozen-lockfile",
-    );
-    steps.push(
-        "      - run: bun run check",
-        "      - run: bun run test",
-        "      - run: bun run test -- --integration --base $SHALLOT_SURFACE_BASE --diff $SHALLOT_SURFACE_DIFF",
-        "      - name: upload test artifacts",
-        "        if: always()",
-        "        uses: actions/upload-artifact@v6",
-        "        with:",
-        "          name: shallot-test-artifacts-$" + "{{ github.run_id }}",
-        "          path: .artifacts/",
-        "          if-no-files-found: warn",
-        "",
-    );
-    return [
-        "name: test-surface",
-        "",
-        "on:",
-        "  push:",
-        "    branches:",
-        "      - main",
-        "  pull_request:",
-        "    branches:",
-        "      - main",
-        "",
-        "concurrency:",
-        "  group: test-surface-${{ github.event.pull_request.number || github.sha }}",
-        "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
-        "",
-        "jobs:",
-        "  surface:",
-        "    runs-on: ubuntu-latest",
-        "    steps:",
-        ...steps,
-    ].join("\n");
 }
 
 function shallotPackage(name: string): boolean {
@@ -890,30 +767,7 @@ export function readSurface(root: string, population = collectPopulation(root)):
                 `orphan quarantine row: file "${row.file}" and claim "${row.claim}" do not identify the same check`,
             );
     }
-    if (projectPackage(root)) {
-        const path = workflowPath(root);
-        if (workflowRows(population).length === 0) {
-            if (existsSync(path))
-                violations.push("empty population must not have a generated workflow");
-        } else if (existsSync(path) && readFileSync(path, "utf8") !== renderWorkflow(population)) {
-            violations.push(
-                "generated workflow drift: .github/workflows/test-surface.yml differs from workflow rendering",
-            );
-        }
-    }
     return violations;
-}
-
-export function writeWorkflow(root: string): "written" | "removed" | "empty" {
-    const population = collectPopulation(root);
-    const path = workflowPath(root);
-    if (workflowRows(population).length === 0) {
-        if (existsSync(path)) rmSync(path);
-        return "empty";
-    }
-    mkdirSync(resolve(root, ".github/workflows"), { recursive: true });
-    writeFileSync(path, renderWorkflow(population));
-    return "written";
 }
 
 export function discoverTestFiles(root: string, includeOracles = false): string[] {
