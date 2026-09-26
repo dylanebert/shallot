@@ -26,7 +26,11 @@ check(
 
 check(
     "a declaration refuses retired and unknown vocabulary",
-    { claim: "check() refuses tier and class fields plus unknown sizes and requirement tags" },
+    {
+        claim: "check() refuses tier and class fields plus unknown sizes and requirement tags",
+        size: "integration",
+        subject: ["src/harness/declaration.ts", "src/harness/check.ts"],
+    },
     () => {
         expect(() => validateDeclaration("here", { claim: "old", tier: "step" })).toThrow(
             "retired field `tier`",
