@@ -207,7 +207,9 @@ check("ordinary exception", { claim: "fixture ordinary exception", size: "integr
                 );
                 const refusal = runRunner(refusedTree, "--integration", "--all");
                 expect(refusal.exitCode).not.toBe(0);
-                expect(refusal.stderr.toString()).toContain("registers no check()");
+                expect(refusal.stderr.toString()).toContain(
+                    "declares a check statically but registered none when it ran",
+                );
             } finally {
                 rmSync(refusedTree, { recursive: true, force: true });
             }

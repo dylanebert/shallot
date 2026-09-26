@@ -459,13 +459,20 @@ async function selectedRun(
         })
         .find((value): value is ChildVerdict => value !== undefined);
     if (verdict === undefined) {
+        const runtimeUndeclared = exitCode === 0;
         return {
-            result: "fail",
+            result: runtimeUndeclared ? "refused" : "fail",
             exitCode,
             stdout,
             stderr,
             ...(child.signal === undefined ? {} : { signal: child.signal }),
-            ...(child.redReason === undefined ? {} : { reason: child.redReason }),
+            ...(runtimeUndeclared
+                ? {
+                      reason: `undeclared check at runtime: ${row.file} declares a check statically but registered none when it ran`,
+                  }
+                : child.redReason === undefined
+                  ? {}
+                  : { reason: child.redReason }),
             noVerdict: true,
         };
     }
