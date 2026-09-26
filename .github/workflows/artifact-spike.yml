@@ -1,0 +1,74 @@
+name: artifact upload proof
+
+on:
+  push:
+    branches:
+      - spike/portable-cpu-artifact-upload-proof
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: failing fixture invocation
+        id: failing
+        run: |
+          rm -rf .artifacts
+          mkdir -p .artifacts/shallot-run-failing
+          printf '<testsuites failures="1"/>\n' > .artifacts/shallot-run-failing/junit.xml
+          printf 'failing invocation output\n' > .artifacts/shallot-run-failing/output.log
+          exit 1
+      - name: upload failing fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shallot-test-Linux-failing-${{ github.run_id }}
+          path: .artifacts/
+          include-hidden-files: true
+      - name: passing fixture invocation
+        if: always()
+        run: |
+          rm -rf .artifacts
+          mkdir -p .artifacts/shallot-run-passing
+          printf '<testsuites failures="0"/>\n' > .artifacts/shallot-run-passing/junit.xml
+          printf 'passing invocation output\n' > .artifacts/shallot-run-passing/output.log
+      - name: upload passing fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shallot-test-Linux-passing-${{ github.run_id }}
+          path: .artifacts/
+          include-hidden-files: true
+      - name: empty selection invocation
+        if: always()
+        run: |
+          rm -rf .artifacts
+          bun run test -- --integration --base HEAD --diff HEAD --requires gpu --requires browser --no-unit-fallback
+      - name: upload empty selection evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shallot-test-Linux-empty-selection-${{ github.run_id }}
+          path: .artifacts/
+          if-no-files-found: warn
+          include-hidden-files: true
+      - name: download invocation artifacts
+        if: always()
+        uses: actions/download-artifact@v6
+        with:
+          pattern: shallot-test-Linux-*
+          path: spike-download
+      - name: verify reports, output, and empty selection absence
+        if: always()
+        run: |
+          test "${{ steps.failing.outcome }}" = failure
+          test "${{ steps.failing.conclusion }}" = failure
+          test -f spike-download/shallot-test-Linux-failing-${{ github.run_id }}/shallot-run-failing/junit.xml
+          grep -q 'failures="1"' spike-download/shallot-test-Linux-failing-${{ github.run_id }}/shallot-run-failing/junit.xml
+          grep -q 'failing invocation output' spike-download/shallot-test-Linux-failing-${{ github.run_id }}/shallot-run-failing/output.log
+          test -f spike-download/shallot-test-Linux-passing-${{ github.run_id }}/shallot-run-passing/junit.xml
+          grep -q 'failures="0"' spike-download/shallot-test-Linux-passing-${{ github.run_id }}/shallot-run-passing/junit.xml
+          grep -q 'passing invocation output' spike-download/shallot-test-Linux-passing-${{ github.run_id }}/shallot-run-passing/output.log
+          test ! -e spike-download/shallot-test-Linux-empty-selection-${{ github.run_id }}
