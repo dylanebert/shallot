@@ -1,7 +1,5 @@
 import { expect } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import {
     type AllocationSample,
     allocatesNothing,
@@ -13,50 +11,46 @@ const ENTRY = resolve(import.meta.dir, "../../examples/first-person/src/allocati
 const ROOT = resolve(import.meta.dir, "../..");
 
 check(
-    "Node allocation import leaves Vite unloaded",
+    "allocation instrument import leaves Vite unloaded",
     {
-        claim: "importing the allocation instrument for Node-only rows does not resolve Vite before the page-build path is requested",
+        claim: "a non-page allocation row can import the allocation instrument without loading Vite before requesting a page build",
         size: "integration",
-        requires: ["node"],
+        budget: 1_000,
+        subject: [
+            "src/harness/allocation.ts",
+            "src/project/index.ts",
+            "src/project/build.ts",
+            "src/project/toolchain.ts",
+        ],
     },
-    async () => {
-        const dir = mkdtempSync(join(tmpdir(), "shallot-allocation-import-"));
-        try {
-            const loader = resolve(dir, "reject-vite.mjs");
-            writeFileSync(
-                loader,
-                `import { existsSync, statSync } from "node:fs";\nimport { fileURLToPath, pathToFileURL } from "node:url";\nexport async function resolve(specifier, context, nextResolve) {\n    if (specifier === "vite") throw new Error("Node allocation import resolved vite");\n    if (specifier.startsWith(".")) {\n        const path = fileURLToPath(new URL(specifier, context.parentURL));\n        for (const candidate of [path + ".ts", path + "/index.ts", path]) if (existsSync(candidate) && statSync(candidate).isFile()) return { url: pathToFileURL(candidate).href, shortCircuit: true };\n    }\n    return nextResolve(specifier, context);\n}\nexport async function load(url, context, nextLoad) {\n    const loaded = await nextLoad(url, context);\n    if (url === ${JSON.stringify(new URL("./allocation.ts", import.meta.url).href)}) return { ...loaded, source: loaded.source.toString().replaceAll("import.meta.dir", ${JSON.stringify(JSON.stringify(resolve(import.meta.dir)))}) };\n    return loaded;\n}\n`,
-            );
-            const preload = resolve(dir, "reject-vite-require.mjs");
-            writeFileSync(
-                preload,
-                `import { createRequire } from "node:module";\nconst Module = createRequire(import.meta.url)("node:module");\nconst require = Module.prototype.require;\nModule.prototype.require = function (specifier, ...args) {\n    if (specifier === "vite") throw new Error("Node allocation import required vite");\n    return require.call(this, specifier, ...args);\n};\n`,
-            );
-            const probe = resolve(dir, "probe.mjs");
-            writeFileSync(
-                probe,
-                `import { allocationFailure } from ${JSON.stringify(new URL("./allocation.ts", import.meta.url).href)};\nif (allocationFailure({ warm: 1, windows: [] }) === undefined) throw new Error("probe did not evaluate allocation exports");\n`,
-            );
-            const proc = Bun.spawnSync(
-                [
-                    "node",
-                    "--no-warnings",
-                    "--import",
-                    preload,
-                    "--experimental-loader",
-                    loader,
-                    probe,
-                ],
-                {
-                    stdout: "pipe",
-                    stderr: "pipe",
+    () => {
+        const probe = `
+            import { plugin } from "bun";
+            globalThis.viteLoads = [];
+            plugin({
+                name: "allocation-vite-load-observer",
+                setup(build) {
+                    build.onLoad({ filter: /node_modules[/\\\\]vite[/\\\\]/ }, async (args) => {
+                        globalThis.viteLoads.push(args.path);
+                        return { contents: await Bun.file(args.path).text(), loader: "js" };
+                    });
                 },
-            );
-            if (proc.exitCode !== 0)
-                throw new Error(`Node allocation import failed: ${proc.stderr.toString()}`);
-        } finally {
-            rmSync(dir, { recursive: true, force: true });
-        }
+            });
+            const { allocationFailure } = await import(${JSON.stringify(resolve(import.meta.dir, "allocation.ts"))});
+            if (allocationFailure({ warm: 1, windows: [] }) === undefined)
+                throw new Error("allocation export did not evaluate");
+            if (globalThis.viteLoads.length !== 0)
+                throw new Error("allocation import loaded Vite: " + globalThis.viteLoads.join(", "));
+            await import("vite");
+            if (globalThis.viteLoads.length === 0)
+                throw new Error("Vite load observer did not detect the explicit import");
+        `;
+        const proc = Bun.spawnSync([process.execPath, "--eval", probe], {
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        if (proc.exitCode !== 0)
+            throw new Error(`Bun allocation import failed: ${proc.stderr.toString()}`);
     },
 );
 
