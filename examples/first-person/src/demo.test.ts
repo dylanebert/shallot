@@ -1,5 +1,8 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { expect } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import {
     Body,
     build,
@@ -20,6 +23,54 @@ import { check } from "@dylanebert/shallot/harness/check";
 import { Demo } from "./demo";
 
 const SCENE = resolve(import.meta.dir, "../public/scenes/first-person.scene");
+
+check(
+    "first-person ignore rules keep outputs out and project files visible",
+    {
+        claim: "Git ignores first-person build outputs while reporting source and lockfiles as untracked",
+    },
+    () => {
+        const root = mkdtempSync(join(tmpdir(), "shallot-example-ignore-"));
+        try {
+            writeFileSync(
+                join(root, ".gitignore"),
+                readFileSync(resolve(import.meta.dir, "../.gitignore")),
+            );
+            for (const dir of ["src", "dist", "build", ".artifacts"])
+                mkdirSync(join(root, dir), { recursive: true });
+            for (const file of [
+                "src/demo.ts",
+                "bun.lock",
+                "dist/index.js",
+                "build/app.js",
+                ".artifacts/run",
+            ])
+                writeFileSync(join(root, file), "fixture\n");
+            execFileSync("git", ["-C", root, "init", "-q"]);
+
+            const ignored = execFileSync(
+                "git",
+                ["-C", root, "check-ignore", "dist/index.js", "build/app.js", ".artifacts/run"],
+                { encoding: "utf8" },
+            );
+            const status = execFileSync(
+                "git",
+                ["-C", root, "status", "--short", "--untracked-files=all"],
+                { encoding: "utf8" },
+            );
+            expect(ignored).toContain("dist/index.js");
+            expect(ignored).toContain("build/app.js");
+            expect(ignored).toContain(".artifacts/run");
+            expect(status).toContain("?? bun.lock");
+            expect(status).toContain("?? src/demo.ts");
+            expect(status).not.toContain("dist/");
+            expect(status).not.toContain("build/");
+            expect(status).not.toContain(".artifacts/");
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    },
+);
 
 async function ascent() {
     // The CPU rows use the actual manifest-selected scene and local Demo plugin. Player and rendering
