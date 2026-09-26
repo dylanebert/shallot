@@ -106,6 +106,7 @@ Heavy computation runs in WASM or on the GPU; TypeScript coordinates it and runs
 ## Dependencies and releases
 
 - A pin is the last verified version. Update a pin everywhere it appears in one commit; `check-pins` fails on drift.
+- A change that removes or renames a public name updates the dependents that use it in the same change, so none drifts; an addition reaches a dependent when it needs it.
 - The root links to itself, so examples import the package by name. `@types/node` and `@webgpu/types` are runtime dependencies, because `types` points at source.
 - A link doesn't prove what ships; a packed tarball installed in a scratch project does. Changes to the CLI, manifest, dependencies, runtime or native shell require that test.
 - `main` may be mid-change. A release is a `v*` tag; its workflow builds the native shells and publishes to npm. Publish only to release. Consumers pin a published version or a full commit SHA.
