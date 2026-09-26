@@ -73,15 +73,27 @@ jobs:
         run: bun run check
       - name: unit sweep
         if: always()
-        run: bun run test
-      - name: changed integration rows without GPU requirements
-        if: always()
-        run: bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires '!gpu' --requires '!browser' --no-unit-fallback
-      - name: upload test artifacts
+        run: |
+          rm -rf .artifacts
+          bun run test
+      - name: upload unit sweep artifacts
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: shallot-test-artifacts-${{ github.run_id }}-${{ github.job }}
+          name: shallot-test-${{ runner.os }}-unit-sweep-${{ github.run_id }}
+          path: .artifacts/
+          if-no-files-found: warn
+          include-hidden-files: true
+      - name: changed integration rows without GPU requirements
+        if: always()
+        run: |
+          rm -rf .artifacts
+          bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires '!gpu' --requires '!browser' --no-unit-fallback
+      - name: upload changed CPU integration artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shallot-test-${{ runner.os }}-cpu-integration-${{ github.run_id }}
           path: .artifacts/
           if-no-files-found: warn
           include-hidden-files: true
@@ -139,15 +151,27 @@ jobs:
         run: bunx playwright install chromium
       - name: changed GPU integration rows
         if: always()
-        run: bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires gpu --requires '!browser' --no-unit-fallback
-      - name: changed browser integration rows
-        if: always()
-        run: bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires browser --no-unit-fallback
-      - name: upload test artifacts
+        run: |
+          rm -rf .artifacts
+          bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires gpu --requires '!browser' --no-unit-fallback
+      - name: upload changed GPU integration artifacts
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: shallot-test-artifacts-${{ github.run_id }}-${{ github.job }}
+          name: shallot-test-${{ runner.os }}-gpu-integration-${{ github.run_id }}
+          path: .artifacts/
+          if-no-files-found: warn
+          include-hidden-files: true
+      - name: changed browser integration rows
+        if: always()
+        run: |
+          rm -rf .artifacts
+          bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires browser --no-unit-fallback
+      - name: upload changed browser integration artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shallot-test-${{ runner.os }}-browser-integration-${{ github.run_id }}
           path: .artifacts/
           if-no-files-found: warn
           include-hidden-files: true
