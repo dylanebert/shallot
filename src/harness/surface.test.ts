@@ -3,12 +3,52 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { check } from "./check";
-import { collectPopulation } from "./surface";
+import { resolveSeat } from "./seat";
+import { collectPopulation, selectIntegrationRows } from "./surface";
 
 const ROOT = resolve(import.meta.dir, "../..");
 const CHECK_MODULE = JSON.stringify(resolve(import.meta.dir, "check.ts"));
 const TYPEGPU_MODULE = JSON.stringify(import.meta.resolve("typegpu"));
 const TYPEGPU_DATA_MODULE = JSON.stringify(import.meta.resolve("typegpu/data"));
+
+check(
+    "requirement selectors partition host capabilities without dropping unsupported rows",
+    {
+        claim: "requirement selection partitions no-requirement, cargo, node and gpu rows across Ubuntu and macOS while leaving unsupported display evidence selected and refused",
+    },
+    () => {
+        const row = (claim: string, requires: string[] = []) => ({
+            name: claim,
+            claim,
+            size: "integration" as const,
+            requires,
+            budget: 20_000,
+            file: `${claim}.test.ts`,
+            subjects: [],
+        });
+        const population = {
+            root: ROOT,
+            rows: [
+                row("none", []),
+                row("cargo", ["cargo"]),
+                row("node", ["node"]),
+                row("gpu", ["gpu"]),
+                row("display", ["display"]),
+            ],
+            undeclared: [],
+            invalid: [],
+            files: [],
+        };
+        const ubuntu = selectIntegrationRows(population, { requires: "!gpu" });
+        const macos = selectIntegrationRows(population, { requires: "gpu" });
+        expect(ubuntu.map(({ claim }) => claim)).toEqual(["none", "cargo", "node", "display"]);
+        expect(macos.map(({ claim }) => claim)).toEqual(["gpu"]);
+        expect([...ubuntu, ...macos].map(({ claim }) => claim).sort()).toEqual(
+            population.rows.map(({ claim }) => claim).sort(),
+        );
+        expect(resolveSeat("display", {}).ok).toBe(false);
+    },
+);
 
 check(
     "load refuses self subjects, import-time spawns and in-repository temp dirs",

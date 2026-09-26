@@ -1,0 +1,7 @@
+import { check } from "@dylanebert/shallot/harness/check";
+
+check(
+    "none selector row",
+    { claim: "none selector row", size: "integration", subject: "src/none/app.ts" },
+    () => {},
+);

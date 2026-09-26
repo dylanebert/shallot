@@ -1,4 +1,4 @@
-name: test-surface
+name: test
 
 on:
   push:
@@ -9,11 +9,11 @@ on:
       - main
 
 concurrency:
-  group: test-surface-${{ github.event.pull_request.number || github.sha }}
+  group: test-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  surface:
+  ubuntu:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -68,13 +68,37 @@ jobs:
           echo "SHALLOT_SURFACE_BASE=$base" >> "$GITHUB_ENV"
           echo "SHALLOT_SURFACE_DIFF=$SURFACE_DIFF" >> "$GITHUB_ENV"
       - run: bun install --frozen-lockfile
-      - run: bun run check
-      - run: bun run test
-      - run: bun run test -- --integration --base $SHALLOT_SURFACE_BASE --diff $SHALLOT_SURFACE_DIFF
+      - name: static gates
+        if: always()
+        run: bun run check
+      - name: unit sweep
+        if: always()
+        run: bun run test
+      - name: changed integration rows without GPU requirements
+        if: always()
+        run: bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires '!gpu'
       - name: upload test artifacts
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: shallot-test-artifacts-${{ github.run_id }}
+          name: shallot-test-artifacts-${{ github.run_id }}-${{ github.job }}
+          path: .artifacts/
+          if-no-files-found: warn
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - name: install Bun dependencies, including bun-webgpu
+        run: bun install --frozen-lockfile
+      - name: GPU integration rows
+        if: always()
+        run: bun run test -- --integration --requires gpu
+      - name: upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shallot-test-artifacts-${{ github.run_id }}-${{ github.job }}
           path: .artifacts/
           if-no-files-found: warn

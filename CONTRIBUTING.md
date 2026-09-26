@@ -56,11 +56,13 @@ bun run build     # regenerate committed audio WASM, dist/vite.js, physics kerne
 bun run check     # declared population and static gates; run before every push
 bun run test      # every unit test, hermetic, under the 250ms unit limit
 bun run test -- --list   # declared population and selectors without running checks
-bun run test -- --integration --base <ref> --diff <ref>   # tests whose subject changed, plus tests with no subject
-bun run test -- --integration --all | --requires <tag> | --subject <prefix>   # combine freely, but not with --base/--diff
+bun run test -- --integration --base <ref> --diff <ref> [--requires <tag|!tag>]   # changed subjects, optionally filtered by requirement
+bun run test -- --integration --all | --requires <tag|!tag> | --subject <prefix>   # select all rows or filter by requirement or subject
 bun run test -- --oracle <claim>   # one named oracle, never part of a sweep
 bun run format    # biome, the scene formatter and the examples index, writing
 ```
+
+Requirement selection combines with `--base`/`--diff`.
 
 Each run replaces `.artifacts/` with its report and child process output.
 

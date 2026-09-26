@@ -1,0 +1,7 @@
+import { check } from "@dylanebert/shallot/harness/check";
+
+check(
+    "node selector row",
+    { claim: "node selector row", size: "integration", requires: ["node"], subject: "src/node/app.ts" },
+    () => {},
+);

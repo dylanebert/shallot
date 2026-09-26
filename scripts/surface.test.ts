@@ -297,25 +297,127 @@ function subjectTree(): {
 }
 
 check(
-    "selectors filter integration rows and refuse empty matches",
+    "requirement selectors partition host rows and preserve missing evidence",
     {
-        claim: "surface selectors select only matching integration rows and refuse an empty match",
+        claim: "requirement selectors partition every host tier with changed-subject selection, refuse a row no host provides, and keep an empty diff selection green",
         size: "integration",
     },
     () => {
         const tree = seed("selectors");
         try {
+            for (const path of [
+                "src/browser/app.ts",
+                "src/core/rendering/frame.ts",
+                "crates/audio/pkg/source.rs",
+                "src/node/app.ts",
+                "src/none/app.ts",
+            ]) {
+                const file = join(tree, path);
+                mkdirSync(dirname(file), { recursive: true });
+                writeFileSync(file, "export const fixture = 0;\n");
+            }
+            git(tree, "init", "-q");
+            git(tree, "config", "user.email", "surface@example.test");
+            git(tree, "config", "user.name", "surface");
+            git(tree, "add", ".");
+            git(tree, "commit", "-qm", "base");
+            const base = git(tree, "rev-parse", "HEAD");
+            for (const path of [
+                "src/browser/app.ts",
+                "src/core/rendering/frame.ts",
+                "crates/audio/pkg/source.rs",
+                "src/node/app.ts",
+                "src/none/app.ts",
+            ]) {
+                const file = join(tree, path);
+                writeFileSync(file, "export const fixture = 1;\n");
+            }
+            git(tree, "add", ".");
+            git(tree, "commit", "-qm", "change all subjects");
+            const diff = git(tree, "rev-parse", "HEAD");
+
             const all = run(tree, "--list", "--integration", "--all");
             expect(all.code).toBe(0);
-            expect(all.out).toContain("browser selector row");
-            expect(all.out).toContain("display selector row");
+            for (const claim of [
+                "browser selector row",
+                "display selector row",
+                "cargo selector row",
+                "node selector row",
+                "none selector row",
+            ])
+                expect(all.out).toContain(claim);
             expect(all.out).not.toContain("unit selector exclusion");
             expect(all.out).not.toContain("oracle selector exclusion");
 
-            const requires = run(tree, "--list", "--integration", "--requires", "gpu");
-            expect(requires.code).toBe(0);
-            expect(requires.out).toContain("browser selector row");
-            expect(requires.out).not.toContain("display selector row");
+            const ubuntu = run(
+                tree,
+                "--list",
+                "--integration",
+                "--requires",
+                "!gpu",
+                "--base",
+                base,
+                "--diff",
+                diff,
+            );
+            expect(ubuntu.code).toBe(0);
+            for (const claim of [
+                "display selector row",
+                "cargo selector row",
+                "node selector row",
+                "none selector row",
+            ])
+                expect(ubuntu.out).toContain(claim);
+            expect(ubuntu.out).not.toContain("browser selector row");
+
+            const macos = run(
+                tree,
+                "--list",
+                "--integration",
+                "--requires",
+                "gpu",
+                "--base",
+                base,
+                "--diff",
+                diff,
+            );
+            expect(macos.code).toBe(0);
+            expect(macos.out).toContain("browser selector row");
+            for (const claim of [
+                "display selector row",
+                "cargo selector row",
+                "node selector row",
+                "none selector row",
+            ])
+                expect(macos.out).not.toContain(claim);
+
+            const unsupported = run(
+                tree,
+                "--integration",
+                "--requires",
+                "display",
+                "--base",
+                base,
+                "--diff",
+                diff,
+            );
+            expect(unsupported.code).not.toBe(0);
+            expect(`${unsupported.out}\n${unsupported.err}`).toContain("display seat unavailable");
+
+            const emptyDiff = run(
+                tree,
+                "--integration",
+                "--requires",
+                "gpu",
+                "--base",
+                diff,
+                "--diff",
+                diff,
+            );
+            expect(emptyDiff.code).toBe(0);
+            expect(`${emptyDiff.out}\n${emptyDiff.err}`).not.toContain(
+                "selector matched no integration rows",
+            );
 
             const subject = run(tree, "--list", "--integration", "--subject", "src/browser");
             expect(subject.code).toBe(0);
@@ -346,7 +448,7 @@ check(
                 "diff",
             );
             expect(conflict.code).toBe(1);
-            expect(conflict.err).toContain("selectors cannot be combined");
+            expect(conflict.err).toContain("--all/--subject cannot be combined");
 
             for (const args of [["--all"], ["--requires", "gpu"], ["--subject", "missing"]]) {
                 const emptyTree = seed("unit-only");

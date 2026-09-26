@@ -1,0 +1,7 @@
+import { check } from "@dylanebert/shallot/harness/check";
+
+check(
+    "cargo selector row",
+    { claim: "cargo selector row", size: "integration", requires: ["cargo"], subject: "crates/audio" },
+    () => {},
+);

@@ -191,6 +191,7 @@ export function selectCargoTestTargetExecutables(
 
 const cargoBuilds = new Map<string, CargoBuild>();
 let gpuRequirement: string | null | undefined;
+let gpuHardware: string | undefined;
 
 // The probe reports the adapter's identity fields rather than its mere existence, because the seat policy
 // has to tell a real device from a software fallback. `GPUAdapter.isFallbackAdapter` itself is not
@@ -231,6 +232,7 @@ function resolveGpuRequirement(root: string): string | null {
     }
     const seat = resolveSeat("gpu", { device: facts });
     gpuRequirement = seat.ok ? null : seat.reason;
+    gpuHardware = seat.ok ? seat.detail : undefined;
     return gpuRequirement;
 }
 
@@ -408,7 +410,7 @@ export function missingRequirement(
 
 /** the default runtime/hardware labels for checks that do not return host measurements. */
 export function defaultMetadata(): VerdictMetadata {
-    return { runtime: `bun ${Bun.version}`, hardware: "none" };
+    return { runtime: `bun ${Bun.version}`, hardware: gpuHardware ?? "none" };
 }
 
 function objectField<T>(value: unknown): T | undefined {

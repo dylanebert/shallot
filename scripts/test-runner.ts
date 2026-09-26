@@ -594,12 +594,19 @@ if (args.includes("--requires") && (requires === undefined || requires.startsWit
     refuse("--requires needs a requirement tag");
 if (args.includes("--subject") && (subject === undefined || subject.startsWith("--")))
     refuse("--subject needs a path prefix");
-if (requires !== undefined && !CHECK_REQUIREMENTS.includes(requires as never))
-    refuse(`unknown requirement tag: ${requires}`);
+const requirement = requires?.startsWith("!") ? requires.slice(1) : requires;
+if (
+    requirement !== undefined &&
+    (requirement === "" || !CHECK_REQUIREMENTS.includes(requirement as never))
+)
+    refuse(`unknown requirement tag: ${requirement}`);
 if (subject !== undefined && subject.trim() === "") refuse("--subject needs a path prefix");
 if (selectorRequested && !integration) refuse("integration selectors require --integration");
-if (selectorRequested && (base !== undefined || diff !== undefined))
-    refuse("selectors cannot be combined with --base/--diff");
+if (
+    (all || args.includes("--subject")) &&
+    (base !== undefined || diff !== undefined || args.includes("--base") || args.includes("--diff"))
+)
+    refuse("--all/--subject cannot be combined with --base/--diff");
 if (integration && !selectorRequested && (base === undefined || diff === undefined))
     refuse("integration test requires --base <ref> and --diff <ref>");
 
@@ -644,7 +651,8 @@ if (
 if (base !== undefined && diff !== undefined && (!isCommitObject(base) || !isCommitObject(diff)))
     refuse(`integration refs must be existing commit objects: base=${base} diff=${diff}`);
 const selected = selectIntegrationRows(population, { all, requires, subject, base, diff });
-if (selectorRequested && selected.length === 0) refuse("selector matched no integration rows");
+if (selectorRequested && selected.length === 0 && base === undefined && diff === undefined)
+    refuse("selector matched no integration rows");
 if (list) {
     console.log(formatPopulation(population, undefined, selected));
     process.exit(0);
