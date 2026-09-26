@@ -11,9 +11,7 @@ import {
     writeFileSync,
 } from "node:fs";
 import { basename, resolve } from "node:path";
-import { buildWeb } from "../cli/build";
-import { normalize } from "../project/manifest";
-import { manifestPath } from "../project/vite";
+import { buildWeb, manifestPath, normalize } from "../project";
 import { tryPrebuilt } from "./prebuilt";
 
 const RUST_CRATE = resolve(import.meta.dir, "../../crates/native");

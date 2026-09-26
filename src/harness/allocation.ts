@@ -11,7 +11,7 @@ import { SourceMap } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { type AdapterFacts, classifyAdapter } from "../engine/runtime";
-import { CROSS_ORIGIN_ISOLATION } from "../project/vite";
+import { CROSS_ORIGIN_ISOLATION } from "../project";
 import { attribute, originalPosition, subjectSite } from "./allocation-sampler.mjs";
 import { CAPTURE_CONTRACT } from "./capture";
 import { confirmOnDisplay, openOnDisplay } from "./display";
@@ -459,7 +459,7 @@ export async function samplePage(
         const pageServer = servePage(outDir, CROSS_ORIGIN_ISOLATION);
         server = pageServer.server;
         // Loaded here, as playwright is, so Node allocation rows never load vite on import.
-        const { buildWeb } = await import("../cli/build");
+        const { buildWeb } = await import("../project");
         await bounded("the web build", buildWeb(projectDir, { outDir, sourcemap: true }));
         const { origin } = pageServer;
         const maps = new Map<string, { map: SourceMap; base: string }>();

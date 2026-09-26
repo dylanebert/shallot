@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { basename, relative, resolve } from "node:path";
 import { type PreviewServer, preview, resolveConfig } from "vite";
 import { nativeOutDir } from "../native";
-import { CROSS_ORIGIN_ISOLATION } from "../project/vite";
+import { CROSS_ORIGIN_ISOLATION } from "../project";
 
 export type PreviewTarget =
     | { kind: "web" }
