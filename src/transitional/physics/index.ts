@@ -369,7 +369,7 @@ interface PhysicsRuntime {
     world: World | null;
     bodies: Map<number, SolverBody>;
     stamps: Map<number, number>;
-    kinPrev: Map<number, [number, number, number]>;
+    kinPrev: Map<number, { pos: [number, number, number]; quat: [number, number, number, number] }>;
     failed: Map<number, { stamp: number; hulls: number }>;
     // whether a body's marshal failed, so the constraint uploads defer its joints; made once per runtime
     isFailed: (eid: number) => boolean;
@@ -626,7 +626,15 @@ export function setKinematic(
     if (!tb) return;
     let prev = runtime.kinPrev.get(eid);
     const moved =
-        !prev || teleport || pos[0] !== prev[0] || pos[1] !== prev[1] || pos[2] !== prev[2];
+        !prev ||
+        teleport ||
+        pos[0] !== prev.pos[0] ||
+        pos[1] !== prev.pos[1] ||
+        pos[2] !== prev.pos[2] ||
+        quat[0] !== prev.quat[0] ||
+        quat[1] !== prev.quat[1] ||
+        quat[2] !== prev.quat[2] ||
+        quat[3] !== prev.quat[3];
     kinPos.x = pos[0];
     kinPos.y = pos[1];
     kinPos.z = pos[2];
@@ -634,9 +642,12 @@ export function setKinematic(
     kinQuat.v.y = quat[1];
     kinQuat.v.z = quat[2];
     kinQuat.s = quat[3];
-    tb.setTransform(kinPos, kinQuat);
+    if (moved) tb.setTransform(kinPos, kinQuat);
     if (!prev || teleport) {
-        prev = [pos[0], pos[1], pos[2]];
+        prev = {
+            pos: [pos[0], pos[1], pos[2]],
+            quat: [quat[0], quat[1], quat[2], quat[3]],
+        };
         runtime.kinPrev.set(eid, prev);
     }
     if (vel) {
@@ -644,15 +655,19 @@ export function setKinematic(
         kinVel.y = vel[1];
         kinVel.z = vel[2];
     } else {
-        kinVel.x = (pos[0] - prev[0]) / Time.FIXED_DT;
-        kinVel.y = (pos[1] - prev[1]) / Time.FIXED_DT;
-        kinVel.z = (pos[2] - prev[2]) / Time.FIXED_DT;
+        kinVel.x = (pos[0] - prev.pos[0]) / Time.FIXED_DT;
+        kinVel.y = (pos[1] - prev.pos[1]) / Time.FIXED_DT;
+        kinVel.z = (pos[2] - prev.pos[2]) / Time.FIXED_DT;
     }
     tb.setLinearVelocity(kinVel);
     if (moved && !tb.isAwake()) tb.setAwake(true);
-    prev[0] = pos[0];
-    prev[1] = pos[1];
-    prev[2] = pos[2];
+    prev.pos[0] = pos[0];
+    prev.pos[1] = pos[1];
+    prev.pos[2] = pos[2];
+    prev.quat[0] = quat[0];
+    prev.quat[1] = quat[1];
+    prev.quat[2] = quat[2];
+    prev.quat[3] = quat[3];
 }
 export function setVelocity(state: State, eid: number, vx: number, vy: number, vz: number): void {
     runtimeFor(state).bodies.get(eid)?.setLinearVelocity({ x: vx, y: vy, z: vz });
