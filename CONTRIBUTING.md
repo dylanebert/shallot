@@ -32,6 +32,7 @@ assets.json      Every asset except the shipped icon, fetched by URL and sha256 
 - Modules in the same layer don't import each other, so a game can use one without the others.
 - Each folder is one module. Its `index.ts` is the only entry point and defines its plugin; other files are internal. A layer's `index.ts` only re-exports its modules, except that `standard/index.ts` also defines the default plugin set.
 - A module is a plugin only if it registers systems or resources. Otherwise it exports plain data and functions.
+- Provider-specific observation belongs in optional application integrations, outside Shallot.
 - Each public module has one import path, its subpath in `package.json` `exports`. The root re-exports every layer with `export *`, so duplicate names fail `tsc`.
 - Each module does one useful thing completely. If it doesn't, fix it, split it, move it out or remove it.
 
