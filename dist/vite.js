@@ -253,12 +253,13 @@ function generateModuleFromPlan(project) {
   return lines.join(`
 `);
 }
-
-// src/project/vite.ts
+// src/isolation.ts
 var CROSS_ORIGIN_ISOLATION = {
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Embedder-Policy": "require-corp"
 };
+
+// src/project/vite.ts
 function typegpuPlugin() {
   return typegpu();
 }

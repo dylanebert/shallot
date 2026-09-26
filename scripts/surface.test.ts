@@ -301,6 +301,7 @@ check(
     {
         claim: "requirement selectors partition every host tier with changed-subject selection, refuse a row no host provides, and keep an empty diff selection green",
         size: "integration",
+        subject: ["src/harness/surface.ts", "scripts/test-runner.ts"],
     },
     () => {
         const tree = seed("selectors");
@@ -340,6 +341,7 @@ check(
             expect(all.code).toBe(0);
             for (const claim of [
                 "browser selector row",
+                "gpu selector row",
                 "display selector row",
                 "cargo selector row",
                 "node selector row",
@@ -355,20 +357,21 @@ check(
                 "--integration",
                 "--requires",
                 "!gpu",
+                "--requires",
+                "!browser",
+                "--requires",
+                "!display",
                 "--base",
                 base,
                 "--diff",
                 diff,
             );
             expect(ubuntu.code).toBe(0);
-            for (const claim of [
-                "display selector row",
-                "cargo selector row",
-                "node selector row",
-                "none selector row",
-            ])
+            for (const claim of ["cargo selector row", "node selector row", "none selector row"])
                 expect(ubuntu.out).toContain(claim);
             expect(ubuntu.out).not.toContain("browser selector row");
+            expect(ubuntu.out).not.toContain("gpu selector row");
+            expect(ubuntu.out).not.toContain("display selector row");
 
             const macos = run(
                 tree,
@@ -382,7 +385,8 @@ check(
                 diff,
             );
             expect(macos.code).toBe(0);
-            expect(macos.out).toContain("browser selector row");
+            expect(macos.out).toContain("gpu selector row");
+            expect(macos.out).not.toContain("browser selector row");
             for (const claim of [
                 "display selector row",
                 "cargo selector row",
@@ -390,6 +394,21 @@ check(
                 "none selector row",
             ])
                 expect(macos.out).not.toContain(claim);
+
+            const browser = run(
+                tree,
+                "--list",
+                "--integration",
+                "--requires",
+                "browser",
+                "--base",
+                base,
+                "--diff",
+                diff,
+            );
+            expect(browser.code).toBe(0);
+            expect(browser.out).toContain("browser selector row");
+            expect(browser.out).not.toContain("gpu selector row");
 
             const unsupported = run(
                 tree,
@@ -429,7 +448,7 @@ check(
                 "--list",
                 "--integration",
                 "--requires",
-                "gpu",
+                "browser",
                 "--subject",
                 "src/browser",
             );

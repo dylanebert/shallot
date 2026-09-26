@@ -56,13 +56,13 @@ bun run build     # regenerate committed audio WASM, dist/vite.js, physics kerne
 bun run check     # declared population and static gates; run before every push
 bun run test      # every unit test, hermetic, under the 250ms unit limit
 bun run test -- --list   # declared population and selectors without running checks
-bun run test -- --integration --base <ref> --diff <ref> [--requires <tag|!tag>]   # changed subjects, optionally filtered by requirement
+bun run test -- --integration --base <ref> --diff <ref> [--requires <tag|!tag>]...   # changed subjects, optionally filtered by requirement
 bun run test -- --integration --all | --requires <tag|!tag> | --subject <prefix>   # select all rows or filter by requirement or subject
 bun run test -- --oracle <claim>   # one named oracle, never part of a sweep
 bun run format    # biome, the scene formatter and the examples index, writing
 ```
 
-Requirement selection combines with `--base`/`--diff`.
+Requirement selection combines with `--base`/`--diff`. Repeat `--requires` to combine filters.
 
 Each run replaces `.artifacts/` with its report and child process output.
 
@@ -70,7 +70,12 @@ Each run replaces `.artifacts/` with its report and child process output.
 
 A module's promises are tested beside the module and through the examples that use it. Test each claim at the cheapest level that can observe it. A check's result depends only on its declared inputs.
 
-- A check declares its claim, size and required host capabilities in `check()`. A host without a required capability refuses with the reason; it never runs a weaker version. Untagged checks are CPU-only, `gpu` requires a WebGPU device, and `display` requires a declared monitor and takes its keyboard and cursor.
+- A check declares its claim, size and required host capabilities in `check()`.
+- A host without a required capability refuses with the reason; it never runs a weaker version.
+- Untagged checks are CPU-only.
+- `gpu` requires an in-process WebGPU device.
+- `browser` requires headless Chromium on a real WebGPU adapter.
+- `display` requires a declared monitor and takes its keyboard and cursor.
 - Checks run on the scheduler's stepped clock, never wall time. Simulation state lives in registered components or behind a snapshot, restore and hash hook. Gameplay runs in `fixed` from per-tick actions, presentation runs in `draw`, and `local` components are excluded from the hash. Runs are deterministic within one runtime and engine version; across versions, the hash detects divergence.
 - Test a frame at the cheapest level that shows the defect: CPU state, GPU readback, browser pixels, then a person. Capture frames only with `captureFrame`. Add a golden image only for a defect no cheaper level shows, and never update one to make it pass. Screenshots are not results.
 - Steady play allocates nothing; the integration check fails on any steady allocation. Sampler allocation sites are diagnostics, not results.

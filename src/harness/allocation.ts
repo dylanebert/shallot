@@ -5,18 +5,17 @@ import {
     readFileSync,
     realpathSync,
     rmSync,
-    statSync,
     writeFileSync,
 } from "node:fs";
 import { SourceMap } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { type AdapterFacts, classifyAdapter } from "../engine/runtime";
-import { CROSS_ORIGIN_ISOLATION } from "../project/vite";
 import { attribute, originalPosition, subjectSite } from "./allocation-sampler.mjs";
 import { CAPTURE_CONTRACT } from "./capture";
 import { confirmOnDisplay, openOnDisplay } from "./display";
 import { launchPlan } from "./launch";
+import { servePage } from "./page";
 import { resolveSeat } from "./seat";
 import { MissingPremise } from "./verdict";
 
@@ -456,28 +455,12 @@ export async function samplePage(
     let server: ReturnType<typeof Bun.serve> | undefined;
     let browser: import("playwright").Browser | undefined;
     try {
-        // Serve the generated page with the cross-origin isolation headers the build needs.
-        server = Bun.serve({
-            port: 0,
-            fetch(request) {
-                const path = new URL(request.url).pathname;
-                const file = join(outDir, path === "/" ? "index.html" : decodeURIComponent(path));
-                if (
-                    !file.startsWith(`${outDir}${sep}`) ||
-                    !existsSync(file) ||
-                    !statSync(file).isFile()
-                )
-                    return new Response("not found", { status: 404 });
-                const body = Bun.file(file);
-                return new Response(body, {
-                    headers: { ...CROSS_ORIGIN_ISOLATION, "Content-Type": body.type },
-                });
-            },
-        });
+        const pageServer = servePage(outDir);
+        server = pageServer.server;
         // Loaded here, as playwright is, so Node allocation rows never load vite on import.
         const { buildWeb } = await import("../cli/build");
         await bounded("the web build", buildWeb(projectDir, { outDir, sourcemap: true }));
-        const origin = `http://localhost:${server.port}`;
+        const { origin } = pageServer;
         const maps = new Map<string, { map: SourceMap; base: string }>();
         for (const file of readdirSync(outDir, { recursive: true }) as string[]) {
             const mapFile = join(outDir, `${file}.map`);

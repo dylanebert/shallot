@@ -573,9 +573,9 @@ function selectedSummary(
 
 const base = valueAfter("--base");
 const diff = valueAfter("--diff");
-const requires = valueAfter("--requires");
+const requireFlags = args.flatMap((arg, index) => (arg === "--requires" ? [index] : []));
 const subject = valueAfter("--subject");
-const selectorRequested = all || args.includes("--requires") || args.includes("--subject");
+const selectorRequested = all || requireFlags.length > 0 || args.includes("--subject");
 if (oracleRequested && args.filter((arg) => arg === "--oracle").length !== 1)
     refuse("--oracle accepts exactly one claim");
 if (oracleRequested && (oracle === undefined || oracle.trim() === "" || oracle.startsWith("--")))
@@ -590,16 +590,18 @@ if (
         args.includes("--diff"))
 )
     refuse("--oracle cannot be combined with selectors or integration mode");
-if (args.includes("--requires") && (requires === undefined || requires.startsWith("--")))
+if (
+    requireFlags.some((index) => args[index + 1] === undefined || args[index + 1]?.startsWith("--"))
+)
     refuse("--requires needs a requirement tag");
+const requires = requireFlags.map((index) => args[index + 1] as string);
 if (args.includes("--subject") && (subject === undefined || subject.startsWith("--")))
     refuse("--subject needs a path prefix");
-const requirement = requires?.startsWith("!") ? requires.slice(1) : requires;
-if (
-    requirement !== undefined &&
-    (requirement === "" || !CHECK_REQUIREMENTS.includes(requirement as never))
-)
-    refuse(`unknown requirement tag: ${requirement}`);
+for (const filter of requires) {
+    const requirement = filter.startsWith("!") ? filter.slice(1) : filter;
+    if (requirement === "" || !CHECK_REQUIREMENTS.includes(requirement as never))
+        refuse(`unknown requirement tag: ${requirement}`);
+}
 if (subject !== undefined && subject.trim() === "") refuse("--subject needs a path prefix");
 if (selectorRequested && !integration) refuse("integration selectors require --integration");
 if (
@@ -650,7 +652,13 @@ if (
     refuse("integration test requires --base <ref> and --diff <ref>");
 if (base !== undefined && diff !== undefined && (!isCommitObject(base) || !isCommitObject(diff)))
     refuse(`integration refs must be existing commit objects: base=${base} diff=${diff}`);
-const selected = selectIntegrationRows(population, { all, requires, subject, base, diff });
+const selected = selectIntegrationRows(population, {
+    all,
+    requires: requires.length === 0 ? undefined : requires,
+    subject,
+    base,
+    diff,
+});
 if (selectorRequested && selected.length === 0 && base === undefined && diff === undefined)
     refuse("selector matched no integration rows");
 if (list) {

@@ -190,7 +190,7 @@ check(
     shallot test
     shallot test --list
     shallot test --integration --base origin/main --diff HEAD
-    shallot test --integration --base origin/main --diff HEAD --requires '!gpu'
+    shallot test --integration --base origin/main --diff HEAD --requires '!gpu' --requires '!browser' --requires '!display'
 
   Options
     --list                  List the selected checks without running them
@@ -198,7 +198,7 @@ check(
     --base <ref>            Base commit for changed-subject integration checks (with --diff)
     --diff <ref>            Diff commit for changed-subject integration checks (with --base)
     --all                   Select all integration checks (with --integration)
-    --requires <tag|!tag>   Select integration checks which require or do not require a tag
+    --requires <tag|!tag>   Filter by a requirement; repeat to combine filters
     --subject <prefix>      Select integration checks by subject path (with --integration)
     --oracle <claim>        Select one named oracle
     -h, --help              Show this help`.trim(),

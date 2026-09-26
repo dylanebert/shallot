@@ -2,6 +2,6 @@ import { check } from "@dylanebert/shallot/harness/check";
 
 check(
     "browser selector row",
-    { claim: "browser selector row", size: "integration", requires: ["gpu"], subject: "src/browser/app.ts" },
+    { claim: "browser selector row", size: "integration", requires: ["browser"], subject: "src/browser/app.ts" },
     () => {},
 );

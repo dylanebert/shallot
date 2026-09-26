@@ -52,8 +52,8 @@ export interface Population {
 
 export interface IntegrationSelection {
     all?: boolean;
-    /** a required tag, or `!tag` for rows that lack it */
-    requires?: string;
+    /** required tags, or `!tag` filters for rows that lack each tag */
+    requires?: string | readonly string[];
     subject?: string;
     base?: string;
     diff?: string;
@@ -569,9 +569,13 @@ export function selectIntegrationRows(
             : selectionOrBase;
     return population.rows.filter((row) => {
         if (row.size !== "integration" || ORACLE_SUFFIX.test(row.file)) return false;
-        if (selection.requires !== undefined) {
-            const excluded = selection.requires.startsWith("!");
-            const requirement = excluded ? selection.requires.slice(1) : selection.requires;
+        const filters =
+            typeof selection.requires === "string"
+                ? [selection.requires]
+                : (selection.requires ?? []);
+        for (const filter of filters) {
+            const excluded = filter.startsWith("!");
+            const requirement = excluded ? filter.slice(1) : filter;
             if (excluded ? row.requires.includes(requirement) : !row.requires.includes(requirement))
                 return false;
         }

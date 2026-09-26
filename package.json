@@ -36,6 +36,7 @@
         "./harness/preload": "./src/harness/preload.ts",
         "./harness/pixels": "./src/harness/pixels.ts",
         "./harness/capture": "./src/harness/capture.ts",
+        "./harness/browser": "./src/harness/browser.ts",
         "./vite": {
             "types": "./src/project/vite.ts",
             "default": "./dist/vite.js"
@@ -90,6 +91,7 @@
         "!**/*.probes.ts",
         "!**/*.fixture.ts",
         "!**/*.gold.json",
+        "!src/harness/pages/**",
         "!**/fixtures/**",
         "!**/target/**"
     ],

@@ -1,7 +1,7 @@
 /** The sizes that set cadence and the wall-clock ceiling for a check. */
 export const CHECK_SIZES = ["unit", "integration"] as const;
 /** Environment tags a runner may require. */
-export const CHECK_REQUIREMENTS = ["gpu", "display", "cargo", "node"] as const;
+export const CHECK_REQUIREMENTS = ["gpu", "browser", "display", "cargo", "node"] as const;
 export const UNIT_BUDGET_MS = 250;
 export const INTEGRATION_BUDGET_MS = 20_000;
 

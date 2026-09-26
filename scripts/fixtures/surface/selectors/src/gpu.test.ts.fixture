@@ -1,0 +1,7 @@
+import { check } from "@dylanebert/shallot/harness/check";
+
+check(
+    "gpu selector row",
+    { claim: "gpu selector row", size: "integration", requires: ["gpu"], subject: "src/core/rendering/frame.ts" },
+    () => {},
+);

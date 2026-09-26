@@ -381,6 +381,20 @@ export function missingRequirement(
             if (reason !== null) return reason;
             continue;
         }
+        if (requirement === "browser") {
+            try {
+                const module = require("playwright") as {
+                    chromium?: { executablePath?: () => string };
+                };
+                const executable = module.chromium?.executablePath?.();
+                if (typeof executable !== "string" || !existsSync(executable)) {
+                    return `browser seat unavailable: Playwright Chromium is unavailable${executable ? ` at ${executable}` : ""}`;
+                }
+            } catch {
+                return "browser seat unavailable: Playwright is unavailable";
+            }
+            continue;
+        }
         if (requirement !== "display") return `runner cannot supply requirement ${requirement}`;
         // `display` is declared by the host that has one rather than inferred: a host with a window server
         // still runs every other row headlessly.
