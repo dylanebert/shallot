@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { cargoTestExecutable, cargoTestTargetExecutables } from "../src/harness/verdict";
+import { cargoTestExecutable, cargoTestTargetExecutables } from "../src/harness/requirements";
 
 const root = resolve(process.env.SHALLOT_PROJECT_ROOT ?? resolve(import.meta.dir, ".."));
 const subjectByPackage: Record<string, string> = {

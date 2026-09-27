@@ -81,6 +81,7 @@ const required = [
     "src/engine/app/device-tiers.generated.ts",
     "bin/shallot.ts",
     ...carriers,
+    "src/project/policy.ts",
     "src/cli/index.ts",
     "dist/vite.js",
     "src/harness/browser.json",

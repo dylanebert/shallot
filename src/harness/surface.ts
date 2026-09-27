@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, relative, resolve, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { relative, resolve, sep } from "node:path";
 import { parse } from "@babel/parser";
 import { Glob } from "bun";
 import {
@@ -9,6 +9,9 @@ import {
     UNIT_BUDGET_MS,
     validateDeclaration,
 } from "./declaration";
+import { type QuarantineRow, readQuarantine } from "./quarantine";
+
+export { type DeclarationFile, type QuarantineRow, readQuarantine } from "./quarantine";
 
 /** A discovered check, independent of the project that owns it. */
 export interface SurfaceRow {
@@ -20,20 +23,6 @@ export interface SurfaceRow {
     file: string;
     /** Source file(s) whose token changes select this integration row. */
     subjects: string[];
-}
-
-export interface QuarantineRow {
-    file: string;
-    claim: string;
-    reason: string;
-    expires: string;
-    spec: string;
-}
-
-/** the rows of one root declaration and the errors its malformed rows raised */
-export interface DeclarationFile<Row> {
-    rows: Row[];
-    errors: string[];
 }
 
 export interface UndeclaredFile {
@@ -65,8 +54,6 @@ const SKIP = new Set([".git", ".cache", "node_modules", "fixtures", "target", "d
 const BUN_TEST_IMPORT = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*["']bun:test["']/g;
 const REGISTRARS = new Set(["test", "it", "describe"]);
 const COLUMNS = ["claim", "size", "requires", "subject", "budget", "file"] as const;
-const DEEP_RECIPE_IMPORT = /(?:from\s+|import\s*\(\s*)["'][^"']*\/src(?:\/|["'])/;
-const PHYSICS_WORLD_ESCAPE = /\bPhysics\.world\b|\bphysicsWorld\s*\(/;
 // A temp dir a check creates must live under the host temp root; one rooted in the repository leaks into
 // discovery, `git status` and sibling sweeps when a row dies before its cleanup.
 const MKDTEMP_CALL = /\bmkdtempSync\s*\(([^;]*)/g;
@@ -289,47 +276,6 @@ export function readFileDeclarations(
     return source;
 }
 
-function recipeSourceViolations(
-    root: string,
-    manifestPath: string,
-    population: Population,
-    conventionSources: ReadonlyMap<string, string | undefined>,
-): void {
-    let manifest: unknown;
-    try {
-        manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    } catch {
-        return;
-    }
-    if (
-        !manifest ||
-        typeof manifest !== "object" ||
-        (manifest as { kind?: unknown }).kind !== "recipe"
-    )
-        return;
-
-    const sourceRoot = resolve(dirname(manifestPath), "src");
-    if (!existsSync(sourceRoot)) return;
-    for (const match of new Glob("**/*.ts").scanSync({ cwd: sourceRoot, dot: false })) {
-        const path = resolve(sourceRoot, match);
-        const file = relativeFile(root, path);
-        // Reuse the declaration reader's source for convention-named files. This keeps the source
-        // rules and the population reader on one physical read.
-        const source = conventionSources.has(path)
-            ? conventionSources.get(path)
-            : readFileSync(path, "utf8");
-        if (source === undefined) continue;
-        if (DEEP_RECIPE_IMPORT.test(source))
-            population.invalid.push(
-                `recipe source uses a deep engine import: ${file}; import only from package exports`,
-            );
-        if (PHYSICS_WORLD_ESCAPE.test(source))
-            population.invalid.push(
-                `recipe source uses Physics.world/physicsWorld: ${file}; use the State-scoped public seam`,
-            );
-    }
-}
-
 function discoveredFiles(root: string): string[] {
     const files: string[] = [];
     for (const match of new Glob("**/*.{test,oracle}.ts").scanSync({
@@ -352,93 +298,16 @@ export function collectPopulation(root: string): Population {
         files: [],
     };
     const files = discoveredFiles(population.root);
-    const conventionSources = new Map<string, string | undefined>();
     // The naming convention is the complete population. Read each discovered path once, regardless of
     // what any project or example manifest happens to contain.
     for (const path of files) {
-        const source = readFileDeclarations(population.root, path, population);
-        conventionSources.set(path, source);
+        readFileDeclarations(population.root, path, population);
     }
-    const manifests = new Glob("**/shallot.json").scanSync({ cwd: population.root, dot: false });
-    const manifestFiles = [...manifests]
-        .filter((match) => !match.split("/").some((part) => SKIP.has(part)))
-        .sort();
-    for (const match of manifestFiles)
-        recipeSourceViolations(
-            population.root,
-            resolve(population.root, match),
-            population,
-            conventionSources,
-        );
     population.files = files.map((path) => relativeFile(population.root, path));
     population.rows.sort((a, b) => a.claim.localeCompare(b.claim));
     population.undeclared.sort((a, b) => a.file.localeCompare(b.file));
     return population;
 }
-
-function isIsoDate(value: unknown): value is string {
-    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-    const date = new Date(`${value}T00:00:00Z`);
-    return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
-}
-
-/**
- * One root declaration file: which file it is, what one row is called in an error, the fields every row
- * must carry as non-empty strings, and any further per-row rules.
- */
-interface Declaration {
-    file: string;
-    noun: string;
-    strings: readonly string[];
-    rules?: readonly ((row: Record<string, unknown>) => string)[];
-}
-
-const QUARANTINE: Declaration = {
-    file: "quarantine.json",
-    noun: "quarantine",
-    strings: ["file", "claim", "reason", "expires", "spec"],
-    rules: [(row) => (isIsoDate(row.expires) ? "" : "expires must be an ISO date")],
-};
-
-/**
- * Read one root declaration. An absent file is zero rows and no error, so a declaration is never
- * satisfied by deleting it; a malformed row is an error, never a silently dropped row.
- */
-function readDeclaration<Row>(root: string, declaration: Declaration): DeclarationFile<Row> {
-    const { file, noun, strings, rules = [] } = declaration;
-    const path = resolve(root, file);
-    if (!existsSync(path)) return { rows: [], errors: [] };
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(readFileSync(path, "utf8"));
-    } catch (error) {
-        return { rows: [], errors: [`invalid ${file}: ${(error as Error).message}`] };
-    }
-    if (!Array.isArray(parsed)) return { rows: [], errors: [`invalid ${file}: expected an array`] };
-    const rows: Row[] = [];
-    const errors: string[] = [];
-    for (const [index, raw] of parsed.entries()) {
-        const row = (raw ?? {}) as Record<string, unknown>;
-        const at = `invalid ${noun} row ${index + 1}`;
-        const missing = strings.filter(
-            (field) => typeof row[field] !== "string" || (row[field] as string).trim() === "",
-        );
-        if (missing.length > 0) {
-            errors.push(`${at}: fields must be strings: ${missing.join(", ")}`);
-            continue;
-        }
-        const broken = rules.map((rule) => rule(row)).find((reason) => reason !== "");
-        if (broken !== undefined) {
-            errors.push(`${at}: ${broken}`);
-            continue;
-        }
-        rows.push(row as Row);
-    }
-    return { rows, errors };
-}
-
-export const readQuarantine = (root: string): DeclarationFile<QuarantineRow> =>
-    readDeclaration(root, QUARANTINE);
 
 export function formatPopulation(
     population: Population,
@@ -590,147 +459,12 @@ export function selectIntegrationRows(
     });
 }
 
-function shallotPackage(name: string): boolean {
-    return name === "@dylanebert/shallot" || name.startsWith("@dylanebert/shallot-");
-}
-
-type ForbiddenSpecifier = "link" | "file" | "git" | "github" | "URL" | "workspace" | "portal";
-const FULL_COMMIT = /^[0-9a-f]{40}$/i;
-const PUBLISHED_RANGE = /^(?:[vV]?\d|[~^<>=*|])/;
-const REMOTE_TARBALL = /^https?:\/\/[^\s]+\.(?:tgz|tar\.gz)(?:[?#].*)?$/i;
-const LOCAL_TARBALL = /\.(?:tgz|tar\.gz)$/i;
-
-function forbiddenSpecifier(spec: string): ForbiddenSpecifier | null {
-    if (spec.startsWith("link:")) return "link";
-    if (spec.startsWith("file:")) return "file";
-    if (spec.startsWith("workspace:")) return "workspace";
-    if (spec.startsWith("portal:")) return "portal";
-    if (spec.startsWith("github:")) return "github";
-    if (spec.startsWith("git")) return "git";
-    try {
-        if (new URL(spec).protocol) return "URL";
-    } catch {}
-    return null;
-}
-
-function gitCommit(spec: string): string | null {
-    const hash = spec.slice(spec.lastIndexOf("#") + 1);
-    return spec.includes("#") && FULL_COMMIT.test(hash) ? hash : null;
-}
-
-function lockText(root: string): string | null {
-    const path = resolve(root, "bun.lock");
-    return existsSync(path) ? readFileSync(path, "utf8") : null;
-}
-
-function lockHas(lock: string | null, spec: string, integrity: boolean): boolean {
-    if (lock === null) return false;
-    const start = lock.indexOf(spec);
-    if (start < 0) return false;
-    if (!integrity) return true;
-    return /sha(?:256|512)-[A-Za-z0-9+/=_-]+/.test(lock.slice(start, start + 2048));
-}
-
-function checkedTarballViolation(root: string, file: string, spec: string): string | null {
-    const relativePath = spec.slice("file:".length);
-    if (relativePath.startsWith("/") || relativePath.split("/").includes(".."))
-        return `${file}: local Shallot tarball path escapes the project: ${JSON.stringify(spec)}`;
-    if (!LOCAL_TARBALL.test(relativePath))
-        return `${file}: local Shallot source directory is not a sanctioned artifact: ${JSON.stringify(spec)}`;
-    const tarball = resolve(root, relativePath);
-    if (!existsSync(tarball))
-        return `${file}: checked-in Shallot tarball is missing: ${relativePath}`;
-    const digest = ["sha256", "sha512"]
-        .map((algorithm) => `${tarball}.${algorithm}`)
-        .find((sidecar) => existsSync(sidecar));
-    if (
-        digest === undefined ||
-        !new RegExp("^[0-9a-f]{" + (digest.endsWith("sha256") ? 64 : 128) + "}", "im").test(
-            readFileSync(digest, "utf8"),
-        )
-    )
-        return `${file}: checked-in Shallot tarball needs a hexadecimal digest sidecar: ${relativePath}`;
-    const provenance = `${tarball}.source-commit`;
-    if (!existsSync(provenance) || !FULL_COMMIT.test(readFileSync(provenance, "utf8").trim()))
-        return `${file}: checked-in Shallot tarball needs a full source-commit sidecar: ${relativePath}`;
-    return null;
-}
-
-function dependencyViolations(root: string): string[] {
-    const violations: string[] = [];
-    const lock = lockText(root);
-    const files = [...new Glob("**/package.json").scanSync({ cwd: root, dot: false })]
-        .filter((file) => !file.split("/").some((part) => SKIP.has(part)))
-        .sort();
-    for (const file of files) {
-        const path = resolve(root, file);
-        let manifest: Record<string, unknown>;
-        try {
-            const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-            if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) continue;
-            manifest = parsed as Record<string, unknown>;
-        } catch (error) {
-            violations.push(`invalid package manifest: ${file}: ${(error as Error).message}`);
-            continue;
-        }
-        const packageName = typeof manifest.name === "string" ? manifest.name : null;
-        for (const [table, raw] of Object.entries(manifest)) {
-            if (!/dependencies$/i.test(table) || raw === null || typeof raw !== "object") continue;
-            for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
-                if (!shallotPackage(name) || typeof value !== "string") continue;
-                if (name === packageName && value === "link:.") continue;
-                const kind = forbiddenSpecifier(value);
-                if (kind === "link" || kind === "workspace" || kind === "portal") {
-                    violations.push(
-                        `${file}: ${table}.${name} uses forbidden ${kind} specifier ${JSON.stringify(value)}`,
-                    );
-                    continue;
-                }
-                if (kind === "file") {
-                    const violation = checkedTarballViolation(root, file, value);
-                    if (violation !== null) violations.push(violation);
-                    continue;
-                }
-                if (kind === "git" || kind === "github") {
-                    const commit = gitCommit(value);
-                    if (commit === null)
-                        violations.push(
-                            `${file}: ${table}.${name} requires a full 40-hex Git commit, got ${JSON.stringify(value)}`,
-                        );
-                    else if (!lockHas(lock, value, false))
-                        violations.push(
-                            `${file}: ${table}.${name} Git identity is not recorded in bun.lock: ${JSON.stringify(value)}`,
-                        );
-                    continue;
-                }
-                if (kind === "URL") {
-                    if (!REMOTE_TARBALL.test(value))
-                        violations.push(
-                            `${file}: ${table}.${name} uses an unqualified Shallot URL: ${JSON.stringify(value)}`,
-                        );
-                    else if (!lockHas(lock, value, true))
-                        violations.push(
-                            `${file}: ${table}.${name} remote tarball needs matching lock integrity: ${JSON.stringify(value)}`,
-                        );
-                    continue;
-                }
-                if (!PUBLISHED_RANGE.test(value))
-                    violations.push(
-                        `${file}: ${table}.${name} uses mutable dist-tag ${JSON.stringify(value)}`,
-                    );
-            }
-        }
-    }
-    return violations;
-}
-
 export function readSurface(root: string, population = collectPopulation(root)): string[] {
     const violations = [
         ...population.invalid,
         ...population.undeclared.map(
             (file) => `undeclared check file: ${file.file} ${file.reason}`,
         ),
-        ...dependencyViolations(root),
     ];
     const seen = new Map<string, string>();
     for (const row of population.rows) {

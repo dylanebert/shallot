@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { collectPopulation } from "../src/harness/surface";
+import { readProjectPolicy } from "../src/project/policy";
 
 // `bun run scripts/examples-index.ts [--check]`, run by `bun run format`: emit `examples/AGENTS.md`
 // from each source-visible `examples/*/shallot.json` (`--root <dir>` is for isolated fixture tests). The index is never
@@ -40,7 +41,7 @@ for (const path of evidence.stdout.toString().split("\0")) {
 
 const population = collectPopulation(root);
 const rows: { name: string; kind: Kind; description: string; checkSize: string }[] = [];
-const errors: string[] = [];
+const errors: string[] = readProjectPolicy(root);
 for (const name of [...names].sort()) {
     const path = resolve(examples, name, "shallot.json");
     if (!existsSync(path)) {

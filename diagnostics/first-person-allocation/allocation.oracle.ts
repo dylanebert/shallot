@@ -3,11 +3,10 @@ import {
     type AllocationSite,
     type AllocationWindow,
     allocationFailure,
-    type PageSample,
-    samplePage,
     windowBytes,
 } from "@dylanebert/shallot/harness/allocation";
 import { check } from "@dylanebert/shallot/harness/check";
+import { type PageSample, samplePage } from "./display";
 
 function table(label: string, sites: readonly AllocationSite[], span?: AllocationWindow): string {
     const bytes = windowBytes({ sites });
@@ -68,7 +67,7 @@ check(
         // steadiness premise, not the warm's length, so the sampler refuses a slow page by name rather than
         // trimming the warm. The deadline sits 4 s inside the budget, so teardown always runs before the
         // budget ends.
-        const sample = await samplePage(resolve(import.meta.dir, ".."), {
+        const sample = await samplePage(resolve(import.meta.dir, "../../examples/first-person"), {
             warm: 480,
             frames: 120,
             deadline: performance.now() + 16_000,

@@ -1,14 +1,40 @@
 import { expect } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
 import {
     type CargoArtifact,
     nodeVersionMismatch,
     selectCargoTestExecutable,
     selectCargoTestTargetExecutables,
-} from "./verdict";
+} from "./requirements";
+
+check(
+    "verdict reporting imports no host prerequisite machinery",
+    {
+        claim: "verdict data and reporting do not import Cargo Node GPU browser or display prerequisite machinery",
+    },
+    async () => {
+        const built = await Bun.build({
+            entrypoints: [resolve(import.meta.dir, "verdict.ts")],
+            metafile: true,
+            external: ["playwright", "bun-webgpu"],
+            target: "bun",
+        });
+        if (!built.success || built.metafile === undefined)
+            throw new Error(`verdict graph failed to build: ${built.logs.map(String).join("\\n")}`);
+        const inputs = Object.keys(built.metafile.inputs).map((path) => resolve(path));
+        expect(inputs.some((path) => path.endsWith("/src/harness/requirements.ts"))).toBe(false);
+        expect(inputs.some((path) => path.endsWith("/src/harness/launch.ts"))).toBe(false);
+        expect(inputs.some((path) => path.endsWith("/src/harness/seat.ts"))).toBe(false);
+        expect(
+            Object.values(built.metafile.inputs)
+                .flatMap((input) => input.imports)
+                .some((edge) => ["fs", "module"].includes(edge.path)),
+        ).toBe(false);
+    },
+);
 
 check(
     "the node requirement holds Node to its exact pin",

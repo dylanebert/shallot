@@ -1,13 +1,8 @@
 import { test } from "bun:test";
 import { type CheckDeclaration, validateDeclaration } from "./declaration";
-import {
-    emitVerdict,
-    MissingPremise,
-    missingRequirement,
-    quarantineReason,
-    type VerdictMetadata,
-    verdictMetadata,
-} from "./verdict";
+import { quarantineReason } from "./quarantine";
+import { defaultMetadata, missingRequirement } from "./requirements";
+import { emitVerdict, MissingPremise, type VerdictMetadata, verdictMetadata } from "./verdict";
 
 export * from "./declaration";
 
@@ -61,10 +56,12 @@ export function check(
         return;
     }
 
-    const quarantine = file === null ? null : quarantineReason(file, decl.claim);
+    const root = process.env.SHALLOT_PROJECT_ROOT ?? process.cwd();
+    const quarantine = file === null ? null : quarantineReason(root, file, decl.claim);
     if (quarantine !== null) {
         if (decl.size === "integration") {
             emitVerdict(decl.claim, decl.size, performance.now(), "refused", {
+                ...defaultMetadata(),
                 reason: quarantine,
             });
         }
@@ -72,7 +69,7 @@ export function check(
         return;
     }
     const missing = missingRequirement(decl.requires, {
-        root: process.env.SHALLOT_PROJECT_ROOT ?? process.cwd(),
+        root,
         subjects:
             decl.subject === undefined
                 ? []
@@ -83,7 +80,10 @@ export function check(
     if (missing !== null) {
         // A missing premise is refusal, never a green skip. Throw at registration so Bun's exit
         // status carries the refusal through every installed command and hosted runner.
-        emitVerdict(decl.claim, decl.size, performance.now(), "refused", { reason: missing });
+        emitVerdict(decl.claim, decl.size, performance.now(), "refused", {
+            ...defaultMetadata(),
+            reason: missing,
+        });
         throw new Error(`refused check ${decl.claim}: ${missing}`);
     }
     const reports = decl.size === "integration";
@@ -94,7 +94,10 @@ export function check(
             const started = performance.now();
             try {
                 const value = await body();
-                const metadata: VerdictMetadata = verdictMetadata(value);
+                const metadata: VerdictMetadata = {
+                    ...(reports ? defaultMetadata() : {}),
+                    ...verdictMetadata(value),
+                };
                 if (
                     value !== null &&
                     typeof value === "object" &&
@@ -121,8 +124,8 @@ export function check(
                         started,
                         premise === null ? "fail" : "refused",
                         premise === null
-                            ? verdictMetadata(error)
-                            : { ...verdictMetadata(error), reason: premise },
+                            ? { ...defaultMetadata(), ...verdictMetadata(error) }
+                            : { ...defaultMetadata(), ...verdictMetadata(error), reason: premise },
                     );
                 }
                 throw error;

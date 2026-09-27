@@ -11,6 +11,7 @@ import {
     selectOracleRows,
 } from "../src/harness/surface";
 import type { VerdictResult } from "../src/harness/verdict";
+import { readProjectPolicy } from "../src/project/policy";
 
 const args = Bun.argv.slice(2);
 const rootIndex = args.indexOf("--root");
@@ -615,7 +616,7 @@ if (integration && !selectorRequested && (base === undefined || diff === undefin
     refuse("integration test requires --base <ref> and --diff <ref>");
 
 const population = collectPopulation(root);
-const violations = readSurface(root, population);
+const violations = [...readSurface(root, population), ...readProjectPolicy(root)];
 if (violations.length > 0) refuse(violations.join("; "));
 if (oracle !== undefined) {
     const selected = selectOracleRows(population, oracle);

@@ -1,5 +1,4 @@
 import type { State } from "../engine";
-import { getComponent } from "../engine/ecs";
 import type { PixelProbe } from "./pixels";
 
 export { type PixelProbe, type PixelProbeResult, pixelProbePass, probePixels } from "./pixels";
@@ -32,10 +31,7 @@ export interface Check {
  * @example
  * ```
  * const harness = installHarness(app.state);
- * harness.run = async () => {
- *     const fell = harness.read!(boxEid)!.pos[1] < 0.5;
- *     return { ok: fell, checks: [{ name: "box fell", ok: fell }] };
- * };
+ * harness.run = async () => ({ ok: true, checks: [{ name: "scene booted", ok: true }] });
  * ```
  */
 export interface Verdict {
@@ -45,20 +41,9 @@ export interface Verdict {
 }
 
 /**
- * one entity's live pose, as {@link HarnessTarget.read} returns it: the physics-owned pose for a
- * `Body`, else the authored `Transform`. `vel` is present only for a physics body.
- */
-export interface PoseState {
-    pos: [number, number, number];
-    quat: [number, number, number, number];
-    vel?: [number, number, number];
-}
-
-/**
  * the contract a project installs on `window.__harness` for the driver to drive. `ready`
  * gates the run (the command waits for it before calling `run`); `run` returns the pass/fail
- * {@link Verdict}; `read` exposes a live entity pose so an assertion can check where something
- * ended up without the project hand-rolling a readback. {@link installHarness} installs a default.
+ * {@link Verdict}. {@link installHarness} installs a default.
  */
 export interface HarnessTarget {
     /** true once the scene has built and drawn at least one frame — the command waits for this. */
@@ -79,9 +64,6 @@ export interface HarnessTarget {
     /** run the verification and resolve a {@link Verdict}. `opts` carries the command's `--query`
      *  values (URL params are the primary channel; this mirrors them for programmatic runs). */
     run?(opts?: Record<string, unknown>): Promise<Verdict>;
-    /** the live pose of an entity by eid — physics pose for a `Body`, else its `Transform`.
-     *  `null` when the eid carries neither. */
-    read?(eid: number): PoseState | null;
 }
 
 // the `window.__harness` slot the driver reads — the one global the published protocol names, so a
@@ -94,75 +76,22 @@ declare global {
 
 /**
  * install the default `window.__harness` for the driver and return the handle. `ready` flips true
- * once `state.time.elapsed` advances past zero (the first step), `read` returns live entity poses, and
- * `run` reports a booted pass (the driver's pixel gate derives the real `rendered` verdict; the default run
- * only attests the scene booted).
+ * once `state.time.elapsed` advances past zero (the first step), and `run` reports a booted pass (the
+ * driver's pixel gate derives the real `rendered` verdict; the default run only attests the scene booted).
  * A project layers its own assertions by replacing `run` on the returned handle:
  *
  * @example
  * ```
  * const app = await run({ scene });
  * const harness = installHarness(app.state);
- * harness.run = async () => {
- *     const box = harness.read!(boxEid)!;
- *     return { ok: box.pos[1] < 0.5, checks: [{ name: "box settled", ok: box.pos[1] < 0.5 }] };
- * };
+ * harness.run = async () => ({ ok: true, checks: [{ name: "scene booted", ok: true }] });
  * ```
  */
 export function installHarness(state: State): HarnessTarget {
     const target: HarnessTarget = {
-        // elapsed advances only after the first frame steps — so a truthy read means build finished
-        // (this ran) and the RAF loop has driven at least one draw.
+        // elapsed advances only after the first frame steps, so `ready` marks the built scene's first draw.
         get ready(): boolean {
             return state.time.elapsed > 0;
-        },
-        read(eid: number): PoseState | null {
-            // Physics registers this runtime-derived component under the stable `pose` name. Resolving
-            // the registration through engine ECS keeps harness independent of every standard module.
-            const pose = getComponent("pose") as
-                | {
-                      pos: {
-                          x: { get(eid: number): number };
-                          y: { get(eid: number): number };
-                          z: { get(eid: number): number };
-                      };
-                      quat: {
-                          x: { get(eid: number): number };
-                          y: { get(eid: number): number };
-                          z: { get(eid: number): number };
-                          w: { get(eid: number): number };
-                      };
-                      vel: {
-                          x: { get(eid: number): number };
-                          y: { get(eid: number): number };
-                          z: { get(eid: number): number };
-                      };
-                  }
-                | undefined;
-            if (pose && state.has(eid, pose)) {
-                return {
-                    pos: [pose.pos.x.get(eid), pose.pos.y.get(eid), pose.pos.z.get(eid)],
-                    quat: [
-                        pose.quat.x.get(eid),
-                        pose.quat.y.get(eid),
-                        pose.quat.z.get(eid),
-                        pose.quat.w.get(eid),
-                    ],
-                    vel: [pose.vel.x.get(eid), pose.vel.y.get(eid), pose.vel.z.get(eid)],
-                };
-            }
-            const transform = getComponent("transform") as
-                | {
-                      pos: { read(eid: number, out: Float32Array): Float32Array };
-                      rot: { read(eid: number, out: Float32Array): Float32Array };
-                  }
-                | undefined;
-            if (transform && state.has(eid, transform)) {
-                const p = transform.pos.read(eid, new Float32Array(4));
-                const r = transform.rot.read(eid, new Float32Array(4));
-                return { pos: [p[0], p[1], p[2]], quat: [r[0], r[1], r[2], r[3]] };
-            }
-            return null;
         },
         run: async (): Promise<Verdict> => ({
             ok: true,

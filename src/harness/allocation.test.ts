@@ -11,6 +11,48 @@ const ENTRY = resolve(import.meta.dir, "../../examples/first-person/src/allocati
 const ROOT = resolve(import.meta.dir, "../..");
 
 check(
+    "reusable allocation helpers exclude the display instrument",
+    {
+        claim: "a Node allocation import does not load the display-only oracle or Hyprland instrument",
+    },
+    async () => {
+        const built = await Bun.build({
+            entrypoints: [resolve(import.meta.dir, "allocation.ts")],
+            metafile: true,
+            external: ["playwright", "bun-webgpu", "chromium-bidi"],
+            target: "bun",
+        });
+        if (!built.success || built.metafile === undefined)
+            throw new Error(
+                `allocation import graph failed: ${built.logs.map(String).join("\\n")}`,
+            );
+        const inputs = Object.keys(built.metafile.inputs).map((path) => resolve(path));
+        expect(inputs.some((path) => path.includes("diagnostics/first-person-allocation"))).toBe(
+            false,
+        );
+        expect(inputs.some((path) => path.endsWith("/src/harness/display.ts"))).toBe(false);
+        expect(inputs.some((path) => path.endsWith("/src/harness/display-seat.ts"))).toBe(false);
+
+        const node = await Bun.build({
+            entrypoints: [resolve(import.meta.dir, "allocation-sampler.mjs")],
+            metafile: true,
+            target: "node",
+        });
+        if (!node.success || node.metafile === undefined)
+            throw new Error(`Node sampler graph failed: ${node.logs.map(String).join("\\n")}`);
+        const nodeInputs = Object.keys(node.metafile.inputs).map((path) => resolve(path));
+        expect(
+            nodeInputs.some((path) => path.includes("diagnostics/first-person-allocation")),
+        ).toBe(false);
+        expect(
+            Object.values(node.metafile.inputs)
+                .flatMap((input) => input.imports)
+                .some((edge) => edge.external && /^(?:bun:|playwright)/.test(edge.path)),
+        ).toBe(false);
+    },
+);
+
+check(
     "allocation instrument import leaves Vite unloaded",
     {
         claim: "a non-page allocation row can import the allocation instrument without loading Vite before requesting a page build",

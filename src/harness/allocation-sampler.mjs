@@ -1,6 +1,5 @@
-// Allocation attribution for both samplers, and the Node sampler itself. `attribute`, `subjectSite` and
-// `originalPosition` are shared with the page sampler in `./allocation.ts`. The rest runs only when Node runs
-// this file, never Bun: V8's sampling heap profiler detects allocation from samples, not exact counts.
+// Node's V8 sampling heap profiler and allocation attribution. Its source-map helpers are also used by the
+// first-person display diagnostic; the rest runs only when Node executes this file, never in the Bun host.
 // JSC's statistics hold still between collections.
 // argv: <bundle.mjs> <warm frames> <window frames> <input file> [transition]. The bundle's default export
 // takes the input text and resolves to { step(), dispose() }, plus { spawn(), despawn() } for a transition;

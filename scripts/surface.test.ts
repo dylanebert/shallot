@@ -14,10 +14,11 @@ import { check } from "@dylanebert/shallot/harness/check";
 import {
     collectPopulation,
     discoverTestFiles,
-    readSurface,
     selectIntegrationRows,
+    selectOracleRows,
     subjectTokens,
 } from "@dylanebert/shallot/harness/surface";
+import { readProjectPolicy } from "../src/project/policy";
 import { unfixture } from "./unfixture";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -140,11 +141,69 @@ function dependencyViolations(
             }),
         );
         if (lock !== undefined) writeFileSync(join(tree, "bun.lock"), lock);
-        return readSurface(tree);
+        return readProjectPolicy(tree);
     } finally {
         rmSync(tree, { recursive: true, force: true });
     }
 }
+
+check(
+    "the checkout test carrier refuses invalid project dependency policy",
+    {
+        claim: "the checkout test carrier refuses a mutable Shallot dependency before listing a project population",
+        size: "integration",
+        subject: ["src/project/policy.ts", "scripts/test-runner.ts", "bin/shallot.ts"],
+    },
+    () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-carrier-project-policy-"));
+        mkdirSync(join(tree, "src"), { recursive: true });
+        writeFileSync(
+            join(tree, "package.json"),
+            JSON.stringify({ name: "fixture", dependencies: { "@dylanebert/shallot": "latest" } }),
+        );
+        writeFileSync(
+            join(tree, "src/row.test.ts"),
+            'check("row", { claim: "carrier policy fixture" }, () => {});\n',
+        );
+        try {
+            const result = run(tree, "--list");
+            expect(result.code).toBe(1);
+            expect(result.err).toContain('mutable dist-tag "latest"');
+            expect(result.out).not.toContain("carrier policy fixture");
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
+    "project policy stays outside check discovery",
+    {
+        claim: "check discovery parses declarations without applying recipe source policy, while project tooling still refuses private engine imports and physics-world escapes",
+    },
+    () => {
+        const tree = mkdtempSync(join(tmpdir(), "shallot-project-policy-recipe-"));
+        const recipe = join(tree, "examples/demo");
+        mkdirSync(join(recipe, "src"), { recursive: true });
+        writeFileSync(join(recipe, "shallot.json"), JSON.stringify({ kind: "recipe" }));
+        writeFileSync(
+            join(recipe, "src/game.ts"),
+            'import { thing } from "@dylanebert/shallot/src/engine";\nPhysics.world();\n',
+        );
+        try {
+            const population = collectPopulation(tree);
+            expect(population.invalid).toEqual([]);
+            expect(readProjectPolicy(tree).join("\\n")).toContain(
+                "recipe source uses a deep engine import: examples/demo/src/game.ts",
+            );
+            expect(readProjectPolicy(tree).join("\\n")).toContain(
+                "recipe source uses Physics.world/physicsWorld: examples/demo/src/game.ts",
+            );
+        } finally {
+            rmSync(tree, { recursive: true, force: true });
+        }
+    },
+);
 
 check(
     "surface: self-link Shallot spec passes",
@@ -221,11 +280,11 @@ check(
         writeFileSync(tarball, "artifact");
         writeFileSync(`${tarball}.sha256`, `${"a".repeat(64)}  shallot.tgz\n`);
         try {
-            expect(readSurface(tree).join("\n")).toContain(
+            expect(readProjectPolicy(tree).join("\n")).toContain(
                 "checked-in Shallot tarball needs a full source-commit sidecar",
             );
             writeFileSync(`${tarball}.source-commit`, `${"b".repeat(40)}\n`);
-            expect(readSurface(tree)).toEqual([]);
+            expect(readProjectPolicy(tree)).toEqual([]);
         } finally {
             rmSync(tree, { recursive: true, force: true });
         }
@@ -754,6 +813,31 @@ check(
         } finally {
             rmSync(tree, { recursive: true, force: true });
         }
+    },
+);
+
+check(
+    "the moved first-person display oracle remains discoverable and selected",
+    {
+        claim: "moving the first-person display oracle into diagnostics preserves its named claim and declaration for the runner without running the physical display",
+    },
+    () => {
+        const diagnostics = resolve(ROOT, "diagnostics/first-person-allocation");
+        const population = collectPopulation(diagnostics);
+        const rows = selectOracleRows(
+            population,
+            "a warm requestAnimationFrame frame of the production first-person web build, stepped by its own page loop in a headed browser on a real adapter, allocates no JavaScript heap in any steady window, with nothing surviving a full collection and no major collection or promoted bytes, so no periodic scavenge follows play",
+        );
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({
+            size: "integration",
+            requires: ["display"],
+            subjects: ["examples/first-person"],
+            budget: 20_000,
+            file: "allocation.oracle.ts",
+        });
+        expect(discoverTestFiles(diagnostics)).not.toContain(rows[0].file);
+        expect(discoverTestFiles(diagnostics, true)).toContain(rows[0].file);
     },
 );
 
