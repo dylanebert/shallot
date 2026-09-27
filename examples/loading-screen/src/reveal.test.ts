@@ -1,6 +1,7 @@
 import { resetCompute, type State } from "@dylanebert/shallot";
+import { DARK } from "@dylanebert/shallot/brand";
 import { check } from "@dylanebert/shallot/harness/check";
-import { mountHost } from "./host";
+import { FRAME_ERROR_COLOR, mountHost } from "./host";
 import { revealAfterFirstFrame } from "./reveal";
 
 type FakeElement = {
@@ -16,6 +17,21 @@ type FakeElement = {
     appendChild(child: FakeElement): FakeElement;
     querySelector(selector: string): FakeElement | null;
 };
+
+function contrast(foreground: string, background: string): number {
+    const luminance = (hex: string) => {
+        const channels = [1, 3, 5].map(
+            (offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255,
+        );
+        const linear = channels.map((channel) =>
+            channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+        );
+        return 0.2126 * linear[0]! + 0.7152 * linear[1]! + 0.0722 * linear[2]!;
+    };
+    const light = Math.max(luminance(foreground), luminance(background));
+    const dark = Math.min(luminance(foreground), luminance(background));
+    return (light + 0.05) / (dark + 0.05);
+}
 
 function fakeElement(): FakeElement {
     const element: FakeElement = {
@@ -47,11 +63,17 @@ function fakeElement(): FakeElement {
 check(
     "a missing device on the first stepped frame leaves a readable error in its scene frame",
     {
-        claim: "a missing device on the first stepped frame leaves a readable error inside its scene frame",
+        claim: "a missing device on the first stepped frame leaves a readable alert inside its scene frame, with at least 4.5:1 contrast",
         size: "unit",
-        subject: ["examples/loading-screen/src/host.ts", "examples/loading-screen/src/reveal.ts"],
+        subject: [
+            "examples/loading-screen/src/host.ts",
+            "examples/loading-screen/src/reveal.ts",
+            "examples/loading-screen/src/style.css",
+        ],
     },
     async () => {
+        const errorContrast = contrast(FRAME_ERROR_COLOR, DARK.bg);
+        const contrastPasses = errorContrast >= 4.5;
         const app = fakeElement();
         const frame = fakeElement();
         const canvas = fakeElement();
@@ -104,11 +126,16 @@ check(
                 errorLine.textContent?.includes("first frame had no WebGPU device"),
         );
         return {
-            ok: readable,
+            ok: readable && contrastPasses,
             checks: [
                 {
                     name: "missing-device failure renders an alert line in the scene frame",
                     ok: readable,
+                },
+                {
+                    name: "frame error ink meets 4.5:1 contrast against the page background",
+                    ok: contrastPasses,
+                    data: { contrast: errorContrast, minimum: 4.5 },
                 },
             ],
         };

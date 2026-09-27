@@ -20,6 +20,7 @@ type Snapshot = {
 type Bounds = { left: number; top: number; right: number; bottom: number };
 type ScreenshotObservation = {
     sceneColorPixels: number;
+    descriptionInkPixels: number;
     sceneBounds: Bounds | null;
     canvas: { x: number; y: number; width: number; height: number };
     canvasPixels: Uint8Array;
@@ -57,6 +58,8 @@ const ORBIT_YAW = 0.6;
 const ORBIT_PITCH = 0.25;
 // A scene pixel differs when its largest RGB-channel delta from the clear corner exceeds 24.
 const SCENE_BACKGROUND_DELTA = 24;
+const DESCRIPTION_INK_MIN_PIXELS = 20;
+const DESCRIPTION_INK_TOLERANCE = 24;
 const PART_HALF_EXTENT = 0.5;
 const FRAME_DIFFERENCE_MEAN_LIMIT = 0.25;
 const FRAME_DIFFERENCE_PIXEL_LIMIT = 0.001;
@@ -74,6 +77,7 @@ const parseColor = (hex: string): [number, number, number] => [
     Number.parseInt(hex.slice(5, 7), 16),
 ];
 const PAGE_BACKGROUND = parseColor(DARK.bg);
+const DESCRIPTION_INK = parseColor(DARK.ink);
 const PROGRESS_GOLD = parseColor(DARK.gold);
 
 function convexHull(points: Point[]): Point[] {
@@ -409,6 +413,8 @@ async function inspectScreenshot(encoded: string): Promise<ScreenshotObservation
     };
     const frame = rect(host.frame);
     const canvas = rect(host.canvas);
+    const descriptionElement = document.querySelector<HTMLElement>(".description");
+    const description = descriptionElement ? rect(descriptionElement) : null;
     const inside = (
         box: ReturnType<typeof rect>,
         predicate: (r: number, g: number, b: number) => boolean,
@@ -463,6 +469,11 @@ async function inspectScreenshot(encoded: string): Promise<ScreenshotObservation
         }
     }
     const sceneBounds = sceneColorPixels === 0 ? null : { left, top, right, bottom };
+    const isDescriptionInk = (r: number, g: number, b: number) =>
+        Math.abs(r - DESCRIPTION_INK[0]) <= DESCRIPTION_INK_TOLERANCE &&
+        Math.abs(g - DESCRIPTION_INK[1]) <= DESCRIPTION_INK_TOLERANCE &&
+        Math.abs(b - DESCRIPTION_INK[2]) <= DESCRIPTION_INK_TOLERANCE;
+    const descriptionInkPixels = description ? inside(description, isDescriptionInk) : 0;
     const isProgressColor = (r: number, g: number, b: number) =>
         Math.abs(r - PROGRESS_GOLD[0]) < 24 &&
         Math.abs(g - PROGRESS_GOLD[1]) < 24 &&
@@ -482,6 +493,7 @@ async function inspectScreenshot(encoded: string): Promise<ScreenshotObservation
     const pageBackground = sample(8, 8);
     return {
         sceneColorPixels,
+        descriptionInkPixels,
         sceneBounds,
         canvas,
         canvasPixels,
@@ -690,6 +702,17 @@ checkWindow.__harness = {
                 name: "the description line remains hit-testable during loading",
                 ok: pageLineHitTarget,
                 data: { hitTarget: Number(pageLineHitTarget) },
+            },
+            {
+                name: "the held screenshot contains more than 20 ink-coloured description pixels",
+                ok: Boolean(
+                    heldImage && heldImage.descriptionInkPixels > DESCRIPTION_INK_MIN_PIXELS,
+                ),
+                data: {
+                    inkPixels: heldImage?.descriptionInkPixels ?? 0,
+                    minimumInkPixels: DESCRIPTION_INK_MIN_PIXELS,
+                    channelTolerance: DESCRIPTION_INK_TOLERANCE,
+                },
             },
             {
                 name: "the screenshot shows the loading bar over the page-background void",

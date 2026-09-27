@@ -85,7 +85,7 @@ canvas.visible {
     overflow-wrap: anywhere;
     padding: 24px;
     background: var(--bg);
-    color: #c4574b;
+    color: var(--frame-error);
     font-family: var(--sans);
     font-size: 14px;
     font-weight: 600;
