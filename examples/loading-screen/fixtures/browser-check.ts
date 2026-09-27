@@ -30,6 +30,23 @@ type ScreenshotObservation = {
     pageBackground: [number, number, number];
 };
 
+type ViewportLayout = {
+    found: boolean;
+    width: number;
+    height: number;
+    lineLeft: number;
+    lineTop: number;
+    lineRight: number;
+    lineBottom: number;
+    frameLeft: number;
+    frameTop: number;
+    frameRight: number;
+    frameBottom: number;
+    frameWidth: number;
+    frameHeight: number;
+    documentScrollWidth: number;
+    bodyScrollWidth: number;
+};
 type Point = { x: number; y: number };
 
 // The scaffold's orbit pose (distance 5, yaw 0.6, pitch 0.25) exposes three cube faces.
@@ -291,6 +308,7 @@ const buildFailed = deferred();
 const barProgress: Progress[] = [];
 const screenshots = new Map<string, ScreenshotObservation>();
 const observedStates = new Map<string, Snapshot>();
+const viewportLayouts: ViewportLayout[] = [];
 const screen = minimalDark({ container: host.frame });
 let overlay: HTMLElement | null = null;
 let app: Awaited<ReturnType<typeof build>> | null = null;
@@ -298,8 +316,7 @@ let loadingAtCompletion: Snapshot | undefined;
 let buildError: unknown;
 let began = false;
 let cleaned = false;
-let pageLinkHitTarget = false;
-let pageLinkHashChanged = false;
+let pageLineHitTarget = false;
 
 function progressElement(): HTMLElement | null {
     return overlay?.firstElementChild?.firstElementChild?.firstElementChild as HTMLElement | null;
@@ -487,7 +504,8 @@ const checkWindow = window as unknown as {
         stepFirstFrame(): Promise<void>;
         stepLaterFrame(): Promise<void>;
         recordSnapshot(name: string): void;
-        recordLinkInteraction(hitTarget: boolean, hashChanged: boolean): void;
+        recordPageLineHitTest(hitTarget: boolean): void;
+        recordViewport(layout: ViewportLayout): void;
         recordScreenshot(name: string, encoded: string): Promise<void>;
     };
     __harness?: {
@@ -505,7 +523,7 @@ checkWindow.__loadingCheck = {
         if (began) throw new Error("the example check already started the build");
         began = true;
         void build({
-            plugins: [OrbitPlugin, revealAfterFirstFrame(host)],
+            plugins: [OrbitPlugin, revealAfterFirstFrame(host, loading)],
             scene: SCENE,
             loading,
             pixelRatio: 1,
@@ -538,9 +556,11 @@ checkWindow.__loadingCheck = {
     recordSnapshot(name) {
         observedStates.set(name, snapshot());
     },
-    recordLinkInteraction(hitTarget, hashChanged) {
-        pageLinkHitTarget = hitTarget;
-        pageLinkHashChanged = hashChanged;
+    recordPageLineHitTest(hitTarget) {
+        pageLineHitTarget = hitTarget;
+    },
+    recordViewport(layout) {
+        viewportLayouts.push(layout);
     },
     async stepFirstFrame() {
         await waitForBuild();
@@ -574,6 +594,61 @@ checkWindow.__harness = {
         const laterGeometry = sceneGeometry(laterFrameImage);
         const backgroundComparison = compareSceneBackground(firstFrameImage, firstGeometry);
         const frameComparison = compareSceneFrames(firstFrameImage, laterFrameImage);
+        const responsiveChecks = viewportLayouts.map((layout) => {
+            const aspectError = Math.abs(layout.frameWidth - (layout.frameHeight * 16) / 9);
+            const topMargin = layout.lineTop;
+            const bottomMargin = layout.height - layout.frameBottom;
+            const marginDifference = Math.abs(topMargin - bottomMargin);
+            const lineAboveFrame = layout.lineTop >= 0 && layout.lineBottom <= layout.frameTop;
+            const frameInsideViewport =
+                layout.frameLeft >= 0 &&
+                layout.frameTop >= 0 &&
+                layout.frameRight <= layout.width &&
+                layout.frameBottom <= layout.height;
+            const noHorizontalOverflow =
+                layout.documentScrollWidth <= layout.width &&
+                layout.bodyScrollWidth <= layout.width;
+            const sidePadding =
+                layout.width > 480 ||
+                (layout.frameLeft >= 16 && layout.width - layout.frameRight >= 16);
+            const ok = Boolean(
+                layout.found &&
+                    lineAboveFrame &&
+                    frameInsideViewport &&
+                    aspectError <= 1 &&
+                    noHorizontalOverflow &&
+                    marginDifference <= 2 &&
+                    sidePadding &&
+                    layout.frameWidth <= 880,
+            );
+            return {
+                name: `${layout.width}x${layout.height} keeps the scene fitted and group vertically balanced`,
+                ok,
+                data: {
+                    found: Number(layout.found),
+                    viewportWidth: layout.width,
+                    viewportHeight: layout.height,
+                    lineLeft: layout.lineLeft,
+                    lineTop: layout.lineTop,
+                    lineRight: layout.lineRight,
+                    lineBottom: layout.lineBottom,
+                    frameLeft: layout.frameLeft,
+                    frameTop: layout.frameTop,
+                    frameRight: layout.frameRight,
+                    frameBottom: layout.frameBottom,
+                    frameWidth: layout.frameWidth,
+                    frameHeight: layout.frameHeight,
+                    aspectError,
+                    documentScrollWidth: layout.documentScrollWidth,
+                    bodyScrollWidth: layout.bodyScrollWidth,
+                    topMargin,
+                    bottomMargin,
+                    marginDifference,
+                    sidePaddingLeft: layout.frameLeft,
+                    sidePaddingRight: layout.width - layout.frameRight,
+                },
+            };
+        });
         const intermediateSteps =
             held?.progress.filter((step) => step.value > 0 && step.value < 1) ?? [];
         const completeSteps = held?.progress.filter((step) => step.value === 1) ?? [];
@@ -612,12 +687,9 @@ checkWindow.__harness = {
                 },
             },
             {
-                name: "the section link hits its own target and changes the hash during loading",
-                ok: pageLinkHitTarget && pageLinkHashChanged,
-                data: {
-                    hitTarget: Number(pageLinkHitTarget),
-                    hashChanged: Number(pageLinkHashChanged),
-                },
+                name: "the description line remains hit-testable during loading",
+                ok: pageLineHitTarget,
+                data: { hitTarget: Number(pageLineHitTarget) },
             },
             {
                 name: "the screenshot shows the loading bar over the page-background void",
@@ -718,6 +790,12 @@ checkWindow.__harness = {
                 },
             },
         ];
+        checks.push({
+            name: "all six responsive viewports were measured",
+            ok: viewportLayouts.length === 6,
+            data: { measuredViewports: viewportLayouts.length, expectedViewports: 6 },
+        });
+        checks.push(...responsiveChecks);
         const adapter = held?.adapter ?? null;
         checks.push({
             name: "the subject adapter identity was recorded",

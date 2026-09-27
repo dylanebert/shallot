@@ -5,7 +5,7 @@ import { check } from "@dylanebert/shallot/harness/check";
 check(
     "the embedded scene reveals only after its first stepped frame",
     {
-        claim: "frame-local loading or page usability breaks, the scene appears before its first stepped frame, or the first static scene frame is blank or geometrically wrong",
+        claim: "loading confinement or progress, description-line hit testing, first-frame reveal, static scene appearance, or responsive layout breaks",
         size: "integration",
         requires: ["browser"],
         subject: [
@@ -36,25 +36,23 @@ check(
             };
             await capture("held");
             await page.evaluate(() => window.scrollTo(0, 0));
-            const linkPoint = await page.evaluate(() => {
-                const link = document.querySelector<HTMLAnchorElement>("#section-link");
-                if (!link) return null;
-                const rect = link.getBoundingClientRect();
-                const x = rect.left + rect.width / 2;
-                const y = rect.top + rect.height / 2;
-                return { x, y, hitTarget: document.elementFromPoint(x, y) === link };
+            const lineHitTarget = await page.evaluate(() => {
+                const line = document.querySelector<HTMLParagraphElement>(".description");
+                if (!line) return false;
+                const range = document.createRange();
+                range.selectNodeContents(line);
+                const rect = range.getBoundingClientRect();
+                return (
+                    document.elementFromPoint(
+                        rect.left + rect.width / 2,
+                        rect.top + rect.height / 2,
+                    ) === line
+                );
             });
-            if (linkPoint) await page.mouse.click(linkPoint.x, linkPoint.y);
-            const hashAfter = await page.evaluate(() => window.location.hash);
             await page.evaluate(
-                ({ hitTarget, hashChanged }) =>
-                    window.__loadingCheck!.recordLinkInteraction(hitTarget, hashChanged),
-                {
-                    hitTarget: linkPoint?.hitTarget ?? false,
-                    hashChanged: linkPoint !== null && hashAfter === "#details",
-                },
+                (hitTarget) => window.__loadingCheck!.recordPageLineHitTest(hitTarget),
+                lineHitTarget,
             );
-            await page.evaluate(() => window.scrollTo(0, 0));
             await page.evaluate(() => window.__loadingCheck!.releaseBuild());
             await page.evaluate(() => window.__loadingCheck!.waitForCleanup());
             await page.evaluate(() => window.__loadingCheck!.waitForBuild());
@@ -68,6 +66,45 @@ check(
             await page.evaluate(() => window.__loadingCheck!.stepLaterFrame());
             await page.evaluate(() => window.__loadingCheck!.recordSnapshot("later-frame"));
             await capture("later-frame");
+
+            for (const { width, height } of [
+                { width: 390, height: 844 },
+                { width: 844, height: 390 },
+                { width: 820, height: 1180 },
+                { width: 1280, height: 720 },
+                { width: 1440, height: 900 },
+                { width: 2560, height: 1080 },
+            ]) {
+                await page.setViewportSize({ width, height });
+                await page.evaluate(() => window.scrollTo(0, 0));
+                const layout = await page.evaluate(() => {
+                    const line = document.querySelector<HTMLElement>(".description");
+                    const frame = document.querySelector<HTMLElement>("#frame");
+                    const lineRect = line?.getBoundingClientRect();
+                    const frameRect = frame?.getBoundingClientRect();
+                    return {
+                        found: Boolean(lineRect && frameRect),
+                        width: window.innerWidth,
+                        height: window.innerHeight,
+                        lineLeft: lineRect?.left ?? -1,
+                        lineTop: lineRect?.top ?? -1,
+                        lineRight: lineRect?.right ?? -1,
+                        lineBottom: lineRect?.bottom ?? -1,
+                        frameLeft: frameRect?.left ?? -1,
+                        frameTop: frameRect?.top ?? -1,
+                        frameRight: frameRect?.right ?? -1,
+                        frameBottom: frameRect?.bottom ?? -1,
+                        frameWidth: frameRect?.width ?? 0,
+                        frameHeight: frameRect?.height ?? 0,
+                        documentScrollWidth: document.documentElement.scrollWidth,
+                        bodyScrollWidth: document.body.scrollWidth,
+                    };
+                });
+                await page.evaluate(
+                    (observed) => window.__loadingCheck!.recordViewport(observed),
+                    layout,
+                );
+            }
         }),
 );
 
@@ -89,7 +126,24 @@ declare global {
             waitForCleanup(): Promise<void>;
             waitForBuild(): Promise<void>;
             recordSnapshot(name: string): void;
-            recordLinkInteraction(hitTarget: boolean, hashChanged: boolean): void;
+            recordPageLineHitTest(hitTarget: boolean): void;
+            recordViewport(layout: {
+                found: boolean;
+                width: number;
+                height: number;
+                lineLeft: number;
+                lineTop: number;
+                lineRight: number;
+                lineBottom: number;
+                frameLeft: number;
+                frameTop: number;
+                frameRight: number;
+                frameBottom: number;
+                frameWidth: number;
+                frameHeight: number;
+                documentScrollWidth: number;
+                bodyScrollWidth: number;
+            }): void;
             recordScreenshot(name: string, encoded: string): Promise<void>;
             stepFirstFrame(): Promise<void>;
             stepLaterFrame(): Promise<void>;

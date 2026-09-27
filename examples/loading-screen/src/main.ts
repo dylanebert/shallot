@@ -5,6 +5,7 @@ import { revealAfterFirstFrame } from "./reveal";
 import { SCENE } from "./scene";
 
 const host = mountHost();
+const loading = minimalDark({ container: host.frame });
 let app: Awaited<ReturnType<typeof run>> | undefined;
 let pageClosed = false;
 window.addEventListener("pagehide", () => {
@@ -13,9 +14,9 @@ window.addEventListener("pagehide", () => {
 });
 
 void run({
-    plugins: [OrbitPlugin, revealAfterFirstFrame(host)],
+    plugins: [OrbitPlugin, revealAfterFirstFrame(host, loading)],
     scene: SCENE,
-    loading: minimalDark({ container: host.frame }),
+    loading,
     pixelRatio: 1,
 })
     .then((running) => {

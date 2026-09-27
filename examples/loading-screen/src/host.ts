@@ -1,8 +1,5 @@
 import { DARK } from "@dylanebert/shallot/brand";
 
-const MUTED = "#a08c78";
-const LINE = "#2a2420";
-
 export interface HostFrame {
     frame: HTMLElement;
     canvas: HTMLCanvasElement;
@@ -14,22 +11,14 @@ export function mountHost(): HostFrame {
     const root = document.documentElement;
     root.style.setProperty("--bg", DARK.bg);
     root.style.setProperty("--ink", DARK.ink);
-    root.style.setProperty("--gold", DARK.gold);
-    root.style.setProperty("--muted", MUTED);
-    root.style.setProperty("--line", LINE);
-
     const app = document.querySelector<HTMLElement>("#app")!;
     app.innerHTML = `
         <main class="page">
-            <p class="description">lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+            <p class="description">scene with minimal loading bar</p>
             <section class="scene" aria-label="Embedded Shallot scene">
                 <div class="frame" id="frame">
                     <canvas id="scene" aria-label="Rendered Shallot scene"></canvas>
                 </div>
-            </section>
-            <section class="section" id="details">
-                <h2>aliquam erat</h2>
-                <p>lorem ipsum dolor sit amet, <a id="section-link" href="#details">consectetur</a> adipiscing elit.</p>
             </section>
         </main>`;
 
@@ -44,6 +33,21 @@ export function mountHost(): HostFrame {
         },
         fail(error) {
             console.error(error);
+            const loadingOverlay = Array.from(frame.children).some(
+                (child) => (child as HTMLElement).style.zIndex === "10000",
+            );
+            if (loadingOverlay) return;
+
+            let line = frame.querySelector<HTMLElement>(".frame-error");
+            if (!line) {
+                line = document.createElement("p");
+                line.className = "frame-error";
+                line.setAttribute("role", "alert");
+                frame.appendChild(line);
+            }
+            const detail =
+                error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+            line.textContent = `Something went wrong: ${detail}`;
         },
     };
 }
