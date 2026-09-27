@@ -1,4 +1,5 @@
 import { minimalDark, run } from "@dylanebert/shallot";
+import { OrbitPlugin } from "@dylanebert/shallot/extras";
 import { mountHost } from "./host";
 import { revealAfterFirstFrame } from "./reveal";
 import { SCENE } from "./scene";
@@ -12,7 +13,7 @@ window.addEventListener("pagehide", () => {
 });
 
 void run({
-    plugins: [revealAfterFirstFrame(host)],
+    plugins: [OrbitPlugin, revealAfterFirstFrame(host)],
     scene: SCENE,
     loading: minimalDark({ container: host.frame }),
     pixelRatio: 1,

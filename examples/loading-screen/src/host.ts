@@ -1,6 +1,10 @@
+import { DARK } from "@dylanebert/shallot/brand";
+
+const MUTED = "#a08c78";
+const LINE = "#2a2420";
+
 export interface HostFrame {
     frame: HTMLElement;
-    poster: HTMLElement;
     canvas: HTMLCanvasElement;
     status: HTMLElement;
     reveal(): void;
@@ -8,35 +12,38 @@ export interface HostFrame {
 }
 
 export function mountHost(): HostFrame {
+    const root = document.documentElement;
+    root.style.setProperty("--bg", DARK.bg);
+    root.style.setProperty("--ink", DARK.ink);
+    root.style.setProperty("--gold", DARK.gold);
+    root.style.setProperty("--muted", MUTED);
+    root.style.setProperty("--line", LINE);
+
     const app = document.querySelector<HTMLElement>("#app")!;
     app.innerHTML = `
         <main class="page">
-            <header><a href="#top" class="wordmark">FIELD / NOTES</a><span>INTERACTIVE STUDY&nbsp; 01</span></header>
-            <section class="intro" id="top">
-                <p class="eyebrow">A SMALL SCENE, INSIDE A PAGE</p>
-                <h1>Make room<br />for the world.</h1>
-                <p class="lede">A Shallot scene can live inside an ordinary page. The host keeps its poster in place while the scene prepares, and reveals the canvas only after its first frame is ready.</p>
-            </section>
-            <section class="demo" aria-label="Embedded Shallot scene">
+            <header class="intro">
+                <p class="eyebrow">SHALLOT / FIELD NOTE 01</p>
+                <h1>A small world, held in view.</h1>
+                <p class="lede">A scene can find its place inside an ordinary page. The space around it stays quiet; the world arrives only when its first frame is ready.</p>
+                <p>Curabitur blandit tempus porttitor. Integer posuere erat a ante venenatis dapibus posuere velit aliquet. Maecenas faucibus mollis interdum.</p>
+                <p>Donec sed odio dui. Aenean lacinia bibendum nulla sed consectetur. Vestibulum id ligula porta felis euismod semper.</p>
+            </header>
+            <section class="scene" aria-label="Embedded Shallot scene">
                 <div class="frame" id="frame">
-                    <div class="poster" id="poster" aria-label="Host-owned scene poster">
-                        <span class="poster-index">SCENE&nbsp; / &nbsp;01</span>
-                        <span class="poster-title">Quiet geometry</span>
-                        <span class="poster-caption">The scene is being prepared.</span>
-                    </div>
                     <canvas id="scene" aria-label="Rendered Shallot scene"></canvas>
                 </div>
-                <p class="frame-caption"><span>01 / BOX STUDY</span><span id="scene-status">Preparing scene</span></p>
+                <p class="frame-caption"><span>01 / ORBIT STUDY</span><span id="scene-status">Preparing scene</span></p>
             </section>
-            <section class="below">
-                <div><p class="eyebrow">THE PAGE GOES ON</p><h2>A frame, not a takeover.</h2></div>
-                <div><p>The loading treatment belongs to this frame. The rest of the page remains available while the app builds.</p><button id="page-action" type="button">Still usable <span aria-hidden="true">↗</span></button><span id="page-action-result" aria-live="polite"></span></div>
+            <section class="after" aria-label="More about the scene">
+                <p>Praesent commodo cursus magna, vel scelerisque nisl consectetur et. Nulla vitae elit libero, a pharetra augue. Aenean eu leo quam.</p>
+                <p>Nullam quis risus eget urna mollis ornare vel eu leo. Cras mattis consectetur purus sit amet fermentum.</p>
+                <p class="page-note">The rest of the page stays available while the scene prepares. <button id="page-action" type="button">Still usable <span aria-hidden="true">↗</span></button><span id="page-action-result" aria-live="polite"></span></p>
             </section>
-            <footer><span>FIELD / NOTES</span><span>AN EMBEDDED ENGINE STUDY</span></footer>
+            <footer><span>SHALLOT / EMBEDDED SCENE</span><span>FIELD NOTE 01</span></footer>
         </main>`;
 
     const frame = app.querySelector<HTMLElement>("#frame")!;
-    const poster = app.querySelector<HTMLElement>("#poster")!;
     const canvas = app.querySelector<HTMLCanvasElement>("#scene")!;
     const status = app.querySelector<HTMLElement>("#scene-status")!;
     const actionResult = app.querySelector<HTMLElement>("#page-action-result")!;
@@ -46,11 +53,9 @@ export function mountHost(): HostFrame {
 
     return {
         frame,
-        poster,
         canvas,
         status,
         reveal() {
-            poster.hidden = true;
             canvas.classList.add("visible");
             status.textContent = "Scene ready";
         },

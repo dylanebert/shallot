@@ -1,4 +1,6 @@
 import { build, Compute, type Loading, minimalDark } from "@dylanebert/shallot";
+import { DARK } from "@dylanebert/shallot/brand";
+import { OrbitPlugin } from "@dylanebert/shallot/extras";
 import { mountHost } from "../src/host";
 import { revealAfterFirstFrame } from "../src/reveal";
 import { SCENE } from "../src/scene";
@@ -7,8 +9,8 @@ type Progress = { value: number; width: string };
 type Adapter = { class: string; identity: string };
 type Snapshot = {
     frameOwnsOverlay: boolean;
+    overlayRectInsideFrame: boolean;
     transparentOverlay: boolean;
-    posterVisible: boolean;
     canvasHidden: boolean;
     overlayPresent: boolean;
     progress: Progress[];
@@ -18,85 +20,161 @@ type Snapshot = {
 };
 type Bounds = { left: number; top: number; right: number; bottom: number };
 type ScreenshotObservation = {
-    posterTitlePixels: number;
     sceneColorPixels: number;
     sceneBounds: Bounds | null;
     canvas: { x: number; y: number; width: number; height: number };
     canvasPixels: Uint8Array;
     progressColorPixelsInFrame: number;
-    progressColorPixelsOutsideFrame: number;
+    sceneBackgroundFraction: number;
+    clearBackground: [number, number, number];
     pageBackground: [number, number, number];
 };
 
-// Mirrors the static fixture: a unit cube at the origin, a 60° camera at z=4.5, and a 1280×720 target.
-// Its nearest face is 4 world units away, projecting to about 107 CSS pixels square in this frame.
+type Point = { x: number; y: number };
+
+// The scaffold's orbit pose (distance 5, yaw 0.6, pitch 0.25) exposes three cube faces.
+// Project all eight corners through that perspective pose; the hull is the expected silhouette.
 const CAMERA_FOV = 60;
-const CAMERA_DISTANCE = 4.5;
+const CAMERA_DISTANCE = 5;
+const ORBIT_YAW = 0.6;
+const ORBIT_PITCH = 0.25;
+// A scene pixel differs when its largest RGB-channel delta from the clear corner exceeds 24.
+const SCENE_BACKGROUND_DELTA = 24;
 const PART_HALF_EXTENT = 0.5;
-const RENDER_WIDTH = 1280;
-const RENDER_HEIGHT = 720;
 const FRAME_DIFFERENCE_MEAN_LIMIT = 0.25;
 const FRAME_DIFFERENCE_PIXEL_LIMIT = 0.001;
 const CHANNEL_TOLERANCE = 2;
-const BOX_POPULATION_MIN_FACTOR = 0.2;
+const BOX_POPULATION_MIN_FACTOR = 0.5;
 const BOX_POPULATION_MAX_FACTOR = 1.5;
 const BOX_SIZE_MIN_FACTOR = 0.72;
 const BOX_SIZE_MAX_FACTOR = 1.28;
 const BOX_CENTER_TOLERANCE_FACTOR = 0.12;
+const parseColor = (hex: string): [number, number, number] => [
+    Number.parseInt(hex.slice(1, 3), 16),
+    Number.parseInt(hex.slice(3, 5), 16),
+    Number.parseInt(hex.slice(5, 7), 16),
+];
+const PAGE_BACKGROUND = parseColor(DARK.bg);
+const PROGRESS_GOLD = parseColor(DARK.gold);
+
+function convexHull(points: Point[]): Point[] {
+    const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+    const cross = (origin: Point, a: Point, b: Point) =>
+        (a.x - origin.x) * (b.y - origin.y) - (a.y - origin.y) * (b.x - origin.x);
+    const lower: Point[] = [];
+    for (const point of sorted) {
+        while (lower.length >= 2 && cross(lower[lower.length - 2]!, lower.at(-1)!, point) <= 0)
+            lower.pop();
+        lower.push(point);
+    }
+    const upper: Point[] = [];
+    for (const point of sorted.toReversed()) {
+        while (upper.length >= 2 && cross(upper[upper.length - 2]!, upper.at(-1)!, point) <= 0)
+            upper.pop();
+        upper.push(point);
+    }
+    return [...lower.slice(0, -1), ...upper.slice(0, -1)];
+}
+
+function polygonArea(points: Point[]): number {
+    let twiceArea = 0;
+    for (let i = 0; i < points.length; i++) {
+        const current = points[i]!;
+        const next = points[(i + 1) % points.length]!;
+        twiceArea += current.x * next.y - current.y * next.x;
+    }
+    return Math.abs(twiceArea) / 2;
+}
+
+function projectUnitCube(canvas: ScreenshotObservation["canvas"]) {
+    const yawCos = Math.cos(ORBIT_YAW);
+    const yawSin = Math.sin(ORBIT_YAW);
+    const pitchCos = Math.cos(ORBIT_PITCH);
+    const pitchSin = Math.sin(ORBIT_PITCH);
+    const direction = {
+        x: pitchCos * yawSin,
+        y: pitchSin,
+        z: pitchCos * yawCos,
+    };
+    const right = { x: yawCos, y: 0, z: -yawSin };
+    const up = { x: -pitchSin * yawSin, y: pitchCos, z: -pitchSin * yawCos };
+    const focalPixels = canvas.height / (2 * Math.tan((CAMERA_FOV * Math.PI) / 360));
+    const points: Point[] = [];
+    for (const x of [-PART_HALF_EXTENT, PART_HALF_EXTENT]) {
+        for (const y of [-PART_HALF_EXTENT, PART_HALF_EXTENT]) {
+            for (const z of [-PART_HALF_EXTENT, PART_HALF_EXTENT]) {
+                const depth =
+                    CAMERA_DISTANCE - (x * direction.x + y * direction.y + z * direction.z);
+                const viewX = x * right.x + y * right.y + z * right.z;
+                const viewY = x * up.x + y * up.y + z * up.z;
+                points.push({
+                    x: canvas.width / 2 + (focalPixels * viewX) / depth,
+                    y: canvas.height / 2 - (focalPixels * viewY) / depth,
+                });
+            }
+        }
+    }
+    const hull = convexHull(points);
+    const left = Math.min(...hull.map((point) => point.x));
+    const rightEdge = Math.max(...hull.map((point) => point.x));
+    const top = Math.min(...hull.map((point) => point.y));
+    const bottom = Math.max(...hull.map((point) => point.y));
+    return {
+        expectedWidth: rightEdge - left,
+        expectedHeight: bottom - top,
+        expectedPopulation: polygonArea(hull),
+        expectedCenterX: (left + rightEdge) / 2,
+        expectedCenterY: (top + bottom) / 2,
+    };
+}
 
 function sceneGeometry(image: ScreenshotObservation | undefined) {
-    if (!image)
-        return {
-            ok: false,
-            population: 0,
-            expectedPopulation: 0,
-            width: 0,
-            height: 0,
-            expectedWidth: 0,
-            expectedHeight: 0,
-            centerOffsetX: 0,
-            centerOffsetY: 0,
-            boundsLeft: -1,
-            boundsTop: -1,
-            boundsRight: -1,
-            boundsBottom: -1,
-        };
-    const focalPixels = RENDER_HEIGHT / (2 * Math.tan((CAMERA_FOV * Math.PI) / 360));
-    const nearDistance = CAMERA_DISTANCE - PART_HALF_EXTENT;
-    const expectedWidth =
-        ((focalPixels * (2 * PART_HALF_EXTENT)) / nearDistance) *
-        (image.canvas.width / RENDER_WIDTH);
-    const expectedHeight =
-        ((focalPixels * (2 * PART_HALF_EXTENT)) / nearDistance) *
-        (image.canvas.height / RENDER_HEIGHT);
-    const expectedPopulation = expectedWidth * expectedHeight;
+    const empty = {
+        ok: false,
+        population: 0,
+        expectedPopulation: 0,
+        width: 0,
+        height: 0,
+        expectedWidth: 0,
+        expectedHeight: 0,
+        centerOffsetX: 0,
+        centerOffsetY: 0,
+        expectedCenterX: 0,
+        expectedCenterY: 0,
+        clearBackground: [0, 0, 0] as [number, number, number],
+        boundsLeft: -1,
+        boundsTop: -1,
+        boundsRight: -1,
+        boundsBottom: -1,
+    };
+    if (!image) return empty;
+    const expected = projectUnitCube(image.canvas);
     const bounds = image.sceneBounds;
     const width = bounds ? bounds.right - bounds.left + 1 : 0;
     const height = bounds ? bounds.bottom - bounds.top + 1 : 0;
     const centerOffsetX = bounds
-        ? Math.abs((bounds.left + bounds.right) / 2 - (image.canvas.width - 1) / 2)
+        ? Math.abs((bounds.left + bounds.right) / 2 - expected.expectedCenterX)
         : image.canvas.width;
     const centerOffsetY = bounds
-        ? Math.abs((bounds.top + bounds.bottom) / 2 - (image.canvas.height - 1) / 2)
+        ? Math.abs((bounds.top + bounds.bottom) / 2 - expected.expectedCenterY)
         : image.canvas.height;
     return {
         ok: Boolean(
             bounds &&
-                image.sceneColorPixels >= expectedPopulation * BOX_POPULATION_MIN_FACTOR &&
-                image.sceneColorPixels <= expectedPopulation * BOX_POPULATION_MAX_FACTOR &&
-                width >= expectedWidth * BOX_SIZE_MIN_FACTOR &&
-                width <= expectedWidth * BOX_SIZE_MAX_FACTOR &&
-                height >= expectedHeight * BOX_SIZE_MIN_FACTOR &&
-                height <= expectedHeight * BOX_SIZE_MAX_FACTOR &&
-                centerOffsetX <= expectedWidth * BOX_CENTER_TOLERANCE_FACTOR &&
-                centerOffsetY <= expectedHeight * BOX_CENTER_TOLERANCE_FACTOR,
+                image.sceneColorPixels >= expected.expectedPopulation * BOX_POPULATION_MIN_FACTOR &&
+                image.sceneColorPixels <= expected.expectedPopulation * BOX_POPULATION_MAX_FACTOR &&
+                width >= expected.expectedWidth * BOX_SIZE_MIN_FACTOR &&
+                width <= expected.expectedWidth * BOX_SIZE_MAX_FACTOR &&
+                height >= expected.expectedHeight * BOX_SIZE_MIN_FACTOR &&
+                height <= expected.expectedHeight * BOX_SIZE_MAX_FACTOR &&
+                centerOffsetX <= expected.expectedWidth * BOX_CENTER_TOLERANCE_FACTOR &&
+                centerOffsetY <= expected.expectedHeight * BOX_CENTER_TOLERANCE_FACTOR,
         ),
         population: image.sceneColorPixels,
-        expectedPopulation,
+        clearBackground: image.clearBackground,
+        ...expected,
         width,
         height,
-        expectedWidth,
-        expectedHeight,
         centerOffsetX,
         centerOffsetY,
         boundsLeft: bounds?.left ?? -1,
@@ -151,7 +229,7 @@ function deferred(): { promise: Promise<void>; resolve(): void } {
 const host = mountHost();
 const firstFrameReady = deferred();
 const revealObserver = new MutationObserver(() => {
-    if (host.poster.hidden && host.canvas.classList.contains("visible")) firstFrameReady.resolve();
+    if (host.canvas.classList.contains("visible")) firstFrameReady.resolve();
 });
 revealObserver.observe(host.frame, {
     attributes: true,
@@ -180,11 +258,19 @@ function progressElement(): HTMLElement | null {
 
 function snapshot(): Snapshot {
     const canvasStyle = getComputedStyle(host.canvas);
+    const frameRect = host.frame.getBoundingClientRect();
+    const overlayRect = overlay?.getBoundingClientRect();
     return {
         frameOwnsOverlay: overlay?.parentElement === host.frame,
+        overlayRectInsideFrame: Boolean(
+            overlayRect &&
+                overlayRect.left >= frameRect.left &&
+                overlayRect.top >= frameRect.top &&
+                overlayRect.right <= frameRect.right &&
+                overlayRect.bottom <= frameRect.bottom,
+        ),
         transparentOverlay:
             overlay !== null && getComputedStyle(overlay).backgroundColor === "rgba(0, 0, 0, 0)",
-        posterVisible: !host.poster.hidden,
         canvasHidden: !host.canvas.classList.contains("visible") && canvasStyle.opacity === "0",
         overlayPresent: overlay?.isConnected === true,
         progress: [...barProgress],
@@ -254,7 +340,6 @@ async function inspectScreenshot(encoded: string): Promise<ScreenshotObservation
             height: Math.round(box.height),
         };
     };
-    const posterTitle = rect(host.poster.querySelector(".poster-title")!);
     const frame = rect(host.frame);
     const canvas = rect(host.canvas);
     const inside = (
@@ -274,12 +359,18 @@ async function inspectScreenshot(encoded: string): Promise<ScreenshotObservation
         }
         return count;
     };
-    const posterTitlePixels = inside(
-        posterTitle,
-        (r, g, b) => r > 150 && g > 155 && b > 145 && Math.max(r, g, b) - Math.min(r, g, b) < 45,
-    );
+    const clearIndex = (canvas.y * image.width + canvas.x) * 4;
+    const clearBackground = [
+        pixels[clearIndex]!,
+        pixels[clearIndex + 1]!,
+        pixels[clearIndex + 2]!,
+    ] as [number, number, number];
     const isSceneColor = (r: number, g: number, b: number) =>
-        r > 90 && r > g * 1.25 && g > b * 1.05;
+        Math.max(
+            Math.abs(r - clearBackground[0]),
+            Math.abs(g - clearBackground[1]),
+            Math.abs(b - clearBackground[2]),
+        ) > SCENE_BACKGROUND_DELTA;
     const canvasPixels = new Uint8Array(canvas.width * canvas.height * 3);
     let sceneColorPixels = 0;
     let left = canvas.width;
@@ -306,39 +397,29 @@ async function inspectScreenshot(encoded: string): Promise<ScreenshotObservation
     }
     const sceneBounds = sceneColorPixels === 0 ? null : { left, top, right, bottom };
     const isProgressColor = (r: number, g: number, b: number) =>
-        Math.abs(r - 212) < 24 && Math.abs(g - 149) < 24 && Math.abs(b - 96) < 24;
+        Math.abs(r - PROGRESS_GOLD[0]) < 24 &&
+        Math.abs(g - PROGRESS_GOLD[1]) < 24 &&
+        Math.abs(b - PROGRESS_GOLD[2]) < 24;
+    const isPageBackground = (r: number, g: number, b: number) =>
+        Math.abs(r - PAGE_BACKGROUND[0]) <= 2 &&
+        Math.abs(g - PAGE_BACKGROUND[1]) <= 2 &&
+        Math.abs(b - PAGE_BACKGROUND[2]) <= 2;
     const progressColorPixelsInFrame = inside(frame, isProgressColor);
-    const progressColorPixelsOutsideFrame = (() => {
-        let count = 0;
-        for (let y = 0; y < image.height; y++) {
-            for (let x = 0; x < image.width; x++) {
-                if (
-                    x >= frame.x &&
-                    x < frame.x + frame.width &&
-                    y >= frame.y &&
-                    y < frame.y + frame.height
-                )
-                    continue;
-                const index = (y * image.width + x) * 4;
-                if (isProgressColor(pixels[index]!, pixels[index + 1]!, pixels[index + 2]!))
-                    count++;
-            }
-        }
-        return count;
-    })();
+    const sceneBackgroundFraction =
+        inside(canvas, isPageBackground) / (canvas.width * canvas.height);
     const pageBackground = [
         pixels[(8 * image.width + 8) * 4]!,
         pixels[(8 * image.width + 8) * 4 + 1]!,
         pixels[(8 * image.width + 8) * 4 + 2]!,
     ] as [number, number, number];
     return {
-        posterTitlePixels,
         sceneColorPixels,
         sceneBounds,
         canvas,
         canvasPixels,
         progressColorPixelsInFrame,
-        progressColorPixelsOutsideFrame,
+        sceneBackgroundFraction,
+        clearBackground,
         pageBackground,
     };
 }
@@ -371,7 +452,7 @@ checkWindow.__loadingCheck = {
         if (began) throw new Error("the example check already started the build");
         began = true;
         void build({
-            plugins: [revealAfterFirstFrame(host)],
+            plugins: [OrbitPlugin, revealAfterFirstFrame(host)],
             scene: SCENE,
             loading,
             pixelRatio: 1,
@@ -435,89 +516,116 @@ checkWindow.__harness = {
         const firstGeometry = sceneGeometry(firstFrameImage);
         const laterGeometry = sceneGeometry(laterFrameImage);
         const frameComparison = compareSceneFrames(firstFrameImage, laterFrameImage);
+        const intermediateSteps =
+            held?.progress.filter((step) => step.value > 0 && step.value < 1) ?? [];
+        const completeSteps = held?.progress.filter((step) => step.value === 1) ?? [];
+        const widthPercent = (width: string | undefined) => Number.parseFloat(width ?? "") || 0;
+        const widthMatchesValue = (step: Progress) =>
+            Math.abs(widthPercent(step.width) - step.value * 100) <= 0.001;
+        const intermediateWidthMatches = intermediateSteps.filter(widthMatchesValue);
+        const completeWidthMatches = completeSteps.filter(widthMatchesValue);
         const checks: {
             name: string;
             ok: boolean;
             data?: Record<string, number>;
         }[] = [
             {
-                name: "build completion kept transparent loading inside the frame",
+                name: "build completion kept transparent loading inside its owned frame bounds",
                 ok: Boolean(
-                    held?.frameOwnsOverlay && held.transparentOverlay && held.overlayPresent,
+                    held?.frameOwnsOverlay &&
+                        held.overlayRectInsideFrame &&
+                        held.transparentOverlay &&
+                        held.overlayPresent,
                 ),
             },
             {
                 name: "build progress reached completion and drove an intermediate frame-local bar",
-                ok: Boolean(
-                    held?.progress.some(
-                        (step) =>
-                            step.value > 0 &&
-                            step.value < 1 &&
-                            step.width === `${step.value * 100}%`,
-                    ) && held.progress.some((step) => step.value === 1 && step.width === "100%"),
-                ),
+                ok: intermediateWidthMatches.length > 0 && completeWidthMatches.length > 0,
+                data: {
+                    progressSamples: held?.progress.length ?? 0,
+                    intermediateSamples: intermediateSteps.length,
+                    intermediateWidthMatches: intermediateWidthMatches.length,
+                    firstIntermediateValue: intermediateSteps[0]?.value ?? 0,
+                    firstIntermediateWidthPercent: widthPercent(intermediateSteps[0]?.width),
+                    expectedIntermediateWidthPercent: (intermediateSteps[0]?.value ?? 0) * 100,
+                    completeSamples: completeSteps.length,
+                    completeWidthMatches: completeWidthMatches.length,
+                    firstCompleteWidthPercent: widthPercent(completeSteps[0]?.width),
+                },
             },
             {
-                name: "the screenshot confines progress to the frame and leaves the page background intact",
+                name: "the screenshot shows the loading bar over the page-background void",
                 ok: Boolean(
                     heldImage &&
                         heldImage.progressColorPixelsInFrame > 100 &&
-                        heldImage.progressColorPixelsOutsideFrame === 0 &&
+                        heldImage.sceneBackgroundFraction >= 0.97 &&
                         heldImage.pageBackground.every(
-                            (channel, index) => Math.abs(channel - [244, 242, 237][index]!) <= 12,
+                            (channel, index) => Math.abs(channel - PAGE_BACKGROUND[index]!) <= 2,
                         ),
                 ),
                 data: {
                     progressPixelsInFrame: heldImage?.progressColorPixelsInFrame ?? 0,
-                    progressPixelsOutsideFrame: heldImage?.progressColorPixelsOutsideFrame ?? 0,
+                    sceneBackgroundFraction: heldImage?.sceneBackgroundFraction ?? 0,
                 },
             },
             {
-                name: "the host poster stayed visible through build cleanup until the first stepped frame",
+                name: "the canvas stays hidden over the page-background void until its first stepped frame",
                 ok: Boolean(
-                    held?.posterVisible &&
-                        held.canvasHidden &&
-                        beforeFrame?.posterVisible &&
-                        beforeFrame.canvasHidden &&
+                    held?.canvasHidden &&
+                        held.overlayPresent &&
+                        heldImage &&
+                        heldImage.sceneBackgroundFraction >= 0.97 &&
+                        beforeFrame?.canvasHidden &&
                         beforeFrame.cleaned &&
+                        !beforeFrame.overlayPresent &&
                         beforeFrameImage &&
-                        beforeFrameImage.posterTitlePixels > 20,
+                        beforeFrameImage.sceneBackgroundFraction >= 0.99,
                 ),
-                data: { posterTitlePixels: beforeFrameImage?.posterTitlePixels ?? 0 },
+                data: {
+                    heldBackgroundFraction: heldImage?.sceneBackgroundFraction ?? 0,
+                    beforeFrameBackgroundFraction: beforeFrameImage?.sceneBackgroundFraction ?? 0,
+                },
             },
             {
-                name: "the first revealed scene has the projected unit-cube population and centered bounds",
-                ok: Boolean(
-                    firstFrame &&
-                        !firstFrame.posterVisible &&
-                        !firstFrame.canvasHidden &&
-                        firstGeometry.ok,
-                ),
+                name: "the first revealed scene has the orbit-projected unit-cube population and centered bounds",
+                ok: Boolean(firstFrame && !firstFrame.canvasHidden && firstGeometry.ok),
                 data: {
                     scenePixels: firstGeometry.population,
                     expectedScenePixels: firstGeometry.expectedPopulation,
+                    populationThreshold: SCENE_BACKGROUND_DELTA,
+                    clearRed: firstGeometry.clearBackground[0],
+                    clearGreen: firstGeometry.clearBackground[1],
+                    clearBlue: firstGeometry.clearBackground[2],
                     boundsLeft: firstGeometry.boundsLeft,
                     boundsTop: firstGeometry.boundsTop,
                     boundsRight: firstGeometry.boundsRight,
                     boundsBottom: firstGeometry.boundsBottom,
                     expectedWidth: firstGeometry.expectedWidth,
                     expectedHeight: firstGeometry.expectedHeight,
+                    expectedCenterX: firstGeometry.expectedCenterX,
+                    expectedCenterY: firstGeometry.expectedCenterY,
                     centerOffsetX: firstGeometry.centerOffsetX,
                     centerOffsetY: firstGeometry.centerOffsetY,
                 },
             },
             {
-                name: "the later stepped scene has the projected unit-cube population and centered bounds",
+                name: "the later stepped scene has the orbit-projected unit-cube population and centered bounds",
                 ok: laterGeometry.ok,
                 data: {
                     scenePixels: laterGeometry.population,
                     expectedScenePixels: laterGeometry.expectedPopulation,
+                    populationThreshold: SCENE_BACKGROUND_DELTA,
+                    clearRed: laterGeometry.clearBackground[0],
+                    clearGreen: laterGeometry.clearBackground[1],
+                    clearBlue: laterGeometry.clearBackground[2],
                     boundsLeft: laterGeometry.boundsLeft,
                     boundsTop: laterGeometry.boundsTop,
                     boundsRight: laterGeometry.boundsRight,
                     boundsBottom: laterGeometry.boundsBottom,
                     expectedWidth: laterGeometry.expectedWidth,
                     expectedHeight: laterGeometry.expectedHeight,
+                    expectedCenterX: laterGeometry.expectedCenterX,
+                    expectedCenterY: laterGeometry.expectedCenterY,
                     centerOffsetX: laterGeometry.centerOffsetX,
                     centerOffsetY: laterGeometry.centerOffsetY,
                 },

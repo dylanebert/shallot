@@ -1,6 +1,8 @@
 {
     "kind": "recipe",
-    "description": "Embed a real Shallot scene without replacing its host page.",
-    "problem": "I want loading to stay inside a dedicated frame while my poster remains until the first scene frame is ready.",
-    "plugins": {}
+    "description": "Show a static Shallot scene inside the host page.",
+    "problem": "I want the host page to stay visible while a dedicated scene area loads and reveals its first frame.",
+    "plugins": {
+        "Orbit": true
+    }
 }

@@ -5,19 +5,20 @@ import { check } from "@dylanebert/shallot/harness/check";
 check(
     "the embedded scene reveals only after its first stepped frame",
     {
-        claim: "frame-local loading or page usability breaks, the poster leaves at build completion, or the host reveals a wrong or blank first frame before a later correct frame",
+        claim: "frame-local loading or page usability breaks, the scene appears before its first stepped frame, or the first static scene frame is blank or geometrically wrong",
         size: "integration",
         requires: ["browser"],
         subject: [
-            "examples/loading-screen/fixtures/check.html",
-            "examples/loading-screen/index.html",
-            "examples/loading-screen/fixtures/browser-check.ts",
-            "examples/loading-screen/src/host.ts",
-            "examples/loading-screen/src/main.ts",
-            "examples/loading-screen/src/reveal.ts",
-            "examples/loading-screen/src/scene.ts",
-            "examples/loading-screen/src/style.css",
-            "src/standard/loading/index.ts",
+            "examples/loading-screen",
+            "src/core/rendering",
+            "src/engine/app",
+            "src/extras/orbit",
+            "src/harness/browser.ts",
+            "src/project/build.ts",
+            "src/standard/loading",
+            "src/standard/rendering",
+            "src/transitional/part",
+            "src/transitional/transforms",
         ],
         budget: 20_000,
     },
@@ -59,8 +60,8 @@ declare global {
             waitForCompletion(): Promise<void>;
             snapshot(): {
                 frameOwnsOverlay: boolean;
+                overlayRectInsideFrame: boolean;
                 transparentOverlay: boolean;
-                posterVisible: boolean;
                 canvasHidden: boolean;
                 overlayPresent: boolean;
                 progress: { value: number; width: string }[];
