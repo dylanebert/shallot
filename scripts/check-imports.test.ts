@@ -61,6 +61,8 @@ check(
             );
 
             put(root, "core/input/index.ts", "export interface Input {}\n");
+            put(root, "core/input/fixtures/page.ts", "export {};\n");
+            put(root, "core/input/product.ts", 'import "./fixtures/page";\n');
             put(root, "project/vite.ts", "export {};\n");
             put(root, "harness/page.ts", 'import "@dylanebert/shallot/vite";\n');
             put(root, "core/rendering/index.ts", 'import "@dylanebert/shallot/input";\n');
@@ -111,6 +113,7 @@ check(
             );
 
             expect(checkImports(root)).toEqual([
+                "src/core/input/product.ts:1: product module imports private fixture core/input/fixtures/page.ts",
                 "src/core/rendering/alias.ts:1: sibling import core/rendering → core/input",
                 "src/core/rendering/index.ts:1: sibling import core/rendering → core/input",
                 "src/core/rendering/js-path.ts:1: sibling import core/rendering → core/input",

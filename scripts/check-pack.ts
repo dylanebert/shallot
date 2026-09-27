@@ -54,10 +54,16 @@ const requiredNegations = [
     "!scripts/tooling.ts",
     "!scripts/audio.ts",
     "!scripts/wasm-opt.ts",
+    "!**/fixtures",
 ];
 const missingNegations = requiredNegations.filter((entry) => !packageFiles.includes(entry));
+const isNegated = (file: string): boolean => {
+    const parts = file.split("/");
+    const ancestors = parts.map((_, index) => parts.slice(0, index + 1).join("/"));
+    return negated.some((glob) => ancestors.some((path) => glob.match(path)));
+};
 const forbidden: [string, (f: string) => boolean][] = [
-    ["files negation", (f) => negated.some((glob) => glob.match(f))],
+    ["files negation", isNegated],
     [
         "non-carrier script",
         (f) => f.startsWith("scripts/") && f.endsWith(".ts") && !carriers.includes(f),

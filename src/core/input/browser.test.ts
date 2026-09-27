@@ -21,13 +21,13 @@ check(
         requires: ["browser"],
         subject: [
             "src/core/input/index.ts",
-            "src/core/input/pages/browser-input.html",
-            "src/core/input/pages/browser-input.ts",
+            "src/core/input/fixtures/browser-input.html",
+            "src/core/input/fixtures/browser-input.ts",
         ],
         budget: 20_000,
     },
     () =>
-        runBrowserCheck(resolve(import.meta.dir, "pages/browser-input.html"), async (page) => {
+        runBrowserCheck(resolve(import.meta.dir, "fixtures/browser-input.html"), async (page) => {
             await page.locator("#canvas").click();
             await page.locator("#canvas").focus();
             if (

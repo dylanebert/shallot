@@ -37,13 +37,13 @@ check(
         subject: [
             "src/harness/browser.ts",
             "src/harness/capture.ts",
-            "src/harness/pages/capture.html",
-            "src/harness/pages/capture.ts",
+            "src/harness/fixtures/capture.html",
+            "src/harness/fixtures/capture.ts",
         ],
         budget: 20_000,
     },
     () =>
-        runBrowserCheck(resolve(import.meta.dir, "pages/capture.html"), async (page) => {
+        runBrowserCheck(resolve(import.meta.dir, "fixtures/capture.html"), async (page) => {
             expect(page.viewportSize()).toEqual({
                 width: CAPTURE_CONTRACT.width,
                 height: CAPTURE_CONTRACT.height,

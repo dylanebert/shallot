@@ -213,8 +213,13 @@ export function checkImports(root: string): string[] {
             if (!target || (target !== src && !target.startsWith(`${src}${sep}`))) continue;
             const targetModule = moduleAt(src, target);
             const targetTier = gameTierAt(src, target);
+            const targetPath = relative(src, target).split(sep).join("/");
             const location = `${path}:${reference.line}`;
 
+            if (targetPath.split("/").includes("fixtures")) {
+                violations.push(`${location}: product module imports private fixture ${targetPath}`);
+                continue;
+            }
             if (sourceTier && targetModule?.kind === "tooling") {
                 violations.push(
                     `${location}: game module ${sourceModule ? modulePath(sourceModule) : sourceTier} imports tooling module ${targetModule.name}`,
@@ -255,7 +260,6 @@ export function checkImports(root: string): string[] {
                 );
                 continue;
             }
-            const targetPath = relative(src, target).split(sep).join("/");
             if (
                 sourceModule &&
                 targetModule &&

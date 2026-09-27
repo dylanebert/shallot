@@ -91,8 +91,7 @@
         "!**/*.probes.ts",
         "!**/*.fixture.ts",
         "!**/*.gold.json",
-        "!src/harness/pages/**",
-        "!**/fixtures/**",
+        "!**/fixtures",
         "!**/target/**"
     ],
     "scripts": {
