@@ -1,32 +1,8 @@
 import { expect } from "bun:test";
 import { resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
-import { browserAdapterRefusal, runBrowserCheck } from "./browser";
+import { runBrowserCheck } from "./browser";
 import { CAPTURE_CONTRACT } from "./capture";
-
-check(
-    "the browser seat refuses software adapter identities",
-    {
-        claim: "a browser requirement refuses SwiftShader and llvmpipe identities instead of counting software rendering as a real device",
-    },
-    () => {
-        expect(
-            browserAdapterRefusal({
-                present: true,
-                info: { vendor: "Google Inc.", device: "Google SwiftShader" },
-            }),
-        ).toContain("Google Inc. Google SwiftShader");
-        expect(
-            browserAdapterRefusal({
-                present: true,
-                info: { vendor: "Mesa", device: "llvmpipe (LLVM 15.0.7, 256 bits)" },
-            }),
-        ).toContain("Mesa llvmpipe");
-        expect(
-            browserAdapterRefusal({ present: true, info: { vendor: "Apple", device: "M2" } }),
-        ).toBeNull();
-    },
-);
 
 check(
     "the page capture carries its tag at the fixed geometry twice",

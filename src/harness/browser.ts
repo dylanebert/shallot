@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { CROSS_ORIGIN_ISOLATION } from "@dylanebert/shallot/vite";
 import type { Page } from "playwright";
-import { type AdapterFacts, classifyAdapter } from "../engine/runtime";
 import floor from "./browser.json" with { type: "json" };
 import { CAPTURE_CONTRACT } from "./capture";
 import { servePage } from "./page";
@@ -12,35 +11,23 @@ import { MissingPremise, type VerdictMetadata } from "./verdict";
 
 const PAGE_BUDGET_MS = 16_000;
 
-/** Refuse a browser adapter that cannot support a real-device claim. */
-export function browserAdapterRefusal(facts: AdapterFacts): string | null {
-    const adapter = classifyAdapter(facts);
-    return adapter.class === "real"
-        ? null
-        : `browser seat unavailable: ${adapter.reason ?? adapter.class}`;
+function pageFailure(
+    errors: readonly string[],
+    cause?: unknown,
+): (Error & { diagnostics?: NonNullable<VerdictMetadata["diagnostics"]> }) | null {
+    if (errors.length === 0) return cause instanceof Error ? cause : null;
+    const causeMessage = cause instanceof Error ? cause.message : undefined;
+    const error = new Error(
+        [
+            ...(causeMessage === undefined ? [] : [causeMessage]),
+            `page errors:\n${errors.join("\n")}`,
+        ].join("\n"),
+    ) as Error & { diagnostics: NonNullable<VerdictMetadata["diagnostics"]> };
+    error.diagnostics = { pageErrors: [...errors] };
+    return error;
 }
 
-async function browserAdapterFacts(page: Page): Promise<AdapterFacts> {
-    return page.evaluate(async () => {
-        const gpu = navigator.gpu;
-        if (!gpu) return { present: false };
-        const adapter = await gpu.requestAdapter();
-        if (!adapter) return { present: false };
-        const info = adapter.info as (GPUAdapterInfo & { isFallbackAdapter?: boolean }) | undefined;
-        return {
-            present: true,
-            info: {
-                vendor: info?.vendor,
-                architecture: info?.architecture,
-                device: info?.device,
-                description: info?.description,
-                isFallbackAdapter: info?.isFallbackAdapter,
-            },
-        };
-    });
-}
-
-function pageVerdict(value: unknown): value is Verdict {
+function pageVerdict(value: unknown): value is Verdict & VerdictMetadata {
     return (
         value !== null && typeof value === "object" && typeof (value as Verdict).ok === "boolean"
     );
@@ -133,45 +120,81 @@ export async function runBrowserCheck(
         page.setDefaultTimeout(remaining());
         const errors: string[] = [];
         page.on("pageerror", (error) => errors.push(error.message));
-        await bounded(
-            "page navigation",
-            page.goto(`${hosted.origin}/${pagePath}`, { waitUntil: "load", timeout: remaining() }),
-        );
-        const facts = await bounded("browser adapter observation", browserAdapterFacts(page));
-        const refusal = browserAdapterRefusal(facts);
-        if (refusal !== null) throw new MissingPremise(refusal);
-
-        await bounded(
-            "page readiness",
-            page.waitForFunction(
-                () => (window as Window & { __harness?: HarnessTarget }).__harness?.ready === true,
-                null,
-                { timeout: remaining() },
+        const withPageDiagnostics = async <T>(work: Promise<T>): Promise<T> => {
+            try {
+                return await work;
+            } catch (error) {
+                throw pageFailure(errors, error) ?? new Error(String(error));
+            }
+        };
+        await withPageDiagnostics(
+            bounded(
+                "page navigation",
+                page.goto(`${hosted.origin}/${pagePath}`, {
+                    waitUntil: "load",
+                    timeout: remaining(),
+                }),
             ),
         );
-        await bounded(
-            "page driver",
-            Promise.resolve().then(() => drive(page)),
+        await withPageDiagnostics(
+            bounded(
+                "page readiness",
+                page.waitForFunction(
+                    () =>
+                        (window as Window & { __harness?: HarnessTarget }).__harness?.ready ===
+                        true,
+                    null,
+                    { timeout: remaining() },
+                ),
+            ),
         );
-        if (errors.length > 0) throw new Error(`the browser page threw:\n${errors.join("\n")}`);
+        await withPageDiagnostics(
+            bounded(
+                "page driver",
+                Promise.resolve().then(() => drive(page)),
+            ),
+        );
 
-        const result = await bounded(
-            "the page verdict",
-            page.evaluate(async () => {
-                const harness = (window as Window & { __harness?: HarnessTarget }).__harness;
-                if (typeof harness?.run !== "function") {
-                    throw new Error("the page did not provide window.__harness.run()");
-                }
-                return harness.run();
-            }),
+        const pageResult = await withPageDiagnostics(
+            bounded(
+                "the page verdict",
+                page.evaluate(async () => {
+                    const harness = (window as Window & { __harness?: HarnessTarget }).__harness;
+                    if (typeof harness?.run !== "function") {
+                        throw new Error("the page did not provide window.__harness.run()");
+                    }
+                    return harness.run();
+                }),
+            ),
         );
+        const result = pageResult as Verdict & VerdictMetadata;
         if (!pageVerdict(result))
             throw new Error("the page returned no boolean window.__harness verdict");
-        if (errors.length > 0) throw new Error(`the browser page threw:\n${errors.join("\n")}`);
+        const failure = pageFailure(errors);
         return {
             ...result,
+            ok: result.ok && failure === null,
+            checks: [
+                ...(result.checks ?? []),
+                ...(failure === null
+                    ? []
+                    : [
+                          {
+                              name: "browser reported no page errors",
+                              ok: false,
+                              detail: failure.message,
+                          },
+                      ]),
+            ],
             runtime: `chromium ${browser.version()} headless`,
-            hardware: classifyAdapter(facts).identity,
+            ...(failure === null
+                ? {}
+                : {
+                      diagnostics: {
+                          ...result.diagnostics,
+                          ...failure.diagnostics,
+                      },
+                  }),
         };
     } finally {
         if (browser) {

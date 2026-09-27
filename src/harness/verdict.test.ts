@@ -9,6 +9,7 @@ import {
     selectCargoTestExecutable,
     selectCargoTestTargetExecutables,
 } from "./requirements";
+import { verdictMetadata } from "./verdict";
 
 check(
     "verdict reporting imports no host prerequisite machinery",
@@ -33,6 +34,28 @@ check(
                 .flatMap((input) => input.imports)
                 .some((edge) => ["fs", "module"].includes(edge.path)),
         ).toBe(false);
+    },
+);
+
+check(
+    "failed verdict predicates survive metadata extraction",
+    {
+        claim: "check() retains failed inner predicates when turning a false verdict into a failure",
+        subject: ["src/harness/check.ts", "src/harness/verdict.ts"],
+    },
+    () => {
+        expect(
+            verdictMetadata({
+                ok: false,
+                checks: [
+                    { name: "booted", ok: true },
+                    { name: "scene loaded", ok: false, detail: "asset missing" },
+                ],
+            }).diagnostics,
+        ).toEqual({ checks: [{ name: "scene loaded", detail: "asset missing" }] });
+        expect(
+            verdictMetadata({ ok: true, checks: [{ name: "booted", ok: true }] }).diagnostics,
+        ).toBeUndefined();
     },
 );
 

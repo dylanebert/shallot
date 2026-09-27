@@ -5,6 +5,14 @@ import {
     captureIdentityMatches,
 } from "@dylanebert/shallot/harness/capture";
 import { pixelProbePass, probePixels } from "@dylanebert/shallot/harness/pixels";
+import {
+    observeSubjectDevice,
+    type SubjectDeviceState,
+    selectSubjectAdapter,
+    subjectCaptureFailure,
+    subjectDeviceChecks,
+    subjectDeviceDiagnostics,
+} from "./subject-device";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#canvas")!;
 const tag = {
@@ -17,45 +25,68 @@ const tag = {
 };
 let ready = false;
 let setupError: string | undefined;
+const subjectDevice: SubjectDeviceState = { created: false, errors: [] };
 
 window.__harness = {
     get ready() {
-        return ready || setupError !== undefined;
+        return ready || setupError !== undefined || subjectDevice.errors.length > 0;
     },
     async run() {
-        if (setupError !== undefined) {
+        if (setupError !== undefined || subjectDevice.errors.length > 0 || !subjectDevice.created) {
+            const checks = [
+                ...subjectDeviceChecks(subjectDevice),
+                ...(setupError === undefined
+                    ? []
+                    : [{ name: "subject WebGPU setup completed", ok: false, detail: setupError }]),
+            ];
+            const diagnostics = subjectDeviceDiagnostics(subjectDevice);
             return {
-                ok: false,
-                checks: [{ name: "WebGPU page rendered", ok: false, detail: setupError }],
+                ok: checks.every((check) => check.ok),
+                checks,
+                ...(subjectDevice.hardware === undefined
+                    ? {}
+                    : { hardware: subjectDevice.hardware }),
+                ...(diagnostics === undefined ? {} : { diagnostics }),
             };
         }
-        const first = await captureFrame(canvas);
-        const second = await captureFrame(canvas);
-        const geometry =
-            first.width === CAPTURE_CONTRACT.width &&
-            first.height === CAPTURE_CONTRACT.height &&
-            captureIdentityMatches(first.identity, CAPTURE_CONTRACT);
-        const identical =
-            first.rgba.length === second.rgba.length &&
-            first.rgba.every((value, index) => value === second.rgba[index]);
-        const tagged = probePixels(first.rgba, first.width, first.height, tag);
-        const checks = [
-            {
-                name: "capture uses the declared contract geometry",
-                ok: geometry,
-                detail: `${first.width}x${first.height}`,
-            },
-            {
-                name: "two captures of one state are byte-identical",
-                ok: identical,
-            },
-            {
-                name: tag.name,
-                ok: pixelProbePass(tagged, tag),
-                data: { pixels: tagged.pixels, width: tagged.width, height: tagged.height },
-            },
-        ];
-        return { ok: checks.every((check) => check.ok), checks };
+        try {
+            const first = await captureFrame(canvas);
+            const second = await captureFrame(canvas);
+            const geometry =
+                first.width === CAPTURE_CONTRACT.width &&
+                first.height === CAPTURE_CONTRACT.height &&
+                captureIdentityMatches(first.identity, CAPTURE_CONTRACT);
+            const identical =
+                first.rgba.length === second.rgba.length &&
+                first.rgba.every((value, index) => value === second.rgba[index]);
+            const tagged = probePixels(first.rgba, first.width, first.height, tag);
+            const checks = [
+                ...subjectDeviceChecks(subjectDevice),
+                {
+                    name: "capture uses the declared contract geometry",
+                    ok: geometry,
+                    detail: `${first.width}x${first.height}`,
+                },
+                {
+                    name: "two captures of one state are byte-identical",
+                    ok: identical,
+                },
+                {
+                    name: tag.name,
+                    ok: pixelProbePass(tagged, tag),
+                    data: { pixels: tagged.pixels, width: tagged.width, height: tagged.height },
+                },
+            ];
+            const diagnostics = subjectDeviceDiagnostics(subjectDevice);
+            return {
+                ok: checks.every((check) => check.ok),
+                checks,
+                hardware: subjectDevice.hardware,
+                ...(diagnostics === undefined ? {} : { diagnostics }),
+            };
+        } catch (error) {
+            return subjectCaptureFailure(subjectDevice, error);
+        }
     },
 };
 
@@ -64,7 +95,9 @@ async function start() {
         assertCaptureGeometry(canvas.width, canvas.height);
         const adapter = await navigator.gpu.requestAdapter();
         if (!adapter) throw new Error("WebGPU returned no adapter");
+        selectSubjectAdapter(adapter, subjectDevice);
         const device = await adapter.requestDevice();
+        observeSubjectDevice(device, subjectDevice);
         const context = canvas.getContext("webgpu");
         if (!context) throw new Error("canvas has no WebGPU context");
         context.configure({

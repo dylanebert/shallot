@@ -60,12 +60,42 @@ function objectField<T>(value: unknown): T | undefined {
 function metadataFrom(value: unknown): VerdictMetadata {
     if (value === null || typeof value !== "object") return {};
     const candidate = value as Record<string, unknown>;
+    const diagnostics = objectField<VerdictDiagnostics>(candidate.diagnostics);
+    const failedChecks =
+        candidate.ok === false && Array.isArray(candidate.checks)
+            ? candidate.checks.flatMap((check) => {
+                  if (
+                      check === null ||
+                      typeof check !== "object" ||
+                      (check as { ok?: unknown }).ok !== false ||
+                      typeof (check as { name?: unknown }).name !== "string"
+                  )
+                      return [];
+                  const { name, detail, data } = check as {
+                      name: string;
+                      detail?: unknown;
+                      data?: unknown;
+                  };
+                  return [
+                      {
+                          name,
+                          ...(typeof detail === "string" ? { detail } : {}),
+                          ...(data !== null && typeof data === "object" && !Array.isArray(data)
+                              ? { data: data as Record<string, number> }
+                              : {}),
+                      },
+                  ];
+              })
+            : [];
     return {
         runtime: typeof candidate.runtime === "string" ? candidate.runtime : undefined,
         hardware: typeof candidate.hardware === "string" ? candidate.hardware : undefined,
         reason: typeof candidate.reason === "string" ? candidate.reason : undefined,
         reproduction: objectField<Reproduction>(candidate.reproduction),
-        diagnostics: objectField<VerdictDiagnostics>(candidate.diagnostics),
+        diagnostics:
+            failedChecks.length === 0
+                ? diagnostics
+                : { ...diagnostics, checks: [...(diagnostics?.checks ?? []), ...failedChecks] },
     };
 }
 
