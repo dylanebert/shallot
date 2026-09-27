@@ -1,14 +1,8 @@
-// The one public capture contract. It fixes the viewport, device scale, target surface, presentation
+// The canvas capture contract. It fixes the viewport, device scale, target surface, presentation
 // boundary and tightly packed RGBA semantics, so every semantic check, artifact and human frame reads the
 // same geometry. `captureFrame` runs IN THE PAGE; the driver fixes the viewport that makes the geometry
 // hold and never re-implements the read.
-//
-// The route is the experiment's answer, not a preference. A WebGPU canvas hands its composited frame to
-// `toDataURL` and to nothing else: at the fixed geometry on a real macOS adapter, `createImageBitmap(canvas)`
-// and a 2D `drawImage(canvas)` both returned a correctly sized, completely blank frame (0 of 184,320
-// expected tag pixels), while `toDataURL` returned the exact drawn region and repeated captures of one
-// unchanged state were byte-identical. A blank frame at the right size is the defect this contract exists
-// to prevent, so the cheaper-looking routes are not admissible.
+
 
 /** the declared capture geometry and semantics. One contract, not a per-consumer option. */
 export interface CaptureIdentity {
@@ -69,9 +63,10 @@ export interface Capture {
 }
 
 /**
- * Capture the final canvas as tightly packed RGBA at the declared contract, after the presentation
- * boundary. A WebGPU canvas holds its frame only until the task that rendered it ends, so the read happens
- * inside a frame callback queued after the engine's own.
+ * Capture a running app's final canvas as tightly packed RGBA at the declared contract. A WebGPU canvas
+ * reads as transparent black once its frame is presented, so the read runs in the next animation frame,
+ * after the engine's callback presents. A held app presents no next frame; capture its page with a
+ * Playwright page screenshot.
  *
  * @example
  * ```

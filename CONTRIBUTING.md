@@ -82,7 +82,12 @@ A module's promises are tested beside the module and through the examples that u
 - `browser` requires headless Chromium and requests no adapter itself. Browser GPU correctness accepts software adapters and records the subject's adapter identity.
 - `display` requires a declared monitor and takes its keyboard and cursor.
 - Checks run on the scheduler's stepped clock, never wall time. Simulation state lives in registered components or behind a snapshot, restore and hash hook. Gameplay runs in `fixed` from per-tick actions, presentation runs in `draw`, and `local` components are excluded from the hash. Runs are deterministic within one runtime and engine version; across versions, the hash detects divergence.
-- Test a frame at the cheapest level that shows the defect: CPU state, GPU readback, browser pixels, then a person. Capture frames only with `captureFrame`. Add a golden image only for a defect no cheaper level shows, and never update one to make it pass. Screenshots are not results.
+- Test a frame at the cheapest level that shows the defect: CPU state, GPU readback, browser pixels, then a person. Choose the capture by the claim:
+  - An engine frame: read back a texture the check owns with `probeTexture`.
+  - Page composition, such as overlays, posters and canvas reveal: step the app with `build()` and `state.step(dt)`, take a Playwright page screenshot, and assert semantic regions of it.
+  - A running app's canvas: `captureFrame`, which reads during the next frame the loop presents.
+- A WebGPU canvas reads as transparent black once its frame is presented, though the page still displays that frame: a canvas read works only inside the presenting frame, and a page screenshot works after it.
+- Add a golden image only for a defect no cheaper level shows, and never update one to make it pass.
 - Steady play allocates nothing; the integration check fails on any steady allocation. Sampler allocation sites are diagnostics, not results.
 - A memory check creates and disposes its subject, verifies memory returns to baseline, and fails on a deliberately leaking control. Retention is a separate check, taken after GC.
 - Timings are measured on real hardware, labeled with it, and reported, never asserted.
