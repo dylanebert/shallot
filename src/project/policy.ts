@@ -185,4 +185,3 @@ function dependencyViolations(root: string): string[] {
 export function readProjectPolicy(root: string): string[] {
     return [...recipeSourceViolations(root), ...dependencyViolations(root)];
 }
-
