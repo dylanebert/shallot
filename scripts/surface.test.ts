@@ -6,6 +6,7 @@ import {
     mkdtempSync,
     readFileSync,
     rmSync,
+    symlinkSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -99,6 +100,9 @@ function seed(name: string): string {
     for (const dir of ["src", "scripts", "examples"])
         mkdirSync(join(tree, dir), { recursive: true });
     unfixture(tree);
+    const shallotPackage = join(tree, "node_modules/@dylanebert/shallot");
+    mkdirSync(dirname(shallotPackage), { recursive: true });
+    symlinkSync(ROOT, shallotPackage, "dir");
     return tree;
 }
 
