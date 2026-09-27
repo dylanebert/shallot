@@ -9,9 +9,9 @@ check(
         size: "integration",
         requires: ["browser"],
         subject: [
-            "examples/loading-screen/check.html",
+            "examples/loading-screen/fixtures/check.html",
             "examples/loading-screen/index.html",
-            "examples/loading-screen/src/browser-check.ts",
+            "examples/loading-screen/fixtures/browser-check.ts",
             "examples/loading-screen/src/host.ts",
             "examples/loading-screen/src/main.ts",
             "examples/loading-screen/src/reveal.ts",
@@ -22,7 +22,7 @@ check(
         budget: 20_000,
     },
     () =>
-        runBrowserCheck(resolve(import.meta.dir, "../check.html"), async (page) => {
+        runBrowserCheck(resolve(import.meta.dir, "../fixtures/check.html"), async (page) => {
             await page.evaluate(() => window.__loadingCheck!.begin());
             await page.evaluate(() => window.__loadingCheck!.waitForCompletion());
 

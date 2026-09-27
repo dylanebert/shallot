@@ -1,7 +1,7 @@
 import { build, Compute, type Loading, minimalDark } from "@dylanebert/shallot";
-import { mountHost } from "./host";
-import { revealAfterFirstFrame } from "./reveal";
-import { SCENE } from "./scene";
+import { mountHost } from "../src/host";
+import { revealAfterFirstFrame } from "../src/reveal";
+import { SCENE } from "../src/scene";
 
 type Progress = { value: number; width: string };
 type Adapter = { class: string; identity: string };
@@ -16,15 +16,132 @@ type Snapshot = {
     cleaned: boolean;
     adapter: Adapter | null;
 };
+type Bounds = { left: number; top: number; right: number; bottom: number };
 type ScreenshotObservation = {
-    width: number;
-    height: number;
     posterTitlePixels: number;
     sceneColorPixels: number;
+    sceneBounds: Bounds | null;
+    canvas: { x: number; y: number; width: number; height: number };
+    canvasPixels: Uint8Array;
     progressColorPixelsInFrame: number;
     progressColorPixelsOutsideFrame: number;
     pageBackground: [number, number, number];
 };
+
+// Mirrors the static fixture: a unit cube at the origin, a 60° camera at z=4.5, and a 1280×720 target.
+// Its nearest face is 4 world units away, projecting to about 107 CSS pixels square in this frame.
+const CAMERA_FOV = 60;
+const CAMERA_DISTANCE = 4.5;
+const PART_HALF_EXTENT = 0.5;
+const RENDER_WIDTH = 1280;
+const RENDER_HEIGHT = 720;
+const FRAME_DIFFERENCE_MEAN_LIMIT = 0.25;
+const FRAME_DIFFERENCE_PIXEL_LIMIT = 0.001;
+const CHANNEL_TOLERANCE = 2;
+const BOX_POPULATION_MIN_FACTOR = 0.2;
+const BOX_POPULATION_MAX_FACTOR = 1.5;
+const BOX_SIZE_MIN_FACTOR = 0.72;
+const BOX_SIZE_MAX_FACTOR = 1.28;
+const BOX_CENTER_TOLERANCE_FACTOR = 0.12;
+
+function sceneGeometry(image: ScreenshotObservation | undefined) {
+    if (!image)
+        return {
+            ok: false,
+            population: 0,
+            expectedPopulation: 0,
+            width: 0,
+            height: 0,
+            expectedWidth: 0,
+            expectedHeight: 0,
+            centerOffsetX: 0,
+            centerOffsetY: 0,
+            boundsLeft: -1,
+            boundsTop: -1,
+            boundsRight: -1,
+            boundsBottom: -1,
+        };
+    const focalPixels = RENDER_HEIGHT / (2 * Math.tan((CAMERA_FOV * Math.PI) / 360));
+    const nearDistance = CAMERA_DISTANCE - PART_HALF_EXTENT;
+    const expectedWidth =
+        ((focalPixels * (2 * PART_HALF_EXTENT)) / nearDistance) *
+        (image.canvas.width / RENDER_WIDTH);
+    const expectedHeight =
+        ((focalPixels * (2 * PART_HALF_EXTENT)) / nearDistance) *
+        (image.canvas.height / RENDER_HEIGHT);
+    const expectedPopulation = expectedWidth * expectedHeight;
+    const bounds = image.sceneBounds;
+    const width = bounds ? bounds.right - bounds.left + 1 : 0;
+    const height = bounds ? bounds.bottom - bounds.top + 1 : 0;
+    const centerOffsetX = bounds
+        ? Math.abs((bounds.left + bounds.right) / 2 - (image.canvas.width - 1) / 2)
+        : image.canvas.width;
+    const centerOffsetY = bounds
+        ? Math.abs((bounds.top + bounds.bottom) / 2 - (image.canvas.height - 1) / 2)
+        : image.canvas.height;
+    return {
+        ok: Boolean(
+            bounds &&
+                image.sceneColorPixels >= expectedPopulation * BOX_POPULATION_MIN_FACTOR &&
+                image.sceneColorPixels <= expectedPopulation * BOX_POPULATION_MAX_FACTOR &&
+                width >= expectedWidth * BOX_SIZE_MIN_FACTOR &&
+                width <= expectedWidth * BOX_SIZE_MAX_FACTOR &&
+                height >= expectedHeight * BOX_SIZE_MIN_FACTOR &&
+                height <= expectedHeight * BOX_SIZE_MAX_FACTOR &&
+                centerOffsetX <= expectedWidth * BOX_CENTER_TOLERANCE_FACTOR &&
+                centerOffsetY <= expectedHeight * BOX_CENTER_TOLERANCE_FACTOR,
+        ),
+        population: image.sceneColorPixels,
+        expectedPopulation,
+        width,
+        height,
+        expectedWidth,
+        expectedHeight,
+        centerOffsetX,
+        centerOffsetY,
+        boundsLeft: bounds?.left ?? -1,
+        boundsTop: bounds?.top ?? -1,
+        boundsRight: bounds?.right ?? -1,
+        boundsBottom: bounds?.bottom ?? -1,
+    };
+}
+
+function compareSceneFrames(
+    first: ScreenshotObservation | undefined,
+    later: ScreenshotObservation | undefined,
+): { ok: boolean; meanAbsoluteChannelError: number; changedPixelFraction: number } {
+    if (
+        !first ||
+        !later ||
+        first.canvas.width !== later.canvas.width ||
+        first.canvas.height !== later.canvas.height ||
+        first.canvasPixels.length !== later.canvasPixels.length
+    )
+        return { ok: false, meanAbsoluteChannelError: 255, changedPixelFraction: 1 };
+    let totalError = 0;
+    let changedPixels = 0;
+    const pixelCount = first.canvasPixels.length / 3;
+    for (let i = 0; i < first.canvasPixels.length; i += 3) {
+        let largestChannelError = 0;
+        for (let channel = 0; channel < 3; channel++) {
+            const error = Math.abs(
+                first.canvasPixels[i + channel]! - later.canvasPixels[i + channel]!,
+            );
+            totalError += error;
+            largestChannelError = Math.max(largestChannelError, error);
+        }
+        if (largestChannelError > CHANNEL_TOLERANCE) changedPixels++;
+    }
+    const meanAbsoluteChannelError = totalError / first.canvasPixels.length;
+    const changedPixelFraction = changedPixels / pixelCount;
+    return {
+        ok:
+            meanAbsoluteChannelError <= FRAME_DIFFERENCE_MEAN_LIMIT &&
+            changedPixelFraction <= FRAME_DIFFERENCE_PIXEL_LIMIT,
+        meanAbsoluteChannelError,
+        changedPixelFraction,
+    };
+}
 
 function deferred(): { promise: Promise<void>; resolve(): void } {
     let resolve!: () => void;
@@ -161,7 +278,33 @@ async function inspectScreenshot(encoded: string): Promise<ScreenshotObservation
         posterTitle,
         (r, g, b) => r > 150 && g > 155 && b > 145 && Math.max(r, g, b) - Math.min(r, g, b) < 45,
     );
-    const sceneColorPixels = inside(canvas, (r, g, b) => r > 90 && r > g * 1.25 && g > b * 1.05);
+    const isSceneColor = (r: number, g: number, b: number) =>
+        r > 90 && r > g * 1.25 && g > b * 1.05;
+    const canvasPixels = new Uint8Array(canvas.width * canvas.height * 3);
+    let sceneColorPixels = 0;
+    let left = canvas.width;
+    let top = canvas.height;
+    let right = -1;
+    let bottom = -1;
+    for (let y = 0; y < canvas.height; y++) {
+        for (let x = 0; x < canvas.width; x++) {
+            const source = ((canvas.y + y) * image.width + canvas.x + x) * 4;
+            const target = (y * canvas.width + x) * 3;
+            const r = pixels[source]!;
+            const g = pixels[source + 1]!;
+            const b = pixels[source + 2]!;
+            canvasPixels[target] = r;
+            canvasPixels[target + 1] = g;
+            canvasPixels[target + 2] = b;
+            if (!isSceneColor(r, g, b)) continue;
+            sceneColorPixels++;
+            left = Math.min(left, x);
+            top = Math.min(top, y);
+            right = Math.max(right, x);
+            bottom = Math.max(bottom, y);
+        }
+    }
+    const sceneBounds = sceneColorPixels === 0 ? null : { left, top, right, bottom };
     const isProgressColor = (r: number, g: number, b: number) =>
         Math.abs(r - 212) < 24 && Math.abs(g - 149) < 24 && Math.abs(b - 96) < 24;
     const progressColorPixelsInFrame = inside(frame, isProgressColor);
@@ -189,10 +332,11 @@ async function inspectScreenshot(encoded: string): Promise<ScreenshotObservation
         pixels[(8 * image.width + 8) * 4 + 2]!,
     ] as [number, number, number];
     return {
-        width: image.width,
-        height: image.height,
         posterTitlePixels,
         sceneColorPixels,
+        sceneBounds,
+        canvas,
+        canvasPixels,
         progressColorPixelsInFrame,
         progressColorPixelsOutsideFrame,
         pageBackground,
@@ -288,6 +432,9 @@ checkWindow.__harness = {
         const beforeFrameImage = screenshots.get("before-frame");
         const firstFrameImage = screenshots.get("first-frame");
         const laterFrameImage = screenshots.get("later-frame");
+        const firstGeometry = sceneGeometry(firstFrameImage);
+        const laterGeometry = sceneGeometry(laterFrameImage);
+        const frameComparison = compareSceneFrames(firstFrameImage, laterFrameImage);
         const checks: {
             name: string;
             ok: boolean;
@@ -339,20 +486,50 @@ checkWindow.__harness = {
                 data: { posterTitlePixels: beforeFrameImage?.posterTitlePixels ?? 0 },
             },
             {
-                name: "the first revealed canvas screenshot contains the rendered scene",
+                name: "the first revealed scene has the projected unit-cube population and centered bounds",
                 ok: Boolean(
                     firstFrame &&
                         !firstFrame.posterVisible &&
                         !firstFrame.canvasHidden &&
-                        firstFrameImage &&
-                        firstFrameImage.sceneColorPixels > 100,
+                        firstGeometry.ok,
                 ),
-                data: { sceneColorPixels: firstFrameImage?.sceneColorPixels ?? 0 },
+                data: {
+                    scenePixels: firstGeometry.population,
+                    expectedScenePixels: firstGeometry.expectedPopulation,
+                    boundsLeft: firstGeometry.boundsLeft,
+                    boundsTop: firstGeometry.boundsTop,
+                    boundsRight: firstGeometry.boundsRight,
+                    boundsBottom: firstGeometry.boundsBottom,
+                    expectedWidth: firstGeometry.expectedWidth,
+                    expectedHeight: firstGeometry.expectedHeight,
+                    centerOffsetX: firstGeometry.centerOffsetX,
+                    centerOffsetY: firstGeometry.centerOffsetY,
+                },
             },
             {
-                name: "a later stepped frame contains the same scene",
-                ok: Boolean(laterFrameImage && laterFrameImage.sceneColorPixels > 100),
-                data: { sceneColorPixels: laterFrameImage?.sceneColorPixels ?? 0 },
+                name: "the later stepped scene has the projected unit-cube population and centered bounds",
+                ok: laterGeometry.ok,
+                data: {
+                    scenePixels: laterGeometry.population,
+                    expectedScenePixels: laterGeometry.expectedPopulation,
+                    boundsLeft: laterGeometry.boundsLeft,
+                    boundsTop: laterGeometry.boundsTop,
+                    boundsRight: laterGeometry.boundsRight,
+                    boundsBottom: laterGeometry.boundsBottom,
+                    expectedWidth: laterGeometry.expectedWidth,
+                    expectedHeight: laterGeometry.expectedHeight,
+                    centerOffsetX: laterGeometry.centerOffsetX,
+                    centerOffsetY: laterGeometry.centerOffsetY,
+                },
+            },
+            {
+                name: "the first scene region matches the later stepped scene within 0.25 mean RGB and 0.1% changed-pixel tolerance",
+                ok: frameComparison.ok,
+                data: {
+                    meanAbsoluteChannelError: frameComparison.meanAbsoluteChannelError,
+                    changedPixelFraction: frameComparison.changedPixelFraction,
+                    channelTolerance: CHANNEL_TOLERANCE,
+                },
             },
             {
                 name: "the surrounding page action worked while build completion was held",
