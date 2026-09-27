@@ -219,12 +219,11 @@ async function teardownGroup(group: number): Promise<boolean> {
 }
 
 async function spawnTest(
-    artifacts: RunArtifacts,
     environment: NodeJS.ProcessEnv,
     command: string[],
     kind: ChildKind,
 ): Promise<ChildExecution> {
-    const temporaryDirectory = mkdtempSync(resolve(artifacts.directory, "tmp-"));
+    const temporaryDirectory = mkdtempSync("/tmp/sh-");
     let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
     try {
         proc = Bun.spawn(command, {
@@ -328,7 +327,6 @@ async function run(
     const artifacts = openArtifacts();
     if (artifacts === null) return 1;
     const child = await spawnTest(
-        artifacts,
         environment,
         [
             process.execPath,
@@ -416,7 +414,6 @@ async function selectedRun(
 ): Promise<SelectedRun> {
     const nativeReport = resolve(artifacts.directory, `child-${index}.xml`);
     const child = await spawnTest(
-        artifacts,
         { ...envBase, KEX_S3_ROW: row.claim },
         [
             process.execPath,

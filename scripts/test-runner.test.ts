@@ -580,16 +580,24 @@ check(
         claim: "runner children isolate Git and temporary state, and each run replaces its prior report directory",
         size: "integration",
         subject: "scripts/test-runner.ts",
+        budget: 5_000,
     },
     () => {
-        const tree = mkdtempSync(join(tmpdir(), "shallot-runner-git-isolation-"));
+        const shortTree = mkdtempSync(join(tmpdir(), "shallot-runner-git-isolation-"));
+        const tree = join(
+            shortTree,
+            "checkout-012345678901234567890123456789",
+            "checkout-012345678901234567890123456789",
+        );
+        mkdirSync(tree, { recursive: true });
         const tests = join(tree, "tests");
         const artifacts = join(tree, ".artifacts");
         const globalConfig = join(tree, "host.gitconfig");
         const hostGit = join(tree, "host-git");
         const hostGitDirectory = join(hostGit, ".git");
         const hostIndex = join(hostGitDirectory, "index");
-        const hostTemporary = mkdtempSync(join(tmpdir(), "shallot-host-tmp-"));
+        const hostTemporary = join(tree, "inherited-temp");
+        mkdirSync(hostTemporary);
         try {
             mkdirSync(tests, { recursive: true });
             writeFileSync(join(tree, "shallot.json"), "{}\n");
@@ -611,7 +619,10 @@ check("isolated child", { claim: "isolated child environment", size: "integratio
     expect(process.env.GIT_CEILING_DIRECTORIES).toBe(artifacts);
     expect(process.env.TMPDIR).toBeDefined();
     expect(tmpdir()).toBe(process.env.TMPDIR);
-    expect(process.env.TMPDIR?.startsWith(join(artifacts, "shallot-run-"))).toBe(true);
+    const socketPath = join(tmpdir(), "org.chromium.Chromium.012345", "SingletonSocket");
+    expect(socketPath.length).toBeLessThan(108);
+    expect(process.env.TMPDIR?.startsWith(resolve(import.meta.dir, "../.."))).toBe(false);
+    writeFileSync(join(resolve(import.meta.dir, ".."), "child-temp-path"), process.env.TMPDIR!);
 
     const beforeInit = mkdtempSync(join(tmpdir(), "shallot-before-init-"));
     try {
@@ -683,6 +694,9 @@ check("isolated child", { claim: "isolated child environment", size: "integratio
             const firstReport = reportPathOf(tree, outputOf(first));
             expect(readFileSync(join(hostGitDirectory, "config"))).toEqual(configBefore);
             expect(readFileSync(hostIndex)).toEqual(indexBefore);
+            const firstTemp = readFileSync(join(tree, "child-temp-path"), "utf8");
+            expect(firstTemp.startsWith(tree)).toBe(false);
+            expect(existsSync(firstTemp)).toBe(false);
             expect(readdirSync(hostTemporary)).toEqual([]);
             expect(readdirSync(artifacts)).toEqual([basename(dirname(firstReport))]);
             expect(readdirSync(dirname(firstReport)).sort()).toEqual(["junit.xml", "output.log"]);
@@ -696,12 +710,15 @@ check("isolated child", { claim: "isolated child environment", size: "integratio
             expect(second.exitCode).toBe(0);
             const secondReport = reportPathOf(tree, outputOf(second));
             expect(secondReport).not.toBe(firstReport);
+            const secondTemp = readFileSync(join(tree, "child-temp-path"), "utf8");
+            expect(secondTemp).not.toBe(firstTemp);
+            expect(secondTemp.startsWith(tree)).toBe(false);
+            expect(existsSync(secondTemp)).toBe(false);
             expect(readdirSync(hostTemporary)).toEqual([]);
             expect(readdirSync(artifacts)).toEqual([basename(dirname(secondReport))]);
             expect(readdirSync(dirname(secondReport)).sort()).toEqual(["junit.xml", "output.log"]);
         } finally {
-            rmSync(hostTemporary, { recursive: true, force: true });
-            rmSync(tree, { recursive: true, force: true });
+            rmSync(shortTree, { recursive: true, force: true });
         }
     },
 );
@@ -742,7 +759,7 @@ check(
             writeFileSync(
                 join(tests, "row-tripwire.test.ts"),
                 `${head}check("integration fixture", { claim: "fixture integration row tripwire", size: "integration", subject: "src/lifetime-tripwire.ts" }, () => ({ ok: true }));\n` +
-                    `console.log("integration fixture retained output");\nwriteFileSync(${JSON.stringify(rowGroup)}, String(process.pid));\nawait new Promise(() => {});\n`,
+                    `console.log("integration fixture retained output");\nwriteFileSync(${JSON.stringify(rowGroup)}, String(process.pid));\nwriteFileSync(${JSON.stringify(join(tree, "row-temp.path"))}, process.env.TMPDIR!);\nawait new Promise(() => {});\n`,
             );
             writeFileSync(
                 join(tests, "oracle-hang.oracle.ts"),
@@ -763,6 +780,7 @@ check(
                 join(tests, "interrupted.test.ts"),
                 `${head}check("interrupted fixture", { claim: "fixture interrupted first row", size: "integration", subject: "src/lifetime-interrupted.ts" }, async () => {\n` +
                     `    console.log("interrupted fixture retained output");\n    writeFileSync(${JSON.stringify(interruptGroup)}, String(process.pid));\n` +
+                    `    writeFileSync(${JSON.stringify(join(tree, "interrupt-temp.path"))}, process.env.TMPDIR!);\n` +
                     `    await new Promise(() => {});\n});\n`,
             );
             writeFileSync(
@@ -804,6 +822,7 @@ check(
             const rowPid = Number(readFileSync(rowGroup, "utf8"));
             groupIds.push(rowPid);
             await expectGroupGone(rowPid);
+            expect(existsSync(readFileSync(join(tree, "row-temp.path"), "utf8"))).toBe(false);
             const rowReport = reportOf(tree, rowOutput);
             expect(rowReport).toContain("integration row exceeded its 1000 ms tripwire");
 
@@ -866,6 +885,7 @@ check(
             expect(interruptedOutput).toContain("interrupted fixture retained output");
             expect(existsSync(laterRowStarted)).toBe(false);
             await expectGroupGone(interruptPid);
+            expect(existsSync(readFileSync(join(tree, "interrupt-temp.path"), "utf8"))).toBe(false);
             const interruptedReport = reportOf(tree, interruptedOutput);
             expect(interruptedReport).toContain("runner received SIGTERM during integration row");
             expect(interruptedReport).toContain(
