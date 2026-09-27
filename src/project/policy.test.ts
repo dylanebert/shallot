@@ -12,7 +12,7 @@ function dependencyViolations(
     lock?: string,
     dependencyName = "@dylanebert/shallot-grid",
 ): string[] {
-    const tree = mkdtempSync(join(tmpdir(), "shallot-surface-dependency-"));
+    const tree = mkdtempSync(join(tmpdir(), "shallot-project-policy-dependency-"));
     try {
         writeFileSync(
             join(tree, "package.json"),
@@ -58,16 +58,16 @@ check(
 );
 
 check(
-    "surface: self-link Shallot spec passes",
-    { claim: "the surface gate permits a package's own self-link" },
+    "project policy: self-link Shallot spec passes",
+    { claim: "project policy permits a package's own self-link" },
     () => {
         expect(dependencyViolations("link:.", "@dylanebert/shallot-grid")).toEqual([]);
     },
 );
 
 check(
-    "surface: full Git Shallot identity passes",
-    { claim: "the surface gate permits a lock-recorded full Git commit for Shallot" },
+    "project policy: full Git Shallot identity passes",
+    { claim: "project policy permits a lock-recorded full Git commit for Shallot" },
     () => {
         const spec = "github:dylanebert/shallot#0123456789abcdef0123456789abcdef01234567";
         expect(dependencyViolations(spec, "consumer", `spec: ${spec}\\n`)).toEqual([]);
@@ -75,8 +75,8 @@ check(
 );
 
 check(
-    "surface: moving Shallot identities refuse",
-    { claim: "the surface gate refuses moving and short Git identities for Shallot" },
+    "project policy: moving Shallot identities refuse",
+    { claim: "project policy refuses moving and short Git identities for Shallot" },
     () => {
         for (const spec of [
             "github:dylanebert/shallot#main",
@@ -89,8 +89,8 @@ check(
 );
 
 check(
-    "surface: mutable Shallot identities refuse",
-    { claim: "the surface gate refuses saved local paths and mutable dist-tags for Shallot" },
+    "project policy: mutable Shallot identities refuse",
+    { claim: "project policy refuses saved local paths and mutable dist-tags for Shallot" },
     () => {
         expect(dependencyViolations("link:../shallot").join("\\n")).toContain("link");
         expect(dependencyViolations("file:../shallot").join("\\n")).toContain("file");
@@ -101,8 +101,8 @@ check(
 );
 
 check(
-    "surface: artifact identities require evidence",
-    { claim: "the surface gate requires lock integrity for remote Shallot tarballs" },
+    "project policy: artifact identities require evidence",
+    { claim: "project policy requires lock integrity for remote Shallot tarballs" },
     () => {
         const url = "https://example.test/shallot-0.10.0.tgz";
         expect(dependencyViolations(url).join("\\n")).toContain("lock integrity");
@@ -113,12 +113,12 @@ check(
 );
 
 check(
-    "surface: checked-in artifact identity requires provenance",
+    "project policy: checked-in artifact identity requires provenance",
     {
-        claim: "the surface gate accepts only a checked-in Shallot tarball with digest and source provenance",
+        claim: "project policy accepts only a checked-in Shallot tarball with digest and source provenance",
     },
     () => {
-        const tree = mkdtempSync(join(tmpdir(), "shallot-surface-artifact-"));
+        const tree = mkdtempSync(join(tmpdir(), "shallot-project-policy-artifact-"));
         const vendor = join(tree, "vendor");
         mkdirSync(vendor);
         const tarball = join(vendor, "shallot.tgz");
