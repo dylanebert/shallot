@@ -65,6 +65,7 @@
         "assets/icon-1024.png",
         "dist",
         "examples/first-person",
+        "examples/loading-screen",
         "!examples/AGENTS.md",
         "!examples/*/node_modules",
         "!examples/*/build",

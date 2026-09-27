@@ -68,7 +68,7 @@ const light: Theme = {
     bar: LIGHT.gold,
     text: LIGHT.ink,
     muted: "#6e655c",
-    amber: LIGHT.gold,
+    amber: "#73512f",
     red: "#9b3528",
     mark: LIGHT,
 };
@@ -259,6 +259,8 @@ function renderUnsupported(overlay: HTMLDivElement, error: UnsupportedError, the
     overlay.replaceChildren();
 
     const card = panel(440, "stretch");
+    card.style.background = theme.bg;
+    card.style.borderRadius = "6px";
 
     const head = document.createElement("div");
     head.style.cssText = `display: flex; align-items: center; gap: 12px; color: ${theme.amber};`;
@@ -305,6 +307,8 @@ function renderEngineError(overlay: HTMLDivElement, error: Error, theme: Theme):
     overlay.replaceChildren();
 
     const card = panel(520, "stretch");
+    card.style.background = theme.bg;
+    card.style.borderRadius = "6px";
 
     const head = document.createElement("div");
     head.style.cssText = `display: flex; align-items: center; gap: 12px; color: ${theme.red};`;
@@ -365,7 +369,12 @@ function renderError(overlay: HTMLDivElement, error: unknown, theme: Theme): voi
     renderEngineError(overlay, wrapped, theme);
 }
 
-function loading(theme: Theme, options: SplashOptions, withSplash: boolean): Loading {
+function loading(
+    theme: Theme,
+    options: SplashOptions,
+    withSplash: boolean,
+    transparent = false,
+): Loading {
     let overlay: HTMLDivElement | null = null;
     let bar: HTMLDivElement | null = null;
     let track: HTMLDivElement | null = null;
@@ -479,7 +488,7 @@ function loading(theme: Theme, options: SplashOptions, withSplash: boolean): Loa
 
     const screen: Loading = {
         show() {
-            overlay = createOverlay(theme.bg, options.container);
+            overlay = createOverlay(transparent ? "transparent" : theme.bg, options.container);
             if (!overlay) return;
 
             content = panel(276, "center");
@@ -519,8 +528,8 @@ function loading(theme: Theme, options: SplashOptions, withSplash: boolean): Loa
             noticeLine?.remove();
             noticeLine = document.createElement("div");
             noticeLine.style.cssText =
-                `color:${theme.muted};font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;` +
-                "text-align:center;margin-top:10px;max-width:276px";
+                `color:${theme.muted};background:${theme.surface};font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;` +
+                "text-align:center;margin-top:10px;max-width:276px;padding:5px 8px;border-radius:3px;";
             noticeLine.textContent = `${verdict.class} adapter: ${verdict.identity}`;
             content.appendChild(noticeLine);
         },
@@ -577,7 +586,7 @@ function shallotLoading(theme: Theme, options?: SplashOptions | HTMLElement): Lo
 }
 
 function minimalLoading(theme: Theme, options?: SplashOptions | HTMLElement): Loading {
-    return loading(theme, loadingOptions(options), false);
+    return loading(theme, loadingOptions(options), false, true);
 }
 
 /** dark-theme startup screen: the shallot splash over a progress bar. the engine default. */

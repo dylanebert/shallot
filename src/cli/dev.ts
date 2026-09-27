@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { basename, relative, resolve } from "node:path";
 import { createServer, searchForWorkspaceRoot, type Plugin as VitePlugin } from "vite";
 import {
@@ -11,9 +12,9 @@ import {
     typegpuPlugin,
 } from "../project";
 
-// serve the synthesized entry at `/` — a manifest project owns no index.html, so the CLI provides one.
-// `transformIndexHtml` runs the page through vite's HTML pipeline (HMR client, inline-module extraction),
-// so the inline `run(virtual:project)` script resolves the same manifest a build does.
+// serve the synthesized entry at `/` only when a manifest project has no index.html. `transformIndexHtml`
+// runs it through vite's HTML pipeline (HMR client, inline-module extraction), so the inline `run(virtual:project)`
+// script resolves the same manifest a build does.
 function synthIndexPlugin(name: string): VitePlugin {
     return {
         name: "shallot-synth-index",
@@ -45,7 +46,11 @@ export function devConfig(
         configFile: false as const,
         // typegpu transpiles TGSL function bodies at build time — there is no runtime fallback, and
         // the engine's own kernels live in node_modules, so the transform must reach there too
-        plugins: [typegpuPlugin(), projectPlugin(absProjectDir), synthIndexPlugin(name)],
+        plugins: [
+            typegpuPlugin(),
+            projectPlugin(absProjectDir),
+            ...(existsSync(resolve(absProjectDir, "index.html")) ? [] : [synthIndexPlugin(name)]),
+        ],
         server: {
             port: opts.port,
             strictPort: opts.strictPort,
