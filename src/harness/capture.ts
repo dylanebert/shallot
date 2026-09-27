@@ -3,7 +3,6 @@
 // same geometry. `captureFrame` runs IN THE PAGE; the driver fixes the viewport that makes the geometry
 // hold and never re-implements the read.
 
-
 /** the declared capture geometry and semantics. One contract, not a per-consumer option. */
 export interface CaptureIdentity {
     width: number;
