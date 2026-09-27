@@ -5,9 +5,9 @@ import { runBrowserCheck } from "./browser";
 import { CAPTURE_CONTRACT } from "./capture";
 
 check(
-    "the page capture carries its tag at the fixed geometry twice",
+    "the page capture reads the frame presented in its caller task",
     {
-        claim: "a browser capture preserves the declared page geometry, shows its color tag, and is byte-identical across two captures of one rendered state",
+        claim: "a capture initiated after one canvas presentation reads a later presentation instead of the frame the caller requested",
         size: "integration",
         requires: ["browser"],
         subject: [

@@ -15,8 +15,16 @@ import {
 } from "./subject-device";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#canvas")!;
-const tag = {
-    name: "the final canvas carries its color tag",
+const wrongFrameTag = {
+    name: "capture reads the frame presented in its caller task",
+    minPixels: 300_000,
+    minSpan: 400,
+    r: [0, 110] as [number, number],
+    g: [100, 255] as [number, number],
+    b: [0, 110] as [number, number],
+};
+const correctFrameTag = {
+    name: "the later final canvas carries its color tag",
     minPixels: 300_000,
     minSpan: 400,
     r: [100, 255] as [number, number],
@@ -25,6 +33,7 @@ const tag = {
 };
 let ready = false;
 let setupError: string | undefined;
+let firstCapture: ReturnType<typeof captureFrame> | undefined;
 const subjectDevice: SubjectDeviceState = { created: false, errors: [] };
 
 window.__harness = {
@@ -50,16 +59,24 @@ window.__harness = {
             };
         }
         try {
-            const first = await captureFrame(canvas);
+            if (!firstCapture) throw new Error("the wrong-frame capture was not initiated");
+            const first = await firstCapture;
             const second = await captureFrame(canvas);
+            const third = await captureFrame(canvas);
             const geometry =
                 first.width === CAPTURE_CONTRACT.width &&
                 first.height === CAPTURE_CONTRACT.height &&
                 captureIdentityMatches(first.identity, CAPTURE_CONTRACT);
             const identical =
-                first.rgba.length === second.rgba.length &&
-                first.rgba.every((value, index) => value === second.rgba[index]);
-            const tagged = probePixels(first.rgba, first.width, first.height, tag);
+                second.rgba.length === third.rgba.length &&
+                second.rgba.every((value, index) => value === third.rgba[index]);
+            const wrongFrame = probePixels(first.rgba, first.width, first.height, wrongFrameTag);
+            const correctFrame = probePixels(
+                second.rgba,
+                second.width,
+                second.height,
+                correctFrameTag,
+            );
             const checks = [
                 ...subjectDeviceChecks(subjectDevice),
                 {
@@ -68,13 +85,26 @@ window.__harness = {
                     detail: `${first.width}x${first.height}`,
                 },
                 {
-                    name: "two captures of one state are byte-identical",
+                    name: "two captures of the later state are byte-identical",
                     ok: identical,
                 },
                 {
-                    name: tag.name,
-                    ok: pixelProbePass(tagged, tag),
-                    data: { pixels: tagged.pixels, width: tagged.width, height: tagged.height },
+                    name: wrongFrameTag.name,
+                    ok: pixelProbePass(wrongFrame, wrongFrameTag),
+                    data: {
+                        pixels: wrongFrame.pixels,
+                        width: wrongFrame.width,
+                        height: wrongFrame.height,
+                    },
+                },
+                {
+                    name: correctFrameTag.name,
+                    ok: pixelProbePass(correctFrame, correctFrameTag),
+                    data: {
+                        pixels: correctFrame.pixels,
+                        width: correctFrame.width,
+                        height: correctFrame.height,
+                    },
                 },
             ];
             const diagnostics = subjectDeviceDiagnostics(subjectDevice);
@@ -106,13 +136,13 @@ async function start() {
             alphaMode: "opaque",
         });
 
-        const present = () => {
+        const present = (clearValue: GPUColor) => {
             const encoder = device.createCommandEncoder();
             const pass = encoder.beginRenderPass({
                 colorAttachments: [
                     {
                         view: context.getCurrentTexture().createView(),
-                        clearValue: { r: 0.8, g: 0.05, b: 0.65, a: 1 },
+                        clearValue,
                         loadOp: "clear",
                         storeOp: "store",
                     },
@@ -120,10 +150,14 @@ async function start() {
             });
             pass.end();
             device.queue.submit([encoder.finish()]);
-            ready = true;
-            requestAnimationFrame(present);
         };
-        requestAnimationFrame(present);
+        requestAnimationFrame(() => {
+            present({ r: 0.05, g: 0.8, b: 0.1, a: 1 });
+            // Queue the next presentation before captureFrame can queue its deferred read.
+            requestAnimationFrame(() => present({ r: 0.8, g: 0.05, b: 0.65, a: 1 }));
+            firstCapture = captureFrame(canvas);
+            ready = true;
+        });
     } catch (error) {
         setupError = error instanceof Error ? error.message : String(error);
     }

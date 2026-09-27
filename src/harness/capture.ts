@@ -2,13 +2,6 @@
 // boundary and tightly packed RGBA semantics, so every semantic check, artifact and human frame reads the
 // same geometry. `captureFrame` runs IN THE PAGE; the driver fixes the viewport that makes the geometry
 // hold and never re-implements the read.
-//
-// The route is the experiment's answer, not a preference. A WebGPU canvas hands its composited frame to
-// `toDataURL` and to nothing else: at the fixed geometry on a real macOS adapter, `createImageBitmap(canvas)`
-// and a 2D `drawImage(canvas)` both returned a correctly sized, completely blank frame (0 of 184,320
-// expected tag pixels), while `toDataURL` returned the exact drawn region and repeated captures of one
-// unchanged state were byte-identical. A blank frame at the right size is the defect this contract exists
-// to prevent, so the cheaper-looking routes are not admissible.
 
 /** the declared capture geometry and semantics. One contract, not a per-consumer option. */
 export interface CaptureIdentity {
@@ -70,8 +63,8 @@ export interface Capture {
 
 /**
  * Capture the final canvas as tightly packed RGBA at the declared contract, after the presentation
- * boundary. A WebGPU canvas holds its frame only until the task that rendered it ends, so the read happens
- * inside a frame callback queued after the engine's own.
+ * boundary. Initiate the snapshot in the caller's task so a later presentation cannot replace its frame;
+ * image decoding may finish asynchronously.
  *
  * @example
  * ```
@@ -84,9 +77,7 @@ export async function captureFrame(
     contract: CaptureIdentity = CAPTURE_CONTRACT,
 ): Promise<Capture> {
     assertCaptureGeometry(canvas.width, canvas.height, contract);
-    const url = await new Promise<string>((done) =>
-        requestAnimationFrame(() => done(canvas.toDataURL("image/png"))),
-    );
+    const url = canvas.toDataURL("image/png");
     const bitmap = await createImageBitmap(await (await fetch(url)).blob());
     try {
         assertCaptureGeometry(bitmap.width, bitmap.height, contract);
@@ -111,7 +102,5 @@ export async function captureArtifact(
     contract: CaptureIdentity = CAPTURE_CONTRACT,
 ): Promise<string> {
     assertCaptureGeometry(canvas.width, canvas.height, contract);
-    return new Promise<string>((done) =>
-        requestAnimationFrame(() => done(canvas.toDataURL("image/png"))),
-    );
+    return canvas.toDataURL("image/png");
 }

@@ -166,6 +166,19 @@ jobs:
           path: .artifacts/
           if-no-files-found: warn
           include-hidden-files: true
+      - name: capture browser integration row
+        if: always()
+        run: |
+          rm -rf .artifacts
+          bun run test -- --integration --subject src/harness/fixtures/capture.ts --requires browser --no-unit-fallback
+      - name: upload capture browser artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: shallot-test-${{ runner.os }}-capture-browser-${{ github.run_id }}
+          path: .artifacts/
+          if-no-files-found: warn
+          include-hidden-files: true
       - name: changed browser integration rows
         if: always()
         run: |

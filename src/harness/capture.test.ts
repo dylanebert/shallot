@@ -2,6 +2,8 @@ import { expect } from "bun:test";
 import {
     assertCaptureGeometry,
     CAPTURE_CONTRACT,
+    captureArtifact,
+    captureFrame,
     captureIdentityLabel,
     captureIdentityMatches,
 } from "@dylanebert/shallot/harness/capture";
@@ -45,6 +47,71 @@ check(
             expect(
                 captureIdentityMatches(CAPTURE_CONTRACT, { ...CAPTURE_CONTRACT, ...changed }),
             ).toBe(false);
+        }
+    },
+);
+
+check(
+    "capture initiates its snapshot in the caller's task",
+    {
+        claim: "captureFrame and captureArtifact defer their canvas snapshot until after another presentation can replace the requested frame",
+        subject: "src/harness/capture.ts",
+    },
+    async () => {
+        const original = {
+            requestAnimationFrame: globalThis.requestAnimationFrame,
+            fetch: globalThis.fetch,
+            createImageBitmap: globalThis.createImageBitmap,
+            OffscreenCanvas: globalThis.OffscreenCanvas,
+        };
+        const calls: string[] = [];
+        const contract = { ...CAPTURE_CONTRACT, width: 1, height: 1 };
+        const canvas = {
+            width: 1,
+            height: 1,
+            toDataURL() {
+                calls.push("snapshot");
+                return "data:image/png;base64,AA==";
+            },
+        } as HTMLCanvasElement;
+        try {
+            globalThis.requestAnimationFrame = (() => {
+                calls.push("animation frame");
+                return 1;
+            }) as typeof requestAnimationFrame;
+            globalThis.fetch = (async () =>
+                ({ blob: async () => ({}) }) as Response) as unknown as typeof fetch;
+            globalThis.createImageBitmap = (async () => ({
+                width: 1,
+                height: 1,
+                close() {},
+            })) as typeof createImageBitmap;
+            globalThis.OffscreenCanvas = class {
+                getContext() {
+                    return {
+                        drawImage() {},
+                        getImageData: () => ({
+                            data: new Uint8ClampedArray(4),
+                            width: 1,
+                            height: 1,
+                        }),
+                    };
+                }
+            } as unknown as typeof OffscreenCanvas;
+
+            const frame = captureFrame(canvas, contract);
+            expect(calls).toEqual(["snapshot"]);
+            await frame;
+
+            calls.length = 0;
+            const artifact = captureArtifact(canvas, contract);
+            expect(calls).toEqual(["snapshot"]);
+            expect(await artifact).toBe("data:image/png;base64,AA==");
+        } finally {
+            globalThis.requestAnimationFrame = original.requestAnimationFrame;
+            globalThis.fetch = original.fetch;
+            globalThis.createImageBitmap = original.createImageBitmap;
+            globalThis.OffscreenCanvas = original.OffscreenCanvas;
         }
     },
 );
