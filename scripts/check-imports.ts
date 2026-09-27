@@ -162,6 +162,22 @@ function modulePath(module: Module): string {
     return module.kind === "tooling" ? module.name : `${module.tier}/${module.name}`;
 }
 
+/** Match package exclusions: owner-local fixtures directories and private `.fixture.ts` source helpers. */
+function isPrivateFixture(path: string): boolean {
+    return path.split("/").includes("fixtures") || path.endsWith(".fixture.ts");
+}
+
+function packageExportTarget(root: string, specifier: string): string | null {
+    const manifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+    const prefix = `${manifest.name}/`;
+    if (!specifier.startsWith(prefix)) return null;
+    let target = manifest.exports?.[`./${specifier.slice(prefix.length)}`];
+    while (target !== null && typeof target === "object") {
+        target = target.types ?? target.import ?? target.default ?? target.node ?? target.bun;
+    }
+    return typeof target === "string" && target.startsWith("./") ? resolve(root, target) : null;
+}
+
 function isModuleEntry(module: Module, target: string): boolean {
     return (
         target === resolve(module.directory, "index.ts") ||
@@ -191,9 +207,10 @@ export function checkImports(root: string): string[] {
 
     for (const file of files) {
         const sourceModule = moduleAt(src, file);
-        const transition = sourceModule?.kind === "transitional";
-        if (sourceModule?.kind === "transitional")
-            transitional.set(sourceModule.directory, sourceModule);
+        const sourcePath = relative(src, file).split(sep).join("/");
+        const fixtureSource = isPrivateFixture(sourcePath);
+        const transition = sourceModule?.kind === "transitional" && !fixtureSource;
+        if (transition && sourceModule) transitional.set(sourceModule.directory, sourceModule);
         const sourceTier = gameTierAt(src, file);
         const path = relative(root, file).split(sep).join("/");
         for (const reference of references(readFileSync(file, "utf8"), path)) {
@@ -208,7 +225,6 @@ export function checkImports(root: string): string[] {
                 );
                 continue;
             }
-            if (transition) continue;
             const target = resolution.target;
             if (!target || (target !== src && !target.startsWith(`${src}${sep}`))) continue;
             const targetModule = moduleAt(src, target);
@@ -216,8 +232,27 @@ export function checkImports(root: string): string[] {
             const targetPath = relative(src, target).split(sep).join("/");
             const location = `${path}:${reference.line}`;
 
-            if (targetPath.split("/").includes("fixtures")) {
-                violations.push(`${location}: product module imports private fixture ${targetPath}`);
+            if (isPrivateFixture(targetPath) && !fixtureSource) {
+                violations.push(
+                    `${location}: product module imports private fixture ${targetPath}`,
+                );
+                continue;
+            }
+            if (transition) continue;
+            if (fixtureSource) {
+                if (
+                    sourceModule &&
+                    targetModule &&
+                    sourceModule.directory !== targetModule.directory &&
+                    !isModuleEntry(targetModule, target) &&
+                    !DIRECT_LEAVES.has(targetPath) &&
+                    PUBLIC_ENTRIES.get(reference.specifier) !== targetPath &&
+                    packageExportTarget(root, reference.specifier) !== target
+                ) {
+                    violations.push(
+                        `${location}: import past ${modulePath(targetModule)}/index.ts → ${targetPath}`,
+                    );
+                }
                 continue;
             }
             if (sourceTier && targetModule?.kind === "tooling") {

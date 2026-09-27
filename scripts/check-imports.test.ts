@@ -35,6 +35,7 @@ check(
                     name: "@dylanebert/shallot",
                     exports: {
                         "./input": "./src/core/input/index.ts",
+                        "./harness/check": "./src/harness/check.ts",
                         "./extras": "./src/extras/index.ts",
                         "./vite": {
                             types: "./src/project/vite.ts",
@@ -61,8 +62,23 @@ check(
             );
 
             put(root, "core/input/index.ts", "export interface Input {}\n");
-            put(root, "core/input/fixtures/page.ts", "export {};\n");
-            put(root, "core/input/product.ts", 'import "./fixtures/page";\n');
+            put(
+                root,
+                "core/input/fixtures/page.ts",
+                'import "@dylanebert/shallot/harness/check";\n',
+            );
+            put(root, "core/input/fixtures/support.ts", 'import "./page";\n');
+            put(
+                root,
+                "core/input/check.fixture.ts",
+                'import "@dylanebert/shallot/harness/check";\n',
+            );
+            put(
+                root,
+                "core/input/product.ts",
+                'import "./fixtures/page";\nimport "./check.fixture";\n',
+            );
+            put(root, "harness/check.ts", "export {};\n");
             put(root, "project/vite.ts", "export {};\n");
             put(root, "harness/page.ts", 'import "@dylanebert/shallot/vite";\n');
             put(root, "core/rendering/index.ts", 'import "@dylanebert/shallot/input";\n');
@@ -111,9 +127,15 @@ check(
                 "transitional/legacy/index.ts",
                 "// Destination: engine; owner: legacy.md.\nexport {};\n",
             );
+            put(
+                root,
+                "transitional/legacy/product.ts",
+                'import "../../core/input/fixtures/page";\nimport "../../core/input/check.fixture";\n',
+            );
 
             expect(checkImports(root)).toEqual([
                 "src/core/input/product.ts:1: product module imports private fixture core/input/fixtures/page.ts",
+                "src/core/input/product.ts:2: product module imports private fixture core/input/check.fixture.ts",
                 "src/core/rendering/alias.ts:1: sibling import core/rendering → core/input",
                 "src/core/rendering/index.ts:1: sibling import core/rendering → core/input",
                 "src/core/rendering/js-path.ts:1: sibling import core/rendering → core/input",
@@ -126,6 +148,8 @@ check(
                 "src/extras/physics/index.ts:1: physics module extras/physics imports rendering module core/rendering",
                 "src/harness/index.ts:1: import past engine/runtime/index.ts → engine/runtime/internal.ts",
                 "src/standard/loading/index.ts:1: standard imports outward to extras/index",
+                "src/transitional/legacy/product.ts:1: product module imports private fixture core/input/fixtures/page.ts",
+                "src/transitional/legacy/product.ts:2: product module imports private fixture core/input/check.fixture.ts",
                 "src/transitional/legacy/index.ts:1: // Destination: engine; owner: legacy.md.",
             ]);
         });
