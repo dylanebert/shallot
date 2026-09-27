@@ -14,7 +14,6 @@ type Snapshot = {
     canvasHidden: boolean;
     overlayPresent: boolean;
     progress: Progress[];
-    pageActionResult: string;
     cleaned: boolean;
     adapter: Adapter | null;
 };
@@ -27,6 +26,7 @@ type ScreenshotObservation = {
     progressColorPixelsInFrame: number;
     sceneBackgroundFraction: number;
     clearBackground: [number, number, number];
+    adjacentBackground: [number, number, number];
     pageBackground: [number, number, number];
 };
 
@@ -44,6 +44,8 @@ const PART_HALF_EXTENT = 0.5;
 const FRAME_DIFFERENCE_MEAN_LIMIT = 0.25;
 const FRAME_DIFFERENCE_PIXEL_LIMIT = 0.001;
 const CHANNEL_TOLERANCE = 2;
+const SCENE_BACKGROUND_TOLERANCE = 2;
+const PROJECTED_BOUNDS_PADDING = 1;
 const BOX_POPULATION_MIN_FACTOR = 0.5;
 const BOX_POPULATION_MAX_FACTOR = 1.5;
 const BOX_SIZE_MIN_FACTOR = 0.72;
@@ -125,6 +127,10 @@ function projectUnitCube(canvas: ScreenshotObservation["canvas"]) {
         expectedPopulation: polygonArea(hull),
         expectedCenterX: (left + rightEdge) / 2,
         expectedCenterY: (top + bottom) / 2,
+        expectedLeft: left,
+        expectedTop: top,
+        expectedRight: rightEdge,
+        expectedBottom: bottom,
     };
 }
 
@@ -141,6 +147,10 @@ function sceneGeometry(image: ScreenshotObservation | undefined) {
         centerOffsetY: 0,
         expectedCenterX: 0,
         expectedCenterY: 0,
+        expectedLeft: 0,
+        expectedTop: 0,
+        expectedRight: 0,
+        expectedBottom: 0,
         clearBackground: [0, 0, 0] as [number, number, number],
         boundsLeft: -1,
         boundsTop: -1,
@@ -181,6 +191,43 @@ function sceneGeometry(image: ScreenshotObservation | undefined) {
         boundsTop: bounds?.top ?? -1,
         boundsRight: bounds?.right ?? -1,
         boundsBottom: bounds?.bottom ?? -1,
+    };
+}
+
+function compareSceneBackground(
+    image: ScreenshotObservation | undefined,
+    geometry: ReturnType<typeof sceneGeometry>,
+): { ok: boolean; maxChannelError: number; pixelsCompared: number } {
+    if (!image) return { ok: false, maxChannelError: 255, pixelsCompared: 0 };
+    let maxChannelError = 0;
+    let pixelsCompared = 0;
+    for (let y = 0; y < image.canvas.height; y++) {
+        for (let x = 0; x < image.canvas.width; x++) {
+            const pixelX = x + 0.5;
+            const pixelY = y + 0.5;
+            if (
+                pixelX >= geometry.expectedLeft - PROJECTED_BOUNDS_PADDING &&
+                pixelX <= geometry.expectedRight + PROJECTED_BOUNDS_PADDING &&
+                pixelY >= geometry.expectedTop - PROJECTED_BOUNDS_PADDING &&
+                pixelY <= geometry.expectedBottom + PROJECTED_BOUNDS_PADDING
+            )
+                continue;
+            const index = (y * image.canvas.width + x) * 3;
+            for (let channel = 0; channel < 3; channel++) {
+                maxChannelError = Math.max(
+                    maxChannelError,
+                    Math.abs(
+                        image.canvasPixels[index + channel]! - image.adjacentBackground[channel]!,
+                    ),
+                );
+            }
+            pixelsCompared++;
+        }
+    }
+    return {
+        ok: pixelsCompared > 0 && maxChannelError <= SCENE_BACKGROUND_TOLERANCE,
+        maxChannelError,
+        pixelsCompared,
     };
 }
 
@@ -251,6 +298,8 @@ let loadingAtCompletion: Snapshot | undefined;
 let buildError: unknown;
 let began = false;
 let cleaned = false;
+let pageLinkHitTarget = false;
+let pageLinkHashChanged = false;
 
 function progressElement(): HTMLElement | null {
     return overlay?.firstElementChild?.firstElementChild?.firstElementChild as HTMLElement | null;
@@ -274,8 +323,6 @@ function snapshot(): Snapshot {
         canvasHidden: !host.canvas.classList.contains("visible") && canvasStyle.opacity === "0",
         overlayPresent: overlay?.isConnected === true,
         progress: [...barProgress],
-        pageActionResult:
-            document.querySelector<HTMLElement>("#page-action-result")?.textContent ?? "",
         cleaned,
         adapter: Compute.adapter
             ? { class: Compute.adapter.class, identity: Compute.adapter.identity }
@@ -286,7 +333,10 @@ function snapshot(): Snapshot {
 const loading: Loading = {
     show() {
         const cleanup = screen.show();
-        overlay = host.frame.lastElementChild as HTMLElement | null;
+        overlay =
+            [...document.querySelectorAll<HTMLElement>("*")].find(
+                (element) => element.style.zIndex === "10000",
+            ) ?? null;
         return () => {
             cleanup?.();
             cleaned = true;
@@ -407,11 +457,12 @@ async function inspectScreenshot(encoded: string): Promise<ScreenshotObservation
     const progressColorPixelsInFrame = inside(frame, isProgressColor);
     const sceneBackgroundFraction =
         inside(canvas, isPageBackground) / (canvas.width * canvas.height);
-    const pageBackground = [
-        pixels[(8 * image.width + 8) * 4]!,
-        pixels[(8 * image.width + 8) * 4 + 1]!,
-        pixels[(8 * image.width + 8) * 4 + 2]!,
-    ] as [number, number, number];
+    const sample = (x: number, y: number): [number, number, number] => {
+        const index = (y * image.width + x) * 4;
+        return [pixels[index]!, pixels[index + 1]!, pixels[index + 2]!];
+    };
+    const adjacentBackground = sample(frame.x - 1, frame.y + Math.floor(frame.height / 2));
+    const pageBackground = sample(8, 8);
     return {
         sceneColorPixels,
         sceneBounds,
@@ -420,6 +471,7 @@ async function inspectScreenshot(encoded: string): Promise<ScreenshotObservation
         progressColorPixelsInFrame,
         sceneBackgroundFraction,
         clearBackground,
+        adjacentBackground,
         pageBackground,
     };
 }
@@ -435,6 +487,7 @@ const checkWindow = window as unknown as {
         stepFirstFrame(): Promise<void>;
         stepLaterFrame(): Promise<void>;
         recordSnapshot(name: string): void;
+        recordLinkInteraction(hitTarget: boolean, hashChanged: boolean): void;
         recordScreenshot(name: string, encoded: string): Promise<void>;
     };
     __harness?: {
@@ -485,6 +538,10 @@ checkWindow.__loadingCheck = {
     recordSnapshot(name) {
         observedStates.set(name, snapshot());
     },
+    recordLinkInteraction(hitTarget, hashChanged) {
+        pageLinkHitTarget = hitTarget;
+        pageLinkHashChanged = hashChanged;
+    },
     async stepFirstFrame() {
         await waitForBuild();
         if (!app) throw new Error("the example build returned no app");
@@ -515,6 +572,7 @@ checkWindow.__harness = {
         const laterFrameImage = screenshots.get("later-frame");
         const firstGeometry = sceneGeometry(firstFrameImage);
         const laterGeometry = sceneGeometry(laterFrameImage);
+        const backgroundComparison = compareSceneBackground(firstFrameImage, firstGeometry);
         const frameComparison = compareSceneFrames(firstFrameImage, laterFrameImage);
         const intermediateSteps =
             held?.progress.filter((step) => step.value > 0 && step.value < 1) ?? [];
@@ -551,6 +609,14 @@ checkWindow.__harness = {
                     completeSamples: completeSteps.length,
                     completeWidthMatches: completeWidthMatches.length,
                     firstCompleteWidthPercent: widthPercent(completeSteps[0]?.width),
+                },
+            },
+            {
+                name: "the section link hits its own target and changes the hash during loading",
+                ok: pageLinkHitTarget && pageLinkHashChanged,
+                data: {
+                    hitTarget: Number(pageLinkHitTarget),
+                    hashChanged: Number(pageLinkHashChanged),
                 },
             },
             {
@@ -609,6 +675,18 @@ checkWindow.__harness = {
                 },
             },
             {
+                name: "outside the projected cube, the revealed scene matches adjacent page background within 2 RGB levels per channel",
+                ok: backgroundComparison.ok,
+                data: {
+                    maxChannelError: backgroundComparison.maxChannelError,
+                    tolerance: SCENE_BACKGROUND_TOLERANCE,
+                    pixelsCompared: backgroundComparison.pixelsCompared,
+                    pageRed: firstFrameImage?.adjacentBackground[0] ?? 0,
+                    pageGreen: firstFrameImage?.adjacentBackground[1] ?? 0,
+                    pageBlue: firstFrameImage?.adjacentBackground[2] ?? 0,
+                },
+            },
+            {
                 name: "the later stepped scene has the orbit-projected unit-cube population and centered bounds",
                 ok: laterGeometry.ok,
                 data: {
@@ -638,10 +716,6 @@ checkWindow.__harness = {
                     changedPixelFraction: frameComparison.changedPixelFraction,
                     channelTolerance: CHANNEL_TOLERANCE,
                 },
-            },
-            {
-                name: "the surrounding page action worked while build completion was held",
-                ok: beforeFrame?.pageActionResult === "Page action works.",
             },
         ];
         const adapter = held?.adapter ?? null;

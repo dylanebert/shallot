@@ -35,7 +35,25 @@ check(
                 );
             };
             await capture("held");
-            await page.getByRole("button", { name: /Still usable/ }).click();
+            await page.evaluate(() => window.scrollTo(0, 0));
+            const linkPoint = await page.evaluate(() => {
+                const link = document.querySelector<HTMLAnchorElement>("#section-link");
+                if (!link) return null;
+                const rect = link.getBoundingClientRect();
+                const x = rect.left + rect.width / 2;
+                const y = rect.top + rect.height / 2;
+                return { x, y, hitTarget: document.elementFromPoint(x, y) === link };
+            });
+            if (linkPoint) await page.mouse.click(linkPoint.x, linkPoint.y);
+            const hashAfter = await page.evaluate(() => window.location.hash);
+            await page.evaluate(
+                ({ hitTarget, hashChanged }) =>
+                    window.__loadingCheck!.recordLinkInteraction(hitTarget, hashChanged),
+                {
+                    hitTarget: linkPoint?.hitTarget ?? false,
+                    hashChanged: linkPoint !== null && hashAfter === "#details",
+                },
+            );
             await page.evaluate(() => window.scrollTo(0, 0));
             await page.evaluate(() => window.__loadingCheck!.releaseBuild());
             await page.evaluate(() => window.__loadingCheck!.waitForCleanup());
@@ -65,13 +83,13 @@ declare global {
                 canvasHidden: boolean;
                 overlayPresent: boolean;
                 progress: { value: number; width: string }[];
-                pageActionResult: string;
                 cleaned: boolean;
             };
             releaseBuild(): void;
             waitForCleanup(): Promise<void>;
             waitForBuild(): Promise<void>;
             recordSnapshot(name: string): void;
+            recordLinkInteraction(hitTarget: boolean, hashChanged: boolean): void;
             recordScreenshot(name: string, encoded: string): Promise<void>;
             stepFirstFrame(): Promise<void>;
             stepLaterFrame(): Promise<void>;
