@@ -69,6 +69,8 @@ Requirement selection combines with `--base`/`--diff`. Repeat `--requires` to co
 
 Each run replaces `.artifacts/` with its report and child process output.
 
+`check-imports` stays red while modules live in `src/transitional/`; their `// Destination:` lines name the migration owners. The current `core/rendering/view.ts` → `core/input` sibling import is a separate unresolved violation, not a permitted dependency. For unrelated work, compare import reds with main: report unchanged violations and continue, but stop on a new or changed violation. The gate remains red and is never skipped.
+
 ## Verification
 
 A module's promises are tested beside the module and through the examples that use it. Test each claim at the cheapest level that can observe it. A check's result depends only on its declared inputs.
@@ -76,8 +78,8 @@ A module's promises are tested beside the module and through the examples that u
 - A check declares its claim, size and required host capabilities in `check()`.
 - A host without a required capability refuses with the reason; it never runs a weaker version.
 - Untagged checks are CPU-only.
-- `gpu` requires an in-process WebGPU device.
-- `browser` requires headless Chromium on a real WebGPU adapter.
+- `gpu` requires an in-process WebGPU device on a real adapter.
+- `browser` requires headless Chromium and requests no adapter itself. Browser GPU correctness accepts software adapters and records the subject's adapter identity.
 - `display` requires a declared monitor and takes its keyboard and cursor.
 - Checks run on the scheduler's stepped clock, never wall time. Simulation state lives in registered components or behind a snapshot, restore and hash hook. Gameplay runs in `fixed` from per-tick actions, presentation runs in `draw`, and `local` components are excluded from the hash. Runs are deterministic within one runtime and engine version; across versions, the hash detects divergence.
 - Test a frame at the cheapest level that shows the defect: CPU state, GPU readback, browser pixels, then a person. Capture frames only with `captureFrame`. Add a golden image only for a defect no cheaper level shows, and never update one to make it pass. Screenshots are not results.

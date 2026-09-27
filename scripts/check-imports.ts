@@ -191,7 +191,7 @@ function transitionalRed(src: string, module: Module): string {
     const lines = source.split("\n");
     const line = lines.findIndex((entry) => entry.startsWith("// Destination:"));
     const destination = line < 0 ? "// Destination: not recorded." : lines[line];
-    return `${relative(dirname(src), index).split(sep).join("/")}:${line < 0 ? 1 : line + 1}: ${destination}`;
+    return `${relative(dirname(src), index).split(sep).join("/")}:${line < 0 ? 1 : line + 1}: pending roadmap migration (still red): ${destination}`;
 }
 
 /** Return all import-boundary reds in a source tree. */

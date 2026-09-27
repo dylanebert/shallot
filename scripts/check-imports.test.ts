@@ -150,7 +150,7 @@ check(
                 "src/standard/loading/index.ts:1: standard imports outward to extras/index",
                 "src/transitional/legacy/product.ts:1: product module imports private fixture core/input/fixtures/page.ts",
                 "src/transitional/legacy/product.ts:2: product module imports private fixture core/input/check.fixture.ts",
-                "src/transitional/legacy/index.ts:1: // Destination: engine; owner: legacy.md.",
+                "src/transitional/legacy/index.ts:1: pending roadmap migration (still red): // Destination: engine; owner: legacy.md.",
             ]);
         });
         withFixture((root) => {
