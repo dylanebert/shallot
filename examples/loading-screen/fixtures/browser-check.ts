@@ -1,7 +1,7 @@
 import { build, Compute, type Loading, minimalDark } from "@dylanebert/shallot";
 import { DARK } from "@dylanebert/shallot/brand";
 import { OrbitPlugin } from "@dylanebert/shallot/extras";
-import { mountHost } from "../src/host";
+import { FRAME_BACKGROUND_COLOR, mountHost } from "../src/host";
 import { revealAfterFirstFrame } from "../src/reveal";
 import { SCENE } from "../src/scene";
 
@@ -25,7 +25,7 @@ type ScreenshotObservation = {
     canvas: { x: number; y: number; width: number; height: number };
     canvasPixels: Uint8Array;
     progressColorPixelsInFrame: number;
-    sceneBackgroundFraction: number;
+    frameBackgroundFraction: number;
     clearBackground: [number, number, number];
     adjacentBackground: [number, number, number];
     pageBackground: [number, number, number];
@@ -77,6 +77,7 @@ const parseColor = (hex: string): [number, number, number] => [
     Number.parseInt(hex.slice(5, 7), 16),
 ];
 const PAGE_BACKGROUND = parseColor(DARK.bg);
+const FRAME_BACKGROUND = parseColor(FRAME_BACKGROUND_COLOR);
 const DESCRIPTION_INK = parseColor(DARK.ink);
 const PROGRESS_GOLD = parseColor(DARK.gold);
 
@@ -237,9 +238,7 @@ function compareSceneBackground(
             for (let channel = 0; channel < 3; channel++) {
                 maxChannelError = Math.max(
                     maxChannelError,
-                    Math.abs(
-                        image.canvasPixels[index + channel]! - image.adjacentBackground[channel]!,
-                    ),
+                    Math.abs(image.canvasPixels[index + channel]! - FRAME_BACKGROUND[channel]!),
                 );
             }
             pixelsCompared++;
@@ -478,13 +477,13 @@ async function inspectScreenshot(encoded: string): Promise<ScreenshotObservation
         Math.abs(r - PROGRESS_GOLD[0]) < 24 &&
         Math.abs(g - PROGRESS_GOLD[1]) < 24 &&
         Math.abs(b - PROGRESS_GOLD[2]) < 24;
-    const isPageBackground = (r: number, g: number, b: number) =>
-        Math.abs(r - PAGE_BACKGROUND[0]) <= 2 &&
-        Math.abs(g - PAGE_BACKGROUND[1]) <= 2 &&
-        Math.abs(b - PAGE_BACKGROUND[2]) <= 2;
+    const isFrameBackground = (r: number, g: number, b: number) =>
+        Math.abs(r - FRAME_BACKGROUND[0]) <= SCENE_BACKGROUND_TOLERANCE &&
+        Math.abs(g - FRAME_BACKGROUND[1]) <= SCENE_BACKGROUND_TOLERANCE &&
+        Math.abs(b - FRAME_BACKGROUND[2]) <= SCENE_BACKGROUND_TOLERANCE;
     const progressColorPixelsInFrame = inside(frame, isProgressColor);
-    const sceneBackgroundFraction =
-        inside(canvas, isPageBackground) / (canvas.width * canvas.height);
+    const frameBackgroundFraction =
+        inside(canvas, isFrameBackground) / (canvas.width * canvas.height);
     const sample = (x: number, y: number): [number, number, number] => {
         const index = (y * image.width + x) * 4;
         return [pixels[index]!, pixels[index + 1]!, pixels[index + 2]!];
@@ -498,7 +497,7 @@ async function inspectScreenshot(encoded: string): Promise<ScreenshotObservation
         canvas,
         canvasPixels,
         progressColorPixelsInFrame,
-        sceneBackgroundFraction,
+        frameBackgroundFraction,
         clearBackground,
         adjacentBackground,
         pageBackground,
@@ -669,6 +668,13 @@ checkWindow.__harness = {
             Math.abs(widthPercent(step.width) - step.value * 100) <= 0.001;
         const intermediateWidthMatches = intermediateSteps.filter(widthMatchesValue);
         const completeWidthMatches = completeSteps.filter(widthMatchesValue);
+        const pageOutsideFrameError = heldImage
+            ? Math.max(
+                  ...PAGE_BACKGROUND.map((channel, index) =>
+                      Math.abs(heldImage.adjacentBackground[index]! - channel),
+                  ),
+              )
+            : 255;
         const checks: {
             name: string;
             ok: boolean;
@@ -715,36 +721,47 @@ checkWindow.__harness = {
                 },
             },
             {
-                name: "the screenshot shows the loading bar over the page-background void",
+                name: "the screenshot shows the loading bar over the frame's --bg2 void",
                 ok: Boolean(
                     heldImage &&
                         heldImage.progressColorPixelsInFrame > 100 &&
-                        heldImage.sceneBackgroundFraction >= 0.97 &&
+                        heldImage.frameBackgroundFraction >= 0.97 &&
                         heldImage.pageBackground.every(
                             (channel, index) => Math.abs(channel - PAGE_BACKGROUND[index]!) <= 2,
                         ),
                 ),
                 data: {
                     progressPixelsInFrame: heldImage?.progressColorPixelsInFrame ?? 0,
-                    sceneBackgroundFraction: heldImage?.sceneBackgroundFraction ?? 0,
+                    frameBackgroundFraction: heldImage?.frameBackgroundFraction ?? 0,
                 },
             },
             {
-                name: "the canvas stays hidden over the page-background void until its first stepped frame",
+                name: "the page immediately outside the frame remains --bg",
+                ok: Boolean(heldImage && pageOutsideFrameError <= SCENE_BACKGROUND_TOLERANCE),
+                data: {
+                    maxChannelError: pageOutsideFrameError,
+                    tolerance: SCENE_BACKGROUND_TOLERANCE,
+                    outsideRed: heldImage?.adjacentBackground[0] ?? 0,
+                    outsideGreen: heldImage?.adjacentBackground[1] ?? 0,
+                    outsideBlue: heldImage?.adjacentBackground[2] ?? 0,
+                },
+            },
+            {
+                name: "the canvas stays hidden over frame --bg2 until its first stepped frame",
                 ok: Boolean(
                     held?.canvasHidden &&
                         held.overlayPresent &&
                         heldImage &&
-                        heldImage.sceneBackgroundFraction >= 0.97 &&
+                        heldImage.frameBackgroundFraction >= 0.97 &&
                         beforeFrame?.canvasHidden &&
                         beforeFrame.cleaned &&
                         !beforeFrame.overlayPresent &&
                         beforeFrameImage &&
-                        beforeFrameImage.sceneBackgroundFraction >= 0.99,
+                        beforeFrameImage.frameBackgroundFraction >= 0.99,
                 ),
                 data: {
-                    heldBackgroundFraction: heldImage?.sceneBackgroundFraction ?? 0,
-                    beforeFrameBackgroundFraction: beforeFrameImage?.sceneBackgroundFraction ?? 0,
+                    heldFrameBackgroundFraction: heldImage?.frameBackgroundFraction ?? 0,
+                    beforeFrameBackgroundFraction: beforeFrameImage?.frameBackgroundFraction ?? 0,
                 },
             },
             {
@@ -770,15 +787,15 @@ checkWindow.__harness = {
                 },
             },
             {
-                name: "outside the projected cube, the revealed scene matches adjacent page background within 2 RGB levels per channel",
+                name: "outside the projected cube, the revealed scene matches frame --bg2 within 2 RGB levels per channel",
                 ok: backgroundComparison.ok,
                 data: {
                     maxChannelError: backgroundComparison.maxChannelError,
                     tolerance: SCENE_BACKGROUND_TOLERANCE,
                     pixelsCompared: backgroundComparison.pixelsCompared,
-                    pageRed: firstFrameImage?.adjacentBackground[0] ?? 0,
-                    pageGreen: firstFrameImage?.adjacentBackground[1] ?? 0,
-                    pageBlue: firstFrameImage?.adjacentBackground[2] ?? 0,
+                    frameRed: FRAME_BACKGROUND[0],
+                    frameGreen: FRAME_BACKGROUND[1],
+                    frameBlue: FRAME_BACKGROUND[2],
                 },
             },
             {

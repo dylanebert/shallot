@@ -1,5 +1,5 @@
-// Inverse of the default Neutral tone map plus sRGB output for DARK.bg (#141210): #31302f displays as #151210.
-const clearColor = "0x31302f";
+// Neutral + sRGB inverse for --bg2 (#1c1917): authored 0x383736 displays as #1b1917, one red level lower after 8-bit quantization.
+const clearColor = "0x383736";
 
 export const SCENE = `<scene>
     <a ambient-light="color: 0xd0dcec; intensity: 0.5" />

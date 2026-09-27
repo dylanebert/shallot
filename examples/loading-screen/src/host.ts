@@ -1,6 +1,7 @@
 import { DARK } from "@dylanebert/shallot/brand";
 
-export const FRAME_ERROR_COLOR = "#c85d51";
+export const FRAME_BACKGROUND_COLOR = "#1c1917";
+export const FRAME_ERROR_COLOR = "#cd6559";
 
 export interface HostFrame {
     frame: HTMLElement;
@@ -13,6 +14,7 @@ export function mountHost(): HostFrame {
     const root = document.documentElement;
     root.style.setProperty("--bg", DARK.bg);
     root.style.setProperty("--ink", DARK.ink);
+    root.style.setProperty("--bg2", FRAME_BACKGROUND_COLOR);
     root.style.setProperty("--frame-error", FRAME_ERROR_COLOR);
     const app = document.querySelector<HTMLElement>("#app")!;
     app.innerHTML = `

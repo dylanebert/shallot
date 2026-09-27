@@ -1,7 +1,6 @@
 import { resetCompute, type State } from "@dylanebert/shallot";
-import { DARK } from "@dylanebert/shallot/brand";
 import { check } from "@dylanebert/shallot/harness/check";
-import { FRAME_ERROR_COLOR, mountHost } from "./host";
+import { FRAME_BACKGROUND_COLOR, FRAME_ERROR_COLOR, mountHost } from "./host";
 import { revealAfterFirstFrame } from "./reveal";
 
 type FakeElement = {
@@ -72,7 +71,7 @@ check(
         ],
     },
     async () => {
-        const errorContrast = contrast(FRAME_ERROR_COLOR, DARK.bg);
+        const errorContrast = contrast(FRAME_ERROR_COLOR, FRAME_BACKGROUND_COLOR);
         const contrastPasses = errorContrast >= 4.5;
         const app = fakeElement();
         const frame = fakeElement();

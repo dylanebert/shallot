@@ -1,5 +1,6 @@
 :root {
     --bg: #141210;
+    --bg2: #1c1917;
     --ink: #f0e6d6;
     --sans: "IBM Plex Sans", system-ui, sans-serif;
     color-scheme: dark;
@@ -59,7 +60,7 @@ body {
     aspect-ratio: 16 / 9;
     overflow: hidden;
     margin-inline: auto;
-    background: var(--bg);
+    background: var(--bg2);
 }
 
 canvas {
@@ -84,7 +85,7 @@ canvas.visible {
     place-items: center;
     overflow-wrap: anywhere;
     padding: 24px;
-    background: var(--bg);
+    background: var(--bg2);
     color: var(--frame-error);
     font-family: var(--sans);
     font-size: 14px;
