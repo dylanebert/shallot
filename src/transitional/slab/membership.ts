@@ -1,5 +1,5 @@
 import * as d from "typegpu/data";
-import { Compute, capacity, type State, type System } from "../../engine";
+import { Compute, type State, type System } from "../../engine";
 
 // GPU mirror of the ECS component-membership bitset. The CPU bitset is the
 // source of truth; this is a write-only synced mirror published as the
@@ -9,8 +9,7 @@ import { Compute, capacity, type State, type System } from "../../engine";
 // satisfying the gate the frame after the change, with no per-field reset and
 // no sentinel value reserved out of the data domain.
 
-let _gpu: GPUBuffer | null = null;
-let _mirror: Uint32Array<ArrayBuffer> | null = null;
+const mirrors = new WeakMap<State, { gpu: GPUBuffer; mirror: Uint32Array<ArrayBuffer> }>();
 
 /**
  * allocate the mirror + CPU staging. Sized from the generation count, which
@@ -25,17 +24,18 @@ let _mirror: Uint32Array<ArrayBuffer> | null = null;
  * @internal
  */
 export function allocMembership(state: State): void {
-    _gpu?.destroy();
-    _mirror = new Uint32Array(state.membership.generations * capacity);
-    _gpu = Compute.device.createBuffer({
+    const mirror = new Uint32Array(state.membership.generations * state.capacity);
+    const gpu = Compute.device.createBuffer({
         label: "membership",
-        size: _mirror.byteLength,
+        size: mirror.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
-    Compute.buffers.set("membership", _gpu);
+    state.own(gpu);
+    mirrors.set(state, { gpu, mirror });
+    Compute.buffers.set("membership", gpu);
     Compute.typed.set(
         "membership",
-        Compute.root.createBuffer(d.arrayOf(d.u32, _mirror.length), _gpu).$usage("storage"),
+        Compute.root.createBuffer(d.arrayOf(d.u32, mirror.length), gpu).$usage("storage"),
     );
 }
 
@@ -46,21 +46,22 @@ export function allocMembership(state: State): void {
  * transform firehose — so the full re-upload on dirty frames stays cheap
  */
 function flush(state: State): void {
-    if (!_gpu || !_mirror) return;
-    const mirror = _mirror;
+    const world = mirrors.get(state);
+    if (!world) return;
+    const { gpu, mirror } = world;
     const changed = state.membership.drain((eid, gen, word) => {
-        const i = gen * capacity + eid;
+        const i = gen * state.capacity + eid;
         if (i < mirror.length) mirror[i] = word;
     });
-    if (changed) Compute.device.queue.writeBuffer(_gpu, 0, mirror);
+    if (changed) Compute.device.queue.writeBuffer(gpu, 0, mirror);
 }
 
-function release(): void {
-    if (_gpu && Compute.buffers?.get("membership") === _gpu) Compute.buffers.delete("membership");
-    Compute.typed?.delete("membership");
-    _gpu?.destroy();
-    _gpu = null;
-    _mirror = null;
+function release(state: State): void {
+    const world = mirrors.get(state);
+    if (world && Compute.buffers.get("membership") === world.gpu)
+        Compute.buffers.delete("membership");
+    Compute.typed.delete("membership");
+    mirrors.delete(state);
 }
 
 /**
@@ -74,7 +75,7 @@ export const MembershipSystem: System = {
     update(state) {
         flush(state);
     },
-    dispose() {
-        release();
+    dispose(state) {
+        release(state);
     },
 };

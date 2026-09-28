@@ -1,5 +1,6 @@
 import tgpu, { type TgpuBuffer, type TgpuRoot } from "typegpu";
 import { type AnyData, u32 } from "typegpu/data";
+import { useState } from "../ecs/component";
 import { type AdapterInfoFacts, type AdapterVerdict, classifyAdapter } from "./adapter";
 import { captureGpuLog } from "./log";
 import { now } from "./platform";
@@ -121,6 +122,8 @@ export function checkTextureLimits(
  * @expand
  */
 export interface Compute {
+    /** owning world, set by `build()`; @internal */
+    readonly world?: object;
     /** active GPU device */
     readonly device: GPUDevice;
     /** classification of the adapter that supplied {@link device}; fallback and masked adapters remain visible */
@@ -194,8 +197,60 @@ export interface Compute {
     precompiled?: (label: string, start: number, end: number) => void;
 }
 
-/** active GPU compute singleton, populated by {@link requestGPU} */
-export const Compute: Compute = {} as Compute;
+/** active world's GPU surface, resolved for its lifecycle and system callbacks. */
+let activeCompute: Compute | undefined;
+
+function activateState(compute: Compute | undefined): void {
+    const world = compute?.world as
+        | { of(component: Record<string, unknown>): Record<string, unknown> }
+        | undefined;
+    if (world) useState(world);
+}
+
+/** Run one lifecycle/system callback against its world's compute context. */
+export function withCompute<T>(compute: object, callback: () => T): T {
+    const previous = activeCompute;
+    activeCompute = compute as Compute;
+    activateState(activeCompute);
+    try {
+        return callback();
+    } finally {
+        activeCompute = previous;
+        activateState(previous);
+    }
+}
+
+/** Keep the world's compute context active until an asynchronous lifecycle hook settles. */
+export async function withComputeAsync<T>(
+    compute: object,
+    callback: () => T | Promise<T>,
+): Promise<T> {
+    const previous = activeCompute;
+    activeCompute = compute as Compute;
+    activateState(activeCompute);
+    try {
+        return await callback();
+    } finally {
+        activeCompute = previous;
+        activateState(previous);
+    }
+}
+
+/** The familiar compute surface resolves to the world active for this callback. */
+export function currentWorld<T extends object>(): T | undefined {
+    return activeCompute?.world as T | undefined;
+}
+
+export const Compute: Compute = new Proxy({} as Compute, {
+    get(_target, key) {
+        return activeCompute?.[key as keyof Compute];
+    },
+    set(_target, key, value) {
+        if (!activeCompute) throw new Error("Compute accessed outside a world's lifecycle");
+        (activeCompute as unknown as Record<PropertyKey, unknown>)[key] = value;
+        return true;
+    },
+});
 
 /** a generated shader record, for debugging. @internal */
 export interface ShaderArtifact {
@@ -522,10 +577,15 @@ function endArtifactScope(scope: ArtifactScope | undefined): void {
 
 const _observedDevices = new WeakSet<GPUDevice>();
 const _lostDevices = new WeakSet<GPUDevice>();
+const _rawDevices = new WeakMap<GPUDevice, GPUDevice>();
+
+function rawDevice(device: GPUDevice): GPUDevice {
+    return _rawDevices.get(device) ?? device;
+}
 
 /** whether the original device's loss has been observed; never follows the active build. @internal */
 export function deviceLost(device: GPUDevice): boolean {
-    return _lostDevices.has(device);
+    return _lostDevices.has(rawDevice(device));
 }
 
 function failure(error: unknown): { errorClass: string; message: string } {
@@ -554,6 +614,7 @@ export async function validateGpu<T>(
     label: string,
     operation: () => T | Promise<T>,
 ): Promise<T> {
+    device = rawDevice(device);
     device.pushErrorScope("validation");
     const artifactScope = beginArtifactScope(device, label);
     let value: T | undefined;
@@ -1152,7 +1213,7 @@ function adopt(device: GPUDevice): TgpuRoot {
     return _root;
 }
 
-/** stamp the adapter verdict on the shared compute surface and warn once for non-real adapters. */
+/** classify the adapter and warn once when the result is not real hardware. */
 export function stampAdapter(
     adapter?: GPUAdapter,
     notice?: (verdict: AdapterVerdict) => void,
@@ -1164,7 +1225,6 @@ export function stampAdapter(
                   present: true,
                   info: adapter.info as AdapterInfoFacts,
               });
-    Object.assign(Compute, { adapter: verdict });
     if (verdict.class !== "real") {
         console.warn(
             `[shallot] ${verdict.reason ?? `${verdict.class} adapter: ${verdict.identity}`}`,
@@ -1175,7 +1235,7 @@ export function stampAdapter(
 }
 
 /**
- * populate the {@link Compute} singleton. With no argument, acquires a device
+ * create a world GPU context. With no argument, acquire a device
  * via `navigator.gpu` and enforces shallot's feature floor (the base floor plus
  * any `features` the active plugins require), throwing {@link UnsupportedError}
  * otherwise. `preferred` features are requested only where the adapter has them
@@ -1189,6 +1249,7 @@ export async function requestGPU(
     features: readonly GPUFeatureName[] = [],
     preferred: readonly GPUFeatureName[] = [],
     adapter?: GPUAdapter,
+    owner?: { own(resource: { destroy(): void }): void; world?: object },
 ): Promise<Compute> {
     // before anything resolves: typegpu binds the console method a TGSL `console.log` calls at
     // shader-generation time, so a capture installed later never sees that kernel's lines.
@@ -1196,7 +1257,7 @@ export async function requestGPU(
     checkTgsl();
     const acquired =
         device === undefined ? await acquireDevice(features, preferred) : { device, adapter };
-    const d = acquired.device;
+    const d = rawDevice(acquired.device);
     const verdict = stampAdapter(acquired.adapter);
     observeDevice(d);
     beginArtifactSession(d);
@@ -1212,10 +1273,52 @@ export async function requestGPU(
     const settle = (): void => {
         inFlight--;
     };
-    return Object.assign(Compute, {
-        device: d,
+    const trackedDevice = owner
+        ? new Proxy(d, {
+              get(target, key) {
+                  if (key === "createBuffer") {
+                      return (descriptor: GPUBufferDescriptor) => {
+                          const buffer = target.createBuffer(descriptor);
+                          owner.own(buffer);
+                          return buffer;
+                      };
+                  }
+                  if (key === "createTexture") {
+                      return (descriptor: GPUTextureDescriptor) => {
+                          const texture = target.createTexture(descriptor);
+                          owner.own(texture);
+                          return texture;
+                      };
+                  }
+                  const value = Reflect.get(target, key, target);
+                  return typeof value === "function" ? value.bind(target) : value;
+              },
+          })
+        : d;
+    _rawDevices.set(trackedDevice, d);
+    const root = adopt(d);
+    const trackedRoot = owner
+        ? new Proxy(root, {
+              get(target, key) {
+                  if (key === "createBuffer" || key === "createTexture") {
+                      return (...args: unknown[]) => {
+                          const resource = (target[key] as (...args: unknown[]) => unknown)(
+                              ...args,
+                          );
+                          owner.own(resource as { destroy(): void });
+                          return resource;
+                      };
+                  }
+                  const value = Reflect.get(target, key, target);
+                  return typeof value === "function" ? value.bind(target) : value;
+              },
+          })
+        : root;
+    const compute: Compute = {
+        world: owner?.world,
+        device: trackedDevice,
         adapter: verdict,
-        root: adopt(d),
+        root: trackedRoot,
         frame: 0,
         pending: () => inFlight,
         sync: () => {
@@ -1228,7 +1331,9 @@ export async function requestGPU(
         textures: new Map<string, GPUTexture>(),
         samplers: new Map<string, GPUSampler>(),
         typed: new Map<string, TgpuBuffer<AnyData>>(),
-    });
+    };
+    activeCompute = compute;
+    return compute;
 }
 
 function gpuRuntimeName(): string {

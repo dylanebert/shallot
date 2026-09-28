@@ -12,6 +12,14 @@ Device acquisition no longer requests adapter-reported maxima wholesale. It requ
 
 Tests that build an app use `*.gpu.test.ts`; the root Bun test preload applies Shallot's TypeGPU transform. `bun run test` includes these tests on a device, while hosted jobs without one exclude the suffix and the macOS GPU job selects it with `bun test gpu.test`. Node tests and manual oracles keep their existing tiers. The packed-install headless smoke now runs in the GPU tier: it installs `bun-webgpu` with the packed tarball and steps the world through public engine subpaths. Acquisition-refusal tests stub adapter outcomes so each failure cause is testable without depending on a real adapter.
 
+## Worlds own component and GPU storage
+
+A component field declared with `sparse(type)` or `slab(type)` is a schema, not the world's values. Systems resolve its columns once with `const value = state.of(Value)` and read or write through that result; scene load, defaults, reflection and snapshots use the same State-owned columns. Columns grow geometrically as a world's entity ids rise, within the fixed entity/GPU reservation. The process-wide `capacity` still sizes Slab buffers until tables replace it.
+
+Each `State` owns its GPU registries (`buffers`, `textures`, `samplers`, and typed handles) through `state.gpu`, as well as resources created through its tracked device/root. `state.resource(key, create)` is the seam for a module's non-column, per-world state; `state.own(resource)` ties a raw buffer or texture to disposal. Systems and lifecycle hooks can continue to use `Compute` inside their callback; outside one, retain `state.gpu` from the State that owns the resource. Disposing one App releases only its world's GPU allocations and registries.
+
+Build setup is serialized while plugins register and warm. Engine-owned storage and GPU registries are per State, so engine-only Apps may coexist; this stage does not isolate module-level plugin GPU state. There is no process-global build lease to release before another App can build. A hot swap with the same component schema reattaches the reloaded handle to that State's existing columns; a changed schema returns `{ ok: false }` so the host rebuilds. No host HMR wiring is added.
+
 ## `shallot recipe` is now `shallot add`
 
 ```sh

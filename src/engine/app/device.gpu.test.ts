@@ -6,7 +6,6 @@ import {
     readBody,
     ShapeKind,
 } from "../../transitional/physics";
-import { Slab } from "../../transitional/slab";
 import { type State, Time } from "../index";
 import { build } from "./index";
 
@@ -20,9 +19,6 @@ afterEach(() => {
     live?.dispose();
     live = null;
 });
-
-const BUILD_REFUSAL =
-    "build refused: another App is building or live in this process; call app.dispose() before building another";
 
 function replaceGpu(gpu: GPU | undefined): () => void {
     const previous = Object.getOwnPropertyDescriptor(navigator, "gpu");
@@ -99,7 +95,7 @@ test("adapter request failure keeps its cause distinct from no adapter", async (
     }
 });
 
-test("overlapping public builds can mutate process-global registries beneath one another instead of refusing before lifecycle work", async () => {
+test("overlapping public builds serialize their setup and then coexist as independent worlds", async () => {
     let release!: () => void;
     let entered!: () => void;
     const gate = new Promise<void>((resolve) => {
@@ -118,49 +114,87 @@ test("overlapping public builds can mutate process-global registries beneath one
 
     const firstPromise = build({ defaults: false, plugins: [held] });
     await started;
-    await expect(build({ defaults: false, plugins: [] })).rejects.toThrow(BUILD_REFUSAL);
-    await expect(build({ defaults: false, plugins: [] })).rejects.toThrow(BUILD_REFUSAL);
+    const secondPromise = build({ defaults: false, plugins: [] });
     release();
     const first = await firstPromise;
+    const second = await secondPromise;
+    first.state.step(Time.FIXED_DT);
+    second.state.step(Time.FIXED_DT);
     first.dispose();
-
-    const recovered = await build({ defaults: false, plugins: [] });
-    recovered.state.step(Time.FIXED_DT);
-    recovered.dispose();
+    second.state.step(Time.FIXED_DT);
+    second.dispose();
 }, 20_000);
 
-test("a second public Physics build can reset the first App's slabs and world instead of refusing while the first remains live", async () => {
-    const author = (state: State) => {
+test("live Physics apps keep their authored component values and solver worlds isolated", async () => {
+    const author = (state: State, y: number) => {
         const eid = state.create();
         state.add(eid, Body);
-        Body.shape.set(eid, ShapeKind.Box);
-        Body.pos.set(eid, 0, 2, 0, 0);
-        Body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
-        Body.mass.set(eid, 1);
+        const body = state.of(Body);
+        body.shape.set(eid, ShapeKind.Box);
+        body.pos.set(eid, 0, y, 0, 0);
+        body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
+        body.mass.set(eid, 1);
         return eid;
     };
     const first = await build({ defaults: false, plugins: [PhysicsPlugin] });
-    const eid = author(first.state);
+    const firstEid = author(first.state, 2);
     for (let i = 0; i < 8; i++) first.state.step(Time.FIXED_DT);
-    const before = readBody(first.state, eid);
-    if (!before) throw new Error("first Physics App did not produce a live body");
-    await expect(build({ defaults: false, plugins: [PhysicsPlugin] })).rejects.toThrow(
-        BUILD_REFUSAL,
-    );
-    first.state.step(Time.FIXED_DT);
-    const after = readBody(first.state, eid);
-    expect(after).not.toBeNull();
-    expect(after?.pos[1]).toBeLessThan(before.pos[1]);
-    first.dispose();
+    const firstBefore = readBody(first.state, firstEid);
+    if (!firstBefore) throw new Error("first Physics App did not produce a live body");
 
-    const recovered = await build({ defaults: false, plugins: [PhysicsPlugin] });
-    author(recovered.state);
-    for (let i = 0; i < 8; i++) recovered.state.step(Time.FIXED_DT);
-    expect(hashPhysics(recovered.state)).toBeDefined();
-    recovered.dispose();
+    const second = await build({ defaults: false, plugins: [PhysicsPlugin] });
+    const secondEid = author(second.state, 20);
+    expect(second.state.of(Body).pos.y.get(secondEid)).toBe(20);
+    expect(first.state.of(Body).pos.y.get(firstEid)).toBe(2);
+    expect(first.state.gpu.buffers.get("membership")).not.toBe(
+        second.state.gpu.buffers.get("membership"),
+    );
+    expect(first.state.of(Body).pos.gpu).not.toBe(second.state.of(Body).pos.gpu);
+
+    first.dispose();
+    for (let i = 0; i < 8; i++) second.state.step(Time.FIXED_DT);
+    const secondAfter = readBody(second.state, secondEid);
+    expect(secondAfter?.pos[1]).toBeLessThan(20);
+    second.dispose();
 }, 20_000);
 
-test("a plugin initialize failure can strand the public build lifecycle lease and refuse every later recovery build", async () => {
+test.todo("two live Physics apps keep sibling bodies and hash unchanged when only one steps (owner: stage 3)", async () => {
+    const author = (state: State, y: number) => {
+        const eid = state.create();
+        state.add(eid, Body);
+        const body = state.of(Body);
+        body.shape.set(eid, ShapeKind.Box);
+        body.pos.set(eid, 0, y, 0, 0);
+        body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
+        body.mass.set(eid, 1);
+        return eid;
+    };
+    let first: Awaited<ReturnType<typeof build>> | undefined;
+    let second: Awaited<ReturnType<typeof build>> | undefined;
+    try {
+        first = await build({ defaults: false, plugins: [PhysicsPlugin] });
+        author(first.state, 2);
+        for (let i = 0; i < 8; i++) first.state.step(Time.FIXED_DT);
+
+        second = await build({ defaults: false, plugins: [PhysicsPlugin] });
+        const secondEid = author(second.state, 20);
+        for (let i = 0; i < 8; i++) second.state.step(Time.FIXED_DT);
+        const bodyBefore = readBody(second.state, secondEid);
+        if (!bodyBefore) throw new Error("second Physics App did not produce a live body");
+        const hashBefore = hashPhysics(second.state);
+
+        for (let i = 0; i < 8; i++) first.state.step(Time.FIXED_DT);
+        expect({
+            body: readBody(second.state, secondEid),
+            hash: hashPhysics(second.state),
+        }).toEqual({ body: bodyBefore, hash: hashBefore });
+    } finally {
+        second?.dispose();
+        first?.dispose();
+    }
+}, 20_000);
+
+test("a failed plugin initialize releases its world and permits a later build", async () => {
     const broken = {
         name: "broken build",
         initialize: () => {
@@ -194,7 +228,8 @@ test("disposing a Physics build leaves slab or solver state behind, so a sequent
     author(first.state);
     const firstHash = stepAndHash(first.state);
     first.dispose();
-    expect((Slab as unknown as { _all: unknown[] })._all).toHaveLength(0);
+    expect(first.state.gpu.buffers.size).toBe(0);
+    expect(first.state.gpu.typed.size).toBe(0);
 
     live = await build({ defaults: false, plugins: [PhysicsPlugin] });
     author(live.state);

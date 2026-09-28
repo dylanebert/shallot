@@ -14,16 +14,12 @@ import {
     type TypedArray,
 } from "../../engine";
 import { entries } from "../../engine/ecs";
+import { fieldSchema, type SchemaField } from "../../engine/ecs/component";
+import type { State } from "../../engine/ecs/state";
+import type { WorldField } from "../../engine/ecs/storage";
 import { deviceLost, type LazyAlloc, precompile } from "../../engine/runtime";
 import { allocMembership, MembershipSystem } from "./membership";
-import {
-    compiled,
-    elementBytes,
-    elementOf,
-    resetPipelines,
-    scatterKey,
-    scatterPipeline,
-} from "./scatter";
+import { compiled, elementBytes, elementOf, resetPipelines, scatterKey } from "./scatter";
 
 // Toji's persistent-staging pattern — packing dirty bits straight into a mapped buffer, then scattering
 // them on the GPU, beats a per-slot `writeBuffer` at every K measured: CPU-side pack+encode+submit is
@@ -140,6 +136,7 @@ export class Slab {
         // instance), not a captured local — the storage is (re)allocated per build
         // by `alloc`, so a captured array would go stale after the first build.
         const stride = type.lanes;
+        const thisSlab = this;
         if (stride >= 2) {
             const enc = type.encode;
             const dec = type.decode;
@@ -157,6 +154,12 @@ export class Slab {
                     ? (eid) => dec(this.array[eid * stride + offset])
                     : (eid) => this.array[eid * stride + offset],
                 type,
+                get column() {
+                    return thisSlab.array;
+                },
+                get dirty() {
+                    return thisSlab.dirty;
+                },
                 gpu: null,
             });
             (this as { x: Single }).x = lane(0);
@@ -520,6 +523,93 @@ export class Slab {
     }
 }
 
+interface WorldSlab {
+    field: WorldField;
+    typed: TgpuBuffer<d.AnyWgslData>;
+    packed?: Uint32Array;
+}
+
+const worldSlabs = new WeakMap<State, WorldSlab[]>();
+
+function prepareWorldSlabs(state: State): void {
+    const slabs: WorldSlab[] = [];
+    for (const component of state.storageEntries()) {
+        for (const field of component.fields.values()) {
+            if (field.storage !== "slab" || field.type.wgsl === null) continue;
+            const element = elementOf(field.type);
+            const bytes = elementBytes(field.type);
+            if (!element || bytes === null) continue;
+            const typed = Compute.root
+                .createBuffer(d.arrayOf(element, state.capacity))
+                .$usage("storage")
+                .$name(field.name ? `slab-${field.name}` : `slab-${field.type.name}`);
+            const buffer = Compute.root.unwrap(typed) as GPUBuffer;
+            state.own(buffer);
+            field.gpu = buffer;
+            if (field.name) {
+                Compute.buffers.set(field.name, buffer);
+                Compute.typed.set(field.name, typed);
+            }
+            slabs.push({
+                field,
+                typed,
+                ...(field.type.gpu
+                    ? { packed: new Uint32Array((state.capacity * field.type.gpu.bytes) >>> 2) }
+                    : {}),
+            });
+        }
+    }
+    worldSlabs.set(state, slabs);
+}
+
+function flushWorldSlabs(state: State): void {
+    const slabs = worldSlabs.get(state);
+    if (!slabs) return;
+    for (const { field, packed } of slabs) {
+        const dirty = field.dirty;
+        let changed = false;
+        for (let i = 0; i < dirty.length; i++) {
+            if (dirty[i] !== 0) {
+                changed = true;
+                break;
+            }
+        }
+        if (!changed || !field.gpu) continue;
+        if (packed && field.type.gpu) {
+            const lanes = field.type.lanes;
+            const words = field.type.gpu.bytes >>> 2;
+            const source = field.column;
+            const count = Math.min(state.capacity, Math.floor(source.length / lanes));
+            for (let eid = 0; eid < count; eid++) {
+                const at = eid * lanes;
+                field.type.gpu.pack(
+                    packed,
+                    eid * words,
+                    source[at],
+                    source[at + 1],
+                    source[at + 2],
+                    source[at + 3],
+                );
+            }
+            Compute.device.queue.writeBuffer(field.gpu, 0, packed);
+        } else {
+            Compute.device.queue.writeBuffer(field.gpu, 0, field.column);
+        }
+        dirty.fill(0);
+    }
+}
+
+function releaseWorldSlabs(state: State): void {
+    for (const { field } of worldSlabs.get(state) ?? []) {
+        if (field.name && Compute.buffers.get(field.name) === field.gpu) {
+            Compute.buffers.delete(field.name);
+            Compute.typed.delete(field.name);
+        }
+        field.gpu = null;
+    }
+    worldSlabs.delete(state);
+}
+
 /**
  * typed slab factory: mirrors `sparse(...)` so swapping `sparse(f32)` for
  * `slab(f32)` is a one-token change. Scalar types return a {@link Single};
@@ -546,11 +636,28 @@ export class Slab {
  * // Surface { bindings: { pulse: { type: "storage", element: "f32" } } }
  * // resolves `pulse` to `Pulse.value.gpu` via Compute.buffers
  */
-export function slab(type: Type & { readonly lanes: 1 }, name?: string): Single;
-export function slab(type: Type & { readonly lanes: 2 }, name?: string): Pair;
-export function slab(type: Type & { readonly lanes: 4 }, name?: string): Quad;
-export function slab(type: Type, name?: string): Single | Pair | Quad {
-    return new Slab(type, name ?? null) as unknown as Single | Pair | Quad;
+export function slab<T extends Type & { readonly lanes: 1 }>(
+    type: T,
+    name?: string,
+): SchemaField<T>;
+export function slab<T extends Type & { readonly lanes: 2 }>(
+    type: T,
+    name?: string,
+): SchemaField<T>;
+export function slab<T extends Type & { readonly lanes: 4 }>(
+    type: T,
+    name?: string,
+): SchemaField<T>;
+export function slab(type: Type, name?: string): SchemaField<Type> {
+    if (type.wgsl === null && !warned.has(type.name)) {
+        warned.add(type.name);
+        const packFactor = type.name === "u8" ? 4 : 2;
+        console.warn(
+            `[slab] "${type.name}" is not a WGSL storage type. Slab stays CPU-only — ` +
+                `pack ${packFactor} ${type.name} values into one u32 manually and use slab(u32) for GPU upload.`,
+        );
+    }
+    return fieldSchema(type, "slab", name);
 }
 
 /**
@@ -560,8 +667,8 @@ export function slab(type: Type, name?: string): Single | Pair | Quad {
 export const SlabSystem: System = {
     group: "draw",
     first: true,
-    update() {
-        Slab.flush();
+    update(state) {
+        flushWorldSlabs(state);
     },
 };
 
@@ -575,17 +682,15 @@ export const SlabPlugin: Plugin = {
     name: "Slab",
     systems: [SlabSystem, MembershipSystem],
 
-    initialize() {
-        Slab.collect();
+    initialize(state) {
+        prepareWorldSlabs(state);
     },
 
     warm(state) {
-        for (const t of Slab.gpuTypes()) scatterPipeline(t);
-        Slab.prepareAll();
         allocMembership(state);
     },
 
-    dispose() {
-        Slab.reset();
+    dispose(state) {
+        releaseWorldSlabs(state);
     },
 };

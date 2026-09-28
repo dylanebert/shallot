@@ -1,22 +1,22 @@
-import { Components, type Membership } from "./component";
+import {
+    bindFields,
+    type Component,
+    Components,
+    type FieldSchema,
+    fields,
+    idOf,
+    type Membership,
+    useState,
+} from "./component";
 import { Entities } from "./entity";
 import { Identity } from "./identity";
 import { Queries } from "./query";
 import { Scheduler, type System, Time } from "./scheduler";
+import { type ComponentStorage, sameSchema, WorldField } from "./storage";
 import { applyDefaults, getExclusions, getName } from "./traits";
 
-/**
- * entity capacity, fixed at app construction. defaults to 65536. override via
- * `build({ capacity })` before any allocation; shared across every {@link State}
- * in the process. multi-state scenarios (networking server+client, rollback)
- * all share one capacity by construction.
- *
- * slot 0 is a deliberate reserve: eids start at 1 (see {@link Entities}), and a stamp of 0
- * means "never created", so capacity admits capacity−1 entities (eids 1..capacity−1).
- *
- * footgun: don't bind at module top level (`const SIZE = capacity * 4`) — captures
- * the default before `build` runs. read inside functions or factories instead.
- */
+const INITIAL_CAPACITY = 16;
+/** process-wide entity/GPU reservation, replaced by tables in the tables stage. */
 export let capacity = 65536;
 
 /**
@@ -28,12 +28,7 @@ export let capacity = 65536;
  * nearest-neighbor). Read at every resize (see {@link attachCanvas}), so dragging a window between
  * monitors re-sizes the backing. Set via `build({ pixelRatio })`.
  */
-export let pixelRatio: number | "auto" = "auto";
-
-// live States that have not been disposed. A second State constructed with a differing capacity or
-// pixelRatio while one is live silently retunes the module-global, contradicting "fixed at app
-// construction" — the guard below warns on that retune so the silent desync surfaces.
-const _liveStates = new Set<State>();
+export const pixelRatio: number | "auto" = "auto";
 
 /**
  * ecs state passed to every system
@@ -45,23 +40,53 @@ const _liveStates = new Set<State>();
  *     },
  * };
  */
+const _liveStates = new Set<State>();
+
+export interface WorldGpu {
+    readonly device: GPUDevice;
+    readonly adapter: { class: string; identity: string; reason?: string };
+    readonly root: any;
+    frame: number;
+    pending(): number;
+    sync(): Promise<void>;
+    readonly buffers: Map<string, GPUBuffer>;
+    readonly textures: Map<string, GPUTexture>;
+    readonly samplers: Map<string, GPUSampler>;
+    readonly typed: Map<string, any>;
+    span?: (
+        name: string,
+    ) => GPUComputePassTimestampWrites | GPURenderPassTimestampWrites | undefined;
+    indirect?: (name: string, count: number) => void;
+    precompiled?: (label: string, start: number, end: number) => void;
+}
+
 export class State {
     private _scheduler = new Scheduler();
     private _entities = new Entities();
     private _components = new Components();
     private _queries = new Queries();
+    private _storage = new Map<
+        number,
+        { schema: Component; fields: Map<string, WorldField>; storage: Record<string, unknown> }
+    >();
+    private _resources = new Map<PropertyKey, unknown>();
+    private _highWater = 1;
+    private _pixelRatio: number | "auto";
     private _identity = new Identity();
     private _disposals: (() => void)[] = [];
     private _controller: AbortController | undefined;
     private _disposed = false;
+    private _gpu: WorldGpu | undefined;
+    private _withCompute: ((callback: () => void) => void) | undefined;
+    private _gpuResources = new Set<{ destroy(): void }>();
 
     constructor(opts?: {
         capacity?: number;
         pixelRatio?: number | "auto";
     }) {
         if (opts?.capacity !== undefined && opts.capacity !== capacity) {
-            if (!Number.isFinite(opts.capacity) || opts.capacity < 1) {
-                throw new Error(`State: capacity ${opts.capacity} is not a finite number >= 1`);
+            if (!Number.isSafeInteger(opts.capacity) || opts.capacity < 1) {
+                throw new Error(`State: capacity ${opts.capacity} is not a safe integer >= 1`);
             }
             if (_liveStates.size > 0) {
                 console.warn(
@@ -71,16 +96,81 @@ export class State {
             }
             capacity = opts.capacity;
         }
-        if (opts?.pixelRatio !== undefined && opts.pixelRatio !== pixelRatio) {
-            if (_liveStates.size > 0) {
-                console.warn(
-                    `State: pixelRatio retune from ${pixelRatio} to ${opts.pixelRatio} while ${_liveStates.size} State(s) are live — ` +
-                        `the module-global is shared across States; set pixelRatio via build({ pixelRatio }) before any State construction`,
+        this._pixelRatio = opts?.pixelRatio ?? "auto";
+        _liveStates.add(this);
+    }
+
+    /** this world's GPU device, registries, typed handles and frame state. */
+    get gpu(): WorldGpu {
+        if (!this._gpu) throw new Error("State.gpu is unavailable before build acquires a device");
+        return this._gpu;
+    }
+
+    /** @internal attach this world's GPU context during build. */
+    attachGpu(compute: WorldGpu, withCompute: (callback: () => void) => void): void {
+        this._gpu = compute;
+        this._withCompute = withCompute;
+    }
+
+    /** resolve a typed world resource once for this State; the entry dies with its world. */
+    resource<T>(key: PropertyKey, create: () => T): T {
+        if (this._resources.has(key)) return this._resources.get(key) as T;
+        const value = create();
+        this._resources.set(key, value);
+        return value;
+    }
+
+    /** own a raw GPU allocation until this world is disposed. */
+    own(resource: { destroy(): void }): void {
+        if (this._disposed) {
+            resource.destroy();
+            return;
+        }
+        this._gpuResources.add(resource);
+    }
+
+    /** the process-wide entity and GPU reservation retained until tables replace capacity. */
+    get capacity(): number {
+        return capacity;
+    }
+
+    /** render device-pixel ratio fixed to this world's build config. */
+    get pixelRatio(): number | "auto" {
+        return this._pixelRatio;
+    }
+
+    /** current component schemas and their world-owned field columns. @internal */
+    storageEntries(): IterableIterator<{
+        schema: Component;
+        fields: Map<string, WorldField>;
+    }> {
+        return this._storage.values();
+    }
+
+    /** resolve a component schema to its world-owned columns. Call once at system setup, then retain the result. */
+    of<T extends Component>(component: T): ComponentStorage<T> {
+        useState(this);
+        bindFields(component);
+        const id = idOf(component);
+        const existing = this._storage.get(id);
+        if (existing) {
+            if (!sameSchema(existing.schema, component)) {
+                throw new Error(
+                    `state.of: component schema changed for "${String(id)}"; rebuild this world`,
                 );
             }
-            pixelRatio = opts.pixelRatio;
+            return existing.storage as ComponentStorage<T>;
         }
-        _liveStates.add(this);
+        const columns = new Map<string, WorldField>();
+        const storage: Record<string, unknown> = {};
+        for (const { name, field } of fields(component)) {
+            const column = new WorldField(field as FieldSchema, INITIAL_CAPACITY);
+            column.ensure(this._highWater);
+            columns.set(name, column);
+            storage[name] = column.bind();
+        }
+        this._storage.set(id, { schema: component, fields: columns, storage });
+        return storage as ComponentStorage<T>;
     }
 
     /** current frame time and delta */
@@ -90,7 +180,14 @@ export class State {
 
     /** advance one frame */
     step(deltaTime = Time.DEFAULT_DT): void {
-        this._scheduler.step(this, deltaTime);
+        useState(this);
+        const step = () => this._scheduler.step(this, deltaTime);
+        try {
+            if (this._withCompute) this._withCompute(step);
+            else step();
+        } finally {
+            useState(this);
+        }
     }
 
     /** freeze the virtual clock: gameplay (`time.deltaTime`/`elapsed`) and physics hold; the real clock keeps
@@ -121,6 +218,10 @@ export class State {
                     `Increase via app build config: { capacity: ${Math.max(eid + 1, capacity * 2)} }.`,
             );
         }
+        if (eid + 1 > this._highWater) this._highWater = eid + 1;
+        for (const entry of this._storage.values()) {
+            for (const field of entry.fields.values()) field.ensure(eid + 1);
+        }
         return eid;
     }
 
@@ -129,6 +230,9 @@ export class State {
         if (!this._entities.exists(eid)) return;
         this._queries.onEntityRemoved(eid);
         this._components.clear(eid);
+        for (const entry of this._storage.values()) {
+            for (const field of entry.fields.values()) field.clear(eid);
+        }
         this._entities.remove(eid);
         this._identity.forget(eid);
     }
@@ -185,6 +289,7 @@ export class State {
      * Health.current.set(eid, 100);
      */
     add<T>(eid: number, component: T): void {
+        useState(this);
         const excluded = getExclusions(component as Record<string, unknown>);
         if (excluded) {
             for (const other of excluded) {
@@ -197,9 +302,10 @@ export class State {
                 }
             }
         }
+        this.of(component as Component);
         if (this._components.add(eid, component)) {
             this._queries.onComponentChanged(eid, component, this._components);
-            applyDefaults(component as Record<string, unknown>, eid);
+            applyDefaults(this, component as Component, eid);
         } else {
             console.warn("state.add: component already attached to entity", eid);
         }
@@ -360,7 +466,22 @@ export class State {
             }
         }
         this._disposals.length = 0;
-        this._scheduler.dispose(this);
+        if (this._withCompute) this._withCompute(() => this._scheduler.dispose(this));
+        else this._scheduler.dispose(this);
         this._queries.clear();
+        this._storage.clear();
+        this._resources.clear();
+        for (const resource of this._gpuResources) {
+            try {
+                resource.destroy();
+            } catch (err) {
+                console.error("State.dispose: GPU resource release threw:", err);
+            }
+        }
+        this._gpuResources.clear();
+        this._gpu?.buffers.clear();
+        this._gpu?.textures.clear();
+        this._gpu?.samplers.clear();
+        this._gpu?.typed.clear();
     }
 }

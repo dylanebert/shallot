@@ -41,7 +41,7 @@ export const Camera = {
 
 /**
  * render this camera at a fixed low resolution and scale it up to fill the canvas, crisp not blurred.
- * Without it the view renders at the canvas backing size (the global pixelRatio policy). `0` on an axis
+ * Without it the view renders at the canvas backing size (the world's pixelRatio policy). `0` on an axis
  * derives it from the other to keep the canvas aspect, so `height: 360` alone renders 360 lines tall and
  * as wide as the canvas shape needs; set both for an exact (possibly aspect-distorting) target. Per camera,
  * so each canvas in a multi-view scene pins its own. Pairs with {@link Camera} `antialias` off.

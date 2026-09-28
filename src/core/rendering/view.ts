@@ -1,7 +1,7 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Compute, pixelRatio, type State } from "../../engine";
+import { Compute, type State } from "../../engine";
 import { chunk, spliceNs } from "../../engine/utils";
 import { devices, reportViewport } from "../input";
 import { Camera, Resolution } from "./camera";
@@ -124,7 +124,7 @@ export interface View {
     canvas: HTMLCanvasElement | null;
     context: GPUCanvasContext | null;
     // the render backing-store size (device px). Derived each frame by `sizeView` from the display size
-    // below + the camera's `Resolution` pin (or the global pixelRatio). Every consumer — offscreen,
+    // below + the camera's `Resolution` pin (or the world's pixelRatio). Every consumer — offscreen,
     // present, glaze, the cluster grid — reads these, so a low-res pin flows through by sizing them alone
     width: number;
     height: number;
@@ -288,7 +288,7 @@ const _sizeInputs = new WeakMap<View, Float64Array>();
 
 /**
  * size a canvas-bound view's backing store from its cached display size + its {@link Resolution} pin (the
- * global pixelRatio when absent), and set the nearest-neighbor upscale. {@link BeginFrameSystem} calls it
+ * world's pixelRatio when absent), and set the nearest-neighbor upscale. {@link BeginFrameSystem} calls it
  * per camera each frame after binding, so a `Resolution` edit and a canvas resize both re-size here. A
  * no-op for a canvas-less (off-screen) view, which sizes its own target. The Resolution read is membership-
  * gated: a recycled eid's stale field value never leaks into a camera that carries no pin.
@@ -300,7 +300,8 @@ export function sizeView(state: State, eid: number, view: View): void {
     if (!viewport || viewport.cssWidth <= 0 || viewport.cssHeight <= 0) return;
     view.clientWidth = viewport.cssWidth;
     view.clientHeight = viewport.cssHeight;
-    const ratio = pixelRatio === "auto" ? Math.min(Math.max(viewport.dpr, 1), 2) : pixelRatio;
+    const ratio =
+        state.pixelRatio === "auto" ? Math.min(Math.max(viewport.dpr, 1), 2) : state.pixelRatio;
     const pinned = state.has(eid, Resolution);
     const resW = pinned ? Resolution.width.get(eid) | 0 : 0;
     const resH = pinned ? Resolution.height.get(eid) | 0 : 0;

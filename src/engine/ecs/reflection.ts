@@ -187,9 +187,10 @@ export function exclusions(name: string): string[] {
 
 /** read every field of `component` on `eid` into a flat map, vec fields split into dotted lanes
  * (`pos.x`, `pos.y`); the row values tooling shows */
-export function readFields(component: Component, eid: number): FieldValues {
+export function readFields(state: State, component: Component, eid: number): FieldValues {
     const fields: FieldValues = {};
-    for (const [field, store] of Object.entries(component)) {
+    const storage = state.of(component) as Record<string, unknown>;
+    for (const [field, store] of Object.entries(storage)) {
         const n = lanes(store);
         if (n === 4) {
             const q = store as Quad;
@@ -221,7 +222,7 @@ export function inspect(state: State, eid: number): EntityData | null {
     const components: Record<string, FieldValues> = {};
     for (const { component, name } of entries()) {
         if (state.has(eid, component as never)) {
-            components[name] = readFields(component, eid);
+            components[name] = readFields(state, component, eid);
         }
     }
     return { eid, components };

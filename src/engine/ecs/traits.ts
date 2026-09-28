@@ -1,7 +1,8 @@
 import type { Alias, Input } from "../utils";
-import type { Component, Pair, Quad, Single } from "./component";
-import { fields, idOf, intern, lanes } from "./component";
+import type { Component } from "./component";
+import { idOf, intern, isFieldSchema, lanes } from "./component";
 import { kebab } from "./reflection";
+import type { State } from "./state";
 
 /** parse-time metadata declared per component */
 export interface Traits {
@@ -50,14 +51,7 @@ export interface Traits {
 }
 
 interface DefaultsPlan {
-    arrs: Array<number[] | Float32Array | Uint32Array>;
-    arrVals: number[];
-    fields: Single[];
-    fieldVals: number[];
-    pairs: Pair[];
-    pairVals: Float32Array;
-    quads: Quad[];
-    quadVals: Float32Array;
+    fields: { name: string; values: number[] }[];
 }
 
 interface Entry {
@@ -116,16 +110,6 @@ function expandEnums(t: Traits): Traits {
 /** register a component under a name, with optional traits */
 export function register(name: string, component: Component, traits?: Traits): void {
     const k = kebab(name);
-    const prev = byName.get(k);
-    if (prev && prev.component !== component) {
-        // reload contract: a fresh component object handed in under an existing
-        // name adopts the prior registration's stores, so runtime data and GPU
-        // buffers survive the module swap. The id is reused by name below, so
-        // membership + queries re-attach to the same slots.
-        for (const f of fields(prev.component)) {
-            if (f.name in component) (component as Record<string, unknown>)[f.name] = f.store;
-        }
-    }
     const id = intern(component, k);
     const expanded = traits ? expandEnums(traits) : undefined;
     const entry: Entry = expanded
@@ -165,30 +149,18 @@ export function entries(): IterableIterator<{
     return byName.values();
 }
 
-/** write default field values for an entity that just received `component` */
-export function applyDefaults(component: Component, eid: number): void {
+/** write default values into the field columns owned by this world. */
+export function applyDefaults(state: State, component: Component, eid: number): void {
     const entry = byId.get(idOf(component));
     if (!entry) return;
     let plan = entry.plan;
-    if (plan === undefined) {
-        plan = entry.plan = compilePlan(entry);
-    }
-    if (plan === null) return;
-    const { arrs, arrVals, fields, fieldVals, pairs, pairVals, quads, quadVals } = plan;
-    for (let i = 0; i < arrs.length; i++) {
-        arrs[i][eid] = arrVals[i];
-    }
-    for (let i = 0; i < fields.length; i++) {
-        fields[i].set(eid, fieldVals[i]);
-    }
-    for (let i = 0; i < pairs.length; i++) {
-        const o = i * 2;
-        pairs[i].set(eid, pairVals[o], pairVals[o + 1]);
-    }
-    for (let i = 0; i < quads.length; i++) {
-        const o = i * 4;
-        quads[i].set(eid, quadVals[o], quadVals[o + 1], quadVals[o + 2], quadVals[o + 3]);
-    }
+    if (plan === undefined) plan = entry.plan = compilePlan(entry);
+    if (!plan) return;
+    const storage = state.of(component) as Record<
+        string,
+        { set(eid: number, ...values: number[]): void }
+    >;
+    for (const { name, values } of plan.fields) storage[name].set(eid, ...values);
 }
 
 const LANE_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3 };
@@ -197,128 +169,62 @@ function compilePlan(entry: Entry): DefaultsPlan | null {
     const defaults = entry.traits?.defaults;
     if (!defaults) return null;
     const dict = defaults();
-    const data = entry.component as Record<string, unknown>;
-    const arrs: DefaultsPlan["arrs"] = [];
-    const arrVals: number[] = [];
-    const fields: Single[] = [];
-    const fieldVals: number[] = [];
-    const pairs: Pair[] = [];
-    const pairValsList: number[] = [];
-    const quads: Quad[] = [];
-    const quadValsList: number[] = [];
+    const schema = entry.component as Record<string, unknown>;
+    const fields = new Map<string, number[]>();
 
-    // dotted keys gather per-parent and resolve at the end so lane writes on
-    // the same parent merge into one Pair/Quad bulk set
-    const dotted = new Map<string, number[]>();
-
-    for (const field in dict) {
-        const value = dict[field];
-
-        const dotIdx = field.indexOf(".");
-        if (dotIdx !== -1) {
-            const base = field.slice(0, dotIdx);
-            const laneKey = field.slice(dotIdx + 1);
-            const parent = data[base];
-            const parentLanes = lanes(parent);
-            if (parentLanes !== 2 && parentLanes !== 4) {
+    for (const [key, value] of Object.entries(dict)) {
+        const dot = key.indexOf(".");
+        if (dot >= 0) {
+            const name = key.slice(0, dot);
+            const target = schema[name];
+            const width = lanes(target);
+            const lane = LANE_INDEX[key.slice(dot + 1)];
+            if (
+                !isFieldSchema(target) ||
+                (width !== 2 && width !== 4) ||
+                lane === undefined ||
+                lane >= width
+            ) {
                 throw new Error(
-                    `defaults key "${field}" on component "${entry.name}" does not target a Pair/Quad field`,
+                    `defaults key "${key}" on component "${entry.name}" does not target a valid vector lane`,
                 );
             }
             if (typeof value !== "number") {
                 throw new Error(
-                    `defaults value for "${field}" on component "${entry.name}" is not a number`,
+                    `defaults value for "${key}" on component "${entry.name}" is not a number`,
                 );
             }
-            const idx = LANE_INDEX[laneKey];
-            if (idx === undefined || idx >= parentLanes) {
-                throw new Error(
-                    `defaults key "${field}" on component "${entry.name}" has an out-of-range lane`,
-                );
-            }
-            let arr = dotted.get(base);
-            if (!arr) {
-                arr = new Array(parentLanes).fill(0);
-                dotted.set(base, arr);
-            }
-            arr[idx] = value;
+            const values = fields.get(name) ?? new Array(width).fill(0);
+            values[lane] = value;
+            fields.set(name, values);
             continue;
         }
 
-        const target = data[field];
-        if (target == null) {
+        const target = schema[key];
+        if (!isFieldSchema(target)) {
             throw new Error(
-                `defaults key "${field}" on component "${entry.name}" does not match any field`,
+                `defaults key "${key}" on component "${entry.name}" does not match a typed field`,
             );
         }
-        const n = lanes(target);
-
+        const width = lanes(target);
         if (Array.isArray(value)) {
-            if (n === 4) {
-                quads.push(target as Quad);
-                quadValsList.push(value[0] ?? 0, value[1] ?? 0, value[2] ?? 0, value[3] ?? 0);
-            } else if (n === 2) {
-                pairs.push(target as Pair);
-                pairValsList.push(value[0] ?? 0, value[1] ?? 0);
-            } else if (n === 1) {
-                fields.push(target as Single);
-                fieldVals.push(value[0] ?? 0);
-            } else if (ArrayBuffer.isView(target) || Array.isArray(target)) {
-                arrs.push(target as number[] | Float32Array | Uint32Array);
-                arrVals.push(value[0] ?? 0);
-            } else {
-                throw new Error(
-                    `defaults key "${field}" on component "${entry.name}" does not target a writable field`,
-                );
-            }
-            continue;
-        }
-
-        if (typeof value !== "number") {
-            throw new Error(
-                `defaults value for "${field}" on component "${entry.name}" is not a number`,
-            );
-        }
-
-        // typed arrays also expose `.set`, so gate on ArrayBuffer.isView first
-        if (ArrayBuffer.isView(target) || Array.isArray(target)) {
-            arrs.push(target as number[] | Float32Array | Uint32Array);
-            arrVals.push(value);
-        } else if (typeof (target as Single).set === "function") {
-            fields.push(target as Single);
-            fieldVals.push(value);
+            const values = new Array(width).fill(0);
+            for (let lane = 0; lane < width; lane++) values[lane] = value[lane] ?? 0;
+            fields.set(key, values);
+        } else if (typeof value === "number") {
+            const values = fields.get(key) ?? new Array(width).fill(0);
+            values[0] = value;
+            fields.set(key, values);
         } else {
             throw new Error(
-                `defaults key "${field}" on component "${entry.name}" does not target a writable field`,
+                `defaults value for "${key}" on component "${entry.name}" is not numeric`,
             );
         }
     }
 
-    for (const [base, arr] of dotted) {
-        const target = data[base];
-        const n = lanes(target);
-        if (n === 4) {
-            quads.push(target as Quad);
-            quadValsList.push(arr[0], arr[1], arr[2], arr[3]);
-        } else if (n === 2) {
-            pairs.push(target as Pair);
-            pairValsList.push(arr[0], arr[1]);
-        }
-    }
-
-    if (arrs.length === 0 && fields.length === 0 && pairs.length === 0 && quads.length === 0) {
-        return null;
-    }
-    return {
-        arrs,
-        arrVals,
-        fields,
-        fieldVals,
-        pairs,
-        pairVals: new Float32Array(pairValsList),
-        quads,
-        quadVals: new Float32Array(quadValsList),
-    };
+    return fields.size === 0
+        ? null
+        : { fields: [...fields].map(([name, values]) => ({ name, values })) };
 }
 
 /** wipe every registration; used between sessions and tests */

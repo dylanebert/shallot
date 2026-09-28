@@ -1,138 +1,18 @@
-import type { Pair, Quad, Single, Type, TypedArray } from "./component";
+import type { SchemaField, Type } from "./component";
+import { fieldSchema } from "./component";
 
 /**
- * Map-backed component field: the CPU storage primitive. Memory is
- * O(live entities), demand-allocated on first write, so a component held by a
- * handful of entities (cameras, players, orbits, singletons) costs nothing for
- * the empty slots. CPU-only. Pair it with `slab(type)` for a GPU-mirrored
- * field: same {@link Type} descriptor, same {@link Single}/{@link Pair}/{@link Quad}
- * surface, so consumers, scene parse, and traits don't see the difference.
- * Reads of unset entities return the type's zero value.
- *
- * Per-access cost is a `Map.get` plus (for vectors) one allocated stride-N
- * TypedArray per live entity. That's fine for the CPU side of the engine — no
- * CPU path iterates enough entities per frame to feel it. Per-entity data a GPU
- * pass reads every frame belongs on `slab(type)` instead, where the bytes live
- * in a contiguous buffer and the iteration runs on the GPU.
+ * Declare a typed component field whose world-owned column is demand-grown. The field descriptor is a
+ * schema only: systems read and write through `state.of(Component)`, never through this shared object.
  *
  * @example
- * const Orbit = {
- *     yaw: sparse(f32),
- *     pan: sparse(vec4),
- * };
+ * const Orbit = { yaw: sparse(f32), pan: sparse(vec2) };
+ * const orbit = state.of(Orbit);
+ * orbit.yaw.set(eid, 1.2);
  */
-export function sparse(type: Type & { readonly lanes: 1 }): Single;
-export function sparse(type: Type & { readonly lanes: 2 }): Pair;
-export function sparse(type: Type & { readonly lanes: 4 }): Quad;
-export function sparse(type: Type): Single | Pair | Quad {
-    const { encode, decode } = type;
-    const stride = type.lanes;
-    const enc = encode ?? identity;
-    const dec = decode ?? identity;
-    const zero = dec(0);
-
-    if (stride === 1) {
-        const map = new Map<number, number>();
-        // truncate through the descriptor's ctor so the scalar path matches the
-        // TypedArray-backed stride-2/4 paths and slab(type) — e.g. sparse(u8)
-        // wraps 300 to 44, sparse(u32) wraps -1 to 0xFFFFFFFF
-        const scratch = new type.ctor(1);
-        const out: Single = {
-            set: (eid: number, v: number) => {
-                scratch[0] = enc(v);
-                map.set(eid, scratch[0]);
-            },
-            get: (eid: number) => {
-                const raw = map.get(eid);
-                return raw === undefined ? zero : dec(raw);
-            },
-            type,
-            gpu: null,
-        };
-        return out;
-    }
-
-    const map = new Map<number, TypedArray>();
-    const ensure = (eid: number): TypedArray => {
-        let arr = map.get(eid);
-        if (!arr) {
-            arr = new type.ctor(stride);
-            map.set(eid, arr);
-        }
-        return arr;
-    };
-
-    const lane = (offset: number): Single => ({
-        set: (eid: number, v: number) => {
-            ensure(eid)[offset] = enc(v);
-        },
-        get: (eid: number) => {
-            const arr = map.get(eid);
-            return arr === undefined ? zero : dec(arr[offset]);
-        },
-        type,
-        gpu: null,
-    });
-
-    if (stride === 2) {
-        const out: Pair = {
-            set: (eid: number, x: number, y: number) => {
-                const arr = ensure(eid);
-                arr[0] = enc(x);
-                arr[1] = enc(y);
-            },
-            read: (eid: number, dst: Float32Array) => {
-                const arr = map.get(eid);
-                if (!arr) {
-                    dst[0] = zero;
-                    dst[1] = zero;
-                    return dst;
-                }
-                dst[0] = dec(arr[0]);
-                dst[1] = dec(arr[1]);
-                return dst;
-            },
-            x: lane(0),
-            y: lane(1),
-            type,
-            gpu: null,
-        };
-        return out;
-    }
-
-    const out: Quad = {
-        set: (eid: number, x: number, y: number, z: number, w: number) => {
-            const arr = ensure(eid);
-            arr[0] = enc(x);
-            arr[1] = enc(y);
-            arr[2] = enc(z);
-            arr[3] = enc(w);
-        },
-        read: (eid: number, dst: Float32Array) => {
-            const arr = map.get(eid);
-            if (!arr) {
-                dst[0] = zero;
-                dst[1] = zero;
-                dst[2] = zero;
-                dst[3] = zero;
-                return dst;
-            }
-            dst[0] = dec(arr[0]);
-            dst[1] = dec(arr[1]);
-            dst[2] = dec(arr[2]);
-            dst[3] = dec(arr[3]);
-            return dst;
-        },
-        x: lane(0),
-        y: lane(1),
-        z: lane(2),
-        w: lane(3),
-        type,
-        gpu: null,
-    };
-    return out;
-}
-
-function identity(v: number): number {
-    return v;
+export function sparse<T extends Type & { readonly lanes: 1 }>(type: T): SchemaField<T>;
+export function sparse<T extends Type & { readonly lanes: 2 }>(type: T): SchemaField<T>;
+export function sparse<T extends Type & { readonly lanes: 4 }>(type: T): SchemaField<T>;
+export function sparse(type: Type): SchemaField<Type> {
+    return fieldSchema(type, "sparse");
 }

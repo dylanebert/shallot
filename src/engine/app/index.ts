@@ -12,6 +12,8 @@ import {
     requestFrame,
     requestGPU,
     validateGpu,
+    withCompute,
+    withComputeAsync,
 } from "../runtime";
 import { diagnose, load, parse, preload } from "../scene";
 import { coalesce, frameDelta, median } from "./coalesce";
@@ -215,31 +217,27 @@ export function setDefaultLoading(factory: () => Loading): void {
 
 /**
  * build the app: collect plugins, acquire the GPU device, register, run `initialize`, load scenes, and
- * `warm`, returning a live {@link State} without starting a frame loop. Only one App may be building or
- * live in a process because component/slab/device registries are process-global; a concurrent or live
- * contender rejects before any global mutation. Dispose the returned App before building another. Drive
- * `state.step(dt)` yourself, or use {@link run} for the managed loop.
+ * `warm`, returning a live {@link State} without starting a frame loop. Build setup is serialized, and
+ * completed Apps may coexist with separate State-owned storage and GPU registries. Plugin resources retained
+ * in module globals are not isolated by this guarantee. Drive `state.step(dt)` yourself, or use {@link run}
+ * for the managed loop.
  * @example
  * const app = await build({ plugins: [MyPlugin], scene: "/scenes/demo.scene" });
  * app.state.step(1 / 60);
  */
-const BUILD_REFUSAL =
-    "build refused: another App is building or live in this process; call app.dispose() before building another";
-let buildOwner: object | null = null;
+let buildTail: Promise<void> = Promise.resolve();
 
-function claimBuild(): object {
-    if (buildOwner !== null) throw new Error(BUILD_REFUSAL);
-    const token = {};
-    buildOwner = token;
-    return token;
+/** Builds serialize their registration and warm phases; completed Apps remain independent and may coexist. */
+export function build(config: Config): Promise<App> {
+    const pending = buildTail.then(() => buildNow(config));
+    buildTail = pending.then(
+        () => undefined,
+        () => undefined,
+    );
+    return pending;
 }
 
-function releaseBuild(token: object): void {
-    if (buildOwner === token) buildOwner = null;
-}
-
-export async function build(config: Config): Promise<App> {
-    const lease = claimBuild();
+async function buildNow(config: Config): Promise<App> {
     let state!: State;
     let stateCreated = false;
     let loading: Loading | undefined;
@@ -288,7 +286,11 @@ export async function build(config: Config): Promise<App> {
         // features and best-effort preferred features.
         const features = [...new Set(sorted.flatMap((p) => p.features ?? []))];
         const preferred = [...new Set(sorted.flatMap((p) => p.preferredFeatures ?? []))];
-        await requestGPU(config.device, features, preferred, config.adapter);
+        const compute = await requestGPU(config.device, features, preferred, config.adapter, {
+            own: state.own.bind(state),
+            world: state,
+        });
+        state.attachGpu(compute, (callback) => withCompute(compute, callback));
         if (Compute.adapter.class !== "real") loading?.notice?.(Compute.adapter);
 
         for (const plugin of sorted) {
@@ -296,6 +298,7 @@ export async function build(config: Config): Promise<App> {
             const traits = plugin.traits ?? {};
             for (const [name, component] of Object.entries(components)) {
                 register(name, component, traits[name]);
+                state.of(component);
             }
             for (const name of Object.keys(traits)) {
                 if (!components[name]) {
@@ -311,7 +314,10 @@ export async function build(config: Config): Promise<App> {
 
         // assign every registered component its membership bit now, so the GPU
         // membership mirror's generation count is fixed before any warm sizes it
-        for (const { component } of entries()) state.membership.bit(component);
+        for (const { component } of entries()) {
+            state.of(component);
+            state.membership.bit(component);
+        }
 
         const scenes = config.scene
             ? Array.isArray(config.scene)
@@ -322,7 +328,7 @@ export async function build(config: Config): Promise<App> {
         const warmable = sorted.filter((p) => p.warm);
         const total = sorted.length + warmable.length + scenes.length;
 
-        config.setup?.(state);
+        withCompute(state.gpu, () => config.setup?.(state));
 
         for (let i = 0; i < sorted.length; i++) {
             const currentLoading = loading;
@@ -331,7 +337,7 @@ export async function build(config: Config): Promise<App> {
                 : undefined;
             initialized.push(sorted[i]);
             try {
-                await sorted[i].initialize?.(state, onProgress);
+                await withComputeAsync(state.gpu, () => sorted[i].initialize?.(state, onProgress));
             } catch (error) {
                 throw pluginHookError(sorted[i], "initialize", error);
             }
@@ -357,9 +363,11 @@ export async function build(config: Config): Promise<App> {
         // plugin can build against it. Owned here, not in a standard plugin, so it
         // holds for every State regardless of which plugins are loaded.
         state.membership.freeze();
-        await warmPlugins(Compute.device, state, warmable, (progress) => {
-            loading?.update((warmBase + progress) / total);
-        });
+        await withComputeAsync(state.gpu, () =>
+            warmPlugins(state.gpu.device, state, warmable, (progress) => {
+                loading?.update((warmBase + progress) / total);
+            }),
+        );
 
         loading?.update(1);
         await loading?.complete?.();
@@ -379,7 +387,7 @@ export async function build(config: Config): Promise<App> {
                 try {
                     for (let i = sorted.length - 1; i >= 0; i--) {
                         try {
-                            sorted[i].dispose?.(state);
+                            withCompute(state.gpu, () => sorted[i].dispose?.(state));
                         } catch (err) {
                             console.error(`Plugin "${sorted[i].name}" threw during dispose:`, err);
                         }
@@ -390,7 +398,7 @@ export async function build(config: Config): Promise<App> {
                         console.error("State dispose threw:", err);
                     }
                 } finally {
-                    releaseBuild(lease);
+                    // State disposal releases the world's owned resources.
                 }
             },
         };
@@ -401,7 +409,7 @@ export async function build(config: Config): Promise<App> {
         try {
             for (let i = initialized.length - 1; i >= 0; i--) {
                 try {
-                    initialized[i].dispose?.(state);
+                    withCompute(state.gpu, () => initialized[i].dispose?.(state));
                 } catch (err) {
                     console.error(`Plugin "${initialized[i].name}" threw during cleanup:`, err);
                 }
@@ -418,7 +426,7 @@ export async function build(config: Config): Promise<App> {
                 console.error("Loading cleanup threw during build failure:", err);
             }
         } finally {
-            releaseBuild(lease);
+            // Build-local resources are released by State.dispose above.
         }
         throw e;
     }
@@ -461,7 +469,7 @@ export async function run(config: Config): Promise<App> {
     const app = await build(config);
     try {
         const state = app.state;
-        const { device, pending, sync } = Compute;
+        const { device, pending, sync } = state.gpu;
         // UI teardown is State-owned: the overlay auto-registers its removal (mountOverlay above), and the
         // ui cleanup registers beside it. Both run at state.dispose() — after the plugin dispose hooks on the
         // App.dispose path (UI cleanup is DOM/unmount work with no dependency on plugin GPU state), and it also
@@ -511,7 +519,7 @@ export async function run(config: Config): Promise<App> {
         // build's profile still names the frame loop.
         const loop = {
             frame(timestamp?: number): void {
-                if (disposed || deviceLost(device) || Compute.sync !== sync) return;
+                if (disposed || deviceLost(device) || state.gpu.sync !== sync) return;
                 // rAF clocks the loop and reschedules first, before any GPU work: the next frame is registered
                 // while the browser's paint deadline is still open, so frame delivery stays vsync-aligned. The
                 // alternative — scheduling the next rAF off the completion fence — slips a paint whenever the
@@ -643,6 +651,7 @@ export async function swap(
         const traits = nextPlugin.traits ?? {};
         for (const [cname, component] of Object.entries(components)) {
             register(cname, component, traits[cname]);
+            state.of(component);
         }
         const prevSystems = prevPlugin.systems ?? [];
         const nextSystems = nextPlugin.systems ?? [];
@@ -655,7 +664,7 @@ export async function swap(
     // and let the caller's rebuild fallback recover, never wedge on an unhandled throw
     for (const nextPlugin of nextByName.values()) {
         try {
-            await nextPlugin.initialize?.(state);
+            await withComputeAsync(state.gpu, () => nextPlugin.initialize?.(state));
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             return { ok: false, reason: `${nextPlugin.name}: initialize threw — ${msg}` };
@@ -710,10 +719,7 @@ function shapeDiff(
 
 function fieldSig(component: Component): string {
     return fields(component)
-        .map(
-            (f) =>
-                `${f.name}:${f.store.type.name}:${"gpuSupported" in f.store ? "slab" : "sparse"}`,
-        )
+        .map((f) => `${f.name}:${f.field.type.name}:${f.field.storage}:${f.field.name ?? ""}`)
         .join(",");
 }
 

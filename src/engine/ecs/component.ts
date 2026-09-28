@@ -1,8 +1,97 @@
 import { packColor4 } from "../utils";
 import type { Entity } from "./entity";
 
-/** SoA component: keys map to typed arrays indexed by entity */
+/** SoA component schema: each field names a type and its storage hint; worlds own the columns. */
 export type Component = Record<string, unknown>;
+
+const FIELD = Symbol("component field");
+
+/** A component field's immutable schema. It carries no entity data or GPU handle. */
+export interface FieldSchema<T extends Type = Type> {
+    readonly [FIELD]: true;
+    readonly type: T;
+    readonly storage: "sparse" | "slab";
+    readonly name?: string;
+}
+
+export type SchemaField<T extends Type> = FieldSchema<T> &
+    (T["lanes"] extends 1 ? Single : T["lanes"] extends 2 ? Pair : Quad);
+
+let activeState: { of(component: Component): Record<string, unknown> } | undefined;
+const owners = new WeakMap<FieldSchema, { component: Component; name: string }>();
+
+/** @internal Set the world used by legacy component handles during an engine callback. */
+export function useState(state: { of(component: Component): Record<string, unknown> }): void {
+    activeState = state;
+}
+
+/** @internal Bind a schema's field handles to the component that declares them. */
+export function bindFields(component: Component): void {
+    for (const name of Object.keys(component)) {
+        const field = component[name];
+        if (isFieldSchema(field)) owners.set(field, { component, name });
+    }
+}
+
+function bound(field: FieldSchema): Single | Pair | Quad {
+    const owner = owners.get(field);
+    if (!owner || !activeState) throw new Error("Component fields require state.of(Component)");
+    return activeState.of(owner.component)[owner.name] as Single | Pair | Quad;
+}
+
+/** create a schema descriptor; values and columns remain owned by its State. @internal */
+export function fieldSchema<T extends Type>(
+    type: T,
+    storage: FieldSchema["storage"],
+    name?: string,
+): SchemaField<T> {
+    let descriptor!: SchemaField<T>;
+    descriptor = {
+        [FIELD]: true as const,
+        type,
+        storage,
+        ...(name === undefined ? {} : { name }),
+        set(eid: number, ...values: number[]) {
+            (bound(descriptor) as { set(eid: number, ...values: number[]): void }).set(
+                eid,
+                ...values,
+            );
+        },
+        get(eid: number) {
+            return (bound(descriptor) as Single).get(eid);
+        },
+        read(eid: number, out: Float32Array) {
+            return (bound(descriptor) as Pair | Quad).read(eid, out);
+        },
+        get x(): Single {
+            return (bound(descriptor) as Pair | Quad).x;
+        },
+        get y(): Single {
+            return (bound(descriptor) as Pair | Quad).y;
+        },
+        get z(): Single {
+            return (bound(descriptor) as Quad).z;
+        },
+        get w(): Single {
+            return (bound(descriptor) as Quad).w;
+        },
+        get column() {
+            return (bound(descriptor) as Single | Pair | Quad).column;
+        },
+        get dirty() {
+            return (bound(descriptor) as Single | Pair | Quad).dirty;
+        },
+        get gpu() {
+            return (bound(descriptor) as Single | Pair | Quad).gpu;
+        },
+    };
+    return descriptor;
+}
+
+/** true for a field descriptor, not a world-bound column. @internal */
+export function isFieldSchema(value: unknown): value is FieldSchema {
+    return !!value && typeof value === "object" && (value as FieldSchema)[FIELD] === true;
+}
 
 /** typed-array element backing: the set `sparse`/`slab` factories support */
 export type TypedArray = Float32Array | Int32Array | Uint32Array | Uint16Array | Uint8Array;
@@ -238,7 +327,11 @@ export interface Single {
     get(eid: number): number;
     /** type descriptor — needed for surface binding (WGSL element type) */
     readonly type: Type;
-    /** canonical GPU buffer; `null` for sparse-backed (CPU-only) fields */
+    /** world-owned CPU column, including each vector lane in field order */
+    readonly column: TypedArray;
+    /** entities changed since the field's last upload */
+    readonly dirty: Uint32Array;
+    /** canonical GPU buffer; `null` for CPU-only fields */
     readonly gpu: GPUBuffer | null;
 }
 
@@ -255,6 +348,8 @@ export interface Pair {
     readonly x: Single;
     readonly y: Single;
     readonly type: Type;
+    readonly column: TypedArray;
+    readonly dirty: Uint32Array;
     readonly gpu: GPUBuffer | null;
 }
 
@@ -270,6 +365,8 @@ export interface Quad {
     readonly z: Single;
     readonly w: Single;
     readonly type: Type;
+    readonly column: TypedArray;
+    readonly dirty: Uint32Array;
     readonly gpu: GPUBuffer | null;
 }
 
@@ -281,6 +378,7 @@ export interface Quad {
  * report as `Single` (1), not their parent's lane count
  */
 export function lanes(value: unknown): 0 | 1 | 2 | 4 {
+    if (isFieldSchema(value)) return value.type.lanes;
     if (!value || typeof value !== "object") return 0;
     const v = value as Record<string, unknown>;
     if (typeof v.set !== "function") return 0;
@@ -299,11 +397,11 @@ export function lanes(value: unknown): 0 | 1 | 2 | 4 {
  * reflection reader, or a schema walk. Keys with no typed layout (a GPU-buffer getter)
  * report {@link lanes} 0 and are skipped.
  */
-export function fields(component: Component): { name: string; store: Single | Pair | Quad }[] {
-    const out: { name: string; store: Single | Pair | Quad }[] = [];
+export function fields(component: Component): { name: string; field: FieldSchema }[] {
+    const out: { name: string; field: FieldSchema }[] = [];
     for (const name of Object.keys(component)) {
-        const store = component[name];
-        if (lanes(store) !== 0) out.push({ name, store: store as Single | Pair | Quad });
+        const field = component[name];
+        if (isFieldSchema(field)) out.push({ name, field });
     }
     return out;
 }
@@ -316,7 +414,7 @@ export function fields(component: Component): { name: string; store: Single | Pa
 export function refs(component: Component): string[] {
     const out: string[] = [];
     for (const name of Object.keys(component)) {
-        if ((component[name] as { type?: Type } | undefined)?.type === entity) out.push(name);
+        if (isFieldSchema(component[name]) && component[name].type === entity) out.push(name);
     }
     return out;
 }

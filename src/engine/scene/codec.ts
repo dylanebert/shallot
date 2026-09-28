@@ -152,7 +152,7 @@ export function load(nodes: Node[], state: State): LoadResult {
             errors.push({ message: `Unknown entity: "@${ref.targetName}"` });
             continue;
         }
-        setFieldValue(ref.component, ref.field, ref.eid, targetEid);
+        setFieldValue(state, ref.component, ref.field, ref.eid, targetEid);
     }
 
     if (errors.length > 0) {
@@ -175,13 +175,14 @@ export function load(nodes: Node[], state: State): LoadResult {
  * causes.
  */
 export function readComponent(
+    state: State,
     name: string,
     component: Component,
     eid: number,
     resolveRef?: (target: number) => string | undefined,
 ): string {
     const defaults = getTraits(name)?.defaults?.() ?? {};
-    const fields = readFields(component, eid);
+    const fields = readFields(state, component, eid);
     const merged: Record<string, number | string | readonly number[]> = { ...defaults, ...fields };
     if (resolveRef) {
         for (const field of refs(component)) {
@@ -241,7 +242,7 @@ export function serialize(state: State, eids?: Iterable<number>): Node[] {
             if (traits?.derived) continue;
             if (!state.has(eid, component as never)) continue;
             for (const field of refs(component)) {
-                const target = (component[field] as Single).get(eid);
+                const target = (state.of(component) as Record<string, Single>)[field].get(eid);
                 if (target > 0 && set.has(target)) mint(target);
             }
         }
@@ -274,7 +275,7 @@ export function serialize(state: State, eids?: Iterable<number>): Node[] {
             // a derived decoration is a system's runtime state (union-relative ids), never scene truth
             if (traits?.derived) continue;
             if (!state.has(eid, component as never)) continue;
-            attrs.push({ name, value: readComponent(name, component, eid, resolveRef) });
+            attrs.push({ name, value: readComponent(state, name, component, eid, resolveRef) });
         }
         nodes.push({ id: ids.get(eid), attrs, children: [] });
     }
@@ -327,7 +328,7 @@ function applyComponent(
             errors.push({ message: `<${name}> ${err}` });
         }
         for (const [field, val] of Object.entries(result.values)) {
-            setFieldValue(component, field, eid, val);
+            setFieldValue(state, component, field, eid, val);
         }
         for (const ref of result.entityRefs) {
             pendingFieldRefs.push({
@@ -352,16 +353,19 @@ function applyComponent(
  * - `field = "pos.x"`, `value = number` — single lane of a parent Pair/Quad
  */
 export function setFieldValue(
+    state: State,
     component: Component,
     field: string,
     eid: number,
     value: number | number[],
 ): void {
+    const schema = component as Record<string, unknown>;
+    const storage = state.of(component) as Record<string, unknown>;
     const dotIdx = field.indexOf(".");
     if (dotIdx !== -1) {
         const base = field.slice(0, dotIdx);
         const laneKey = field.slice(dotIdx + 1);
-        const parent = component[base];
+        const parent = storage[base];
         if (parent == null) return;
         const lane = (parent as Record<string, unknown>)[laneKey] as Single | undefined;
         if (lane && typeof lane.set === "function" && typeof value === "number") {
@@ -370,9 +374,9 @@ export function setFieldValue(
         return;
     }
 
-    const target = component[field];
-    if (target == null) return;
-    const n = lanes(target);
+    const target = storage[field];
+    if (target == null || schema[field] == null) return;
+    const n = lanes(schema[field]);
 
     if (Array.isArray(value)) {
         if (n === 4) {

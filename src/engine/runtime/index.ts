@@ -6,6 +6,7 @@ export {
     checkStorageBinding,
     checkTextureLimits,
     checkTgsl,
+    currentWorld,
     deviceLost,
     type LazyAlloc,
     PIPELINE_COMPILE_MEASURE_PREFIX,
@@ -18,6 +19,8 @@ export {
     tgslCanary,
     UnsupportedError,
     validateGpu,
+    withCompute,
+    withComputeAsync,
 } from "./gpu";
 export { drainLog, type GpuLog } from "./log";
 export { now, Runtime, readBinary, readFile, requestFrame } from "./platform";
