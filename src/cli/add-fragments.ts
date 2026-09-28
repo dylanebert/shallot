@@ -44,7 +44,7 @@ bunx shallot dev
 
 ## Verify
 
-\`bun test\` runs the project's Bun tests. \`tests/preload.ts\`, loaded by \`bunfig.toml\`, registers Shallot's Bun plugin for TGSL.
+\`bun test\` runs the project's Bun tests. \`tests/preload.ts\`, loaded by \`bunfig.toml\`, registers Shallot's Bun plugin at the package root for TGSL.
 
 ${ENGINE_REFERENCE}
 `;

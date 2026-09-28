@@ -175,7 +175,7 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
             expect(examplePackage.devDependencies.typegpu).toBeUndefined();
             expect(existsSync(join(scratch, "package.json"))).toBe(false);
             expect(readFileSync(join(example, "tests/preload.ts"), "utf8")).toBe(
-                'import { plugin } from "bun";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot());\n',
+                'import { plugin } from "bun";\nimport { resolve } from "node:path";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot({ root: resolve(import.meta.dir, "..") }));\n',
             );
             expect(readFileSync(join(example, "bunfig.toml"), "utf8")).toBe(
                 '[test]\npreload = ["./tests/preload.ts"]\n',

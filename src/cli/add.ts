@@ -227,7 +227,7 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
         mkdirSync(dirname(preload), { recursive: true });
         writeFileSync(
             preload,
-            'import { plugin } from "bun";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot());\n',
+            'import { plugin } from "bun";\nimport { resolve } from "node:path";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot({ root: resolve(import.meta.dir, "..") }));\n',
         );
     }
     if (!existsSync(bunfig)) writeFileSync(bunfig, '[test]\npreload = ["./tests/preload.ts"]\n');

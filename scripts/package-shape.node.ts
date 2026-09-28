@@ -23,17 +23,10 @@ function run(command: string[], cwd: string, label: string): string {
     return output;
 }
 
-function createLinkedFixture(scratch: string): { nodeModules: string; tests: string } {
-    const nodeModules = join(scratch, "node_modules");
+function installTypegpu(nodeModules: string): void {
     const typegpuSource = join(ROOT, "node_modules/typegpu");
     const typegpuManifest = JSON.parse(readFileSync(join(typegpuSource, "package.json"), "utf8"));
-    const tests = join(scratch, "tests");
-
-    mkdirSync(join(nodeModules, "@dylanebert"), { recursive: true });
     mkdirSync(join(nodeModules, "typegpu"), { recursive: true });
-    mkdirSync(tests, { recursive: true });
-    // Match bun link's node_modules symlink without touching the global link registry.
-    symlinkSync(ROOT, join(nodeModules, "@dylanebert/shallot"), "dir");
     cpSync(typegpuSource, join(nodeModules, "typegpu"), { recursive: true });
     for (const name of Object.keys(typegpuManifest.dependencies ?? {})) {
         const target = resolve(ROOT, "node_modules", ...name.split("/"));
@@ -42,6 +35,24 @@ function createLinkedFixture(scratch: string): { nodeModules: string; tests: str
         mkdirSync(dirname(link), { recursive: true });
         if (!existsSync(link)) symlinkSync(target, link, "dir");
     }
+}
+
+function writePreload(path: string): void {
+    writeFileSync(
+        path,
+        'import { plugin } from "bun";\nimport { resolve } from "node:path";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot({ root: resolve(import.meta.dir, "..") }));\n',
+    );
+}
+
+function createLinkedFixture(scratch: string): { nodeModules: string; tests: string } {
+    const nodeModules = join(scratch, "node_modules");
+    const tests = join(scratch, "tests");
+
+    mkdirSync(join(nodeModules, "@dylanebert"), { recursive: true });
+    mkdirSync(tests, { recursive: true });
+    // Match bun link's node_modules symlink without touching the global link registry.
+    symlinkSync(ROOT, join(nodeModules, "@dylanebert/shallot"), "dir");
+    installTypegpu(nodeModules);
 
     writeFileSync(
         join(scratch, "package.json"),
@@ -57,11 +68,53 @@ function createLinkedFixture(scratch: string): { nodeModules: string; tests: str
             2,
         )}\n`,
     );
-    writeFileSync(
-        join(tests, "preload.ts"),
-        'import { plugin } from "bun";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot());\n',
-    );
+    writePreload(join(tests, "preload.ts"));
     return { nodeModules, tests };
+}
+
+function createWorkspaceFixture(scratch: string): { game: string; tests: string } {
+    const rootNodeModules = join(scratch, "node_modules");
+    const game = join(scratch, "packages/game");
+    const gameNodeModules = join(game, "node_modules");
+    const tests = join(game, "tests");
+
+    mkdirSync(join(rootNodeModules, "@dylanebert"), { recursive: true });
+    mkdirSync(tests, { recursive: true });
+    symlinkSync(ROOT, join(rootNodeModules, "@dylanebert/shallot"), "dir");
+    installTypegpu(gameNodeModules);
+    writeFileSync(
+        join(scratch, "package.json"),
+        `${JSON.stringify(
+            {
+                name: "shallot-package-shape-workspace",
+                private: true,
+                type: "module",
+                workspaces: ["packages/*"],
+            },
+            null,
+            2,
+        )}\n`,
+    );
+    writeFileSync(
+        join(game, "package.json"),
+        `${JSON.stringify(
+            {
+                name: "workspace-game",
+                private: true,
+                type: "module",
+                dependencies: { "@dylanebert/shallot": "^0.9.5" },
+                devDependencies: { typegpu: TYPEGPU_RANGE },
+            },
+            null,
+            2,
+        )}\n`,
+    );
+    writeFileSync(
+        join(scratch, "bunfig.toml"),
+        '[test]\npreload = ["./packages/game/tests/preload.ts"]\n',
+    );
+    writePreload(join(tests, "preload.ts"));
+    return { game, tests };
 }
 
 test("the Bun preload dedupes linked-engine TypeGPU imports to the consumer peer", () => {
@@ -86,6 +139,64 @@ test("the Bun preload dedupes linked-engine TypeGPU imports to the consumer peer
         );
         expect(output).toContain("consumer and linked engine share one TypeGPU instance");
         expect(output).toContain("1 pass");
+        expect(output).not.toContain("Found duplicate TypeGPU version");
+    } finally {
+        rmSync(scratch, { recursive: true, force: true });
+    }
+});
+
+test("a Bun test from the workspace root resolves TypeGPU from the package that owns its preload", () => {
+    const scratch = mkdtempSync(join(tmpdir(), "shallot-package-shape-workspace-"));
+    try {
+        const { game } = createWorkspaceFixture(scratch);
+        const workspaceTypegpu = () => Bun.resolveSync("typegpu/package.json", scratch);
+        expect(workspaceTypegpu).toThrow();
+        const gameTypegpu = Bun.resolveSync("typegpu/package.json", game);
+        expect(gameTypegpu).toContain("packages/game/node_modules/typegpu/package.json");
+        writeFileSync(
+            join(game, "tests/mono.test.ts"),
+            `import { expect, test } from "bun:test";\nimport tgpu from "typegpu";\nimport { checkTgsl } from "@dylanebert/shallot/runtime";\n\ntest("workspace consumer and linked engine share one TypeGPU instance", () => {\n    expect(typeof tgpu.fn).toBe("function");\n    expect(() => checkTgsl()).not.toThrow();\n});\n`,
+        );
+
+        const output = run(
+            ["bun", "test", "packages/game/tests/mono.test.ts"],
+            scratch,
+            "testing a workspace package from the workspace root",
+        );
+        expect(output).toContain("workspace consumer and linked engine share one TypeGPU instance");
+        expect(output).toContain("1 pass");
+        expect(output).not.toContain("Found duplicate TypeGPU version");
+    } finally {
+        rmSync(scratch, { recursive: true, force: true });
+    }
+});
+
+test("a second TypeGPU copy fails before its duplicate stamp evaluates and names both paths", () => {
+    const scratch = mkdtempSync(join(tmpdir(), "shallot-package-shape-duplicate-"));
+    try {
+        const { game } = createWorkspaceFixture(scratch);
+        const gameMeta = join(game, "node_modules/typegpu/shared/meta.js");
+        const engineMeta = join(ROOT, "node_modules/typegpu/shared/meta.js");
+        writeFileSync(
+            join(game, "tests/mono.test.ts"),
+            `import { expect, test } from "bun:test";\nimport tgpu from "typegpu";\nimport { checkTgsl } from "@dylanebert/shallot/runtime";\ntest("workspace consumer and linked engine share one TypeGPU instance", () => {\n    expect(typeof tgpu.fn).toBe("function");\n    expect(() => checkTgsl()).not.toThrow();\n});\n`,
+        );
+        writeFileSync(
+            join(scratch, "root-preload.ts"),
+            'import { plugin } from "bun";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot({ root: import.meta.dir }));\n',
+        );
+        writeFileSync(join(scratch, "bunfig.toml"), '[test]\npreload = ["./root-preload.ts"]\n');
+
+        const result = Bun.spawnSync(["bun", "test", "packages/game/tests/mono.test.ts"], {
+            cwd: scratch,
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        const output = `${result.stdout.toString()}${result.stderr.toString()}`;
+        expect(result.exitCode, output).not.toBe(0);
+        expect(output).toContain("Shallot detected multiple TypeGPU copies before evaluation");
+        expect(output).toContain(gameMeta);
+        expect(output).toContain(engineMeta);
         expect(output).not.toContain("Found duplicate TypeGPU version");
     } finally {
         rmSync(scratch, { recursive: true, force: true });
