@@ -55,7 +55,7 @@ Each view reaches the screen through one final pass. The scene image is marked H
 ```bash
 bun run build                         # regenerate committed audio WASM, dist/vite.js, physics kernel
 bun run check                         # static gates; run before every push
-bun test                              # cheap tier: *.test.ts
+bun run test                          # cheap tier: *.test.ts, 250 ms default per test
 bun test ./src/transitional/mirror/index.gpu.ts  # named GPU tier
 bun test ./diagnostics/.../allocation.oracle.ts # named display oracle (manual)
 bun run test:browser                  # Playwright Test browser tier, *.e2e.ts
@@ -69,7 +69,7 @@ bun run format                        # biome, scene formatter and examples inde
 
 A module's promises are tested beside the module and through the examples that use it. Each test name states the claim; its timeout is the wall-clock budget.
 
-- Plain `bun test` discovers the cheap `*.test.ts` tier. GPU, Node and oracle tests with a different premise belong in named files and run by path.
+- `bun run test` discovers the cheap `*.test.ts` tier with a 250 ms default timeout per test. Individual test timeouts override it. Bare `bun test` discovers the same files with Bun's default timeout. GPU, Node and oracle tests with a different premise belong in named files and run by path.
 - Rust suites run directly with Cargo:
 
   ```bash

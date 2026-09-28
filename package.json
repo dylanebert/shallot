@@ -97,7 +97,7 @@
         "build": "bun run ./scripts/build.ts",
         "check": "bun run scripts/check.ts",
         "format": "biome check --write && bun run scripts/format.ts && bun run scripts/examples-index.ts",
-        "test": "bun test",
+        "test": "bun test --timeout=250",
         "test:browser": "playwright test",
         "assets": "bun run scripts/assets.ts",
         "prepack": "bun run ./scripts/tooling.ts"

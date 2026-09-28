@@ -37,7 +37,7 @@ jobs:
         run: bun run check
       - name: cheap tier
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: /usr/bin/time -p bun test
+        run: /usr/bin/time -p bun run test
 
   gpu:
     runs-on: macos-15
