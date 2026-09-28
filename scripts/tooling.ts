@@ -4,7 +4,7 @@
 // transform must see engine source untransformed) doesn't reach `./vite`, whose only consumption context
 // is Node. Browser subject configs and the display oracle share the Chromium arguments in
 // `scripts/chromium.ts`.
-// `dist/vite.js` and its self-contained `dist/vite.d.ts` are generated here by `bun run build` and
+// `dist/vite.js` and the TypeScript-generated `dist/vite.d.ts` are generated here by `bun run build` and
 // `prepack`, and committed so SHA-pinned Git installs can resolve `./vite`. `tsc` reads the `types`
 // condition, while Node resolves `default`.
 //
@@ -16,6 +16,7 @@
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { buildViteDeclaration } from "./vite-declaration";
 
 const ROOT = resolve(import.meta.dir, "..");
 const OUT = resolve(ROOT, "dist");
@@ -55,7 +56,7 @@ for (const { entry, out } of entries) {
     }
 }
 
-writeFileSync(resolve(OUT, "vite.d.ts"), readFileSync(resolve(ROOT, "scripts/vite.d.ts"), "utf8"));
+writeFileSync(resolve(OUT, "vite.d.ts"), buildViteDeclaration());
 
 // `src/project/` is a closed island (assets.ts/engine.ts/generate.ts/manifest.ts, no engine runtime,
 // no TGSL) —

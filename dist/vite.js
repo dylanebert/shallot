@@ -439,14 +439,5 @@ function shallot(projectDir) {
   return [typegpu(), projectPlugin];
 }
 export {
-  CROSS_ORIGIN_ISOLATION,
-  assetSrc,
-  classifyProjectFile,
-  discoverScenes,
-  findPublicDirs,
-  manifestPath,
-  manifestWarnings,
-  orphanedAssets,
-  pluginPackages,
   shallot
 };

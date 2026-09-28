@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { buildViteDeclaration } from "./vite-declaration";
 
 const root = resolve(import.meta.dir, "..");
 const outdir = mkdtempSync(join(tmpdir(), "shallot-vite-check-"));
@@ -39,7 +40,7 @@ try {
     }
 
     const committedTypes = resolve(root, "dist/vite.d.ts");
-    const freshTypes = readFileSync(resolve(root, "scripts/vite.d.ts"), "utf8");
+    const freshTypes = buildViteDeclaration();
     if (!existsSync(committedTypes) || readFileSync(committedTypes, "utf8") !== freshTypes) {
         console.error("✗ dist/vite.d.ts is stale; run `bun run build` to regenerate it.");
         process.exitCode = 1;

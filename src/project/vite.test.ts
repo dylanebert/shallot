@@ -2,21 +2,33 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findPublicDirs, shallot } from "./vite";
+import { shallot } from "./vite";
 
-test("the Vite plugin only returns a project's own public assets", () => {
-        const root = mkdtempSync(join(tmpdir(), "shallot-public-scope-"));
-        const project = join(root, "example");
-        mkdirSync(join(root, "public"), { recursive: true });
-        mkdirSync(project);
-        try {
-            expect(findPublicDirs(project)).toEqual([]);
-            mkdirSync(join(project, "public"));
-            expect(findPublicDirs(project)).toEqual([join(project, "public")]);
-        } finally {
-            rmSync(root, { recursive: true, force: true });
-        }
-    });
+test("the Vite plugin only serves a project's own public assets", () => {
+    const root = mkdtempSync(join(tmpdir(), "shallot-public-scope-"));
+    const project = join(root, "example");
+    mkdirSync(join(root, "public"), { recursive: true });
+    mkdirSync(project);
+    let middlewareCount = 0;
+    const server = {
+        middlewares: { use() { middlewareCount++; } },
+        watcher: { add() {}, on() {} },
+        ws: { send() {} },
+        moduleGraph: { getModuleById() { return null; }, invalidateModule() {} },
+    };
+    try {
+        const plugin = shallotProject(project);
+        const configure = plugin.configureServer as unknown as (server: unknown) => void;
+        configure(server);
+        expect(middlewareCount).toBe(0);
+
+        mkdirSync(join(project, "public"));
+        configure(server);
+        expect(middlewareCount).toBe(1);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
 
 function shallotProject(projectDir?: string) {
     const plugin = shallot(projectDir).find(({ name }) => name === "shallot");

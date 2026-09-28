@@ -1,12 +1,5 @@
-// the pure readers behind the `./vite` plugin entry: a project's manifest, and the two functions its dev
-// server's static-asset middleware is built from. Internal to `src/project/` — imported by `vite.ts` and
-// by this file's own test, never re-exported from the published subpath (a
-// module-internal export shared across sibling files lives in a sibling imported directly, the shape
-// `sear/codegen.ts` already uses). `manifestPath` and `manifestWarnings` are the exception, re-exported by
-// `vite.ts` because the CLI and consumers already resolve them through `@dylanebert/shallot/vite`.
-//
-// Nothing here touches vite, a server, or a hook — data in, data out — so the plugin entry keeps only the
-// hooks, and these read as ordinary functions a test can call.
+// The project's pure manifest and static-asset readers. Internal to `src/project/`; sibling modules
+// import this file directly. Nothing here touches vite, a server, or a hook.
 
 import { existsSync, readFileSync, statSync } from "fs";
 import { join, sep } from "path";

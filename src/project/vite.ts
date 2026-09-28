@@ -7,14 +7,6 @@ import { generateModuleFromPlan } from "./generate";
 import { plan, readProject } from "./host";
 import { normalize } from "./manifest";
 
-// the manifest descriptor half of `assets.ts` is part of this subpath's published surface — the CLI
-// (`src/cli/build.ts`, `src/project/floor.ts`) and consumers already resolve both through
-// `@dylanebert/shallot/vite`. The readers beside them stay internal to `src/project/`.
-export { manifestPath, manifestWarnings } from "./assets";
-// scene discovery is the project host's (`host.ts`) — re-exported here because the CLI and consumers
-// already resolve it through `@dylanebert/shallot/vite`.
-export { discoverScenes } from "./host";
-
 /**
  * cross-origin isolation headers, applied by Vite's dev and preview servers. Physics multithreads only when the page can hold a
  * shared `WebAssembly.Memory`, which a browser grants only to a cross-origin-isolated document — so the
@@ -25,13 +17,13 @@ export { discoverScenes } from "./host";
  * cross-origin load (`<img src="https://…">` from a host without CORP) is blocked in the isolated
  * document. Consumer-facing note: AGENTS.md "Build, run, verify".
  */
-export const CROSS_ORIGIN_ISOLATION = {
+const CROSS_ORIGIN_ISOLATION = {
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Embedder-Policy": "require-corp",
 };
 
 /** Package names of enabled manifest plugins. Relative and absolute specs are project source, not dependencies. */
-export function pluginPackages(projectDir?: string): string[] {
+function pluginPackages(projectDir?: string): string[] {
     if (!projectDir) return [];
     const path = manifestPath(resolve(projectDir));
     let raw: string | null = null;
@@ -45,7 +37,7 @@ export function pluginPackages(projectDir?: string): string[] {
     return [...new Set(packages)];
 }
 
-export function findPublicDirs(projectDir: string): string[] {
+function findPublicDirs(projectDir: string): string[] {
     const own = join(projectDir, "public");
     return existsSync(own) ? [own] : [];
 }
@@ -64,7 +56,7 @@ const MODEL_EXT = /\.(glb|gltf)$/i;
  * not an OS path), so it matches the cache key on Windows too. The watcher uses a match to full-reload
  * on a model change; an unmatched file falls through to the scene/manifest watch.
  */
-export function assetSrc(file: string, publicDirs: string[]): string | null {
+function assetSrc(file: string, publicDirs: string[]): string | null {
     if (!MODEL_EXT.test(file)) return null;
     for (const dir of publicDirs) {
         const rel = relative(dir, file);
@@ -113,7 +105,7 @@ function configureServer(server: ViteDevServer, projectDir: string) {
 // an asset is kept the moment its hashed name appears in any reachable chunk or asset, so a codec a
 // project actually uses (its `new URL` reference survives in a live chunk) is never dropped. The blind
 // spot is an asset addressed by runtime string-building; the `new URL` codecs emit a literal name.
-export function orphanedAssets(bundle: Rollup.OutputBundle): string[] {
+function orphanedAssets(bundle: Rollup.OutputBundle): string[] {
     const files = Object.values(bundle);
     const text = (f: Rollup.OutputAsset | Rollup.OutputChunk) =>
         f.type === "chunk" ? f.code : typeof f.source === "string" ? f.source : "";
@@ -158,7 +150,7 @@ export function orphanedAssets(bundle: Rollup.OutputBundle): string[] {
  * invalidates + swallows default HMR for `"project"` (the reload comes from the watcher, so a single
  * `.scene` change fires one reload, not two).
  */
-export function classifyProjectFile(
+function classifyProjectFile(
     file: string,
     absDir: string,
     publicDirs: string[],

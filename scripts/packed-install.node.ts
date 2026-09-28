@@ -89,9 +89,14 @@ test("a headless plugin set steps the world and exposes state through public eng
     }
 });
 
-test("the packed Vite entry imports in Node without Bun or engine modules", () => {
+test("the packed Vite entry imports in Node and exposes only shallot", () => {
     const node = Bun.spawnSync(
-        ["node", "--input-type=module", "-e", 'await import("@dylanebert/shallot/vite")'],
+        [
+            "node",
+            "--input-type=module",
+            "-e",
+            'const names = Object.keys(await import("@dylanebert/shallot/vite")).sort(); if (names.length !== 1 || names[0] !== "shallot") throw new Error("unexpected Vite exports: " + names.join(", "));',
+        ],
         { cwd: import.meta.dir, stdout: "pipe", stderr: "pipe" },
     );
     expect(node.exitCode, node.stderr.toString()).toBe(0);
