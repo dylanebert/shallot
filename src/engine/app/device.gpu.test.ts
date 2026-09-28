@@ -24,28 +24,78 @@ afterEach(() => {
 const BUILD_REFUSAL =
     "build refused: another App is building or live in this process; call app.dispose() before building another";
 
-test("build without a device refuses with the adapter acquisition cause", async () => {
+function replaceGpu(gpu: GPU | undefined): () => void {
     const previous = Object.getOwnPropertyDescriptor(navigator, "gpu");
-    Object.defineProperty(navigator, "gpu", {
-        configurable: true,
-        value: {
-            requestAdapter: async () => {
-                throw new Error("fixture adapter acquisition failed");
-            },
-        },
-    });
-    try {
-        const message = await build({ defaults: false, plugins: [] }).then(
-            (app) => {
-                app.dispose();
-                return "build unexpectedly succeeded";
-            },
-            (error: unknown) => (error instanceof Error ? error.message : String(error)),
-        );
-        expect(message).toContain("fixture adapter acquisition failed");
-    } finally {
+    Object.defineProperty(navigator, "gpu", { configurable: true, value: gpu });
+    return () => {
         if (previous) Object.defineProperty(navigator, "gpu", previous);
         else Reflect.deleteProperty(navigator, "gpu");
+    };
+}
+
+async function refusalMessage(): Promise<string> {
+    return build({ defaults: false, plugins: [] }).then(
+        (app) => {
+            app.dispose();
+            return "build unexpectedly succeeded";
+        },
+        (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+}
+
+test("missing navigator.gpu names the Bun runtime and optional bun-webgpu peer fix", async () => {
+    const restore = replaceGpu(undefined);
+    try {
+        const message = await refusalMessage();
+        expect(message).toContain("navigator.gpu is missing in Bun");
+        expect(message).toContain("optional bun-webgpu peer");
+    } finally {
+        restore();
+    }
+});
+
+test("no adapter has its own acquisition refusal", async () => {
+    const restore = replaceGpu({ requestAdapter: async () => null } as unknown as GPU);
+    try {
+        expect(await refusalMessage()).toBe("No WebGPU adapter is available in Bun.");
+    } finally {
+        restore();
+    }
+});
+
+test("device creation failure names both the stage and its cause", async () => {
+    const cause = "fixture device creation failed";
+    const adapter = {
+        features: new Set<GPUFeatureName>([
+            "indirect-first-instance",
+            "bgra8unorm-storage",
+            "rg11b10ufloat-renderable",
+        ]),
+        limits: { maxStorageBuffersPerShaderStage: 10 },
+        requestDevice: async () => {
+            throw new Error(cause);
+        },
+    } as unknown as GPUAdapter;
+    const restore = replaceGpu({ requestAdapter: async () => adapter } as unknown as GPU);
+    try {
+        expect(await refusalMessage()).toBe(`WebGPU device creation failed in Bun: ${cause}`);
+    } finally {
+        restore();
+    }
+});
+
+test("adapter request failure keeps its cause distinct from no adapter", async () => {
+    const restore = replaceGpu({
+        requestAdapter: async () => {
+            throw new Error("fixture adapter request failed");
+        },
+    } as unknown as GPU);
+    try {
+        expect(await refusalMessage()).toBe(
+            "WebGPU adapter request failed in Bun: fixture adapter request failed",
+        );
+    } finally {
+        restore();
     }
 });
 

@@ -5,14 +5,14 @@ import { captureGpuLog } from "./log";
 import { now } from "./platform";
 
 /**
- * thrown when the device can't meet a required WebGPU feature or limit. `missing` names the absent
- * feature(s); {@link requestGPU} throws it before any plugin loads, so an unsupported device fails loud
- * with a named cause rather than an opaque validation error deep in a pipeline.
+ * thrown when WebGPU is unavailable or a device can't meet a required feature or limit. `missing` names
+ * absent required feature(s); {@link requestGPU} throws before any plugin loads, with the host or device
+ * failure named rather than surfacing as an opaque validation error deep in a pipeline.
  */
 export class UnsupportedError extends Error {
     readonly missing: readonly string[];
-    constructor(message: string, missing: readonly string[] = []) {
-        super(message);
+    constructor(message: string, missing: readonly string[] = [], options?: ErrorOptions) {
+        super(message, options);
         this.name = "UnsupportedError";
         this.missing = missing;
     }
@@ -1231,14 +1231,49 @@ export async function requestGPU(
     });
 }
 
+function gpuRuntimeName(): string {
+    const versions = (
+        globalThis as typeof globalThis & {
+            process?: { versions?: Record<string, string | undefined> };
+        }
+    ).process?.versions;
+    if (versions?.bun) return "Bun";
+    if (versions?.node) return "Node.js";
+    return "this runtime";
+}
+
+function failureMessage(cause: unknown): string {
+    return cause instanceof Error ? cause.message : String(cause);
+}
+
 async function acquireDevice(
     extra: readonly GPUFeatureName[],
     preferred: readonly GPUFeatureName[],
 ): Promise<{ device: GPUDevice; adapter: GPUAdapter }> {
-    if (!navigator.gpu) throw new UnsupportedError("WebGPU not supported in this browser");
+    const gpu = typeof navigator === "undefined" ? undefined : navigator.gpu;
+    if (!gpu) {
+        const runtime = gpuRuntimeName();
+        const fix =
+            runtime === "Bun"
+                ? " Install the optional bun-webgpu peer dependency to enable GPU builds."
+                : "";
+        throw new UnsupportedError(
+            `WebGPU unavailable: navigator.gpu is missing in ${runtime}.${fix}`,
+        );
+    }
 
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) throw new UnsupportedError("No compatible GPU found");
+    const runtime = gpuRuntimeName();
+    let adapter: GPUAdapter | null;
+    try {
+        adapter = await gpu.requestAdapter();
+    } catch (cause) {
+        throw new UnsupportedError(
+            `WebGPU adapter request failed in ${runtime}: ${failureMessage(cause)}`,
+            [],
+            { cause },
+        );
+    }
+    if (!adapter) throw new UnsupportedError(`No WebGPU adapter is available in ${runtime}.`);
 
     const required = [...new Set<GPUFeatureName>([...BASE_FEATURES, ...extra])];
     const { granted, missing } = resolveFeatures(adapter.features, required, preferred);
@@ -1265,10 +1300,19 @@ async function acquireDevice(
         if (adapter.limits[limit] === 0) requiredLimits[limit] = 0;
     }
 
-    const device = await adapter.requestDevice({
-        requiredFeatures: [...required, ...granted],
-        requiredLimits,
-    });
+    let device: GPUDevice;
+    try {
+        device = await adapter.requestDevice({
+            requiredFeatures: [...required, ...granted],
+            requiredLimits,
+        });
+    } catch (cause) {
+        throw new UnsupportedError(
+            `WebGPU device creation failed in ${runtime}: ${failureMessage(cause)}`,
+            [],
+            { cause },
+        );
+    }
 
     return { device, adapter };
 }
