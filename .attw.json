@@ -1,0 +1,6 @@
+{
+    "profile": "esm-only",
+    "ignoreRules": ["internal-resolution-error"],
+    "format": "ascii",
+    "color": false
+}
