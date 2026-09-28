@@ -1,5 +1,4 @@
-import { expect } from "bun:test";
-import { check } from "@dylanebert/shallot/harness/check";
+import { expect, test } from "bun:test";
 import {
     declaredMonitor,
     openOnDisplay,
@@ -12,7 +11,6 @@ import {
     type SeatMonitor,
     type SeatWindow,
 } from "./display-seat";
-import { MissingPremise } from "../../src/harness/verdict";
 
 // One live two-monitor desktop as the compositor reports it: the same pair whose refresh rates made one
 // 120-frame window 500 ms on DP-1 and 833 ms on DP-2.
@@ -75,12 +73,7 @@ const page = (): SeatWindow => {
     return found;
 };
 
-check(
-    "the display seat reads its monitor from the compositor",
-    {
-        claim: "the declared display resolves to the compositor's own geometry and refresh rate, and a declaration naming no live monitor refuses with the live names",
-    },
-    () => {
+test("the declared display resolves to the compositor's own geometry and refresh rate, and a declaration naming no live monitor refuses with the live names", () => {
         expect(monitor("DP-1")).toEqual({
             name: "DP-1",
             id: 0,
@@ -101,15 +94,9 @@ check(
         );
         const none = declaredMonitor(parseMonitors("[]"), "DP-1");
         expect("refused" in none && none.refused).toContain("the compositor reports none");
-    },
-);
+    });
 
-check(
-    "a page that did not land on the declared monitor refuses by name",
-    {
-        claim: "the placement check passes only a mapped, unhidden window on the declared monitor's shown workspace, and names which of those failed otherwise",
-    },
-    () => {
+test("the placement check passes only a mapped, unhidden window on the declared monitor's shown workspace, and names which of those failed otherwise", () => {
         const dp1 = monitor("DP-1");
         // The one passing shape: the page is where the declaration says, on the workspace that monitor is
         // showing, mapped and visible.
@@ -130,15 +117,9 @@ check(
             "unmapped on DP-1",
         );
         expect(placementRefusal(dp1, undefined, "after the windows")).toContain("is gone");
-    },
-);
+    });
 
-check(
-    "the placement opens the page on the declared monitor",
-    {
-        claim: "the placement rule sends only this harness's own window class to the declared monitor, as a floating window at the capture contract's size, and one rule of a stable name replaces the last rather than accumulating",
-    },
-    () => {
+test("the placement rule sends only this harness's own window class to the declared monitor, as a floating window at the capture contract's size, and one rule of a stable name replaces the last rather than accumulating", () => {
         const script = ruleScript(monitor("DP-1"), [1280, 720]);
         expect(script).toContain(`name = "${SEAT_RULE_NAME}"`);
         // Only this harness's Chromium carries this class, so no window of the person's can match it.
@@ -148,15 +129,9 @@ check(
         // is not retiled around it.
         expect(script).toContain("float = true");
         expect(script).toContain('size = "1280 720"');
-    },
-);
+    });
 
-check(
-    "a host with no Hyprland refuses the display seat before it spawns anything",
-    {
-        claim: "openOnDisplay refuses with MissingPremise when the host declares no Hyprland instance, so the seat's placement premise is checked before the compositor is ever asked",
-    },
-    async () => {
+test("openOnDisplay fails when no Hyprland instance is declared, before asking the compositor", async () => {
         // The clause the whole module rests on: Hyprland is the only compositor with a placement here, so
         // another one refuses by name rather than letting focus decide which monitor the page presents on.
         // Non-vacuity is free: without the guard this call reaches `hyprctl` and tries to spawn.
@@ -167,11 +142,10 @@ check(
                 () => undefined,
                 (error: unknown) => error,
             );
-            expect(refusal).toBeInstanceOf(MissingPremise);
+            expect(refusal).toBeInstanceOf(Error);
             expect((refusal as Error).message).toContain("DP-1");
             expect((refusal as Error).message).toContain("no compositor placement");
         } finally {
             if (signature !== undefined) process.env.HYPRLAND_INSTANCE_SIGNATURE = signature;
         }
-    },
-);
+    });

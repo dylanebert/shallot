@@ -28,7 +28,7 @@ export interface SeatFacts {
     display?: DisplayFacts;
 }
 
-/** a seat resolution: available, or refused with the reason a verdict prints. */
+/** a seat resolution: available, or refused with the reason a named test reports. */
 export type SeatResolution = { ok: true; detail: string } | { ok: false; reason: string };
 
 function refuse(seat: Seat, reason: string): SeatResolution {

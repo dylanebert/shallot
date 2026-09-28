@@ -1,9 +1,7 @@
-import { expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { check } from "@dylanebert/shallot/harness/check";
-import { collectPopulation } from "@dylanebert/shallot/harness/surface";
 import { readProjectPolicy } from "./policy";
 
 function dependencyViolations(
@@ -28,12 +26,7 @@ function dependencyViolations(
     }
 }
 
-check(
-    "project policy stays outside check discovery",
-    {
-        claim: "check discovery parses declarations without applying recipe source policy, while project tooling still refuses private engine imports and physics-world escapes",
-    },
-    () => {
+test("project policy rejects private engine imports and physics-world escapes", () => {
         const tree = mkdtempSync(join(tmpdir(), "shallot-project-policy-recipe-"));
         const recipe = join(tree, "examples/demo");
         mkdirSync(join(recipe, "src"), { recursive: true });
@@ -43,41 +36,28 @@ check(
             'import { thing } from "@dylanebert/shallot/src/engine";\nPhysics.world();\n',
         );
         try {
-            const population = collectPopulation(tree);
-            expect(population.invalid).toEqual([]);
-            expect(readProjectPolicy(tree).join("\\n")).toContain(
+            const violations = readProjectPolicy(tree).join("\n");
+            expect(violations).toContain(
                 "recipe source uses a deep engine import: examples/demo/src/game.ts",
             );
-            expect(readProjectPolicy(tree).join("\\n")).toContain(
+            expect(violations).toContain(
                 "recipe source uses Physics.world/physicsWorld: examples/demo/src/game.ts",
             );
         } finally {
             rmSync(tree, { recursive: true, force: true });
         }
-    },
-);
+    });
 
-check(
-    "project policy: self-link Shallot spec passes",
-    { claim: "project policy permits a package's own self-link" },
-    () => {
+test("project policy permits a package's own self-link", () => {
         expect(dependencyViolations("link:.", "@dylanebert/shallot-grid")).toEqual([]);
-    },
-);
+    });
 
-check(
-    "project policy: full Git Shallot identity passes",
-    { claim: "project policy permits a lock-recorded full Git commit for Shallot" },
-    () => {
+test("project policy permits a lock-recorded full Git commit for Shallot", () => {
         const spec = "github:dylanebert/shallot#0123456789abcdef0123456789abcdef01234567";
         expect(dependencyViolations(spec, "consumer", `spec: ${spec}\\n`)).toEqual([]);
-    },
-);
+    });
 
-check(
-    "project policy: moving Shallot identities refuse",
-    { claim: "project policy refuses moving and short Git identities for Shallot" },
-    () => {
+test("project policy refuses moving and short Git identities for Shallot", () => {
         for (const spec of [
             "github:dylanebert/shallot#main",
             "github:dylanebert/shallot#0123456",
@@ -85,39 +65,25 @@ check(
         ]) {
             expect(dependencyViolations(spec).join("\\n")).toContain("full 40-hex Git commit");
         }
-    },
-);
+    });
 
-check(
-    "project policy: mutable Shallot identities refuse",
-    { claim: "project policy refuses saved local paths and mutable dist-tags for Shallot" },
-    () => {
+test("project policy refuses saved local paths and mutable dist-tags for Shallot", () => {
         expect(dependencyViolations("link:../shallot").join("\\n")).toContain("link");
         expect(dependencyViolations("file:../shallot").join("\\n")).toContain("file");
         for (const tag of ["latest", "next", "beta", "candidate", "custom-release"])
             expect(dependencyViolations(tag).join("\\n")).toContain("mutable dist-tag");
         expect(dependencyViolations("^0.10.0")).toEqual([]);
-    },
-);
+    });
 
-check(
-    "project policy: artifact identities require evidence",
-    { claim: "project policy requires lock integrity for remote Shallot tarballs" },
-    () => {
+test("project policy requires lock integrity for remote Shallot tarballs", () => {
         const url = "https://example.test/shallot-0.10.0.tgz";
         expect(dependencyViolations(url).join("\\n")).toContain("lock integrity");
         expect(
             dependencyViolations(url, "consumer", `${url}\\nsha512-abc123\\n`).join("\\n"),
         ).toEqual("");
-    },
-);
+    });
 
-check(
-    "project policy: checked-in artifact identity requires provenance",
-    {
-        claim: "project policy accepts only a checked-in Shallot tarball with digest and source provenance",
-    },
-    () => {
+test("project policy accepts only a checked-in Shallot tarball with digest and source provenance", () => {
         const tree = mkdtempSync(join(tmpdir(), "shallot-project-policy-artifact-"));
         const vendor = join(tree, "vendor");
         mkdirSync(vendor);
@@ -140,5 +106,4 @@ check(
         } finally {
             rmSync(tree, { recursive: true, force: true });
         }
-    },
-);
+    });

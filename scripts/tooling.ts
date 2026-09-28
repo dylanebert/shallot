@@ -2,7 +2,8 @@
 // `vite.config.ts` resolves through Node's plain ESM loader, which throws `ERR_UNKNOWN_FILE_EXTENSION` on
 // the package's raw `.ts` source — the reason every other export stays raw `.ts` (the mandatory TypeGPU
 // transform must see engine source untransformed) doesn't reach `./vite`, whose only consumption context
-// is Node. `./harness/browser` is pure data and ships as JSON, so it needs no compile. `dist/vite.js` is generated here by
+// is Node. `playwright.config.ts` owns Chromium flags for browser checks and the display oracle.
+// `dist/vite.js` is generated here by
 // `bun run build` and `prepack`, and is committed so SHA-pinned Git installs can resolve `./vite`. `tsc` reads
 // `package.json`'s `types` condition, while bundlers resolve `default`, so this emits no `.d.ts`.
 //

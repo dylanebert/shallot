@@ -1,5 +1,4 @@
-import { expect } from "bun:test";
-import { check } from "../../../harness/check";
+import { expect, test } from "bun:test";
 import { f32, quat, type Vec3, vec3, xf } from "../common/math";
 import gold from "./geometry.gold.json";
 import {
@@ -150,47 +149,35 @@ const skewCloud: Vec3[] = [
 const goldHull = (name: string) => gold.hulls.find((h) => h.name === name) as HullGold;
 const goldBox = (name: string) => gold.boxHulls.find((h) => h.name === name) as HullGold;
 
-check(
-    "hull bit-exact vs C reference",
-    {
-        claim: "the convex hull builder's quickhull output — points, half-edges, planes, center, inertia, volume, surface area, inner radius and aabb — diverges by a bit from the Box3D C reference on any of the cube, tetrahedron, redundant-cloud, skew, cylinder, cylinder6, cone or rock cases",
-    },
-    () => {
-        const cases: [string, () => HullData][] = [
-            ["cube", () => createHull(cubeCorners, 8) as HullData],
-            ["tetrahedron", () => createHull(tetCorners, 4) as HullData],
-            ["redundant", () => createHull(redundantCloud, 8) as HullData],
-            ["skew", () => createHull(skewCloud, 8) as HullData],
-            ["cylinder", () => createCylinder(2, 1, 0, 8)],
-            ["cylinder6", () => createCylinder(3, 0.75, 0.25, 6)],
-            ["cone", () => createCone(2, 1, 0.5, 8)],
-            ["rock", () => createRock(1)],
-        ];
-        for (const [name, build] of cases) {
-            assertHull(build(), goldHull(name));
-        }
-    },
-);
+test("the convex hull builder's quickhull output — points, half-edges, planes, center, inertia, volume, surface area, inner radius and aabb — diverges by a bit from the Box3D C reference on any of the cube, tetrahedron, redundant-cloud, skew, cylinder, cylinder6, cone or rock cases", () => {
+    const cases: [string, () => HullData][] = [
+        ["cube", () => createHull(cubeCorners, 8) as HullData],
+        ["tetrahedron", () => createHull(tetCorners, 4) as HullData],
+        ["redundant", () => createHull(redundantCloud, 8) as HullData],
+        ["skew", () => createHull(skewCloud, 8) as HullData],
+        ["cylinder", () => createCylinder(2, 1, 0, 8)],
+        ["cylinder6", () => createCylinder(3, 0.75, 0.25, 6)],
+        ["cone", () => createCone(2, 1, 0.5, 8)],
+        ["rock", () => createRock(1)],
+    ];
+    for (const [name, build] of cases) {
+        assertHull(build(), goldHull(name));
+    }
+});
 
-check(
-    "box hull bit-exact vs C reference",
-    {
-        claim: "a convex hull built from box half-extents — unit, oblong, or rotated by a quaternion through makeTransformedBoxHull — diverges by a bit from the Box3D C reference",
-    },
-    () => {
-        assertHull(makeBoxHull(1, 1, 1), goldBox("unit"));
-        assertHull(makeBoxHull(0.5, 1, 2), goldBox("oblong"));
+test("a convex hull built from box half-extents — unit, oblong, or rotated by a quaternion through makeTransformedBoxHull — diverges by a bit from the Box3D C reference", () => {
+    assertHull(makeBoxHull(1, 1, 1), goldBox("unit"));
+    assertHull(makeBoxHull(0.5, 1, 2), goldBox("oblong"));
 
-        // f32-round the literals to match the C `0.3f`/`0.6f` axis + angle bit-for-bit before
-        // normalize/fromAxisAngle (both verified bit-exact), else f64 literals diverge by 1 ULP.
-        const axis = vec3.normalize(v(f32(0.3), f32(0.7), f32(0.2)));
-        const q = quat.fromAxisAngle(axis, f32(0.6));
-        assertHull(
-            makeTransformedBoxHull(0.75, 1.25, 0.5, { p: v(0.5, -0.25, 1), q }),
-            goldBox("transformed"),
-        );
-    },
-);
+    // f32-round the literals to match the C `0.3f`/`0.6f` axis + angle bit-for-bit before
+    // normalize/fromAxisAngle (both verified bit-exact), else f64 literals diverge by 1 ULP.
+    const axis = vec3.normalize(v(f32(0.3), f32(0.7), f32(0.2)));
+    const q = quat.fromAxisAngle(axis, f32(0.6));
+    assertHull(
+        makeTransformedBoxHull(0.75, 1.25, 0.5, { p: v(0.5, -0.25, 1), q }),
+        goldBox("transformed"),
+    );
+});
 
 // --- topology invariants + rejection, ported from test_hull.c ---------------------------------
 
@@ -226,139 +213,109 @@ function fillSphereSample(count: number, seed: number): Vec3[] {
     return out;
 }
 
-check(
-    "hull topology satisfies Euler",
-    {
-        claim: "a convex hull leaves a broken half-edge topology — counts off the expected 8/24/6 cube or 4/12/4 tetrahedron, or V - E + F away from 2 on dense sphere clouds driven through the merge cascade",
-    },
-    () => {
-        const cube = createHull(cubeCorners, 8) as HullData;
-        expect([cube.vertexCount, cube.edgeCount, cube.faceCount]).toEqual([8, 24, 6]);
-        expect(euler(cube)).toBe(2);
+test("a convex hull leaves a broken half-edge topology — counts off the expected 8/24/6 cube or 4/12/4 tetrahedron, or V - E + F away from 2 on dense sphere clouds driven through the merge cascade", () => {
+    const cube = createHull(cubeCorners, 8) as HullData;
+    expect([cube.vertexCount, cube.edgeCount, cube.faceCount]).toEqual([8, 24, 6]);
+    expect(euler(cube)).toBe(2);
 
-        const tet = createHull(tetCorners, 4) as HullData;
-        expect([tet.vertexCount, tet.edgeCount, tet.faceCount]).toEqual([4, 12, 4]);
-        expect(euler(tet)).toBe(2);
+    const tet = createHull(tetCorners, 4) as HullData;
+    expect([tet.vertexCount, tet.edgeCount, tet.faceCount]).toEqual([4, 12, 4]);
+    expect(euler(tet)).toBe(2);
 
-        for (const seed of [12345, 1, 0xdeadbeef, 0xcafef00d]) {
-            const cloud = fillSphereSample(512, seed);
-            for (const M of [16, 24, 32, 40]) {
-                const label = `sphere seed ${seed} max ${M}`;
-                const h = createHull(cloud, M) as HullData;
-                if (h === null) throw new Error(`${label}: builder returned null`);
-                if (h.vertexCount < 4 || h.vertexCount > M) {
-                    throw new Error(`${label}: vertexCount ${h.vertexCount} outside [4, ${M}]`);
-                }
-                if (h.faceCount < 4) throw new Error(`${label}: faceCount ${h.faceCount} below 4`);
-                if (euler(h) !== 2) throw new Error(`${label}: V - E + F is ${euler(h)}, want 2`);
-            }
-        }
-    },
-);
-
-check(
-    "hull vertex cap is honored and clamped",
-    {
-        claim: "the convex hull builder overruns its maxVertexCount cap or fails to clamp an out-of-range cap into [4, 255]",
-    },
-    () => {
-        const cloud = fillSphereSample(64, 12345);
-        const cases: [string, number][] = [
-            ["cap 8", 8],
-            ["cap 1 (floored)", 1],
-            ["cap 1000 (ceilinged)", 1000],
-        ];
-        for (const [label, max] of cases) {
-            const h = createHull(cloud, max) as HullData;
+    for (const seed of [12345, 1, 0xdeadbeef, 0xcafef00d]) {
+        const cloud = fillSphereSample(512, seed);
+        for (const M of [16, 24, 32, 40]) {
+            const label = `sphere seed ${seed} max ${M}`;
+            const h = createHull(cloud, M) as HullData;
             if (h === null) throw new Error(`${label}: builder returned null`);
-            const upper = max === 8 ? 8 : 255;
-            if (h.vertexCount < 4 || h.vertexCount > upper) {
-                throw new Error(`${label}: vertexCount ${h.vertexCount} outside [4, ${upper}]`);
+            if (h.vertexCount < 4 || h.vertexCount > M) {
+                throw new Error(`${label}: vertexCount ${h.vertexCount} outside [4, ${M}]`);
             }
+            if (h.faceCount < 4) throw new Error(`${label}: faceCount ${h.faceCount} below 4`);
+            if (euler(h) !== 2) throw new Error(`${label}: V - E + F is ${euler(h)}, want 2`);
         }
-    },
-);
+    }
+});
 
-check(
-    "degenerate hull inputs are rejected",
-    {
-        claim: "the convex hull builder returns a hull instead of null for a degenerate point cloud: empty, fewer than four points, collinear, coincident or coplanar",
-    },
-    () => {
-        const collinear: Vec3[] = [];
-        for (let i = 0; i < 8; ++i) collinear.push(v(i, 0, 0));
-        const coincident: Vec3[] = [];
-        for (let i = 0; i < 8; ++i) coincident.push(v(1, 2, 3));
-        const coplanar: Vec3[] = [
-            v(0, 0, 0),
-            v(1, 0, 0),
-            v(0, 1, 0),
-            v(1, 1, 0),
-            v(2, 0.5, 0),
-            v(0.5, 2, 0),
-        ];
-
-        const cases: [string, Vec3[]][] = [
-            ["fewer than 4", collinear.slice(0, 3)],
-            ["empty", []],
-            ["collinear", collinear],
-            ["coincident", coincident],
-            ["coplanar", coplanar],
-        ];
-        for (const [label, cloud] of cases) {
-            const h = createHull(cloud, 8);
-            if (h !== null) throw new Error(`${label}: expected null, got a hull`);
+test("the convex hull builder overruns its maxVertexCount cap or fails to clamp an out-of-range cap into [4, 255]", () => {
+    const cloud = fillSphereSample(64, 12345);
+    const cases: [string, number][] = [
+        ["cap 8", 8],
+        ["cap 1 (floored)", 1],
+        ["cap 1000 (ceilinged)", 1000],
+    ];
+    for (const [label, max] of cases) {
+        const h = createHull(cloud, max) as HullData;
+        if (h === null) throw new Error(`${label}: builder returned null`);
+        const upper = max === 8 ? 8 : 255;
+        if (h.vertexCount < 4 || h.vertexCount > upper) {
+            throw new Error(`${label}: vertexCount ${h.vertexCount} outside [4, ${upper}]`);
         }
-    },
-);
+    }
+});
 
-check(
-    "hull support queries and world AABB",
-    {
-        claim: "a convex hull's support vertex is not the extreme point along the query direction, its support face normal is not the one aligned with that direction, or computeHullAABB fails to reproduce the local aabb under identity and translate it",
-    },
-    () => {
-        const cube = createHull(cubeCorners, 8) as HullData;
+test("the convex hull builder returns a hull instead of null for a degenerate point cloud: empty, fewer than four points, collinear, coincident or coplanar", () => {
+    const collinear: Vec3[] = [];
+    for (let i = 0; i < 8; ++i) collinear.push(v(i, 0, 0));
+    const coincident: Vec3[] = [];
+    for (let i = 0; i < 8; ++i) coincident.push(v(1, 2, 3));
+    const coplanar: Vec3[] = [
+        v(0, 0, 0),
+        v(1, 0, 0),
+        v(0, 1, 0),
+        v(1, 1, 0),
+        v(2, 0.5, 0),
+        v(0.5, 2, 0),
+    ];
 
-        expect(cube.points[findHullSupportVertex(cube, v(1, 0, 0))].x).toBe(1);
-        expect(cube.points[findHullSupportVertex(cube, v(0, -1, 0))].y).toBe(-1);
+    const cases: [string, Vec3[]][] = [
+        ["fewer than 4", collinear.slice(0, 3)],
+        ["empty", []],
+        ["collinear", collinear],
+        ["coincident", coincident],
+        ["coplanar", coplanar],
+    ];
+    for (const [label, cloud] of cases) {
+        const h = createHull(cloud, 8);
+        if (h !== null) throw new Error(`${label}: expected null, got a hull`);
+    }
+});
 
-        const n = cube.planes[findHullSupportFace(cube, v(1, 0, 0))].normal;
-        expect(n.x).toBeGreaterThan(0.99);
-        expect(n.x).toBeGreaterThan(n.y);
-        expect(n.x).toBeGreaterThan(n.z);
+test("a convex hull's support vertex is not the extreme point along the query direction, its support face normal is not the one aligned with that direction, or computeHullAABB fails to reproduce the local aabb under identity and translate it", () => {
+    const cube = createHull(cubeCorners, 8) as HullData;
 
-        const local = computeHullAABB(cube, xf.identity());
-        expect(local.lowerBound).toEqual(cube.aabb.lowerBound);
-        expect(local.upperBound).toEqual(cube.aabb.upperBound);
+    expect(cube.points[findHullSupportVertex(cube, v(1, 0, 0))].x).toBe(1);
+    expect(cube.points[findHullSupportVertex(cube, v(0, -1, 0))].y).toBe(-1);
 
-        const moved = computeHullAABB(cube, { p: v(1, 2, 3), q: quat.identity() });
-        expect(moved.lowerBound).toEqual(v(0, 1, 2));
-        expect(moved.upperBound).toEqual(v(2, 3, 4));
-    },
-);
+    const n = cube.planes[findHullSupportFace(cube, v(1, 0, 0))].normal;
+    expect(n.x).toBeGreaterThan(0.99);
+    expect(n.x).toBeGreaterThan(n.y);
+    expect(n.x).toBeGreaterThan(n.z);
 
-check(
-    "hull determinism, mass and clone",
-    {
-        claim: "the convex hull builder is nondeterministic across two identical builds (structure or hash), computeHullMass ignores the hull's volume or center, or cloneHull returns a shallow copy that aliases the original's points",
-    },
-    () => {
-        const h1 = createHull(cubeCorners, 8) as HullData;
-        const h2 = createHull(cubeCorners, 8) as HullData;
-        expect(h1.hash).not.toBe(0);
-        expect(h2.hash).toBe(h1.hash);
-        expect(h2).toEqual(h1);
+    const local = computeHullAABB(cube, xf.identity());
+    expect(local.lowerBound).toEqual(cube.aabb.lowerBound);
+    expect(local.upperBound).toEqual(cube.aabb.upperBound);
 
-        // Unit cube: volume 8, centered at the origin. Density 2 -> mass 16.
-        const mass = computeHullMass(h1, 2);
-        expect(mass.mass).toBe(16);
-        expect(mass.center).toEqual(v(0, 0, 0));
+    const moved = computeHullAABB(cube, { p: v(1, 2, 3), q: quat.identity() });
+    expect(moved.lowerBound).toEqual(v(0, 1, 2));
+    expect(moved.upperBound).toEqual(v(2, 3, 4));
+});
 
-        const clone = cloneHull(h1);
-        expect(clone).toEqual(h1);
-        expect(clone.points).not.toBe(h1.points);
-        clone.points[0].x = 99;
-        expect(h1.points[0].x).not.toBe(99);
-    },
-);
+test("the convex hull builder is nondeterministic across two identical builds (structure or hash), computeHullMass ignores the hull's volume or center, or cloneHull returns a shallow copy that aliases the original's points", () => {
+    const h1 = createHull(cubeCorners, 8) as HullData;
+    const h2 = createHull(cubeCorners, 8) as HullData;
+    expect(h1.hash).not.toBe(0);
+    expect(h2.hash).toBe(h1.hash);
+    expect(h2).toEqual(h1);
+
+    // Unit cube: volume 8, centered at the origin. Density 2 -> mass 16.
+    const mass = computeHullMass(h1, 2);
+    expect(mass.mass).toBe(16);
+    expect(mass.center).toEqual(v(0, 0, 0));
+
+    const clone = cloneHull(h1);
+    expect(clone).toEqual(h1);
+    expect(clone.points).not.toBe(h1.points);
+    clone.points[0].x = 99;
+    expect(h1.points[0].x).not.toBe(99);
+});

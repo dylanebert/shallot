@@ -1,8 +1,7 @@
 import { readdirSync, renameSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-// Fixture check files are stored with a trailing `.fixture` so the real discovery and the real
-// runner never see them; materializing strips it, giving the production readers a real tree.
+// Fixture sources carry a trailing `.fixture`; materializing strips it so the production reader sees ordinary files.
 export function unfixture(dir: string): void {
     for (const entry of readdirSync(dir)) {
         const path = join(dir, entry);

@@ -1,3 +1,0 @@
-import { check } from "@dylanebert/shallot/harness/check";
-
-check("browser defaults", { claim: "browser defaults", size: "integration", requires: ["gpu"] }, () => {});

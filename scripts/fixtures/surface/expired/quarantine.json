@@ -1,9 +1,0 @@
-[
-    {
-        "file": "src/kept.test.ts",
-        "claim": "expired claim",
-        "reason": "the premise is unavailable",
-        "expires": "2020-01-01",
-        "spec": "shallot-surface-dogfood"
-    }
-]

@@ -1,2 +1,0 @@
-import { check } from "@dylanebert/shallot/harness/check";
-check("kept claim", { claim: "kept claim" }, () => {});

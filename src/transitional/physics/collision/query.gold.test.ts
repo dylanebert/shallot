@@ -1,9 +1,9 @@
+import { test } from "bun:test";
 // queries bit-exact gold gate. Asserts the per-shape ray casts, shape casts, and overlap
 // tests match the frozen historical oracle vectors bit-for-bit, over the vectors in query.gold.json.
 // Current target evidence belongs to the standalone oracle. Equality, not tolerance (the README).
 // The gold is a reference fixture: never edited to match.
 
-import { check } from "../../../harness/check";
 import { type Transform, type Vec3, xf } from "../common/math";
 import { defaultSurfaceMaterial } from "../common/types";
 import {
@@ -149,255 +149,163 @@ const compound = createCompound({
     ],
 }) as CompoundData;
 
-check(
-    "rayCastSphere bit-exact vs C reference",
-    {
-        claim: "a ray against a sphere lands on a different f32 hit point, normal or fraction than the C reference does, including the grazing and ray-origin-inside cases.",
-    },
-    () => {
-        for (const g of gold.raySphere) {
-            const sphere: Sphere = {
-                center: vecFromHex(g.center as string[]),
-                radius: fromBits(g.radius as string),
-            };
-            outEqual(
-                rayCastSphere(sphere, ray(g.origin, g.translation, g.maxFraction)),
-                g.out,
-                g.name,
-            );
-        }
-    },
-);
+test("a ray against a sphere lands on a different f32 hit point, normal or fraction than the C reference does, including the grazing and ray-origin-inside cases.", () => {
+    for (const g of gold.raySphere) {
+        const sphere: Sphere = {
+            center: vecFromHex(g.center as string[]),
+            radius: fromBits(g.radius as string),
+        };
+        outEqual(rayCastSphere(sphere, ray(g.origin, g.translation, g.maxFraction)), g.out, g.name);
+    }
+});
 
-check(
-    "rayCastCapsule bit-exact vs C reference",
-    {
-        claim: "a ray against a capsule picks the wrong segment region or rounds the endcap and skew hits away from the C reference bits.",
-    },
-    () => {
-        for (const g of gold.rayCapsule) {
-            const capsule: Capsule = {
-                center1: vecFromHex(g.center1),
-                center2: vecFromHex(g.center2),
-                radius: fromBits(g.radius),
-            };
-            outEqual(
-                rayCastCapsule(capsule, ray(g.origin, g.translation, g.maxFraction)),
-                g.out,
-                g.name,
-            );
-        }
-    },
-);
+test("a ray against a capsule picks the wrong segment region or rounds the endcap and skew hits away from the C reference bits.", () => {
+    for (const g of gold.rayCapsule) {
+        const capsule: Capsule = {
+            center1: vecFromHex(g.center1),
+            center2: vecFromHex(g.center2),
+            radius: fromBits(g.radius),
+        };
+        outEqual(
+            rayCastCapsule(capsule, ray(g.origin, g.translation, g.maxFraction)),
+            g.out,
+            g.name,
+        );
+    }
+});
 
-check(
-    "rayCastHull bit-exact vs C reference",
-    {
-        claim: "the hull slab clip picks a different entering plane or fraction than the C reference on face, edge, corner and interior-origin rays.",
-    },
-    () => {
-        for (const g of gold.rayHull) {
-            outEqual(rayCastHull(cube, ray(g.origin, g.translation, g.maxFraction)), g.out, g.name);
-        }
-    },
-);
+test("the hull slab clip picks a different entering plane or fraction than the C reference on face, edge, corner and interior-origin rays.", () => {
+    for (const g of gold.rayHull) {
+        outEqual(rayCastHull(cube, ray(g.origin, g.translation, g.maxFraction)), g.out, g.name);
+    }
+});
 
-check(
-    "shapeCast bit-exact vs C reference",
-    {
-        claim: "the GJK-backed shape cast against a sphere or hull drifts from the C reference's conservative-advancement fraction and witness point.",
-    },
-    () => {
-        for (const g of gold.shapeCast) {
-            const proxy = originProxy(g.proxyRadius);
-            const input = {
-                proxy,
-                translation: vecFromHex(g.translation),
-                maxFraction: fromBits(g.maxFraction),
-                canEncroach: g.canEncroach,
-            };
-            const out =
-                g.shape === "cube"
-                    ? shapeCastHull(cube, input)
-                    : shapeCastSphere(
-                          {
-                              center: vecFromHex(g.center as string[]),
-                              radius: fromBits(g.radius as string),
-                          },
-                          input,
-                      );
-            outEqual(out, g.out, g.name);
-        }
-    },
-);
+test("the GJK-backed shape cast against a sphere or hull drifts from the C reference's conservative-advancement fraction and witness point.", () => {
+    for (const g of gold.shapeCast) {
+        const proxy = originProxy(g.proxyRadius);
+        const input = {
+            proxy,
+            translation: vecFromHex(g.translation),
+            maxFraction: fromBits(g.maxFraction),
+            canEncroach: g.canEncroach,
+        };
+        const out =
+            g.shape === "cube"
+                ? shapeCastHull(cube, input)
+                : shapeCastSphere(
+                      {
+                          center: vecFromHex(g.center as string[]),
+                          radius: fromBits(g.radius as string),
+                      },
+                      input,
+                  );
+        outEqual(out, g.out, g.name);
+    }
+});
 
-check(
-    "overlap bit-exact vs C reference",
-    {
-        claim: "the sphere and hull overlap predicate answers differently from the C reference at the touching and separated boundary.",
-    },
-    () => {
-        for (const g of gold.overlap) {
-            const proxy = originProxy(g.proxyRadius);
-            const transform: Transform = { p: vecFromHex(g.xfp), q: xf.identity().q };
-            const result =
-                g.shape === "cube"
-                    ? overlapHull(cube, transform, proxy)
-                    : overlapSphere(
-                          {
-                              center: vecFromHex(g.center as string[]),
-                              radius: fromBits(g.radius as string),
-                          },
-                          transform,
-                          proxy,
-                      );
-            sameValue(result, g.out, `${g.name} overlap`);
-        }
-    },
-);
+test("the sphere and hull overlap predicate answers differently from the C reference at the touching and separated boundary.", () => {
+    for (const g of gold.overlap) {
+        const proxy = originProxy(g.proxyRadius);
+        const transform: Transform = { p: vecFromHex(g.xfp), q: xf.identity().q };
+        const result =
+            g.shape === "cube"
+                ? overlapHull(cube, transform, proxy)
+                : overlapSphere(
+                      {
+                          center: vecFromHex(g.center as string[]),
+                          radius: fromBits(g.radius as string),
+                      },
+                      transform,
+                      proxy,
+                  );
+        sameValue(result, g.out, `${g.name} overlap`);
+    }
+});
 
-check(
-    "rayCastMesh bit-exact vs C reference",
-    {
-        claim: "a ray through the mesh BVH reports a different triangle index or hit bits than the C reference, so traversal order or triangle clipping has moved.",
-    },
-    () => {
-        for (const g of gold.rayMesh) {
-            outFullEqual(
-                rayCastMesh(gridMesh, ray(g.origin, g.translation, g.maxFraction)),
-                g.out,
-                g.name,
-            );
-        }
-    },
-);
+test("a ray through the mesh BVH reports a different triangle index or hit bits than the C reference, so traversal order or triangle clipping has moved.", () => {
+    for (const g of gold.rayMesh) {
+        outFullEqual(
+            rayCastMesh(gridMesh, ray(g.origin, g.translation, g.maxFraction)),
+            g.out,
+            g.name,
+        );
+    }
+});
 
-check(
-    "shapeCastMesh bit-exact vs C reference",
-    {
-        claim: "sweeping a proxy through the mesh selects a different triangle or fraction than the C reference when several triangles are candidates.",
-    },
-    () => {
-        for (const g of gold.shapeCastMesh) {
-            const input = castInput(
-                proxyFrom(g.proxyPoint, g.proxyRadius),
-                g.translation,
-                g.maxFraction,
-            );
-            outFullEqual(shapeCastMesh(gridMesh, input), g.out, g.name);
-        }
-    },
-);
+test("sweeping a proxy through the mesh selects a different triangle or fraction than the C reference when several triangles are candidates.", () => {
+    for (const g of gold.shapeCastMesh) {
+        const input = castInput(
+            proxyFrom(g.proxyPoint, g.proxyRadius),
+            g.translation,
+            g.maxFraction,
+        );
+        outFullEqual(shapeCastMesh(gridMesh, input), g.out, g.name);
+    }
+});
 
-check(
-    "overlapMesh bit-exact vs C reference",
-    {
-        claim: "the mesh overlap predicate disagrees with the C reference about a proxy resting on or just clear of the grid surface.",
-    },
-    () => {
-        for (const g of gold.overlapMesh) {
-            const proxy = proxyFrom(g.proxyPoint, g.proxyRadius);
-            sameValue(overlapMesh(gridMesh, identityAt(g.xfp), proxy), g.out, `${g.name} overlap`);
-        }
-    },
-);
+test("the mesh overlap predicate disagrees with the C reference about a proxy resting on or just clear of the grid surface.", () => {
+    for (const g of gold.overlapMesh) {
+        const proxy = proxyFrom(g.proxyPoint, g.proxyRadius);
+        sameValue(overlapMesh(gridMesh, identityAt(g.xfp), proxy), g.out, `${g.name} overlap`);
+    }
+});
 
-check(
-    "rayCastHeightField bit-exact vs C reference",
-    {
-        claim: "the height-field ray walk visits cells in a different order or clips the sampled column differently from the C reference.",
-    },
-    () => {
-        for (const g of gold.rayHeight) {
-            outFullEqual(
-                rayCastHeightField(gridField, ray(g.origin, g.translation, g.maxFraction)),
-                g.out,
-                g.name,
-            );
-        }
-    },
-);
+test("the height-field ray walk visits cells in a different order or clips the sampled column differently from the C reference.", () => {
+    for (const g of gold.rayHeight) {
+        outFullEqual(
+            rayCastHeightField(gridField, ray(g.origin, g.translation, g.maxFraction)),
+            g.out,
+            g.name,
+        );
+    }
+});
 
-check(
-    "shapeCastHeightField bit-exact vs C reference",
-    {
-        claim: "sweeping a proxy across the height field returns a different cell triangle or fraction than the C reference.",
-    },
-    () => {
-        for (const g of gold.shapeCastHeight) {
-            const input = castInput(
-                proxyFrom(g.proxyPoint, g.proxyRadius),
-                g.translation,
-                g.maxFraction,
-            );
-            outFullEqual(shapeCastHeightField(gridField, input), g.out, g.name);
-        }
-    },
-);
+test("sweeping a proxy across the height field returns a different cell triangle or fraction than the C reference.", () => {
+    for (const g of gold.shapeCastHeight) {
+        const input = castInput(
+            proxyFrom(g.proxyPoint, g.proxyRadius),
+            g.translation,
+            g.maxFraction,
+        );
+        outFullEqual(shapeCastHeightField(gridField, input), g.out, g.name);
+    }
+});
 
-check(
-    "overlapHeightField bit-exact vs C reference",
-    {
-        claim: "the height-field overlap predicate disagrees with the C reference about a proxy at the sampled column boundary.",
-    },
-    () => {
-        for (const g of gold.overlapHeight) {
-            const proxy = proxyFrom(g.proxyPoint, g.proxyRadius);
-            sameValue(
-                overlapHeightField(gridField, identityAt(g.xfp), proxy),
-                g.out,
-                `${g.name} overlap`,
-            );
-        }
-    },
-);
+test("the height-field overlap predicate disagrees with the C reference about a proxy at the sampled column boundary.", () => {
+    for (const g of gold.overlapHeight) {
+        const proxy = proxyFrom(g.proxyPoint, g.proxyRadius);
+        sameValue(
+            overlapHeightField(gridField, identityAt(g.xfp), proxy),
+            g.out,
+            `${g.name} overlap`,
+        );
+    }
+});
 
-check(
-    "rayCastCompound bit-exact vs C reference",
-    {
-        claim: "a ray against a two-child compound reports the wrong child index or takes the farther child's hit, unlike the C reference.",
-    },
-    () => {
-        for (const g of gold.rayCompound) {
-            outFullEqual(
-                rayCastCompound(compound, ray(g.origin, g.translation, g.maxFraction)),
-                g.out,
-                g.name,
-            );
-        }
-    },
-);
+test("a ray against a two-child compound reports the wrong child index or takes the farther child's hit, unlike the C reference.", () => {
+    for (const g of gold.rayCompound) {
+        outFullEqual(
+            rayCastCompound(compound, ray(g.origin, g.translation, g.maxFraction)),
+            g.out,
+            g.name,
+        );
+    }
+});
 
-check(
-    "shapeCastCompound bit-exact vs C reference",
-    {
-        claim: "sweeping a proxy through a compound fails to keep the nearest child's fraction and its child index together, unlike the C reference.",
-    },
-    () => {
-        for (const g of gold.shapeCastCompound) {
-            const input = castInput(
-                proxyFrom(g.proxyPoint, g.proxyRadius),
-                g.translation,
-                g.maxFraction,
-            );
-            outFullEqual(shapeCastCompound(compound, input), g.out, g.name);
-        }
-    },
-);
+test("sweeping a proxy through a compound fails to keep the nearest child's fraction and its child index together, unlike the C reference.", () => {
+    for (const g of gold.shapeCastCompound) {
+        const input = castInput(
+            proxyFrom(g.proxyPoint, g.proxyRadius),
+            g.translation,
+            g.maxFraction,
+        );
+        outFullEqual(shapeCastCompound(compound, input), g.out, g.name);
+    }
+});
 
-check(
-    "overlapCompound bit-exact vs C reference",
-    {
-        claim: "the compound overlap predicate misses a proxy that touches only one child, or reports one in the gap between children, unlike the C reference.",
-    },
-    () => {
-        for (const g of gold.overlapCompound) {
-            const proxy = proxyFrom(g.proxyPoint, g.proxyRadius);
-            sameValue(
-                overlapCompound(compound, identityAt(g.xfp), proxy),
-                g.out,
-                `${g.name} overlap`,
-            );
-        }
-    },
-);
+test("the compound overlap predicate misses a proxy that touches only one child, or reports one in the gap between children, unlike the C reference.", () => {
+    for (const g of gold.overlapCompound) {
+        const proxy = proxyFrom(g.proxyPoint, g.proxyRadius);
+        sameValue(overlapCompound(compound, identityAt(g.xfp), proxy), g.out, `${g.name} overlap`);
+    }
+});

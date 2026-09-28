@@ -1,5 +1,5 @@
+import { expect, test } from "bun:test";
 import { resetCompute, type State } from "@dylanebert/shallot";
-import { check } from "@dylanebert/shallot/harness/check";
 import { FRAME_BACKGROUND_COLOR, FRAME_ERROR_COLOR, mountHost } from "./host";
 import { revealAfterFirstFrame } from "./reveal";
 
@@ -59,84 +59,62 @@ function fakeElement(): FakeElement {
     return element;
 }
 
-check(
-    "a missing device on the first stepped frame leaves a readable error in its scene frame",
-    {
-        claim: "a missing device on the first stepped frame leaves a readable alert inside its scene frame, with at least 4.5:1 contrast",
-        size: "unit",
-        subject: [
-            "examples/loading-screen/src/host.ts",
-            "examples/loading-screen/src/reveal.ts",
-            "examples/loading-screen/src/style.css",
-        ],
-    },
-    async () => {
-        const errorContrast = contrast(FRAME_ERROR_COLOR, FRAME_BACKGROUND_COLOR);
-        const contrastPasses = errorContrast >= 4.5;
-        const app = fakeElement();
-        const frame = fakeElement();
-        const canvas = fakeElement();
-        frame.appendChild(canvas);
-        app.querySelector = (selector) =>
-            selector === "#frame" ? frame : selector === "#scene" ? canvas : null;
-        const fakeDocument = {
-            documentElement: { style: { setProperty() {} } },
-            querySelector: (selector: string) => (selector === "#app" ? app : null),
-            createElement: () => fakeElement(),
-        };
-        const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
-        const previousConsoleError = console.error;
-        let errorReported: unknown;
-        let loadingError: unknown;
-        let errorLine: FakeElement | null = null;
+test("a missing device on the first stepped frame leaves a readable alert inside its scene frame, with at least 4.5:1 contrast", async () => {
+    const errorContrast = contrast(FRAME_ERROR_COLOR, FRAME_BACKGROUND_COLOR);
+    const app = fakeElement();
+    const frame = fakeElement();
+    const canvas = fakeElement();
+    frame.appendChild(canvas);
+    app.querySelector = (selector) =>
+        selector === "#frame" ? frame : selector === "#scene" ? canvas : null;
+    const fakeDocument = {
+        documentElement: { style: { setProperty() {} } },
+        querySelector: (selector: string) => (selector === "#app" ? app : null),
+        createElement: () => fakeElement(),
+    };
+    const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const previousConsoleError = console.error;
+    let errorReported: unknown;
+    let loadingError: unknown;
+    let errorLine: FakeElement | null = null;
 
-        try {
-            Object.defineProperty(globalThis, "document", {
-                configurable: true,
-                writable: true,
-                value: fakeDocument,
-            });
-            console.error = (error: unknown) => {
-                errorReported = error;
-            };
-            resetCompute();
-            const host = mountHost();
-            const plugin = revealAfterFirstFrame(host, {
-                error(error) {
-                    loadingError = error;
-                },
-            });
-            const system = plugin.systems?.[0];
-            system?.update?.({} as State);
-            await Promise.resolve();
-            errorLine = frame.querySelector(".frame-error");
-        } finally {
-            resetCompute();
-            console.error = previousConsoleError;
-            if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
-            else Reflect.deleteProperty(globalThis, "document");
-        }
-
-        const readable = Boolean(
-            errorReported instanceof Error &&
-                loadingError === errorReported &&
-                errorLine?.parent === frame &&
-                errorLine.role === "alert" &&
-                errorLine.textContent?.includes("first frame had no WebGPU device"),
-        );
-        return {
-            ok: readable && contrastPasses,
-            checks: [
-                {
-                    name: "missing-device failure renders an alert line in the scene frame",
-                    ok: readable,
-                },
-                {
-                    name: "frame error ink meets 4.5:1 contrast against the page background",
-                    ok: contrastPasses,
-                    data: { contrast: errorContrast, minimum: 4.5 },
-                },
-            ],
+    try {
+        Object.defineProperty(globalThis, "document", {
+            configurable: true,
+            writable: true,
+            value: fakeDocument,
+        });
+        console.error = (error: unknown) => {
+            errorReported = error;
         };
-    },
-);
+        resetCompute();
+        const host = mountHost();
+        const plugin = revealAfterFirstFrame(host, {
+            error(error) {
+                loadingError = error;
+            },
+        });
+        const system = plugin.systems?.[0];
+        system?.update?.({} as State);
+        await Promise.resolve();
+        errorLine = frame.querySelector(".frame-error");
+    } finally {
+        resetCompute();
+        console.error = previousConsoleError;
+        if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
+        else Reflect.deleteProperty(globalThis, "document");
+    }
+
+    const readable = Boolean(
+        errorReported instanceof Error &&
+            loadingError === errorReported &&
+            errorLine?.parent === frame &&
+            errorLine.role === "alert" &&
+            errorLine.textContent?.includes("first frame had no WebGPU device"),
+    );
+    expect(readable, "missing-device failure renders an alert line in the scene frame").toBe(true);
+    expect(
+        errorContrast,
+        "frame error ink meets 4.5:1 contrast against the page background",
+    ).toBeGreaterThanOrEqual(4.5);
+});

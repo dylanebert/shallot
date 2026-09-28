@@ -1,5 +1,4 @@
-import { expect } from "bun:test";
-import { check } from "../../../harness/check";
+import { expect, test } from "bun:test";
 import { World } from "../api/world";
 import type { Vec3 } from "../common/math";
 import { BodyType } from "../common/types";
@@ -115,73 +114,61 @@ function exercisePublicMeshShape(mesh: MeshData): void {
     world.destroy();
 }
 
-check(
-    "triangle mesh builders match the C reference bit for bit",
-    {
-        claim: "a triangle mesh builder drifts from the Box3D C reference in its BVH nodes, vertices, winding, edge flags or surface area, and the mesh gold no longer describes what the TypeScript port builds",
-    },
-    () => {
-        const cases: [string, () => MeshData, string][] = [
-            [
-                "box (SAH split, edge identification)",
-                () => createBoxMesh(v(0, 0, 0), v(1, 1, 1), true),
-                "box",
-            ],
-            [
-                "grid (median split, per-triangle materials)",
-                () => createGridMesh(4, 4, 1, 3, true),
-                "grid",
-            ],
-            [
-                "hollow box (inward faces, SAH)",
-                () => createHollowBoxMesh(v(0.5, -0.25, 1), v(2, 1, 0.5)),
-                "hollow",
-            ],
-            ["torus (portable trig, SAH)", () => createTorusMesh(8, 6, 3, 1), "torus"],
-        ];
-        const authored = cases.map(([vector, build, name]) => [vector, build(), name] as const);
-        exercisePublicMeshShape(authored[0][1]);
-        for (const [vector, mesh, name] of authored) {
-            assertMesh(mesh, meshGold(name), vector);
-        }
-    },
-);
+test("a triangle mesh builder drifts from the Box3D C reference in its BVH nodes, vertices, winding, edge flags or surface area, and the mesh gold no longer describes what the TypeScript port builds", () => {
+    const cases: [string, () => MeshData, string][] = [
+        [
+            "box (SAH split, edge identification)",
+            () => createBoxMesh(v(0, 0, 0), v(1, 1, 1), true),
+            "box",
+        ],
+        [
+            "grid (median split, per-triangle materials)",
+            () => createGridMesh(4, 4, 1, 3, true),
+            "grid",
+        ],
+        [
+            "hollow box (inward faces, SAH)",
+            () => createHollowBoxMesh(v(0.5, -0.25, 1), v(2, 1, 0.5)),
+            "hollow",
+        ],
+        ["torus (portable trig, SAH)", () => createTorusMesh(8, 6, 3, 1), "torus"],
+    ];
+    const authored = cases.map(([vector, build, name]) => [vector, build(), name] as const);
+    exercisePublicMeshShape(authored[0][1]);
+    for (const [vector, mesh, name] of authored) {
+        assertMesh(mesh, meshGold(name), vector);
+    }
+});
 
 // The wave mesh is Box3D's one geometry helper using libm sinf rather than the portable trig, so
 // its heights have no cross-platform-deterministic reference — assert structure, not bit-exactness.
-check(
-    "the triangle wave mesh grids, flattens its seed rows and stays inside its amplitude",
-    {
-        claim: "createWaveMesh emits the wrong triangle count for its cell grid, lifts the zero-sine boundary row or column off the plane, or rides its sine product past the requested amplitude",
-    },
-    () => {
-        const xCount = 6;
-        const zCount = 5;
-        const cellWidth = 1;
-        const amplitude = 0.4;
-        const wave = createWaveMesh(xCount, zCount, cellWidth, amplitude, 0.05, 0.1);
+test("createWaveMesh emits the wrong triangle count for its cell grid, lifts the zero-sine boundary row or column off the plane, or rides its sine product past the requested amplitude", () => {
+    const xCount = 6;
+    const zCount = 5;
+    const cellWidth = 1;
+    const amplitude = 0.4;
+    const wave = createWaveMesh(xCount, zCount, cellWidth, amplitude, 0.05, 0.1);
 
-        expect(wave.vertices.length, "wave: vertexCount").toBe((xCount + 1) * (zCount + 1));
-        expect(wave.triangles.length, "wave: triangleCount").toBe(2 * xCount * zCount);
+    expect(wave.vertices.length, "wave: vertexCount").toBe((xCount + 1) * (zCount + 1));
+    expect(wave.triangles.length, "wave: triangleCount").toBe(2 * xCount * zCount);
 
-        // sin(0) === 0, so the ix=0 row and the iz=0 column are flat (±0, since a zero row height
-        // times a negative column sine yields -0 — the exact f32 result the C reference produces).
-        for (let iz = 0; iz <= zCount; ++iz) {
-            expect(Math.abs(wave.vertices[iz].y), `wave: ix=0 row vertex[${iz}].y`).toBe(0);
-        }
-        for (let ix = 0; ix <= xCount; ++ix) {
-            expect(
-                Math.abs(wave.vertices[(zCount + 1) * ix].y),
-                `wave: iz=0 column vertex[${(zCount + 1) * ix}].y`,
-            ).toBe(0);
-        }
+    // sin(0) === 0, so the ix=0 row and the iz=0 column are flat (±0, since a zero row height
+    // times a negative column sine yields -0 — the exact f32 result the C reference produces).
+    for (let iz = 0; iz <= zCount; ++iz) {
+        expect(Math.abs(wave.vertices[iz].y), `wave: ix=0 row vertex[${iz}].y`).toBe(0);
+    }
+    for (let ix = 0; ix <= xCount; ++ix) {
+        expect(
+            Math.abs(wave.vertices[(zCount + 1) * ix].y),
+            `wave: iz=0 column vertex[${(zCount + 1) * ix}].y`,
+        ).toBe(0);
+    }
 
-        // Interior heights ride the sine product, so |y| is nonzero yet bounded by amplitude.
-        let maxAbs = 0;
-        for (const vert of wave.vertices) maxAbs = Math.max(maxAbs, Math.abs(vert.y));
-        expect(maxAbs, "wave: interior heights are all flat").toBeGreaterThan(0);
-        expect(maxAbs, "wave: interior height exceeds amplitude").toBeLessThanOrEqual(
-            Math.fround(amplitude),
-        );
-    },
-);
+    // Interior heights ride the sine product, so |y| is nonzero yet bounded by amplitude.
+    let maxAbs = 0;
+    for (const vert of wave.vertices) maxAbs = Math.max(maxAbs, Math.abs(vert.y));
+    expect(maxAbs, "wave: interior heights are all flat").toBeGreaterThan(0);
+    expect(maxAbs, "wave: interior height exceeds amplitude").toBeLessThanOrEqual(
+        Math.fround(amplitude),
+    );
+});

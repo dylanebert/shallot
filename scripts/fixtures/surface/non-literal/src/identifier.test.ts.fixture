@@ -1,4 +1,0 @@
-import { check } from "@dylanebert/shallot/harness/check";
-
-const declaration = { claim: "identifier declaration" };
-check("identifier declaration", declaration, () => {});

@@ -3,7 +3,7 @@
 // This adds no seat, instrument or declaration file: `SHALLOT_DISPLAY_SEAT` already names one monitor, and
 // what it displaces is the assumption that naming it was enough. Hyprland tiles a new window onto whichever
 // monitor holds focus, so the page used to present wherever the person happened to be working — DP-1 at
-// 239.97 Hz or DP-2 at 143.91 Hz — while the verdict recorded the declared name either way. A 120-frame
+// 239.97 Hz or DP-2 at 143.91 Hz — while the report named the declared monitor either way. A 120-frame
 // window is then 500 ms or 833 ms, and everything that follows span length rather than allocation moved
 // with it. The declaration is made true here instead.
 //
@@ -27,7 +27,6 @@
 // exactly the defect this module exists to remove.
 
 import { CAPTURE_CONTRACT } from "../../src/harness/capture";
-import { MissingPremise } from "../../src/harness/verdict";
 
 /** one monitor as the compositor reports it. Geometry is layout pixels; `refreshRate` is its current mode. */
 export interface SeatMonitor {
@@ -70,7 +69,7 @@ export interface DisplayPlacement {
     args: readonly string[];
 }
 
-/** a page opened on its declared monitor, and the check that it is still there. */
+/** a page opened on its declared monitor, and the validation that it is still there. */
 export interface PinnedSeat {
     monitor: SeatMonitor;
     /** the compositor's address for the page's window, the handle the re-check reads. */
@@ -181,7 +180,7 @@ async function hyprctl(args: readonly string[]): Promise<string> {
     ]);
     await child.exited;
     if (child.exitCode !== 0 || out.startsWith("error:"))
-        throw new MissingPremise(
+        throw new Error(
             `the harness cannot read the compositor: hyprctl ${args[0]} exited ${child.exitCode} with ${(out + err).trim().split("\n")[0] || "no output"}`,
         );
     return out;
@@ -203,14 +202,14 @@ const MAP_TIMEOUT_MS = 5_000;
  */
 export async function openOnDisplay(declared: string): Promise<DisplayPlacement> {
     if (process.platform !== "linux" || !process.env.HYPRLAND_INSTANCE_SIGNATURE)
-        throw new MissingPremise(
+        throw new Error(
             `the display seat declares ${declared}, but this host has no compositor placement: only Hyprland can be asked to open the page on a named monitor here, and a seat that cannot be verified is the defect this row refuses`,
         );
     const monitor = declaredMonitor(await monitors(), declared);
-    if ("refused" in monitor) throw new MissingPremise(monitor.refused);
+    if ("refused" in monitor) throw new Error(monitor.refused);
     const left = await seatWindows();
     if (left.length > 0)
-        throw new MissingPremise(
+        throw new Error(
             `${left.length} window of this harness's own class ${SEAT_WINDOW_CLASS} is already open, so the page's window could not be told apart from it; close it and run again`,
         );
     await hyprctl(["eval", ruleScript(monitor, SEAT_WINDOW_SIZE)]);
@@ -230,11 +229,11 @@ export async function confirmOnDisplay(placement: DisplayPlacement): Promise<Pin
         open = await seatWindows();
     }
     if (open.length !== 1)
-        throw new MissingPremise(
+        throw new Error(
             `the compositor reports ${open.length} windows of the page's class ${SEAT_WINDOW_CLASS}, not one, so which window presented on ${monitor.name} cannot be established`,
         );
     const refusal = placementRefusal(monitor, open[0], "when it opened");
-    if (refusal !== undefined) throw new MissingPremise(refusal);
+    if (refusal !== undefined) throw new Error(refusal);
     const address = open[0].address;
     return {
         monitor,
@@ -243,10 +242,10 @@ export async function confirmOnDisplay(placement: DisplayPlacement): Promise<Pin
             // The monitor is re-read too, not just the window: the person is using this desktop, and a
             // workspace switch on the declared monitor hides the page as surely as dragging it away does.
             const current = declaredMonitor(await monitors(), monitor.name);
-            if ("refused" in current) throw new MissingPremise(current.refused);
+            if ("refused" in current) throw new Error(current.refused);
             const still = (await seatWindows()).find((row) => row.address === address);
             const moved = placementRefusal(current, still, when);
-            if (moved !== undefined) throw new MissingPremise(moved);
+            if (moved !== undefined) throw new Error(moved);
         },
     };
 }

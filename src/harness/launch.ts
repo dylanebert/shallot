@@ -1,8 +1,5 @@
-// Chromium launch configuration, separate from seat policy. Display launches are headed because
-// presenting on a monitor is their premise. A configured OS does not establish adapter or placement
-// support; those require observation by the run.
-
-import floor from "./browser.json" with { type: "json" };
+// A configured OS permits a headed Chromium display launch, not a claim about adapter identity or
+// monitor placement; the run observes both.
 
 function hasLaunchPath(host: string): boolean {
     switch (host) {
@@ -20,7 +17,6 @@ export interface LaunchPlan {
     host: string;
     seat: "display";
     channel: "chromium";
-    args: readonly string[];
 }
 
 /** Resolve display launch parameters for a configured OS, or refuse an unconfigured platform. */
@@ -33,7 +29,6 @@ export function launchPlan(host: string): LaunchPlan | { refused: string } {
     return {
         host,
         seat: "display",
-        channel: floor.channel as "chromium",
-        args: floor.args,
+        channel: "chromium",
     };
 }

@@ -1,3 +1,0 @@
-import { writeFileSync } from "node:fs";
-import { check } from "@dylanebert/shallot/harness/check";
-check("same claim two", { claim: "same claim" }, () => writeFileSync(".duplicate-row-ran", "ran"));

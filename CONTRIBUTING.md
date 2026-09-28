@@ -6,7 +6,7 @@ For modifying the engine. For using Shallot, see the [README](README.md). Each A
 
 Shallot is a WebGPU game engine for TypeScript, built on an entity component system (ECS). An entity is an id. A component is plain typed data stored per entity. A system is a function the scheduler runs every frame, in ordered groups such as `fixed` for gameplay on a fixed tick and `draw` for presentation. A scene is a file of entities and their components, loaded into the same data.
 
-A plugin is how behavior gets into a game: a named bundle of components, systems and lifecycle hooks (`initialize`, `warm`, `dispose`), plus the plugins it needs. A project lists its plugins in `shallot.json`, and `build()` composes them into an app. Games and checks run the same composed app on the same stepped clock.
+A plugin is how behavior gets into a game: a named bundle of components, systems and lifecycle hooks (`initialize`, `warm`, `dispose`), plus the plugins it needs. A project lists its plugins in `shallot.json`, and `build()` composes them into an app. Games and tests run the same composed app on the same stepped clock.
 
 ## Layout
 
@@ -21,7 +21,7 @@ src/
   project/       Build-time project handling: manifest, plan, code generation, the Vite plugin.
   cli/           The commands.
   native/        The desktop shell.
-  harness/       The verification protocol a project publishes, and the check framework that runs it.
+  harness/       Host-side seams for capture, readback, allocation and observation.
   types/         Ambient declarations.
 crates/          The WASM kernels (audio, physics) and the native window host.
 examples/        One folder per example. `examples/AGENTS.md` is generated from their manifests.
@@ -53,63 +53,53 @@ Each view reaches the screen through one final pass. The scene image is marked H
 ## Commands
 
 ```bash
-bun run build     # regenerate committed audio WASM, dist/vite.js, physics kernel
-bun run check     # declared population and static gates; run before every push
-bun run test      # every unit test, hermetic, under the 250ms unit limit
-bun run test -- --list   # declared population and selectors without running checks
-bun run test -- --integration --base <ref> --diff <ref> [--requires <tag|!tag>]... [--no-unit-fallback]   # changed subjects, optionally filtered by requirement
-bun run test -- --integration --all | --requires <tag|!tag> | --subject <prefix>   # select all rows or filter by requirement or subject
-bun run test -- --oracle <claim>   # one named oracle, never part of a sweep
-bun run format    # biome, the scene formatter and the examples index, writing
+bun run build                         # regenerate committed audio WASM, dist/vite.js, physics kernel
+bun run check                         # static gates; run before every push
+bun test                              # cheap tier: *.test.ts
+bun test ./src/transitional/mirror/index.gpu.ts  # named GPU tier
+bun test ./diagnostics/.../allocation.oracle.ts # named display oracle (manual)
+cargo test -p shallot-audio                  # Rust audio suite
+cargo test -p shallot-physics --lib --test stages # Rust physics unit suite
+bun run test:browser                  # Playwright Test browser tier, *.e2e.ts
+bun test --todo                       # run quarantined test.todo entries, if any
+bun run format                        # biome, scene formatter and examples index
 ```
-
-Requirement selection combines with `--base`/`--diff`. Repeat `--requires` to combine filters.
-
-`--no-unit-fallback` returns success without running unit checks when no integration rows are selected.
-
-Each run replaces `.artifacts/` with its report and child process output.
 
 `check-imports` stays red while modules live in `src/transitional/`; their `// Destination:` lines name the migration owners. The current `core/rendering/view.ts` → `core/input` sibling import is a separate unresolved violation, not a permitted dependency. For unrelated work, compare import reds with main: report unchanged violations and continue, but stop on a new or changed violation. The gate remains red and is never skipped.
 
 ## Verification
 
-A module's promises are tested beside the module and through the examples that use it. Test each claim at the cheapest level that can observe it. A check's result depends only on its declared inputs.
+A module's promises are tested beside the module and through the examples that use it. Each test name states the claim; its timeout is the wall-clock budget.
 
-- A check declares its claim, size and required host capabilities in `check()`.
-- A host without a required capability refuses with the reason; it never runs a weaker version.
-- Untagged checks are CPU-only.
-- `gpu` requires an in-process WebGPU device on a real adapter.
-- `browser` requires headless Chromium and requests no adapter itself. Browser GPU correctness accepts software adapters and records the subject's adapter identity.
-- `display` requires a declared monitor and takes its keyboard and cursor.
-- Checks run on the scheduler's stepped clock, never wall time. Simulation state lives in registered components or behind a snapshot, restore and hash hook. Gameplay runs in `fixed` from per-tick actions, presentation runs in `draw`, and `local` components are excluded from the hash. Runs are deterministic within one runtime and engine version; across versions, the hash detects divergence.
+- Plain `bun test` discovers the cheap `*.test.ts` tier. GPU, Node and oracle tests with a different premise belong in named files and run by path. Rust suites run directly with Cargo.
+- A missing premise in a named tier is a test failure, never a skip. A quarantined claim stays visible as `test.todo` and runs with `bun test --todo`.
+- Browser tests use Playwright Test in `*.e2e.ts`; `playwright.config.ts` starts each subject's own Vite preview and declares Chromium launch flags.
+- GPU tests require an in-process WebGPU device. Browser tests request no adapter themselves; browser GPU observations accept software adapters.
+- Display-bound measurements require a declared monitor and take its keyboard and cursor.
+- Tests that make gameplay assertions step the composed app's clock. Simulation state lives in registered components or behind a snapshot, restore and hash hook. Gameplay runs in `fixed` from per-tick actions, presentation runs in `draw`, and `local` components are excluded from the hash. Runs are deterministic within one runtime and engine version; across versions, the hash detects divergence.
 - Test a frame at the cheapest level that shows the defect: CPU state, GPU readback, browser pixels, then a person. Choose the capture by the claim:
-  - An engine frame: read back a texture the check owns with `probeTexture`.
+  - An engine frame: read back a texture the test owns with `probeTexture`.
   - Page composition, such as overlays, posters and canvas reveal: step the app with `build()` and `state.step(dt)`, take a Playwright page screenshot, and assert semantic regions of it.
   - A running app's canvas: `captureFrame`, which reads during the next frame the loop presents.
 - A WebGPU canvas reads as transparent black once its frame is presented, though the page still displays that frame: a canvas read works only inside the presenting frame, and a page screenshot works after it.
 - Add a golden image only for a defect no cheaper level shows, and never update one to make it pass.
-- Steady play allocates nothing; the integration check fails on any steady allocation. Sampler allocation sites are diagnostics, not results.
-- A memory check creates and disposes its subject, verifies memory returns to baseline, and fails on a deliberately leaking control. Retention is a separate check, taken after GC.
+- Steady play allocates nothing. A memory test creates and disposes its subject, verifies memory returns to baseline, and fails on a deliberately leaking control. Retention is a separate measurement taken after GC; sampler allocation sites are diagnostics, not results.
 - Timings are measured on real hardware, labeled with it, and reported, never asserted.
-- An oracle is a tool the suite can't run. Run it when the check it validates is created or its tool changes, record the result in that commit, and rerun it only for a specific doubt. It never determines a result.
+- An oracle is a tool the suite cannot run. Run it when the claim or its tool changes, record the result in that commit, and rerun it only for a specific doubt.
 - A known failure stays failing until fixed; it is never skipped.
 
-| Claim | Size | Tool |
+| Claim | Tier | Tool |
 |---|---|---|
-| Deterministic work and owned counts | unit | Stepped assertions against values derived from the scene; engine counters; `FinalizationRegistry` under `Bun.gc(true)` |
-| WASM kernel memory | integration | A counting allocator per crate behind a cargo feature; `memory.buffer.byteLength` |
-| Native heap per step | integration (`cargo`) | `dhat` assertions, one profiler per process |
-| Steady JavaScript allocation | integration (`node`) | The V8 sampling heap profiler over the composed subject in a Node child process |
-| GPU resources released | integration (`gpu`) | A counting wrapper over the real Dawn device |
+| Deterministic work and owned counts | cheap | Stepped assertions against scene-derived values; engine counters; `FinalizationRegistry` under `Bun.gc(true)` |
+| WASM kernel memory | Cargo | A counting allocator per crate behind a Cargo feature; `memory.buffer.byteLength` |
+| Native heap per step | Cargo | `dhat` assertions, one profiler per process |
+| Steady JavaScript allocation | Node | The V8 sampling heap profiler over the composed subject in a Node child process |
+| GPU resources released | GPU | A counting wrapper over the real Dawn device |
 | Beyond the suite | oracle | Heap-snapshot diffs, CDP tracing, `measureUserAgentSpecificMemory`, WebGPU `timestamp-query` |
 
 ### CI coverage
 
-CI runs static gates, the unit sweep and changed CPU integrations on GitHub-hosted Ubuntu and macOS with the repository's pinned Bun, Node and Rust versions.
-CPU selection excludes checks requiring a GPU, browser or physical display; Node and Cargo remain available to checks that require them.
-GPU and browser checks run separately on macOS and must still supply their declared capabilities.
-CI uploads each test invocation's evidence before another invocation can replace it.
-This coverage does not qualify a physical-display seat, a Windows runner or native packaging.
+CI runs static gates and the complete cheap tier on GitHub-hosted Ubuntu and macOS, plus the complete GPU, Cargo, Node and browser tiers on hosts with their required tools. The display-bound allocation oracle is run manually on its declared display seat. These jobs do not qualify a Windows runner or native packaging.
 
 ## Examples
 
@@ -120,8 +110,8 @@ An example is an app in the shape of a user's project, under `examples/<name>/`.
 - An example answers one problem a user meets while making any game. Only `first-person` composes many.
 - Every public promise the engine keeps is used by some example whose answer depends on it. A promise no example uses is a gap.
 - No example only repeats what another shows. Of two that would show the same promises, the one kept shows the engine at its best.
-- An example has a check that fails when its answer breaks. An example without one is removed.
-- An example imports only published names, and the harness only from its checks.
+- An example has a test that fails when its answer breaks. An example without one is removed.
+- An example imports only published names; its tests use the same public seams.
 - An example lives in the `examples/` of the repository whose promise its answer is about: the engine's or a package's.
 
 ## Heavy work

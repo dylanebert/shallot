@@ -1,5 +1,4 @@
-import { expect } from "bun:test";
-import { check } from "../../../harness/check";
+import { expect, test } from "bun:test";
 import {
     type CastOutput,
     emptyCastOutput,
@@ -118,53 +117,41 @@ const bumpDef = (clockwiseWinding: boolean) => ({
     clockwiseWinding,
 });
 
-check(
-    "height field build is bit-exact against the C geometry gold",
-    {
-        claim: "a height field built by createGrid or createHeightField would drift from the pinned C reference in its quantized heights, bounds, edge flags, winding remap or decompressed triangle vertices",
-    },
-    () => {
-        const cases: Array<{ name: string; build: () => HeightFieldData }> = [
-            { name: "grid", build: () => createGrid(5, 5, { x: 1, y: 1, z: 1 }, false) },
-            { name: "grid-holes", build: () => createGrid(6, 6, { x: 1, y: 1, z: 1 }, true) },
-            { name: "bump", build: () => createHeightField(bumpDef(false)) },
-            { name: "bump-cw", build: () => createHeightField(bumpDef(true)) },
-        ];
-        for (const c of cases) {
-            const g = hfGold(c.name);
-            if (g === undefined) throw new Error(`height field gold case ${c.name}: missing`);
-            assertHeightField(c.build(), g);
-        }
-    },
-);
+test("a height field built by createGrid or createHeightField would drift from the pinned C reference in its quantized heights, bounds, edge flags, winding remap or decompressed triangle vertices", () => {
+    const cases: Array<{ name: string; build: () => HeightFieldData }> = [
+        { name: "grid", build: () => createGrid(5, 5, { x: 1, y: 1, z: 1 }, false) },
+        { name: "grid-holes", build: () => createGrid(6, 6, { x: 1, y: 1, z: 1 }, true) },
+        { name: "bump", build: () => createHeightField(bumpDef(false)) },
+        { name: "bump-cw", build: () => createHeightField(bumpDef(true)) },
+    ];
+    for (const c of cases) {
+        const g = hfGold(c.name);
+        if (g === undefined) throw new Error(`height field gold case ${c.name}: missing`);
+        assertHeightField(c.build(), g);
+    }
+});
 
-check(
-    "height field wave authoring yields sound dimensions and finite triangles",
-    {
-        claim: "createWave would author a height field with the wrong row, column, material or flag counts, or a triangle decoding to a non-finite vertex or an invalid field AABB",
-    },
-    () => {
-        // createWave uses Math.sin (not the portable b3 trig or C's sinf), so it is authoring-only and
-        // can't be gold-tested; this guards its dimensions + that every triangle decodes validly.
-        const hf = createWave(6, 8, { x: 1, y: 1, z: 1 }, 0.25, 0.5, false);
-        expect(hf.rowCount, "wave rowCount").toBe(6);
-        expect(hf.columnCount, "wave columnCount").toBe(8);
-        expect(hf.compressedHeights.length, "wave compressedHeights.length").toBe(6 * 8);
-        expect(hf.materialIndices.length, "wave materialIndices.length").toBe(5 * 7);
-        expect(hf.flags.length, "wave flags.length").toBe(2 * 5 * 7);
-        const triangleCount = 2 * 5 * 7;
-        for (let i = 0; i < triangleCount; ++i) {
-            const t = getHeightFieldTriangle(hf, i);
-            for (const v of t.vertices) {
-                expect(
-                    Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z),
-                    `wave tri${i} vertex finite`,
-                ).toBe(true);
-            }
+test("createWave would author a height field with the wrong row, column, material or flag counts, or a triangle decoding to a non-finite vertex or an invalid field AABB", () => {
+    // createWave uses Math.sin (not the portable b3 trig or C's sinf), so it is authoring-only and
+    // can't be gold-tested; this guards its dimensions + that every triangle decodes validly.
+    const hf = createWave(6, 8, { x: 1, y: 1, z: 1 }, 0.25, 0.5, false);
+    expect(hf.rowCount, "wave rowCount").toBe(6);
+    expect(hf.columnCount, "wave columnCount").toBe(8);
+    expect(hf.compressedHeights.length, "wave compressedHeights.length").toBe(6 * 8);
+    expect(hf.materialIndices.length, "wave materialIndices.length").toBe(5 * 7);
+    expect(hf.flags.length, "wave flags.length").toBe(2 * 5 * 7);
+    const triangleCount = 2 * 5 * 7;
+    for (let i = 0; i < triangleCount; ++i) {
+        const t = getHeightFieldTriangle(hf, i);
+        for (const v of t.vertices) {
+            expect(
+                Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z),
+                `wave tri${i} vertex finite`,
+            ).toBe(true);
         }
-        expect(aabb.isValid(hf.aabb), "wave field AABB valid").toBe(true);
-    },
-);
+    }
+    expect(aabb.isValid(hf.aabb), "wave field AABB valid").toBe(true);
+});
 
 // --- query behavioral checks (ported from test_height_field.c) -------------------------------
 
@@ -243,117 +230,99 @@ function bruteForceRayCast(hf: HeightFieldData, input: RayCastInput): CastOutput
     return best;
 }
 
-check(
-    "height field ray cast lands on a flat surface with an up normal",
-    {
-        claim: "rayCastHeightField would miss a flat height field, or recover the wrong hit fraction or a surface normal that is not the field's up axis",
-    },
-    () => {
-        // Tight quantization range keeps the recovered surface within ~1e-5 of y=0.
-        const hf = createHeightField({
-            heights: new Array(16).fill(0),
-            materialIndices: new Array(9).fill(0),
-            scale: { x: 1, y: 1, z: 1 },
-            countX: 4,
-            countZ: 4,
-            globalMinimumHeight: -1,
-            globalMaximumHeight: 1,
-            clockwiseWinding: false,
-        });
-        const out = rayCastHeightField(hf, {
-            origin: { x: 1.25, y: 10, z: 1.25 },
-            translation: { x: 0, y: -20, z: 0 },
+test("rayCastHeightField would miss a flat height field, or recover the wrong hit fraction or a surface normal that is not the field's up axis", () => {
+    // Tight quantization range keeps the recovered surface within ~1e-5 of y=0.
+    const hf = createHeightField({
+        heights: new Array(16).fill(0),
+        materialIndices: new Array(9).fill(0),
+        scale: { x: 1, y: 1, z: 1 },
+        countX: 4,
+        countZ: 4,
+        globalMinimumHeight: -1,
+        globalMaximumHeight: 1,
+        clockwiseWinding: false,
+    });
+    const out = rayCastHeightField(hf, {
+        origin: { x: 1.25, y: 10, z: 1.25 },
+        translation: { x: 0, y: -20, z: 0 },
+        maxFraction: 1,
+    });
+    expect(out.hit, "flat field ray hit").toBe(true);
+    near(out.fraction, 0.5, 1e-5, "flat field ray fraction");
+    near(out.normal.x, 0, 1e-5, "flat field ray normal.x");
+    near(out.normal.y, 1, 1e-5, "flat field ray normal.y");
+    near(out.normal.z, 0, 1e-5, "flat field ray normal.z");
+});
+
+test("overlapHeightField would report a hit for a proxy hovering clear above the field, or miss one whose radius reaches the field surface", () => {
+    const hf = createGrid(4, 4, { x: 1, y: 1, z: 1 }, false);
+    const cases: Array<{ name: string; proxy: ShapeProxy; want: boolean }> = [
+        {
+            name: "sphere above the surface",
+            proxy: { points: [{ x: 1.5, y: 1, z: 1.5 }], count: 1, radius: 0.5 },
+            want: false,
+        },
+        {
+            name: "sphere through the surface",
+            proxy: { points: [{ x: 1.5, y: 0, z: 1.5 }], count: 1, radius: 0.5 },
+            want: true,
+        },
+    ];
+    for (const c of cases) {
+        expect(
+            overlapHeightField(hf, xf.identity(), c.proxy),
+            `height field overlap ${c.name}`,
+        ).toBe(c.want);
+    }
+});
+
+test("shapeCastHeightField would cull the one solid height field cell that sits on the trailing side of the swept proxy's x, z or corner boundary", () => {
+    // Only cell (0,0) is solid; the swept sphere's center is nudged just past each boundary so the
+    // solid cell sits on the trailing side. A cull AABB pinned to the leading corner would miss it.
+    const hf = createHeightField({
+        heights: new Array(9).fill(0),
+        materialIndices: [0, HEIGHT_FIELD_HOLE, HEIGHT_FIELD_HOLE, HEIGHT_FIELD_HOLE],
+        scale: { x: 1, y: 1, z: 1 },
+        countX: 3,
+        countZ: 3,
+        globalMinimumHeight: -1,
+        globalMaximumHeight: 1,
+        clockwiseWinding: false,
+    });
+    const radius = 0.3;
+    const startY = 10;
+    const dropY = 20;
+    const cast = (cx: number, cz: number) =>
+        shapeCastHeightField(hf, {
+            proxy: { points: [{ x: cx, y: startY, z: cz }], count: 1, radius },
+            translation: { x: 0, y: -dropY, z: 0 },
             maxFraction: 1,
+            canEncroach: false,
         });
-        expect(out.hit, "flat field ray hit").toBe(true);
-        near(out.fraction, 0.5, 1e-5, "flat field ray fraction");
-        near(out.normal.x, 0, 1e-5, "flat field ray normal.x");
-        near(out.normal.y, 1, 1e-5, "flat field ray normal.y");
-        near(out.normal.z, 0, 1e-5, "flat field ray normal.z");
-    },
-);
 
-check(
-    "height field overlap separates a proxy above the surface from one through it",
-    {
-        claim: "overlapHeightField would report a hit for a proxy hovering clear above the field, or miss one whose radius reaches the field surface",
-    },
-    () => {
-        const hf = createGrid(4, 4, { x: 1, y: 1, z: 1 }, false);
-        const cases: Array<{ name: string; proxy: ShapeProxy; want: boolean }> = [
-            {
-                name: "sphere above the surface",
-                proxy: { points: [{ x: 1.5, y: 1, z: 1.5 }], count: 1, radius: 0.5 },
-                want: false,
-            },
-            {
-                name: "sphere through the surface",
-                proxy: { points: [{ x: 1.5, y: 0, z: 1.5 }], count: 1, radius: 0.5 },
-                want: true,
-            },
-        ];
-        for (const c of cases) {
-            expect(
-                overlapHeightField(hf, xf.identity(), c.proxy),
-                `height field overlap ${c.name}`,
-            ).toBe(c.want);
-        }
-    },
-);
-
-check(
-    "height field shape cast tests every cell the swept proxy straddles",
-    {
-        claim: "shapeCastHeightField would cull the one solid height field cell that sits on the trailing side of the swept proxy's x, z or corner boundary",
-    },
-    () => {
-        // Only cell (0,0) is solid; the swept sphere's center is nudged just past each boundary so the
-        // solid cell sits on the trailing side. A cull AABB pinned to the leading corner would miss it.
-        const hf = createHeightField({
-            heights: new Array(9).fill(0),
-            materialIndices: [0, HEIGHT_FIELD_HOLE, HEIGHT_FIELD_HOLE, HEIGHT_FIELD_HOLE],
-            scale: { x: 1, y: 1, z: 1 },
-            countX: 3,
-            countZ: 3,
-            globalMinimumHeight: -1,
-            globalMaximumHeight: 1,
-            clockwiseWinding: false,
-        });
-        const radius = 0.3;
-        const startY = 10;
-        const dropY = 20;
-        const cast = (cx: number, cz: number) =>
-            shapeCastHeightField(hf, {
-                proxy: { points: [{ x: cx, y: startY, z: cz }], count: 1, radius },
-                translation: { x: 0, y: -dropY, z: 0 },
-                maxFraction: 1,
-                canEncroach: false,
-            });
-
-        // The sphere touches the flat cell (0,0), spanning [0, 1] at height 0, on its nearest edge or
-        // corner: it stops where the radius reaches that point, at the horizontal offset from it.
-        const fraction = (cx: number, cz: number) => {
-            const dx = Math.max(0, cx - 1);
-            const dz = Math.max(0, cz - 1);
-            return (startY - Math.sqrt(radius * radius - dx * dx - dz * dz)) / dropY;
-        };
-        const cases = [
-            { name: "past the x boundary", cx: 1.05, cz: 0.5 },
-            { name: "past the z boundary", cx: 0.5, cz: 1.05 },
-            { name: "past the corner", cx: 1.05, cz: 1.05 },
-        ];
-        for (const c of cases) {
-            const out = cast(c.cx, c.cz);
-            expect(out.hit, `height field shape cast ${c.name}: hit`).toBe(true);
-            near(
-                out.fraction,
-                fraction(c.cx, c.cz),
-                2e-3,
-                `height field shape cast ${c.name}: fraction`,
-            );
-        }
-    },
-);
+    // The sphere touches the flat cell (0,0), spanning [0, 1] at height 0, on its nearest edge or
+    // corner: it stops where the radius reaches that point, at the horizontal offset from it.
+    const fraction = (cx: number, cz: number) => {
+        const dx = Math.max(0, cx - 1);
+        const dz = Math.max(0, cz - 1);
+        return (startY - Math.sqrt(radius * radius - dx * dx - dz * dz)) / dropY;
+    };
+    const cases = [
+        { name: "past the x boundary", cx: 1.05, cz: 0.5 },
+        { name: "past the z boundary", cx: 0.5, cz: 1.05 },
+        { name: "past the corner", cx: 1.05, cz: 1.05 },
+    ];
+    for (const c of cases) {
+        const out = cast(c.cx, c.cz);
+        expect(out.hit, `height field shape cast ${c.name}: hit`).toBe(true);
+        near(
+            out.fraction,
+            fraction(c.cx, c.cz),
+            2e-3,
+            `height field shape cast ${c.name}: fraction`,
+        );
+    }
+});
 
 const waveOrigins = (): Vec3[] => {
     const out: Vec3[] = [];
@@ -368,85 +337,71 @@ const waveOrigins = (): Vec3[] => {
 const label = (o: Vec3, d: Vec3) =>
     `origin (${o.x}, ${o.y}, ${o.z}) delta (${d.x}, ${d.y}, ${d.z})`;
 
-check(
-    "height field shape cast grid walk matches the brute-force cast",
-    {
-        claim: "the grid walk in shapeCastHeightField would disagree with a brute-force cast against every wave height field triangle on hit or fraction for some origin, radius and translation",
-    },
-    () => {
-        const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
-        const deltas: Vec3[] = [
-            { x: 0, y: -8, z: 0 },
-            { x: 0, y: -8, z: 6.4 },
-            { x: 5.1, y: -8, z: 0 },
-            { x: 0, y: -8, z: -6.4 },
-            { x: -5.1, y: -8, z: 0 },
-            { x: 6, y: -8, z: 5 },
-            { x: -7, y: -8, z: 4 },
-            { x: 9, y: -3, z: -9 },
-        ];
-        const triangles = immutableBruteTriangles(hf);
-        const transform = xf.identity();
-        const failures: string[] = [];
-        for (const delta of deltas) {
-            for (const origin of waveOrigins()) {
-                for (const radius of [0.15, 0.4, 0.9]) {
-                    const input: ShapeCastInput = {
-                        proxy: { points: [origin], count: 1, radius },
-                        translation: delta,
-                        maxFraction: 1,
-                        canEncroach: false,
-                    };
-                    const grid = shapeCastHeightField(hf, input);
-                    const brute = bruteForceShapeCast(input, triangles, transform);
-                    const where = `${label(origin, delta)} radius ${radius}`;
-                    if (grid.hit !== brute.hit) {
-                        failures.push(`${where}: grid hit ${grid.hit}, brute hit ${brute.hit}`);
-                    } else if (brute.hit && Math.abs(grid.fraction - brute.fraction) > 2e-3) {
-                        failures.push(
-                            `${where}: grid fraction ${grid.fraction}, brute ${brute.fraction}`,
-                        );
-                    }
-                }
-            }
-        }
-        expect(failures, "height field shape cast grid walk disagreements").toEqual([]);
-    },
-);
-
-check(
-    "height field ray cast grid walk matches the brute-force ray",
-    {
-        claim: "the grid walk in rayCastHeightField would disagree with a brute-force ray against every wave height field triangle on hit or fraction for some origin and translation",
-    },
-    () => {
-        const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
-        const deltas: Vec3[] = [
-            { x: 0, y: -8, z: 0 },
-            { x: 0, y: -8, z: 12 },
-            { x: 12, y: -8, z: 0 },
-            { x: 0, y: -8, z: -12 },
-            { x: -12, y: -8, z: 0 },
-            { x: 14, y: -8, z: 11 },
-            { x: -13, y: -8, z: 9 },
-            { x: 16, y: -4, z: -15 },
-        ];
-        const failures: string[] = [];
+test("the grid walk in shapeCastHeightField would disagree with a brute-force cast against every wave height field triangle on hit or fraction for some origin, radius and translation", () => {
+    const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
+    const deltas: Vec3[] = [
+        { x: 0, y: -8, z: 0 },
+        { x: 0, y: -8, z: 6.4 },
+        { x: 5.1, y: -8, z: 0 },
+        { x: 0, y: -8, z: -6.4 },
+        { x: -5.1, y: -8, z: 0 },
+        { x: 6, y: -8, z: 5 },
+        { x: -7, y: -8, z: 4 },
+        { x: 9, y: -3, z: -9 },
+    ];
+    const triangles = immutableBruteTriangles(hf);
+    const transform = xf.identity();
+    const failures: string[] = [];
+    for (const delta of deltas) {
         for (const origin of waveOrigins()) {
-            for (const delta of deltas) {
-                const input: RayCastInput = { origin, translation: delta, maxFraction: 1 };
-                const grid = rayCastHeightField(hf, input);
-                const brute = bruteForceRayCast(hf, input);
-                const where = label(origin, delta);
+            for (const radius of [0.15, 0.4, 0.9]) {
+                const input: ShapeCastInput = {
+                    proxy: { points: [origin], count: 1, radius },
+                    translation: delta,
+                    maxFraction: 1,
+                    canEncroach: false,
+                };
+                const grid = shapeCastHeightField(hf, input);
+                const brute = bruteForceShapeCast(input, triangles, transform);
+                const where = `${label(origin, delta)} radius ${radius}`;
                 if (grid.hit !== brute.hit) {
                     failures.push(`${where}: grid hit ${grid.hit}, brute hit ${brute.hit}`);
-                } else if (brute.hit && Math.abs(grid.fraction - brute.fraction) > 1e-4) {
+                } else if (brute.hit && Math.abs(grid.fraction - brute.fraction) > 2e-3) {
                     failures.push(
                         `${where}: grid fraction ${grid.fraction}, brute ${brute.fraction}`,
                     );
                 }
             }
         }
-        expect(failures, "height field ray cast grid walk disagreements").toEqual([]);
-    },
-);
+    }
+    expect(failures, "height field shape cast grid walk disagreements").toEqual([]);
+});
+
+test("the grid walk in rayCastHeightField would disagree with a brute-force ray against every wave height field triangle on hit or fraction for some origin and translation", () => {
+    const hf = createWave(10, 10, { x: 2, y: 1.5, z: 2 }, 0.1, 0.03333, false);
+    const deltas: Vec3[] = [
+        { x: 0, y: -8, z: 0 },
+        { x: 0, y: -8, z: 12 },
+        { x: 12, y: -8, z: 0 },
+        { x: 0, y: -8, z: -12 },
+        { x: -12, y: -8, z: 0 },
+        { x: 14, y: -8, z: 11 },
+        { x: -13, y: -8, z: 9 },
+        { x: 16, y: -4, z: -15 },
+    ];
+    const failures: string[] = [];
+    for (const origin of waveOrigins()) {
+        for (const delta of deltas) {
+            const input: RayCastInput = { origin, translation: delta, maxFraction: 1 };
+            const grid = rayCastHeightField(hf, input);
+            const brute = bruteForceRayCast(hf, input);
+            const where = label(origin, delta);
+            if (grid.hit !== brute.hit) {
+                failures.push(`${where}: grid hit ${grid.hit}, brute hit ${brute.hit}`);
+            } else if (brute.hit && Math.abs(grid.fraction - brute.fraction) > 1e-4) {
+                failures.push(`${where}: grid fraction ${grid.fraction}, brute ${brute.fraction}`);
+            }
+        }
+    }
+    expect(failures, "height field ray cast grid walk disagreements").toEqual([]);
+});

@@ -1,5 +1,4 @@
-import { expect } from "bun:test";
-import { check } from "../../../harness/check";
+import { expect, test } from "bun:test";
 import type { Mat2, Mat3, Quat, Transform, Vec3 } from "./math";
 import * as m from "./math";
 import gold from "./math.gold.json";
@@ -103,52 +102,34 @@ const g = gold as Gold;
 
 // --- bit-exact parity against frozen historical oracle vectors -------------------------------
 
-check(
-    "atan2 sweep is bit-exact vs the C reference",
-    {
-        claim: "the physics atan2 polynomial drifts from the Box3D C reference by at least one f32 bit somewhere on the quadrant sweep",
-    },
-    () => {
-        expect(g.atan2.length).toBeGreaterThan(0);
-        for (const [yh, xh, rh] of g.atan2) {
-            bitEqual(m.atan2(fromBits(yh), fromBits(xh)), rh, `atan2(${yh},${xh})`);
-        }
-    },
-);
+test("the physics atan2 polynomial drifts from the Box3D C reference by at least one f32 bit somewhere on the quadrant sweep", () => {
+    expect(g.atan2.length).toBeGreaterThan(0);
+    for (const [yh, xh, rh] of g.atan2) {
+        bitEqual(m.atan2(fromBits(yh), fromBits(xh)), rh, `atan2(${yh},${xh})`);
+    }
+});
 
-check(
-    "computeCosSin sweep is bit-exact vs the C reference",
-    {
-        claim: "the physics computeCosSin approximation drifts from the Box3D C reference by at least one f32 bit on the angle sweep",
-    },
-    () => {
-        expect(g.cosSin.length).toBeGreaterThan(0);
-        for (const [ah, ch, sh] of g.cosSin) {
-            const cs = m.computeCosSin(fromBits(ah));
-            bitEqual(cs.cosine, ch, `cos(${ah})`);
-            bitEqual(cs.sine, sh, `sin(${ah})`);
-        }
-    },
-);
+test("the physics computeCosSin approximation drifts from the Box3D C reference by at least one f32 bit on the angle sweep", () => {
+    expect(g.cosSin.length).toBeGreaterThan(0);
+    for (const [ah, ch, sh] of g.cosSin) {
+        const cs = m.computeCosSin(fromBits(ah));
+        bitEqual(cs.cosine, ch, `cos(${ah})`);
+        bitEqual(cs.sine, sh, `sin(${ah})`);
+    }
+});
 
-check(
-    "vec/quat/matrix/transform gold cases are bit-exact",
-    {
-        claim: "one of the vec3, quat, mat2, mat3 or transform ports returns different f32 bits than the recorded Box3D C reference case",
-    },
-    () => {
-        expect(g.cases.length).toBeGreaterThan(20);
-        for (const c of g.cases) {
-            const fn = dispatch[c.fn];
-            if (!fn) throw new Error(`no dispatch for gold case ${c.fn}`);
-            const got = fn(c.in.map(fromBits));
-            expect(got.length).toBe(c.out.length);
-            for (let i = 0; i < got.length; i++) {
-                bitEqual(got[i], c.out[i], `${c.fn}[${i}]`);
-            }
+test("one of the vec3, quat, mat2, mat3 or transform ports returns different f32 bits than the recorded Box3D C reference case", () => {
+    expect(g.cases.length).toBeGreaterThan(20);
+    for (const c of g.cases) {
+        const fn = dispatch[c.fn];
+        if (!fn) throw new Error(`no dispatch for gold case ${c.fn}`);
+        const got = fn(c.in.map(fromBits));
+        expect(got.length).toBe(c.out.length);
+        for (let i = 0; i < got.length; i++) {
+            bitEqual(got[i], c.out[i], `${c.fn}[${i}]`);
         }
-    },
-);
+    }
+});
 
 // --- oracle-independent invariants (ported from test_math.c) ---------------------------------
 // These hold by algebra regardless of the C build, so they catch conceptual port errors the
@@ -156,143 +137,89 @@ check(
 
 const EPS = m.FLT_EPSILON;
 
-check(
-    "vec3.normalize yields unit length",
-    {
-        claim: "vec3.normalize divides by the wrong magnitude, so the result is not unit length within four float epsilons",
-    },
-    () => {
-        const u = m.vec3.normalize({ x: 0.2, y: -0.5, z: 3.0 });
-        expect(Math.abs(m.vec3.length(u) - 1)).toBeLessThan(4 * EPS);
-    },
-);
+test("vec3.normalize divides by the wrong magnitude, so the result is not unit length within four float epsilons", () => {
+    const u = m.vec3.normalize({ x: 0.2, y: -0.5, z: 3.0 });
+    expect(Math.abs(m.vec3.length(u) - 1)).toBeLessThan(4 * EPS);
+});
 
-check(
-    "transform point round-trips through its inverse",
-    {
-        claim: "xf.invPoint does not undo xf.point, so the rotation is applied before instead of after the translation",
-    },
-    () => {
-        const axis = m.vec3.normalize({ x: 0.3, y: -0.7, z: 0.5 });
-        const t: Transform = { p: { x: 3, y: -5, z: 2 }, q: m.quat.fromAxisAngle(axis, 0.4) };
-        const v = { x: 0.5, y: -0.25, z: 1.5 };
-        const back = m.xf.invPoint(t, m.xf.point(t, v));
-        expect(Math.abs(back.x - v.x)).toBeLessThan(1e-5);
-        expect(Math.abs(back.y - v.y)).toBeLessThan(1e-5);
-        expect(Math.abs(back.z - v.z)).toBeLessThan(1e-5);
-    },
-);
+test("xf.invPoint does not undo xf.point, so the rotation is applied before instead of after the translation", () => {
+    const axis = m.vec3.normalize({ x: 0.3, y: -0.7, z: 0.5 });
+    const t: Transform = { p: { x: 3, y: -5, z: 2 }, q: m.quat.fromAxisAngle(axis, 0.4) };
+    const v = { x: 0.5, y: -0.25, z: 1.5 };
+    const back = m.xf.invPoint(t, m.xf.point(t, v));
+    expect(Math.abs(back.x - v.x)).toBeLessThan(1e-5);
+    expect(Math.abs(back.y - v.y)).toBeLessThan(1e-5);
+    expect(Math.abs(back.z - v.z)).toBeLessThan(1e-5);
+});
 
-check(
-    "mat3 times its inverse is identity",
-    {
-        claim: "mat3.invert or mat3.mul transposes a column or drops a cofactor, so their product is not the identity",
-    },
-    () => {
-        const mat: Mat3 = {
-            cx: { x: 3, y: 1, z: -1 },
-            cy: { x: -1, y: 3, z: 1 },
-            cz: { x: 1, y: -1, z: 3 },
-        };
-        const id = m.mat3.mul(mat, m.mat3.invert(mat));
-        const idm = m.mat3.identity();
-        for (const col of ["cx", "cy", "cz"] as const) {
-            for (const axis of ["x", "y", "z"] as const) {
-                expect(Math.abs(id[col][axis] - idm[col][axis])).toBeLessThan(2 * EPS);
-            }
+test("mat3.invert or mat3.mul transposes a column or drops a cofactor, so their product is not the identity", () => {
+    const mat: Mat3 = {
+        cx: { x: 3, y: 1, z: -1 },
+        cy: { x: -1, y: 3, z: 1 },
+        cz: { x: 1, y: -1, z: 3 },
+    };
+    const id = m.mat3.mul(mat, m.mat3.invert(mat));
+    const idm = m.mat3.identity();
+    for (const col of ["cx", "cy", "cz"] as const) {
+        for (const axis of ["x", "y", "z"] as const) {
+            expect(Math.abs(id[col][axis] - idm[col][axis])).toBeLessThan(2 * EPS);
         }
-    },
-);
+    }
+});
 
-check(
-    "mat3.solve agrees with invert then multiply",
-    {
-        claim: "mat3.solve's Cramer determinants disagree with inverting the same matrix and multiplying, so the solver picks a wrong column",
-    },
-    () => {
-        const mat: Mat3 = {
-            cx: { x: 3, y: 1, z: -1 },
-            cy: { x: -1, y: 3, z: 1 },
-            cz: { x: 1, y: -1, z: 3 },
-        };
-        const v = { x: 1, y: -2, z: 3 };
-        const a = m.mat3.mulV(m.mat3.invert(mat), v);
-        const b = m.mat3.solve(mat, v);
-        expect(Math.abs(a.x - b.x)).toBeLessThan(EPS);
-        expect(Math.abs(a.y - b.y)).toBeLessThan(EPS);
-        expect(Math.abs(a.z - b.z)).toBeLessThan(EPS);
-    },
-);
+test("mat3.solve's Cramer determinants disagree with inverting the same matrix and multiplying, so the solver picks a wrong column", () => {
+    const mat: Mat3 = {
+        cx: { x: 3, y: 1, z: -1 },
+        cy: { x: -1, y: 3, z: 1 },
+        cz: { x: 1, y: -1, z: 3 },
+    };
+    const v = { x: 1, y: -2, z: 3 };
+    const a = m.mat3.mulV(m.mat3.invert(mat), v);
+    const b = m.mat3.solve(mat, v);
+    expect(Math.abs(a.x - b.x)).toBeLessThan(EPS);
+    expect(Math.abs(a.y - b.y)).toBeLessThan(EPS);
+    expect(Math.abs(a.z - b.z)).toBeLessThan(EPS);
+});
 
-check(
-    "quat compose then decompose recovers the operand",
-    {
-        claim: "quat.invMul is not the left inverse of quat.mul, so a relative rotation conjugates the wrong operand",
-    },
-    () => {
-        const q1 = m.quat.fromAxisAngle(m.vec3.axisZ(), -0.5 * Math.PI);
-        const q3 = m.quat.normalize({ v: { x: 1, y: -2, z: 3 }, s: 4 });
-        const q5 = m.quat.mul(q3, m.quat.invMul(q3, q1));
-        expect(Math.abs(q1.v.x - q5.v.x)).toBeLessThan(EPS);
-        expect(Math.abs(q1.v.y - q5.v.y)).toBeLessThan(EPS);
-        expect(Math.abs(q1.v.z - q5.v.z)).toBeLessThan(EPS);
-        expect(Math.abs(q1.s - q5.s)).toBeLessThan(EPS);
-    },
-);
+test("quat.invMul is not the left inverse of quat.mul, so a relative rotation conjugates the wrong operand", () => {
+    const q1 = m.quat.fromAxisAngle(m.vec3.axisZ(), -0.5 * Math.PI);
+    const q3 = m.quat.normalize({ v: { x: 1, y: -2, z: 3 }, s: 4 });
+    const q5 = m.quat.mul(q3, m.quat.invMul(q3, q1));
+    expect(Math.abs(q1.v.x - q5.v.x)).toBeLessThan(EPS);
+    expect(Math.abs(q1.v.y - q5.v.y)).toBeLessThan(EPS);
+    expect(Math.abs(q1.v.z - q5.v.z)).toBeLessThan(EPS);
+    expect(Math.abs(q1.s - q5.s)).toBeLessThan(EPS);
+});
 
-check(
-    "computeQuatBetweenUnitVectors rotates the first onto the second",
-    {
-        claim: "computeQuatBetweenUnitVectors builds a rotation that lands v1 somewhere other than v2, or returns a non-finite quaternion",
-    },
-    () => {
-        const v1 = m.vec3.normalize({ x: 0.2, y: -0.5, z: 3.0 });
-        const u = m.vec3.normalize({ x: -0.3, y: 0.8, z: 0.1 });
-        const r = m.computeQuatBetweenUnitVectors(v1, u);
-        expect(m.quat.isValid(r)).toBe(true);
-        const w = m.quat.rotate(r, v1);
-        expect(Math.abs(w.x - u.x)).toBeLessThan(0.001);
-        expect(Math.abs(w.y - u.y)).toBeLessThan(0.001);
-        expect(Math.abs(w.z - u.z)).toBeLessThan(0.001);
-    },
-);
+test("computeQuatBetweenUnitVectors builds a rotation that lands v1 somewhere other than v2, or returns a non-finite quaternion", () => {
+    const v1 = m.vec3.normalize({ x: 0.2, y: -0.5, z: 3.0 });
+    const u = m.vec3.normalize({ x: -0.3, y: 0.8, z: 0.1 });
+    const r = m.computeQuatBetweenUnitVectors(v1, u);
+    expect(m.quat.isValid(r)).toBe(true);
+    const w = m.quat.rotate(r, v1);
+    expect(Math.abs(w.x - u.x)).toBeLessThan(0.001);
+    expect(Math.abs(w.y - u.y)).toBeLessThan(0.001);
+    expect(Math.abs(w.z - u.z)).toBeLessThan(0.001);
+});
 
-check(
-    "nlerp twist angle tracks alpha across a 90 degree turn",
-    {
-        claim: "quat.nlerp or quat.getTwistAngle is non-monotonic in alpha across a quarter turn about z, straying more than a degree from the interpolated angle",
-    },
-    () => {
-        const q1 = m.quat.identity();
-        const q2 = m.quat.fromAxisAngle(m.vec3.axisZ(), 0.5 * Math.PI);
-        for (let i = 0; i <= 20; i++) {
-            const alpha = i / 20;
-            const angle = m.quat.getTwistAngle(m.quat.nlerp(q1, q2, alpha));
-            expect(Math.abs(alpha * 0.5 * Math.PI - angle)).toBeLessThan(m.DEG_TO_RAD);
-        }
-    },
-);
+test("quat.nlerp or quat.getTwistAngle is non-monotonic in alpha across a quarter turn about z, straying more than a degree from the interpolated angle", () => {
+    const q1 = m.quat.identity();
+    const q2 = m.quat.fromAxisAngle(m.vec3.axisZ(), 0.5 * Math.PI);
+    for (let i = 0; i <= 20; i++) {
+        const alpha = i / 20;
+        const angle = m.quat.getTwistAngle(m.quat.nlerp(q1, q2, alpha));
+        expect(Math.abs(alpha * 0.5 * Math.PI - angle)).toBeLessThan(m.DEG_TO_RAD);
+    }
+});
 
-check(
-    "arbitraryPerp is orthogonal to its input",
-    {
-        claim: "arbitraryPerp returns a vector with a nonzero dot against its input, so contact tangent frames would be skewed",
-    },
-    () => {
-        const n = { x: 0.50405544, y: 0.621548057, z: 0.599671543 };
-        expect(Math.abs(m.vec3.dot(n, m.arbitraryPerp(n)))).toBeLessThan(2 * EPS);
-    },
-);
+test("arbitraryPerp returns a vector with a nonzero dot against its input, so contact tangent frames would be skewed", () => {
+    const n = { x: 0.50405544, y: 0.621548057, z: 0.599671543 };
+    expect(Math.abs(m.vec3.dot(n, m.arbitraryPerp(n)))).toBeLessThan(2 * EPS);
+});
 
-check(
-    "scalar min and max mirror the C branches, not Math.min/max",
-    {
-        claim: "minf or maxf delegates to Math.min/Math.max, so NaN poisons the result and signed zero orders the wrong way",
-    },
-    () => {
-        // minf(NaN, b) === b (Math.min would be NaN); minf(-0, +0) === +0.
-        expect(m.minf(Number.NaN, 5)).toBe(5);
-        expect(Object.is(m.minf(-0, 0), 0)).toBe(true);
-        expect(m.maxf(Number.NaN, 5)).toBe(5);
-    },
-);
+test("minf or maxf delegates to Math.min/Math.max, so NaN poisons the result and signed zero orders the wrong way", () => {
+    // minf(NaN, b) === b (Math.min would be NaN); minf(-0, +0) === +0.
+    expect(m.minf(Number.NaN, 5)).toBe(5);
+    expect(Object.is(m.minf(-0, 0), 0)).toBe(true);
+    expect(m.maxf(Number.NaN, 5)).toBe(5);
+});

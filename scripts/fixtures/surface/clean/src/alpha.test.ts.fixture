@@ -1,4 +1,0 @@
-import { check } from "@dylanebert/shallot/harness/check";
-
-check("alpha holds", { claim: "alpha holds" }, () => {});
-check("alpha refuses", { claim: "alpha refuses" }, () => {});

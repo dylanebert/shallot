@@ -2,15 +2,14 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSyn
 import { SourceMap } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
-import { CROSS_ORIGIN_ISOLATION } from "@dylanebert/shallot/vite";
 import { type AdapterFacts, classifyAdapter } from "../../src/engine/runtime";
 import { attribute, originalPosition, subjectSite } from "../../src/harness/allocation-sampler.mjs";
 import { CAPTURE_CONTRACT } from "../../src/harness/capture";
 import { confirmOnDisplay, openOnDisplay } from "./display-seat";
 import { launchPlan } from "../../src/harness/launch";
-import { servePage } from "../../src/harness/page";
+import { resolveViteCli } from "../../src/project/vite-command";
 import { resolveSeat } from "../../src/harness/seat";
-import { MissingPremise } from "../../src/harness/verdict";
+import { CHROMIUM_ARGS } from "../../playwright.config";
 import {
     type AllocationSample,
     type AllocationSite,
@@ -233,7 +232,7 @@ async function adapterFacts(page: import("playwright").Page): Promise<AdapterFac
 }
 
 /**
- * Build `projectDir` for the web with source maps, serve it in-process, and open it in the display seat's
+ * Build `projectDir` with its own Vite config and preview server, then open it in the display seat's
  * headed Chromium, resolving the seat on the adapter the page reaches. The page's own
  * frame loop is the run frame, attributed by the same rule as {@link sampleAllocation}. Once the loop runs,
  * wait `warm` frames, then sample `frames` after warm, after twice that, and an A/A repeat, each after a
@@ -244,6 +243,58 @@ async function adapterFacts(page: import("playwright").Page): Promise<AdapterFac
  * premise rather than timing out mid-warm. Every wait ends by `deadline`, a `performance.now()` time, and
  * the build, server and browser are gone when it returns. Needs the `display` requirement resolved.
  */
+async function startPreview(
+    projectDir: string,
+    outDir: string,
+    timeoutMs: number,
+): Promise<{ origin: string; close(): Promise<void> }> {
+    const origin = "http://127.0.0.1:4175";
+    const child = Bun.spawn(
+        [
+            process.execPath,
+            resolveViteCli(projectDir),
+            "preview",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "4175",
+            "--strictPort",
+            "--outDir",
+            outDir,
+        ],
+        { cwd: projectDir, stdout: "inherit", stderr: "inherit" },
+    );
+    let exitCode: number | undefined;
+    const exited = child.exited.then((code) => {
+        exitCode = code;
+        return code;
+    });
+    const close = async () => {
+        if (exitCode !== undefined) return;
+        child.kill();
+        await exited;
+    };
+    const deadline = performance.now() + timeoutMs;
+    try {
+        while (performance.now() < deadline) {
+            if (exitCode !== undefined) throw new Error(`Vite preview exited with status ${exitCode}`);
+            try {
+                const response = await fetch(origin);
+                if (response.ok) {
+                    await response.body?.cancel();
+                    return { origin, close };
+                }
+                await response.body?.cancel();
+            } catch {}
+            await Bun.sleep(50);
+        }
+        throw new Error(`Vite preview did not become ready at ${origin}`);
+    } catch (error) {
+        await close();
+        throw error;
+    }
+}
+
 export async function samplePage(
     projectDir: string,
     { warm, frames, deadline }: { warm: number; frames: number; deadline: number },
@@ -251,19 +302,16 @@ export async function samplePage(
     if (!Number.isInteger(frames) || frames <= 0 || !Number.isInteger(warm) || warm < frames)
         throw new Error("page sampler: needs integer warm >= frames > 0");
     const plan = launchPlan(process.platform);
-    if ("refused" in plan) throw new MissingPremise(`display seat unavailable: ${plan.refused}`);
+    if ("refused" in plan) throw new Error(`display seat unavailable: ${plan.refused}`);
     const declared = process.env.SHALLOT_DISPLAY_SEAT?.trim();
-    if (!declared)
-        throw new MissingPremise("display seat unavailable: no headed display is declared");
+    if (!declared) throw new Error("display seat unavailable: no headed display is declared");
     const app = realpathSync(FRAME_LOOP.source);
     const remaining = () => Math.max(1, deadline - performance.now());
     // The premise is the page's measured rate, and it is proved partway through. Before it, a call that runs
     // out of time may be a host too slow to hold the premise at all, so it refuses. After it, the row has
     // just proved this host steps frames fast enough, so a call that then runs out of time is the page
     // hanging: a failure of the claim, which is exactly what this row exists to notice.
-    let premiseHeld = false;
-    const outOfTime = (message: string) =>
-        premiseHeld ? new Error(message) : new MissingPremise(message);
+    const outOfTime = (message: string) => new Error(message);
     // Every slow call races the deadline, so a hang still reaches `finally` before the row's budget ends.
     // Either way the error names the call.
     const bounded = <T>(what: string, work: Promise<T>): Promise<T> => {
@@ -283,15 +331,14 @@ export async function samplePage(
     };
 
     const outDir = mkdtempSync(join(tmpdir(), "shallot-page-"));
-    let server: ReturnType<typeof Bun.serve> | undefined;
+    let preview: { origin: string; close(): Promise<void> } | undefined;
     let browser: import("playwright").Browser | undefined;
     try {
-        const pageServer = servePage(outDir, CROSS_ORIGIN_ISOLATION);
-        server = pageServer.server;
-        // Loaded here, as playwright is, so Node allocation rows never load vite on import.
-        const { buildWeb } = await import("../../src/project");
+        // Build the project's own Vite config, then inspect the same output through its preview server.
+        const { buildWeb } = await import("../../src/project/build");
         await bounded("the web build", buildWeb(projectDir, { outDir, sourcemap: true }));
-        const { origin } = pageServer;
+        preview = await startPreview(projectDir, outDir, remaining());
+        const { origin } = preview;
         const maps = new Map<string, { map: SourceMap; base: string }>();
         for (const file of readdirSync(outDir, { recursive: true }) as string[]) {
             const mapFile = join(outDir, `${file}.map`);
@@ -325,7 +372,7 @@ export async function samplePage(
         browser = await chromium.launch({
             headless: false,
             channel: plan.channel,
-            args: [...plan.args, ...placement.args, tiers],
+            args: [...CHROMIUM_ARGS, ...placement.args, tiers],
             timeout: remaining(),
         });
         const page = await bounded(
@@ -347,7 +394,7 @@ export async function samplePage(
         const seat = resolveSeat("display", {
             display: { source: declared, browser: { launch: plan, adapter: facts } },
         });
-        if (!seat.ok) throw new MissingPremise(seat.reason);
+        if (!seat.ok) throw new Error(seat.reason);
         // A placement rule is a request; this is the evidence that the page took it.
         const pinned = await bounded("the display placement", confirmOnDisplay(placement));
 
@@ -492,11 +539,10 @@ export async function samplePage(
         const left = remaining();
         const required = (budget * 1000) / Math.max(1, left - reserve);
         if (needed > left)
-            throw new MissingPremise(
+            throw new Error(
                 `the page presents at ${sampledRate.toFixed(1)} Hz under the heap sampler and ${controlRate.toFixed(1)} Hz under the control breakpoint, so this row's ${budget} frames (warm ${warm}, three ${frames}-frame windows, a ${frames}-frame survivor window and a ${CONTROL_FRAMES}-frame control) need ${needed.toFixed(0)} ms, including ${reserve.toFixed(0)} ms of calls that step no frame, against the ${left.toFixed(0)} ms left before the deadline; an even ${required.toFixed(1)} Hz would be required`,
             );
-        // Past here the host has proved it steps frames fast enough, so running out of time is the page's.
-        premiseHeld = true;
+        // The remaining frame sample runs against the same wall-clock deadline and fails if it overruns.
 
         await advance(warm);
         // the GC and frame-pacing trace spans the three steady windows: the collections, their pauses and
@@ -527,8 +573,8 @@ export async function samplePage(
         cdp.off("Tracing.dataCollected", onTrace);
         const trace = readTrace(events);
         // The person uses this desktop while the row runs. A window dragged away, or a workspace switched on
-        // the declared monitor, means the windows just measured were not all presented where the verdict
-        // says, so the run refuses rather than recording a seat it half held.
+        // the declared monitor, means the windows just measured were not all presented there, so the test
+        // fails rather than recording a seat it only partly held.
         await pinned.stillThere("after the three steady windows");
         const survivors = await sampleSurvivors(frames);
 
@@ -565,7 +611,7 @@ export async function samplePage(
         };
     } finally {
         await browser?.close();
-        server?.stop(true);
+        await preview?.close();
         rmSync(outDir, { recursive: true, force: true });
     }
 }

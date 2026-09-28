@@ -1,5 +1,4 @@
-import { expect } from "bun:test";
-import { check } from "../../../harness/check";
+import { expect, test } from "bun:test";
 import { type Quat, segmentDistance, type Transform, type Vec3 } from "../common/math";
 import {
     type CastOutput,
@@ -67,121 +66,91 @@ const makeProxy = (name: string, radiusHex: string): ShapeProxy => {
 
 // --- bit-exact gold gates -------------------------------------------------------------------
 
-check(
-    "shapeCast matches the C reference bit for bit",
-    {
-        claim: "the conservative-advancement shape cast drifts from the pinned Box3D C reference on hit flag, fraction, contact point, normal or iteration count",
-    },
-    () => {
-        for (const g of gold.cast) {
-            const proxyA = makeProxy(g.proxyA, g.radiusA);
-            const proxyB = makeProxy(g.proxyB, g.radiusB);
-            const out: CastOutput = shapeCast({
-                proxyA,
-                proxyB,
-                transform: xfFromHex(g.transform),
-                translationB: vecFromHex(g.translationB),
-                maxFraction: fromBits(g.maxFraction),
-                canEncroach: g.canEncroach,
-            });
-            expect(out.hit, `${g.name} hit`).toBe(g.out.hit);
-            bitEqual(out.fraction, g.out.fraction, `${g.name} fraction`);
-            vecEqual(out.point, g.out.point, `${g.name} point`);
-            vecEqual(out.normal, g.out.normal, `${g.name} normal`);
-            expect(out.iterations, `${g.name} iterations`).toBe(g.out.iterations);
-        }
-    },
-);
+test("the conservative-advancement shape cast drifts from the pinned Box3D C reference on hit flag, fraction, contact point, normal or iteration count", () => {
+    for (const g of gold.cast) {
+        const proxyA = makeProxy(g.proxyA, g.radiusA);
+        const proxyB = makeProxy(g.proxyB, g.radiusB);
+        const out: CastOutput = shapeCast({
+            proxyA,
+            proxyB,
+            transform: xfFromHex(g.transform),
+            translationB: vecFromHex(g.translationB),
+            maxFraction: fromBits(g.maxFraction),
+            canEncroach: g.canEncroach,
+        });
+        expect(out.hit, `${g.name} hit`).toBe(g.out.hit);
+        bitEqual(out.fraction, g.out.fraction, `${g.name} fraction`);
+        vecEqual(out.point, g.out.point, `${g.name} point`);
+        vecEqual(out.normal, g.out.normal, `${g.name} normal`);
+        expect(out.iterations, `${g.name} iterations`).toBe(g.out.iterations);
+    }
+});
 
-check(
-    "segmentDistance matches the C reference bit for bit",
-    {
-        claim: "the closest-points-between-two-segments primitive drifts from the pinned Box3D C reference on either witness point or either clamped fraction",
-    },
-    () => {
-        for (const g of gold.segment) {
-            const r = segmentDistance(
-                vecFromHex(g.p1),
-                vecFromHex(g.q1),
-                vecFromHex(g.p2),
-                vecFromHex(g.q2),
-            );
-            vecEqual(r.point1, g.out.point1, `${g.name} point1`);
-            bitEqual(r.fraction1, g.out.fraction1, `${g.name} fraction1`);
-            vecEqual(r.point2, g.out.point2, `${g.name} point2`);
-            bitEqual(r.fraction2, g.out.fraction2, `${g.name} fraction2`);
-        }
-    },
-);
+test("the closest-points-between-two-segments primitive drifts from the pinned Box3D C reference on either witness point or either clamped fraction", () => {
+    for (const g of gold.segment) {
+        const r = segmentDistance(
+            vecFromHex(g.p1),
+            vecFromHex(g.q1),
+            vecFromHex(g.p2),
+            vecFromHex(g.q2),
+        );
+        vecEqual(r.point1, g.out.point1, `${g.name} point1`);
+        bitEqual(r.fraction1, g.out.fraction1, `${g.name} fraction1`);
+        vecEqual(r.point2, g.out.point2, `${g.name} point2`);
+        bitEqual(r.fraction2, g.out.fraction2, `${g.name} fraction2`);
+    }
+});
 
 // --- ported upstream test_distance.c subtests (analytic, oracle-independent) -----------------
 
 const EPS = fromBits("34000000"); // FLT_EPSILON = 2^-23
 
-check(
-    "segmentDistance finds the analytic closest pair on two perpendicular segments",
-    {
-        claim: "segmentDistance mis-parameterizes or fails to clamp a perpendicular segment pair, so the closest pair lands off the segments instead of at the midpoint and the endpoint",
-    },
-    () => {
-        const r = segmentDistance(v(-1, -1, 0), v(-1, 1, 0), v(2, 0, 0), v(1, 0, 0));
-        expect(Math.abs(r.fraction1 - 0.5)).toBeLessThan(EPS);
-        expect(Math.abs(r.fraction2 - 1)).toBeLessThan(EPS);
-        expect(Math.abs(r.point1.x + 1)).toBeLessThan(EPS);
-        expect(Math.abs(r.point1.y)).toBeLessThan(EPS);
-        expect(Math.abs(r.point1.z)).toBeLessThan(EPS);
-        expect(Math.abs(r.point2.x - 1)).toBeLessThan(EPS);
-        expect(Math.abs(r.point2.y)).toBeLessThan(EPS);
-        expect(Math.abs(r.point2.z)).toBeLessThan(EPS);
-    },
-);
+test("segmentDistance mis-parameterizes or fails to clamp a perpendicular segment pair, so the closest pair lands off the segments instead of at the midpoint and the endpoint", () => {
+    const r = segmentDistance(v(-1, -1, 0), v(-1, 1, 0), v(2, 0, 0), v(1, 0, 0));
+    expect(Math.abs(r.fraction1 - 0.5)).toBeLessThan(EPS);
+    expect(Math.abs(r.fraction2 - 1)).toBeLessThan(EPS);
+    expect(Math.abs(r.point1.x + 1)).toBeLessThan(EPS);
+    expect(Math.abs(r.point1.y)).toBeLessThan(EPS);
+    expect(Math.abs(r.point1.z)).toBeLessThan(EPS);
+    expect(Math.abs(r.point2.x - 1)).toBeLessThan(EPS);
+    expect(Math.abs(r.point2.y)).toBeLessThan(EPS);
+    expect(Math.abs(r.point2.z)).toBeLessThan(EPS);
+});
 
-check(
-    "shapeDistance reports the analytic gap between a quad and a separated segment",
-    {
-        claim: "shapeDistance returns a gap other than the analytic 1 between a unit quad and a segment standing one unit away, so separated pairs report the wrong distance",
-    },
-    () => {
-        const proxyA: ShapeProxy = {
-            points: [v(-1, -1, 0), v(1, -1, 0), v(1, 1, 0), v(-1, 1, 0)],
-            count: 4,
-            radius: 0,
-        };
-        const proxyB: ShapeProxy = { points: [v(2, -1, 0), v(2, 1, 0)], count: 2, radius: 0 };
-        const out = shapeDistance(
-            {
-                proxyA,
-                proxyB,
-                transform: { p: v(0, 0, 0), q: { v: v(0, 0, 0), s: 1 } },
-                useRadii: false,
-            },
-            emptyCache(),
-        );
-        expect(Math.abs(out.distance - 1)).toBeLessThan(EPS);
-    },
-);
-
-check(
-    "timeOfImpact lands the Hit state at the analytic half of the sweep",
-    {
-        claim: "timeOfImpact returns a state other than Hit or a fraction away from the analytic 0.5 when a segment sweeps two units into a stationary quad one unit away",
-    },
-    () => {
-        const proxyA: ShapeProxy = {
-            points: [v(-1, -1, 0), v(1, -1, 0), v(1, 1, 0), v(-1, 1, 0)],
-            count: 4,
-            radius: 0,
-        };
-        const proxyB: ShapeProxy = { points: [v(2, -1, 0), v(2, 1, 0)], count: 2, radius: 0 };
-        const id: Quat = { v: v(0, 0, 0), s: 1 };
-        const out = timeOfImpact({
+test("shapeDistance returns a gap other than the analytic 1 between a unit quad and a segment standing one unit away, so separated pairs report the wrong distance", () => {
+    const proxyA: ShapeProxy = {
+        points: [v(-1, -1, 0), v(1, -1, 0), v(1, 1, 0), v(-1, 1, 0)],
+        count: 4,
+        radius: 0,
+    };
+    const proxyB: ShapeProxy = { points: [v(2, -1, 0), v(2, 1, 0)], count: 2, radius: 0 };
+    const out = shapeDistance(
+        {
             proxyA,
             proxyB,
-            sweepA: { localCenter: v(0, 0, 0), c1: v(0, 0, 0), c2: v(0, 0, 0), q1: id, q2: id },
-            sweepB: { localCenter: v(0, 0, 0), c1: v(0, 0, 0), c2: v(-2, 0, 0), q1: id, q2: id },
-            maxFraction: 1,
-        });
-        expect(out.state).toBe(TOIState.Hit);
-        expect(Math.abs(out.fraction - 0.5)).toBeLessThan(0.005);
-    },
-);
+            transform: { p: v(0, 0, 0), q: { v: v(0, 0, 0), s: 1 } },
+            useRadii: false,
+        },
+        emptyCache(),
+    );
+    expect(Math.abs(out.distance - 1)).toBeLessThan(EPS);
+});
+
+test("timeOfImpact returns a state other than Hit or a fraction away from the analytic 0.5 when a segment sweeps two units into a stationary quad one unit away", () => {
+    const proxyA: ShapeProxy = {
+        points: [v(-1, -1, 0), v(1, -1, 0), v(1, 1, 0), v(-1, 1, 0)],
+        count: 4,
+        radius: 0,
+    };
+    const proxyB: ShapeProxy = { points: [v(2, -1, 0), v(2, 1, 0)], count: 2, radius: 0 };
+    const id: Quat = { v: v(0, 0, 0), s: 1 };
+    const out = timeOfImpact({
+        proxyA,
+        proxyB,
+        sweepA: { localCenter: v(0, 0, 0), c1: v(0, 0, 0), c2: v(0, 0, 0), q1: id, q2: id },
+        sweepB: { localCenter: v(0, 0, 0), c1: v(0, 0, 0), c2: v(-2, 0, 0), q1: id, q2: id },
+        maxFraction: 1,
+    });
+    expect(out.state).toBe(TOIState.Hit);
+    expect(Math.abs(out.fraction - 0.5)).toBeLessThan(0.005);
+});

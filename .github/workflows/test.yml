@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  cpu:
+  cheap:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -21,8 +21,6 @@ jobs:
         os: [ubuntu-latest, macos-15]
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
@@ -32,150 +30,63 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-      - name: resolve surface refs
-        env:
-          SURFACE_EVENT: ${{ github.event_name }}
-          SURFACE_PR_BASE: ${{ github.event.pull_request.base.sha }}
-          SURFACE_BEFORE: ${{ github.event.before }}
-          SURFACE_DIFF: ${{ github.sha }}
-          SURFACE_REF: ${{ github.ref }}
-          SURFACE_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          set -euo pipefail
-          zero=0000000000000000000000000000000000000000
-          if [ "$SURFACE_EVENT" = "pull_request" ]; then
-            base="$SURFACE_PR_BASE"
-          elif [ -n "$SURFACE_BEFORE" ] && [ "$SURFACE_BEFORE" != "$zero" ]; then
-            base="$SURFACE_BEFORE"
-          elif [ "$SURFACE_REF" = "refs/heads/$SURFACE_DEFAULT_BRANCH" ]; then
-            base="$(git rev-parse --verify --quiet --end-of-options "$SURFACE_DIFF^")" || {
-              echo "surface refused: the initial default-branch push has no parent commit" >&2
-              exit 1
-            }
-          else
-            base="$(git merge-base "$SURFACE_DIFF" "origin/$SURFACE_DEFAULT_BRANCH")" || {
-              echo "surface refused: could not derive a merge base for the new branch push" >&2
-              exit 1
-            }
-          fi
-          git rev-parse --verify --quiet --end-of-options "$base^{commit}" >/dev/null || {
-            echo "surface refused: base is not an existing commit object: $base" >&2
-            exit 1
-          }
-          git rev-parse --verify --quiet --end-of-options "$SURFACE_DIFF^{commit}" >/dev/null || {
-            echo "surface refused: diff is not an existing commit object: $SURFACE_DIFF" >&2
-            exit 1
-          }
-          echo "surface refs: base=$base diff=$SURFACE_DIFF"
-          echo "SHALLOT_SURFACE_BASE=$base" >> "$GITHUB_ENV"
-          echo "SHALLOT_SURFACE_DIFF=$SURFACE_DIFF" >> "$GITHUB_ENV"
-      - run: bun install --frozen-lockfile
+      - name: install dependencies
+        id: install
+        run: bun install --frozen-lockfile
       - name: static gates
-        if: always()
         run: bun run check
-      - name: unit sweep
-        if: always()
-        run: |
-          rm -rf .artifacts
-          bun run test
-      - name: upload unit sweep artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: shallot-test-${{ runner.os }}-unit-sweep-${{ github.run_id }}
-          path: .artifacts/
-          if-no-files-found: warn
-          include-hidden-files: true
-      - name: changed CPU integration rows
-        if: always()
-        run: |
-          rm -rf .artifacts
-          bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires '!gpu' --requires '!browser' --requires '!display' --no-unit-fallback
-      - name: upload changed CPU integration artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: shallot-test-${{ runner.os }}-cpu-integration-${{ github.run_id }}
-          path: .artifacts/
-          if-no-files-found: warn
-          include-hidden-files: true
+      - name: cheap tier
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: /usr/bin/time -p bun test
 
-  macos-capabilities:
+  gpu:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
         with:
-          fetch-depth: 0
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: GPU tier
+        run: /usr/bin/time -p bun test ./src/transitional/mirror/index.gpu.ts ./src/harness/wgsl.gpu.ts
+
+  cargo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - name: audio tests
+        run: /usr/bin/time -p cargo test -p shallot-audio
+      - name: physics unit tests
+        run: /usr/bin/time -p cargo test -p shallot-physics --lib --test stages
+      - name: physics gold tests
+        run: /usr/bin/time -p cargo test -p shallot-physics --test contact_gold --test contact_wide_gold --test convex_manifold_gold --test distance_gold --test finalize_gold --test integrate_gold --test joint_gold --test manifold_gold --test math_gold --test recycle_gold --test tree_gold
+
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-      - name: resolve surface refs
-        env:
-          SURFACE_EVENT: ${{ github.event_name }}
-          SURFACE_PR_BASE: ${{ github.event.pull_request.base.sha }}
-          SURFACE_BEFORE: ${{ github.event.before }}
-          SURFACE_DIFF: ${{ github.sha }}
-          SURFACE_REF: ${{ github.ref }}
-          SURFACE_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          set -euo pipefail
-          zero=0000000000000000000000000000000000000000
-          if [ "$SURFACE_EVENT" = "pull_request" ]; then
-            base="$SURFACE_PR_BASE"
-          elif [ -n "$SURFACE_BEFORE" ] && [ "$SURFACE_BEFORE" != "$zero" ]; then
-            base="$SURFACE_BEFORE"
-          elif [ "$SURFACE_REF" = "refs/heads/$SURFACE_DEFAULT_BRANCH" ]; then
-            base="$(git rev-parse --verify --quiet --end-of-options "$SURFACE_DIFF^")" || {
-              echo "surface refused: the initial default-branch push has no parent commit" >&2
-              exit 1
-            }
-          else
-            base="$(git merge-base "$SURFACE_DIFF" "origin/$SURFACE_DEFAULT_BRANCH")" || {
-              echo "surface refused: could not derive a merge base for the new branch push" >&2
-              exit 1
-            }
-          fi
-          git rev-parse --verify --quiet --end-of-options "$base^{commit}" >/dev/null || {
-            echo "surface refused: base is not an existing commit object: $base" >&2
-            exit 1
-          }
-          git rev-parse --verify --quiet --end-of-options "$SURFACE_DIFF^{commit}" >/dev/null || {
-            echo "surface refused: diff is not an existing commit object: $SURFACE_DIFF" >&2
-            exit 1
-          }
-          echo "surface refs: base=$base diff=$SURFACE_DIFF"
-          echo "SHALLOT_SURFACE_BASE=$base" >> "$GITHUB_ENV"
-          echo "SHALLOT_SURFACE_DIFF=$SURFACE_DIFF" >> "$GITHUB_ENV"
-      - name: install Bun dependencies, including bun-webgpu
-        run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+      - name: Node tier
+        run: /usr/bin/time -p bun test ./examples/first-person/src/demo.node.ts
+
+  browser:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
       - name: install Playwright Chromium
         run: bunx playwright install chromium
-      - name: changed GPU integration rows
-        if: always()
-        run: |
-          rm -rf .artifacts
-          bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires gpu --requires '!browser' --no-unit-fallback
-      - name: upload changed GPU integration artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: shallot-test-${{ runner.os }}-gpu-integration-${{ github.run_id }}
-          path: .artifacts/
-          if-no-files-found: warn
-          include-hidden-files: true
-      - name: changed browser integration rows
-        if: always()
-        run: |
-          rm -rf .artifacts
-          bun run test -- --integration --base "$SHALLOT_SURFACE_BASE" --diff "$SHALLOT_SURFACE_DIFF" --requires browser --no-unit-fallback
-      - name: upload changed browser integration artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: shallot-test-${{ runner.os }}-browser-integration-${{ github.run_id }}
-          path: .artifacts/
-          if-no-files-found: warn
-          include-hidden-files: true
+      - name: browser tier
+        run: /usr/bin/time -p bunx playwright test

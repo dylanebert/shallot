@@ -16,10 +16,6 @@ html {
     -webkit-text-size-adjust: 100%;
 }
 
-html[data-check] canvas {
-    transition: none !important;
-}
-
 body {
     background: var(--bg);
     color: var(--ink);

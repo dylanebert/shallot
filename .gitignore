@@ -15,3 +15,6 @@ crates/*/pkg/*
 .DS_Store
 Thumbs.db
 .artifacts
+examples/*/dist/
+test-results/
+playwright-report/

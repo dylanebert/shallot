@@ -4,8 +4,7 @@
 // bit, over the vectors in mover.gold.json. Current target evidence belongs to the standalone oracle;
 // equality, not tolerance (the README).
 
-import { expect } from "bun:test";
-import { check } from "../../../harness/check";
+import { expect, test } from "bun:test";
 import { type Transform, type Vec3, xf } from "../common/math";
 import { defaultSurfaceMaterial } from "../common/types";
 import { type CompoundData, collideMoverAndCompound, createCompound } from "../shapes/compound";
@@ -83,77 +82,53 @@ const moverFrom = (m: { center1: string[]; center2: string[]; radius: string }):
     radius: fromBits(m.radius),
 });
 
-check(
-    "solvePlanes matches the C reference bit-for-bit over every gold vector",
-    {
-        claim: "the mover plane solver drifts from the Box3D C reference in its delta bits or iteration count, so a character resolves penetration differently than the pinned reference",
-    },
-    () => {
-        for (const g of gold.solvePlanes) {
-            const planes = g.planes.map((p) => collisionPlane(p as PlaneJson));
-            const result = solvePlanes(vecFromHex(g.target), planes, planes.length);
-            vecEqual(result.delta, g.delta, `${g.name} delta`);
-            if (result.iterationCount !== g.iterationCount) {
-                throw new Error(
-                    `${g.name} iterationCount: got ${result.iterationCount}, want ${g.iterationCount}`,
-                );
-            }
+test("the mover plane solver drifts from the Box3D C reference in its delta bits or iteration count, so a character resolves penetration differently than the pinned reference", () => {
+    for (const g of gold.solvePlanes) {
+        const planes = g.planes.map((p) => collisionPlane(p as PlaneJson));
+        const result = solvePlanes(vecFromHex(g.target), planes, planes.length);
+        vecEqual(result.delta, g.delta, `${g.name} delta`);
+        if (result.iterationCount !== g.iterationCount) {
+            throw new Error(
+                `${g.name} iterationCount: got ${result.iterationCount}, want ${g.iterationCount}`,
+            );
         }
-        expect(gold.solvePlanes.length).toBeGreaterThan(0);
-    },
-);
+    }
+    expect(gold.solvePlanes.length).toBeGreaterThan(0);
+});
 
-check(
-    "clipVector matches the C reference bit-for-bit over every gold vector",
-    {
-        claim: "the mover velocity clip drifts from the Box3D C reference, so a character keeps or loses velocity against a contact plane differently than the pinned reference",
-    },
-    () => {
-        for (const g of gold.clipVector) {
-            const planes = g.planes.map((p) => collisionPlane(p as PlaneJson));
-            const out = clipVector(vecFromHex(g.vector), planes, planes.length);
-            vecEqual(out, g.out, `${g.name} out`);
-        }
-        expect(gold.clipVector.length).toBeGreaterThan(0);
-    },
-);
+test("the mover velocity clip drifts from the Box3D C reference, so a character keeps or loses velocity against a contact plane differently than the pinned reference", () => {
+    for (const g of gold.clipVector) {
+        const planes = g.planes.map((p) => collisionPlane(p as PlaneJson));
+        const out = clipVector(vecFromHex(g.vector), planes, planes.length);
+        vecEqual(out, g.out, `${g.name} out`);
+    }
+    expect(gold.clipVector.length).toBeGreaterThan(0);
+});
 
-check(
-    "collideMoverAndSphere matches the C reference bit-for-bit over every gold vector",
-    {
-        claim: "mover-versus-sphere collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits",
-    },
-    () => {
-        for (const g of gold.sphere) {
-            const sphere: Sphere = {
-                center: vecFromHex(g.center as string[]),
-                radius: fromBits(g.radius),
-            };
-            const p = collideMoverAndSphere(sphere, moverFrom(g.mover));
-            planesEqual(p ? [p] : [], g, g.name);
-        }
-        expect(gold.sphere.length).toBeGreaterThan(0);
-    },
-);
+test("mover-versus-sphere collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits", () => {
+    for (const g of gold.sphere) {
+        const sphere: Sphere = {
+            center: vecFromHex(g.center as string[]),
+            radius: fromBits(g.radius),
+        };
+        const p = collideMoverAndSphere(sphere, moverFrom(g.mover));
+        planesEqual(p ? [p] : [], g, g.name);
+    }
+    expect(gold.sphere.length).toBeGreaterThan(0);
+});
 
-check(
-    "collideMoverAndCapsule matches the C reference bit-for-bit over every gold vector",
-    {
-        claim: "mover-versus-capsule collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits",
-    },
-    () => {
-        for (const g of gold.capsule) {
-            const shape: Capsule = {
-                center1: vecFromHex(g.center1 as string[]),
-                center2: vecFromHex(g.center2 as string[]),
-                radius: fromBits(g.radius),
-            };
-            const p = collideMoverAndCapsule(shape, moverFrom(g.mover));
-            planesEqual(p ? [p] : [], g, g.name);
-        }
-        expect(gold.capsule.length).toBeGreaterThan(0);
-    },
-);
+test("mover-versus-capsule collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits", () => {
+    for (const g of gold.capsule) {
+        const shape: Capsule = {
+            center1: vecFromHex(g.center1 as string[]),
+            center2: vecFromHex(g.center2 as string[]),
+            radius: fromBits(g.radius),
+        };
+        const p = collideMoverAndCapsule(shape, moverFrom(g.mover));
+        planesEqual(p ? [p] : [], g, g.name);
+    }
+    expect(gold.capsule.length).toBeGreaterThan(0);
+});
 
 // The box hull, baked identically to fixtures/mover_gold.c's b3CreateHull(boxCorners, 8, 8).
 const boxCorners: Vec3[] = [
@@ -168,19 +143,13 @@ const boxCorners: Vec3[] = [
 ];
 const box = createHull(boxCorners, 8) as HullData;
 
-check(
-    "collideMoverAndHull matches the C reference bit-for-bit over every gold vector",
-    {
-        claim: "mover-versus-hull collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits",
-    },
-    () => {
-        for (const g of gold.hull) {
-            const p = collideMoverAndHull(box, moverFrom(g.mover));
-            planesEqual(p ? [p] : [], g, g.name);
-        }
-        expect(gold.hull.length).toBeGreaterThan(0);
-    },
-);
+test("mover-versus-hull collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits", () => {
+    for (const g of gold.hull) {
+        const p = collideMoverAndHull(box, moverFrom(g.mover));
+        planesEqual(p ? [p] : [], g, g.name);
+    }
+    expect(gold.hull.length).toBeGreaterThan(0);
+});
 
 // Mesh / height field / compound reconstructed with the same builders the C gold used.
 const gridMesh: Mesh = { data: createGridMesh(4, 4, 1, 0, true), scale: v(1, 1, 1) };
@@ -198,41 +167,23 @@ const compound = createCompound({
     ],
 }) as CompoundData;
 
-check(
-    "collideMoverAndMesh matches the C reference bit-for-bit over every gold vector",
-    {
-        claim: "mover-versus-triangle-mesh collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits",
-    },
-    () => {
-        for (const g of gold.mesh) {
-            planesEqual(collideMoverAndMesh(gridMesh, 16, moverFrom(g.mover)), g, g.name);
-        }
-        expect(gold.mesh.length).toBeGreaterThan(0);
-    },
-);
+test("mover-versus-triangle-mesh collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits", () => {
+    for (const g of gold.mesh) {
+        planesEqual(collideMoverAndMesh(gridMesh, 16, moverFrom(g.mover)), g, g.name);
+    }
+    expect(gold.mesh.length).toBeGreaterThan(0);
+});
 
-check(
-    "collideMoverAndHeightField matches the C reference bit-for-bit over every gold vector",
-    {
-        claim: "mover-versus-height-field collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits",
-    },
-    () => {
-        for (const g of gold.height) {
-            planesEqual(collideMoverAndHeightField(gridField, 16, moverFrom(g.mover)), g, g.name);
-        }
-        expect(gold.height.length).toBeGreaterThan(0);
-    },
-);
+test("mover-versus-height-field collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits", () => {
+    for (const g of gold.height) {
+        planesEqual(collideMoverAndHeightField(gridField, 16, moverFrom(g.mover)), g, g.name);
+    }
+    expect(gold.height.length).toBeGreaterThan(0);
+});
 
-check(
-    "collideMoverAndCompound matches the C reference bit-for-bit over every gold vector",
-    {
-        claim: "mover-versus-compound collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits",
-    },
-    () => {
-        for (const g of gold.compound) {
-            planesEqual(collideMoverAndCompound(compound, 16, moverFrom(g.mover)), g, g.name);
-        }
-        expect(gold.compound.length).toBeGreaterThan(0);
-    },
-);
+test("mover-versus-compound collision drifts from the Box3D C reference in its plane count, normal, offset or contact point bits", () => {
+    for (const g of gold.compound) {
+        planesEqual(collideMoverAndCompound(compound, 16, moverFrom(g.mover)), g, g.name);
+    }
+    expect(gold.compound.length).toBeGreaterThan(0);
+});

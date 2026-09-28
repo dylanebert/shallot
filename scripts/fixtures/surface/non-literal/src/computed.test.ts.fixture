@@ -1,3 +1,0 @@
-import { check } from "@dylanebert/shallot/harness/check";
-
-check("computed declaration", { claim: "computed declaration", budget: 5 + 5 }, () => {});

@@ -1,8 +1,7 @@
-import { expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { check } from "@dylanebert/shallot/harness/check";
 import { runAdd } from "./add";
 import { PROJECT_GITIGNORE } from "./add-fragments";
 
@@ -45,25 +44,22 @@ async function captureOutput<T>(
     }
 }
 
-check(
-    "add help aliases are informational",
-    { claim: "shallot add help succeeds with no recipe catalogue or destination writes" },
-    async () => {
-        const root = mkdtempSync(join(tmpdir(), "shallot-add-help-"));
-        try {
-            for (const flag of ["--help", "-h"]) {
-                const dest = join(root, `not-created-${flag.slice(1)}`);
-                const output = await captureOutput(() =>
-                    runAdd([flag, dest], {
-                        recipesDir: join(root, "empty"),
-                        version: "0.0.0",
-                    }),
-                );
-                expect(output.value).toBe(0);
-                expect(output.stderr).toBe("");
-                expect(output.stdout).toContain("shallot add [name] [dir]");
-                expect(output.stdout.trim()).toBe(
-                    `
+test("shallot add help succeeds with no recipe catalogue or destination writes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "shallot-add-help-"));
+    try {
+        for (const flag of ["--help", "-h"]) {
+            const dest = join(root, `not-created-${flag.slice(1)}`);
+            const output = await captureOutput(() =>
+                runAdd([flag, dest], {
+                    recipesDir: join(root, "empty"),
+                    version: "0.0.0",
+                }),
+            );
+            expect(output.value).toBe(0);
+            expect(output.stderr).toBe("");
+            expect(output.stdout).toContain("shallot add [name] [dir]");
+            expect(output.stdout.trim()).toBe(
+                `
   shallot add [name] [dir]
 
   Without a name, lists available examples.
@@ -78,67 +74,54 @@ check(
 
   Options
     -h, --help  Show this help`.trim(),
-                );
-                expect(existsSync(dest)).toBe(false);
-            }
-        } finally {
-            rmSync(root, { recursive: true, force: true });
+            );
+            expect(existsSync(dest)).toBe(false);
         }
-    },
-);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
 
-check(
-    "add lists manifest intent without changing the recipe population",
-    {
-        claim: "shallot add lists every recipe in stable name order with problem, description, or name-only fallback",
-    },
-    async () => {
-        const root = discoveryRecipes();
-        try {
-            const output = await captureOutput(() =>
-                runAdd([], {
-                    recipesDir: join(root, "examples"),
-                    version: "0.0.0",
-                }),
-            );
-            expect(output.value).toBe(0);
-            expect(output.stderr).toBe("");
-            expect(output.stdout).toContain(
-                "Available examples:\n\n  alpha — declared problem\n  legacy\n  zeta — description fallback\n\nCopy an example with:\n  bunx shallot add <name> [dir]",
-            );
-            expect(output.stdout).not.toContain("showcase");
-        } finally {
-            rmSync(root, { recursive: true, force: true });
-        }
-    },
-);
+test("shallot add lists every recipe in stable name order with problem, description, or name-only fallback", async () => {
+    const root = discoveryRecipes();
+    try {
+        const output = await captureOutput(() =>
+            runAdd([], {
+                recipesDir: join(root, "examples"),
+                version: "0.0.0",
+            }),
+        );
+        expect(output.value).toBe(0);
+        expect(output.stderr).toBe("");
+        expect(output.stdout).toContain(
+            "Available examples:\n\n  alpha — declared problem\n  legacy\n  zeta — description fallback\n\nCopy an example with:\n  bunx shallot add <name> [dir]",
+        );
+        expect(output.stdout).not.toContain("showcase");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
 
-check(
-    "add writes the project ignore",
-    { claim: "shallot add gives a copied recipe the canonical .gitignore" },
-    async () => {
-        const root = recipes();
-        try {
-            const dest = join(root, "out");
-            const output = await captureOutput(() =>
-                runAdd(["demo", dest], {
-                    recipesDir: join(root, "examples"),
-                    version: "0.0.0",
-                }),
-            );
-            expect(output.value).toBe(0);
-            expect(output.stdout).toBe(
-                `copied example demo → ${dest}\n  cd ${dest} && bun install && bunx shallot dev`,
-            );
-            expect(readFileSync(join(dest, ".gitignore"), "utf8")).toBe(PROJECT_GITIGNORE);
-            const agents = readFileSync(join(dest, "AGENTS.md"), "utf8");
-            expect(agents).toContain(
-                "A Shallot example — a minimal project demonstrating one concept",
-            );
-            expect(agents).toContain("The examples live at");
-            expect(agents).not.toContain("recipe");
-        } finally {
-            rmSync(root, { recursive: true, force: true });
-        }
-    },
-);
+test("shallot add gives a copied recipe the canonical .gitignore", async () => {
+    const root = recipes();
+    try {
+        const dest = join(root, "out");
+        const output = await captureOutput(() =>
+            runAdd(["demo", dest], {
+                recipesDir: join(root, "examples"),
+                version: "0.0.0",
+            }),
+        );
+        expect(output.value).toBe(0);
+        expect(output.stdout).toBe(
+            `copied example demo → ${dest}\n  cd ${dest} && bun install && bunx shallot dev`,
+        );
+        expect(readFileSync(join(dest, ".gitignore"), "utf8")).toBe(PROJECT_GITIGNORE);
+        const agents = readFileSync(join(dest, "AGENTS.md"), "utf8");
+        expect(agents).toContain("A Shallot example — a minimal project demonstrating one concept");
+        expect(agents).toContain("The examples live at");
+        expect(agents).not.toContain("recipe");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});

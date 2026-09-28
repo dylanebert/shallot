@@ -41,7 +41,6 @@ const packageFiles = JSON.parse(readFileSync(resolve(pkgDir, "package.json"), "u
 const negated = packageFiles
     .filter((entry) => entry.startsWith("!"))
     .map((entry) => new Glob(entry.slice(1)));
-const carriers = ["scripts/test-runner.ts"];
 const requiredNegations = [
     "!scripts/check.ts",
     "!scripts/check-pack.ts",
@@ -55,6 +54,11 @@ const requiredNegations = [
     "!scripts/audio.ts",
     "!scripts/wasm-opt.ts",
     "!**/fixtures",
+    "!**/*.test.ts",
+    "!**/*.oracle.ts",
+    "!**/*.gpu.ts",
+    "!**/*.node.ts",
+    "!**/*.e2e.ts",
 ];
 const missingNegations = requiredNegations.filter((entry) => !packageFiles.includes(entry));
 const isNegated = (file: string): boolean => {
@@ -64,10 +68,7 @@ const isNegated = (file: string): boolean => {
 };
 const forbidden: [string, (f: string) => boolean][] = [
     ["files negation", isNegated],
-    [
-        "non-carrier script",
-        (f) => f.startsWith("scripts/") && f.endsWith(".ts") && !carriers.includes(f),
-    ],
+    ["non-carrier script", (f) => f.startsWith("scripts/") && f.endsWith(".ts")],
     ["build output", (f) => f.includes("/node_modules/")],
     ["site assets", (f) => f.startsWith("assets/") && f !== "assets/icon-1024.png"],
     ["repo docs", (f) => f.endsWith(".md") && f !== "README.md" && !f.startsWith("examples/")],
@@ -80,11 +81,9 @@ const required = [
     "src/index.ts",
     "src/engine/app/device-tiers.generated.ts",
     "bin/shallot.ts",
-    ...carriers,
     "src/project/policy.ts",
     "src/cli/index.ts",
     "dist/vite.js",
-    "src/harness/browser.json",
     "crates/native/Cargo.toml",
     "crates/native/Cargo.lock",
     "assets/icon-1024.png",

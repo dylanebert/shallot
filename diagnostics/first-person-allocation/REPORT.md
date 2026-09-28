@@ -40,7 +40,7 @@ Observed output from the selected reproduction (exit 1):
 
 ```text
 bun test v1.4.2 (744846f84)
-shallot verdict {"claim":"a warm fixed step of the actual first-person CPU composition allocates no JavaScript heap, so no periodic scavenge follows play","size":"integration","runtime":"bun 1.4.2","hardware":"none","result":"fail"}
+[the retired runner's structured result line]
 error: warm page frames allocate outside the sanctions and red circles:
   A/A repeat: 115200 B at stepChunk src/harness/allocation-sampler.mjs:140
 (fail) first-person warm frame allocates nothing

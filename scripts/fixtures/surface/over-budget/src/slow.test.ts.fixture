@@ -1,2 +1,0 @@
-import { check } from "@dylanebert/shallot/harness/check";
-check("slow unit", { claim: "slow unit", budget: 251 }, () => {});

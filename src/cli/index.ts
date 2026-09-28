@@ -12,9 +12,9 @@ const usage = `
     shallot dev               develop with hot reload (vite; --target for desktop)
     shallot build             build for distribution (vite build; --target for desktop)
     shallot preview           run the last build (vite preview; --target for desktop)
-    bun test                  run the cheap checks
-    bun test ./<file>         run a named tier (GPU, oracle)
-    playwright test           run the browser checks
+    bun test                  run the cheap tests
+    bun test ./<file>         run a named Bun tier (GPU, Cargo, Node, oracle)
+    playwright test           run the browser tests
 
   Commands
     add [example]             copy an example into your project; with no name, list them
@@ -92,29 +92,6 @@ const commandUsage = {
 
   Native targets use the requirements documented by 'shallot build --help'.
 `,
-    test: `
-  shallot test [options]
-
-  Run the project's checks. Unit checks run by default; integration checks run only when selected.
-
-  Common examples
-    shallot test
-    shallot test --list
-    shallot test --integration --base origin/main --diff HEAD
-    shallot test --integration --base origin/main --diff HEAD --requires '!gpu' --requires '!browser' --no-unit-fallback
-
-  Options
-    --list                  List the selected checks without running them
-    --integration           Select integration checks; requires --base and --diff unless a selector is used
-    --no-unit-fallback      Do not run the unit sweep when no integration checks are selected
-    --base <ref>            Base commit for changed-subject integration checks (with --diff)
-    --diff <ref>            Diff commit for changed-subject integration checks (with --base)
-    --all                   Select all integration checks (with --integration)
-    --requires <tag|!tag>   Filter by a requirement; repeat to combine filters
-    --subject <prefix>      Select integration checks by subject path (with --integration)
-    --oracle <claim>        Select one named oracle
-    -h, --help              Show this help
-`,
 } as const;
 
 export type CliArgs =
@@ -139,8 +116,6 @@ const TARGETS = ["web", "windows", "mac", "linux"];
 export function parseCliArgs(raw: string[]): CliArgs {
     const verb = raw[0];
     if (verb === "add") return { kind: "add", rest: raw.slice(1) };
-    if (verb === "test" && raw.slice(1).some((arg) => arg === "--help" || arg === "-h"))
-        return { kind: "command-help", command: "test" };
     if (verb && !verb.startsWith("-") && !PROJECT_VERBS.includes(verb))
         return { kind: "unknown", verb };
 

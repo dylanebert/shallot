@@ -14,15 +14,14 @@ bunx shallot add first-person
 
 ## The CLI command set changed
 
-- `shallot list` is now `shallot test --list`.
-- `shallot check` is now `shallot test --list`; declaration violations refuse both `shallot test --list` and `shallot test`.
+- `shallot list` and `shallot check` are removed. Run the project's cheap tests with `bun test`, named host tiers by file path, and browser tests with `bunx playwright test`.
 - `shallot workflow` has no replacement; the workflow file it wrote is yours to edit and is no longer regenerated.
 - `shallot <verb>` no longer resolves to `shallot-<verb>` on `PATH`; there is no replacement.
 - `shallot run` is now `shallot build` followed by `shallot preview`. Preview never rebuilds.
 
 ## `shallot tui` and `shallot verify` are gone
 
-Neither has a replacement command. `@dylanebert/shallot/harness/check` exports `check()` for writing checks as Bun tests; it does not launch a browser.
+Neither has a replacement command. Tests use Bun's `test()` directly; browser tests use Playwright Test against the project's Vite preview.
 
 ## `/render/core`, `/sear/core` and `/utils/core` no longer resolve
 
@@ -115,9 +114,9 @@ import { serialize, stringify } from "@dylanebert/shallot";
 const saved = stringify(serialize(state));
 ```
 
-## `/harness/browser` no longer resolves
+## Browser tests use Playwright Test
 
-0.10 ships no browser-launch configuration. Configure the browser in your own test setup.
+Configure Playwright in the project, run its own Vite preview with `webServer`, and put Chromium launch flags in `playwright.config.ts`.
 
 ## TypeGPU below 0.12.5 is too old
 

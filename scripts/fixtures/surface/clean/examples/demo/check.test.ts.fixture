@@ -1,2 +1,0 @@
-import { check } from "@dylanebert/shallot/harness/check";
-check("demo recipe runs", { claim: "demo recipe runs", size: "integration", requires: ["gpu"] }, () => {});

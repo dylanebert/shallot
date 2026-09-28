@@ -1,6 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { collectPopulation } from "../src/harness/surface";
 import { readProjectPolicy } from "../src/project/policy";
 
 // `bun run scripts/examples-index.ts [--check]`, run by `bun run format`: emit `examples/AGENTS.md`
@@ -39,8 +38,7 @@ for (const path of evidence.stdout.toString().split("\0")) {
     if (slash > 0 && slash < relative.length - 1) names.add(relative.slice(0, slash));
 }
 
-const population = collectPopulation(root);
-const rows: { name: string; kind: Kind; description: string; checkSize: string }[] = [];
+const rows: { name: string; kind: Kind; description: string }[] = [];
 const errors: string[] = readProjectPolicy(root);
 for (const name of [...names].sort()) {
     const path = resolve(examples, name, "shallot.json");
@@ -54,19 +52,9 @@ for (const name of [...names].sort()) {
     else if (typeof description !== "string" || description.trim() === "")
         errors.push(`examples/${name}/shallot.json: description is missing`);
     else {
-        const prefix = `examples/${name}/`;
-        const checkSize =
-            [
-                ...new Set(
-                    population.rows
-                        .filter((row) => row.file.startsWith(prefix))
-                        .map((row) => row.size),
-                ),
-            ].join("/") || "-";
         rows.push({
             name,
             kind,
-            checkSize,
             description: (typeof problem === "string" && problem.trim() !== ""
                 ? problem
                 : description
@@ -93,7 +81,7 @@ for (const kind of KINDS) {
         lines.push("| name | description | add |", "| --- | --- | --- |");
         for (const r of own)
             lines.push(
-                `| \`${r.name}\` | ${cell(r.description)}${r.checkSize === "-" ? "" : ` (check: ${cell(r.checkSize)})`} | \`bunx shallot add ${r.name}\` |`,
+                `| \`${r.name}\` | ${cell(r.description)} | \`bunx shallot add ${r.name}\` |`,
             );
     } else {
         lines.push("| name | description |", "| --- | --- |");

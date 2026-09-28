@@ -1,5 +1,4 @@
-import { expect } from "bun:test";
-import { check } from "../../../harness/check";
+import { expect, test } from "bun:test";
 import {
     isWithinSegments,
     lineDistance,
@@ -122,311 +121,225 @@ function checkTriManifold(m: LocalManifold, want: GoldTriManifold, label: string
     }
 }
 
-check(
-    "collideSpheres matches the C reference manifold bit for bit",
-    {
-        claim: "the sphere-sphere manifold drifts from the pinned Box3D C reference on point count, normal, contact point, separation or feature id",
-    },
-    () => {
-        for (const scene of gold.spheres) {
-            const a = sphereFromHex(scene.a);
-            const b = sphereFromHex(scene.b);
-            const xf = xfFromHex(scene.xf);
-            const m = makeLocalManifold(1);
-            collideSpheres(m, 1, a, b, xf);
-            checkManifold(m, scene.manifold, scene.name);
+test("the sphere-sphere manifold drifts from the pinned Box3D C reference on point count, normal, contact point, separation or feature id", () => {
+    for (const scene of gold.spheres) {
+        const a = sphereFromHex(scene.a);
+        const b = sphereFromHex(scene.b);
+        const xf = xfFromHex(scene.xf);
+        const m = makeLocalManifold(1);
+        collideSpheres(m, 1, a, b, xf);
+        checkManifold(m, scene.manifold, scene.name);
+    }
+});
+
+test("the capsule-sphere manifold drifts from the pinned Box3D C reference on point count, normal, contact point, separation or feature id", () => {
+    for (const scene of gold.capsuleSphere) {
+        const a = capsuleFromHex(scene.a);
+        const b = sphereFromHex(scene.b);
+        const xf = xfFromHex(scene.xf);
+        const m = makeLocalManifold(1);
+        collideCapsuleAndSphere(m, 1, a, b, xf);
+        checkManifold(m, scene.manifold, scene.name);
+    }
+});
+
+test("the hull-sphere manifold drifts from the pinned Box3D C reference, or its warm simplex cache changes the answer on the second call for the same pose", () => {
+    for (const scene of gold.hullSphere) {
+        const a = hullFromHex({ kind: "box", h: scene.a.h });
+        const b = sphereFromHex(scene.b);
+        const xf = xfFromHex(scene.xf);
+        const m = makeLocalManifold(1);
+        const cache = emptyCache();
+        for (let call = 0; call < scene.manifolds.length; ++call) {
+            collideHullAndSphere(m, 1, a, b, xf, cache);
+            checkManifold(m, scene.manifolds[call], `${scene.name}[${call}]`);
         }
-    },
-);
+    }
+});
 
-check(
-    "collideCapsuleAndSphere matches the C reference manifold bit for bit",
-    {
-        claim: "the capsule-sphere manifold drifts from the pinned Box3D C reference on point count, normal, contact point, separation or feature id",
-    },
-    () => {
-        for (const scene of gold.capsuleSphere) {
-            const a = capsuleFromHex(scene.a);
-            const b = sphereFromHex(scene.b);
-            const xf = xfFromHex(scene.xf);
-            const m = makeLocalManifold(1);
-            collideCapsuleAndSphere(m, 1, a, b, xf);
-            checkManifold(m, scene.manifold, scene.name);
+test("the capsule-capsule manifold drifts from the pinned Box3D C reference on point count, normal, contact point, separation or feature id", () => {
+    for (const scene of gold.capsules) {
+        const a = capsuleFromHex(scene.a);
+        const b = capsuleFromHex(scene.b);
+        const xf = xfFromHex(scene.xf);
+        const m = makeLocalManifold(2);
+        collideCapsules(m, 2, a, b, xf);
+        checkManifold(m, scene.manifold, scene.name);
+    }
+});
+
+test("the hull-capsule manifold drifts from the pinned Box3D C reference, or its warm simplex cache changes the answer on the second call for the same pose", () => {
+    for (const scene of gold.hullCapsule) {
+        const a = hullFromHex({ kind: "box", h: scene.a.h });
+        const b = capsuleFromHex(scene.b);
+        const xf = xfFromHex(scene.xf);
+        const m = makeLocalManifold(2);
+        const cache = emptyCache();
+        for (let call = 0; call < scene.manifolds.length; ++call) {
+            collideHullAndCapsule(m, 2, a, b, xf, cache);
+            checkManifold(m, scene.manifolds[call], `${scene.name}[${call}]`);
         }
-    },
-);
+    }
+});
 
-check(
-    "collideHullAndSphere matches the C reference manifold across repeated warm calls",
-    {
-        claim: "the hull-sphere manifold drifts from the pinned Box3D C reference, or its warm simplex cache changes the answer on the second call for the same pose",
-    },
-    () => {
-        for (const scene of gold.hullSphere) {
-            const a = hullFromHex({ kind: "box", h: scene.a.h });
-            const b = sphereFromHex(scene.b);
-            const xf = xfFromHex(scene.xf);
-            const m = makeLocalManifold(1);
-            const cache = emptyCache();
-            for (let call = 0; call < scene.manifolds.length; ++call) {
-                collideHullAndSphere(m, 1, a, b, xf, cache);
-                checkManifold(m, scene.manifolds[call], `${scene.name}[${call}]`);
-            }
+test("the sphere-triangle manifold drifts from the pinned Box3D C reference on its manifold or on the triangle feature mesh-contact reduction reads", () => {
+    for (const scene of gold.sphereTriangle) {
+        const a = sphereFromHex(scene.a);
+        const [v1, v2, v3] = triFromHex(scene.tri);
+        const m = makeLocalManifold(1);
+        collideSphereAndTriangle(m, 1, a, v1, v2, v3);
+        checkTriManifold(m, scene.manifold, scene.name);
+    }
+});
+
+test("the capsule-triangle manifold drifts from the pinned Box3D C reference on its manifold, its triangle feature, or under its own warm simplex cache", () => {
+    for (const scene of gold.capsuleTriangle) {
+        const a = capsuleFromHex(scene.a);
+        const [v1, v2, v3] = triFromHex(scene.tri);
+        const m = makeLocalManifold(2);
+        const cache = emptyCache();
+        for (let call = 0; call < scene.manifolds.length; ++call) {
+            collideCapsuleAndTriangle(m, 2, a, v1, v2, v3, cache);
+            checkTriManifold(m, scene.manifolds[call], `${scene.name}[${call}]`);
         }
-    },
-);
+    }
+});
 
-check(
-    "collideCapsules matches the C reference manifold bit for bit",
-    {
-        claim: "the capsule-capsule manifold drifts from the pinned Box3D C reference on point count, normal, contact point, separation or feature id",
-    },
-    () => {
-        for (const scene of gold.capsules) {
-            const a = capsuleFromHex(scene.a);
-            const b = capsuleFromHex(scene.b);
-            const xf = xfFromHex(scene.xf);
-            const m = makeLocalManifold(2);
-            collideCapsules(m, 2, a, b, xf);
-            checkManifold(m, scene.manifold, scene.name);
-        }
-    },
-);
+test("the active TypeScript DIR_CACHE path loses the official cache hit/reset/threshold transitions or face-B point order", () => {
+    const boxA = makeBoxHull(0.5, 0.5, 0.5);
+    const boxB = makeBoxHull(0.5, 0.5, 0.5);
+    const pose = (x: number, y: number): Transform => ({
+        p: v(x, y, 0),
+        q: { v: v(0, 0, 0), s: 1 },
+    });
+    const m = makeLocalManifold(8);
+    const cache = emptySATCache();
 
-check(
-    "collideHullAndCapsule matches the C reference manifold across repeated warm calls",
-    {
-        claim: "the hull-capsule manifold drifts from the pinned Box3D C reference, or its warm simplex cache changes the answer on the second call for the same pose",
-    },
-    () => {
-        for (const scene of gold.hullCapsule) {
-            const a = hullFromHex({ kind: "box", h: scene.a.h });
-            const b = capsuleFromHex(scene.b);
-            const xf = xfFromHex(scene.xf);
-            const m = makeLocalManifold(2);
-            const cache = emptyCache();
-            for (let call = 0; call < scene.manifolds.length; ++call) {
-                collideHullAndCapsule(m, 2, a, b, xf, cache);
-                checkManifold(m, scene.manifolds[call], `${scene.name}[${call}]`);
-            }
-        }
-    },
-);
-
-check(
-    "collideSphereAndTriangle matches the C reference manifold bit for bit",
-    {
-        claim: "the sphere-triangle manifold drifts from the pinned Box3D C reference on its manifold or on the triangle feature mesh-contact reduction reads",
-    },
-    () => {
-        for (const scene of gold.sphereTriangle) {
-            const a = sphereFromHex(scene.a);
-            const [v1, v2, v3] = triFromHex(scene.tri);
-            const m = makeLocalManifold(1);
-            collideSphereAndTriangle(m, 1, a, v1, v2, v3);
-            checkTriManifold(m, scene.manifold, scene.name);
-        }
-    },
-);
-
-check(
-    "collideCapsuleAndTriangle matches the C reference manifold across repeated warm calls",
-    {
-        claim: "the capsule-triangle manifold drifts from the pinned Box3D C reference on its manifold, its triangle feature, or under its own warm simplex cache",
-    },
-    () => {
-        for (const scene of gold.capsuleTriangle) {
-            const a = capsuleFromHex(scene.a);
-            const [v1, v2, v3] = triFromHex(scene.tri);
-            const m = makeLocalManifold(2);
-            const cache = emptyCache();
-            for (let call = 0; call < scene.manifolds.length; ++call) {
-                collideCapsuleAndTriangle(m, 2, a, v1, v2, v3, cache);
-                checkTriManifold(m, scene.manifolds[call], `${scene.name}[${call}]`);
-            }
-        }
-    },
-);
-
-check(
-    "active hull cache matches C miss, hit, stale-reset and threshold transitions",
-    {
-        claim: "the active TypeScript DIR_CACHE path loses the official cache hit/reset/threshold transitions or face-B point order",
-    },
-    () => {
-        const boxA = makeBoxHull(0.5, 0.5, 0.5);
-        const boxB = makeBoxHull(0.5, 0.5, 0.5);
-        const pose = (x: number, y: number): Transform => ({
-            p: v(x, y, 0),
-            q: { v: v(0, 0, 0), s: 1 },
-        });
-        const m = makeLocalManifold(8);
-        const cache = emptySATCache();
-
-        // First call misses; the active target selects face B on the symmetric tie.
-        collideHulls(m, 8, boxA, boxB, pose(0.9, 0), cache);
-        expect(cache.hit).toBe(0);
-        expect(cache.type).toBe(SeparatingFeature.FaceAxisB);
-        expect(cache.indexA).toBe(0);
-        expect(cache.indexB).toBe(0);
-        // Face B's points clip A's incident face (the one most anti-parallel to B's reference face),
-        // one per half-edge of its loop in order, each paired with the edge that follows it.
-        const reference = boxB.planes[cache.indexB].normal;
-        let incident = 0;
-        for (let f = 1; f < boxA.faceCount; f++) {
-            const dot = (n: Vec3) => n.x * reference.x + n.y * reference.y + n.z * reference.z;
-            if (dot(boxA.planes[f].normal) < dot(boxA.planes[incident].normal)) incident = f;
-        }
-        const loop = [boxA.faces[incident].edge];
-        for (let e = boxA.edges[loop[0]].next; e !== loop[0]; e = boxA.edges[e].next) loop.push(e);
-        expect(m.points.slice(0, m.pointCount).map((p) => makeFeatureId(p.pair))).toEqual(
-            loop.map((edge, k) =>
-                makeFeatureId({
-                    owner1: FeatureOwner.ShapeA,
-                    index1: loop[(k + 1) % loop.length],
-                    owner2: FeatureOwner.ShapeA,
-                    index2: edge,
-                }),
-            ),
-        );
-        expect(bits(m.normal.x)).toBe("3f800000");
-        expect(bits(m.normal.y)).toBe("80000000");
-        expect(bits(m.normal.z)).toBe("80000000");
-
-        // The unchanged pose accepts the cached face and records a hit.
-        collideHulls(m, 8, boxA, boxB, pose(0.9, 0), cache);
-        expect(cache.hit).toBe(1);
-        expect(cache.type).toBe(SeparatingFeature.FaceAxisB);
-
-        // A stale cached face falls through to a fresh SAT query and clears hit.
-        collideHulls(m, 8, boxA, boxB, pose(0, 0.9), cache);
-        expect(cache.hit).toBe(0);
-        expect(cache.type).toBe(SeparatingFeature.FaceAxisB);
-        expect(cache.indexB).toBe(2);
-
-        // 0x3f828f5d is the first f32 translation whose separation is >= 0.02.
-        collideHulls(m, 8, boxA, boxB, pose(fromBits("3f828f5d"), 0), cache);
-        expect(m.pointCount).toBe(0);
-        expect(cache.hit).toBe(0);
-        expect(cache.separation).toBeGreaterThanOrEqual(0.02);
-        collideHulls(m, 8, boxA, boxB, pose(fromBits("3f828f5d"), 0), cache);
-        expect(cache.hit).toBe(1);
-        expect(m.pointCount).toBe(0);
-    },
-);
-
-check(
-    "hull face negation matches C for both signed-zero operands",
-    {
-        claim: "the TypeScript hull face operation normalizes a signed zero instead of applying the official component-wise unary negation",
-    },
-    () => {
-        for (const scene of gold.hullTriangle.filter(
-            (s) => s.name === "face" || s.name === "tilted_x",
-        )) {
-            const hull = hullFromHex({ kind: "box", h: scene.a.h });
-            const [v1, v2, v3] = triFromHex(scene.tri);
-            const m = makeLocalManifold(8);
-            const cache = emptySATCache();
-            collideHullAndTriangle(m, 8, hull, v1, v2, v3, cache);
-            const want =
-                scene.name === "face"
-                    ? ["80000000", "3f800000", "00000000"]
-                    : ["80000000", "3f60439d", "3ef6e9f4"];
-            expect([bits(m.normal.x), bits(m.normal.y), bits(m.normal.z)]).toEqual(want);
-        }
-    },
-);
-
-check(
-    "augmented support reduction matches C low-seven-bit ties and padded tails",
-    {
-        claim: "the TypeScript SIMD support reduction chooses a different low-seven-mantissa winner or lets a padded tail lane escape as a hull vertex",
-    },
-    () => {
-        const makeSupportHull = (points: Vec3[]): HullData => {
-            const hull = makeBoxHull(0.5, 0.5, 0.5);
-            hull.points = points;
-            hull.vertexCount = points.length;
-            return hull;
-        };
-        const tie = makeSupportHull([v(-0.00000762939453125, 0, 0), v(0, 0, 0), v(-0.25, 0, 0)]);
-        const tied = findHullSupportVertexWide(tie, v(1, 0, 0), 2);
-        expect(tied.index).toBe(0);
-        expect(bits(tied.support)).toBe("b7000000");
-
-        const padded = makeSupportHull([v(-0.25, 0, 0), v(0.5, 0, 0), v(0.25, 0, 0)]);
-        const selected = findHullSupportVertexWide(padded, v(1, 0, 0), 2);
-        expect(selected.index).toBe(1);
-        expect(bits(selected.support)).toBe("3f000000");
-    },
-);
-
-check(
-    "two unit cubes overlapping by 0.1 give a four-point face manifold",
-    {
-        claim: "hull-hull face clipping loses a corner or mis-scales penetration, so a 0.1 box-box overlap stops producing four points each separated by about -0.1",
-    },
-    () => {
-        // Analytic invariant from Box3D's LargeWorldManifoldTest (float path).
-        const boxA = makeBoxHull(0.5, 0.5, 0.5);
-        const boxB = makeBoxHull(0.5, 0.5, 0.5);
-        const xf: Transform = { p: v(0.9, 0, 0), q: { v: v(0, 0, 0), s: 1 } };
-        const m = makeLocalManifold(8);
-        const cache = emptySATCache();
-        collideHulls(m, 8, boxA, boxB, xf, cache);
-        expect(m.pointCount).toBe(4);
-        for (let i = 0; i < m.pointCount; ++i) {
-            expect(Math.abs(m.points[i].separation + 0.1), `point ${i} separation`).toBeLessThan(
-                0.01,
-            );
-        }
-    },
-);
-
-check(
-    "pointToSegmentDistance projects inside and clamps to the endpoints",
-    {
-        claim: "pointToSegmentDistance fails to clamp a query beyond either end of the segment, returning an extrapolated point instead of the endpoint itself",
-    },
-    () => {
-        const a = v(0, 0, 0);
-        const b = v(2, 0, 0);
-        expect(pointToSegmentDistance(a, b, v(1, 5, 0))).toEqual(v(1, 0, 0));
-        // Beyond the a-side returns a; beyond the b-side returns b (reference equality).
-        expect(pointToSegmentDistance(a, b, v(-3, 1, 0))).toBe(a);
-        expect(pointToSegmentDistance(a, b, v(9, 1, 0))).toBe(b);
-    },
-);
-
-check(
-    "lineDistance finds the closest points on two skew lines",
-    {
-        claim: "lineDistance solves the wrong pair on two skew infinite lines, so the capsule and edge-edge paths built on it pick the wrong closest points",
-    },
-    () => {
-        // Line 1 along x through origin; line 2 along y through (0,0,1). Closest points are the
-        // origin and (0,0,1); the connecting segment is within both.
-        const r = lineDistance(v(0, 0, 0), v(1, 0, 0), v(0, 0, 1), v(0, 1, 0));
-        expect(r.point1).toEqual(v(0, 0, 0));
-        expect(r.point2).toEqual(v(0, 0, 1));
-        expect(isWithinSegments(r)).toBe(true);
-    },
-);
-
-check(
-    "isWithinSegments rejects an out-of-range fraction",
-    {
-        claim: "isWithinSegments accepts a fraction outside [0,1], letting an infinite-line solution be used as if it lay on the finite segments",
-    },
-    () => {
-        expect(
-            isWithinSegments({
-                point1: v(0, 0, 0),
-                fraction1: 1.5,
-                point2: v(0, 0, 0),
-                fraction2: 0,
+    // First call misses; the active target selects face B on the symmetric tie.
+    collideHulls(m, 8, boxA, boxB, pose(0.9, 0), cache);
+    expect(cache.hit).toBe(0);
+    expect(cache.type).toBe(SeparatingFeature.FaceAxisB);
+    expect(cache.indexA).toBe(0);
+    expect(cache.indexB).toBe(0);
+    // Face B's points clip A's incident face (the one most anti-parallel to B's reference face),
+    // one per half-edge of its loop in order, each paired with the edge that follows it.
+    const reference = boxB.planes[cache.indexB].normal;
+    let incident = 0;
+    for (let f = 1; f < boxA.faceCount; f++) {
+        const dot = (n: Vec3) => n.x * reference.x + n.y * reference.y + n.z * reference.z;
+        if (dot(boxA.planes[f].normal) < dot(boxA.planes[incident].normal)) incident = f;
+    }
+    const loop = [boxA.faces[incident].edge];
+    for (let e = boxA.edges[loop[0]].next; e !== loop[0]; e = boxA.edges[e].next) loop.push(e);
+    expect(m.points.slice(0, m.pointCount).map((p) => makeFeatureId(p.pair))).toEqual(
+        loop.map((edge, k) =>
+            makeFeatureId({
+                owner1: FeatureOwner.ShapeA,
+                index1: loop[(k + 1) % loop.length],
+                owner2: FeatureOwner.ShapeA,
+                index2: edge,
             }),
-        ).toBe(false);
-    },
-);
+        ),
+    );
+    expect(bits(m.normal.x)).toBe("3f800000");
+    expect(bits(m.normal.y)).toBe("80000000");
+    expect(bits(m.normal.z)).toBe("80000000");
+
+    // The unchanged pose accepts the cached face and records a hit.
+    collideHulls(m, 8, boxA, boxB, pose(0.9, 0), cache);
+    expect(cache.hit).toBe(1);
+    expect(cache.type).toBe(SeparatingFeature.FaceAxisB);
+
+    // A stale cached face falls through to a fresh SAT query and clears hit.
+    collideHulls(m, 8, boxA, boxB, pose(0, 0.9), cache);
+    expect(cache.hit).toBe(0);
+    expect(cache.type).toBe(SeparatingFeature.FaceAxisB);
+    expect(cache.indexB).toBe(2);
+
+    // 0x3f828f5d is the first f32 translation whose separation is >= 0.02.
+    collideHulls(m, 8, boxA, boxB, pose(fromBits("3f828f5d"), 0), cache);
+    expect(m.pointCount).toBe(0);
+    expect(cache.hit).toBe(0);
+    expect(cache.separation).toBeGreaterThanOrEqual(0.02);
+    collideHulls(m, 8, boxA, boxB, pose(fromBits("3f828f5d"), 0), cache);
+    expect(cache.hit).toBe(1);
+    expect(m.pointCount).toBe(0);
+});
+
+test("the TypeScript hull face operation normalizes a signed zero instead of applying the official component-wise unary negation", () => {
+    for (const scene of gold.hullTriangle.filter(
+        (s) => s.name === "face" || s.name === "tilted_x",
+    )) {
+        const hull = hullFromHex({ kind: "box", h: scene.a.h });
+        const [v1, v2, v3] = triFromHex(scene.tri);
+        const m = makeLocalManifold(8);
+        const cache = emptySATCache();
+        collideHullAndTriangle(m, 8, hull, v1, v2, v3, cache);
+        const want =
+            scene.name === "face"
+                ? ["80000000", "3f800000", "00000000"]
+                : ["80000000", "3f60439d", "3ef6e9f4"];
+        expect([bits(m.normal.x), bits(m.normal.y), bits(m.normal.z)]).toEqual(want);
+    }
+});
+
+test("the TypeScript SIMD support reduction chooses a different low-seven-mantissa winner or lets a padded tail lane escape as a hull vertex", () => {
+    const makeSupportHull = (points: Vec3[]): HullData => {
+        const hull = makeBoxHull(0.5, 0.5, 0.5);
+        hull.points = points;
+        hull.vertexCount = points.length;
+        return hull;
+    };
+    const tie = makeSupportHull([v(-0.00000762939453125, 0, 0), v(0, 0, 0), v(-0.25, 0, 0)]);
+    const tied = findHullSupportVertexWide(tie, v(1, 0, 0), 2);
+    expect(tied.index).toBe(0);
+    expect(bits(tied.support)).toBe("b7000000");
+
+    const padded = makeSupportHull([v(-0.25, 0, 0), v(0.5, 0, 0), v(0.25, 0, 0)]);
+    const selected = findHullSupportVertexWide(padded, v(1, 0, 0), 2);
+    expect(selected.index).toBe(1);
+    expect(bits(selected.support)).toBe("3f000000");
+});
+
+test("hull-hull face clipping loses a corner or mis-scales penetration, so a 0.1 box-box overlap stops producing four points each separated by about -0.1", () => {
+    // Analytic invariant from Box3D's LargeWorldManifoldTest (float path).
+    const boxA = makeBoxHull(0.5, 0.5, 0.5);
+    const boxB = makeBoxHull(0.5, 0.5, 0.5);
+    const xf: Transform = { p: v(0.9, 0, 0), q: { v: v(0, 0, 0), s: 1 } };
+    const m = makeLocalManifold(8);
+    const cache = emptySATCache();
+    collideHulls(m, 8, boxA, boxB, xf, cache);
+    expect(m.pointCount).toBe(4);
+    for (let i = 0; i < m.pointCount; ++i) {
+        expect(Math.abs(m.points[i].separation + 0.1), `point ${i} separation`).toBeLessThan(0.01);
+    }
+});
+
+test("pointToSegmentDistance fails to clamp a query beyond either end of the segment, returning an extrapolated point instead of the endpoint itself", () => {
+    const a = v(0, 0, 0);
+    const b = v(2, 0, 0);
+    expect(pointToSegmentDistance(a, b, v(1, 5, 0))).toEqual(v(1, 0, 0));
+    // Beyond the a-side returns a; beyond the b-side returns b (reference equality).
+    expect(pointToSegmentDistance(a, b, v(-3, 1, 0))).toBe(a);
+    expect(pointToSegmentDistance(a, b, v(9, 1, 0))).toBe(b);
+});
+
+test("lineDistance solves the wrong pair on two skew infinite lines, so the capsule and edge-edge paths built on it pick the wrong closest points", () => {
+    // Line 1 along x through origin; line 2 along y through (0,0,1). Closest points are the
+    // origin and (0,0,1); the connecting segment is within both.
+    const r = lineDistance(v(0, 0, 0), v(1, 0, 0), v(0, 0, 1), v(0, 1, 0));
+    expect(r.point1).toEqual(v(0, 0, 0));
+    expect(r.point2).toEqual(v(0, 0, 1));
+    expect(isWithinSegments(r)).toBe(true);
+});
+
+test("isWithinSegments accepts a fraction outside [0,1], letting an infinite-line solution be used as if it lay on the finite segments", () => {
+    expect(
+        isWithinSegments({
+            point1: v(0, 0, 0),
+            fraction1: 1.5,
+            point2: v(0, 0, 0),
+            fraction2: 0,
+        }),
+    ).toBe(false);
+});

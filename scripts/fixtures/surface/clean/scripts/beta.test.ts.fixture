@@ -1,3 +1,0 @@
-import { check } from "@dylanebert/shallot/harness/check";
-
-check("beta builds", { claim: "beta builds", size: "integration" }, () => {});

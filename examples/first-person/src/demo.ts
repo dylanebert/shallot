@@ -50,7 +50,13 @@ function stateBag(state: State): DemoBag {
 // lookup allocate a context.
 function createBag(state: State): DemoBag {
     const owner = state as DemoState;
-    const bag: DemoBag = { liftEids: [], liftBases: [], liftCount: 0, panel: null, look: null };
+    const bag: DemoBag = {
+        liftEids: [],
+        liftBases: [],
+        liftCount: 0,
+        panel: null,
+        look: null,
+    };
     owner[RECIPE_STATE] = bag;
     state.onDispose(() => {
         if (owner[RECIPE_STATE] !== bag) return;

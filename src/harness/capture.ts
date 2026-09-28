@@ -21,7 +21,7 @@ export const CAPTURE_CONTRACT: CaptureIdentity = {
     encoding: "rgba8-tight",
 };
 
-/** the identity string a verdict, artifact name or refusal reason carries. */
+/** the identity string a test result, artifact name or refusal reason carries. */
 export function captureIdentityLabel(identity: CaptureIdentity): string {
     return `${identity.surface} ${identity.width}x${identity.height}@${identity.deviceScale} ${identity.encoding}`;
 }

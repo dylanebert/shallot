@@ -1,5 +1,4 @@
-import { expect } from "bun:test";
-import { check } from "../../../harness/check";
+import { expect, test } from "bun:test";
 import { hi32, lo32 } from "../common/bits";
 import { ALL_BITS_HI, ALL_BITS_LO } from "../common/constants";
 import { type AABB, FLT_MAX, type Vec3, vec3 } from "../common/math";
@@ -214,164 +213,134 @@ function runClosest(tree: DynamicTree, op: Op) {
     expect(stats.leafVisits, `${op.name ?? "closest"}.leafVisits`).toBe(op.leafVisits);
 }
 
-check(
-    "dynamic tree replays tree.gold.json bit-exactly against the C reference",
-    {
-        claim: "the dynamic tree's insert, move, enlarge, destroy, rebuild and query paths drift from the Box3D C reference, so node layout, AABB bits or visit counts diverge from the recorded op stream",
-    },
-    () => {
-        const tree = createTree(gold.proxyCapacity);
-        const handles: number[] = [];
+test("the dynamic tree's insert, move, enlarge, destroy, rebuild and query paths drift from the Box3D C reference, so node layout, AABB bits or visit counts diverge from the recorded op stream", () => {
+    const tree = createTree(gold.proxyCapacity);
+    const handles: number[] = [];
 
-        for (const op of gold.ops as Op[]) {
-            switch (op.op) {
-                case "create":
-                    handles.push(
-                        createProxy(
-                            tree,
-                            aabbFromHex(op.aabb),
-                            hi32(BigInt(op.category)),
-                            lo32(BigInt(op.category)),
-                            Number(op.userData),
-                        ),
-                    );
-                    break;
-                case "move":
-                    moveProxy(tree, handles[op.handle], aabbFromHex(op.aabb));
-                    break;
-                case "enlarge":
-                    enlargeProxy(tree, handles[op.handle], aabbFromHex(op.aabb));
-                    break;
-                case "destroy":
-                    destroyProxy(tree, handles[op.handle]);
-                    break;
-                case "rebuild":
-                    rebuild(tree, op.full);
-                    break;
-                case "checkpoint":
-                    assertCheckpoint(tree, op);
-                    break;
-                case "query":
-                    runQuery(tree, op);
-                    break;
-                case "raycast":
-                    runRayCast(tree, op);
-                    break;
-                case "boxcast":
-                    runBoxCast(tree, op);
-                    break;
-                case "closest":
-                    runClosest(tree, op);
-                    break;
-                default:
-                    throw new Error(`unknown op ${op.op}`);
-            }
+    for (const op of gold.ops as Op[]) {
+        switch (op.op) {
+            case "create":
+                handles.push(
+                    createProxy(
+                        tree,
+                        aabbFromHex(op.aabb),
+                        hi32(BigInt(op.category)),
+                        lo32(BigInt(op.category)),
+                        Number(op.userData),
+                    ),
+                );
+                break;
+            case "move":
+                moveProxy(tree, handles[op.handle], aabbFromHex(op.aabb));
+                break;
+            case "enlarge":
+                enlargeProxy(tree, handles[op.handle], aabbFromHex(op.aabb));
+                break;
+            case "destroy":
+                destroyProxy(tree, handles[op.handle]);
+                break;
+            case "rebuild":
+                rebuild(tree, op.full);
+                break;
+            case "checkpoint":
+                assertCheckpoint(tree, op);
+                break;
+            case "query":
+                runQuery(tree, op);
+                break;
+            case "raycast":
+                runRayCast(tree, op);
+                break;
+            case "boxcast":
+                runBoxCast(tree, op);
+                break;
+            case "closest":
+                runClosest(tree, op);
+                break;
+            default:
+                throw new Error(`unknown op ${op.op}`);
         }
+    }
 
-        // Structural invariants hold after the full stream.
-        validate(tree);
-        validateNoEnlarged(tree);
-    },
-);
+    // Structural invariants hold after the full stream.
+    validate(tree);
+    validateNoEnlarged(tree);
+});
 
-check(
-    "an empty dynamic tree visits no nodes for a query",
-    {
-        claim: "the dynamic tree walks a root that does not exist when it holds no proxies, so an empty broad phase reports visits or hits instead of nothing",
-    },
-    () => {
-        const tree = createTree(16);
-        expect(getHeight(tree)).toBe(0);
-        const stats = query(
-            tree,
-            { lowerBound: { x: -1, y: -1, z: -1 }, upperBound: { x: 1, y: 1, z: 1 } },
-            ALL_BITS_HI,
-            ALL_BITS_LO,
-            false,
-            () => true,
+test("the dynamic tree walks a root that does not exist when it holds no proxies, so an empty broad phase reports visits or hits instead of nothing", () => {
+    const tree = createTree(16);
+    expect(getHeight(tree)).toBe(0);
+    const stats = query(
+        tree,
+        { lowerBound: { x: -1, y: -1, z: -1 }, upperBound: { x: 1, y: 1, z: 1 } },
+        ALL_BITS_HI,
+        ALL_BITS_LO,
+        false,
+        () => true,
+    );
+    expect(stats.nodeVisits).toBe(0);
+    expect(stats.leafVisits).toBe(0);
+});
+
+test("the dynamic tree synthesizes an internal parent for its first proxy, so a one-proxy broad phase reports the wrong root, height or proxy count", () => {
+    const tree = createTree(16);
+    const box: AABB = { lowerBound: { x: 0, y: 0, z: 0 }, upperBound: { x: 1, y: 1, z: 1 } };
+    const id = createProxy(tree, box, ALL_BITS_HI, ALL_BITS_LO, 7);
+    expect(tree.root).toBe(id);
+    expect(getHeight(tree)).toBe(0);
+    expect(tree.proxyCount).toBe(1);
+    validate(tree);
+});
+
+test("the dynamic tree leaks internal parents when its proxies are all destroyed, so the root or proxy count survives an emptied broad phase", () => {
+    const tree = createTree(16);
+    const ids: number[] = [];
+    for (let i = 0; i < 10; ++i) {
+        ids.push(
+            createProxy(
+                tree,
+                {
+                    lowerBound: { x: i, y: 0, z: 0 },
+                    upperBound: { x: i + 1, y: 1, z: 1 },
+                },
+                ALL_BITS_HI,
+                ALL_BITS_LO,
+                i,
+            ),
         );
-        expect(stats.nodeVisits).toBe(0);
-        expect(stats.leafVisits).toBe(0);
-    },
-);
+    }
+    validate(tree);
+    for (const id of ids) destroyProxy(tree, id);
+    expect(tree.root).toBe(NULL_INDEX);
+    expect(tree.proxyCount).toBe(0);
+});
 
-check(
-    "a dynamic tree with one proxy makes that leaf the root at height zero",
-    {
-        claim: "the dynamic tree synthesizes an internal parent for its first proxy, so a one-proxy broad phase reports the wrong root, height or proxy count",
-    },
-    () => {
-        const tree = createTree(16);
-        const box: AABB = { lowerBound: { x: 0, y: 0, z: 0 }, upperBound: { x: 1, y: 1, z: 1 } };
-        const id = createProxy(tree, box, ALL_BITS_HI, ALL_BITS_LO, 7);
-        expect(tree.root).toBe(id);
-        expect(getHeight(tree)).toBe(0);
-        expect(tree.proxyCount).toBe(1);
-        validate(tree);
-    },
-);
+test("a dynamic tree leaf's category change stops at the leaf instead of ORing up its ancestors, so a mask-filtered query prunes a subtree that still contains a matching proxy", () => {
+    const tree = createTree(16);
+    const box = (x: number): AABB => ({
+        lowerBound: { x, y: 0, z: 0 },
+        upperBound: { x: x + 1, y: 1, z: 1 },
+    });
+    const a = createProxy(tree, box(0), 0, 0x1, 0);
+    createProxy(tree, box(0.5), 0, 0x2, 1);
+    createProxy(tree, box(10), 0, 0x4, 2);
 
-check(
-    "destroying every dynamic tree proxy empties the tree and leaves it valid",
-    {
-        claim: "the dynamic tree leaks internal parents when its proxies are all destroyed, so the root or proxy count survives an emptied broad phase",
-    },
-    () => {
-        const tree = createTree(16);
-        const ids: number[] = [];
-        for (let i = 0; i < 10; ++i) {
-            ids.push(
-                createProxy(
-                    tree,
-                    {
-                        lowerBound: { x: i, y: 0, z: 0 },
-                        upperBound: { x: i + 1, y: 1, z: 1 },
-                    },
-                    ALL_BITS_HI,
-                    ALL_BITS_LO,
-                    i,
-                ),
-            );
-        }
-        validate(tree);
-        for (const id of ids) destroyProxy(tree, id);
-        expect(tree.root).toBe(NULL_INDEX);
-        expect(tree.proxyCount).toBe(0);
-    },
-);
+    // Root's category is the OR of every leaf.
+    expect(getCategoryLo(tree, tree.root)).toBe(0x7);
 
-check(
-    "setCategoryBits ORs a dynamic tree leaf's category up to the root",
-    {
-        claim: "a dynamic tree leaf's category change stops at the leaf instead of ORing up its ancestors, so a mask-filtered query prunes a subtree that still contains a matching proxy",
-    },
-    () => {
-        const tree = createTree(16);
-        const box = (x: number): AABB => ({
-            lowerBound: { x, y: 0, z: 0 },
-            upperBound: { x: x + 1, y: 1, z: 1 },
-        });
-        const a = createProxy(tree, box(0), 0, 0x1, 0);
-        createProxy(tree, box(0.5), 0, 0x2, 1);
-        createProxy(tree, box(10), 0, 0x4, 2);
+    setCategoryBits(tree, a, 0, 0x10);
+    expect(getCategoryLo(tree, a)).toBe(0x10);
+    // The change ORs back up to the root.
+    expect(getCategoryLo(tree, tree.root)).toBe(0x16);
+    expect(getCategoryHi(tree, tree.root)).toBe(0);
+    expect(getProxyCount(tree)).toBe(3);
+    validate(tree);
 
-        // Root's category is the OR of every leaf.
-        expect(getCategoryLo(tree, tree.root)).toBe(0x7);
-
-        setCategoryBits(tree, a, 0, 0x10);
-        expect(getCategoryLo(tree, a)).toBe(0x10);
-        // The change ORs back up to the root.
-        expect(getCategoryLo(tree, tree.root)).toBe(0x16);
-        expect(getCategoryHi(tree, tree.root)).toBe(0);
-        expect(getProxyCount(tree)).toBe(3);
-        validate(tree);
-
-        // getRootBounds returns a copy, not the live node aabb.
-        const bounds = getRootBounds(tree);
-        bounds.lowerBound.x = 999;
-        expect(getAABB(tree, tree.root).lowerBound.x).not.toBe(999);
-    },
-);
+    // getRootBounds returns a copy, not the live node aabb.
+    const bounds = getRootBounds(tree);
+    bounds.lowerBound.x = 999;
+    expect(getAABB(tree, tree.root).lowerBound.x).not.toBe(999);
+});
 
 // The category filter is two u32 halves; `0xffffffff & 0xffffffff` is -1 as a signed int32, so each
 // half of the AND must be normalized back to unsigned before the equality.
@@ -398,124 +367,99 @@ const filterHits = (
     return count;
 };
 
-check(
-    "a dynamic tree all-bits query matches a mask whose half has its top bit set",
-    {
-        claim: "the dynamic tree's requireAllBits filter compares a signed int32 AND, so an all-ones or bit-31/bit-63 category mask never matches and the query silently drops the proxy",
-    },
-    () => {
-        const cases: [string, number, number, number, number, number][] = [
-            ["all ones", ALL_BITS_HI, ALL_BITS_LO, ALL_BITS_HI, ALL_BITS_LO, 1],
-            ["bit 31 alone", 0, 0x80000000, 0, 0x80000000, 1],
-            ["bit 63 alone", 0x80000000, 0, 0x80000000, 0, 1],
-            // A category missing one of the mask's bits still fails in either half.
-            ["low half missing a bit", 0, 0x80000000, 0, 0xc0000000, 0],
-            ["high half missing a bit", 0x80000000, 0, 0xc0000000, 0, 0],
-        ];
-        for (const [name, catHi, catLo, maskHi, maskLo, want] of cases) {
-            expect(filterHits(catHi, catLo, maskHi, maskLo, true), name).toBe(want);
-        }
-    },
-);
+test("the dynamic tree's requireAllBits filter compares a signed int32 AND, so an all-ones or bit-31/bit-63 category mask never matches and the query silently drops the proxy", () => {
+    const cases: [string, number, number, number, number, number][] = [
+        ["all ones", ALL_BITS_HI, ALL_BITS_LO, ALL_BITS_HI, ALL_BITS_LO, 1],
+        ["bit 31 alone", 0, 0x80000000, 0, 0x80000000, 1],
+        ["bit 63 alone", 0x80000000, 0, 0x80000000, 0, 1],
+        // A category missing one of the mask's bits still fails in either half.
+        ["low half missing a bit", 0, 0x80000000, 0, 0xc0000000, 0],
+        ["high half missing a bit", 0x80000000, 0, 0xc0000000, 0, 0],
+    ];
+    for (const [name, catHi, catLo, maskHi, maskLo, want] of cases) {
+        expect(filterHits(catHi, catLo, maskHi, maskLo, true), name).toBe(want);
+    }
+});
 
-check(
-    "a dynamic tree any-bit query keeps the category halves distinct",
-    {
-        claim: "the dynamic tree's any-bit filter aliases the high and low category words, so a proxy above bit 32 matches a low-half mask and vice versa",
-    },
-    () => {
-        const cases: [string, number, number, number, number, number][] = [
-            ["bit 40", 0x00000100, 0, 0x00000100, 0, 1],
-            ["bit 63", 0x80000000, 0, 0x80000000, 0, 1],
-            ["low category vs high mask", 0, 0x00000100, 0x00000100, 0, 0],
-            ["high category vs low mask", 0x00000100, 0, 0, 0x00000100, 0],
-        ];
-        for (const [name, catHi, catLo, maskHi, maskLo, want] of cases) {
-            expect(filterHits(catHi, catLo, maskHi, maskLo, false), name).toBe(want);
-        }
-    },
-);
+test("the dynamic tree's any-bit filter aliases the high and low category words, so a proxy above bit 32 matches a low-half mask and vice versa", () => {
+    const cases: [string, number, number, number, number, number][] = [
+        ["bit 40", 0x00000100, 0, 0x00000100, 0, 1],
+        ["bit 63", 0x80000000, 0, 0x80000000, 0, 1],
+        ["low category vs high mask", 0, 0x00000100, 0x00000100, 0, 0],
+        ["high category vs low mask", 0x00000100, 0, 0, 0x00000100, 0],
+    ];
+    for (const [name, catHi, catLo, maskHi, maskLo, want] of cases) {
+        expect(filterHits(catHi, catLo, maskHi, maskLo, false), name).toBe(want);
+    }
+});
 
-check(
-    "dynamic tree category words survive the node-pool grow copy",
-    {
-        claim: "the dynamic tree's node-pool grow drops or truncates the 0xffffffff category words it copies, so proxies added past the initial capacity stop matching an all-bits query",
-    },
-    () => {
-        // createTree floors nodeCapacity at 2*16-1 = 31 nodes; each proxy past the first costs 2
-        // nodes (leaf + new parent), so 20 proxies (39 nodes) forces at least one allocateNode grow.
-        const tree = createTree(16);
-        const initialCapacity = tree.nodeCapacity;
-        const proxyCount = 20;
-        const ids: number[] = [];
-        for (let i = 0; i < proxyCount; ++i) {
-            const box: AABB = {
-                lowerBound: { x: i, y: 0, z: 0 },
-                upperBound: { x: i + 1, y: 1, z: 1 },
-            };
-            ids.push(createProxy(tree, box, ALL_BITS_HI, ALL_BITS_LO, i));
-        }
-
-        expect(tree.nodeCapacity).toBeGreaterThan(initialCapacity);
-
-        const hits: number[] = [];
-        query(
-            tree,
-            { lowerBound: { x: -1, y: -1, z: -1 }, upperBound: { x: proxyCount + 1, y: 2, z: 2 } },
-            ALL_BITS_HI,
-            ALL_BITS_LO,
-            true, // requireAllBits
-            (proxyId) => {
-                hits.push(proxyId);
-                return true;
-            },
-        );
-        expect(hits.sort((a, b) => a - b)).toEqual([...ids].sort((a, b) => a - b));
-    },
-);
-
-check(
-    "a dynamic tree query nested inside another query leaves the outer traversal intact",
-    {
-        claim: "the dynamic tree's traversal stack and visit stats are a shared singleton rather than pooled by depth, so a compound leaf's inner query clobbers the outer query's stack and counts",
-    },
-    () => {
-        const boxAt = (x: number): AABB => ({
-            lowerBound: { x: x - 0.5, y: -0.5, z: -0.5 },
-            upperBound: { x: x + 0.5, y: 0.5, z: 0.5 },
-        });
-        const wide: AABB = {
-            lowerBound: { x: -10, y: -1, z: -1 },
-            upperBound: { x: 10, y: 1, z: 1 },
+test("the dynamic tree's node-pool grow drops or truncates the 0xffffffff category words it copies, so proxies added past the initial capacity stop matching an all-bits query", () => {
+    // createTree floors nodeCapacity at 2*16-1 = 31 nodes; each proxy past the first costs 2
+    // nodes (leaf + new parent), so 20 proxies (39 nodes) forces at least one allocateNode grow.
+    const tree = createTree(16);
+    const initialCapacity = tree.nodeCapacity;
+    const proxyCount = 20;
+    const ids: number[] = [];
+    for (let i = 0; i < proxyCount; ++i) {
+        const box: AABB = {
+            lowerBound: { x: i, y: 0, z: 0 },
+            upperBound: { x: i + 1, y: 1, z: 1 },
         };
+        ids.push(createProxy(tree, box, ALL_BITS_HI, ALL_BITS_LO, i));
+    }
 
-        const OuterLeaves = 4;
-        const InnerLeaves = 3;
-        const outer = createTree(16);
-        for (let i = 0; i < OuterLeaves; ++i)
-            createProxy(outer, boxAt(i), ALL_BITS_HI, ALL_BITS_LO, i);
-        const inner = createTree(16);
-        for (let i = 0; i < InnerLeaves; ++i)
-            createProxy(inner, boxAt(i), ALL_BITS_HI, ALL_BITS_LO, 100 + i);
+    expect(tree.nodeCapacity).toBeGreaterThan(initialCapacity);
 
-        const flat = query(outer, wide, ALL_BITS_HI, ALL_BITS_LO, false, () => true);
-        const flatNodeVisits = flat.nodeVisits;
-        const flatLeafVisits = flat.leafVisits;
+    const hits: number[] = [];
+    query(
+        tree,
+        { lowerBound: { x: -1, y: -1, z: -1 }, upperBound: { x: proxyCount + 1, y: 2, z: 2 } },
+        ALL_BITS_HI,
+        ALL_BITS_LO,
+        true, // requireAllBits
+        (proxyId) => {
+            hits.push(proxyId);
+            return true;
+        },
+    );
+    expect(hits.sort((a, b) => a - b)).toEqual([...ids].sort((a, b) => a - b));
+});
 
-        const outerHits: number[] = [];
-        const innerHits: number[] = [];
-        const nested = query(outer, wide, ALL_BITS_HI, ALL_BITS_LO, false, (_proxyId, userData) => {
-            outerHits.push(userData);
-            query(inner, wide, ALL_BITS_HI, ALL_BITS_LO, false, (_id, innerData) => {
-                innerHits.push(innerData);
-                return true;
-            });
+test("the dynamic tree's traversal stack and visit stats are a shared singleton rather than pooled by depth, so a compound leaf's inner query clobbers the outer query's stack and counts", () => {
+    const boxAt = (x: number): AABB => ({
+        lowerBound: { x: x - 0.5, y: -0.5, z: -0.5 },
+        upperBound: { x: x + 0.5, y: 0.5, z: 0.5 },
+    });
+    const wide: AABB = {
+        lowerBound: { x: -10, y: -1, z: -1 },
+        upperBound: { x: 10, y: 1, z: 1 },
+    };
+
+    const OuterLeaves = 4;
+    const InnerLeaves = 3;
+    const outer = createTree(16);
+    for (let i = 0; i < OuterLeaves; ++i) createProxy(outer, boxAt(i), ALL_BITS_HI, ALL_BITS_LO, i);
+    const inner = createTree(16);
+    for (let i = 0; i < InnerLeaves; ++i)
+        createProxy(inner, boxAt(i), ALL_BITS_HI, ALL_BITS_LO, 100 + i);
+
+    const flat = query(outer, wide, ALL_BITS_HI, ALL_BITS_LO, false, () => true);
+    const flatNodeVisits = flat.nodeVisits;
+    const flatLeafVisits = flat.leafVisits;
+
+    const outerHits: number[] = [];
+    const innerHits: number[] = [];
+    const nested = query(outer, wide, ALL_BITS_HI, ALL_BITS_LO, false, (_proxyId, userData) => {
+        outerHits.push(userData);
+        query(inner, wide, ALL_BITS_HI, ALL_BITS_LO, false, (_id, innerData) => {
+            innerHits.push(innerData);
             return true;
         });
+        return true;
+    });
 
-        expect(outerHits.length).toBe(OuterLeaves);
-        expect(innerHits.length).toBe(OuterLeaves * InnerLeaves);
-        expect(nested.nodeVisits).toBe(flatNodeVisits);
-        expect(nested.leafVisits).toBe(flatLeafVisits);
-    },
-);
+    expect(outerHits.length).toBe(OuterLeaves);
+    expect(innerHits.length).toBe(OuterLeaves * InnerLeaves);
+    expect(nested.nodeVisits).toBe(flatNodeVisits);
+    expect(nested.leafVisits).toBe(flatLeafVisits);
+});

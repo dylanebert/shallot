@@ -1,18 +1,10 @@
-import { expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { check } from "@dylanebert/shallot/harness/check";
 import { findPublicDirs, shallot } from "./vite";
 
-check(
-    "public assets are project-scoped",
-    {
-        claim: "the Vite plugin only returns a project's own public assets",
-        size: "unit",
-        subject: "src/project/vite.ts",
-    },
-    () => {
+test("the Vite plugin only returns a project's own public assets", () => {
         const root = mkdtempSync(join(tmpdir(), "shallot-public-scope-"));
         const project = join(root, "example");
         mkdirSync(join(root, "public"), { recursive: true });
@@ -24,8 +16,7 @@ check(
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
-    },
-);
+    });
 
 function shallotProject(projectDir?: string) {
     const plugin = shallot(projectDir).find(({ name }) => name === "shallot");
@@ -33,12 +24,7 @@ function shallotProject(projectDir?: string) {
     return plugin;
 }
 
-check(
-    "shallot plugin: shares dependencies and configures both servers",
-    {
-        claim: "a project can load duplicate engine, typegpu or manifest plugin instances, and its dev or preview server lacks isolation headers",
-    },
-    () => {
+test("a project can load duplicate engine, typegpu or manifest plugin instances, and its dev or preview server lacks isolation headers", () => {
         const root = mkdtempSync(join(tmpdir(), "shallot-project-plugin-"));
         try {
             writeFileSync(
@@ -73,15 +59,9 @@ check(
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
-    },
-);
+    });
 
-check(
-    "shallot plugin: provides virtual project data from shallot.json",
-    {
-        claim: "a project's virtual:project module reflects its shallot.json manifest and scene",
-    },
-    () => {
+test("a project's virtual:project module reflects its shallot.json manifest and scene", () => {
         const root = mkdtempSync(join(tmpdir(), "shallot-virtual-project-"));
         try {
             writeFileSync(
@@ -96,15 +76,9 @@ check(
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
-    },
-);
+    });
 
-check(
-    "shallot plugin: rejects a second TypeGPU transform",
-    {
-        claim: "a project config cannot apply TypeGPU's metadata transform twice",
-    },
-    () => {
+test("a project config cannot apply TypeGPU's metadata transform twice", () => {
         const plugins = shallot();
         const project = plugins.find(({ name }) => name === "shallot");
         if (!project) throw new Error("shallot() did not return its project plugin");
@@ -116,15 +90,9 @@ check(
         expect(() => resolved({ plugins: [...names, { name: "unplugin-typegpu" }] })).toThrow(
             "shallot() includes the TypeGPU transform",
         );
-    },
-);
+    });
 
-check(
-    "shallot plugin: prunes only unreferenced build assets",
-    {
-        claim: "a Vite build does not ship scanner-emitted assets without a surviving bundle reference",
-    },
-    () => {
+test("a Vite build does not ship scanner-emitted assets without a surviving bundle reference", () => {
         const bundle = {
             "entry.js": { type: "chunk", fileName: "entry.js", code: 'load("used.png")' },
             "used.png": { type: "asset", fileName: "used.png", source: "used" },
@@ -140,15 +108,9 @@ check(
         expect(Object.hasOwn(bundle, "orphan.png")).toBe(false);
         expect(Object.hasOwn(bundle, "used.png")).toBe(true);
         expect(messages[0]).toContain("pruned 1 orphaned asset(s)");
-    },
-);
+    });
 
-check(
-    "shallot plugin: reloads on scene, manifest and model changes",
-    {
-        claim: "dev clients fully reload when a scene, shallot.json or public model changes",
-    },
-    () => {
+test("dev clients fully reload when a scene, shallot.json or public model changes", () => {
         const root = mkdtempSync(join(tmpdir(), "shallot-watch-"));
         try {
             const publicDir = join(root, "public");
@@ -184,5 +146,4 @@ check(
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
-    },
-);
+    });
