@@ -118,10 +118,10 @@ const saved = stringify(serialize(state));
 
 Configure Playwright in the project, run its own Vite preview with `webServer`, and put Chromium launch flags in `playwright.config.ts`.
 
-## TypeGPU below 0.12.5 is too old
+## TypeGPU below 0.12.6 is too old
 
 ```sh
-bun add typegpu@~0.12.5
+bun add typegpu@~0.12.6
 ```
 
 For web, `shallot dev`, `shallot build` and `shallot preview` run the project's Vite commands. Native `dev` and `build` add the desktop shell to the Vite server or build; native `preview` launches that build. Add Shallot's Vite plugin to the project config; it includes the TypeGPU transform, so do not register a separate TypeGPU plugin:

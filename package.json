@@ -101,7 +101,7 @@
     "peerDependencies": {
         "bun-webgpu": ">=0.1.7",
         "playwright": "^1.0.0",
-        "typegpu": "~0.12.5"
+        "typegpu": "~0.12.6"
     },
     "peerDependenciesMeta": {
         "bun-webgpu": {
@@ -125,7 +125,7 @@
         "binaryen": "132.0.0",
         "bun-webgpu": "github:dylanebert/bun-webgpu#7b75d0440d2f22e2c9a1cb383d15529652c53d98",
         "playwright": "^1.63.0",
-        "typegpu": "~0.12.5",
+        "typegpu": "~0.12.6",
         "typescript": "^7.0.2"
     }
 }
