@@ -282,10 +282,9 @@ jobs:
       # branch ref (refs/heads/<branch>), never refs/tags/v*, so this step is skipped on dispatch.
       # Do NOT remove or broaden this condition.
       #
-      # CREATE-IF-MISSING: shallot's release procedure (testing.md § Release gate) ends at
-      # publish + push tag — it never creates a GitHub Release object. So on the first tag push
-      # there is no Release to upload into; `gh release upload` alone would fail "release not
-      # found". The step branches on `gh release view` (an explicit branch, not a `||` chain
+      # CREATE-IF-MISSING: a first tag push has no GitHub Release object yet, so
+      # `gh release upload` alone would fail "release not found". The step branches on
+      # `gh release view` (an explicit branch, not a `||` chain
       # that would swallow an unrelated failure): if the Release is absent it is created with
       # --verify-tag (the tag is guaranteed present — the workflow is tag-triggered) and
       # --generate-notes, attaching the archives at creation; if it already exists the upload
@@ -313,13 +312,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           if gh release view "${{ github.ref_name }}" > /dev/null 2>&1; then
             gh release upload "${{ github.ref_name }}" --clobber \
               archives/shallot-native-*.tar.gz \
               SHA256SUMS
           else
-            gh release create "${{ github.ref_name }}" --verify-tag --generate-notes \
+            release_args=(--verify-tag --generate-notes)
+            if [[ "$RELEASE_TAG" == *-* ]]; then
+              release_args+=(--prerelease)
+            fi
+            gh release create "$RELEASE_TAG" "${release_args[@]}" \
               archives/shallot-native-*.tar.gz \
               SHA256SUMS
           fi

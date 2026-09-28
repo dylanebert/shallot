@@ -127,10 +127,11 @@ Heavy computation runs in WASM or on the GPU; TypeScript coordinates it and runs
 
 ## Dependencies and releases
 
+- A project can use Shallot released, staged or live: `bun add @dylanebert/shallot`; `bun pm pack` here, then `bun add --no-save <tarball>` in the project; or `bun link` here, then `bun link @dylanebert/shallot` in the project. `bun install` returns a staged or linked project to its manifest pin.
 - A pin is the last verified version. Update a pin everywhere it appears in one commit; `check-pins` fails on drift. Until the release-candidate bump, move a pin only to fix a named defect.
 - The package self-references by its name, so its source and examples import it by name without a dependency entry. `@types/node` and `@webgpu/types` are runtime dependencies, because `types` points at source.
 - A link doesn't prove what ships; a packed tarball installed in a scratch project does. Changes to the CLI, manifest, dependencies, runtime or native shell require that test.
-- `main` may be mid-change. A release is a `v*` tag; its workflow builds the native shells and publishes to npm. Publish only to release. Consumers pin a published version or a full commit SHA.
+- `main` is development and carries the version it is heading to or last prereleased; a commit on it is not a release. Publish a version from a commit whose `package.json` contains it, with one `v<version>` tag per published version. Pushing the tag runs `release.yml`, which creates the GitHub Release and attaches the native archives; it does not publish to npm. Run `bun publish` for a stable version (npm `latest`; GitHub Release marked Latest) or `bun publish --tag next` for a prerelease (npm `next`; GitHub Release marked Pre-release). Keep one prerelease identifier per release line: Semver orders identifiers alphabetically, so changing identifiers can make a later prerelease sort below an earlier one.
 - A breaking change updates every dependent it breaks in the same change. A removal or reshape strips what a dependent can no longer use rather than rebuilding it, so no dependent keeps a pattern the engine has left. Rebuilding in the new shape, additive features and hardening reach dependents once the engine side is settled, not through each intermediate state.
 - To retire a module, example or tool, tag its last commit `archive/<name>`, then delete it in a commit that says why. There is no archive directory.
 
