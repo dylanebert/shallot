@@ -1,0 +1,2 @@
+stage: 5
+finding: CI silently omits any new *.e2e.ts placed outside a discovered subject directory (for example under src): scripts/browser.sh discovers only directories containing vite.config.ts or playwright.config.ts, and each config's testDir is its own directory. No orphan-test check catches it, so the former root-wide test discovery is not preserved.
