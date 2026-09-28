@@ -28,7 +28,7 @@
     "exports": {
         ".": "./src/index.ts",
         "./bun": "./src/bun.ts",
-        "./tsconfig.json": "./tsconfig.json",
+        "./tsconfig.json": "./tsconfig.base.json",
         "./extras": "./src/extras/index.ts",
         "./brand": "./src/standard/loading/brand.ts",
         "./vite": {
@@ -54,7 +54,7 @@
     "files": [
         "src",
         "bin",
-        "tsconfig.json",
+        "tsconfig.base.json",
         "crates/audio/pkg",
         "crates/native",
         "assets/icon-1024.png",
