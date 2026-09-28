@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { manifestPath } from "./assets";
-import { installGpuGlobals } from "./gpu-globals";
 import { plan, resolveLocalModules } from "./host";
 import { normalize } from "./manifest";
 
@@ -26,13 +25,11 @@ function readManifest(absDir: string) {
 /**
  * the WebGPU features a project's enabled plugins require beyond the base floor — the same union the
  * runtime computes at `build()` (engine/app: `plugins.flatMap(p => p.features)`), resolved statically
- * from `shallot.json`. Imports the engine barrel under the GPU-constants shim, since the barrel
- * evaluates GPU module code at import (sear's top-level `GPUShaderStage`); local plugins import from
- * their project-resolved identity. Missing entries refuse before evaluation; an already-resolved
- * local that fails during evaluation remains the web build's problem to surface.
+ * from `shallot.json`. Imports engine plugin barrels and local plugins to read their feature declarations;
+ * GPU work remains in lifecycle hooks. Missing entries refuse before evaluation; an already-resolved local
+ * that fails during evaluation remains the web build's problem to surface.
  */
 export async function requiredFeatures(projectDir: string): Promise<string[]> {
-    installGpuGlobals(); // install GPUShaderStage etc. so the barrel + locals import under the plain `bun` CLI
     const absDir = resolve(projectDir);
     const project = plan(readManifest(absDir), absDir);
     const locals = resolveLocalModules({ dir: absDir, locals: project.locals });

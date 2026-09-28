@@ -59,8 +59,9 @@ A `package.json` script is a lifecycle hook the package manager runs, such as `p
 ```bash
 bun run build                         # regenerate audio WASM, dist/vite.js, physics kernel
 bun run check                         # static gates; run before every push
-bun run test                          # cheap tier: *.test.ts, 250 ms default per test
-bun test ./src/transitional/mirror/index.gpu.ts  # named GPU tier
+bun run test                          # *.test.ts, including GPU tests on a device
+bun run test --path-ignore-patterns '**/*.gpu.test.ts' # no-device host tier
+bun test gpu.test                     # GPU tier
 bun test ./diagnostics/first-person-allocation/allocation.oracle.ts # named display oracle (manual)
 bun run test:browser                  # wide browser run; every subject config
 bun test --todo                       # run quarantined test.todo entries, if any
@@ -73,7 +74,8 @@ bun run format                        # biome, scene formatter and examples inde
 
 A module's promises are tested beside the module and through the examples that use it. Each test name states the claim; its timeout is the wall-clock budget.
 
-- `bun run test` discovers the cheap `*.test.ts` tier with a 250 ms default timeout per test. Individual test timeouts override it. Bare `bun test` discovers the same files with Bun's default timeout. GPU, Node and oracle tests with a different premise belong in named files and run by path.
+- `bun run test` discovers `*.test.ts` files, including `*.gpu.test.ts`, with a 250 ms default timeout per test. Individual test timeouts override it. Bare `bun test` discovers the same files with Bun's default timeout. Hosted jobs without a device exclude `*.gpu.test.ts` by pattern; the macOS GPU job runs `bun test gpu.test`. Node tests remain named `*.node.ts` files and run as before; oracles are manual and run by path.
+- Root `bunfig.toml` loads Shallot's Bun plugin so the engine tests receive the same TypeGPU transform as project test preloads.
 - Rust suites run directly with Cargo:
 
   ```bash
@@ -108,7 +110,7 @@ A module's promises are tested beside the module and through the examples that u
 
 ### CI coverage
 
-CI runs static gates and the complete cheap tier on GitHub-hosted Ubuntu and macOS, plus the complete GPU, Cargo, Node and browser tiers on hosts with their required tools. The browser run discovers subject directories from `vite.config.ts` or `playwright.config.ts` under `examples/` and `scripts/`, requires both files for each discovered subject, and runs each subject; an `*.e2e.ts` file outside a subject fails as an orphan. The display-bound allocation oracle is run manually on its declared display seat. These jobs do not qualify a Windows runner or native packaging.
+CI runs static gates and all tests except `*.gpu.test.ts` on GitHub-hosted Ubuntu and macOS, plus the GPU, Cargo, Node and browser tiers on hosts with their required tools. The browser run discovers subject directories from `vite.config.ts` or `playwright.config.ts` under `examples/` and `scripts/`, requires both files for each discovered subject, and runs each subject; an `*.e2e.ts` file outside a subject fails as an orphan. The display-bound allocation oracle is run manually on its declared display seat. These jobs do not qualify a Windows runner or native packaging.
 
 ## Examples
 
@@ -137,15 +139,3 @@ Heavy computation runs in WASM or on the GPU; TypeScript coordinates it and runs
 - `main` is development and carries the next unpublished version; the commit after a publish moves it forward, because Bun keys an installed package by name and version and a tarball with a published version can silently fail to stage or restore. A commit on it is not a release. Publish a version from a commit whose `package.json` contains it, with one `v<version>` tag per published version. Pushing the tag runs `release.yml`, which creates the GitHub Release and attaches the native archives; it does not publish to npm. Run `bun publish` for a stable version (npm `latest`; GitHub Release marked Latest) or `bun publish --tag next` for a prerelease (npm `next`; GitHub Release marked Pre-release). Keep one prerelease identifier per release line: Semver orders identifiers alphabetically, so changing identifiers can make a later prerelease sort below an earlier one.
 - A breaking change updates every dependent it breaks in the same change. A removal or reshape strips what a dependent can no longer use rather than rebuilding it, so no dependent keeps a pattern the engine has left. Rebuilding in the new shape, additive features and hardening reach dependents once the engine side is settled, not through each intermediate state.
 - To retire a module, example or tool, tag its last commit `archive/<name>`, then delete it in a commit that says why. There is no archive directory.
-
-## Device tiers
-
-Generated from the plugin declarations, which decide whether a composition needs a device.
-
-<!-- device-tiers:start -->
-| Plugin set | Composition tier | `required` (GPU) | `optional` (CPU/GPU) | absent declaration (CPU) |
-| --- | --- | --- | --- | --- |
-| core | gpu | Render | — | BrowserInput, Input |
-| standard | gpu | BVH, Glaze, Mirror, Sear | Part, Physics, Slab, Transforms | Audio, Character |
-| extras | gpu | Fog, Profile | Cells, Gltf, Lines, Outline, Skin, Sky, Sprite, Text | Orbit, OrbitOverlay, PhysicsProfile, Player |
-<!-- device-tiers:end -->

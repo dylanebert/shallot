@@ -2,6 +2,10 @@ import { test } from "bun:test";
 import { build, Color, SlabPlugin } from "@dylanebert/shallot";
 import { ColorTraits } from "./part";
 
+const peerModule = "bun-webgpu";
+const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+await setupGlobals();
+
 const ColorOwner = {
     name: "ColorAuthoringOwner",
     components: { Color },

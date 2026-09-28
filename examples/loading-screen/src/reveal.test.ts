@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { resetCompute, type State } from "@dylanebert/shallot";
+import type { State } from "@dylanebert/shallot";
 import { FRAME_BACKGROUND_COLOR, FRAME_ERROR_COLOR, mountHost } from "./host";
 import { revealAfterFirstFrame } from "./reveal";
 
@@ -87,7 +87,6 @@ test("a missing device on the first stepped frame leaves a readable alert inside
         console.error = (error: unknown) => {
             errorReported = error;
         };
-        resetCompute();
         const host = mountHost();
         const plugin = revealAfterFirstFrame(host, {
             error(error) {
@@ -99,7 +98,6 @@ test("a missing device on the first stepped frame leaves a readable alert inside
         await Promise.resolve();
         errorLine = frame.querySelector(".frame-error");
     } finally {
-        resetCompute();
         console.error = previousConsoleError;
         if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
         else Reflect.deleteProperty(globalThis, "document");

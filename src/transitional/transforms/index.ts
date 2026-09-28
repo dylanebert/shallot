@@ -144,7 +144,6 @@ export function composeTransform(eid: number, out: Float32Array): Float32Array {
  */
 export const TransformsPlugin: Plugin = {
     name: "Transforms",
-    device: "optional",
     components: { Transform },
     dependencies: [SlabPlugin],
     traits: {

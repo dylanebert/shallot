@@ -11,6 +11,10 @@ import {
 } from "@dylanebert/shallot";
 import { Orbit, OrbitPlugin } from "@dylanebert/shallot/extras";
 
+const peerModule = "bun-webgpu";
+const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+await setupGlobals();
+
 test("the public Orbit consumer consumes held, released and neutral pointer facts to produce a sensitivity-scaled camera pose without a canvas, browser producer or renderer", async () => {
     const app = await build({ defaults: false, plugins: [OrbitPlugin] });
     try {

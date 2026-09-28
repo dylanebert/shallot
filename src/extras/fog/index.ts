@@ -216,7 +216,6 @@ export const FogSystem: System = {
  */
 export const FogPlugin: Plugin = {
     name: "Fog",
-    device: "required",
     components: { Fog },
     traits: {
         Fog: {

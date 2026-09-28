@@ -197,28 +197,6 @@ export interface Compute {
 /** active GPU compute singleton, populated by {@link requestGPU} */
 export const Compute: Compute = {} as Compute;
 
-/** clear the active device between CPU builds without probing or acquiring WebGPU. */
-export function resetCompute(): void {
-    Object.assign(Compute, {
-        device: undefined,
-        adapter: undefined,
-        root: undefined,
-        frame: 0,
-        pending: () => 0,
-        sync: () => Promise.resolve(),
-        buffers: new Map<string, GPUBuffer>(),
-        textures: new Map<string, GPUTexture>(),
-        samplers: new Map<string, GPUSampler>(),
-        typed: new Map<string, TgpuBuffer<AnyData>>(),
-        span: undefined,
-        indirect: undefined,
-        precompiled: undefined,
-    });
-    _precompile.length = 0;
-    _precompileLabels.clear();
-    _precompileScopes.clear();
-}
-
 /** a generated shader record, for debugging. @internal */
 export interface ShaderArtifact {
     label: string;
@@ -1272,42 +1250,25 @@ async function acquireDevice(
         );
     }
 
+    const requiredLimits: Record<string, number> = {
+        maxStorageBuffersPerShaderStage: REQUIRED_STORAGE_BUFFERS_PER_STAGE,
+    };
+    // Older implementations expose the split-stage limits as zero even though the unified limit
+    // governs them. State zero explicitly so their requestDevice wrappers don't substitute the
+    // newer spec defaults as impossible requirements.
+    for (const limit of [
+        "maxStorageBuffersInVertexStage",
+        "maxStorageBuffersInFragmentStage",
+        "maxStorageTexturesInVertexStage",
+        "maxStorageTexturesInFragmentStage",
+    ] as const) {
+        if (adapter.limits[limit] === 0) requiredLimits[limit] = 0;
+    }
+
     const device = await adapter.requestDevice({
         requiredFeatures: [...required, ...granted],
-        requiredLimits: deviceLimits(adapter.limits),
+        requiredLimits,
     });
 
     return { device, adapter };
-}
-
-/**
- * the limits requested at device acquisition, read from the adapter. The storage-binding /
- * buffer sizes pass the adapter's full values through (physics' compacted contact store needs the
- * full size past the 128 MB / 256 MB spec defaults at high capacity, and a consumer overreaching
- * the true limit still fails loud at bind-group validation). `maxStorageBuffersPerShaderStage`
- * forwards the hardcoded floor of 10 (a deliberate ceiling), not the adapter's value;
- * `acquireDevice` pre-gates the adapter against that floor, so this never rejects `requestDevice`.
- *
- * The split-stage storage limits are a 2024 spec addition absent on older mobile WebGPU, where the
- * adapter reports `undefined`. Forwarding `undefined` makes WebIDL's `GPUSize64` conversion throw
- * "Value NaN is outside the range [0, 9007199254740991]" and reject the device, so drop any absent
- * limit and let the device apply its default (the unified `maxStorageBuffersPerShaderStage` still
- * governs there).
- */
-export function deviceLimits(limits: GPUSupportedLimits): Record<string, number> {
-    const wanted: Record<string, number | undefined> = {
-        maxTextureDimension2D: limits.maxTextureDimension2D,
-        maxStorageBuffersPerShaderStage: REQUIRED_STORAGE_BUFFERS_PER_STAGE,
-        maxStorageBuffersInVertexStage: limits.maxStorageBuffersInVertexStage,
-        maxStorageBuffersInFragmentStage: limits.maxStorageBuffersInFragmentStage,
-        maxStorageTexturesInVertexStage: limits.maxStorageTexturesInVertexStage,
-        maxStorageTexturesInFragmentStage: limits.maxStorageTexturesInFragmentStage,
-        maxStorageBufferBindingSize: limits.maxStorageBufferBindingSize,
-        maxBufferSize: limits.maxBufferSize,
-    };
-    const required: Record<string, number> = {};
-    for (const [key, value] of Object.entries(wanted)) {
-        if (value !== undefined) required[key] = value;
-    }
-    return required;
 }

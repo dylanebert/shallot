@@ -1137,7 +1137,6 @@ const ProfileRenderSystem: System = {
  */
 export const ProfilePlugin: Plugin = {
     name: "Profile",
-    device: "required",
     systems: [ProfileFrameBeginSystem, ProfileRenderSystem],
     dependencies: [],
     // the only `createQuerySet` in the engine is this plugin's; every other site passes

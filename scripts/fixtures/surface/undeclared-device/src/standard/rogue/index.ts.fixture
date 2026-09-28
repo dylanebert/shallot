@@ -1,8 +1,0 @@
-import { Compute, type Plugin } from "../../../engine";
-
-export const RoguePlugin: Plugin = {
-    name: "Rogue",
-    initialize() {
-        void Compute.device;
-    },
-};

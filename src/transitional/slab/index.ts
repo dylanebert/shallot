@@ -573,16 +573,13 @@ export const SlabSystem: System = {
  */
 export const SlabPlugin: Plugin = {
     name: "Slab",
-    device: "optional",
     systems: [SlabSystem, MembershipSystem],
 
     initialize() {
         Slab.collect();
     },
 
-    // CPU builds still collect and prepare their canonical arrays, but skip every GPU allocation.
     warm(state) {
-        if (!Compute.device) return;
         for (const t of Slab.gpuTypes()) scatterPipeline(t);
         Slab.prepareAll();
         allocMembership(state);

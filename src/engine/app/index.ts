@@ -11,13 +11,11 @@ import {
     readFile,
     requestFrame,
     requestGPU,
-    resetCompute,
-    UnsupportedError,
     validateGpu,
 } from "../runtime";
 import { diagnose, load, parse, preload } from "../scene";
 import { coalesce, frameDelta, median } from "./coalesce";
-import { type DeviceTier, deviceTier, resolvePlugins } from "./compose";
+import { resolvePlugins } from "./compose";
 
 export * from "./compose";
 
@@ -28,18 +26,6 @@ export * from "./compose";
 export interface Plugin {
     /** unique name; the manifest enables the plugin by this name, and `swap` pairs reloads by it */
     readonly name: string;
-    /**
-     * device tier required by this plugin: `required` means initialization or warm has no CPU meaning,
-     * `optional` means CPU truth remains valid and GPU work is mirrored when available, and absent means
-     * the plugin never reads the compute device. The build's tier is the pure union of these declarations.
-     *
-     * | declaration | tier effect | contract |
-     * | --- | --- | --- |
-     * | `required` | `gpu` | refuse before plugin hooks if no device can be acquired |
-     * | `optional` | `cpu` or `gpu` | keep CPU truth; guard every GPU mirror |
-     * | absent | `cpu` | never read `Compute` |
-     */
-    readonly device?: "required" | "optional";
     /** systems this plugin adds to the scheduler */
     readonly systems?: readonly System[];
     /** components this plugin registers, keyed by scene-attribute name */
@@ -151,11 +137,10 @@ export interface App {
 
 /** settle every started warm before closing the shared device error scope. @internal */
 export async function warmPlugins(
-    device: GPUDevice | undefined,
+    device: GPUDevice,
     state: State,
     plugins: readonly Plugin[],
     onProgress?: (progress: number) => void,
-    tier: DeviceTier["tier"] = device ? "gpu" : "cpu",
 ): Promise<void> {
     const warm = async (): Promise<void> => {
         const perPlugin = new Array(plugins.length).fill(0);
@@ -168,7 +153,7 @@ export async function warmPlugins(
                         report();
                     });
                 } catch (error) {
-                    throw pluginHookError(plugin, "warm", tier, error);
+                    throw pluginHookError(plugin, "warm", error);
                 } finally {
                     perPlugin[i] = 1;
                     report();
@@ -188,24 +173,15 @@ export async function warmPlugins(
 
         // typegpu creates pipelines synchronously and Dawn defers that compile to the first dispatch,
         // so every registered pipeline is forced here — under the loading screen, not on frame one.
-        if (device) await precompileAll();
+        await precompileAll();
     };
 
-    if (device) await validateGpu(device, "pipeline warm", warm);
-    else await warm();
+    await validateGpu(device, "pipeline warm", warm);
 }
 
-function pluginHookError(
-    plugin: Plugin,
-    hook: "initialize" | "warm",
-    tier: DeviceTier["tier"],
-    error: unknown,
-): Error {
+function pluginHookError(plugin: Plugin, hook: "initialize" | "warm", error: unknown): Error {
     const detail = error instanceof Error ? error.message : String(error);
-    const declaration = tier === "cpu" ? '; declare device: "optional" or "required"' : "";
-    return new Error(
-        `Plugin "${plugin.name}" ${hook} threw in ${tier} tier${declaration}: ${detail}`,
-    );
+    return new Error(`Plugin "${plugin.name}" ${hook} threw: ${detail}`);
 }
 
 // runaway backstop: the most frames the loop may run ahead of the GPU before skipping a step, so the CPU
@@ -300,7 +276,6 @@ export async function build(config: Config): Promise<App> {
         }
 
         const sorted = composition.plugins;
-        const tier = deviceTier(sorted);
         state = new State({
             capacity: config.capacity,
             pixelRatio: config.pixelRatio,
@@ -309,28 +284,12 @@ export async function build(config: Config): Promise<App> {
         loading = config.loading ?? _defaultLoading?.();
         cleanup = loading?.show() ?? undefined;
 
-        if (tier.tier === "cpu") {
-            // CPU composition is a first-class build, not a failed GPU build. Clear a prior device so
-            // optional plugins cannot accidentally mirror against stale process-global handles.
-            resetCompute();
-        } else {
-            // acquire the device for exactly the loaded plugins' feature needs — the union of every
-            // active plugin's required `features` and best-effort `preferredFeatures`.
-            const features = [...new Set(sorted.flatMap((p) => p.features ?? []))];
-            const preferred = [...new Set(sorted.flatMap((p) => p.preferredFeatures ?? []))];
-            try {
-                await requestGPU(config.device, features, preferred, config.adapter);
-                if (Compute.adapter.class !== "real") loading?.notice?.(Compute.adapter);
-            } catch (error) {
-                const detail = error instanceof Error ? error.message : String(error);
-                const required = tier.required.join(", ");
-                throw new UnsupportedError(
-                    `Cannot build gpu tier; required plugins: ${required}. ${detail}. ` +
-                        `For a CPU build use build({ defaults: false, plugins: [...] }) or ` +
-                        `build({ plugins: [...], exclude: [${required}] }).`,
-                );
-            }
-        }
+        // acquire one device for every app, requesting the union of active plugins' required
+        // features and best-effort preferred features.
+        const features = [...new Set(sorted.flatMap((p) => p.features ?? []))];
+        const preferred = [...new Set(sorted.flatMap((p) => p.preferredFeatures ?? []))];
+        await requestGPU(config.device, features, preferred, config.adapter);
+        if (Compute.adapter.class !== "real") loading?.notice?.(Compute.adapter);
 
         for (const plugin of sorted) {
             const components = plugin.components ?? {};
@@ -374,7 +333,7 @@ export async function build(config: Config): Promise<App> {
             try {
                 await sorted[i].initialize?.(state, onProgress);
             } catch (error) {
-                throw pluginHookError(sorted[i], "initialize", tier.tier, error);
+                throw pluginHookError(sorted[i], "initialize", error);
             }
             loading?.update((i + 1) / total);
         }
@@ -398,15 +357,9 @@ export async function build(config: Config): Promise<App> {
         // plugin can build against it. Owned here, not in a standard plugin, so it
         // holds for every State regardless of which plugins are loaded.
         state.membership.freeze();
-        await warmPlugins(
-            tier.tier === "gpu" ? Compute.device : undefined,
-            state,
-            warmable,
-            (progress) => {
-                loading?.update((warmBase + progress) / total);
-            },
-            tier.tier,
-        );
+        await warmPlugins(Compute.device, state, warmable, (progress) => {
+            loading?.update((warmBase + progress) / total);
+        });
 
         loading?.update(1);
         await loading?.complete?.();

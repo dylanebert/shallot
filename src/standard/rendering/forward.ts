@@ -1233,7 +1233,6 @@ function disposeSear(): void {
 export function createSearPlugin(): Plugin {
     return {
         name: "Sear",
-        device: "required",
         components: { Sear, Tag, Depth, Shadow, Material, Backdrop },
         systems: [PrepassSystem, ColorSystem, ShadowCameraSystem, ShadowMapSystem],
         // SlabPlugin: the `Material` slab is collected + published as `"material"`, and `initMaterial`

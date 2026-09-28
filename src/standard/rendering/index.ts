@@ -29,7 +29,7 @@ export { Backdrop, Depth, Material, Sear } from "./forward";
  * sear depends only on {@link RenderPlugin}; list a composite alongside it or nothing reaches the
  * swapchain. `ColorSystem` still orders before glaze so glaze, when present, composites after the resolve.
  */
-export const SearPlugin: Plugin = { ...createSearPlugin(), device: "required" };
+export const SearPlugin: Plugin = createSearPlugin();
 export { MAX_CASCADES, MAX_POINT_CASTERS, PointShadows, Shadow, SunShadows } from "./shadows";
 
 // sear's non-public extension surface: the surface chunk environment, the backdrop seam, the opt-in

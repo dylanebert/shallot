@@ -1,8 +1,0 @@
-import { Compute } from "../../engine";
-
-export const CoreRoguePlugin = {
-    name: "CoreRogue",
-    initialize() {
-        void Compute.device;
-    },
-};

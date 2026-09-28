@@ -178,7 +178,6 @@ const CellsSystem: System = {
 export function cells(fontUrl = DEFAULT_FONT): Plugin {
     return {
         name: "Cells",
-        device: "optional",
         systems: [CellsSystem],
         dependencies: [RenderPlugin],
 

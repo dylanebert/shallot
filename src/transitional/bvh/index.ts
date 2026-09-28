@@ -54,7 +54,6 @@ export const BVH_FEATURES: readonly GPUFeatureName[] = ["subgroups"];
 /** The BVH extension owns GPU-only builders and therefore must be present in a GPU composition. */
 export const BvhPlugin: Plugin = {
     name: "BVH",
-    device: "required",
 };
 
 /**

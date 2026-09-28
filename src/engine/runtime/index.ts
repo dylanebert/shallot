@@ -13,7 +13,6 @@ export {
     precompileAll,
     precompileScope,
     requestGPU,
-    resetCompute,
     type ShaderArtifact,
     stampAdapter,
     tgslCanary,

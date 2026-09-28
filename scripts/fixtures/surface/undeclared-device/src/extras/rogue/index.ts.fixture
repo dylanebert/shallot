@@ -1,8 +1,0 @@
-import { Compute } from "../../engine";
-
-export const ExtrasRoguePlugin = {
-    name: "ExtrasRogue",
-    initialize() {
-        void Compute.device;
-    },
-};

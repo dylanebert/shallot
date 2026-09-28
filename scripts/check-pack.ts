@@ -46,7 +46,6 @@ const requiredNegations = [
     "!**/fixtures",
     "!**/*.test.ts",
     "!**/*.oracle.ts",
-    "!**/*.gpu.ts",
     "!**/*.node.ts",
     "!**/*.e2e.ts",
 ];
@@ -86,7 +85,6 @@ const required = [
     "src/project/bun.ts",
     "tsconfig.base.json",
     "src/core/rendering/capture.ts",
-    "src/engine/app/device-tiers.generated.ts",
     "bin/shallot.ts",
     "src/project/policy.ts",
     "src/cli/index.ts",

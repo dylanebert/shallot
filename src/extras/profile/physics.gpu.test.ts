@@ -3,6 +3,10 @@ import { build, type Plugin } from "@dylanebert/shallot";
 import { PhysicsProfilePlugin } from "@dylanebert/shallot/extras";
 import { Body, PhysicsPlugin, physicsWorld, ShapeKind } from "@dylanebert/shallot/physics";
 
+const peerModule = "bun-webgpu";
+const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+await setupGlobals();
+
 let live: Awaited<ReturnType<typeof build>> | null = null;
 
 afterEach(() => {

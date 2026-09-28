@@ -12,6 +12,10 @@ import {
     updateCascades,
 } from "./shadows";
 
+const peerModule = "bun-webgpu";
+const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+await setupGlobals();
+
 // `updateCascades` rebuilds the sun's boxes only when its inputs change, so the pooled cascade cameras keep
 // the pose the last build wrote. These rows pin what that skip must still repose: a rebuilt pool, and a
 // camera whose size or far was written from outside the pass. Both are silent otherwise — the cull frustum

@@ -10,6 +10,10 @@ import {
     snapshot,
 } from "@dylanebert/shallot/physics";
 
+const peerModule = "bun-webgpu";
+const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+await setupGlobals();
+
 const FALLING_SCENE = `<scene><a body="shape: 1; pos: 0 3 0; half-extents: 0 0 0 0.5; mass: 1" /></scene>`;
 const EULER_SCENE = `<scene><a id="wheel" body="shape: 1; pos: 0 1.5 0; half-extents: 0 0 0 0.4; mass: 0.5; quat: 90 0 0" /></scene>`;
 

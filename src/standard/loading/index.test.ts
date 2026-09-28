@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { build, UnsupportedError } from "../../engine";
+import { UnsupportedError } from "../../engine";
 import { minimalDark, minimalLight, shallotDark } from "./index";
 
 class Element {
@@ -145,39 +145,6 @@ test("minimal dark and light loading are transparent, preserve progress colors, 
             expect(body.children).toHaveLength(0);
         }
     });
-});
-
-test("build awaits an application-owned loading completion promise before cleanup and returning the app", async () => {
-    let finish!: () => void;
-    let entered!: () => void;
-    let cleaned = false;
-    let returned = false;
-    const completionStarted = new Promise<void>((resolve) => (entered = resolve));
-    const built = build({
-        defaults: false,
-        plugins: [],
-        loading: {
-            show: () => () => (cleaned = true),
-            update: () => {},
-            complete: () => {
-                entered();
-                return new Promise<void>((resolve) => (finish = resolve));
-            },
-        },
-    }).then((app) => {
-        returned = true;
-        return app;
-    });
-    await completionStarted;
-    const held = !returned && !cleaned;
-    finish();
-    const app = await built;
-    try {
-        expect(held).toBe(true);
-        expect(cleaned).toBe(true);
-    } finally {
-        app.dispose();
-    }
 });
 
 test("the shallot-branded dark loading screen keeps its established opaque background", () => {

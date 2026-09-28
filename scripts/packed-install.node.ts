@@ -56,10 +56,7 @@ test("packed examples install by copy-out as isolated standalone projects", asyn
         writeFileSync(
             join(cliProject, "fresh.test.ts"),
             `import { expect, test } from "bun:test";
-import { build, type Plugin } from "@dylanebert/shallot/app";
-import { f32, sparse, Time } from "@dylanebert/shallot/ecs";
 import * as Rendering from "@dylanebert/shallot/rendering";
-import { drainLog, probeTexture } from "@dylanebert/shallot/runtime";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -72,41 +69,6 @@ test("the packed engine exposes no test-support namespace or capture helpers", (
     expect("captureIdentityLabel" in Rendering).toBe(false);
     expect("captureIdentityMatches" in Rendering).toBe(false);
     expect("assertCaptureGeometry" in Rendering).toBe(false);
-});
-
-test("a headless plugin set steps the world and exposes state through public engine subpaths", async () => {
-    const Ticks = { value: sparse(f32) };
-    let eid = -1;
-    const Counter: Plugin = {
-        name: "Counter",
-        components: { counter: Ticks },
-        initialize(state) {
-            eid = state.create();
-            state.add(eid, Ticks);
-            Ticks.value.set(eid, 0);
-        },
-        systems: [{
-            group: "fixed",
-            update(state) {
-                for (const entity of state.query([Ticks])) {
-                    Ticks.value.set(entity, Ticks.value.get(entity) + 1);
-                }
-            },
-        }],
-    };
-    const app = await build({ plugins: [Counter], defaults: false });
-    try {
-        app.state.step(Time.FIXED_DT);
-        expect(app.state.time.fixedTick).toBe(1);
-        expect(app.state.only([Ticks])).toBe(eid);
-        expect(Ticks.value.get(eid)).toBe(1);
-        expect(Rendering.CAPTURE_CONTRACT.width).toBe(1280);
-        expect(typeof Rendering.captureFrame).toBe("function");
-        expect(typeof probeTexture).toBe("function");
-        expect(typeof drainLog).toBe("function");
-    } finally {
-        app.dispose();
-    }
 });
 
 test("the packed Vite entry imports in Node and exposes only shallot", () => {
@@ -205,12 +167,9 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
             "the packed engine exposes no test-support namespace or capture helpers",
         );
         expect(packedProjectTests).toContain(
-            "a headless plugin set steps the world and exposes state through public engine subpaths",
-        );
-        expect(packedProjectTests).toContain(
             "the packed Vite entry imports in Node and exposes only shallot",
         );
-        expect(packedProjectTests).toContain("3 pass");
+        expect(packedProjectTests).toContain("2 pass");
 
         const recipes = readdirSync(join(ROOT, "examples"))
             .filter((name) => existsSync(join(ROOT, "examples", name, "shallot.json")))

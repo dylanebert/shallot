@@ -37,7 +37,7 @@ jobs:
         run: bun run check
       - name: cheap tier
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: /usr/bin/time -p bun run test
+        run: /usr/bin/time -p bun run test --path-ignore-patterns '**/*.gpu.test.ts'
 
   gpu:
     runs-on: macos-15
@@ -48,7 +48,7 @@ jobs:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - name: GPU tier
-        run: /usr/bin/time -p bun test ./src/transitional/mirror/index.gpu.ts
+        run: /usr/bin/time -p bun test gpu.test
 
   cargo:
     runs-on: ubuntu-latest

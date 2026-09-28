@@ -213,7 +213,6 @@ export const GlazeSystem: System = {
  */
 export const GlazePlugin: Plugin = {
     name: "Glaze",
-    device: "required",
     components: { Glaze },
     traits: {
         Glaze: {

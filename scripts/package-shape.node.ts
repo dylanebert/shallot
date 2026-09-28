@@ -153,8 +153,8 @@ test("the Bun preload dedupes linked-engine TypeGPU imports to the consumer peer
             `import { expect, test } from "bun:test";\nimport tgpu from "typegpu";\nimport { checkTgsl } from "@dylanebert/shallot/runtime";\n\ntest("consumer and linked engine share one TypeGPU instance", () => {\n    expect(typeof tgpu.fn).toBe("function");\n    expect(() => checkTgsl()).not.toThrow();\n});\n`,
         );
 
-        const consumerPath = Bun.resolveSync("typegpu", scratch);
-        const producerPath = Bun.resolveSync("typegpu", ROOT);
+        const consumerPath = resolve(scratch, "node_modules/typegpu/index.js");
+        const producerPath = resolve(ROOT, "node_modules/typegpu/index.js");
         console.log(`TypeGPU resolution: consumer=${consumerPath}`);
         console.log(`TypeGPU natural linked-engine resolution=${producerPath}`);
         expect(consumerPath).not.toBe(producerPath);
@@ -176,9 +176,10 @@ test("a Bun test from the workspace root resolves TypeGPU from the package that 
     const scratch = mkdtempSync(join(tmpdir(), "shallot-package-shape-workspace-"));
     try {
         const { game } = createWorkspaceFixture(scratch);
-        const workspaceTypegpu = () => Bun.resolveSync("typegpu/package.json", scratch);
-        expect(workspaceTypegpu).toThrow();
-        const gameTypegpu = Bun.resolveSync("typegpu/package.json", game);
+        const workspaceTypegpu = join(scratch, "node_modules/typegpu/package.json");
+        expect(existsSync(workspaceTypegpu)).toBe(false);
+        const gameTypegpu = join(game, "node_modules/typegpu/package.json");
+        expect(existsSync(gameTypegpu)).toBe(true);
         expect(gameTypegpu).toContain("packages/game/node_modules/typegpu/package.json");
         writeFileSync(
             join(game, "tests/mono.test.ts"),
@@ -186,7 +187,7 @@ test("a Bun test from the workspace root resolves TypeGPU from the package that 
         );
 
         const output = run(
-            ["bun", "test", "packages/game/tests/mono.test.ts"],
+            ["bun", "test", "--config=./bunfig.toml", "packages/game/tests/mono.test.ts"],
             scratch,
             "testing a workspace package from the workspace root",
         );

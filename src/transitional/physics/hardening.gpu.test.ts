@@ -12,6 +12,10 @@ import {
     snapshot,
 } from "@dylanebert/shallot/physics";
 
+const peerModule = "bun-webgpu";
+const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+await setupGlobals();
+
 function addBody(
     state: State,
     data: {

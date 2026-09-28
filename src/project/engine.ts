@@ -1,8 +1,6 @@
-// The names of the engine's default plugins, as a dep-free string list. The `virtual:project` generator
-// runs in the vite/Node process (no WebGPU globals — importing a plugin object evaluates GPU-touching
-// module code like sear's top-level `GPUShaderStage`), so it can't read the names off the plugin objects;
-// it classifies a manifest entry as a default vs an extra/local from this list alone. `catalog.test.ts`
-// gates it against the engine's real `DEFAULT_PLUGINS` so this list can't drift.
+// The names of the engine's default plugins, kept as a dependency-free list so the `virtual:project`
+// generator can classify a manifest without importing game modules into the Vite/Node tool process.
+// `catalog.test.ts` gates it against the engine's real `DEFAULT_PLUGINS` so this list can't drift.
 export const DEFAULT_PLUGIN_NAMES = [
     "Slab",
     "Transforms",

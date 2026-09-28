@@ -605,7 +605,6 @@ function disposeOutline(): void {
  */
 export const OutlinePlugin: Plugin = {
     name: "Outline",
-    device: "optional",
     components: { Outline },
     systems: [OutlineSystem],
     dependencies: [RenderPlugin, PartPlugin, TransformsPlugin],

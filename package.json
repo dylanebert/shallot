@@ -71,7 +71,6 @@
         "shallot.schema.json",
         "!**/*.test.ts",
         "!**/*.oracle.ts",
-        "!**/*.gpu.ts",
         "!**/*.node.ts",
         "!**/*.e2e.ts",
         "!**/*.probes.ts",

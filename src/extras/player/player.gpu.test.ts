@@ -21,6 +21,10 @@ import {
     TransformsPlugin,
 } from "@dylanebert/shallot";
 
+const peerModule = "bun-webgpu";
+const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+await setupGlobals();
+
 test("the public Player controller consumes held, released and neutral input to look and drive an actual Character without a renderer or browser input", async () => {
     const app = await build({
         defaults: false,
