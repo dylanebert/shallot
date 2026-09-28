@@ -145,7 +145,7 @@ impl ApplicationHandler for App {
             std::env::var("SHALLOT_DEV_URL").ok(),
             "shallot://localhost/".into(),
         );
-        let builder = WebViewBuilder::with_web_context(&mut self.ctx)
+        let builder = WebViewBuilder::new_with_web_context(&mut self.ctx)
             .with_background_color((BG.0, BG.1, BG.2, 255))
             .with_initialization_script(FULLSCREEN_JS)
             .with_ipc_handler(move |request| {
