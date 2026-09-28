@@ -1,71 +1,65 @@
 import { resolve } from "node:path";
+import { runVite, startViteDev } from "../project";
 import { buildProject } from "./build";
-import { startDev } from "./dev";
-import { MissingBuildError, previewProject } from "./preview";
+import { previewProject } from "./preview";
 
 const usage = `
-  shallot — develop, build and test a Shallot project
+  shallot — tools for a Shallot project
 
-  Usage
-    shallot <command> [dir] [options]
+  Shallot is a library: Vite runs your project and Bun tests it.
+
+  Your loop
+    shallot dev               develop with hot reload (vite; --target for desktop)
+    shallot build             build for distribution (vite build; --target for desktop)
+    shallot preview           run the last build (vite preview; --target for desktop)
+    bun test                  run the cheap checks
+    bun test ./<file>         run a named tier (GPU, oracle)
+    playwright test           run the browser checks
 
   Commands
-    dev       Run the project with hot reload
-    build     Build for distribution
-    preview   Run the last build without rebuilding
-    add       Copy an example into your project; with no name, list them
-    test      Run the project's checks; --list shows which would run
+    add [example]             copy an example into your project; with no name, list them
 
-  Common examples
-    bun create shallot <name>          Create a project
-    shallot dev                        Run with hot reload
-    shallot test                       Run the checks
-    shallot add first-person           Copy the first-person example into ./first-person
-    shallot build && shallot preview   Build, then run the build
+  Targets
+    --target <platform>       web (default), windows, mac, linux
+    --release                 optimized native build
+    --portable                bundle the Chromium runtime (CEF)
 
   Help
-    shallot <command> --help    Show options and examples for one command
-    -h, --help                  Show this help
-
+    shallot <command> --help
 `;
 
 const commandUsage = {
     dev: `
-  shallot dev [dir] [options]
+  shallot dev [dir] [Vite options]
 
-  Run a project with hot reload. A native target builds and runs a debug app instead, without hot reload.
-  The directory defaults to the current directory (.).
+  Develop with hot reload. A native target opens the Vite dev URL in a debug desktop shell.
+  The directory defaults to the current directory (.). Other arguments go to Vite unchanged.
 
   Common examples
     shallot dev
-    shallot dev --no-open
+    shallot dev --port 4000
     shallot dev --target mac --portable
 
-  Options
+  Shallot options
     --target <platform>   web (default), windows, mac, linux
-    --portable            Bundle the Chromium runtime (CEF); see 'shallot build --help'
-    --port <n>            Web server port (web only)
-    --strict-port         Fail if the web port is in use instead of picking another (web only)
-    --no-open             Don't open a browser tab (web only)
+    --portable            Bundle the Chromium runtime (CEF)
     -h, --help            Show this help
 `,
     build: `
-  shallot build [dir] [options]
+  shallot build [dir] [Vite options]
 
-  Build a project for distribution.
-  The directory defaults to the current directory (.).
+  Build with the project's Vite config. A native target packages the Vite-built dist/ with a desktop shell.
+  The directory defaults to the current directory (.). Other arguments go to Vite unchanged.
 
   Common examples
     shallot build
     shallot build --target mac
     shallot build --target linux --portable
 
-  Options
+  Shallot options
     --target <platform>   web (default), windows, mac, linux
-    --release             Optimized build
+    --release             Optimized native build
     --portable            Bundle the Chromium runtime (CEF) instead of the system webview.
-                          Larger, but self-contained and runs anywhere. Required on Linux
-                          (WebKitGTK has no usable WebGPU) and for apps needing subgroups on macOS.
     -h, --help            Show this help
 
   Native requirements
@@ -80,22 +74,20 @@ const commandUsage = {
     Portable builds download CEF on first build, or use CEF_PATH when set.
 `,
     preview: `
-  shallot preview [dir] [options]
+  shallot preview [dir] [Vite options]
 
-  Launch an existing build without rebuilding it.
-  The directory defaults to the current directory (.). Run 'shallot build' first.
+  Run the project's Vite preview server. With a native target, launch its existing desktop build.
+  The directory defaults to the current directory (.). For web, remaining arguments go to Vite unchanged.
 
   Common examples
     shallot preview
     shallot preview --target mac
     shallot preview --target linux --portable
 
-  Options
+  Shallot options
     --target <platform>   web (default), windows, mac, linux
-    --release             Launch the optimized build
+    --release             Launch the optimized native build
     --portable            Launch the build with its bundled Chromium runtime (CEF)
-    --port <n>            Preview server port (web only)
-    --no-open             Don't open a browser tab (web only)
     -h, --help            Show this help
 
   Native targets use the requirements documented by 'shallot build --help'.
@@ -137,19 +129,13 @@ export type CliArgs =
           target?: string;
           release: boolean;
           portable: boolean;
-          port?: number;
-          strictPort: boolean;
-          open: boolean;
+          viteArgs: string[];
       };
 
 const PROJECT_VERBS = ["dev", "build", "preview"];
 const TARGETS = ["web", "windows", "mac", "linux"];
 
-/**
- * parse `shallot`'s top-level flags and pick which subcommand handles them. `add` owns its own flag
- * set, and unknown verbs refuse before the shared dev/build/preview parse. Throws on an unrecognized
- * `-`-prefixed option.
- */
+/** Separate Shallot's target flags; preserve every Vite argument and its order. */
 export function parseCliArgs(raw: string[]): CliArgs {
     const verb = raw[0];
     if (verb === "add") return { kind: "add", rest: raw.slice(1) };
@@ -158,74 +144,40 @@ export function parseCliArgs(raw: string[]): CliArgs {
     if (verb && !verb.startsWith("-") && !PROJECT_VERBS.includes(verb))
         return { kind: "unknown", verb };
 
-    const positionalArgs: string[] = [];
+    const subcmd = verb as "dev" | "build" | "preview" | undefined;
     let target: string | undefined;
     let release = false;
     let portable = false;
-    let port: number | undefined;
-    let strictPort = false;
-    let open = true;
     let help = false;
+    const viteArgs: string[] = [];
 
-    const num = (flag: string, v: string): number => {
-        if (v.trim() === "") {
-            throw new Error(`invalid ${flag} value "${v}" — must not be empty`);
-        }
-        const n = Number(v);
-        if (!Number.isFinite(n) || n <= 0) {
-            throw new Error(`invalid ${flag} value "${v}" — expected a positive number`);
-        }
-        if (!Number.isInteger(n)) {
-            throw new Error(`invalid ${flag} value "${v}" — expected an integer`);
-        }
-        return n;
-    };
-
-    for (let i = 0; i < raw.length; i++) {
-        if (raw[i] === "--target" && raw[i + 1]) {
-            target = raw[i + 1];
+    for (let i = subcmd ? 1 : 0; i < raw.length; i++) {
+        const arg = raw[i];
+        if (arg === "--target") {
+            const value = raw[i + 1];
+            if (!value || value.startsWith("-")) throw new Error("--target requires a platform");
+            target = value;
             i++;
-        } else if (raw[i] === "--release") {
+        } else if (arg.startsWith("--target=")) {
+            target = arg.slice("--target=".length);
+            if (!target) throw new Error("--target requires a platform");
+        } else if (arg === "--release") {
             release = true;
-        } else if (raw[i] === "--portable") {
+        } else if (arg === "--portable") {
             portable = true;
-        } else if (raw[i] === "--port" && raw[i + 1]) {
-            port = num("--port", raw[i + 1]);
-            i++;
-        } else if (raw[i]?.startsWith("--port=")) {
-            port = num("--port", raw[i].split("=")[1]);
-        } else if (raw[i] === "--strict-port") {
-            strictPort = true;
-        } else if (raw[i] === "--no-open") {
-            open = false;
-        } else if (raw[i] === "--help" || raw[i] === "-h") {
+        } else if (arg === "--help" || arg === "-h") {
             help = true;
-        } else if (raw[i].startsWith("-")) {
-            throw new Error(`unknown option: ${raw[i]}`);
         } else {
-            positionalArgs.push(raw[i]);
+            viteArgs.push(arg);
         }
     }
 
-    const subcmd = positionalArgs[0];
-    if (help && subcmd !== undefined && Object.hasOwn(commandUsage, subcmd))
-        return { kind: "command-help", command: subcmd as keyof typeof commandUsage };
-    if (help) return { kind: "usage", exitCode: 0 };
+    if (help && subcmd) return { kind: "command-help", command: subcmd };
+    if (help || !subcmd) return { kind: "usage", exitCode: 0 };
 
-    // bare `shallot [flags]` names no command — print usage rather than guess one.
-    if (subcmd == null) return { kind: "usage", exitCode: 0 };
-
-    return {
-        kind: "run",
-        subcmd: subcmd as "dev" | "build" | "preview",
-        dir: positionalArgs[1] || ".",
-        target,
-        release,
-        portable,
-        port,
-        strictPort,
-        open,
-    };
+    // A leading positional is Vite's root, expressed as the command's working directory.
+    const dir = viteArgs[0] && !viteArgs[0].startsWith("-") ? viteArgs.shift()! : ".";
+    return { kind: "run", subcmd, dir, target, release, portable, viteArgs };
 }
 
 function helpHint(raw: string[]): string {
@@ -272,45 +224,57 @@ export async function main(
     }
 
     const projectDir = resolve(parsed.dir);
+    const target = parsed.target;
     if (parsed.subcmd === "dev") {
-        // native webviews can't HMR — `dev --target <native>` is a debug build + run (run without --release)
-        if (parsed.target && parsed.target !== "web") {
-            await buildProject(projectDir, {
-                target: parsed.target,
+        if (target && target !== "web") {
+            const status = await buildProject(projectDir, {
+                target,
                 release: false,
                 portable: parsed.portable,
+                dev: true,
             });
-            await previewProject(projectDir, {
-                target: parsed.target,
-                release: false,
-                portable: parsed.portable,
-            });
-        } else {
-            await startDev(projectDir, {
-                port: parsed.port,
-                strictPort: parsed.strictPort,
-                open: parsed.open,
-            });
+            if (status !== 0) exit(status);
+            const server = await startViteDev(projectDir, parsed.viteArgs);
+            let appStatus: number;
+            try {
+                appStatus = await previewProject(projectDir, {
+                    target,
+                    portable: parsed.portable,
+                    devUrl: server.url,
+                });
+            } finally {
+                await server.close();
+            }
+            exit(appStatus);
         }
-    } else if (parsed.subcmd === "build") {
-        await buildProject(projectDir, {
-            target: parsed.target,
-            release: parsed.release,
-            portable: parsed.portable,
-        });
-    } else if (parsed.subcmd === "preview") {
-        try {
-            await previewProject(projectDir, {
-                target: parsed.target,
-                port: parsed.port,
+        exit(runVite(projectDir, "dev", parsed.viteArgs));
+    }
+
+    if (parsed.subcmd === "build") {
+        exit(
+            await buildProject(projectDir, {
+                target,
                 release: parsed.release,
                 portable: parsed.portable,
-                open: parsed.open,
-            });
-        } catch (error) {
-            if (!(error instanceof MissingBuildError)) throw error;
-            console.error(error.message);
-            exit(1);
-        }
+                args: parsed.viteArgs,
+            }),
+        );
+    }
+
+    if (!target || target === "web") {
+        exit(runVite(projectDir, "preview", parsed.viteArgs));
+    }
+    try {
+        exit(
+            await previewProject(projectDir, {
+                target,
+                release: parsed.release,
+                portable: parsed.portable,
+            }),
+        );
+    } catch (error) {
+        if (!(error instanceof Error)) throw error;
+        console.error(error.message);
+        exit(1);
     }
 }

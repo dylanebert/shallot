@@ -1,6 +1,6 @@
 // src/project/vite.ts
 import { existsSync as existsSync3, readFileSync as readFileSync3 } from "fs";
-import { dirname, isAbsolute, join as join3, relative as relative2, resolve } from "path";
+import { isAbsolute, join as join3, relative as relative2, resolve } from "path";
 import typegpu from "unplugin-typegpu/vite";
 
 // src/project/assets.ts
@@ -169,7 +169,7 @@ function generateModuleFromPlan(project) {
 }
 
 // src/project/host.ts
-import { existsSync as existsSync2, readdirSync, readFileSync as readFileSync2, statSync as statSync2 } from "node:fs";
+import { readdirSync, readFileSync as readFileSync2, statSync as statSync2 } from "node:fs";
 import { join as join2, relative } from "node:path";
 function localPath(spec, absDir) {
   return spec.startsWith(".") ? join2(absDir, spec) : spec;
@@ -268,14 +268,8 @@ function pluginPackages(projectDir) {
   return [...new Set(packages)];
 }
 function findPublicDirs(projectDir) {
-  const dirs = [];
   const own = join3(projectDir, "public");
-  if (existsSync3(own))
-    dirs.push(own);
-  const parent = join3(dirname(projectDir), "public");
-  if (existsSync3(parent) && parent !== own)
-    dirs.push(parent);
-  return dirs;
+  return existsSync3(own) ? [own] : [];
 }
 var MODEL_EXT = /\.(glb|gltf)$/i;
 function assetSrc(file, publicDirs) {
@@ -400,9 +394,6 @@ function shallot(projectDir) {
       const absDir = absProjectDir;
       publicDirs = findPublicDirs(absDir);
       server.watcher.add(absDir);
-      for (const pub of publicDirs)
-        if (!pub.startsWith(absDir))
-          server.watcher.add(pub);
       const onProjectFile = (file) => {
         const kind = classifyProjectFile(file, absDir, publicDirs);
         if (kind === "asset") {

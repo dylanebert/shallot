@@ -3,7 +3,29 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
-import { shallot } from "./vite";
+import { findPublicDirs, shallot } from "./vite";
+
+check(
+    "public assets belong to the project directory",
+    {
+        claim: "the Vite plugin does not serve or watch a shared parent public directory",
+        size: "unit",
+        subject: "src/project/vite.ts",
+    },
+    () => {
+        const parent = mkdtempSync(join(tmpdir(), "shallot-public-root-"));
+        const project = join(parent, "example");
+        mkdirSync(join(parent, "public"), { recursive: true });
+        mkdirSync(project);
+        try {
+            expect(findPublicDirs(project)).toEqual([]);
+            mkdirSync(join(project, "public"));
+            expect(findPublicDirs(project)).toEqual([join(project, "public")]);
+        } finally {
+            rmSync(parent, { recursive: true, force: true });
+        }
+    },
+);
 
 function shallotProject(projectDir?: string) {
     const plugin = shallot(projectDir).find(({ name }) => name === "shallot");

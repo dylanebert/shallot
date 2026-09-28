@@ -141,6 +141,10 @@ impl ApplicationHandler for App {
 
         let win_ref = self.window.clone();
         let lock_ref = self.pointer_locked.clone();
+        let url = crate::launch_url(
+            std::env::var("SHALLOT_DEV_URL").ok(),
+            "shallot://localhost/".into(),
+        );
         let builder = WebViewBuilder::with_web_context(&mut self.ctx)
             .with_background_color((BG.0, BG.1, BG.2, 255))
             .with_initialization_script(FULLSCREEN_JS)
@@ -188,7 +192,7 @@ impl ApplicationHandler for App {
                         .unwrap(),
                 }
             })
-            .with_url("shallot://localhost/");
+            .with_url(url);
 
         #[cfg(target_os = "macos")]
         let builder = builder.with_initialization_script(POINTERLOCK_JS);

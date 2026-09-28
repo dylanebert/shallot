@@ -1,20 +1,15 @@
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, relative, resolve } from "node:path";
-import { type PreviewServer, preview, resolveConfig } from "vite";
 import { nativeOutDir } from "../native";
-import { CROSS_ORIGIN_ISOLATION } from "../project";
 
 export type PreviewTarget =
-    | { kind: "web" }
     | { kind: "mac" }
     | { kind: "linux" }
     | { kind: "windows" }
     | { kind: "unknown"; target: string };
 
-/** which of `previewProject`'s branches a `--target` value selects. Pure — `opts.target` defaults "web". */
-export function resolvePreviewTarget(target = "web"): PreviewTarget {
-    if (target === "web") return { kind: "web" };
+export function resolvePreviewTarget(target: string): PreviewTarget {
     if (target === "mac") return { kind: "mac" };
     if (target === "linux") return { kind: "linux" };
     if (target === "windows") return { kind: "windows" };
@@ -40,45 +35,17 @@ export function windowsPreviewCommand(winPath: string, projectName: string): str
     return `cd '${winPath}'; .\\${projectName}.exe`;
 }
 
-export class MissingBuildError extends Error {}
-
 function requireBuild(projectDir: string, target: string, artifact: string): void {
     if (existsSync(artifact)) return;
-    const command = target === "web" ? "shallot build" : `shallot build --target ${target}`;
-    throw new MissingBuildError(
-        `no ${target} build found at ${relative(projectDir, artifact)}; run \`${command}\` first.`,
+    throw new Error(
+        `no ${target} build found at ${relative(projectDir, artifact)}; run \`shallot build --target ${target}\` first.`,
     );
-}
-
-/** Serve the current web output, without building it. The caller owns closing the returned server. */
-export async function startWebPreview(
-    projectDir: string,
-    opts: { port?: number; open?: boolean; host?: string } = {},
-): Promise<PreviewServer> {
-    const config = await resolveConfig(
-        { root: projectDir },
-        "serve",
-        "production",
-        undefined,
-        true,
-    );
-    const outDir = resolve(projectDir, config.build.outDir);
-    requireBuild(projectDir, "web", resolve(outDir, "index.html"));
-    return preview({
-        root: projectDir,
-        preview: {
-            port: opts.port,
-            open: opts.open ?? true,
-            host: opts.host,
-            headers: CROSS_ORIGIN_ISOLATION,
-        },
-    });
 }
 
 export async function previewProject(
     projectDir: string,
-    opts: { target?: string; port?: number; release?: boolean; portable?: boolean; open?: boolean },
-): Promise<void> {
+    opts: { target: string; release?: boolean; portable?: boolean; devUrl?: string },
+): Promise<number> {
     const target = resolvePreviewTarget(opts.target);
     const release = opts.release ?? false;
     const portable = opts.portable ?? false;
@@ -86,14 +53,7 @@ export async function previewProject(
     if (target.kind === "unknown") {
         console.error(`unknown target: ${target.target}`);
         console.error("See `shallot preview --help` for available targets and options.");
-        process.exit(1);
-    }
-
-    if (target.kind === "web") {
-        const server = await startWebPreview(projectDir, { port: opts.port, open: opts.open });
-        server.printUrls();
-        console.log();
-        return;
+        return 1;
     }
 
     const name = basename(projectDir);
@@ -103,29 +63,36 @@ export async function previewProject(
             ? resolve(outputDir, `${name}.app`)
             : resolve(outputDir, `${name}${target.kind === "windows" ? ".exe" : ""}`);
     requireBuild(projectDir, target.kind, artifact);
+    const env = {
+        ...process.env,
+        ...(opts.devUrl ? { SHALLOT_DEV_URL: opts.devUrl } : {}),
+    };
 
     if (target.kind === "mac") {
         console.log(`\n  running ${name}...\n`);
-        const result = Bun.spawnSync(["open", "-W", artifact]);
+        const command = opts.devUrl
+            ? [resolve(artifact, "Contents", "MacOS", name)]
+            : ["open", "-W", artifact];
+        const result = Bun.spawnSync(command, { env });
         process.stdout.write(result.stdout);
         process.stderr.write(result.stderr);
-        process.exit(result.exitCode);
+        return result.exitCode;
     }
 
     if (target.kind === "linux") {
         console.log(`\n  running ${name}...\n`);
-        const env = linuxPreviewEnv(outputDir, portable, process.env);
-        const result = Bun.spawnSync([artifact], { env });
+        const launchEnv = linuxPreviewEnv(outputDir, portable, env);
+        const result = Bun.spawnSync([artifact], { env: launchEnv });
         process.stdout.write(result.stdout);
         process.stderr.write(result.stderr);
-        process.exit(result.exitCode);
+        return result.exitCode;
     }
 
     console.log(`\n  running ${name}...\n`);
     const winPath = execSync(`wslpath -w "${outputDir}"`, { encoding: "utf-8" }).trim();
     const cmd = windowsPreviewCommand(winPath, name);
-    const result = Bun.spawnSync(["powershell.exe", "-Command", cmd]);
+    const result = Bun.spawnSync(["powershell.exe", "-Command", cmd], { env });
     process.stdout.write(result.stdout);
     process.stderr.write(result.stderr);
-    process.exit(result.exitCode);
+    return result.exitCode;
 }

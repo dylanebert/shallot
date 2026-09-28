@@ -36,7 +36,7 @@ async function cli(...args: string[]): Promise<Result> {
 check(
     "top-level help leads with common use",
     {
-        claim: "shallot top-level help presents purpose, usage, commands, and common examples without operation-specific options",
+        claim: "bare shallot presents the project map, loop, commands, targets and help contract",
     },
     async () => {
         const result = await cli();
@@ -44,42 +44,42 @@ check(
         expect(result.stderr).toBe("");
         expect(result.stdout.trim()).toBe(
             `
-  shallot — develop, build and test a Shallot project
+  shallot — tools for a Shallot project
 
-  Usage
-    shallot <command> [dir] [options]
+  Shallot is a library: Vite runs your project and Bun tests it.
+
+  Your loop
+    shallot dev               develop with hot reload (vite; --target for desktop)
+    shallot build             build for distribution (vite build; --target for desktop)
+    shallot preview           run the last build (vite preview; --target for desktop)
+    bun test                  run the cheap checks
+    bun test ./<file>         run a named tier (GPU, oracle)
+    playwright test           run the browser checks
 
   Commands
-    dev       Run the project with hot reload
-    build     Build for distribution
-    preview   Run the last build without rebuilding
-    add       Copy an example into your project; with no name, list them
-    test      Run the project's checks; --list shows which would run
+    add [example]             copy an example into your project; with no name, list them
 
-  Common examples
-    bun create shallot <name>          Create a project
-    shallot dev                        Run with hot reload
-    shallot test                       Run the checks
-    shallot add first-person           Copy the first-person example into ./first-person
-    shallot build && shallot preview   Build, then run the build
+  Targets
+    --target <platform>       web (default), windows, mac, linux
+    --release                 optimized native build
+    --portable                bundle the Chromium runtime (CEF)
 
   Help
-    shallot <command> --help    Show options and examples for one command
-    -h, --help                  Show this help`.trim(),
+    shallot <command> --help`.trim(),
         );
     },
 );
 
 check(
-    "creation remains discoverable through Bun",
+    "future commands stay out of the map",
     {
-        claim: "shallot help points to bun create without accepting create as a Shallot command",
+        claim: "the current shallot command map omits unimplemented create and skill commands",
     },
     async () => {
         expect(parseCliArgs(["create", "my-game"])).toEqual({ kind: "unknown", verb: "create" });
         const result = await cli();
-        expect(result.stdout).toContain("bun create shallot <name>");
-        expect(result.stdout).not.toContain("shallot create");
+        expect(result.stdout).not.toContain("create");
+        expect(result.stdout).not.toContain("--skill");
     },
 );
 
@@ -91,22 +91,19 @@ check(
         expect(result.code).toBe(0);
         expect(result.stdout.trim()).toBe(
             `
-  shallot dev [dir] [options]
+  shallot dev [dir] [Vite options]
 
-  Run a project with hot reload. A native target builds and runs a debug app instead, without hot reload.
-  The directory defaults to the current directory (.).
+  Develop with hot reload. A native target opens the Vite dev URL in a debug desktop shell.
+  The directory defaults to the current directory (.). Other arguments go to Vite unchanged.
 
   Common examples
     shallot dev
-    shallot dev --no-open
+    shallot dev --port 4000
     shallot dev --target mac --portable
 
-  Options
+  Shallot options
     --target <platform>   web (default), windows, mac, linux
-    --portable            Bundle the Chromium runtime (CEF); see 'shallot build --help'
-    --port <n>            Web server port (web only)
-    --strict-port         Fail if the web port is in use instead of picking another (web only)
-    --no-open             Don't open a browser tab (web only)
+    --portable            Bundle the Chromium runtime (CEF)
     -h, --help            Show this help`.trim(),
         );
         expect(result.stderr).toBe("");
@@ -139,13 +136,12 @@ check(
     async () => {
         const result = await cli("preview", "--help");
         expect(result.code).toBe(0);
-        expect(result.stdout).toContain("Launch an existing build without rebuilding it.");
-        expect(result.stdout).toContain("--port <n>");
-        expect(result.stdout).toContain("(web only)");
+        expect(result.stdout).toContain("Run the project's Vite preview server.");
+        expect(result.stdout).toContain("For web, remaining arguments go to Vite unchanged.");
         expect(result.stdout).toContain("Native targets use the requirements");
         expect(result.stdout).toContain("shallot build --help");
-        expect(result.stdout).not.toContain("shallot run");
-        expect(result.stdout).toContain("--no-open");
+        expect(result.stdout).not.toContain("--port <n>");
+        expect(result.stdout).not.toContain("--no-open");
         expect(result.stdout).not.toContain("--strict-port");
         expect(result.stderr).toBe("");
     },
@@ -248,14 +244,18 @@ check(
 );
 
 check(
-    "invalid option is diagnosed without running a project",
-    { claim: "an unknown option fails before project execution" },
-    async () => {
-        const result = await cli("dev", "--not-an-option");
-        expect(result.code).toBe(1);
-        expect(result.stdout).toBe("");
-        expect(result.stderr).toContain("unknown option: --not-an-option");
-        expect(result.stderr).toContain("See `shallot dev --help`");
+    "Vite options remain unparsed by Shallot",
+    { claim: "Vite-specific flags are passed through rather than interpreted as Shallot flags" },
+    () => {
+        expect(parseCliArgs(["dev", "--host", "localhost", "--mode", "development"])).toEqual({
+            kind: "run",
+            subcmd: "dev",
+            dir: ".",
+            target: undefined,
+            release: false,
+            portable: false,
+            viteArgs: ["--host", "localhost", "--mode", "development"],
+        });
     },
 );
 

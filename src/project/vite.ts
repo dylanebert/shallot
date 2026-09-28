@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "fs";
-import { dirname, isAbsolute, join, relative, resolve } from "path";
+import { isAbsolute, join, relative, resolve } from "path";
 import typegpu from "unplugin-typegpu/vite";
 import type { Plugin, Rollup, ViteDevServer } from "vite";
 import { contentType, manifestPath, resolveAssetPath } from "./assets";
@@ -8,7 +8,7 @@ import { plan, readProject } from "./host";
 import { normalize } from "./manifest";
 
 // the manifest descriptor half of `assets.ts` is part of this subpath's published surface — the CLI
-// (`src/cli/build.ts`, `src/project/floor.ts`, `toolchain.ts`) and consumers already resolve both through
+// (`src/cli/build.ts`, `src/project/floor.ts`) and consumers already resolve both through
 // `@dylanebert/shallot/vite`. The readers beside them stay internal to `src/project/`.
 export { manifestPath, manifestWarnings } from "./assets";
 // scene discovery is the project host's (`host.ts`) — re-exported here because the CLI and consumers
@@ -16,8 +16,7 @@ export { manifestPath, manifestWarnings } from "./assets";
 export { discoverScenes } from "./host";
 
 /**
- * cross-origin isolation headers, applied by every serve surface (`shallot dev`, `shallot preview`,
- * the dev/ejected/dist boots). physics multithreads only when the page can hold a
+ * cross-origin isolation headers, applied by Vite's dev and preview servers. Physics multithreads only when the page can hold a
  * shared `WebAssembly.Memory`, which a browser grants only to a cross-origin-isolated document — so the
  * dev/preview server sends COOP/COEP to enable the multithreaded kernel. A static host that can't set
  * headers (GitHub Pages) gets the single-thread kernel and one log, a documented fallback. The cost of
@@ -47,12 +46,8 @@ export function pluginPackages(projectDir?: string): string[] {
 }
 
 export function findPublicDirs(projectDir: string): string[] {
-    const dirs: string[] = [];
     const own = join(projectDir, "public");
-    if (existsSync(own)) dirs.push(own);
-    const parent = join(dirname(projectDir), "public");
-    if (existsSync(parent) && parent !== own) dirs.push(parent);
-    return dirs;
+    return existsSync(own) ? [own] : [];
 }
 
 // the glTF importer's two container formats — the unit a live asset-swap watches. A changed `.glb`/`.gltf`
@@ -85,7 +80,7 @@ function signalChange(server: ViteDevServer) {
     server.ws.send({ type: "full-reload" });
 }
 
-// serve project public/ assets (the project's own + a shared parent's) with correct MIME
+// serve the project's public/ assets with correct MIME
 function configureServer(server: ViteDevServer, projectDir: string) {
     const publicDirs = findPublicDirs(resolve(projectDir));
     if (publicDirs.length === 0) return;
@@ -235,9 +230,6 @@ export function shallot(projectDir?: string): Plugin[] {
             const absDir = absProjectDir;
             publicDirs = findPublicDirs(absDir);
             server.watcher.add(absDir);
-            // a shared parent public/ sits outside the project dir, so add it explicitly (the project's
-            // own public/ is already covered by absDir) — a model there must still trigger the swap
-            for (const pub of publicDirs) if (!pub.startsWith(absDir)) server.watcher.add(pub);
             // a `.scene` add/remove changes the scene list; a `shallot.json` edit changes the plugin
             // set — both re-generate `virtual:project`, so invalidate + reload. Local plugin `.ts`
             // edits ride HMR instead. The watcher path is the sole signaler — handleHotUpdate only
@@ -276,8 +268,7 @@ export function shallot(projectDir?: string): Plugin[] {
             // local with no self-accept, so vite full-reloads the page — the clean rebuild path
         },
         // drop the assets vite's `new URL` scanner over-emitted (see orphanedAssets). Build-only (a
-        // rollup output hook, never fires in dev), and homed here so every build path inherits it: the
-        // synth build (src/cli/build.ts) and a standalone's own vite.config both run shallot().
+        // rollup output hook, never fires in dev), and homed here so every project's Vite build inherits it.
         generateBundle(_options, bundle) {
             const orphans = orphanedAssets(bundle);
             if (!orphans.length) return;

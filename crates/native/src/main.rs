@@ -158,6 +158,27 @@ mod tests {
         let assets: &[(&str, &[u8])] = &[("index.html", b"<html></html>")];
         assert!(matches!(resolve_asset(assets, "missing.js"), None));
     }
+
+    #[test]
+    fn dev_url_replaces_the_packaged_asset_url() {
+        assert_eq!(
+            launch_url(
+                Some("http://localhost:5173/".into()),
+                "shallot://localhost/".into()
+            ),
+            "http://localhost:5173/"
+        );
+        assert_eq!(
+            launch_url(None, "shallot://localhost/".into()),
+            "shallot://localhost/"
+        );
+    }
+}
+
+pub(crate) fn launch_url(dev_url: Option<String>, fallback: String) -> String {
+    dev_url
+        .filter(|url| !url.trim().is_empty())
+        .unwrap_or(fallback)
 }
 
 pub(crate) fn app_name() -> String {

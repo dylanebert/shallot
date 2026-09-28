@@ -1,7 +1,5 @@
-// The project host: plan, discovery and resolution for a project directory, as pure data. One module
-// answers "what is this project, and which plugins does it enable" for both consumers — the browser
-// generator (`generate.ts` → `virtual:project`, through `vite.ts`) and the command entry (`command.ts`
-// → `src/cli`) — so the two cannot drift in how a manifest becomes a plugin set.
+// The project host: plan, discovery and resolution for a project directory, as pure data. The
+// `virtual:project` generator and native feature check share one plan for the manifest's plugins.
 //
 // Nothing here imports Vite, a browser API or a GPU global, and nothing here loads a plugin module: a
 // plan is data the caller may inspect, log or refuse before any module evaluation happens
@@ -114,30 +112,6 @@ export function discoverScenes(dir: string): string[] {
     }
     walk(dir);
     return scenes.sort();
-}
-
-/** dir holds a shallot project — a shallot.json manifest or a .scene file. */
-function isProject(dir: string): boolean {
-    return existsSync(manifestPath(dir)) || discoverScenes(dir).length > 0;
-}
-
-/** exit with the scaffold hint when dir holds neither a shallot.json manifest nor a .scene file. */
-export function requireProject(dir: string): void {
-    if (isProject(dir)) return;
-    for (const line of missingProjectMessage(dir)) console.error(line);
-    process.exit(1);
-}
-
-/** the diagnostic for a directory that is no project. */
-function missingProjectMessage(dir: string): string[] {
-    return [
-        `\n  ✗ No shallot project found at ${dir}`,
-        "    Expected a shallot.json manifest or a .scene file\n",
-        "    To create a project:",
-        "      bun create shallot my-game",
-        "      cd my-game && bun install",
-        "      bunx shallot dev\n",
-    ];
 }
 
 const REAL_IO: ProjectIo = {

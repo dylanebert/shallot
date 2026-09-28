@@ -11,7 +11,7 @@ import {
     writeFileSync,
 } from "node:fs";
 import { basename, resolve } from "node:path";
-import { buildWeb, manifestPath, normalize } from "../project";
+import { manifestPath, normalize } from "../project";
 import { tryPrebuilt } from "./prebuilt";
 
 const RUST_CRATE = resolve(import.meta.dir, "../../crates/native");
@@ -282,20 +282,19 @@ function copyLocale(srcLocales: string, destLocales: string): void {
 export async function bundleNativeWindows(
     projectDir: string,
     outputDir: string,
-    opts: { release?: boolean; portable?: boolean },
+    opts: { release?: boolean; portable?: boolean; dev?: boolean },
 ): Promise<void> {
     const release = opts.release ?? false;
     const portable = opts.portable ?? false;
+    const dev = opts.dev ?? false;
     const name = basename(projectDir);
 
-    await buildWeb(projectDir);
-
     const distDir = resolve(projectDir, "dist");
-    if (!existsSync(distDir)) {
+    if (!dev && !existsSync(distDir)) {
         console.error("  vite build produced no dist/ directory");
         process.exit(1);
     }
-    ensureIcon(distDir);
+    if (!dev) ensureIcon(distDir);
 
     // portable on WSL builds into a local Windows dir (off the 9p share); read its artifacts back
     // through the /mnt view. Every other case uses the in-tree target/.
@@ -333,7 +332,7 @@ export async function bundleNativeWindows(
     // portable ships the Chromium runtime beside the exe (Windows resolves DLLs from the exe dir).
     if (portable) copyCefDlls(outputDir, targetDir);
 
-    if (!release) {
+    if (!release && !dev) {
         cpSync(distDir, resolve(outputDir, "dist"), { recursive: true });
     }
 
@@ -457,20 +456,19 @@ function trimMacLocales(frameworkDir: string): void {
 export async function bundleNativeMac(
     projectDir: string,
     outputDir: string,
-    opts: { release?: boolean; portable?: boolean },
+    opts: { release?: boolean; portable?: boolean; dev?: boolean },
 ): Promise<void> {
     const release = opts.release ?? false;
     const portable = opts.portable ?? false;
+    const dev = opts.dev ?? false;
     const name = basename(projectDir);
 
-    await buildWeb(projectDir);
-
     const distDir = resolve(projectDir, "dist");
-    if (!existsSync(distDir)) {
+    if (!dev && !existsSync(distDir)) {
         console.error("  vite build produced no dist/ directory");
         process.exit(1);
     }
-    ensureIcon(distDir);
+    if (!dev) ensureIcon(distDir);
 
     console.log(
         `  compiling ${portable ? "CEF" : "webview"} shell (${release ? "release" : "debug"})...`,
@@ -564,7 +562,7 @@ export async function bundleNativeMac(
     // Debug stages dist/ on disk so asset edits show without a recompile (see crates/native/src/main.rs).
     // It goes in Resources/, not MacOS/ — codesign treats everything under MacOS/ as nested code and
     // rejects the bundle on the first non-Mach-O asset; Resources is where bundled data belongs.
-    if (!release) {
+    if (!release && !dev) {
         cpSync(distDir, resolve(resourcesDir, "dist"), { recursive: true });
     }
 
@@ -660,20 +658,19 @@ function copyCefDlls(outputDir: string, targetDir = CRATE_TARGET): void {
 export async function bundleNativeLinux(
     projectDir: string,
     outputDir: string,
-    opts: { release?: boolean; portable?: boolean },
+    opts: { release?: boolean; portable?: boolean; dev?: boolean },
 ): Promise<void> {
     const release = opts.release ?? false;
     const portable = opts.portable ?? false;
+    const dev = opts.dev ?? false;
     const name = basename(projectDir);
 
-    await buildWeb(projectDir);
-
     const distDir = resolve(projectDir, "dist");
-    if (!existsSync(distDir)) {
+    if (!dev && !existsSync(distDir)) {
         console.error("  vite build produced no dist/ directory");
         process.exit(1);
     }
-    ensureIcon(distDir);
+    if (!dev) ensureIcon(distDir);
 
     console.log(
         `  compiling ${portable ? "CEF" : "webview"} shell (${release ? "release" : "debug"})...`,
@@ -705,7 +702,7 @@ export async function bundleNativeLinux(
     // portable ships the Chromium runtime; the default depends on the host's WebKitGTK (no copy).
     if (portable) copyCefLibs(outputDir, release);
 
-    if (!release) {
+    if (!release && !dev) {
         cpSync(distDir, resolve(outputDir, "dist"), { recursive: true });
     }
 }

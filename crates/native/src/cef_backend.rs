@@ -112,7 +112,9 @@ wrap_browser_process_handler! {
     impl BrowserProcessHandler {
         fn on_context_initialized(&self) {
             let origin = ORIGIN.get().expect("asset server not started");
-            let url = CefString::from(format!("{}/", origin).as_str());
+            let fallback = format!("{}/", origin);
+            let launch_url = crate::launch_url(std::env::var("SHALLOT_DEV_URL").ok(), fallback);
+            let url = CefString::from(launch_url.as_str());
             let settings = BrowserSettings::default();
             let window_info = WindowInfo::default();
             let mut client = ShallotClient::new();

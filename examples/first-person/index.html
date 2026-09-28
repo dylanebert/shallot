@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+        <title>First Person</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { background: #0c0a09; overflow: hidden; }
+            canvas { display: block; width: 100vw; height: 100vh; }
+        </style>
+    </head>
+    <body>
+        <canvas id="canvas"></canvas>
+        <script type="module">
+            import { run } from "@dylanebert/shallot";
+            import project from "virtual:project";
+            await run({
+                plugins: project.plugins,
+                scene: project.scene ?? undefined,
+                defaults: false,
+                capacity: project.capacity ?? undefined,
+                pixelRatio: project.pixelRatio ?? undefined,
+            });
+        </script>
+    </body>
+</html>
