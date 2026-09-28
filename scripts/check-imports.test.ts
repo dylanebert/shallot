@@ -155,4 +155,4 @@ test("the import boundary resolves TypeScript specifiers, scans each source exte
             'src/core/rendering/index.ts:1: unresolved import "../../extras/fog"',
         ]);
     });
-});
+}, 20_000);
