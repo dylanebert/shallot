@@ -1,5 +1,5 @@
 // src/project/vite.ts
-import { existsSync as existsSync3, readFileSync as readFileSync3 } from "fs";
+import { existsSync as existsSync2, readFileSync as readFileSync3 } from "fs";
 import { isAbsolute, join as join3, relative as relative2, resolve } from "path";
 import typegpu from "unplugin-typegpu/vite";
 
@@ -269,7 +269,7 @@ function pluginPackages(projectDir) {
 }
 function findPublicDirs(projectDir) {
   const own = join3(projectDir, "public");
-  return existsSync3(own) ? [own] : [];
+  return existsSync2(own) ? [own] : [];
 }
 var MODEL_EXT = /\.(glb|gltf)$/i;
 function assetSrc(file, publicDirs) {

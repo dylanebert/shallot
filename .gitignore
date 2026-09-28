@@ -1,6 +1,7 @@
 node_modules
 dist/*
 !dist/vite.js
+!dist/vite.d.ts
 build
 *.tgz
 /target/

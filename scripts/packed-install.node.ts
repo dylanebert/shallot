@@ -123,6 +123,30 @@ test("the packed Vite entry imports in Node without Bun or engine modules", () =
         }
         expect(`${testRun.stdout.toString()}\n${testRun.stderr.toString()}`).toContain("3 pass");
 
+        writeFileSync(
+            join(project, "vite.config.ts"),
+            'import { shallot } from "@dylanebert/shallot/vite";\nexport default { plugins: [shallot()] };\n',
+        );
+        writeFileSync(
+            join(project, "tsconfig.node.json"),
+            JSON.stringify({
+                compilerOptions: {
+                    target: "ESNext",
+                    module: "NodeNext",
+                    moduleResolution: "NodeNext",
+                    strict: true,
+                    noUnusedLocals: true,
+                    noEmit: true,
+                },
+                include: ["vite.config.ts"],
+            }),
+        );
+        const typecheck = Bun.spawnSync(
+            ["node", resolve(ROOT, "node_modules/typescript/bin/tsc"), "-p", "tsconfig.node.json"],
+            { cwd: project, stdout: "pipe", stderr: "pipe" },
+        );
+        expect(typecheck.exitCode, typecheck.stderr.toString()).toBe(0);
+
         const tar = execFileSync("tar", ["-tzf", tarball], {
             encoding: "utf8",
         });

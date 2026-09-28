@@ -37,6 +37,15 @@ try {
     } else {
         console.log("dist/vite.js is fresh");
     }
+
+    const committedTypes = resolve(root, "dist/vite.d.ts");
+    const freshTypes = readFileSync(resolve(root, "scripts/vite.d.ts"), "utf8");
+    if (!existsSync(committedTypes) || readFileSync(committedTypes, "utf8") !== freshTypes) {
+        console.error("✗ dist/vite.d.ts is stale; run `bun run build` to regenerate it.");
+        process.exitCode = 1;
+    } else {
+        console.log("dist/vite.d.ts is fresh");
+    }
 } finally {
     rmSync(outdir, { recursive: true, force: true });
 }

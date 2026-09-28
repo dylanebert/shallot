@@ -4,9 +4,9 @@
 // transform must see engine source untransformed) doesn't reach `./vite`, whose only consumption context
 // is Node. Browser subject configs and the display oracle share the Chromium arguments in
 // `scripts/chromium.ts`.
-// `dist/vite.js` is generated here by `bun run build` and `prepack`, and is committed so SHA-pinned Git
-// installs can resolve `./vite`. `tsc` reads `package.json`'s `types` condition, while bundlers resolve
-// `default`, so this emits no `.d.ts`.
+// `dist/vite.js` and its self-contained `dist/vite.d.ts` are generated here by `bun run build` and
+// `prepack`, and committed so SHA-pinned Git installs can resolve `./vite`. `tsc` reads the `types`
+// condition, while Node resolves `default`.
 //
 // `src/project/` is a closed island — node builtins plus the `vite` / `unplugin-typegpu` externals it
 // imports, no engine runtime, no TGSL — so bundling it carries no duplicate-TypeGPU-identity risk. Kept
@@ -14,7 +14,7 @@
 // package, which would be the actual regression this build must not introduce, fails loud in review
 // rather than silently inlining.
 
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -54,6 +54,8 @@ for (const { entry, out } of entries) {
         throw new Error(`build-tooling: failed to compile ${entry}`);
     }
 }
+
+writeFileSync(resolve(OUT, "vite.d.ts"), readFileSync(resolve(ROOT, "scripts/vite.d.ts"), "utf8"));
 
 // `src/project/` is a closed island (assets.ts/engine.ts/generate.ts/manifest.ts, no engine runtime,
 // no TGSL) —

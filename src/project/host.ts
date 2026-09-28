@@ -6,7 +6,7 @@
 // (Bun loaders resolve the complete entry set again at load time). That split
 // is what lets a dependency mistake fail with an exit code instead of a half-imported project.
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { manifestPath, readManifest } from "./assets";
 import { DEFAULT_PLUGIN_NAMES } from "./engine";

@@ -30,7 +30,7 @@
         "./extras": "./src/extras/index.ts",
         "./brand": "./src/standard/loading/brand.ts",
         "./vite": {
-            "types": "./src/project/vite.ts",
+            "types": "./dist/vite.d.ts",
             "default": "./dist/vite.js"
         },
         "./runtime": "./src/engine/runtime/index.ts",
