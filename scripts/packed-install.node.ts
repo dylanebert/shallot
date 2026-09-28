@@ -38,16 +38,20 @@ test("a packed fresh Bun project steps and observes a headless world through eng
             `import { expect, test } from "bun:test";
 import { build, type Plugin } from "@dylanebert/shallot/app";
 import { f32, sparse, Time } from "@dylanebert/shallot/ecs";
-import { CAPTURE_CONTRACT, captureFrame } from "@dylanebert/shallot/rendering";
+import * as Rendering from "@dylanebert/shallot/rendering";
 import { drainLog, probeTexture } from "@dylanebert/shallot/runtime";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const manifest = JSON.parse(readFileSync(resolve(import.meta.dir, "node_modules/@dylanebert/shallot/package.json"), "utf8"));
 
-test("the packed engine exposes no test-support namespace", () => {
+test("the packed engine exposes no test-support namespace or capture helpers", () => {
     expect(Object.keys(manifest.exports).some((path) => /^\\.\\/(?:harness|testing)(?:\\/|$)/.test(path))).toBe(false);
     expect(existsSync(resolve(import.meta.dir, "node_modules/@dylanebert/shallot/src/harness"))).toBe(false);
+    expect("captureArtifact" in Rendering).toBe(false);
+    expect("captureIdentityLabel" in Rendering).toBe(false);
+    expect("captureIdentityMatches" in Rendering).toBe(false);
+    expect("assertCaptureGeometry" in Rendering).toBe(false);
 });
 
 test("a headless plugin set steps the world and exposes state through public engine subpaths", async () => {
@@ -76,8 +80,8 @@ test("a headless plugin set steps the world and exposes state through public eng
         expect(app.state.time.fixedTick).toBe(1);
         expect(app.state.only([Ticks])).toBe(eid);
         expect(Ticks.value.get(eid)).toBe(1);
-        expect(CAPTURE_CONTRACT.width).toBe(1280);
-        expect(typeof captureFrame).toBe("function");
+        expect(Rendering.CAPTURE_CONTRACT.width).toBe(1280);
+        expect(typeof Rendering.captureFrame).toBe("function");
         expect(typeof probeTexture).toBe("function");
         expect(typeof drainLog).toBe("function");
     } finally {

@@ -23,7 +23,11 @@ const config = {
     projects: [
         {
             name: "loading-screen",
-            testMatch: ["**/examples/loading-screen/**/*.e2e.ts", "**/src/core/rendering/capture.e2e.ts"],
+            testMatch: [
+                "**/examples/loading-screen/**/*.e2e.ts",
+                "**/src/core/rendering/capture.e2e.ts",
+                "**/scripts/packed-capture.e2e.ts",
+            ],
             use: { baseURL: "http://127.0.0.1:4173" },
         },
         {

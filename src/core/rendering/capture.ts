@@ -1,10 +1,8 @@
 // The canvas capture contract. It fixes the viewport, device scale, target surface, presentation
-// boundary and tightly packed RGBA semantics, so every semantic check, artifact and human frame reads the
-// same geometry. `captureFrame` runs IN THE PAGE; the driver fixes the viewport that makes the geometry
-// hold and never re-implements the read.
+// boundary and tightly packed RGBA semantics, so every consumer reads the same geometry. `captureFrame`
+// runs IN THE PAGE; the driver fixes the viewport that makes the geometry hold and never re-implements the read.
 
-/** the declared capture geometry and semantics. One contract, not a per-consumer option. */
-export interface CaptureIdentity {
+interface CaptureIdentity {
     width: number;
     height: number;
     deviceScale: number;
@@ -21,34 +19,14 @@ export const CAPTURE_CONTRACT: CaptureIdentity = {
     encoding: "rgba8-tight",
 };
 
-/** the identity string a test result, artifact name or refusal reason carries. */
-export function captureIdentityLabel(identity: CaptureIdentity): string {
+function captureIdentityLabel(identity: CaptureIdentity): string {
     return `${identity.surface} ${identity.width}x${identity.height}@${identity.deviceScale} ${identity.encoding}`;
 }
 
-/** whether two capture identities are the same contract in every field. */
-export function captureIdentityMatches(left: CaptureIdentity, right: CaptureIdentity): boolean {
-    return (
-        left.width === right.width &&
-        left.height === right.height &&
-        left.deviceScale === right.deviceScale &&
-        left.surface === right.surface &&
-        left.encoding === right.encoding
-    );
-}
-
-/**
- * Refuse a surface whose geometry is not the declared contract. A changed viewport or device scale is a
- * different capture, so it refuses here rather than quietly producing pixels at another size.
- */
-export function assertCaptureGeometry(
-    width: number,
-    height: number,
-    contract: CaptureIdentity = CAPTURE_CONTRACT,
-): void {
-    if (width !== contract.width || height !== contract.height) {
+function assertCaptureGeometry(width: number, height: number): void {
+    if (width !== CAPTURE_CONTRACT.width || height !== CAPTURE_CONTRACT.height) {
         throw new Error(
-            `capture refused: surface is ${width}x${height}, not the declared contract ${captureIdentityLabel(contract)}`,
+            `capture refused: surface is ${width}x${height}, not the declared contract ${captureIdentityLabel(CAPTURE_CONTRACT)}`,
         );
     }
 }
@@ -73,39 +51,26 @@ export interface Capture {
  * console.log(shot.width, shot.height, shot.identity);
  * ```
  */
-export async function captureFrame(
-    canvas: HTMLCanvasElement,
-    contract: CaptureIdentity = CAPTURE_CONTRACT,
-): Promise<Capture> {
-    assertCaptureGeometry(canvas.width, canvas.height, contract);
+export async function captureFrame(canvas: HTMLCanvasElement): Promise<Capture> {
+    assertCaptureGeometry(canvas.width, canvas.height);
     const url = await new Promise<string>((done) =>
         requestAnimationFrame(() => done(canvas.toDataURL("image/png"))),
     );
     const bitmap = await createImageBitmap(await (await fetch(url)).blob());
     try {
-        assertCaptureGeometry(bitmap.width, bitmap.height, contract);
+        assertCaptureGeometry(bitmap.width, bitmap.height);
         const surface = new OffscreenCanvas(bitmap.width, bitmap.height);
         const context = surface.getContext("2d");
         if (!context) throw new Error("capture refused: no 2d context for the capture surface");
         context.drawImage(bitmap, 0, 0);
         const image = context.getImageData(0, 0, surface.width, surface.height);
-        return { rgba: image.data, width: image.width, height: image.height, identity: contract };
+        return {
+            rgba: image.data,
+            width: image.width,
+            height: image.height,
+            identity: CAPTURE_CONTRACT,
+        };
     } finally {
         bitmap.close();
     }
-}
-
-/**
- * Capture the final canvas as a PNG data URL, for a bounded failure artifact. Same surface and boundary as
- * {@link captureFrame}; only the encoding differs, so an artifact and a semantic check never disagree
- * about what was on screen.
- */
-export async function captureArtifact(
-    canvas: HTMLCanvasElement,
-    contract: CaptureIdentity = CAPTURE_CONTRACT,
-): Promise<string> {
-    assertCaptureGeometry(canvas.width, canvas.height, contract);
-    return new Promise<string>((done) =>
-        requestAnimationFrame(() => done(canvas.toDataURL("image/png"))),
-    );
 }
