@@ -67,6 +67,7 @@
         "!examples/*/dist",
         "!src/transitional/gltf/fixtures",
         "!src/transitional/physics/solver/fixtures",
+        "!src/transitional/physics/oracle/**",
         "!scripts/check.ts",
         "!scripts/check-pack.ts",
         "!scripts/check-device-tiers.ts",

@@ -53,6 +53,7 @@ const requiredNegations = [
     "!scripts/tooling.ts",
     "!scripts/audio.ts",
     "!scripts/wasm-opt.ts",
+    "!src/transitional/physics/oracle/**",
     "!**/fixtures",
     "!**/*.test.ts",
     "!**/*.oracle.ts",
@@ -73,6 +74,7 @@ const forbidden: [string, (f: string) => boolean][] = [
     ["site assets", (f) => f.startsWith("assets/") && f !== "assets/icon-1024.png"],
     ["repo docs", (f) => f.endsWith(".md") && f !== "README.md" && !f.startsWith("examples/")],
     ["test-support source", (f) => /^src\/(?:harness|testing)\//.test(f)],
+    ["physics oracle test data", (f) => f.startsWith("src/transitional/physics/oracle/")],
 ];
 const violations = files.flatMap((f) =>
     forbidden.filter(([, match]) => match(f)).map(([kind]) => `${f} (${kind})`),
