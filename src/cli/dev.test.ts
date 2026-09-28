@@ -2,11 +2,10 @@ import { expect } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
 import {
     resolveViteCli,
-    runVite,
     startViteDev,
     viteCliArgs,
     viteUrlFromLines,
@@ -72,31 +71,36 @@ check(
 );
 
 check(
-    "projects without Vite are refused without fetching it",
+    "the real CLI refuses a project without Vite",
     {
-        claim: "the Vite CLI resolver refuses a project missing its own Vite dependency and names the fix",
-        size: "unit",
-        subject: "src/project/vite-command.ts",
+        claim: "shallot build refuses a project with no resolvable Vite and names the devDependency fix without fetching",
+        size: "integration",
+        subject: ["src/project/vite-command.ts", "src/cli/index.ts"],
+        budget: 15_000,
     },
     () => {
+        const root = resolve(import.meta.dir, "../..");
         const project = mkdtempSync(join(tmpdir(), "shallot-no-vite-"));
-        const spawned: string[][] = [];
-        const errors: string[] = [];
-        const originalError = console.error;
-        console.error = (...values: unknown[]) => errors.push(values.join(" "));
+        writeFileSync(
+            join(project, "index.html"),
+            "<!doctype html><title>No Vite dependency</title>\n",
+        );
         try {
-            expect(() => resolveViteCli(project)).toThrow(
-                "Add vite as a devDependency with `bun add -d vite`.",
+            for (let current = project; ; current = dirname(current)) {
+                expect(existsSync(join(current, "node_modules"))).toBe(false);
+                const parent = dirname(current);
+                if (parent === current) break;
+            }
+            const result = Bun.spawnSync(
+                [process.execPath, join(root, "bin/shallot.ts"), "build", project],
+                { cwd: root, stdout: "pipe", stderr: "pipe" },
             );
-            const fakeSpawn = ((command: string[]) => {
-                spawned.push(command);
-                return { exitCode: 0 };
-            }) as typeof Bun.spawnSync;
-            expect(runVite(project, "dev", [], fakeSpawn)).toBe(1);
-            expect(spawned).toEqual([]);
-            expect(errors.join("\n")).toContain("Add vite as a devDependency");
+            expect(result.exitCode).toBe(1);
+            expect(result.stdout.toString()).toBe("");
+            expect(result.stderr.toString()).toContain("Add vite as a devDependency");
+            expect(result.stderr.toString()).toContain("bun add -d vite");
+            expect(existsSync(join(project, "dist"))).toBe(false);
         } finally {
-            console.error = originalError;
             rmSync(project, { recursive: true, force: true });
         }
     },

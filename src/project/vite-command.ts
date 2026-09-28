@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
+import { existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
-import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 export type ViteCommand = "dev" | "build" | "preview";
@@ -9,15 +8,22 @@ export type ViteCommand = "dev" | "build" | "preview";
 /** Resolve the Vite CLI from this project without allowing a package-manager fetch. */
 export function resolveViteCli(projectDir: string): string {
     const base = resolve(projectDir);
-    const require = createRequire(resolve(base, "__shallot__.cjs"));
-    let packagePath: string;
-    try {
-        packagePath = require.resolve("vite/package.json");
-    } catch {
+    let current = base;
+    let packagePath: string | undefined;
+    while (true) {
+        const candidate = resolve(current, "node_modules", "vite", "package.json");
+        if (existsSync(candidate)) {
+            packagePath = candidate;
+            break;
+        }
+        const parent = dirname(current);
+        if (parent === current) break;
+        current = parent;
+    }
+    if (packagePath === undefined)
         throw new Error(
             `Cannot resolve Vite from ${base}. Add vite as a devDependency with \`bun add -d vite\`.`,
         );
-    }
     const pkg = JSON.parse(readFileSync(packagePath, "utf8")) as {
         bin?: string | Record<string, string>;
     };
