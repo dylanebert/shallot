@@ -136,6 +136,7 @@ function recipePackage(dest: string, recipeDir: string): string {
         "@types/bun": engine.devDependencies["@types/bun"],
         playwright: engine.devDependencies.playwright,
         typescript: engine.devDependencies.typescript,
+        vite: engine.devDependencies.vite,
     };
     if (importsPackage(recipeDir, "typegpu"))
         devDependencies.typegpu = engine.peerDependencies.typegpu;
@@ -151,7 +152,6 @@ function recipePackage(dest: string, recipeDir: string): string {
                 preview: "vite preview",
                 "test:browser": "playwright test",
             },
-            dependencies: { vite: engine.dependencies.vite },
             devDependencies,
         },
         null,

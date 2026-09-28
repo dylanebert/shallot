@@ -105,7 +105,8 @@
     "peerDependencies": {
         "bun-webgpu": ">=0.1.7",
         "playwright": "^1.0.0",
-        "typegpu": "~0.12.6"
+        "typegpu": "~0.12.6",
+        "vite": "^8.0.0"
     },
     "peerDependenciesMeta": {
         "bun-webgpu": {
@@ -119,8 +120,7 @@
         "@babel/parser": "^8.0.6",
         "@types/node": "^26.6.3",
         "@webgpu/types": "^0.1.74",
-        "unplugin-typegpu": "~0.12.4",
-        "vite": "^8.3.1"
+        "unplugin-typegpu": "~0.12.4"
     },
     "devDependencies": {
         "@arethetypeswrong/cli": "0.18.5",
@@ -131,6 +131,7 @@
         "playwright": "^1.63.0",
         "publint": "0.3.24",
         "typegpu": "~0.12.6",
-        "typescript": "^7.0.2"
+        "typescript": "^7.0.2",
+        "vite": "^8.3.1"
     }
 }

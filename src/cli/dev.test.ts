@@ -3,6 +3,7 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
+    readFileSync,
     realpathSync,
     rmSync,
     symlinkSync,
@@ -11,7 +12,12 @@ import {
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { startViteDev, viteCliArgs, viteUrlFromLines } from "../project/vite-command";
+import {
+    resolveViteCli,
+    startViteDev,
+    viteCliArgs,
+    viteUrlFromLines,
+} from "../project/vite-command";
 import { parseCliArgs } from "./index";
 
 async function freePort(): Promise<number> {
@@ -152,6 +158,63 @@ test("the real Shallot CLI finds Vite hoisted above a workspace app reached thro
         rmSync(fixture, { recursive: true, force: true });
     }
 }, 15_000);
+
+test("shallot dev, build and preview run the Vite declared by the project", async () => {
+    const root = resolve(import.meta.dir, "../..");
+    const project = mkdtempSync(join(tmpdir(), "shallot-project-vite-"));
+    const nodeModules = join(project, "node_modules");
+    const packageManifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+    const cli = join(root, "bin/shallot.ts");
+    symlinkSync(join(root, "node_modules"), nodeModules, "dir");
+    writeFileSync(
+        join(project, "package.json"),
+        JSON.stringify({
+            name: "project-vite-contract",
+            private: true,
+            type: "module",
+            devDependencies: { vite: packageManifest.devDependencies.vite },
+        }),
+    );
+    writeFileSync(join(project, "index.html"), "<!doctype html><title>PROJECT VITE</title>\n");
+    try {
+        expect(resolveViteCli(project)).toBe(
+            join(realpathSync(project), "node_modules/vite/bin/vite.js"),
+        );
+
+        const build = Bun.spawnSync([process.execPath, cli, "build"], {
+            cwd: project,
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        const buildOutput = `${build.stdout.toString()}${build.stderr.toString()}`;
+        expect(build.exitCode, buildOutput).toBe(0);
+        expect(buildOutput).toContain("vite v");
+        expect(existsSync(join(project, "dist/index.html"))).toBe(true);
+
+        const serve = async (command: "dev" | "preview") => {
+            const port = await freePort();
+            const child = Bun.spawn(
+                [process.execPath, cli, command, "--host", "127.0.0.1", "--port", String(port)],
+                { cwd: project, stdout: "ignore", stderr: "ignore", detached: true },
+            );
+            try {
+                const response = await waitForPage(`http://127.0.0.1:${port}/`);
+                expect(response.status).toBe(200);
+                expect(await response.text()).toContain("PROJECT VITE");
+            } finally {
+                try {
+                    process.kill(-child.pid, "SIGTERM");
+                } catch {}
+                child.kill();
+                await child.exited;
+            }
+        };
+        await serve("dev");
+        await serve("preview");
+    } finally {
+        rmSync(project, { recursive: true, force: true });
+    }
+}, 45_000);
 
 test("native dev keeps the complete reported Local URL and can use a Network URL alone", () => {
     const network = "  ➜  Network:   http://192.168.0.139:41989/game/";

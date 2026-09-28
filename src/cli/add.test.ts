@@ -172,8 +172,12 @@ test("shallot add gives a copied recipe the canonical .gitignore", async () => {
             'preload = ["./tests/preload.ts"]',
         );
         const pkg = JSON.parse(readFileSync(join(dest, "package.json"), "utf8"));
+        const engine = JSON.parse(
+            readFileSync(join(import.meta.dir, "../../package.json"), "utf8"),
+        );
         expect(pkg.dependencies["@dylanebert/shallot"]).toBe("0.0.0");
-        expect(pkg.dependencies.vite).toBeDefined();
+        expect(pkg.dependencies.vite).toBeUndefined();
+        expect(pkg.devDependencies.vite).toBe(engine.devDependencies.vite);
         expect(pkg.devDependencies.typescript).toBeDefined();
         expect(pkg.devDependencies["@types/bun"]).toBeDefined();
         expect(pkg.devDependencies.typegpu).toBeUndefined();

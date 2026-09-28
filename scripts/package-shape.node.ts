@@ -16,6 +16,12 @@ const ROOT = resolve(import.meta.dir, "..");
 const ENGINE = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 const TYPEGPU_RANGE = ENGINE.peerDependencies.typegpu as string;
 
+test("Vite is a supported plugin peer and a Shallot development dependency", () => {
+    expect(ENGINE.peerDependencies.vite).toBe("^8.0.0");
+    expect(ENGINE.devDependencies.vite).toBe("^8.3.1");
+    expect(ENGINE.dependencies.vite).toBeUndefined();
+});
+
 function run(command: string[], cwd: string, label: string): string {
     const result = Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe" });
     const output = `${result.stdout.toString()}${result.stderr.toString()}`;
