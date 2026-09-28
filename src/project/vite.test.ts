@@ -6,23 +6,23 @@ import { check } from "@dylanebert/shallot/harness/check";
 import { findPublicDirs, shallot } from "./vite";
 
 check(
-    "public assets belong to the project directory",
+    "public assets are project-scoped",
     {
-        claim: "the Vite plugin does not serve or watch a shared parent public directory",
+        claim: "the Vite plugin only returns a project's own public assets",
         size: "unit",
         subject: "src/project/vite.ts",
     },
     () => {
-        const parent = mkdtempSync(join(tmpdir(), "shallot-public-root-"));
-        const project = join(parent, "example");
-        mkdirSync(join(parent, "public"), { recursive: true });
+        const root = mkdtempSync(join(tmpdir(), "shallot-public-scope-"));
+        const project = join(root, "example");
+        mkdirSync(join(root, "public"), { recursive: true });
         mkdirSync(project);
         try {
             expect(findPublicDirs(project)).toEqual([]);
             mkdirSync(join(project, "public"));
             expect(findPublicDirs(project)).toEqual([join(project, "public")]);
         } finally {
-            rmSync(parent, { recursive: true, force: true });
+            rmSync(root, { recursive: true, force: true });
         }
     },
 );

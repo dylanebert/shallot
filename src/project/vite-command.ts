@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { dirname, resolve } from "node:path";
 
@@ -7,7 +7,7 @@ export type ViteCommand = "dev" | "build" | "preview";
 
 /** Resolve the Vite CLI from this project without allowing a package-manager fetch. */
 export function resolveViteCli(projectDir: string): string {
-    const base = resolve(projectDir);
+    const base = realpathSync(resolve(projectDir));
     let current = base;
     let packagePath: string | undefined;
     while (true) {
@@ -37,7 +37,6 @@ export function runVite(
     projectDir: string,
     command: ViteCommand,
     args: string[] = [],
-    spawnSync: typeof Bun.spawnSync = Bun.spawnSync,
 ): number {
     let viteCli: string;
     try {
@@ -46,7 +45,7 @@ export function runVite(
         console.error(error instanceof Error ? error.message : String(error));
         return 1;
     }
-    const result = spawnSync([process.execPath, viteCli, ...viteCliArgs(command, args)], {
+    const result = Bun.spawnSync([process.execPath, viteCli, ...viteCliArgs(command, args)], {
         cwd: projectDir,
         stdin: "inherit",
         stdout: "inherit",
@@ -86,11 +85,11 @@ export interface ViteDevProcess {
     close(): Promise<void>;
 }
 
-/** Start the project's own Vite dev server and report its actual local URL. */
+/** Start the project's Vite dev server and report the URL it announces. */
 export async function startViteDev(
     projectDir: string,
-    args: string[] = [],
-    viteCli = resolveViteCli(projectDir),
+    args: string[],
+    viteCli: string,
 ): Promise<ViteDevProcess> {
     const child = spawn(process.execPath, [viteCli, ...args], {
         cwd: projectDir,

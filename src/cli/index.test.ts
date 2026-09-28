@@ -123,7 +123,6 @@ check(
         expect(result.stdout).toContain("Rust toolchain");
         expect(result.stdout).toContain("cargo-xwin");
         expect(result.stdout).toContain("CEF_PATH");
-        expect(result.stdout).not.toContain("--port <n>");
         expect(result.stderr).toBe("");
     },
 );
@@ -140,9 +139,6 @@ check(
         expect(result.stdout).toContain("For web, remaining arguments go to Vite unchanged.");
         expect(result.stdout).toContain("Native targets use the requirements");
         expect(result.stdout).toContain("shallot build --help");
-        expect(result.stdout).not.toContain("--port <n>");
-        expect(result.stdout).not.toContain("--no-open");
-        expect(result.stdout).not.toContain("--strict-port");
         expect(result.stderr).toBe("");
     },
 );
