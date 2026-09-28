@@ -40,7 +40,6 @@
         "./scene": "./src/engine/scene/index.ts",
         "./input": "./src/core/input/index.ts",
         "./rendering": "./src/core/rendering/index.ts",
-        "./standard": "./src/standard/index.ts",
         "./standard/rendering": "./src/standard/rendering/index.ts",
         "./glaze": "./src/transitional/glaze/index.ts",
         "./physics": "./src/transitional/physics/index.ts",

@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 const ROOT = resolve(import.meta.dir, "..");
 
 test("a packed fresh Bun project steps and observes a headless world through engine exports", async () => {
-    const scratch = mkdtempSync(join(tmpdir(), "shallot-hosting-shape-"));
+    const scratch = mkdtempSync(join(tmpdir(), "shallot-packed-install-"));
     const project = join(scratch, "project");
     const packageVersion = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
     const tarballName = `dylanebert-shallot-${packageVersion}.tgz`;
@@ -24,7 +24,7 @@ test("a packed fresh Bun project steps and observes a headless world through eng
         writeFileSync(
             join(project, "package.json"),
             JSON.stringify({
-                name: "hosting-shape-project",
+                name: "packed-install-project",
                 private: true,
                 type: "module",
                 dependencies: {
