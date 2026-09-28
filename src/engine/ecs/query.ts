@@ -64,8 +64,11 @@ class QueryIterator implements Iterator<number> {
     private _dense: number[] = [];
     private _active = false;
     private readonly _r = { value: 0, done: false };
+    private readonly _pool: QueryIterator[];
 
-    constructor(private readonly _pool: QueryIterator[]) {}
+    constructor(pool: QueryIterator[]) {
+        this._pool = pool;
+    }
 
     reset(dense: number[], count: number): void {
         this._dense = dense;

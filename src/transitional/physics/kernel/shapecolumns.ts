@@ -93,7 +93,11 @@ export function destroyShapeSlot(world: WorldState, shapeId: number): void {
  * its views whenever a grow detaches or relocates them.
  */
 export class ShapeStore {
-    constructor(private readonly _worldId: number) {}
+    private readonly _worldId: number;
+
+    constructor(worldId: number) {
+        this._worldId = worldId;
+    }
 
     /** Resident shape column as u32 (type + nextShapeId). Re-derived after every grow. */
     shapeU = new Uint32Array(0);

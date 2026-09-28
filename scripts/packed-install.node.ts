@@ -136,21 +136,78 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
             join(project, "tsconfig.node.json"),
             JSON.stringify({
                 compilerOptions: {
-                    target: "ESNext",
-                    module: "NodeNext",
-                    moduleResolution: "NodeNext",
-                    strict: true,
-                    noUnusedLocals: true,
+                    tsBuildInfoFile: "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+                    target: "es2023",
+                    lib: ["ES2023"],
+                    types: ["node"],
+                    skipLibCheck: true,
+                    module: "nodenext",
+                    allowImportingTsExtensions: true,
+                    verbatimModuleSyntax: true,
+                    moduleDetection: "force",
                     noEmit: true,
+                    noUnusedLocals: true,
+                    noUnusedParameters: true,
+                    erasableSyntaxOnly: true,
+                    noFallthroughCasesInSwitch: true,
                 },
                 include: ["vite.config.ts"],
             }),
         );
-        const typecheck = Bun.spawnSync(
-            ["node", resolve(ROOT, "node_modules/typescript/bin/tsc"), "-p", "tsconfig.node.json"],
-            { cwd: project, stdout: "pipe", stderr: "pipe" },
+        const tsc = resolve(ROOT, "node_modules/typescript/bin/tsc");
+        const nodeTypecheck = Bun.spawnSync(["node", tsc, "-p", "tsconfig.node.json"], {
+            cwd: project,
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        if (nodeTypecheck.exitCode !== 0) {
+            throw new Error(
+                `packed Node config failed:\n${nodeTypecheck.stdout.toString()}${nodeTypecheck.stderr.toString()}`,
+            );
+        }
+
+        writeFileSync(
+            join(project, "app.ts"),
+            `import * as Shallot from "@dylanebert/shallot";
+import * as Rendering from "@dylanebert/shallot/rendering";
+export const api = [Shallot, Rendering] as const;
+`,
         );
-        expect(typecheck.exitCode, typecheck.stderr.toString()).toBe(0);
+        writeFileSync(
+            join(project, "tsconfig.app.json"),
+            JSON.stringify({
+                compilerOptions: {
+                    target: "ES2022",
+                    useDefineForClassFields: true,
+                    lib: ["ES2022", "DOM", "DOM.Iterable"],
+                    types: ["vite/client", "node", "@webgpu/types"],
+                    skipLibCheck: true,
+                    module: "ESNext",
+                    moduleResolution: "bundler",
+                    allowImportingTsExtensions: true,
+                    verbatimModuleSyntax: true,
+                    moduleDetection: "force",
+                    noEmit: true,
+                    jsx: "react-jsx",
+                    strict: true,
+                    noUnusedLocals: true,
+                    noUnusedParameters: true,
+                    noFallthroughCasesInSwitch: true,
+                    erasableSyntaxOnly: true,
+                },
+                include: ["app.ts"],
+            }),
+        );
+        const appTypecheck = Bun.spawnSync(["node", tsc, "-p", "tsconfig.app.json"], {
+            cwd: project,
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        if (appTypecheck.exitCode !== 0) {
+            throw new Error(
+                `packed app config failed:\n${appTypecheck.stdout.toString()}${appTypecheck.stderr.toString()}`,
+            );
+        }
 
         const tar = execFileSync("tar", ["-tzf", tarball], {
             encoding: "utf8",

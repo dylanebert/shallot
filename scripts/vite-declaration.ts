@@ -36,7 +36,19 @@ export function buildViteDeclaration(): string {
                 `build-vite-types: declaration emit failed:\n${result.stdout.toString()}${result.stderr.toString()}`,
             );
         }
-        return readFileSync(join(outdir, "vite.d.ts"), "utf8");
+        const declaration = readFileSync(join(outdir, "vite.d.ts"), "utf8");
+        const imports = [
+            ...declaration.matchAll(
+                /(?:\bfrom\s+|\bimport\s*\(\s*|<reference\s+(?:path|types)=)["']([^"']+)["']/g,
+            ),
+        ].map(([, specifier]) => specifier);
+        const unexpected = imports.filter((specifier) => specifier !== "vite");
+        if (unexpected.length) {
+            throw new Error(
+                `build-vite-types: dist/vite.d.ts may depend only on Vite types, found: ${[...new Set(unexpected)].join(", ")}`,
+            );
+        }
+        return declaration;
     } finally {
         rmSync(scratch, { recursive: true, force: true });
     }

@@ -4,8 +4,11 @@ import { main, parseCliArgs } from "./index";
 type Result = { code: number; stdout: string; stderr: string };
 
 class ExitStatus extends Error {
-    constructor(readonly code: number) {
+    readonly code: number;
+
+    constructor(code: number) {
         super(`exit ${code}`);
+        this.code = code;
     }
 }
 

@@ -145,8 +145,11 @@ export function extractTarGz(archivePath: string, destDir: string): void {
 }
 
 class PrebuiltFetchError extends Error {
-    constructor(readonly kind: PrebuiltFetchResult) {
+    readonly kind: PrebuiltFetchResult;
+
+    constructor(kind: PrebuiltFetchResult) {
         super(kind);
+        this.kind = kind;
     }
 }
 

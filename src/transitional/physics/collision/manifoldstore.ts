@@ -451,10 +451,13 @@ export class ManifoldStore {
  * re-derivation is transparent. Offsets mirror the point record in kernel/src/manifolds.rs.
  */
 class ManifoldPointView implements ManifoldPoint {
-    constructor(
-        private readonly _s: ManifoldStore,
-        private readonly _o: number,
-    ) {}
+    private readonly _s: ManifoldStore;
+    private readonly _o: number;
+
+    constructor(_s: ManifoldStore, _o: number) {
+        this._s = _s;
+        this._o = _o;
+    }
     get anchorA(): Vec3 {
         const f = this._s.poolF;
         const o = this._o + P_ANCHOR_A;
@@ -536,10 +539,12 @@ class ManifoldPointView implements ManifoldPoint {
  */
 class ManifoldView implements Manifold {
     readonly points: ManifoldPoint[];
-    constructor(
-        private readonly _s: ManifoldStore,
-        private readonly _o: number,
-    ) {
+    private readonly _s: ManifoldStore;
+    private readonly _o: number;
+
+    constructor(_s: ManifoldStore, _o: number) {
+        this._s = _s;
+        this._o = _o;
         this.points = [
             new ManifoldPointView(_s, _o + M_POINTS),
             new ManifoldPointView(_s, _o + M_POINTS + POINT_STRIDE),

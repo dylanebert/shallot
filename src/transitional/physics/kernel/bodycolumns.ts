@@ -302,11 +302,13 @@ export function createBodyStore(): BodyStore {
  * mirror `read_state`/`write_state` in kernel/src/body.rs.
  */
 class ResidentBodyState implements BodyState {
+    private readonly _s: BodyStore;
+    private readonly _i: number;
     private readonly _o: number;
-    constructor(
-        private readonly _s: BodyStore,
-        private readonly _i: number,
-    ) {
+
+    constructor(_s: BodyStore, _i: number) {
+        this._s = _s;
+        this._i = _i;
         this._o = _i * STATE_STRIDE;
     }
     /** {@link linearVelocity} into `out`, without the getter's fresh object. */
@@ -386,13 +388,13 @@ class ResidentBodyState implements BodyState {
  * bypassing the view, to stay zero-alloc in its per-body hot loop.
  */
 class ResidentBodySim implements BodySim {
+    private readonly _s: BodyStore;
     private readonly _so: number;
     private readonly _fo: number;
     private readonly _s2o: number;
-    constructor(
-        private readonly _s: BodyStore,
-        i: number,
-    ) {
+
+    constructor(_s: BodyStore, i: number) {
+        this._s = _s;
         this._so = i * SIM_STRIDE;
         this._fo = i * FIN_STRIDE;
         this._s2o = i * SIM2_STRIDE;

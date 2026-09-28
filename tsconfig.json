@@ -13,6 +13,7 @@
         "noEmit": true,
 
         "strict": true,
+        "erasableSyntaxOnly": true,
         "skipLibCheck": true,
         "noFallthroughCasesInSwitch": true,
         "noImplicitOverride": true,
