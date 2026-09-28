@@ -33,6 +33,7 @@ import { type CharState, type SweepBody, sweepCharacter } from "./sweep";
 // a camera) on top, snapshotting `pose` off this CPU state `after: [CharacterSweepSystem]`.
 
 const DEG = Math.PI / 180;
+const _worldGravity = { x: 0, y: 0, z: 0 };
 
 /**
  * a kinematic character: a capsule {@link Body} (`mass <= 0`) swept against the scene's bodies each fixed
@@ -251,7 +252,8 @@ function sweepEid(eid: number, st: CharState, state: State): void {
     input[0] = m ? m[0] : 0;
     input[2] = m ? m[1] : 0;
     const g = Character.gravity.get(eid);
-    const gravity = g !== 0 ? g : (physicsWorld(state)?.getGravity().y ?? Physics.gravity);
+    const gravity =
+        g !== 0 ? g : (physicsWorld(state)?.getGravity(_worldGravity).y ?? Physics.gravity);
 
     // snapshot the dynamics' velocities so we can tell which the sweep actually shoved (the push loop only
     // mutates a touched dynamic's `vel`) — a no-op velocity rewrite would wake every nearby resting body.

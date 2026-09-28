@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export interface AllocationSite {
     /** attributed function name and original source line */
@@ -136,6 +136,7 @@ async function runSampler(
     const dir = mkdtempSync(join(tmpdir(), "shallot-allocation-"));
     try {
         writeFileSync(join(dir, "input.txt"), input);
+        const { shallot } = await import("@dylanebert/shallot/bun");
         const built = await Bun.build({
             entrypoints: [entry],
             outdir: dir,
@@ -143,6 +144,7 @@ async function runSampler(
             format: "esm",
             sourcemap: "linked",
             naming: "subject.mjs",
+            plugins: [shallot({ root: dirname(entry) })],
         });
         if (!built.success)
             throw new Error(`allocation bundle failed: ${built.logs.map(String).join("\n")}`);

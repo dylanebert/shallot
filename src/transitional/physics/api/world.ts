@@ -123,6 +123,7 @@ export class World {
     // state (matching the internal pool). Rebuilt lazily; valid until the next step or getBodyEvents.
     private readonly _moveEventPool: BodyMoveEvent[] = [];
     private readonly _bodyEvents: BodyEvents = { moveEvents: this._moveEventPool, count: 0 };
+    private readonly _moveRecord = { bodyId: 0, generation: 0, fellAsleep: false };
 
     constructor(def: Partial<WorldDef> = {}) {
         this._worldId = createWorld({ ...defaultWorldDef(), ...def });
@@ -263,7 +264,7 @@ export class World {
             });
         }
         for (let i = 0; i < count; ++i) {
-            const rec = state.bodyStore.readMove(i);
+            const rec = state.bodyStore.readMove(i, this._moveRecord);
             const body = state.bodies[rec.bodyId];
             const ev = pool[i];
             ev.body.id.index1 = rec.bodyId + 1;
@@ -581,9 +582,13 @@ export class World {
         this.state.clock = clock;
     }
 
-    /** @returns the gravity vector. */
-    getGravity(): Vec3 {
-        return { ...this.state.gravity };
+    /** @returns the gravity vector. Pass `out` to fill it in place instead of allocating. */
+    getGravity(out?: Vec3): Vec3 {
+        if (out === undefined) return { ...this.state.gravity };
+        out.x = this.state.gravity.x;
+        out.y = this.state.gravity.y;
+        out.z = this.state.gravity.z;
+        return out;
     }
 
     /** Set the gravity vector. */

@@ -5,6 +5,7 @@ import { BodyType } from "../common/types";
 import {
     type Capsule,
     computeCapsuleAABB,
+    computeCapsuleAABBOut,
     computeCapsuleMass,
     computeSphereAABB,
     computeSphereMass,
@@ -148,6 +149,22 @@ test("computeSphereAABB or computeCapsuleAABB stops bounding a sphere or capsule
         v(-0.5, -1.5, -0.5),
     );
     expect(capsule.upperBound, "capsule AABB under identity: upperBound").toEqual(v(0.5, 1.5, 0.5));
+
+    const output = { lowerBound: v(0, 0, 0), upperBound: v(0, 0, 0) };
+    const rotated: Transform = {
+        p: v(1, 2, 3),
+        q: { v: v(0, 0, Math.SQRT1_2), s: Math.SQRT1_2 },
+    };
+    expect(
+        computeCapsuleAABBOut(
+            { center1: v(0, -1, 0), center2: v(0, 1, 0), radius: 0.5 },
+            rotated,
+            output,
+        ),
+    ).toBe(output);
+    expect(output).toEqual(
+        computeCapsuleAABB({ center1: v(0, -1, 0), center2: v(0, 1, 0), radius: 0.5 }, rotated),
+    );
 });
 
 test("roundSphere or roundCapsule leaves an f64 sphere or capsule field unrounded at the storage boundary, so solver arithmetic on it diverges from the C's f32 struct fields", () => {

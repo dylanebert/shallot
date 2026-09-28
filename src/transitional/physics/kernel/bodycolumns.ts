@@ -147,14 +147,16 @@ export class BodyStore {
         this.moveU[index * MOVE_STRIDE + 2] = 1;
     }
 
-    /** Read a retained body move record for direct bridge evidence. */
-    readMove(index: number): { bodyId: number; generation: number; fellAsleep: boolean } {
+    /** Read a retained body move record into caller-owned storage. */
+    readMove(
+        index: number,
+        out: { bodyId: number; generation: number; fellAsleep: boolean },
+    ): { bodyId: number; generation: number; fellAsleep: boolean } {
         const o = index * MOVE_STRIDE;
-        return {
-            bodyId: this.moveU[o],
-            generation: this.moveU[o + 1],
-            fellAsleep: this.moveU[o + 2] !== 0,
-        };
+        out.bodyId = this.moveU[o];
+        out.generation = this.moveU[o + 1];
+        out.fellAsleep = this.moveU[o + 2] !== 0;
+        return out;
     }
 
     /** Marshal a plain `BodyState` into the resident column at record `i` — the object→view write on a

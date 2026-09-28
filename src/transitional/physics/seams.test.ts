@@ -12,6 +12,14 @@ function dynamicBox(world: World, position: Pos) {
     return { body, shape };
 }
 
+test("World.getGravity fills a supplied vector so a stepped consumer can read gravity without allocating", () => {
+    const world = new World({ gravity: { x: 1, y: -10, z: 2 } });
+    const out = { x: 0, y: 0, z: 0 };
+    expect(world.getGravity(out)).toBe(out);
+    expect(out).toEqual({ x: 1, y: -10, z: 2 });
+    world.destroy();
+});
+
 test("a contact begin event omits its solved normal impulse, so an impact-driven consumer cannot distinguish a forceful contact from a grazing one", () => {
     const world = new World({ gravity: { x: 0, y: -10, z: 0 }, enableContinuous: false });
     const floor = world.createBody({ position: { x: 0, y: -0.5, z: 0 } });

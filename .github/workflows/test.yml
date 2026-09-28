@@ -63,7 +63,7 @@ jobs:
         run: /usr/bin/time -p cargo test -p shallot-physics
 
   node:
-    runs-on: ubuntu-latest
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2

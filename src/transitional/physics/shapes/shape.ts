@@ -82,6 +82,7 @@ import {
     collideMoverAndCapsule,
     collideMoverAndSphere,
     computeCapsuleAABB,
+    computeCapsuleAABBOut,
     computeCapsuleMass,
     computeSphereAABB,
     computeSphereAABBOut,
@@ -372,16 +373,8 @@ export function computeFatShapeAABB(shape: Shape, transform: WorldTransform, ext
  * allocating compute and copy (identity on already-f32 values). */
 export function computeShapeAABBOut(shape: Shape, transform: Transform, o: AABB): AABB {
     switch (shape.type) {
-        case ShapeType.Capsule: {
-            const box = computeCapsuleAABB(shape.capsule as Capsule, transform);
-            o.lowerBound.x = box.lowerBound.x;
-            o.lowerBound.y = box.lowerBound.y;
-            o.lowerBound.z = box.lowerBound.z;
-            o.upperBound.x = box.upperBound.x;
-            o.upperBound.y = box.upperBound.y;
-            o.upperBound.z = box.upperBound.z;
-            return o;
-        }
+        case ShapeType.Capsule:
+            return computeCapsuleAABBOut(shape.capsule as Capsule, transform, o);
         case ShapeType.Hull:
             return aabb.transformOut(transform, (shape.hull as HullData).aabb, o);
         case ShapeType.Sphere:

@@ -1,5 +1,6 @@
 import { build, CharacterPlugin, InputPlugin, PhysicsPlugin } from "@dylanebert/shallot";
 import { getComponent } from "@dylanebert/shallot/ecs";
+import { Compute } from "@dylanebert/shallot/runtime";
 import { Demo } from "./demo";
 
 // A compile-time constant equal to Time.FIXED_DT: that one is an object property, so passing it
@@ -14,7 +15,7 @@ export const control = () => {
 };
 
 // Bundled for Node by the allocation row, which passes the scene as XML text since the runtime's
-// file loader is Bun or fetch. Same CPU composition as the demo rows.
+// file loader is Bun or fetch. Same GPU composition as the demo rows.
 export default async function create(scene: string) {
     const app = await build({
         defaults: false,
@@ -28,6 +29,7 @@ export default async function create(scene: string) {
     let eid = 0;
     return {
         step: () => state.step(FIXED_DT),
+        wait: () => Compute.device.queue.onSubmittedWorkDone(),
         // The transition row's event frames, an ECS entity cycle with no Body: create an entity carrying the
         // composition's non-Body slab component, step its frame, destroy it, step its frame.
         spawn: () => {

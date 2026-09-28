@@ -27,6 +27,8 @@ import {
     getLengthAndNormalize,
     type Mat3,
     mat3,
+    maxf,
+    minf,
     PI,
     type Plane,
     pointToSegmentDistance,
@@ -191,6 +193,25 @@ export function computeCapsuleAABB(shape: Capsule, transform: Transform): AABB {
         lowerBound: vec3.sub(vec3.min(center1, center2), extent),
         upperBound: vec3.add(vec3.max(center1, center2), extent),
     };
+}
+
+const _capsuleCenter1: Vec3 = { x: 0, y: 0, z: 0 };
+const _capsuleCenter2: Vec3 = { x: 0, y: 0, z: 0 };
+
+/** The same capsule bounds written into `out`, reusing the transformed endpoints. */
+export function computeCapsuleAABBOut(shape: Capsule, transform: Transform, out: AABB): AABB {
+    quat.rotateOut(transform.q, shape.center1, _capsuleCenter1);
+    vec3.addOut(_capsuleCenter1, transform.p, _capsuleCenter1);
+    quat.rotateOut(transform.q, shape.center2, _capsuleCenter2);
+    vec3.addOut(_capsuleCenter2, transform.p, _capsuleCenter2);
+    const r = shape.radius;
+    out.lowerBound.x = f32(minf(_capsuleCenter1.x, _capsuleCenter2.x) - r);
+    out.lowerBound.y = f32(minf(_capsuleCenter1.y, _capsuleCenter2.y) - r);
+    out.lowerBound.z = f32(minf(_capsuleCenter1.z, _capsuleCenter2.z) - r);
+    out.upperBound.x = f32(maxf(_capsuleCenter1.x, _capsuleCenter2.x) + r);
+    out.upperBound.y = f32(maxf(_capsuleCenter1.y, _capsuleCenter2.y) + r);
+    out.upperBound.z = f32(maxf(_capsuleCenter1.z, _capsuleCenter2.z) + r);
+    return out;
 }
 
 // --- queries --------------------------------------------------------------------------------

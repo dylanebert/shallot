@@ -74,7 +74,7 @@ bun run format                        # biome, scene formatter and examples inde
 
 A module's promises are tested beside the module and through the examples that use it. Each test name states the claim; its timeout is the wall-clock budget.
 
-- `bun run test` discovers `*.test.ts` files, including `*.gpu.test.ts`, with a 250 ms default timeout per test. Individual test timeouts override it. Bare `bun test` discovers the same files with Bun's default timeout. Hosted jobs without a device exclude `*.gpu.test.ts` by pattern; the macOS GPU job runs `bun test gpu.test`. Node tests remain named `*.node.ts` files and run as before; oracles are manual and run by path.
+- `bun run test` discovers `*.test.ts` files, including `*.gpu.test.ts`, with a 250 ms default timeout per test. Individual test timeouts override it. Bare `bun test` discovers the same files with Bun's default timeout. Hosted jobs without a device exclude `*.gpu.test.ts` by pattern; the macOS GPU job runs `bun test gpu.test`. Node tests remain named `*.node.ts` files; the Node tier runs on macOS with Dawn's `webgpu` binding available to child processes. Oracles are manual and run by path.
 - Root `bunfig.toml` loads Shallot's Bun plugin so the engine tests receive the same TypeGPU transform as project test preloads.
 - Rust suites run directly with Cargo:
 
@@ -104,13 +104,13 @@ A module's promises are tested beside the module and through the examples that u
 | Deterministic work and owned counts | cheap | Stepped assertions against scene-derived values; engine counters; `FinalizationRegistry` under `Bun.gc(true)` |
 | WASM kernel memory | Cargo | A counting allocator per crate behind a Cargo feature; `memory.buffer.byteLength` |
 | Native heap per step | Cargo | `dhat` assertions, one profiler per process |
-| Steady JavaScript allocation | Node | The V8 sampling heap profiler over the composed subject in a Node child process |
+| Steady JavaScript allocation | Node/macOS | The V8 sampling heap profiler over the GPU-backed composed subject in a Node child process with Dawn's `webgpu` binding |
 | GPU resources released | GPU | A counting wrapper over the real Dawn device |
 | Beyond the suite | oracle | Heap-snapshot diffs, CDP tracing, `measureUserAgentSpecificMemory`, WebGPU `timestamp-query` |
 
 ### CI coverage
 
-CI runs static gates and all tests except `*.gpu.test.ts` on GitHub-hosted Ubuntu and macOS, plus the GPU, Cargo, Node and browser tiers on hosts with their required tools. The browser run discovers subject directories from `vite.config.ts` or `playwright.config.ts` under `examples/` and `scripts/`, requires both files for each discovered subject, and runs each subject; an `*.e2e.ts` file outside a subject fails as an orphan. The display-bound allocation oracle is run manually on its declared display seat. These jobs do not qualify a Windows runner or native packaging.
+CI runs static gates and all tests except `*.gpu.test.ts` on GitHub-hosted Ubuntu and macOS, plus the GPU, Cargo, Node and browser tiers on hosts with their required tools. The Node tier runs on `macos-15` so the GPU-backed Node subject can use Dawn's `webgpu` binding; its test command remains unchanged. The browser run discovers subject directories from `vite.config.ts` or `playwright.config.ts` under `examples/` and `scripts/`, requires both files for each discovered subject, and runs each subject; an `*.e2e.ts` file outside a subject fails as an orphan. The display-bound allocation oracle is run manually on its declared display seat. These jobs do not qualify a Windows runner or native packaging.
 
 ## Examples
 

@@ -4,7 +4,7 @@
 // argv: <bundle.mjs> <warm frames> <window frames> <input file> [transition]. The bundle's default export
 // takes the input text and resolves to { step(), dispose() }, plus { spawn(), despawn() } for a transition;
 // its `control` export allocates one known literal per call. Prints one JSON sample on stdout.
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { Session } from "node:inspector/promises";
 import { findSourceMap } from "node:module";
 import { dirname, relative, resolve } from "node:path";
@@ -92,131 +92,164 @@ async function main() {
     const collect = globalThis.gc;
     if (typeof collect !== "function") throw new Error("allocation sampler needs node --expose-gc");
 
-    const bundleUrl = pathToFileURL(bundle).href;
-    const samplerUrl = import.meta.url;
-
-    // Frames step in short calls, so the warm compiles this loop for an ordinary entry. One long call would
-    // tier it only by on-stack replacement, and each window's fresh entry would install new code, whose
-    // allocation lands on whichever subject frame is running. Each chunk closes over its one callee, so its
-    // call site stays monomorphic. Every sampled byte under a chunk frame is the subject's, including what
-    // TurboFan inlines up into it.
-    const CHUNK = 60;
-    const RUN_FRAMES = new Set(["stepChunk", "controlChunk"]);
-
-    const runSite = (frame) =>
-        frame.url === samplerUrl && RUN_FRAMES.has(frame.functionName)
-            ? `${frame.functionName} ${relative(process.cwd(), fileURLToPath(samplerUrl))}:${frame.lineNumber + 1}`
-            : undefined;
-    const bundleSite = (frame) =>
-        frame.url === bundleUrl
-            ? subjectSite(frame, findSourceMap(bundle), dirname(bundle), "bundle")
-            : undefined;
-    const sites = (profile) => attribute(profile, runSite, bundleSite);
-
     const session = new Session();
-    session.connect();
-    await session.post("HeapProfiler.enable");
+    let gpu;
+    let subject;
+    let connected = false;
+    try {
+        const { create: createGpu, globals } = await import("webgpu");
+        Object.assign(globalThis, globals);
+        gpu = createGpu([]);
+        navigator.gpu = gpu;
 
-    async function sample(run, n) {
-        collect();
-        await session.post("HeapProfiler.startSampling", {
-            samplingInterval: 1,
-            includeObjectsCollectedByMajorGC: true,
-            includeObjectsCollectedByMinorGC: true,
-        });
-        run(n);
-        const { profile } = await session.post("HeapProfiler.stopSampling");
-        return sites(profile);
-    }
+        const bundlePath = realpathSync(bundle);
+        const bundleUrl = pathToFileURL(bundlePath).href;
+        const samplerUrl = import.meta.url;
 
-    const { default: create, control } = await import(bundleUrl);
-    if (typeof control !== "function")
-        throw new Error("allocation sampler: the bundle must export a `control` function");
-    if (warm % CHUNK !== 0 || frames % CHUNK !== 0)
-        throw new Error(`allocation sampler: warm and frames must be multiples of ${CHUNK}`);
-    const subject = await create(readFileSync(inputFile, "utf8"));
-    const stepChunk = () => {
-        for (let i = 0; i < CHUNK; i++) subject.step();
-    };
-    const controlChunk = () => {
-        for (let i = 0; i < CHUNK; i++) control();
-    };
-    const steps = (n) => {
-        for (let i = 0; i < n; i += CHUNK) stepChunk();
-    };
-    const controls = (n) => {
-        for (let i = 0; i < n; i += CHUNK) controlChunk();
-    };
-    // A transition's event frames: the subject's `spawn` and `despawn` each mutate the scene and step one
-    // frame. They share the chunk rule, so their samples count under a run frame too.
-    const spawnFrame = () => subject.spawn();
-    const despawnFrame = () => subject.despawn();
-    RUN_FRAMES.add("spawnFrame").add("despawnFrame");
+        // Frames step in short calls, so the warm compiles this loop for an ordinary entry. One long call would
+        // tier it only by on-stack replacement, and each window's fresh entry would install new code, whose
+        // allocation lands on whichever subject frame is running. Each chunk closes over its one callee, so its
+        // call site stays monomorphic. Every sampled byte under a chunk frame is the subject's, including what
+        // TurboFan inlines up into it.
+        const CHUNK = 60;
+        const RUN_FRAMES = new Set(["stepChunk", "controlChunk"]);
 
-    // Three windows: after `warm` frames, after twice that, and an A/A repeat. Tiering only adds
-    // allocation, so each must read zero on its own.
-    async function steadyWindows() {
-        steps(warm);
-        const atWarm = await sample(steps, frames);
-        steps(warm - frames);
-        const atDoubleWarm = await sample(steps, frames);
-        const repeat = await sample(steps, frames);
-        // Node steps its own frames, so each window's frame count is exact by construction; the page
-        // sampler has to measure its windows, because a page window overshoots what it was asked for.
-        return [
-            { label: `after warm ${warm}`, sites: atWarm, frames, framesAtMost: frames },
-            { label: `after warm ${2 * warm}`, sites: atDoubleWarm, frames, framesAtMost: frames },
-            { label: "A/A repeat", sites: repeat, frames, framesAtMost: frames },
-        ];
-    }
+        const runSite = (frame) =>
+            frame.url === samplerUrl && RUN_FRAMES.has(frame.functionName)
+                ? `${frame.functionName} ${relative(process.cwd(), fileURLToPath(samplerUrl))}:${frame.lineNumber + 1}`
+                : undefined;
+        const bundleSite = (frame) =>
+            frame.url === bundleUrl
+                ? subjectSite(frame, findSourceMap(bundlePath), dirname(bundlePath), "bundle")
+                : undefined;
+        const sites = (profile) => attribute(profile, runSite, bundleSite);
 
-    // The transition: a warm of paired cycles so the spawn and despawn paths tier as play would reach them,
-    // then two sampled cycles at the same high-water mark whose event frames and the chunk after each count
-    // every byte, the steady windows after them, and a third cycle sampled live-only: after despawn and a full
-    // collection, what the cycle allocated and still holds.
-    async function transition() {
-        for (let i = 0; i < warm; i += CHUNK) {
+        session.connect();
+        connected = true;
+        await session.post("HeapProfiler.enable");
+
+        async function sample(run, n) {
+            collect();
+            await session.post("HeapProfiler.startSampling", {
+                samplingInterval: 1,
+                includeObjectsCollectedByMajorGC: true,
+                includeObjectsCollectedByMinorGC: true,
+            });
+            const running = run(n);
+            if (running && typeof running.then === "function") await running;
+            const { profile } = await session.post("HeapProfiler.stopSampling");
+            return sites(profile);
+        }
+
+        const { default: create, control } = await import(bundleUrl);
+        if (typeof control !== "function")
+            throw new Error("allocation sampler: the bundle must export a `control` function");
+        if (warm % CHUNK !== 0 || frames % CHUNK !== 0)
+            throw new Error(`allocation sampler: warm and frames must be multiples of ${CHUNK}`);
+        subject = await create(readFileSync(inputFile, "utf8"));
+        const stepChunk = () => {
+            for (let i = 0; i < CHUNK; i++) subject.step();
+        };
+        const controlChunk = () => {
+            for (let i = 0; i < CHUNK; i++) control();
+        };
+        const steps = async (n) => {
+            for (let i = 0; i < n; i += CHUNK) {
+                stepChunk();
+                await subject.wait?.();
+            }
+        };
+        const sampleSteps = async (n) => {
+            const totals = new Map();
+            for (let i = 0; i < n; i += CHUNK) {
+                for (const row of await sample(() => stepChunk(), CHUNK)) {
+                    const current = totals.get(row.site) ?? { site: row.site, bytes: 0, count: 0 };
+                    current.bytes += row.bytes;
+                    current.count += row.count;
+                    totals.set(row.site, current);
+                }
+                await subject.wait?.();
+            }
+            return [...totals.values()].sort((a, b) => b.bytes - a.bytes);
+        };
+        const controls = (n) => {
+            for (let i = 0; i < n; i += CHUNK) controlChunk();
+        };
+        // A transition's event frames: the subject's `spawn` and `despawn` each mutate the scene and step one
+        // frame. They share the chunk rule, so their samples count under a run frame too.
+        const spawnFrame = () => subject.spawn();
+        const despawnFrame = () => subject.despawn();
+        RUN_FRAMES.add("spawnFrame").add("despawnFrame");
+
+        // Three windows: after `warm` frames, after twice that, and an A/A repeat. Tiering only adds
+        // allocation, so each must read zero on its own.
+        async function steadyWindows() {
+            await steps(warm);
+            const atWarm = await sampleSteps(frames);
+            await steps(warm - frames);
+            const atDoubleWarm = await sampleSteps(frames);
+            const repeat = await sampleSteps(frames);
+            // Node steps its own frames, so each window's frame count is exact by construction; the page
+            // sampler has to measure its windows, because a page window overshoots what it was asked for.
+            return [
+                { label: `after warm ${warm}`, sites: atWarm, frames, framesAtMost: frames },
+                { label: `after warm ${2 * warm}`, sites: atDoubleWarm, frames, framesAtMost: frames },
+                { label: "A/A repeat", sites: repeat, frames, framesAtMost: frames },
+            ];
+        }
+
+        // The transition: a warm of paired cycles so the spawn and despawn paths tier as play would reach them,
+        // then two sampled cycles at the same high-water mark whose event frames and the chunk after each count
+        // every byte, the steady windows after them, and a third cycle sampled live-only: after despawn and a full
+        // collection, what the cycle allocated and still holds.
+        async function transition() {
+            for (let i = 0; i < warm; i += CHUNK) {
+                spawnFrame();
+                stepChunk();
+                despawnFrame();
+                await subject.wait?.();
+            }
+            const drainedSample = async (run) => {
+                const result = await sample(run, 1);
+                await subject.wait?.();
+                return result;
+            };
+            const spawn = await drainedSample(spawnFrame);
+            const afterSpawn = await sample(steps, CHUNK);
+            const despawn = await drainedSample(despawnFrame);
+            const afterDespawn = await sample(steps, CHUNK);
+            const spawnAgain = await drainedSample(spawnFrame);
+            const afterSpawnAgain = await sample(steps, CHUNK);
+            const despawnAgain = await drainedSample(despawnFrame);
+            const afterDespawnAgain = await sample(steps, CHUNK);
+            const afterEvents = [
+                { label: `${CHUNK} frames after spawn`, sites: afterSpawn, frames: CHUNK, framesAtMost: CHUNK },
+                { label: `${CHUNK} frames after despawn`, sites: afterDespawn, frames: CHUNK, framesAtMost: CHUNK },
+                { label: `${CHUNK} frames after second spawn`, sites: afterSpawnAgain, frames: CHUNK, framesAtMost: CHUNK },
+                {
+                    label: `${CHUNK} frames after second despawn`,
+                    sites: afterDespawnAgain,
+                    frames: CHUNK, framesAtMost: CHUNK },
+            ];
+            const windows = await steadyWindows();
+            collect();
+            await session.post("HeapProfiler.startSampling", { samplingInterval: 1 });
             spawnFrame();
             stepChunk();
             despawnFrame();
+            collect();
+            const { profile } = await session.post("HeapProfiler.stopSampling");
+            return {
+                spawn,
+                despawn,
+                spawnAgain,
+                despawnAgain,
+                afterEvents,
+                windows,
+                survivors: sites(profile),
+            };
         }
-        const spawn = await sample(spawnFrame);
-        const afterSpawn = await sample(steps, CHUNK);
-        const despawn = await sample(despawnFrame);
-        const afterDespawn = await sample(steps, CHUNK);
-        const spawnAgain = await sample(spawnFrame);
-        const afterSpawnAgain = await sample(steps, CHUNK);
-        const despawnAgain = await sample(despawnFrame);
-        const afterDespawnAgain = await sample(steps, CHUNK);
-        const afterEvents = [
-            { label: `${CHUNK} frames after spawn`, sites: afterSpawn, frames: CHUNK, framesAtMost: CHUNK },
-            { label: `${CHUNK} frames after despawn`, sites: afterDespawn, frames: CHUNK, framesAtMost: CHUNK },
-            { label: `${CHUNK} frames after second spawn`, sites: afterSpawnAgain, frames: CHUNK, framesAtMost: CHUNK },
-            {
-                label: `${CHUNK} frames after second despawn`,
-                sites: afterDespawnAgain,
-                frames: CHUNK, framesAtMost: CHUNK },
-        ];
-        const windows = await steadyWindows();
-        collect();
-        await session.post("HeapProfiler.startSampling", { samplingInterval: 1 });
-        spawnFrame();
-        stepChunk();
-        despawnFrame();
-        collect();
-        const { profile } = await session.post("HeapProfiler.stopSampling");
-        return {
-            spawn,
-            despawn,
-            spawnAgain,
-            despawnAgain,
-            afterEvents,
-            windows,
-            survivors: sites(profile),
-        };
-    }
 
-    try {
         const measured =
             mode === "transition" ? await transition() : { windows: await steadyWindows() };
 
@@ -234,8 +267,16 @@ async function main() {
             })}\n`,
         );
     } finally {
-        subject.dispose();
-        session.disconnect();
+        try {
+            subject?.dispose();
+        } finally {
+            try {
+                if (connected) session.disconnect();
+            } finally {
+                navigator.gpu = undefined;
+                gpu = undefined;
+            }
+        }
     }
 }
 

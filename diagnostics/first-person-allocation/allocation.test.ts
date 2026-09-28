@@ -26,17 +26,18 @@ test("a Node allocation import does not load the display-only oracle or Hyprland
         entrypoints: [resolve(import.meta.dir, "allocation-sampler.mjs")],
         metafile: true,
         target: "node",
+        external: ["webgpu"],
     });
     if (!node.success || node.metafile === undefined)
         throw new Error(`Node sampler graph failed: ${node.logs.map(String).join("\\n")}`);
     const nodeInputs = Object.keys(node.metafile.inputs).map((path) => resolve(path));
     expect(nodeInputs.some((path) => path.endsWith("/allocation-sampler.mjs"))).toBe(true);
     expect(nodeInputs.some((path) => path.endsWith("/display.ts"))).toBe(false);
-    expect(
-        Object.values(node.metafile.inputs)
-            .flatMap((input) => input.imports)
-            .some((edge) => edge.external && /^(?:bun:|playwright)/.test(edge.path)),
-    ).toBe(false);
+    const nodeImports = Object.values(node.metafile.inputs).flatMap((input) => input.imports);
+    expect(nodeImports.some((edge) => edge.external && edge.path === "webgpu")).toBe(true);
+    expect(nodeImports.some((edge) => edge.external && /^(?:bun:|playwright)/.test(edge.path))).toBe(
+        false,
+    );
 });
 
 test("a non-page allocation row can import the allocation instrument without loading Vite before requesting a page build", () => {
