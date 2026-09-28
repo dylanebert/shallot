@@ -1,5 +1,5 @@
 import type { PlaywrightTestConfig } from "playwright/test";
-import { CHROMIUM_ARGS } from "../chromium";
+import { CHROMIUM_USE } from "../chromium";
 
 export const config = {
     testDir: ".",
@@ -11,7 +11,7 @@ export const config = {
     reporter: "list",
     use: {
         browserName: "chromium",
-        launchOptions: { args: CHROMIUM_ARGS },
+        ...CHROMIUM_USE,
         viewport: { width: 1280, height: 720 },
         deviceScaleFactor: 1,
     },

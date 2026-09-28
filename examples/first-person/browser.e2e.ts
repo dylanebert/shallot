@@ -70,6 +70,8 @@ test("the browser input adapter fails to record a real key press on the focused 
         document.body.append(outside);
     });
     const outside = page.locator("#focus-outside-canvas");
+    await page.evaluate(() => document.exitPointerLock());
+    await page.waitForFunction(() => document.pointerLockElement === null);
     await outside.click();
     await outside.focus();
     expect(

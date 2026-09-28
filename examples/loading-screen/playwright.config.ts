@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import type { PlaywrightTestConfig } from "playwright/test";
-import { CHROMIUM_ARGS } from "../../scripts/chromium";
+import { CHROMIUM_USE } from "../../scripts/chromium";
 
 const subject = fileURLToPath(new URL(".", import.meta.url));
 
@@ -14,7 +14,7 @@ export const config = {
     reporter: "list",
     use: {
         browserName: "chromium",
-        launchOptions: { args: CHROMIUM_ARGS },
+        ...CHROMIUM_USE,
         baseURL: "http://127.0.0.1:4173",
         viewport: { width: 1280, height: 720 },
         deviceScaleFactor: 1,
