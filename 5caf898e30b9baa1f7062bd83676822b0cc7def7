@@ -1,0 +1,2 @@
+stage: 6
+finding: The packed proof does not make both typechecks red on e5870e50: against the baseline tarball, the create-vite Node config typecheck exits 0, while only the app import of the root entry and /rendering fails with TS1294 parameter-property errors. The requested two-red baseline proof is therefore not established.
