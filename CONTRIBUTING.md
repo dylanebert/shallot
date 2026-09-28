@@ -58,8 +58,6 @@ bun run check                         # static gates; run before every push
 bun test                              # cheap tier: *.test.ts
 bun test ./src/transitional/mirror/index.gpu.ts  # named GPU tier
 bun test ./diagnostics/.../allocation.oracle.ts # named display oracle (manual)
-cargo test -p shallot-audio                  # Rust audio suite
-cargo test -p shallot-physics --lib --test stages # Rust physics unit suite
 bun run test:browser                  # Playwright Test browser tier, *.e2e.ts
 bun test --todo                       # run quarantined test.todo entries, if any
 bun run format                        # biome, scene formatter and examples index
@@ -71,7 +69,13 @@ bun run format                        # biome, scene formatter and examples inde
 
 A module's promises are tested beside the module and through the examples that use it. Each test name states the claim; its timeout is the wall-clock budget.
 
-- Plain `bun test` discovers the cheap `*.test.ts` tier. GPU, Node and oracle tests with a different premise belong in named files and run by path. Rust suites run directly with Cargo.
+- Plain `bun test` discovers the cheap `*.test.ts` tier. GPU, Node and oracle tests with a different premise belong in named files and run by path.
+- Rust suites run directly with Cargo:
+
+  ```bash
+  cargo test -p shallot-audio
+  cargo test -p shallot-physics --lib --test stages
+  ```
 - A missing premise in a named tier is a test failure, never a skip. A quarantined claim stays visible as `test.todo` and runs with `bun test --todo`.
 - Browser tests use Playwright Test in `*.e2e.ts`; `playwright.config.ts` starts each subject's own Vite preview and declares Chromium launch flags.
 - GPU tests require an in-process WebGPU device. Browser tests request no adapter themselves; browser GPU observations accept software adapters.
