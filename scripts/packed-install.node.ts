@@ -174,14 +174,16 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
             );
             expect(examplePackage.devDependencies.typegpu).toBeUndefined();
             expect(existsSync(join(scratch, "package.json"))).toBe(false);
+            expect(readFileSync(join(example, "tests/preload.ts"), "utf8")).toBe(
+                'import { plugin } from "bun";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot());\n',
+            );
+            expect(readFileSync(join(example, "bunfig.toml"), "utf8")).toBe(
+                '[test]\npreload = ["./tests/preload.ts"]\n',
+            );
 
             const packedRange = `file:${relative(example, tarball).replaceAll("\\", "/")}`;
             examplePackage.dependencies["@dylanebert/shallot"] = packedRange;
             writeFileSync(examplePackagePath, `${JSON.stringify(examplePackage, null, 4)}\n`);
-            writeFileSync(
-                join(example, "bunfig.toml"),
-                '[test]\npreload = ["@dylanebert/shallot/bun"]\n',
-            );
             writeFileSync(join(example, "no-preload.toml"), "[test]\n");
             writeFileSync(
                 join(example, "src/packed-tgsl.test.ts"),

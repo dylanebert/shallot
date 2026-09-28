@@ -27,7 +27,7 @@
     "types": "./src/index.ts",
     "exports": {
         ".": "./src/index.ts",
-        "./bun": "./src/bun.ts",
+        "./bun": "./src/project/bun.ts",
         "./tsconfig.json": "./tsconfig.base.json",
         "./extras": "./src/extras/index.ts",
         "./brand": "./src/standard/loading/brand.ts",

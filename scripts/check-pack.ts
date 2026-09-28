@@ -92,7 +92,7 @@ const recipes = readdirSync(examplesDir)
 
 const required = [
     "src/index.ts",
-    "src/bun.ts",
+    "src/project/bun.ts",
     "tsconfig.base.json",
     "src/core/rendering/capture.ts",
     "src/engine/app/device-tiers.generated.ts",

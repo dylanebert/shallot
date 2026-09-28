@@ -125,6 +125,33 @@ test("shallot add declares TypeGPU when the copied source imports it", async () 
     }
 });
 
+test("shallot add writes a Bun plugin preload for the generated project", async () => {
+    const root = recipes();
+    const source = join(root, "examples/demo");
+    mkdirSync(join(source, "src"));
+    writeFileSync(
+        join(source, "src/demo.test.ts"),
+        'import { test } from "bun:test";\ntest("demo", () => {});\n',
+    );
+    try {
+        const dest = join(root, "out");
+        await captureOutput(() =>
+            runAdd(["demo", dest], {
+                recipesDir: join(root, "examples"),
+                version: "0.0.0",
+            }),
+        );
+        expect(readFileSync(join(dest, "tests/preload.ts"), "utf8")).toBe(
+            'import { plugin } from "bun";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot());\n',
+        );
+        expect(readFileSync(join(dest, "bunfig.toml"), "utf8")).toBe(
+            '[test]\npreload = ["./tests/preload.ts"]\n',
+        );
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test("shallot add gives a copied recipe the canonical .gitignore", async () => {
     const root = recipes();
     try {
@@ -140,6 +167,10 @@ test("shallot add gives a copied recipe the canonical .gitignore", async () => {
             `copied example demo → ${dest}\n  cd ${dest} && bun install && bunx shallot dev`,
         );
         expect(readFileSync(join(dest, ".gitignore"), "utf8")).toBe(PROJECT_GITIGNORE);
+        expect(existsSync(join(dest, "tests/preload.ts"))).toBe(true);
+        expect(readFileSync(join(dest, "bunfig.toml"), "utf8")).toContain(
+            'preload = ["./tests/preload.ts"]',
+        );
         const pkg = JSON.parse(readFileSync(join(dest, "package.json"), "utf8"));
         expect(pkg.dependencies["@dylanebert/shallot"]).toBe("0.0.0");
         expect(pkg.dependencies.vite).toBeDefined();
@@ -149,6 +180,7 @@ test("shallot add gives a copied recipe the canonical .gitignore", async () => {
         const agents = readFileSync(join(dest, "AGENTS.md"), "utf8");
         expect(agents).toContain("A Shallot example — a minimal project demonstrating one concept");
         expect(agents).toContain("The examples live at");
+        expect(agents).toContain("bun test");
         expect(agents).not.toContain("recipe");
     } finally {
         rmSync(root, { recursive: true, force: true });

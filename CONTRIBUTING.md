@@ -19,7 +19,7 @@ src/
   standard/      Shallot's default plugins and features, built on core.
   extras/        Features most games use. A plugin moves here after a stable release cycle as its own package.
   transitional/  Modules awaiting their declared destination; import checks keep them visible.
-  project/       Project manifests, plan resolution, generated virtual module, Vite plugin and build support.
+  project/       Project manifests, plan resolution, generated virtual module, Vite/Bun plugins and build support.
   cli/           Shallot's commands.
   native/        The desktop shell.
   types/         Ambient declarations.
@@ -127,7 +127,8 @@ Heavy computation runs in WASM or on the GPU; TypeScript coordinates it and runs
 
 ## Dependencies and releases
 
-- A project can use Shallot released, staged or live: `bun add @dylanebert/shallot`; `bun pm pack` here, then `bun add --no-save <tarball>` in the project; or `bun link` here, then `bun link @dylanebert/shallot` in the project. `bun install` returns a staged or linked project to its manifest pin.
+- A project can use Shallot released, staged or live: `bun add @dylanebert/shallot`; `bun pm pack` here, then `bun add --no-save <tarball>` in the project; or `bun link` here, then `bun link @dylanebert/shallot` in the project. `bun install` returns a staged or linked project to its manifest pin only when that Shallot range resolves on npm. While `0.10.0` is unpublished, `^0.10.0` cannot restore, and it does not match `0.10.0-next.1`; use a published range such as `^0.9.5` for a staged overlay and restore.
+- The Bun entry is a factory, not an import side effect. In `tests/preload.ts`, call `plugin(shallot())` after importing `plugin` from `bun` and `shallot` from `@dylanebert/shallot/bun`; configure `[test] preload = ["./tests/preload.ts"]` in `bunfig.toml`. `shallot add` writes this setup into copied projects so their Bun tests use the transform.
 - A pin is the last verified version. Update a pin everywhere it appears in one commit; `check-pins` fails on drift. Until the release-candidate bump, move a pin only to fix a named defect.
 - The package self-references by its name, so its source and examples import it by name without a dependency entry. `@types/node` and `@webgpu/types` are runtime dependencies, because `types` points at source.
 - A link doesn't prove what ships; a packed tarball installed in a scratch project does. Changes to the CLI, manifest, dependencies, runtime or native shell require that test.

@@ -42,6 +42,10 @@ bunx shallot dev
 \`bun install\` fetches the engine. \`bunx shallot dev\` runs the project with hot reload. Read
 \`shallot.json\` (the manifest: scene + plugin enablement) and \`src/*.ts\` (the plugins).
 
+## Verify
+
+\`bun test\` runs the project's Bun tests. \`tests/preload.ts\`, loaded by \`bunfig.toml\`, registers Shallot's Bun plugin for TGSL.
+
 ${ENGINE_REFERENCE}
 `;
 }

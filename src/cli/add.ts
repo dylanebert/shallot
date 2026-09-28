@@ -1,5 +1,13 @@
-import { cpSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import {
+    cpSync,
+    existsSync,
+    mkdirSync,
+    readdirSync,
+    readFileSync,
+    statSync,
+    writeFileSync,
+} from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { CLAUDE_IMPORT, PROJECT_GITIGNORE, recipeDoc } from "./add-fragments";
 
 // `shallot add [name] [dir]` — copy a recipe out of the installed package into a runnable project.
@@ -190,7 +198,8 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
         return 1;
     }
 
-    cpSync(resolve(recipesDir, name), dest, {
+    const recipeDir = resolve(recipesDir, name);
+    cpSync(recipeDir, dest, {
         recursive: true,
         filter: (src) => basename(src) !== "node_modules",
     });
@@ -202,8 +211,8 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
     writeFileSync(pkgPath, pinEngine(pkgText, version));
 
     // Emit scaffolding absent from the copied directory: the agent-surface pointer (AGENTS.md, imported
-    // by CLAUDE.md) that hands a harness the installed engine's contract and the project ignore (bun pack
-    // drops `.gitignore`). Don't clobber a recipe that ships its own.
+    // by CLAUDE.md), the project ignore (bun pack drops `.gitignore`), and the Bun transform preload used
+    // by project tests. Don't clobber a recipe that ships its own.
     for (const [file, content] of [
         ["AGENTS.md", recipeDoc(name)],
         ["CLAUDE.md", CLAUDE_IMPORT],
@@ -212,6 +221,16 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
         const path = resolve(dest, file);
         if (!existsSync(path)) writeFileSync(path, content);
     }
+    const preload = resolve(dest, "tests/preload.ts");
+    const bunfig = resolve(dest, "bunfig.toml");
+    if (!existsSync(preload)) {
+        mkdirSync(dirname(preload), { recursive: true });
+        writeFileSync(
+            preload,
+            'import { plugin } from "bun";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot());\n',
+        );
+    }
+    if (!existsSync(bunfig)) writeFileSync(bunfig, '[test]\npreload = ["./tests/preload.ts"]\n');
     console.log(`copied example ${name} → ${dest}`);
     console.log(`  cd ${args[1] || name} && bun install && bunx shallot dev`);
     return 0;
