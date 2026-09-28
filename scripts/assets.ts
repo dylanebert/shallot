@@ -103,7 +103,7 @@ export function pins(asset: Asset): Pin[] {
 }
 
 export function remedy(name: string): string {
-    return `missing asset ${name}: run bun run assets ${name}`;
+    return `missing asset ${name}: run bun scripts/assets.ts ${name}`;
 }
 
 /** the verified cache path of single-file asset `name`, for generators that read an asset directly.

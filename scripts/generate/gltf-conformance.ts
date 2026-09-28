@@ -144,7 +144,7 @@ async function main(): Promise<void> {
     const absent = uncached();
     if (absent.length > 0) {
         console.error(
-            `\n[gltf-conformance] corpus not cached; run: bun run assets ${absent.join(" ")}\n`,
+            `\n[gltf-conformance] corpus not cached; run: bun scripts/assets.ts ${absent.join(" ")}\n`,
         );
         process.exit(1);
     }

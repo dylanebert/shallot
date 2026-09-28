@@ -30,7 +30,7 @@ export interface Manifest {
      *  `com.shallot.<basename>`. */
     identifier?: string;
     /** examples only: the `assets.json` entries this project loads, linked under its `public/` by the
-     *  repository's `bun run assets`. Ignored by dev, build and run. */
+     *  repository's `bun scripts/assets.ts`. Ignored by dev, build and run. */
     assets?: string[];
 }
 

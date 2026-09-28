@@ -42,7 +42,7 @@
             "type": "array",
             "items": { "type": "string" },
             "uniqueItems": true,
-            "description": "Examples only: names of assets.json entries this project loads; `bun run assets` links each under this project's public/ directory. Ignored by dev, build and run."
+            "description": "Examples only: names of assets.json entries this project loads; `bun scripts/assets.ts` links each under this project's public/ directory. Ignored by dev, build and run."
         },
         "identifier": {
             "type": "string",

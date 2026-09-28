@@ -26,7 +26,7 @@ src/
 crates/          The WASM kernels (audio, physics) and the native window host.
 diagnostics/     Host-side diagnostics, including first-person allocation sampling.
 examples/        One folder per example. Each owns its page and Vite config with `shallot()`; `examples/AGENTS.md` is generated from manifests.
-assets.json      Every asset except the shipped icon, fetched by URL and sha256 with `bun run assets`.
+assets.json      Every asset except the shipped icon, fetched by URL and sha256 with `bun scripts/assets.ts`.
 ```
 
 - `engine`, `core`, `standard` and `extras` are the game layers. `project`, `cli`, `native` and `types` are tooling. Game modules never import tooling; dependencies among game layers point inward. `transitional` contains modules with a declared migration destination, and its import-check reds remain until those modules move.
@@ -53,6 +53,8 @@ Each view reaches the screen through one final pass. The scene image is marked H
 ## Commands
 
 A `shallot` command earns its place only by doing what only Shallot knows. It never owns a process Vite, Bun or Playwright owns; it may run the project's own commands as a step. Web `dev`, `build` and `preview` run the project's Vite commands. Native `dev` and `build` add the shell to the project's Vite dev server or build; native `preview` launches the existing desktop build.
+
+A `package.json` script is a lifecycle hook the package manager runs, such as `prepare`, or a verb every Shallot project has; any other tool runs by path, `bun scripts/<tool>.ts`.
 
 ```bash
 bun run build                         # regenerate audio WASM, dist/vite.js, physics kernel
