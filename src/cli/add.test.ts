@@ -117,6 +117,10 @@ test("shallot add gives a copied recipe the canonical .gitignore", async () => {
             `copied example demo → ${dest}\n  cd ${dest} && bun install && bunx shallot dev`,
         );
         expect(readFileSync(join(dest, ".gitignore"), "utf8")).toBe(PROJECT_GITIGNORE);
+        const pkg = JSON.parse(readFileSync(join(dest, "package.json"), "utf8"));
+        expect(pkg.dependencies["@dylanebert/shallot"]).toBe("0.0.0");
+        expect(pkg.dependencies.vite).toBeDefined();
+        expect(pkg.devDependencies.typescript).toBeDefined();
         const agents = readFileSync(join(dest, "AGENTS.md"), "utf8");
         expect(agents).toContain("A Shallot example — a minimal project demonstrating one concept");
         expect(agents).toContain("The examples live at");

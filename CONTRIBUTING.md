@@ -55,7 +55,7 @@ Each view reaches the screen through one final pass. The scene image is marked H
 A `shallot` command earns its place only by doing what only Shallot knows. It never owns a process Vite, Bun or Playwright owns; it may run the project's own commands as a step. Web `dev`, `build` and `preview` run the project's Vite commands. Native `dev` and `build` add the shell to the project's Vite dev server or build; native `preview` launches the existing desktop build.
 
 ```bash
-bun run build                         # regenerate committed audio WASM, dist/vite.js, physics kernel
+bun run build                         # regenerate audio WASM, dist/vite.js, physics kernel
 bun run check                         # static gates; run before every push
 bun run test                          # cheap tier: *.test.ts, 250 ms default per test
 bun test ./src/transitional/mirror/index.gpu.ts  # named GPU tier
@@ -128,7 +128,7 @@ Heavy computation runs in WASM or on the GPU; TypeScript coordinates it and runs
 ## Dependencies and releases
 
 - A pin is the last verified version. Update a pin everywhere it appears in one commit; `check-pins` fails on drift. Until the release-candidate bump, move a pin only to fix a named defect.
-- The root links to itself, so examples import the package by name. `@types/node` and `@webgpu/types` are runtime dependencies, because `types` points at source.
+- The package self-references by its name, so its source and examples import it by name without a dependency entry. `@types/node` and `@webgpu/types` are runtime dependencies, because `types` points at source.
 - A link doesn't prove what ships; a packed tarball installed in a scratch project does. Changes to the CLI, manifest, dependencies, runtime or native shell require that test.
 - `main` may be mid-change. A release is a `v*` tag; its workflow builds the native shells and publishes to npm. Publish only to release. Consumers pin a published version or a full commit SHA.
 - A breaking change updates every dependent it breaks in the same change. A removal or reshape strips what a dependent can no longer use rather than rebuilding it, so no dependent keeps a pattern the engine has left. Rebuilding in the new shape, additive features and hardening reach dependents once the engine side is settled, not through each intermediate state.

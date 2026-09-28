@@ -131,12 +131,10 @@ function dependencyViolations(root: string): string[] {
             violations.push(`invalid package manifest: ${file}: ${(error as Error).message}`);
             continue;
         }
-        const packageName = typeof manifest.name === "string" ? manifest.name : null;
         for (const [table, raw] of Object.entries(manifest)) {
             if (!/dependencies$/i.test(table) || raw === null || typeof raw !== "object") continue;
             for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
                 if (!shallotPackage(name) || typeof value !== "string") continue;
-                if (name === packageName && value === "link:.") continue;
                 const kind = forbiddenSpecifier(value);
                 if (kind === "link" || kind === "workspace" || kind === "portal") {
                     violations.push(

@@ -77,9 +77,23 @@ const forbidden: [string, (f: string) => boolean][] = [
 const violations = files.flatMap((f) =>
     forbidden.filter(([, match]) => match(f)).map(([kind]) => `${f} (${kind})`),
 );
+for (const file of files.filter((file) => /^examples\/[^/]+\/package\.json$/.test(file)))
+    violations.push(`${file} (example package manifest)`);
+
+const examplesDir = resolve(pkgDir, "examples");
+const recipes = readdirSync(examplesDir)
+    .filter((name) => existsSync(resolve(examplesDir, name, "shallot.json")))
+    .filter(
+        (name) =>
+            JSON.parse(readFileSync(resolve(examplesDir, name, "shallot.json"), "utf8")).kind ===
+            "recipe",
+    )
+    .sort();
 
 const required = [
     "src/index.ts",
+    "src/bun.ts",
+    "tsconfig.json",
     "src/core/rendering/capture.ts",
     "src/engine/app/device-tiers.generated.ts",
     "bin/shallot.ts",
@@ -112,18 +126,17 @@ const removedTestSupport = Object.keys(packageManifest.exports ?? {}).filter((en
 for (const entry of removedTestSupport) violations.push(`${entry} (test-support export)`);
 
 const missing = required.filter((f) => !files.includes(f));
+for (const name of recipes) {
+    const config = `examples/${name}/tsconfig.json`;
+    if (!files.includes(config)) missing.push(config);
+}
+for (const entry of ["./bun", "./tsconfig.json"]) {
+    if (!(entry in (packageManifest.exports ?? {})))
+        violations.push(`${entry} (missing package export)`);
+}
 for (const entry of missingNegations) violations.push(`${entry} (missing files negation)`);
 // The shipped example set is exactly the `kind: "recipe"` manifests: `files` negates showcases by
 // name, so a new showcase that misses its negation (or a recipe caught by one) reds here.
-const examplesDir = resolve(pkgDir, "examples");
-const recipes = readdirSync(examplesDir)
-    .filter((name) => existsSync(resolve(examplesDir, name, "shallot.json")))
-    .filter(
-        (name) =>
-            JSON.parse(readFileSync(resolve(examplesDir, name, "shallot.json"), "utf8")).kind ===
-            "recipe",
-    )
-    .sort();
 const declaredExamples = packageFiles
     .filter((entry) => /^examples\/[^/]+$/.test(entry))
     .map((entry) => entry.slice("examples/".length))

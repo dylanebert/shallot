@@ -30,18 +30,18 @@ try {
         throw new Error("check-vite: failed to compile src/project/vite.ts");
     }
 
-    const committed = resolve(root, "dist/vite.js");
+    const built = resolve(root, "dist/vite.js");
     const fresh = readFileSync(resolve(outdir, "vite.js"), "utf8");
-    if (!existsSync(committed) || readFileSync(committed, "utf8") !== fresh) {
+    if (!existsSync(built) || readFileSync(built, "utf8") !== fresh) {
         console.error("✗ dist/vite.js is stale; run `bun run build` to regenerate it.");
         process.exitCode = 1;
     } else {
         console.log("dist/vite.js is fresh");
     }
 
-    const committedTypes = resolve(root, "dist/vite.d.ts");
+    const builtTypes = resolve(root, "dist/vite.d.ts");
     const freshTypes = buildViteDeclaration();
-    if (!existsSync(committedTypes) || readFileSync(committedTypes, "utf8") !== freshTypes) {
+    if (!existsSync(builtTypes) || readFileSync(builtTypes, "utf8") !== freshTypes) {
         console.error("✗ dist/vite.d.ts is stale; run `bun run build` to regenerate it.");
         process.exitCode = 1;
     } else {

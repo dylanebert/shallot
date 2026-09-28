@@ -48,10 +48,6 @@ test("project policy rejects private engine imports and physics-world escapes", 
         }
     });
 
-test("project policy permits a package's own self-link", () => {
-        expect(dependencyViolations("link:.", "@dylanebert/shallot-grid")).toEqual([]);
-    });
-
 test("project policy permits a lock-recorded full Git commit for Shallot", () => {
         const spec = "github:dylanebert/shallot#0123456789abcdef0123456789abcdef01234567";
         expect(dependencyViolations(spec, "consumer", `spec: ${spec}\\n`)).toEqual([]);

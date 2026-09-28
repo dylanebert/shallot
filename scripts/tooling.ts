@@ -4,8 +4,8 @@
 // transform must see engine source untransformed) doesn't reach `./vite`, whose only consumption context
 // is Node. Browser subject configs and the display oracle share the Chromium arguments in
 // `scripts/chromium.ts`.
-// `dist/vite.js` and the TypeScript-generated `dist/vite.d.ts` are generated here by `bun run build` and
-// `prepack`, and committed so SHA-pinned Git installs can resolve `./vite`. `tsc` reads the `types`
+// `dist/vite.js` and the TypeScript-generated `dist/vite.d.ts` are generated here by `bun run build`,
+// `prepare` and `prepack`. `tsc` reads the `types`
 // condition, while Node resolves `default`.
 //
 // `src/project/` is a closed island — node builtins plus the `vite` / `unplugin-typegpu` externals it

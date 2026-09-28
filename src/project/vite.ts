@@ -162,9 +162,9 @@ function classifyProjectFile(
 }
 
 /**
- * The Vite plugin set a Shallot project needs: `plugins: [shallot()]`. TypeGPU stays a separate
- * plugin entry alongside project support, so its hooks are composed rather than overwritten. Its
- * transform must reach engine source inside `node_modules`; a second pass corrupts its metadata.
+ * The Vite plugin set a Shallot project needs: `plugins: [shallot()]`. It carries TypeGPU's transform
+ * alongside project support, and reaches engine source inside `node_modules`; a second pass corrupts its
+ * metadata.
  */
 export function shallot(projectDir?: string): Plugin[] {
     const virtualId = "virtual:project";

@@ -27,6 +27,8 @@
     "types": "./src/index.ts",
     "exports": {
         ".": "./src/index.ts",
+        "./bun": "./src/bun.ts",
+        "./tsconfig.json": "./tsconfig.json",
         "./extras": "./src/extras/index.ts",
         "./brand": "./src/standard/loading/brand.ts",
         "./vite": {
@@ -52,6 +54,7 @@
     "files": [
         "src",
         "bin",
+        "tsconfig.json",
         "crates/audio/pkg",
         "crates/native",
         "assets/icon-1024.png",
@@ -62,7 +65,6 @@
         "!examples/*/node_modules",
         "!examples/*/build",
         "!examples/*/dist",
-        "!examples/*/tsconfig.json",
         "!src/transitional/gltf/fixtures",
         "!src/transitional/physics/solver/fixtures",
         "!scripts/check.ts",
@@ -91,6 +93,7 @@
     ],
     "scripts": {
         "build": "bun run ./scripts/build.ts",
+        "prepare": "bun run ./scripts/tooling.ts",
         "check": "bun run scripts/check.ts",
         "format": "biome check --write && bun run scripts/format.ts && bun run scripts/examples-index.ts",
         "test": "bun test --timeout=250",
@@ -120,7 +123,6 @@
     },
     "devDependencies": {
         "@biomejs/biome": "^2.5.14",
-        "@dylanebert/shallot": "link:.",
         "@types/bun": "^1.4.2",
         "binaryen": "132.0.0",
         "bun-webgpu": "github:dylanebert/bun-webgpu#7b75d0440d2f22e2c9a1cb383d15529652c53d98",

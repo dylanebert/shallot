@@ -1,6 +1,6 @@
 {
     "compilerOptions": {
-        "lib": ["ESNext", "DOM"],
+        "lib": ["ESNext", "DOM", "DOM.Iterable"],
         "target": "ESNext",
         "module": "ESNext",
         "moduleDetection": "force",
@@ -20,7 +20,7 @@
         "noUnusedLocals": false,
         "noUnusedParameters": false,
         "noPropertyAccessFromIndexSignature": false,
-        "types": ["@webgpu/types"]
+        "types": ["bun", "@webgpu/types"]
     },
     "include": ["src", "bin", "examples", "scripts", "crates/physics/scripts"],
     "exclude": ["**/dist", "**/build"]

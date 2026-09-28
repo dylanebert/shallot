@@ -1,6 +1,6 @@
 // Scaffold fragments `shallot add` (add.ts) writes into a recipe it copies out: the
-// AGENTS.md pointer stanza that hands an agent the engine's contract, the CLAUDE.md that imports it,
-// and a standalone tsconfig. This file is the single copy. The create-shallot scaffold, a separate
+// AGENTS.md pointer stanza that hands an agent the engine's contract and the CLAUDE.md that imports it.
+// This file is the single copy. The create-shallot scaffold, a separate
 // repository, still carries its own `ENGINE_REFERENCE` and `CLAUDE_IMPORT` until it consumes these from
 // the installed package; until then the two must be kept identical by hand.
 
@@ -48,23 +48,3 @@ ${ENGINE_REFERENCE}
 
 // The canonical Shallot project ignore, byte-identical to the create-shallot template.
 export const PROJECT_GITIGNORE = "node_modules/\ndist/\nbuild/\n.artifacts/\n";
-
-// A standalone tsconfig for a copied recipe: in the monorepo the recipes share a root config, so they
-// carry none of their own; copied out, they need one for `bunx tsc` to resolve the engine + webgpu types.
-export const RECIPE_TSCONFIG = `${JSON.stringify(
-    {
-        compilerOptions: {
-            target: "ESNext",
-            module: "ESNext",
-            moduleResolution: "bundler",
-            lib: ["ESNext", "DOM", "DOM.Iterable"],
-            types: ["@webgpu/types", "node"],
-            strict: true,
-            noEmit: true,
-            skipLibCheck: true,
-        },
-        include: ["src"],
-    },
-    null,
-    2,
-)}\n`;

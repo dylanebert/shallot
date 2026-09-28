@@ -1,6 +1,6 @@
 import { cpSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { CLAUDE_IMPORT, PROJECT_GITIGNORE, RECIPE_TSCONFIG, recipeDoc } from "./add-fragments";
+import { CLAUDE_IMPORT, PROJECT_GITIGNORE, recipeDoc } from "./add-fragments";
 
 // `shallot add [name] [dir]` — copy a recipe out of the installed package into a runnable project.
 // The recipes ship in the tarball under this package's `examples/`; running
@@ -89,35 +89,43 @@ const DEP_FIELDS = [
     "optionalDependencies",
 ] as const;
 
-/**
- * rewrite a local engine dep to a concrete range so the copy installs from the registry. `file:` and
- * `link:` (the corpus links the repo root by relative path) → the exact version. `workspace:` follows
- * bun's publish semantics: `workspace:*` (and bare `workspace:`) → the exact version, `workspace:^` /
- * `workspace:~` → `^<version>` / `~<version>`, and an explicit range (`workspace:^1.2.3`,
- * `workspace:1.2.3`) → the range verbatim with only the `workspace:` prefix stripped.
- */
+/** Give a copied project the exact engine version from the installed package. */
 export function pinEngine(pkgText: string, version: string): string {
     const pkg = JSON.parse(pkgText);
+    let found = false;
     for (const field of DEP_FIELDS) {
-        const dep = pkg[field]?.[ENGINE];
-        if (typeof dep !== "string") continue;
-        if (dep.startsWith("file:") || dep.startsWith("link:")) {
-            pkg[field][ENGINE] = version;
-            continue;
-        }
-        if (!dep.startsWith("workspace:")) continue;
-        const marker = dep.slice("workspace:".length);
-        pkg[field][ENGINE] =
-            marker === "*" || marker === ""
-                ? version
-                : marker === "^" || marker === "~"
-                  ? `${marker}${version}`
-                  : marker;
+        if (typeof pkg[field]?.[ENGINE] !== "string") continue;
+        pkg[field][ENGINE] = version;
+        found = true;
     }
-    // in-repo members declare no engine dep (the root self-links); a standalone copy needs one
-    if (!DEP_FIELDS.some((field) => typeof pkg[field]?.[ENGINE] === "string"))
-        pkg.dependencies = { [ENGINE]: version, ...pkg.dependencies };
+    if (!found) pkg.dependencies = { [ENGINE]: version, ...pkg.dependencies };
     return `${JSON.stringify(pkg, null, 4)}\n`;
+}
+
+function recipePackage(dest: string): string {
+    const engine = JSON.parse(readFileSync(resolve(PACKAGE_ROOT, "package.json"), "utf8"));
+    return `${JSON.stringify(
+        {
+            name: basename(dest),
+            version: "0.0.0",
+            private: true,
+            type: "module",
+            scripts: {
+                dev: "vite --host 127.0.0.1",
+                build: "vite build",
+                preview: "vite preview",
+                "test:browser": "playwright test",
+            },
+            dependencies: { vite: engine.dependencies.vite },
+            devDependencies: {
+                "@types/bun": engine.devDependencies["@types/bun"],
+                playwright: engine.devDependencies.playwright,
+                typescript: engine.devDependencies.typescript,
+            },
+        },
+        null,
+        4,
+    )}\n`;
 }
 
 export async function runAdd(args: string[], e: Env = env()): Promise<number> {
@@ -165,12 +173,12 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
     });
 
     const pkgPath = resolve(dest, "package.json");
-    if (existsSync(pkgPath))
-        writeFileSync(pkgPath, pinEngine(readFileSync(pkgPath, "utf8"), version));
+    const pkgText = existsSync(pkgPath) ? readFileSync(pkgPath, "utf8") : recipePackage(dest);
+    writeFileSync(pkgPath, pinEngine(pkgText, version));
 
-    // emit the standalone scaffold the monorepo recipe lacks: the agent-surface pointer (AGENTS.md,
-    // imported by CLAUDE.md) that hands a harness the installed engine's contract, the project ignore
-    // (bun pack drops `.gitignore`), and a tsconfig for `bunx tsc`. Don't clobber a recipe that ships its own.
+    // Emit scaffolding absent from the copied directory: the agent-surface pointer (AGENTS.md, imported
+    // by CLAUDE.md) that hands a harness the installed engine's contract and the project ignore (bun pack
+    // drops `.gitignore`). Don't clobber a recipe that ships its own.
     for (const [file, content] of [
         ["AGENTS.md", recipeDoc(name)],
         ["CLAUDE.md", CLAUDE_IMPORT],
@@ -179,9 +187,6 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
         const path = resolve(dest, file);
         if (!existsSync(path)) writeFileSync(path, content);
     }
-    const tsconfig = resolve(dest, "tsconfig.json");
-    if (!existsSync(tsconfig)) writeFileSync(tsconfig, RECIPE_TSCONFIG);
-
     console.log(`copied example ${name} → ${dest}`);
     console.log(`  cd ${args[1] || name} && bun install && bunx shallot dev`);
     return 0;
