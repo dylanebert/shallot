@@ -27,6 +27,12 @@ test("the script-only Babel parser is a development dependency", () => {
     expect(ENGINE.devDependencies["@babel/parser"]).toBe("^8.0.6");
 });
 
+test("Playwright remains a dev dependency, not an optional peer", () => {
+    expect(ENGINE.peerDependencies.playwright).toBeUndefined();
+    expect(ENGINE.peerDependenciesMeta.playwright).toBeUndefined();
+    expect(ENGINE.devDependencies.playwright).toBe("^1.63.0");
+});
+
 function run(command: string[], cwd: string, label: string): string {
     const result = Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe" });
     const output = `${result.stdout.toString()}${result.stderr.toString()}`;

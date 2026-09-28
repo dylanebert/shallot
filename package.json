@@ -104,15 +104,11 @@
     },
     "peerDependencies": {
         "bun-webgpu": ">=0.1.7",
-        "playwright": "^1.0.0",
         "typegpu": "~0.12.6",
         "vite": "^8.0.0"
     },
     "peerDependenciesMeta": {
         "bun-webgpu": {
-            "optional": true
-        },
-        "playwright": {
             "optional": true
         }
     },
