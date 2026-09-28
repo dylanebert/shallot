@@ -1,11 +1,46 @@
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { createInterface } from "node:readline";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 export type ViteCommand = "dev" | "build" | "preview";
 
+/** Resolve the Vite CLI from this project without allowing a package-manager fetch. */
+export function resolveViteCli(projectDir: string): string {
+    const base = resolve(projectDir);
+    const require = createRequire(resolve(base, "__shallot__.cjs"));
+    let packagePath: string;
+    try {
+        packagePath = require.resolve("vite/package.json");
+    } catch {
+        throw new Error(
+            `Cannot resolve Vite from ${base}. Add vite as a devDependency with \`bun add -d vite\`.`,
+        );
+    }
+    const pkg = JSON.parse(readFileSync(packagePath, "utf8")) as {
+        bin?: string | Record<string, string>;
+    };
+    const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.vite;
+    if (!bin) throw new Error(`Vite package at ${packagePath} does not declare its CLI binary.`);
+    return resolve(dirname(packagePath), bin);
+}
+
 /** Run the Vite CLI resolved from the project and preserve its arguments and exit status. */
-export function runVite(projectDir: string, command: ViteCommand, args: string[] = []): number {
-    const result = Bun.spawnSync([process.execPath, "x", "vite", ...viteCliArgs(command, args)], {
+export function runVite(
+    projectDir: string,
+    command: ViteCommand,
+    args: string[] = [],
+    spawnSync: typeof Bun.spawnSync = Bun.spawnSync,
+): number {
+    let viteCli: string;
+    try {
+        viteCli = resolveViteCli(projectDir);
+    } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        return 1;
+    }
+    const result = spawnSync([process.execPath, viteCli, ...viteCliArgs(command, args)], {
         cwd: projectDir,
         stdin: "inherit",
         stdout: "inherit",
@@ -18,6 +53,28 @@ export function viteCliArgs(command: ViteCommand, args: string[] = []): string[]
     return [...(command === "dev" ? [] : [command]), ...args];
 }
 
+interface ReportedViteUrl {
+    kind: "local" | "network";
+    url: string;
+}
+
+function reportedViteUrl(line: string): ReportedViteUrl | null {
+    const clean = line.replace(/\u001b\[[0-9;]*m/g, "");
+    const match = clean.match(/\b(Local|Network):\s*(https?:\/\/\S+)/);
+    if (!match) return null;
+    return { kind: match[1].toLowerCase() as ReportedViteUrl["kind"], url: match[2] };
+}
+
+export function viteUrlFromLines(lines: readonly string[]): string | null {
+    let network: string | null = null;
+    for (const line of lines) {
+        const reported = reportedViteUrl(line);
+        if (reported?.kind === "local") return reported.url;
+        if (reported?.kind === "network" && network === null) network = reported.url;
+    }
+    return network;
+}
+
 export interface ViteDevProcess {
     url: string;
     close(): Promise<void>;
@@ -27,12 +84,18 @@ export interface ViteDevProcess {
 export async function startViteDev(
     projectDir: string,
     args: string[] = [],
+    viteCli = resolveViteCli(projectDir),
 ): Promise<ViteDevProcess> {
-    const child = spawn(process.execPath, ["x", "vite", ...args], {
+    const child = spawn(process.execPath, [viteCli, ...args], {
         cwd: projectDir,
         stdio: ["inherit", "pipe", "pipe"],
     });
     const output: string[] = [];
+    let networkFallback: ReturnType<typeof setTimeout> | undefined;
+    const clearNetworkFallback = () => {
+        if (networkFallback !== undefined) clearTimeout(networkFallback);
+        networkFallback = undefined;
+    };
     const lines = (stream: NodeJS.ReadableStream, destination: NodeJS.WriteStream) => {
         const reader = createInterface({ input: stream });
         reader.on("line", (line) => {
@@ -41,8 +104,15 @@ export async function startViteDev(
                 if (output.length > 30) output.shift();
             }
             destination.write(`${line}\n`);
-            const match = line.match(/https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\/?/);
-            if (match) ready(match[0]);
+            const report = reportedViteUrl(line);
+            if (report?.kind === "local") {
+                ready(viteUrlFromLines(output) ?? report.url);
+            } else if (report?.kind === "network" && networkFallback === undefined) {
+                networkFallback = setTimeout(() => {
+                    const url = viteUrlFromLines(output);
+                    if (url) ready(url);
+                }, 50);
+            }
         });
     };
 
@@ -56,6 +126,7 @@ export async function startViteDev(
     const ready = (url: string) => {
         if (settled) return;
         settled = true;
+        clearNetworkFallback();
         resolveReady(url);
     };
     lines(child.stdout, process.stdout);
@@ -63,11 +134,13 @@ export async function startViteDev(
     child.once("error", (error) => {
         if (settled) return;
         settled = true;
+        clearNetworkFallback();
         rejectReady(error);
     });
     child.once("exit", (code, signal) => {
         if (settled) return;
         settled = true;
+        clearNetworkFallback();
         rejectReady(
             new Error(
                 `Vite exited before reporting its dev URL (${signal ?? `code ${code}`})${output.length ? `:\n${output.join("\n")}` : ""}`,

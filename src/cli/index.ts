@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { runVite, startViteDev } from "../project";
+import { resolveViteCli, runVite, startViteDev } from "../project";
 import { buildProject } from "./build";
 import { previewProject } from "./preview";
 
@@ -227,6 +227,13 @@ export async function main(
     const target = parsed.target;
     if (parsed.subcmd === "dev") {
         if (target && target !== "web") {
+            let viteCli: string;
+            try {
+                viteCli = resolveViteCli(projectDir);
+            } catch (error) {
+                console.error(error instanceof Error ? error.message : String(error));
+                exit(1);
+            }
             const status = await buildProject(projectDir, {
                 target,
                 release: false,
@@ -234,7 +241,7 @@ export async function main(
                 dev: true,
             });
             if (status !== 0) exit(status);
-            const server = await startViteDev(projectDir, parsed.viteArgs);
+            const server = await startViteDev(projectDir, parsed.viteArgs, viteCli);
             let appStatus: number;
             try {
                 appStatus = await previewProject(projectDir, {

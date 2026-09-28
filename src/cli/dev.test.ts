@@ -4,7 +4,13 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
-import { startViteDev, viteCliArgs } from "../project/vite-command";
+import {
+    resolveViteCli,
+    runVite,
+    startViteDev,
+    viteCliArgs,
+    viteUrlFromLines,
+} from "../project/vite-command";
 import { parseCliArgs } from "./index";
 
 async function freePort(): Promise<number> {
@@ -66,6 +72,37 @@ check(
 );
 
 check(
+    "projects without Vite are refused without fetching it",
+    {
+        claim: "the Vite CLI resolver refuses a project missing its own Vite dependency and names the fix",
+        size: "unit",
+        subject: "src/project/vite-command.ts",
+    },
+    () => {
+        const project = mkdtempSync(join(tmpdir(), "shallot-no-vite-"));
+        const spawned: string[][] = [];
+        const errors: string[] = [];
+        const originalError = console.error;
+        console.error = (...values: unknown[]) => errors.push(values.join(" "));
+        try {
+            expect(() => resolveViteCli(project)).toThrow(
+                "Add vite as a devDependency with `bun add -d vite`.",
+            );
+            const fakeSpawn = ((command: string[]) => {
+                spawned.push(command);
+                return { exitCode: 0 };
+            }) as typeof Bun.spawnSync;
+            expect(runVite(project, "dev", [], fakeSpawn)).toBe(1);
+            expect(spawned).toEqual([]);
+            expect(errors.join("\n")).toContain("Add vite as a devDependency");
+        } finally {
+            console.error = originalError;
+            rmSync(project, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
     "Vite commands preserve all remaining arguments",
     {
         claim: "shallot maps dev, build and preview to Vite and preserves each command's arguments",
@@ -77,6 +114,77 @@ check(
         expect(viteCliArgs("dev", forwarded)).toEqual(forwarded);
         expect(viteCliArgs("build", forwarded)).toEqual(["build", ...forwarded]);
         expect(viteCliArgs("preview", forwarded)).toEqual(["preview", ...forwarded]);
+    },
+);
+
+check(
+    "native URL selection prefers Local and falls back to Network",
+    {
+        claim: "native dev keeps the complete reported Local URL and can use a Network URL alone",
+        size: "unit",
+        subject: "src/project/vite-command.ts",
+    },
+    () => {
+        const network = "  ➜  Network:   http://192.168.0.139:41989/game/";
+        const local = "  ➜  Local:     http://localhost:41989/game/";
+        expect(viteUrlFromLines([network])).toBe("http://192.168.0.139:41989/game/");
+        expect(viteUrlFromLines([local])).toBe("http://localhost:41989/game/");
+        expect(viteUrlFromLines([network, local])).toBe("http://localhost:41989/game/");
+    },
+);
+
+check(
+    "native dev accepts a Network-only Vite URL report",
+    {
+        claim: "native dev starts when Vite reports only a Network URL",
+        size: "integration",
+        subject: "src/project/vite-command.ts",
+        budget: 3_000,
+    },
+    async () => {
+        const project = mkdtempSync(join(tmpdir(), "shallot-vite-network-url-"));
+        const cli = join(project, "vite-fake.mjs");
+        writeFileSync(
+            cli,
+            `console.log("  ➜  Network:   http://192.168.0.139:41989/game/"); setInterval(() => {}, 1000);`,
+        );
+        let server: Awaited<ReturnType<typeof startViteDev>> | undefined;
+        try {
+            server = await startViteDev(project, [], cli);
+            expect(server.url).toBe("http://192.168.0.139:41989/game/");
+        } finally {
+            await server?.close();
+            rmSync(project, { recursive: true, force: true });
+        }
+    },
+);
+
+check(
+    "dev preserves the Vite base path in the native URL",
+    {
+        claim: "native dev loads the complete local Vite URL when the project uses a base path",
+        size: "integration",
+        subject: "src/project/vite-command.ts",
+        budget: 15_000,
+    },
+    async () => {
+        const root = resolve(import.meta.dir, "../..");
+        const project = mkdtempSync(join(tmpdir(), "shallot-vite-base-path-"));
+        symlinkSync(join(root, "node_modules"), join(project, "node_modules"), "dir");
+        writeFileSync(join(project, "package.json"), JSON.stringify({ type: "module" }));
+        writeFileSync(join(project, "index.html"), "<!doctype html><title>BASE PATH</title>\n");
+        writeFileSync(join(project, "vite.config.ts"), `export default { base: "/game/" };\n`);
+        let server: Awaited<ReturnType<typeof startViteDev>> | undefined;
+        try {
+            server = await startViteDev(project, ["--host", "127.0.0.1", "--port", "0"]);
+            expect(new URL(server.url).pathname).toBe("/game/");
+            const response = await waitForPage(server.url);
+            expect(response.status).toBe(200);
+            expect(await response.text()).toContain("BASE PATH");
+        } finally {
+            await server?.close();
+            rmSync(project, { recursive: true, force: true });
+        }
     },
 );
 
@@ -123,8 +231,7 @@ check(
         try {
             const vite = await serve([
                 process.execPath,
-                "x",
-                "vite",
+                resolveViteCli(project),
                 "--port",
                 String(port),
                 "--strictPort",
