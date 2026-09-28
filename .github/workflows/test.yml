@@ -59,10 +59,8 @@ jobs:
           rustflags: ""
       - name: audio tests
         run: /usr/bin/time -p cargo test -p shallot-audio
-      - name: physics unit tests
-        run: /usr/bin/time -p cargo test -p shallot-physics --lib --test stages
-      - name: physics gold tests
-        run: /usr/bin/time -p cargo test -p shallot-physics --test contact_gold --test contact_wide_gold --test convex_manifold_gold --test distance_gold --test finalize_gold --test integrate_gold --test joint_gold --test manifold_gold --test math_gold --test recycle_gold --test tree_gold
+      - name: physics tests
+        run: /usr/bin/time -p cargo test -p shallot-physics
 
   node:
     runs-on: ubuntu-latest
