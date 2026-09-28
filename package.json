@@ -114,7 +114,7 @@
     "dependencies": {
         "@babel/parser": "^8.0.6",
         "@types/node": "^26.6.3",
-        "@webgpu/types": "^0.1.72",
+        "@webgpu/types": "^0.1.74",
         "unplugin-typegpu": "~0.12.3",
         "vite": "^8.3.0"
     },
