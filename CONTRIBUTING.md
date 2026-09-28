@@ -58,7 +58,7 @@ bun run check                         # static gates; run before every push
 bun run test                          # cheap tier: *.test.ts, 250 ms default per test
 bun test ./src/transitional/mirror/index.gpu.ts  # named GPU tier
 bun test ./diagnostics/.../allocation.oracle.ts # named display oracle (manual)
-bun run test:browser                  # Playwright Test browser tier, *.e2e.ts
+bun run test:browser                  # wide browser run; every subject config
 bun test --todo                       # run quarantined test.todo entries, if any
 bun run format                        # biome, scene formatter and examples index
 ```
@@ -77,7 +77,8 @@ A module's promises are tested beside the module and through the examples that u
   cargo test -p shallot-physics --lib --test stages
   ```
 - A missing premise in a named tier is a test failure, never a skip. A quarantined claim stays visible as `test.todo` and runs with `bun test --todo`.
-- Browser tests use Playwright Test in `*.e2e.ts`; `playwright.config.ts` starts each subject's own Vite preview and declares Chromium launch flags.
+- Browser tests use Playwright Test in `*.e2e.ts`. Each subject keeps `playwright.config.ts` beside its `vite.config.ts`, imports the shared Chromium flags from `scripts/chromium.ts` and sets a `globalTimeout` just above its measured run.
+- Run one subject with `playwright test -c <subject>` (for example, `playwright test -c examples/loading-screen`); run the wide browser tier with `bun run test:browser`.
 - GPU tests require an in-process WebGPU device. Browser tests request no adapter themselves; browser GPU observations accept software adapters.
 - Display-bound measurements require a declared monitor and take its keyboard and cursor.
 - Tests that make gameplay assertions step the composed app's clock. Simulation state lives in registered components or behind a snapshot, restore and hash hook. Gameplay runs in `fixed` from per-tick actions, presentation runs in `draw`, and `local` components are excluded from the hash. Runs are deterministic within one runtime and engine version; across versions, the hash detects divergence.
@@ -103,7 +104,7 @@ A module's promises are tested beside the module and through the examples that u
 
 ### CI coverage
 
-CI runs static gates and the complete cheap tier on GitHub-hosted Ubuntu and macOS, plus the complete GPU, Cargo, Node and browser tiers on hosts with their required tools. The display-bound allocation oracle is run manually on its declared display seat. These jobs do not qualify a Windows runner or native packaging.
+CI runs static gates and the complete cheap tier on GitHub-hosted Ubuntu and macOS, plus the complete GPU, Cargo, Node and browser tiers on hosts with their required tools. The browser run discovers subject directories from `vite.config.ts` or `playwright.config.ts` under `examples/` and `scripts/`, requires both files in each directory, and runs each subject; adding a subject without either config fails the job. The display-bound allocation oracle is run manually on its declared display seat. These jobs do not qualify a Windows runner or native packaging.
 
 ## Examples
 

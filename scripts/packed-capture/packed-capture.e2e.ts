@@ -6,7 +6,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "playwright/test";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const SUBJECT = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(SUBJECT, "../..");
 
 async function unusedPort(): Promise<number> {
     const server = createServer();
@@ -77,9 +78,7 @@ test("a Vite project built from the packed Shallot captures through its public r
         writeFileSync(join(project, "shallot.json"), JSON.stringify({ plugins: {} }));
         writeFileSync(
             join(project, "vite.config.ts"),
-            `import { shallot } from "@dylanebert/shallot/vite";
-export default { plugins: [shallot()] };
-`,
+            readFileSync(join(SUBJECT, "vite.config.ts"), "utf8"),
         );
         writeFileSync(
             join(project, "index.html"),

@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "playwright/test";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const CAPTURE_ENTRY = resolve(ROOT, ".artifacts/capture-page.js");
 execFileSync("bun", ["run", "scripts/build-capture-page.ts"], { cwd: ROOT });
 

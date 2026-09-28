@@ -2,10 +2,11 @@
 // `vite.config.ts` resolves through Node's plain ESM loader, which throws `ERR_UNKNOWN_FILE_EXTENSION` on
 // the package's raw `.ts` source — the reason every other export stays raw `.ts` (the mandatory TypeGPU
 // transform must see engine source untransformed) doesn't reach `./vite`, whose only consumption context
-// is Node. `playwright.config.ts` owns Chromium flags for browser checks and the display oracle.
-// `dist/vite.js` is generated here by
-// `bun run build` and `prepack`, and is committed so SHA-pinned Git installs can resolve `./vite`. `tsc` reads
-// `package.json`'s `types` condition, while bundlers resolve `default`, so this emits no `.d.ts`.
+// is Node. Browser subject configs and the display oracle share the Chromium arguments in
+// `scripts/chromium.ts`.
+// `dist/vite.js` is generated here by `bun run build` and `prepack`, and is committed so SHA-pinned Git
+// installs can resolve `./vite`. `tsc` reads `package.json`'s `types` condition, while bundlers resolve
+// `default`, so this emits no `.d.ts`.
 //
 // `src/project/` is a closed island — node builtins plus the `vite` / `unplugin-typegpu` externals it
 // imports, no engine runtime, no TGSL — so bundling it carries no duplicate-TypeGPU-identity risk. Kept

@@ -89,4 +89,4 @@ jobs:
       - name: install Playwright Chromium
         run: bunx playwright install chromium
       - name: browser tier
-        run: /usr/bin/time -p bunx playwright test
+        run: /usr/bin/time -p bun run test:browser

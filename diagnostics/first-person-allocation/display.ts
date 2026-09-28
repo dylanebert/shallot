@@ -9,7 +9,7 @@ import { confirmOnDisplay, openOnDisplay } from "./display-seat";
 import { launchPlan } from "./launch";
 import { resolveViteCli } from "../../src/project/vite-command";
 import { resolveSeat } from "./seat";
-import { CHROMIUM_ARGS } from "../../playwright.config";
+import { CHROMIUM_ARGS } from "../../scripts/chromium";
 import {
     type AllocationSample,
     type AllocationSite,
