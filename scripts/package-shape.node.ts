@@ -38,6 +38,11 @@ test("prepare is the sole tooling pack hook", () => {
     expect(ENGINE.scripts.prepack).toBeUndefined();
 });
 
+test("files excludes no paths under the unlisted scripts directory", () => {
+    expect(ENGINE.files).not.toContain("scripts");
+    expect(ENGINE.files.filter((entry: string) => entry.startsWith("!scripts/"))).toEqual([]);
+});
+
 function run(command: string[], cwd: string, label: string): string {
     const result = Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe" });
     const output = `${result.stdout.toString()}${result.stderr.toString()}`;

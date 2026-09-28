@@ -42,17 +42,6 @@ const negated = packageFiles
     .filter((entry) => entry.startsWith("!"))
     .map((entry) => new Glob(entry.slice(1)));
 const requiredNegations = [
-    "!scripts/check.ts",
-    "!scripts/check-pack.ts",
-    "!scripts/check-device-tiers.ts",
-    "!scripts/generate/**",
-    "!scripts/assets.ts",
-    "!scripts/png.ts",
-    "!scripts/format.ts",
-    "!scripts/examples-index.ts",
-    "!scripts/tooling.ts",
-    "!scripts/audio.ts",
-    "!scripts/wasm-opt.ts",
     "!src/transitional/physics/oracle/**",
     "!**/fixtures",
     "!**/*.test.ts",
