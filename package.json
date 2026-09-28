@@ -94,7 +94,7 @@
         "check": "bun run scripts/check.ts",
         "format": "biome check --write && bun run scripts/format.ts && bun run scripts/examples-index.ts",
         "test": "bun test --timeout=250",
-        "test:browser": "set -eu; for config in $(find examples scripts -name playwright.config.ts | sort); do subject=${config%/playwright.config.ts}; vite=$subject/vite.config.ts; if [ ! -f \"$vite\" ]; then echo \"Missing Vite config: $vite\" >&2; exit 1; fi; done; found=0; for vite in $(find examples scripts -name vite.config.ts | sort); do found=1; subject=${vite%/vite.config.ts}; config=$subject/playwright.config.ts; if [ ! -f \"$config\" ]; then echo \"Missing browser config: $config\" >&2; exit 1; fi; echo \"Browser subject: $subject\"; bunx playwright test -c \"$subject\"; done; if [ \"$found\" -eq 0 ]; then echo 'No browser subjects found' >&2; exit 1; fi",
+        "test:browser": "sh scripts/browser.sh",
         "assets": "bun run scripts/assets.ts",
         "prepack": "bun run ./scripts/tooling.ts"
     },
