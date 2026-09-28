@@ -10,36 +10,36 @@ A plugin is how behavior gets into a game: a named bundle of components, systems
 
 ## Layout
 
-Shallot is layered like an onion: `engine` at the center, then `core`, `standard` and `extras`, then external packages outside the repo. Code only imports from layers inside its own. Outer layers make more choices for a game, so games are more likely to replace or remove them.
+Shallot is layered like an onion: `engine` at the center, then `core`, `standard` and `extras`, then external packages outside the repo. Dependencies point inward. Outer layers make more choices for a game, so games are more likely to replace or remove them.
 
 ```
 src/
-  engine/        Shallot itself: app lifecycle, ECS, scenes, runtime, utils.
-  core/          One plugin each for rendering, physics, audio and input, with only what every approach needs.
-  standard/      Shallot's default approach to each, built on core and extensible.
+  engine/        App lifecycle, ECS, scenes, runtime and utilities.
+  core/          Shared rendering and input capabilities.
+  standard/      Shallot's default plugins and features, built on core.
   extras/        Features most games use. A plugin moves here after a stable release cycle as its own package.
-  project/       Build-time project handling: manifest, plan, code generation, the Vite plugin.
-  cli/           The commands.
+  transitional/  Modules awaiting their declared destination; import checks keep them visible.
+  project/       Project manifests, plan resolution, generated virtual module, Vite plugin and build support.
+  cli/           Shallot's commands.
   native/        The desktop shell.
   types/         Ambient declarations.
 crates/          The WASM kernels (audio, physics) and the native window host.
 diagnostics/     Host-side diagnostics, including first-person allocation sampling.
-examples/        One folder per example. `examples/AGENTS.md` is generated from their manifests.
+examples/        One folder per example. Each owns its page and Vite config with `shallot()`; `examples/AGENTS.md` is generated from manifests.
 assets.json      Every asset except the shipped icon, fetched by URL and sha256 with `bun run assets`.
 ```
 
-- `engine`, `core`, `standard` and `extras` are the game layers. `project`, `cli` and `native` are tooling. Tooling can import any layer; game layers never import tooling.
-- Modules in the same layer don't import each other, so a game can use one without the others.
-- Each folder is one module. Its `index.ts` is the only entry point and defines its plugin; other files are internal. A layer's `index.ts` only re-exports its modules, except that `standard/index.ts` also defines the default plugin set.
-- A module is a plugin only if it registers systems or resources. Otherwise it exports plain data and functions.
+- `engine`, `core`, `standard` and `extras` are the game layers. `project`, `cli`, `native` and `types` are tooling. Game modules never import tooling; dependencies among game layers point inward. `transitional` contains modules with a declared migration destination, and its import-check reds remain until those modules move.
+- Core, standard and extras modules don't import sibling modules in their layer. Physics never imports rendering.
+- Each game module's `index.ts` is its public entry point; other source files are internal. A module that registers systems or resources defines a plugin; otherwise it exports plain data and functions. Layer indexes re-export their modules, except `standard/index.ts`, which also defines the default plugin set.
 - Provider-specific observation belongs in optional application integrations, outside Shallot.
-- Each public module has one import path, its subpath in `package.json` `exports`. The root re-exports every layer with `export *`, so duplicate names fail `tsc`.
+- `package.json` declares the public package subpaths. The root barrel re-exports every game layer with `export *`, so duplicate names fail `tsc`.
 - Each module does one useful thing completely. If it doesn't, fix it, split it, move it out or remove it.
 
 ### Core and standard
 
 - Name a module for what it owns, not its technique. Core and standard use the same noun: `core/rendering` at `/rendering`, `standard/rendering` at `/standard/rendering`.
-- Core gets the plain names. A standard export adds the `Standard` prefix when core has the same role, like `StandardRenderingPlugin`. Other implementations use their own prefix, like `AvbdPhysicsPlugin`.
+- Export names describe the implementation: core exports `RenderPlugin`, while the standard mesh renderer exports `SearPlugin`.
 - Physics never imports rendering, in any layer.
 
 ### Rendering
@@ -52,12 +52,14 @@ Each view reaches the screen through one final pass. The scene image is marked H
 
 ## Commands
 
+A `shallot` command earns its place only by doing what only Shallot knows. It never owns a process Vite, Bun or Playwright owns; it may run the project's own commands as a step. Web `dev`, `build` and `preview` run the project's Vite commands. Native `dev` and `build` add the shell to the project's Vite dev server or build; native `preview` launches the existing desktop build.
+
 ```bash
 bun run build                         # regenerate committed audio WASM, dist/vite.js, physics kernel
 bun run check                         # static gates; run before every push
 bun run test                          # cheap tier: *.test.ts, 250 ms default per test
 bun test ./src/transitional/mirror/index.gpu.ts  # named GPU tier
-bun test ./diagnostics/.../allocation.oracle.ts # named display oracle (manual)
+bun test ./diagnostics/first-person-allocation/allocation.oracle.ts # named display oracle (manual)
 bun run test:browser                  # wide browser run; every subject config
 bun test --todo                       # run quarantined test.todo entries, if any
 bun run format                        # biome, scene formatter and examples index
@@ -74,7 +76,7 @@ A module's promises are tested beside the module and through the examples that u
 
   ```bash
   cargo test -p shallot-audio
-  cargo test -p shallot-physics --lib --test stages
+  cargo test -p shallot-physics
   ```
 - A missing premise in a named tier is a test failure, never a skip. A quarantined claim stays visible as `test.todo` and runs with `bun test --todo`.
 - Browser tests use Playwright Test in `*.e2e.ts`. Each subject keeps `playwright.config.ts` beside its `vite.config.ts`, imports the shared Chromium flags from `scripts/chromium.ts` and sets a `globalTimeout` just above its measured run.
@@ -104,7 +106,7 @@ A module's promises are tested beside the module and through the examples that u
 
 ### CI coverage
 
-CI runs static gates and the complete cheap tier on GitHub-hosted Ubuntu and macOS, plus the complete GPU, Cargo, Node and browser tiers on hosts with their required tools. The browser run discovers subject directories from `vite.config.ts` or `playwright.config.ts` under `examples/` and `scripts/`, requires both files in each directory, and runs each subject; adding a subject without either config fails the job. The display-bound allocation oracle is run manually on its declared display seat. These jobs do not qualify a Windows runner or native packaging.
+CI runs static gates and the complete cheap tier on GitHub-hosted Ubuntu and macOS, plus the complete GPU, Cargo, Node and browser tiers on hosts with their required tools. The browser run discovers subject directories from `vite.config.ts` or `playwright.config.ts` under `examples/` and `scripts/`, requires both files for each discovered subject, and runs each subject; an `*.e2e.ts` file outside a subject fails as an orphan. The display-bound allocation oracle is run manually on its declared display seat. These jobs do not qualify a Windows runner or native packaging.
 
 ## Examples
 

@@ -122,16 +122,14 @@ Configure Playwright in the project, run its own Vite preview with `webServer`, 
 
 ```sh
 bun add typegpu@~0.12.5
-bun add -d unplugin-typegpu@~0.12.3
 ```
 
-`shallot dev` and `shallot build` add the TypeGPU compiler plugin. A project with its own Vite config adds it once, even if it only uses Shallot's shaders:
+For web, `shallot dev`, `shallot build` and `shallot preview` run the project's Vite commands. Native `dev` and `build` add the desktop shell to the Vite server or build; native `preview` launches that build. Add Shallot's Vite plugin to the project config; it includes the TypeGPU transform, so do not register a separate TypeGPU plugin:
 
 ```ts
-import typegpu from "unplugin-typegpu/vite";
-import { projectPlugin } from "@dylanebert/shallot/vite";
+import { shallot } from "@dylanebert/shallot/vite";
 
-export default defineConfig({ plugins: [typegpu(), projectPlugin(".")] });
+export default defineConfig({ plugins: [shallot()] });
 ```
 
 ## `sparse(u8)` values wrap

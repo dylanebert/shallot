@@ -1,6 +1,9 @@
 # Examples
 
-From `bun run format` and `examples/*/shallot.json`; edit manifests. Use `bunx shallot dev examples/<name>`.
+From `bun run format` and `examples/*/shallot.json`; edit manifests.
+Each example owns its `index.html` and Vite config with `plugins: [shallot()]`; Vite runs it.
+From the repository root, use `bunx shallot dev examples/<name>`.
+Run cheap checks with `bun test` and one example's browser checks with `bunx playwright test -c examples/<name>`.
 
 ## Recipes
 
