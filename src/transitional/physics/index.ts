@@ -1,4 +1,5 @@
 // Destination: core/physics and standard/physics; owner: physics-boundary.md.
+/// <reference types="@webgpu/types" />
 
 import { BeginFrameSystem, Render } from "../../core/rendering";
 import {

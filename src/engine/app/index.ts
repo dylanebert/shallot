@@ -1,3 +1,5 @@
+/// <reference types="@webgpu/types" />
+
 import { type Component, entries, fields, register, State, type System, type Traits } from "../ecs";
 import {
     type AdapterVerdict,

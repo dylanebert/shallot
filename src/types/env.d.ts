@@ -1,3 +1,5 @@
+/// <reference types="@webgpu/types" />
+
 // `import.meta.env` is read by the engine's own source (`view.ts`'s `devEnabled`), and the package
 // ships `.ts` — a consumer's tsc typechecks the dependency. `@types/node` (a runtime dep) provides
 // `process` and `node:worker_threads` but not `import.meta.env` (a Vite/bundler convention), so the

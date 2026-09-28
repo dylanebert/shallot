@@ -102,6 +102,29 @@ test("shallot add lists every recipe in stable name order with problem, descript
     }
 });
 
+test("shallot add declares TypeGPU when the copied source imports it", async () => {
+    const root = recipes();
+    const source = join(root, "examples/demo");
+    mkdirSync(join(source, "src"));
+    writeFileSync(join(source, "src/game.ts"), 'import tgpu from "typegpu";\nvoid tgpu;\n');
+    try {
+        const dest = join(root, "out");
+        await captureOutput(() =>
+            runAdd(["demo", dest], {
+                recipesDir: join(root, "examples"),
+                version: "0.0.0",
+            }),
+        );
+        const pkg = JSON.parse(readFileSync(join(dest, "package.json"), "utf8"));
+        const rootPackage = JSON.parse(
+            readFileSync(join(import.meta.dir, "../../package.json"), "utf8"),
+        );
+        expect(pkg.devDependencies.typegpu).toBe(rootPackage.peerDependencies.typegpu);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test("shallot add gives a copied recipe the canonical .gitignore", async () => {
     const root = recipes();
     try {
@@ -121,6 +144,8 @@ test("shallot add gives a copied recipe the canonical .gitignore", async () => {
         expect(pkg.dependencies["@dylanebert/shallot"]).toBe("0.0.0");
         expect(pkg.dependencies.vite).toBeDefined();
         expect(pkg.devDependencies.typescript).toBeDefined();
+        expect(pkg.devDependencies["@types/bun"]).toBeDefined();
+        expect(pkg.devDependencies.typegpu).toBeUndefined();
         const agents = readFileSync(join(dest, "AGENTS.md"), "utf8");
         expect(agents).toContain("A Shallot example — a minimal project demonstrating one concept");
         expect(agents).toContain("The examples live at");

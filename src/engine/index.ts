@@ -1,3 +1,5 @@
+/// <reference types="@webgpu/types" />
+
 export {
     type App,
     build,

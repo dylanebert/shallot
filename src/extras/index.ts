@@ -1,3 +1,5 @@
+/// <reference types="@webgpu/types" />
+
 // the extras barrel lists each module's author names explicitly; extension names stay on the module.
 
 export {

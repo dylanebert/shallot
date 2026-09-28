@@ -1,4 +1,5 @@
 // Destination: core/rendering; owner: presentation.md.
+/// <reference types="@webgpu/types" />
 // Glaze — the default postfx composite + the postfx chain. A renderer draws into each camera's offscreen
 // scene-color target (`view.framebuffer`); glaze runs one compute dispatch per camera that reads it and
 // writes the swapchain (`view.present`), applying the per-camera postfx chain on the way. The swapchain

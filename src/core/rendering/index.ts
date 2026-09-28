@@ -1,3 +1,5 @@
+/// <reference types="@webgpu/types" />
+
 import * as d from "typegpu/data";
 import type { Plugin, State, System } from "../../engine";
 import { Compute, formatHex, invert } from "../../engine";

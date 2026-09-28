@@ -20,6 +20,6 @@
         "noUnusedLocals": false,
         "noUnusedParameters": false,
         "noPropertyAccessFromIndexSignature": false,
-        "types": ["bun", "@webgpu/types"]
+        "types": ["bun"]
     }
 }

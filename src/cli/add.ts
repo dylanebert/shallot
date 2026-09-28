@@ -1,5 +1,5 @@
 import { cpSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { CLAUDE_IMPORT, PROJECT_GITIGNORE, recipeDoc } from "./add-fragments";
 
 // `shallot add [name] [dir]` — copy a recipe out of the installed package into a runnable project.
@@ -102,8 +102,35 @@ export function pinEngine(pkgText: string, version: string): string {
     return `${JSON.stringify(pkg, null, 4)}\n`;
 }
 
-function recipePackage(dest: string): string {
+function importsPackage(recipeDir: string, packageName: string): boolean {
+    const sourceFile = /\.(?:[cm]?[jt]sx?)$/;
+    const importPattern = new RegExp(
+        `(?:\\bfrom\\s*|\\bimport\\s*(?:\\(\\s*)?)["']${packageName}(?:/[^"']*)?["']`,
+    );
+    const pending = [recipeDir];
+    while (pending.length > 0) {
+        const dir = pending.pop()!;
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            if (entry.name === "node_modules") continue;
+            const path = join(dir, entry.name);
+            if (entry.isDirectory()) pending.push(path);
+            else if (entry.isFile() && sourceFile.test(entry.name)) {
+                if (importPattern.test(readFileSync(path, "utf8"))) return true;
+            }
+        }
+    }
+    return false;
+}
+
+function recipePackage(dest: string, recipeDir: string): string {
     const engine = JSON.parse(readFileSync(resolve(PACKAGE_ROOT, "package.json"), "utf8"));
+    const devDependencies: Record<string, string> = {
+        "@types/bun": engine.devDependencies["@types/bun"],
+        playwright: engine.devDependencies.playwright,
+        typescript: engine.devDependencies.typescript,
+    };
+    if (importsPackage(recipeDir, "typegpu"))
+        devDependencies.typegpu = engine.peerDependencies.typegpu;
     return `${JSON.stringify(
         {
             name: basename(dest),
@@ -117,11 +144,7 @@ function recipePackage(dest: string): string {
                 "test:browser": "playwright test",
             },
             dependencies: { vite: engine.dependencies.vite },
-            devDependencies: {
-                "@types/bun": engine.devDependencies["@types/bun"],
-                playwright: engine.devDependencies.playwright,
-                typescript: engine.devDependencies.typescript,
-            },
+            devDependencies,
         },
         null,
         4,
@@ -173,7 +196,9 @@ export async function runAdd(args: string[], e: Env = env()): Promise<number> {
     });
 
     const pkgPath = resolve(dest, "package.json");
-    const pkgText = existsSync(pkgPath) ? readFileSync(pkgPath, "utf8") : recipePackage(dest);
+    const pkgText = existsSync(pkgPath)
+        ? readFileSync(pkgPath, "utf8")
+        : recipePackage(dest, resolve(recipesDir, name));
     writeFileSync(pkgPath, pinEngine(pkgText, version));
 
     // Emit scaffolding absent from the copied directory: the agent-surface pointer (AGENTS.md, imported

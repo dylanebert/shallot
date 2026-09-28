@@ -1,4 +1,5 @@
 // Destination: shallot-avbd-physics; owner: bvh-extraction.md.
+/// <reference types="@webgpu/types" />
 // LBVH — the public extension surface. One GPU BVH2 builder, rendering-unaware and
 // unopinionated about its consumer: geometry in (primitive AABBs), BVH out — it names
 // neither bodies nor draws, neither triangles nor instances. {@link createBvh} is the

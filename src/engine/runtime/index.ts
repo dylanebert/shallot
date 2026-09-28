@@ -1,3 +1,5 @@
+/// <reference types="@webgpu/types" />
+
 export * from "./adapter";
 export {
     Compute,

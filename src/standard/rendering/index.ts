@@ -1,3 +1,5 @@
+/// <reference types="@webgpu/types" />
+
 // Sear's author barrel — the game-author surface of the default renderer. The renderer itself is
 // `forward.ts` (the GPU-driven forward pass); this file re-exports only what a scene author touches: the
 // `Sear` camera marker + its opt-in prepass lanes (`Tag` / `Depth`), the `Material` / `Backdrop`
