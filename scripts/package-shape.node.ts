@@ -33,6 +33,11 @@ test("Playwright remains a dev dependency, not an optional peer", () => {
     expect(ENGINE.devDependencies.playwright).toBe("^1.63.0");
 });
 
+test("prepare is the sole tooling pack hook", () => {
+    expect(ENGINE.scripts.prepare).toBe("bun run ./scripts/tooling.ts");
+    expect(ENGINE.scripts.prepack).toBeUndefined();
+});
+
 function run(command: string[], cwd: string, label: string): string {
     const result = Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe" });
     const output = `${result.stdout.toString()}${result.stderr.toString()}`;
