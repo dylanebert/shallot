@@ -116,7 +116,7 @@
         "@types/node": "^26.6.3",
         "@webgpu/types": "^0.1.74",
         "unplugin-typegpu": "~0.12.4",
-        "vite": "^8.3.0"
+        "vite": "^8.3.1"
     },
     "devDependencies": {
         "@biomejs/biome": "^2.5.14",
