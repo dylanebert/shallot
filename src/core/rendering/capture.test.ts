@@ -4,7 +4,7 @@ import {
     CAPTURE_CONTRACT,
     captureIdentityLabel,
     captureIdentityMatches,
-} from "@dylanebert/shallot/harness/capture";
+} from "./capture";
 
 test("a surface at another size or scale captures anyway under the declared identity, so two seats' pixels would be compared as one contract", () => {
     // The contract is explicit in every field a consumer would otherwise leave implicit.

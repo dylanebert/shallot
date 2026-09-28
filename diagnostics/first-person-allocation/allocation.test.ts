@@ -4,7 +4,7 @@ import {
     type AllocationSample,
     allocatesNothing,
     allocationFailure,
-} from "@dylanebert/shallot/harness/allocation";
+} from "./allocation";
 
 const ENTRY = resolve(import.meta.dir, "../../examples/first-person/src/allocation.entry.ts");
 const ROOT = resolve(import.meta.dir, "../..");
@@ -19,9 +19,8 @@ test("a Node allocation import does not load the display-only oracle or Hyprland
     if (!built.success || built.metafile === undefined)
         throw new Error(`allocation import graph failed: ${built.logs.map(String).join("\\n")}`);
     const inputs = Object.keys(built.metafile.inputs).map((path) => resolve(path));
-    expect(inputs.some((path) => path.includes("diagnostics/first-person-allocation"))).toBe(false);
-    expect(inputs.some((path) => path.endsWith("/src/harness/display.ts"))).toBe(false);
-    expect(inputs.some((path) => path.endsWith("/src/harness/display-seat.ts"))).toBe(false);
+    expect(inputs.some((path) => path.endsWith("/diagnostics/first-person-allocation/display.ts"))).toBe(false);
+    expect(inputs.some((path) => path.endsWith("/diagnostics/first-person-allocation/display-seat.ts"))).toBe(false);
 
     const node = await Bun.build({
         entrypoints: [resolve(import.meta.dir, "allocation-sampler.mjs")],
@@ -31,9 +30,8 @@ test("a Node allocation import does not load the display-only oracle or Hyprland
     if (!node.success || node.metafile === undefined)
         throw new Error(`Node sampler graph failed: ${node.logs.map(String).join("\\n")}`);
     const nodeInputs = Object.keys(node.metafile.inputs).map((path) => resolve(path));
-    expect(nodeInputs.some((path) => path.includes("diagnostics/first-person-allocation"))).toBe(
-        false,
-    );
+    expect(nodeInputs.some((path) => path.endsWith("/allocation-sampler.mjs"))).toBe(true);
+    expect(nodeInputs.some((path) => path.endsWith("/display.ts"))).toBe(false);
     expect(
         Object.values(node.metafile.inputs)
             .flatMap((input) => input.imports)

@@ -56,6 +56,16 @@ import {
 // (Sear) meet only through that contract and neither imports the other, so a
 // custom producer is a peer of Part rather than a fork of it.
 export { Camera, CameraMode, Resolution } from "./camera";
+export {
+    assertCaptureGeometry,
+    CAPTURE_CONTRACT,
+    type Capture,
+    type CaptureIdentity,
+    captureArtifact,
+    captureFrame,
+    captureIdentityLabel,
+    captureIdentityMatches,
+} from "./capture";
 export { AmbientLight, DirectionalLight, PointLight, Spot, Volumetric } from "./lighting";
 export type { Mesh } from "./mesh";
 export { mesh } from "./mesh";

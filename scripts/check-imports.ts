@@ -6,7 +6,7 @@ import { Glob } from "bun";
 
 const GAME_TIERS = ["engine", "core", "standard", "extras"] as const;
 const TIER_ORDER = new Map(GAME_TIERS.map((tier, index) => [tier, index]));
-const TOOLING = new Set(["project", "cli", "native", "harness", "types"]);
+const TOOLING = new Set(["project", "cli", "native", "types"]);
 const MODULE_TIERS = new Set(["core", "standard", "extras"]);
 // The runtime floor is a host-only leaf; Vite is public only through this package subpath.
 const DIRECT_LEAVES = new Set(["engine/runtime/floor.ts"]);

@@ -5,7 +5,7 @@ import {
     allocationFailure,
     sampleAllocation,
     windowBytes,
-} from "@dylanebert/shallot/harness/allocation";
+} from "../../../diagnostics/first-person-allocation/allocation";
 
 const SCENE = resolve(import.meta.dir, "../public/scenes/first-person.scene");
 

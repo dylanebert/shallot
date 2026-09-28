@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { sampleAllocation } from "../../src/harness/allocation";
+import { sampleAllocation } from "./allocation";
 
 const root = resolve(import.meta.dir);
 const scenePath = resolve(root, "../../examples/first-person/public/scenes/first-person.scene");

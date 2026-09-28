@@ -48,7 +48,7 @@ jobs:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - name: GPU tier
-        run: /usr/bin/time -p bun test ./src/transitional/mirror/index.gpu.ts ./src/harness/wgsl.gpu.ts
+        run: /usr/bin/time -p bun test ./src/transitional/mirror/index.gpu.ts
 
   cargo:
     runs-on: ubuntu-latest
@@ -76,7 +76,7 @@ jobs:
           node-version-file: .node-version
       - run: bun install --frozen-lockfile
       - name: Node tier
-        run: /usr/bin/time -p bun test ./examples/first-person/src/demo.node.ts
+        run: /usr/bin/time -p bun test ./examples/first-person/src/demo.node.ts ./scripts/hosting-shape.node.ts
 
   browser:
     runs-on: macos-15

@@ -70,7 +70,7 @@ export interface Capture {
  * @example
  * ```
  * const shot = await captureFrame(document.querySelector("canvas")!);
- * const result = probePixels(shot.rgba, shot.width, shot.height, probe);
+ * console.log(shot.width, shot.height, shot.identity);
  * ```
  */
 export async function captureFrame(

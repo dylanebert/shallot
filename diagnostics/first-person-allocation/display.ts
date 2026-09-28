@@ -3,19 +3,19 @@ import { SourceMap } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { type AdapterFacts, classifyAdapter } from "../../src/engine/runtime";
-import { attribute, originalPosition, subjectSite } from "../../src/harness/allocation-sampler.mjs";
-import { CAPTURE_CONTRACT } from "../../src/harness/capture";
+import { attribute, originalPosition, subjectSite } from "./allocation-sampler.mjs";
+import { CAPTURE_CONTRACT } from "@dylanebert/shallot/rendering";
 import { confirmOnDisplay, openOnDisplay } from "./display-seat";
-import { launchPlan } from "../../src/harness/launch";
+import { launchPlan } from "./launch";
 import { resolveViteCli } from "../../src/project/vite-command";
-import { resolveSeat } from "../../src/harness/seat";
+import { resolveSeat } from "./seat";
 import { CHROMIUM_ARGS } from "../../playwright.config";
 import {
     type AllocationSample,
     type AllocationSite,
     type AllocationWindow,
     TIER_FLAGS,
-} from "../../src/harness/allocation";
+} from "./allocation";
 
 /** one collection in the steady windows, read from V8's GC trace over CDP */
 export interface Collection {

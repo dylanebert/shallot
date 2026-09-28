@@ -5,7 +5,7 @@ import {
     type AllocationWindow,
     allocationFailure,
     windowBytes,
-} from "@dylanebert/shallot/harness/allocation";
+} from "./allocation";
 import { type PageSample, samplePage } from "./display";
 
 function table(label: string, sites: readonly AllocationSite[], span?: AllocationWindow): string {

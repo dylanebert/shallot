@@ -21,14 +21,14 @@ src/
   project/       Build-time project handling: manifest, plan, code generation, the Vite plugin.
   cli/           The commands.
   native/        The desktop shell.
-  harness/       Host-side seams for capture, readback, allocation and observation.
   types/         Ambient declarations.
 crates/          The WASM kernels (audio, physics) and the native window host.
+diagnostics/     Host-side diagnostics, including first-person allocation sampling.
 examples/        One folder per example. `examples/AGENTS.md` is generated from their manifests.
 assets.json      Every asset except the shipped icon, fetched by URL and sha256 with `bun run assets`.
 ```
 
-- `engine`, `core`, `standard` and `extras` are the game layers. `project`, `cli`, `native` and `harness` are tooling. Tooling can import any layer; game layers never import tooling.
+- `engine`, `core`, `standard` and `extras` are the game layers. `project`, `cli` and `native` are tooling. Tooling can import any layer; game layers never import tooling.
 - Modules in the same layer don't import each other, so a game can use one without the others.
 - Each folder is one module. Its `index.ts` is the only entry point and defines its plugin; other files are internal. A layer's `index.ts` only re-exports its modules, except that `standard/index.ts` also defines the default plugin set.
 - A module is a plugin only if it registers systems or resources. Otherwise it exports plain data and functions.

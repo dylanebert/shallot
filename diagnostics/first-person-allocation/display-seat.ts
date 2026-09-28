@@ -26,7 +26,7 @@
 // Hyprland is the only compositor with a placement here. Another one refuses: an unverified placement is
 // exactly the defect this module exists to remove.
 
-import { CAPTURE_CONTRACT } from "../../src/harness/capture";
+import { CAPTURE_CONTRACT } from "@dylanebert/shallot/rendering";
 
 /** one monitor as the compositor reports it. Geometry is layout pixels; `refreshRate` is its current mode. */
 export interface SeatMonitor {

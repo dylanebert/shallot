@@ -29,10 +29,6 @@
         ".": "./src/index.ts",
         "./extras": "./src/extras/index.ts",
         "./brand": "./src/standard/loading/brand.ts",
-        "./harness": "./src/harness/index.ts",
-        "./harness/allocation": "./src/harness/allocation.ts",
-        "./harness/pixels": "./src/harness/pixels.ts",
-        "./harness/capture": "./src/harness/capture.ts",
         "./vite": {
             "types": "./src/project/vite.ts",
             "default": "./dist/vite.js"
@@ -44,6 +40,7 @@
         "./scene": "./src/engine/scene/index.ts",
         "./input": "./src/core/input/index.ts",
         "./rendering": "./src/core/rendering/index.ts",
+        "./standard": "./src/standard/index.ts",
         "./standard/rendering": "./src/standard/rendering/index.ts",
         "./glaze": "./src/transitional/glaze/index.ts",
         "./physics": "./src/transitional/physics/index.ts",

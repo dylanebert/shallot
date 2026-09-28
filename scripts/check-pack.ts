@@ -7,6 +7,7 @@ import { resolve } from "path";
 // output. Asserted against the real `bun pm pack` output, not the `files`
 // allowlist in isolation, so a negation the packer ignores still reds.
 const pkgDir = resolve(import.meta.dir, "..");
+const packageManifest = JSON.parse(readFileSync(resolve(pkgDir, "package.json"), "utf8"));
 
 const proc = Bun.spawn(["bun", "pm", "pack", "--dry-run"], {
     cwd: pkgDir,
@@ -36,8 +37,7 @@ if (files.length === 0) {
 }
 
 // The `**/` negations in `files`, read back from package.json so the pack gate and the allowlist can't disagree.
-const packageFiles = JSON.parse(readFileSync(resolve(pkgDir, "package.json"), "utf8"))
-    .files as string[];
+const packageFiles = packageManifest.files as string[];
 const negated = packageFiles
     .filter((entry) => entry.startsWith("!"))
     .map((entry) => new Glob(entry.slice(1)));
@@ -72,6 +72,7 @@ const forbidden: [string, (f: string) => boolean][] = [
     ["build output", (f) => f.includes("/node_modules/")],
     ["site assets", (f) => f.startsWith("assets/") && f !== "assets/icon-1024.png"],
     ["repo docs", (f) => f.endsWith(".md") && f !== "README.md" && !f.startsWith("examples/")],
+    ["test-support source", (f) => /^src\/(?:harness|testing)\//.test(f)],
 ];
 const violations = files.flatMap((f) =>
     forbidden.filter(([, match]) => match(f)).map(([kind]) => `${f} (${kind})`),
@@ -79,6 +80,7 @@ const violations = files.flatMap((f) =>
 
 const required = [
     "src/index.ts",
+    "src/core/rendering/capture.ts",
     "src/engine/app/device-tiers.generated.ts",
     "bin/shallot.ts",
     "src/project/policy.ts",
@@ -103,6 +105,11 @@ for (const f of files.filter((f) => f.endsWith("package.json") && f !== "package
             violations.push(`${f} (local engine dependency ${field}: ${range})`);
     }
 }
+
+const removedTestSupport = Object.keys(packageManifest.exports ?? {}).filter((entry) =>
+    /^\.\/(?:harness|testing)(?:\/|$)/.test(entry),
+);
+for (const entry of removedTestSupport) violations.push(`${entry} (test-support export)`);
 
 const missing = required.filter((f) => !files.includes(f));
 for (const entry of missingNegations) violations.push(`${entry} (missing files negation)`);

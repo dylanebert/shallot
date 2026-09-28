@@ -27,7 +27,7 @@ test("the import boundary resolves TypeScript specifiers, scans each source exte
                 name: "@dylanebert/shallot",
                 exports: {
                     "./input": "./src/core/input/index.ts",
-                    "./harness/capture": "./src/harness/capture.ts",
+                    "./rendering": "./src/core/rendering/index.ts",
                     "./extras": "./src/extras/index.ts",
                     "./vite": {
                         types: "./src/project/vite.ts",
@@ -54,17 +54,15 @@ test("the import boundary resolves TypeScript specifiers, scans each source exte
         );
 
         put(root, "core/input/index.ts", "export interface Input {}\n");
-        put(root, "core/input/fixtures/page.ts", 'import "@dylanebert/shallot/harness/capture";\n');
+        put(root, "core/input/fixtures/page.ts", 'import "@dylanebert/shallot/rendering";\n');
         put(root, "core/input/fixtures/support.ts", 'import "./page";\n');
-        put(root, "core/input/check.fixture.ts", 'import "@dylanebert/shallot/harness/capture";\n');
+        put(root, "core/input/check.fixture.ts", 'import "@dylanebert/shallot/rendering";\n');
         put(
             root,
             "core/input/product.ts",
             'import "./fixtures/page";\nimport "./check.fixture";\n',
         );
-        put(root, "harness/capture.ts", "export {};\n");
         put(root, "project/vite.ts", "export {};\n");
-        put(root, "harness/host.ts", 'import "@dylanebert/shallot/vite";\n');
         put(root, "core/rendering/index.ts", 'import "@dylanebert/shallot/input";\n');
         put(root, "core/rendering/js-path.ts", 'import "../input/index.js";\n');
         put(root, "core/rendering/alias.ts", 'import "@core/input";\n');
@@ -99,11 +97,6 @@ test("the import boundary resolves TypeScript specifiers, scans each source exte
             "extras/physics/index.ts",
             'export const load = () => import("../../core/rendering");\n',
         );
-        put(
-            root,
-            "harness/index.ts",
-            'export type Internal = import("../engine/runtime/internal").Internal;\n',
-        );
         put(root, "engine/runtime/index.ts", "export {};\n");
         put(root, "engine/runtime/internal.ts", "export interface Internal {}\n");
         put(
@@ -130,7 +123,6 @@ test("the import boundary resolves TypeScript specifiers, scans each source exte
             "src/core/rendering/view.mts:1: sibling import core/rendering → core/input",
             "src/core/rendering/view.tsx:1: sibling import core/rendering → core/input",
             "src/extras/physics/index.ts:1: physics module extras/physics imports rendering module core/rendering",
-            "src/harness/index.ts:1: import past engine/runtime/index.ts → engine/runtime/internal.ts",
             "src/standard/loading/index.ts:1: standard imports outward to extras/index",
             "src/transitional/legacy/product.ts:1: product module imports private fixture core/input/fixtures/page.ts",
             "src/transitional/legacy/product.ts:2: product module imports private fixture core/input/check.fixture.ts",
