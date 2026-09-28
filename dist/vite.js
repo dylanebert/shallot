@@ -250,18 +250,12 @@ function readProject(dir, io = REAL_IO) {
   const scenes = io.discoverScenes(dir);
   return { dir, manifest, scenes, ...plan(manifest, dir) };
 }
-function emptyPlan() {
-  return { dir: null, manifest: {}, scenes: [], ...plan({}, null) };
-}
 
 // src/project/vite.ts
 var CROSS_ORIGIN_ISOLATION = {
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Embedder-Policy": "require-corp"
 };
-function typegpuPlugin() {
-  return typegpu();
-}
 function pluginPackages(projectDir) {
   if (!projectDir)
     return [];
@@ -298,7 +292,7 @@ function signalChange(server) {
   server.ws.send({ type: "full-reload" });
 }
 function configureServer(server, projectDir) {
-  const publicDirs = projectDir ? findPublicDirs(resolve(projectDir)) : [];
+  const publicDirs = findPublicDirs(resolve(projectDir));
   if (publicDirs.length === 0)
     return;
   server.middlewares.use((req, res, next) => {
@@ -357,29 +351,41 @@ function classifyProjectFile(file, absDir, publicDirs) {
     return "project";
   return null;
 }
-function projectPlugin(projectDir) {
+function shallot(projectDir) {
+  const transform = typegpu();
   const virtualId = "virtual:project";
   const resolvedId = "\x00" + virtualId;
-  const sharedDependencies = [
-    "@dylanebert/shallot",
-    "typegpu",
-    ...pluginPackages(projectDir)
-  ];
+  let absProjectDir = projectDir ? resolve(projectDir) : resolve(process.cwd());
   let viteServer;
   let publicDirs = [];
   return {
-    name: "shallot-project",
-    config() {
+    ...transform,
+    name: "shallot",
+    config(config) {
+      if (!projectDir)
+        absProjectDir = resolve(config.root ?? process.cwd());
+      const sharedDependencies = [
+        "@dylanebert/shallot",
+        "typegpu",
+        ...pluginPackages(absProjectDir)
+      ];
       return {
         resolve: { dedupe: sharedDependencies },
-        optimizeDeps: { exclude: sharedDependencies }
+        optimizeDeps: { exclude: sharedDependencies },
+        server: { headers: CROSS_ORIGIN_ISOLATION },
+        preview: { headers: CROSS_ORIGIN_ISOLATION }
       };
+    },
+    configResolved(config) {
+      if (config.plugins.some((plugin) => plugin.name === "unplugin-typegpu")) {
+        throw new Error("shallot() includes the TypeGPU transform; remove the separate typegpu() plugin");
+      }
     },
     async resolveId(id, importer) {
       if (id === virtualId)
         return resolvedId;
-      if (importer === resolvedId && projectDir) {
-        const r = await this.resolve(id, join3(resolve(projectDir), "__project__.js"), {
+      if (importer === resolvedId) {
+        const r = await this.resolve(id, join3(absProjectDir, "__project__.js"), {
           skipSelf: true
         });
         if (r)
@@ -389,42 +395,38 @@ function projectPlugin(projectDir) {
     load(id) {
       if (id !== resolvedId)
         return;
-      if (!projectDir)
-        return generateModuleFromPlan(emptyPlan());
-      return generateModuleFromPlan(readProject(resolve(projectDir)));
+      return generateModuleFromPlan(readProject(absProjectDir));
     },
     configureServer(server) {
       viteServer = server;
-      configureServer(server, projectDir);
-      if (projectDir) {
-        const absDir = resolve(projectDir);
-        publicDirs = findPublicDirs(absDir);
-        server.watcher.add(absDir);
-        for (const pub of publicDirs)
-          if (!pub.startsWith(absDir))
-            server.watcher.add(pub);
-        const onProjectFile = (file) => {
-          const kind = classifyProjectFile(file, absDir, publicDirs);
-          if (kind === "asset") {
-            signalChange(server);
-            return;
-          }
-          if (kind === "project") {
-            const mod = server.moduleGraph.getModuleById(resolvedId);
-            if (mod)
-              server.moduleGraph.invalidateModule(mod);
-            signalChange(server);
-          }
-        };
-        server.watcher.on("change", onProjectFile);
-        server.watcher.on("add", onProjectFile);
-        server.watcher.on("unlink", onProjectFile);
-      }
+      configureServer(server, absProjectDir);
+      const absDir = absProjectDir;
+      publicDirs = findPublicDirs(absDir);
+      server.watcher.add(absDir);
+      for (const pub of publicDirs)
+        if (!pub.startsWith(absDir))
+          server.watcher.add(pub);
+      const onProjectFile = (file) => {
+        const kind = classifyProjectFile(file, absDir, publicDirs);
+        if (kind === "asset") {
+          signalChange(server);
+          return;
+        }
+        if (kind === "project") {
+          const mod = server.moduleGraph.getModuleById(resolvedId);
+          if (mod)
+            server.moduleGraph.invalidateModule(mod);
+          signalChange(server);
+        }
+      };
+      server.watcher.on("change", onProjectFile);
+      server.watcher.on("add", onProjectFile);
+      server.watcher.on("unlink", onProjectFile);
     },
     handleHotUpdate({ file }) {
-      if (!projectDir || !viteServer)
+      if (!viteServer)
         return;
-      const absDir = resolve(projectDir);
+      const absDir = absProjectDir;
       if (classifyProjectFile(file, absDir, publicDirs) === "project") {
         const mod = viteServer.moduleGraph.getModuleById(resolvedId);
         if (mod)
@@ -457,6 +459,5 @@ export {
   manifestWarnings,
   orphanedAssets,
   pluginPackages,
-  projectPlugin,
-  typegpuPlugin
+  shallot
 };

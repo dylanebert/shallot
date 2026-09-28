@@ -4,7 +4,7 @@ import typegpu from "unplugin-typegpu/vite";
 import type { Plugin, Rollup, ViteDevServer } from "vite";
 import { contentType, manifestPath, resolveAssetPath } from "./assets";
 import { generateModuleFromPlan } from "./generate";
-import { emptyPlan, plan, readProject } from "./host";
+import { plan, readProject } from "./host";
 import { normalize } from "./manifest";
 
 // the manifest descriptor half of `assets.ts` is part of this subpath's published surface — the CLI
@@ -30,22 +30,6 @@ export const CROSS_ORIGIN_ISOLATION = {
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Embedder-Policy": "require-corp",
 };
-
-/**
- * the TGSL build transform (`unplugin-typegpu`). The engine's shaders are JS function bodies
- * transpiled to WGSL at build time — typegpu parses nothing at runtime — so every bundle carrying
- * engine code needs it, reaching engine source inside `node_modules` too. `shallot dev` / `shallot
- * build` install it for a manifest project, which owns no vite config. An ejected project that owns
- * one imports `typegpu` from `unplugin-typegpu/vite` itself. `typegpuPlugin` is the CLI's config-synthesis
- * helper, not the ejected-consumer route. The direct form is also required for options: consumer TGSL
- * inside compiled `.svelte` / `.vue` blocks needs an `enforce: "post"` plugin whose `include` repeats
- * the default JS/TS matcher and adds the component extension. Exactly **one** instance may run in a
- * bundle: a second pass re-wraps the emitted metadata and corrupts it. `checkTgsl` proves the engine's
- * `.ts` source was transformed, not a consumer component block.
- */
-export function typegpuPlugin(): Plugin {
-    return typegpu() as unknown as Plugin;
-}
 
 /** Package names of enabled manifest plugins. Relative and absolute specs are project source, not dependencies. */
 export function pluginPackages(projectDir?: string): string[] {
@@ -102,8 +86,8 @@ function signalChange(server: ViteDevServer) {
 }
 
 // serve project public/ assets (the project's own + a shared parent's) with correct MIME
-function configureServer(server: ViteDevServer, projectDir?: string) {
-    const publicDirs: string[] = projectDir ? findPublicDirs(resolve(projectDir)) : [];
+function configureServer(server: ViteDevServer, projectDir: string) {
+    const publicDirs = findPublicDirs(resolve(projectDir));
     if (publicDirs.length === 0) return;
 
     server.middlewares.use((req, res, next) => {
@@ -190,24 +174,42 @@ export function classifyProjectFile(
     return null;
 }
 
-export function projectPlugin(projectDir?: string): Plugin {
+/**
+ * One plugin for a Shallot project: `plugins: [shallot()]`. It carries TypeGPU's transform,
+ * manifest support, dependency sharing and isolation headers for both servers. The transform must
+ * reach engine source inside `node_modules`; a second pass corrupts its metadata.
+ */
+export function shallot(projectDir?: string): Plugin {
+    const transform = typegpu() as unknown as Plugin;
     const virtualId = "virtual:project";
     const resolvedId = "\0" + virtualId;
-    const sharedDependencies = [
-        "@dylanebert/shallot",
-        "typegpu",
-        ...pluginPackages(projectDir),
-    ];
+    let absProjectDir = projectDir ? resolve(projectDir) : resolve(process.cwd());
     let viteServer: ViteDevServer | undefined;
     let publicDirs: string[] = [];
 
     return {
-        name: "shallot-project",
-        config() {
+        ...transform,
+        name: "shallot",
+        config(config) {
+            if (!projectDir) absProjectDir = resolve(config.root ?? process.cwd());
+            const sharedDependencies = [
+                "@dylanebert/shallot",
+                "typegpu",
+                ...pluginPackages(absProjectDir),
+            ];
             return {
                 resolve: { dedupe: sharedDependencies },
                 optimizeDeps: { exclude: sharedDependencies },
+                server: { headers: CROSS_ORIGIN_ISOLATION },
+                preview: { headers: CROSS_ORIGIN_ISOLATION },
             };
+        },
+        configResolved(config) {
+            if (config.plugins.some((plugin) => plugin.name === "unplugin-typegpu")) {
+                throw new Error(
+                    "shallot() includes the TypeGPU transform; remove the separate typegpu() plugin",
+                );
+            }
         },
         async resolveId(id, importer) {
             if (id === virtualId) return resolvedId;
@@ -217,8 +219,8 @@ export function projectPlugin(projectDir?: string): Plugin {
             // host's node_modules. Resolve those from the PROJECT dir, so a manifest can reference an
             // installed plugin by subpath (engine `@dylanebert/shallot` imports resolve here too, to the
             // project's copy).
-            if (importer === resolvedId && projectDir) {
-                const r = await this.resolve(id, join(resolve(projectDir), "__project__.js"), {
+            if (importer === resolvedId) {
+                const r = await this.resolve(id, join(absProjectDir, "__project__.js"), {
                     skipSelf: true,
                 });
                 if (r) return r;
@@ -228,46 +230,43 @@ export function projectPlugin(projectDir?: string): Plugin {
         // enabled plugin (engine via the barrel, locals via their specifier) + the scene + manifest.
         load(id) {
             if (id !== resolvedId) return;
-            if (!projectDir) return generateModuleFromPlan(emptyPlan());
-            return generateModuleFromPlan(readProject(resolve(projectDir)));
+            return generateModuleFromPlan(readProject(absProjectDir));
         },
         configureServer(server) {
             viteServer = server;
-            configureServer(server, projectDir);
-            if (projectDir) {
-                const absDir = resolve(projectDir);
-                publicDirs = findPublicDirs(absDir);
-                server.watcher.add(absDir);
-                // a shared parent public/ sits outside the project dir, so add it explicitly (the project's
-                // own public/ is already covered by absDir) — a model there must still trigger the swap
-                for (const pub of publicDirs) if (!pub.startsWith(absDir)) server.watcher.add(pub);
-                // a `.scene` add/remove changes the scene list; a `shallot.json` edit changes the plugin
-                // set — both re-generate `virtual:project`, so invalidate + reload. Local plugin `.ts`
-                // edits ride HMR instead. The watcher path is the sole signaler — handleHotUpdate only
-                // invalidates + swallows default HMR, so a single `.scene` change fires one reload, not
-                // two (the two paths fire independently on the same change event — handleHotUpdate
-                // runs only for update/change events in Vite 8, so add/unlink were always single-fire
-                // via the watcher path alone).
-                const onProjectFile = (file: string) => {
-                    const kind = classifyProjectFile(file, absDir, publicDirs);
-                    if (kind === "asset") {
-                        signalChange(server);
-                        return;
-                    }
-                    if (kind === "project") {
-                        const mod = server.moduleGraph.getModuleById(resolvedId);
-                        if (mod) server.moduleGraph.invalidateModule(mod);
-                        signalChange(server);
-                    }
-                };
-                server.watcher.on("change", onProjectFile);
-                server.watcher.on("add", onProjectFile);
-                server.watcher.on("unlink", onProjectFile);
-            }
+            configureServer(server, absProjectDir);
+            const absDir = absProjectDir;
+            publicDirs = findPublicDirs(absDir);
+            server.watcher.add(absDir);
+            // a shared parent public/ sits outside the project dir, so add it explicitly (the project's
+            // own public/ is already covered by absDir) — a model there must still trigger the swap
+            for (const pub of publicDirs) if (!pub.startsWith(absDir)) server.watcher.add(pub);
+            // a `.scene` add/remove changes the scene list; a `shallot.json` edit changes the plugin
+            // set — both re-generate `virtual:project`, so invalidate + reload. Local plugin `.ts`
+            // edits ride HMR instead. The watcher path is the sole signaler — handleHotUpdate only
+            // invalidates + swallows default HMR, so a single `.scene` change fires one reload, not
+            // two (the two paths fire independently on the same change event — handleHotUpdate
+            // runs only for update/change events in Vite 8, so add/unlink were always single-fire
+            // via the watcher path alone).
+            const onProjectFile = (file: string) => {
+                const kind = classifyProjectFile(file, absDir, publicDirs);
+                if (kind === "asset") {
+                    signalChange(server);
+                    return;
+                }
+                if (kind === "project") {
+                    const mod = server.moduleGraph.getModuleById(resolvedId);
+                    if (mod) server.moduleGraph.invalidateModule(mod);
+                    signalChange(server);
+                }
+            };
+            server.watcher.on("change", onProjectFile);
+            server.watcher.on("add", onProjectFile);
+            server.watcher.on("unlink", onProjectFile);
         },
         handleHotUpdate({ file }) {
-            if (!projectDir || !viteServer) return;
-            const absDir = resolve(projectDir);
+            if (!viteServer) return;
+            const absDir = absProjectDir;
             if (classifyProjectFile(file, absDir, publicDirs) === "project") {
                 const mod = viteServer.moduleGraph.getModuleById(resolvedId);
                 if (mod) viteServer.moduleGraph.invalidateModule(mod);
@@ -281,7 +280,7 @@ export function projectPlugin(projectDir?: string): Plugin {
         },
         // drop the assets vite's `new URL` scanner over-emitted (see orphanedAssets). Build-only (a
         // rollup output hook, never fires in dev), and homed here so every build path inherits it: the
-        // synth build (src/cli/build.ts) and a standalone's own vite.config both run projectPlugin.
+        // synth build (src/cli/build.ts) and a standalone's own vite.config both run shallot().
         generateBundle(_options, bundle) {
             const orphans = orphanedAssets(bundle);
             if (!orphans.length) return;

@@ -2,14 +2,12 @@ import { existsSync } from "node:fs";
 import { basename, relative, resolve } from "node:path";
 import { createServer, searchForWorkspaceRoot, type Plugin as VitePlugin } from "vite";
 import {
-    CROSS_ORIGIN_ISOLATION,
     composeViteConfig,
     findPublicDirs,
     loadProjectConfig,
-    projectPlugin,
     requireProject,
+    shallot,
     synthIndex,
-    typegpuPlugin,
 } from "../project";
 
 // serve the synthesized entry at `/` only when a manifest project has no index.html. `transformIndexHtml`
@@ -47,16 +45,13 @@ export function devConfig(
         // typegpu transpiles TGSL function bodies at build time — there is no runtime fallback, and
         // the engine's own kernels live in node_modules, so the transform must reach there too
         plugins: [
-            typegpuPlugin(),
-            projectPlugin(absProjectDir),
+            shallot(absProjectDir),
             ...(existsSync(resolve(absProjectDir, "index.html")) ? [] : [synthIndexPlugin(name)]),
         ],
         server: {
             port: opts.port,
             strictPort: opts.strictPort,
             open: opts.open ?? true,
-            // cross-origin isolation so physics multithreads (COOP/COEP → shared WebAssembly.Memory)
-            headers: CROSS_ORIGIN_ISOLATION,
             // searchForWorkspaceRoot restores vite's default fs.allow root (which an explicit `allow`
             // overrides). The engine package (`@dylanebert/shallot`, with its `crates/audio/pkg/*.wasm`
             // fetched over /@fs/) is covered by it when in-workspace; a cross-repo symlink (a project
@@ -77,8 +72,8 @@ export function devConfig(
 
 /**
  * `shallot dev` — run a project standalone: a vite HMR server over its `shallot.json`. The
- * project is pure data; the CLI supplies the entry + harness. `projectPlugin` resolves
- * `virtual:project` and full-reloads on a manifest / scene / plugin edit — the same resolver `shallot build`
+ * project is pure data; the CLI supplies the entry + harness. `shallot()` resolves `virtual:project`
+ * and full-reloads on a manifest / scene / model edit — the same resolver `shallot build`
  * uses, so dev and ship agree on the loaded plugins + scene + capacity.
  */
 export async function startDev(
@@ -97,13 +92,12 @@ export async function startDev(
     const project = await loadProjectConfig(absProjectDir, "serve", "development");
     if (project) console.log(`  · merged ${relative(absProjectDir, project.path)}\n`);
 
-    // drop a project's own copy of the host plugins (a project may declare `projectPlugin` in its
-    // vite.config for an ejected harness like a bench — the CLI host provides it here).
+    // drop a project's own copy of the host plugin; the CLI host provides the single shallot() plugin.
     const server = await createServer(
         composeViteConfig(
             devConfig(absProjectDir, name, opts),
             project,
-            new Set(["shallot-project", "shallot-synth-index", "unplugin-typegpu"]),
+            new Set(["shallot", "shallot-synth-index"]),
         ),
     );
     await server.listen();

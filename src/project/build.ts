@@ -5,7 +5,7 @@ import { build as viteBuild } from "vite";
 import { manifestPath } from "./assets";
 import { discoverScenes } from "./host";
 import { composeViteConfig, loadProjectConfig } from "./toolchain";
-import { findPublicDirs, projectPlugin, typegpuPlugin } from "./vite";
+import { findPublicDirs, shallot } from "./vite";
 
 // the entry a manifest project lacks: a page that runs the project's manifest. resolves the same
 // `virtual:project` `shallot dev` reads (one resolver, no second manifest reader) — its `plugins` are the
@@ -55,7 +55,7 @@ export function buildConfig(projectDir: string, output: WebOutput = {}) {
         logLevel: "warn" as const,
         // typegpu transpiles TGSL function bodies at build time — there is no runtime fallback,
         // and the engine's own kernels live in node_modules, so the transform must reach there too
-        plugins: [typegpuPlugin(), projectPlugin(resolve(projectDir))],
+        plugins: [shallot(resolve(projectDir))],
         build: {
             target: "esnext",
             outDir: output.outDir ?? "dist",
@@ -97,13 +97,12 @@ export async function buildWeb(projectDir: string, output: WebOutput = {}): Prom
     const entry = resolve(projectDir, "index.html");
     writeFileSync(entry, synthIndex(basename(projectDir)));
     try {
-        // drop a project's own copy of the host plugin (a project may declare `projectPlugin` for an
-        // ejected harness; the build host provides it).
+        // drop a project's own copy of the host plugin; the build host provides shallot().
         await viteBuild(
             composeViteConfig(
                 buildConfig(projectDir, output),
                 project,
-                new Set(["shallot-project", "unplugin-typegpu"]),
+                new Set(["shallot"]),
             ),
         );
     } finally {

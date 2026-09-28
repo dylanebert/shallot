@@ -24,9 +24,9 @@ export interface PlannedLocal {
 }
 
 /** a project directory reduced to what both consumers need: its manifest, its scenes, and the plugin
- *  set the manifest enables. `dir` is null only for the host's own no-project fallback. */
+ *  set the manifest enables. */
 export interface ProjectPlan {
-    readonly dir: string | null;
+    readonly dir: string;
     readonly manifest: Manifest;
     readonly scenes: readonly string[];
     /** engine plugin names to resolve as `${name}Plugin` (enabled defaults + declared extras) */
@@ -161,12 +161,6 @@ export function readProject(dir: string, io: ProjectIo = REAL_IO): ProjectPlan {
     return { dir, manifest, scenes, ...plan(manifest, dir) };
 }
 
-/** the plan for no project at all — the generator's empty-manifest fallback (`projectPlugin()` with no
- *  dir), kept here so "no project" is one shape rather than an inline literal per consumer. */
-export function emptyPlan(): ProjectPlan {
-    return { dir: null, manifest: {}, scenes: [], ...plan({}, null) };
-}
-
 /** resolve a module specifier from the project root, or null when nothing resolves. */
 function resolveFromProject(spec: string, dir: string): string | null {
     try {
@@ -181,7 +175,7 @@ export function resolveLocalModules(project: Pick<ProjectPlan, "dir" | "locals">
     const errors: string[] = [];
     const locals: PlannedLocal[] = [];
     for (const local of project.locals) {
-        const path = project.dir ? resolveFromProject(local.path, project.dir) : null;
+        const path = resolveFromProject(local.path, project.dir);
         if (path) locals.push({ ...local, path });
         else
             errors.push(

@@ -798,9 +798,8 @@ export function checkTgsl(): void {
     } catch (cause) {
         throw new Error(
             "TGSL metadata is missing — this bundle was built without the typegpu transform, so every " +
-                "engine shader would resolve wrong. Add `typegpu()` from `unplugin-typegpu/vite` to your " +
-                "vite config (`shallot dev` / `shallot build` projects already have it), or register " +
-                "`unplugin-typegpu/bun` in a bun preload.",
+                "engine shader would resolve wrong. Add `shallot()` from `@dylanebert/shallot/vite` to " +
+                "your vite config, or register `unplugin-typegpu/bun` in a bun preload.",
             { cause },
         );
     }
