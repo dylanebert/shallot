@@ -22,6 +22,11 @@ test("Vite is a supported plugin peer and a Shallot development dependency", () 
     expect(ENGINE.dependencies.vite).toBeUndefined();
 });
 
+test("the script-only Babel parser is a development dependency", () => {
+    expect(ENGINE.dependencies["@babel/parser"]).toBeUndefined();
+    expect(ENGINE.devDependencies["@babel/parser"]).toBe("^8.0.6");
+});
+
 function run(command: string[], cwd: string, label: string): string {
     const result = Bun.spawnSync(command, { cwd, stdout: "pipe", stderr: "pipe" });
     const output = `${result.stdout.toString()}${result.stderr.toString()}`;

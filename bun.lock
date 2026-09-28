@@ -5,13 +5,13 @@
     "": {
       "name": "shallot",
       "dependencies": {
-        "@babel/parser": "^8.0.6",
         "@types/node": "^26.6.3",
         "@webgpu/types": "^0.1.74",
         "unplugin-typegpu": "~0.12.4",
       },
       "devDependencies": {
         "@arethetypeswrong/cli": "0.18.5",
+        "@babel/parser": "^8.0.6",
         "@biomejs/biome": "^2.5.14",
         "@types/bun": "^1.4.2",
         "binaryen": "132.0.0",
