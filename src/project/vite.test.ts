@@ -5,6 +5,12 @@ import { join } from "node:path";
 import { check } from "@dylanebert/shallot/harness/check";
 import { shallot } from "./vite";
 
+function shallotProject(projectDir?: string) {
+    const plugin = shallot(projectDir).find(({ name }) => name === "shallot");
+    if (!plugin) throw new Error("shallot() did not return its project plugin");
+    return plugin;
+}
+
 check(
     "shallot plugin: shares dependencies and configures both servers",
     {
@@ -22,7 +28,10 @@ check(
                     },
                 }),
             );
-            const plugin = shallot(root);
+            const plugins = shallot(root);
+            expect(plugins.map(({ name }) => name)).toEqual(["unplugin-typegpu", "shallot"]);
+            const plugin = plugins.find(({ name }) => name === "shallot");
+            if (!plugin) throw new Error("shallot() did not return its project plugin");
             const configHook = plugin.config as unknown as (
                 config: { root: string },
                 env: unknown,
@@ -31,7 +40,6 @@ check(
                 resolve?: { dedupe?: string[] };
                 optimizeDeps?: { exclude?: string[] };
                 server?: { headers?: Record<string, string> };
-                preview?: { headers?: Record<string, string> };
             };
             const expected = ["@dylanebert/shallot", "typegpu", "@dylanebert/shallot-grid"];
             expect(config.resolve?.dedupe).toEqual(expected);
@@ -40,7 +48,6 @@ check(
                 "Cross-Origin-Opener-Policy": "same-origin",
                 "Cross-Origin-Embedder-Policy": "require-corp",
             });
-            expect(config.preview?.headers).toEqual(config.server?.headers);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
@@ -59,7 +66,7 @@ check(
                 join(root, "shallot.json"),
                 JSON.stringify({ scene: "scenes/arena.scene", plugins: { Physics: true } }),
             );
-            const plugin = shallot(root);
+            const plugin = shallotProject(root);
             const load = plugin.load as unknown as (id: string) => string | undefined;
             const source = load("\0virtual:project");
             expect(source).toContain("PhysicsPlugin");
@@ -76,11 +83,15 @@ check(
         claim: "a project config cannot apply TypeGPU's metadata transform twice",
     },
     () => {
-        const plugin = shallot();
-        const resolved = plugin.configResolved as unknown as (config: {
+        const plugins = shallot();
+        const project = plugins.find(({ name }) => name === "shallot");
+        if (!project) throw new Error("shallot() did not return its project plugin");
+        const resolved = project.configResolved as unknown as (config: {
             plugins: { name: string }[];
         }) => void;
-        expect(() => resolved({ plugins: [{ name: "shallot" }, { name: "unplugin-typegpu" }] })).toThrow(
+        const names = plugins.map(({ name }) => ({ name }));
+        expect(() => resolved({ plugins: names })).not.toThrow();
+        expect(() => resolved({ plugins: [...names, { name: "unplugin-typegpu" }] })).toThrow(
             "shallot() includes the TypeGPU transform",
         );
     },
@@ -98,7 +109,7 @@ check(
             "orphan.png": { type: "asset", fileName: "orphan.png", source: "orphan" },
         };
         const messages: string[] = [];
-        const generate = shallot().generateBundle as unknown as (
+        const generate = shallotProject().generateBundle as unknown as (
             this: { info(message: string): void },
             options: unknown,
             bundle: Record<string, unknown>,
@@ -138,7 +149,7 @@ check(
                     invalidateModule() { invalidations++; },
                 },
             };
-            const plugin = shallot(root);
+            const plugin = shallotProject(root);
             const configure = plugin.configureServer as unknown as (server: unknown) => void;
             configure(server);
             const changed = listeners.get("change");

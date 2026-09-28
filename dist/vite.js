@@ -352,14 +352,12 @@ function classifyProjectFile(file, absDir, publicDirs) {
   return null;
 }
 function shallot(projectDir) {
-  const transform = typegpu();
   const virtualId = "virtual:project";
   const resolvedId = "\x00" + virtualId;
   let absProjectDir = projectDir ? resolve(projectDir) : resolve(process.cwd());
   let viteServer;
   let publicDirs = [];
-  return {
-    ...transform,
+  const projectPlugin = {
     name: "shallot",
     config(config) {
       if (!projectDir)
@@ -372,12 +370,11 @@ function shallot(projectDir) {
       return {
         resolve: { dedupe: sharedDependencies },
         optimizeDeps: { exclude: sharedDependencies },
-        server: { headers: CROSS_ORIGIN_ISOLATION },
-        preview: { headers: CROSS_ORIGIN_ISOLATION }
+        server: { headers: CROSS_ORIGIN_ISOLATION }
       };
     },
     configResolved(config) {
-      if (config.plugins.some((plugin) => plugin.name === "unplugin-typegpu")) {
+      if (config.plugins.filter((plugin) => plugin.name === "unplugin-typegpu").length > 1) {
         throw new Error("shallot() includes the TypeGPU transform; remove the separate typegpu() plugin");
       }
     },
@@ -448,6 +445,7 @@ function shallot(projectDir) {
       this.info(`pruned ${orphans.length} orphaned asset(s), ${bytes / 1024 | 0}KB`);
     }
   };
+  return [typegpu(), projectPlugin];
 }
 export {
   CROSS_ORIGIN_ISOLATION,

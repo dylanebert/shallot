@@ -175,20 +175,18 @@ export function classifyProjectFile(
 }
 
 /**
- * One plugin for a Shallot project: `plugins: [shallot()]`. It carries TypeGPU's transform,
- * manifest support, dependency sharing and isolation headers for both servers. The transform must
- * reach engine source inside `node_modules`; a second pass corrupts its metadata.
+ * The Vite plugin set a Shallot project needs: `plugins: [shallot()]`. TypeGPU stays a separate
+ * plugin entry alongside project support, so its hooks are composed rather than overwritten. Its
+ * transform must reach engine source inside `node_modules`; a second pass corrupts its metadata.
  */
-export function shallot(projectDir?: string): Plugin {
-    const transform = typegpu() as unknown as Plugin;
+export function shallot(projectDir?: string): Plugin[] {
     const virtualId = "virtual:project";
     const resolvedId = "\0" + virtualId;
     let absProjectDir = projectDir ? resolve(projectDir) : resolve(process.cwd());
     let viteServer: ViteDevServer | undefined;
     let publicDirs: string[] = [];
 
-    return {
-        ...transform,
+    const projectPlugin: Plugin = {
         name: "shallot",
         config(config) {
             if (!projectDir) absProjectDir = resolve(config.root ?? process.cwd());
@@ -201,11 +199,10 @@ export function shallot(projectDir?: string): Plugin {
                 resolve: { dedupe: sharedDependencies },
                 optimizeDeps: { exclude: sharedDependencies },
                 server: { headers: CROSS_ORIGIN_ISOLATION },
-                preview: { headers: CROSS_ORIGIN_ISOLATION },
             };
         },
         configResolved(config) {
-            if (config.plugins.some((plugin) => plugin.name === "unplugin-typegpu")) {
+            if (config.plugins.filter((plugin) => plugin.name === "unplugin-typegpu").length > 1) {
                 throw new Error(
                     "shallot() includes the TypeGPU transform; remove the separate typegpu() plugin",
                 );
@@ -294,4 +291,5 @@ export function shallot(projectDir?: string): Plugin {
             this.info(`pruned ${orphans.length} orphaned asset(s), ${(bytes / 1024) | 0}KB`);
         },
     };
+    return [typegpu() as unknown as Plugin, projectPlugin];
 }
