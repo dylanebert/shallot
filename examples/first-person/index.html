@@ -14,10 +14,10 @@
     <body>
         <canvas id="canvas"></canvas>
         <script type="module">
-            import { run } from "@dylanebert/shallot";
+            import { BrowserInputPlugin, run } from "@dylanebert/shallot";
             import project from "virtual:project";
             await run({
-                plugins: project.plugins,
+                plugins: [BrowserInputPlugin, ...project.plugins],
                 scene: project.scene ?? undefined,
                 defaults: false,
                 capacity: project.capacity ?? undefined,
