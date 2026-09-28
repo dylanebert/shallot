@@ -40,7 +40,7 @@ function installTypegpu(nodeModules: string): void {
 function writePreload(path: string): void {
     writeFileSync(
         path,
-        'import { plugin } from "bun";\nimport { resolve } from "node:path";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot({ root: resolve(import.meta.dir, "..") }));\n',
+        'import { plugin } from "bun";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot({ root: import.meta.dir }));\n',
     );
 }
 
@@ -72,7 +72,7 @@ function createLinkedFixture(scratch: string): { nodeModules: string; tests: str
     return { nodeModules, tests };
 }
 
-function createWorkspaceFixture(scratch: string): { game: string; tests: string } {
+function createWorkspaceFixture(scratch: string): { game: string } {
     const rootNodeModules = join(scratch, "node_modules");
     const game = join(scratch, "packages/game");
     const gameNodeModules = join(game, "node_modules");
@@ -114,7 +114,7 @@ function createWorkspaceFixture(scratch: string): { game: string; tests: string 
         '[test]\npreload = ["./packages/game/tests/preload.ts"]\n',
     );
     writePreload(join(tests, "preload.ts"));
-    return { game, tests };
+    return { game };
 }
 
 test("the Bun preload dedupes linked-engine TypeGPU imports to the consumer peer", () => {
@@ -165,38 +165,6 @@ test("a Bun test from the workspace root resolves TypeGPU from the package that 
         );
         expect(output).toContain("workspace consumer and linked engine share one TypeGPU instance");
         expect(output).toContain("1 pass");
-        expect(output).not.toContain("Found duplicate TypeGPU version");
-    } finally {
-        rmSync(scratch, { recursive: true, force: true });
-    }
-});
-
-test("a second TypeGPU copy fails before its duplicate stamp evaluates and names both paths", () => {
-    const scratch = mkdtempSync(join(tmpdir(), "shallot-package-shape-duplicate-"));
-    try {
-        const { game } = createWorkspaceFixture(scratch);
-        const gameMeta = join(game, "node_modules/typegpu/shared/meta.js");
-        const engineMeta = join(ROOT, "node_modules/typegpu/shared/meta.js");
-        writeFileSync(
-            join(game, "tests/mono.test.ts"),
-            `import { expect, test } from "bun:test";\nimport tgpu from "typegpu";\nimport { checkTgsl } from "@dylanebert/shallot/runtime";\ntest("workspace consumer and linked engine share one TypeGPU instance", () => {\n    expect(typeof tgpu.fn).toBe("function");\n    expect(() => checkTgsl()).not.toThrow();\n});\n`,
-        );
-        writeFileSync(
-            join(scratch, "root-preload.ts"),
-            'import { plugin } from "bun";\nimport { shallot } from "@dylanebert/shallot/bun";\nplugin(shallot({ root: import.meta.dir }));\n',
-        );
-        writeFileSync(join(scratch, "bunfig.toml"), '[test]\npreload = ["./root-preload.ts"]\n');
-
-        const result = Bun.spawnSync(["bun", "test", "packages/game/tests/mono.test.ts"], {
-            cwd: scratch,
-            stdout: "pipe",
-            stderr: "pipe",
-        });
-        const output = `${result.stdout.toString()}${result.stderr.toString()}`;
-        expect(result.exitCode, output).not.toBe(0);
-        expect(output).toContain("Shallot detected multiple TypeGPU copies before evaluation");
-        expect(output).toContain(gameMeta);
-        expect(output).toContain(engineMeta);
         expect(output).not.toContain("Found duplicate TypeGPU version");
     } finally {
         rmSync(scratch, { recursive: true, force: true });

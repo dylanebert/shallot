@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { BunPlugin } from "bun";
 import typegpu from "unplugin-typegpu/bun";
@@ -18,19 +18,25 @@ function typegpuRootFrom(file: string): string | undefined {
     return markerAt < 0 ? undefined : normalized.slice(0, markerAt + marker.length - 1);
 }
 
-function canonicalRoot(root: string): string {
-    try {
-        return realpathSync(root);
-    } catch {
-        return resolve(root);
+function nearestPackageRoot(from: string): string {
+    let dir = resolve(from);
+    while (true) {
+        if (existsSync(resolve(dir, "package.json"))) return dir;
+        const parent = dirname(dir);
+        if (parent === dir) {
+            throw new Error(
+                `Shallot could not find a package.json at or above the Bun preload root ${from}.`,
+            );
+        }
+        dir = parent;
     }
 }
 
-/** Bun's test preload: TypeGPU transform plus linked-peer dedupe for the consumer's compatible copy. */
+/** Bun's test preload: TypeGPU transform plus name-based linked-peer routing. */
 export function shallot({ root }: Options): BunPlugin {
-    // Bun has no project-root API, and cwd may be a workspace rather than the package that owns this
-    // preload. Require the registering project to provide its root instead of guessing from cwd.
-    const projectRoot = resolve(root);
+    // Bun has no project-root API. The preload supplies its own directory; resolve the package that
+    // owns it instead of using cwd, which may be a workspace root.
+    const projectRoot = nearestPackageRoot(root);
     let projectTypegpuManifestPath: string | undefined;
     try {
         projectTypegpuManifestPath = Bun.resolveSync("typegpu/package.json", projectRoot);
@@ -51,26 +57,10 @@ export function shallot({ root }: Options): BunPlugin {
         projectTypegpuRoot = dirname(projectTypegpuManifestPath);
     }
 
-    const loadedTypegpuRoots = new Map<string, string>();
     const transform = typegpu({ include: TYPEGPU_INCLUDE });
     return {
         name: "shallot",
         async setup(build) {
-            // TypeGPU's duplicate stamp lives in shared/meta.js but only warns with versions. This hook
-            // runs before that module evaluates, so identify copies by the stamp's resolved path instead.
-            build.onLoad({ filter: /[/\\]typegpu[/\\]shared[/\\]meta\.[cm]?js$/ }, ({ path, loader }) => {
-                const root = typegpuRootFrom(path) ?? resolve(dirname(path), "..");
-                const canonical = canonicalRoot(root);
-                const [firstRoot, firstPath] = loadedTypegpuRoots.entries().next().value ?? [];
-                if (firstRoot && firstRoot !== canonical) {
-                    throw new Error(
-                        `Shallot detected multiple TypeGPU copies before evaluation: ${firstPath} (package ${firstRoot}) and ${path} (package ${canonical}).`,
-                    );
-                }
-                loadedTypegpuRoots.set(canonical, path);
-                return { contents: readFileSync(path, "utf8"), loader };
-            });
-
             if (projectTypegpuManifestPath && projectTypegpuRoot && projectVersion) {
                 // Bun reports linked TypeGPU's internal JS imports as relative paths from their real importer,
                 // so redirect those along with the package entrypoints.
