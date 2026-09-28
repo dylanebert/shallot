@@ -22,6 +22,7 @@ export const config = {
     webServer: {
         command: `bunx vite build "${subject}" --config "${subject}vite.config.ts" && bunx vite preview "${subject}" --config "${subject}vite.config.ts" --host 127.0.0.1 --port 4175 --strictPort`,
         url: "http://127.0.0.1:4175",
+        reuseExistingServer: false,
         timeout: 120_000,
     },
 } satisfies PlaywrightTestConfig;
