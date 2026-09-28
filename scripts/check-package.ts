@@ -43,6 +43,9 @@ try {
         "--pack",
         "false",
     ]);
+    // ATTW's ignore is global: it accepts the TypeScript-source Node16 gap owned by publish.md,
+    // but could hide a broken bundler import too. The packed-install test typechecks every export
+    // under bundler resolution to cover that loss.
     const attwSeconds = run("@arethetypeswrong/cli", ["attw", tarball]);
 
     console.log(

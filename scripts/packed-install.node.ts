@@ -44,6 +44,10 @@ test("packed examples install by copy-out as isolated standalone projects", asyn
                     private: true,
                     type: "module",
                     dependencies: { "@dylanebert/shallot": `file:../${tarballName}` },
+                    devDependencies: {
+                        "@types/bun": rootPackage.devDependencies["@types/bun"],
+                        typescript: rootPackage.devDependencies.typescript,
+                    },
                 },
                 null,
                 2,
@@ -130,6 +134,67 @@ test("the packed Vite entry imports in Node and exposes only shallot", () => {
         );
         expect(installedManifest.scripts.prepare).toBe(rootPackage.scripts.prepare);
         expect(cliInstall).not.toContain("build-tooling: compiled dist/vite.js");
+
+        const publicExports = Object.keys(installedManifest.exports).filter(
+            (entry) => entry !== "./tsconfig.json",
+        );
+        expect(publicExports.length).toBeGreaterThan(0);
+        const publicImportSource = publicExports
+            .map((entry, index) => {
+                const specifier =
+                    entry === "."
+                        ? installedManifest.name
+                        : `${installedManifest.name}/${entry.slice(2)}`;
+                return `import * as publicExport${index} from ${JSON.stringify(specifier)};`;
+            })
+            .join("\n");
+        writeFileSync(join(cliProject, "public-exports.ts"), `${publicImportSource}\n`);
+        const typecheckConfig = join(cliProject, "tsconfig.public-exports.json");
+        writeFileSync(
+            typecheckConfig,
+            JSON.stringify(
+                {
+                    extends: "@dylanebert/shallot/tsconfig.json",
+                    include: ["public-exports.ts"],
+                },
+                null,
+                2,
+            ),
+        );
+        const typecheckCommand = [
+            "node",
+            join(cliProject, "node_modules/typescript/bin/tsc"),
+            "--project",
+            typecheckConfig,
+        ];
+        run(typecheckCommand, cliProject, "typechecking every public TypeScript export");
+
+        const brandTarget = installedManifest.exports["./brand"];
+        if (typeof brandTarget !== "string" || !brandTarget.startsWith("./")) {
+            throw new Error("the exported ./brand entry has no direct TypeScript target");
+        }
+        const brandModule = resolve(installedPackage, brandTarget.slice(2));
+        const missingImport = "__shallot_missing_relative_import_probe__";
+        writeFileSync(
+            brandModule,
+            `import "./${missingImport}";\n${readFileSync(brandModule, "utf8")}`,
+        );
+        const brokenTypecheck = Bun.spawnSync(typecheckCommand, {
+            cwd: cliProject,
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        const brokenOutput = `${brokenTypecheck.stdout.toString()}${brokenTypecheck.stderr.toString()}`;
+        expect(brokenTypecheck.exitCode).not.toBe(0);
+        const brokenImportRed = brokenOutput
+            .split("\n")
+            .find((line) => line.includes("TS2882") && line.includes(missingImport));
+        if (!brokenImportRed) {
+            throw new Error(
+                `the broken exported relative import had no named TS2882 red:\n${brokenOutput}`,
+            );
+        }
+        console.log(`expected typecheck red: ${brokenImportRed.trim()}`);
 
         const packedProjectTests = run(
             ["bun", "test"],
