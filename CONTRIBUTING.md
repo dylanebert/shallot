@@ -112,7 +112,7 @@ CI runs static gates and the complete cheap tier on GitHub-hosted Ubuntu and mac
 
 Shallot is built from both ends, as a double loop. An example, built as a user would build it, is the outer loop: what it can't do is a gap in the engine. The module that owns the gap is the inner loop: the gap is fixed and proved there, never in the example.
 
-An example is an app in the shape of a user's project, under `examples/<name>/`. Its manifest's `problem` field names what its user wants, as a piece of a game.
+An example is an app in the shape of a user's project once copied out (`shallot add` writes its `package.json`), under `examples/<name>/`. Its manifest's `problem` field names what its user wants, as a piece of a game.
 
 - An example answers one problem a user meets while making any game. Only `first-person` composes many.
 - Every public promise the engine keeps is used by some example whose answer depends on it. A promise no example uses is a gap.

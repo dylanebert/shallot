@@ -21,6 +21,8 @@ bunx shallot dev
 
 The project owns its `index.html` and Vite config, with `plugins: [shallot()]`.
 
+Projects depend on Shallot through a registry release (including `@next` prereleases), a staged tarball or a live link; see [Dependencies and releases](CONTRIBUTING.md#dependencies-and-releases) for commands.
+
 For web, `shallot dev`, `shallot build` and `shallot preview` run the project's Vite commands. Native `dev` and `build` add the desktop shell; native `preview` launches that build.
 
 Use `bun test` for Bun checks and `bunx playwright test` for browser checks. `bunx shallot --help` lists every command.
