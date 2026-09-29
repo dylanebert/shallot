@@ -100,17 +100,36 @@ test("sequential clean physics States and an owner-world snapshot replay one fix
     }
 });
 
-function droppedSnapshotRefs(state: State): {
+interface SnapshotRefs {
     snapshot: WeakRef<WorldSnapshot>;
     logical: WeakRef<object>;
     bytes: WeakRef<Uint8Array>;
-} {
-    const saved = snapshot(state);
+}
+
+function snapshotRefs(saved: WorldSnapshot): SnapshotRefs {
     return {
         snapshot: new WeakRef(saved),
         logical: new WeakRef(saved.state as object),
         bytes: new WeakRef(saved.bytes),
     };
+}
+
+function droppedSnapshotRefs(state: State, registry: FinalizationRegistry<string>): SnapshotRefs {
+    const saved = snapshot(state);
+    registry.register(saved, "dropped");
+    return snapshotRefs(saved);
+}
+
+function retainedSnapshot(
+    state: State,
+    registry: FinalizationRegistry<string>,
+): {
+    saved: WorldSnapshot;
+    refs: SnapshotRefs;
+} {
+    const saved = snapshot(state);
+    registry.register(saved, "control");
+    return { saved, refs: snapshotRefs(saved) };
 }
 
 test("a snapshot restores into a fresh compatible World with an equivalent hash", async () => {
@@ -136,12 +155,23 @@ test("a snapshot restores into a fresh compatible World with an equivalent hash"
 test("snapshot logical state and WASM bytes are collectable after the caller drops them", async () => {
     const subject = await cleanState();
     try {
-        const refs = droppedSnapshotRefs(subject.state);
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        Bun.gc(true);
-        expect(refs.snapshot.deref()).toBeUndefined();
-        expect(refs.logical.deref()).toBeUndefined();
-        expect(refs.bytes.deref()).toBeUndefined();
+        const finalized = new Set<string>();
+        const registry = new FinalizationRegistry<string>((tag) => finalized.add(tag));
+        const dropped = droppedSnapshotRefs(subject.state, registry);
+        const control = retainedSnapshot(subject.state, registry);
+
+        const deadline = Date.now() + 1_000;
+        while (!finalized.has("dropped") && Date.now() < deadline) {
+            Bun.gc(true);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+
+        expect(finalized.has("dropped")).toBe(true);
+        expect(finalized.has("control")).toBe(false);
+        expect(control.refs.snapshot.deref()).toBe(control.saved);
+        expect(dropped.snapshot.deref()).toBeUndefined();
+        expect(dropped.logical.deref()).toBeUndefined();
+        expect(dropped.bytes.deref()).toBeUndefined();
     } finally {
         subject.app.dispose();
     }
