@@ -429,6 +429,26 @@ export function fields(component: Component): { name: string; field: FieldSchema
     return out;
 }
 
+/** @internal compare component storage shape independently of its field declaration order. */
+export function sameComponentSchema(a: Component, b: Component): boolean {
+    const af = fields(a).sort((left, right) => left.name.localeCompare(right.name));
+    const bf = fields(b).sort((left, right) => left.name.localeCompare(right.name));
+    if (af.length !== bf.length) return false;
+    for (let i = 0; i < af.length; i++) {
+        const left = af[i];
+        const right = bf[i];
+        if (
+            left.name !== right.name ||
+            !sameTypeLayout(left.field.type, right.field.type) ||
+            left.field.storage !== right.field.storage ||
+            left.field.name !== right.field.name
+        ) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /**
  * the fields holding an entity ref: those declared `sparse(entity)` / `slab(entity)`.
  * `serialize` reads it to emit each as `@<id>`; the ref-ness lives on the field's type, so it

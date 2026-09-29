@@ -3,11 +3,10 @@
 import {
     type Component,
     entries,
-    fields,
     register,
     State,
     type System,
-    sameTypeLayout,
+    sameComponentSchema,
     type Traits,
 } from "../ecs";
 import {
@@ -735,25 +734,6 @@ function shapeDiff(
     if ((prev.preferredFeatures ?? []).join(",") !== (next.preferredFeatures ?? []).join(","))
         return "preferred features changed";
     return null;
-}
-
-function sameComponentSchema(a: Component, b: Component): boolean {
-    const af = fields(a);
-    const bf = fields(b);
-    if (af.length !== bf.length) return false;
-    for (let i = 0; i < af.length; i++) {
-        const left = af[i];
-        const right = bf[i];
-        if (
-            left.name !== right.name ||
-            !sameTypeLayout(left.field.type, right.field.type) ||
-            left.field.storage !== right.field.storage ||
-            left.field.name !== right.field.name
-        ) {
-            return false;
-        }
-    }
-    return true;
 }
 
 function systemSig(s: System): string {

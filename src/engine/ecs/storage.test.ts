@@ -2,6 +2,34 @@ import { expect, test } from "bun:test";
 import { f32, State, sparse, vec2, vec4 } from "./index";
 import { WorldField } from "./storage";
 
+test("schema field access reuses cached columns without repeating schema sorts", () => {
+    const Component = { value: sparse(f32) };
+    const state = new State();
+    const eid = state.create();
+    state.of(Component);
+    const originalSort = Array.prototype.sort;
+    let sortCalls = 0;
+    let first = 0;
+    let second = 0;
+
+    Array.prototype.sort = function <T>(this: T[], compareFn?: (a: T, b: T) => number): T[] {
+        sortCalls++;
+        return originalSort.call(this, compareFn);
+    };
+    try {
+        Component.value.set(eid, 11);
+        first = Component.value.get(eid);
+        Component.value.set(eid, 12);
+        second = Component.value.get(eid);
+    } finally {
+        Array.prototype.sort = originalSort;
+        state.dispose();
+    }
+
+    expect([first, second]).toEqual([11, 12]);
+    expect(sortCalls).toBe(0);
+});
+
 test("scalar and vector field writes reach columns without a temporary value array", () => {
     const Scalar = { value: sparse(f32) };
     const Pair = { value: sparse(vec2) };

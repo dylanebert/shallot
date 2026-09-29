@@ -288,6 +288,28 @@ test("each world's capacity sizes entities, membership, and Slab buffers indepen
     expect(() => second.state.create()).toThrow("configured capacity 8");
 }, 20_000);
 
+test("reordered component fields swap without rebuilding their world columns", async () => {
+    const firstValue = { x: sparse(f32), y: sparse(f32) };
+    const firstPlugin = { name: "WorldFieldOrderProbe", components: { Value: firstValue } };
+    const app = await build({ defaults: false, plugins: [firstPlugin] });
+    apps.push(app);
+    const eid = app.state.create();
+    app.state.add(eid, firstValue);
+    const before = app.state.of(firstValue);
+    before.x.set(eid, 17);
+    const beforeX = before.x.column;
+    const beforeY = before.y.column;
+
+    const reloadedValue = { y: sparse(f32), x: sparse(f32) };
+    const reloaded = { name: "WorldFieldOrderProbe", components: { Value: reloadedValue } };
+    expect(await swap(app.state, [firstPlugin], [reloaded])).toEqual({ ok: true });
+
+    const after = app.state.of(reloadedValue);
+    expect(after.x.column).toBe(beforeX);
+    expect(after.y.column).toBe(beforeY);
+    expect(after.x.get(eid)).toBe(17);
+}, 20_000);
+
 test("a same-named Type with a different array layout forces a rebuild", async () => {
     const firstValue = { amount: sparse(f32) };
     const firstPlugin = { name: "WorldTypeLayoutProbe", components: { Value: firstValue } };

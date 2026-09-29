@@ -10,6 +10,7 @@ export {
     idOf,
     lanes,
     refs,
+    sameComponentSchema,
     sameTypeLayout,
     srgb8x4,
     u8,

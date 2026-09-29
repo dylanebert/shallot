@@ -1,5 +1,5 @@
 import type { FieldSchema, Pair, Quad, Single, Type, TypedArray } from "./component";
-import { fields, sameTypeLayout } from "./component";
+import { sameComponentSchema } from "./component";
 
 export type FieldStorage<T extends Type> = T["lanes"] extends 1
     ? Single
@@ -188,20 +188,5 @@ export type ComponentStorage<T> = {
 };
 
 export function sameSchema(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
-    const af = fields(a).sort((left, right) => left.name.localeCompare(right.name));
-    const bf = fields(b).sort((left, right) => left.name.localeCompare(right.name));
-    if (af.length !== bf.length) return false;
-    for (let i = 0; i < af.length; i++) {
-        const left = af[i];
-        const right = bf[i];
-        if (
-            left.name !== right.name ||
-            !sameTypeLayout(left.field.type, right.field.type) ||
-            left.field.storage !== right.field.storage ||
-            left.field.name !== right.field.name
-        ) {
-            return false;
-        }
-    }
-    return true;
+    return sameComponentSchema(a, b);
 }

@@ -163,10 +163,11 @@ export class State {
     /** resolve a component schema to its world-owned columns. Call once at system setup, then retain the result. */
     of<T extends Component>(component: T): ComponentStorage<T> {
         useState(this);
-        bindFields(component);
         const id = idOf(component);
         const existing = this._storage.get(id);
         if (existing) {
+            if (existing.schema === component) return existing.storage as ComponentStorage<T>;
+            bindFields(component);
             if (!sameSchema(existing.schema, component)) {
                 throw new Error(
                     `state.of: component schema changed for "${String(id)}"; rebuild this world`,
@@ -174,6 +175,7 @@ export class State {
             }
             return existing.storage as ComponentStorage<T>;
         }
+        bindFields(component);
         const columns = new Map<string, WorldField>();
         const storage: Record<string, unknown> = {};
         for (const { name, field } of fields(component)) {
