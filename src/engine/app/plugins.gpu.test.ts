@@ -222,27 +222,59 @@ async function trackedDevice() {
     );
     const watch = watchDevice(device);
     const live = new Set<GPUBuffer | GPUTexture>();
-    const owners = new WeakMap<object, State>();
+    const origins = new WeakMap<object, { owner?: State; label: string; createdAt: string }>();
     const labels = new WeakMap<State, string>();
     let checkingOwners = true;
-    const ownerOf = (resource: object | undefined): State | undefined =>
-        resource ? owners.get(resource) : undefined;
-    const track = <T extends object>(resource: T, owner = currentWorld<State>()): T => {
-        if (owner && checkingOwners) owners.set(resource, owner);
+    let buildScope = false;
+    let creationOwnerOverride: State | undefined;
+    let hasCreationOwnerOverride = false;
+    const ownerAtCreation = (): State | undefined =>
+        hasCreationOwnerOverride
+            ? creationOwnerOverride
+            : buildScope
+              ? currentWorld<State>()
+              : undefined;
+    const resourceLabel = (resource: object | undefined): string => {
+        if (!resource) return "missing GPU resource";
+        return (
+            (resource as { label?: string }).label || resource.constructor?.name || "GPU resource"
+        );
+    };
+    const recordOrigin = <T extends object>(
+        resource: T,
+        owner: State | undefined,
+        label?: string,
+    ): T => {
+        if (checkingOwners)
+            origins.set(resource, {
+                owner,
+                label: label || resourceLabel(resource),
+                createdAt: owner ? "inside a World callback" : "outside a World callback",
+            });
         return resource;
     };
+    const track = <T extends object>(resource: T, label?: string): T =>
+        recordOrigin(resource, ownerAtCreation(), label);
     const assertOwned = (operation: string, resource: object | undefined): void => {
         if (!checkingOwners) return;
-        const owner = ownerOf(resource);
         const active = currentWorld<State>();
-        if (!owner || !active || owner === active) return;
-        const resourceName =
-            (resource as { label?: string }).label || resource?.constructor?.name || "GPU resource";
-        const ownerName = labels.get(owner) ?? "another World";
+        if (!active) return;
+        const origin = resource ? origins.get(resource) : undefined;
         const activeName = labels.get(active) ?? "the active World";
-        throw new Error(
-            `${operation}: ${activeName} references ${resourceName} created by ${ownerName}`,
-        );
+        if (!origin)
+            throw new Error(
+                `${operation}: ${activeName} references untracked resource "${resourceLabel(resource)}" (creation location unknown)`,
+            );
+        if (!origin.owner)
+            throw new Error(
+                `${operation}: ${activeName} references ownerless resource "${origin.label}" created ${origin.createdAt}`,
+            );
+        if (origin.owner !== active) {
+            const ownerName = labels.get(origin.owner) ?? "another World";
+            throw new Error(
+                `${operation}: ${activeName} references resource "${origin.label}" created by ${ownerName} (${origin.createdAt})`,
+            );
+        }
     };
     const bindGroupResource = (resource: GPUBindingResource): object | undefined => {
         if (typeof resource !== "object" || resource === null) return undefined;
@@ -260,7 +292,7 @@ async function trackedDevice() {
             value: (descriptor: GPUBufferDescriptor) => {
                 const buffer = createBuffer(descriptor);
                 live.add(buffer);
-                track(buffer);
+                track(buffer, descriptor.label);
                 const destroy = buffer.destroy.bind(buffer);
                 buffer.destroy = () => {
                     if (live.delete(buffer)) destroy();
@@ -274,11 +306,16 @@ async function trackedDevice() {
             value: (descriptor: GPUTextureDescriptor) => {
                 const texture = createTexture(descriptor);
                 live.add(texture);
-                const owner = currentWorld<State>();
-                track(texture, owner);
+                const owner = ownerAtCreation();
+                recordOrigin(texture, owner, descriptor.label);
                 const createView = texture.createView.bind(texture);
                 texture.createView = (viewDescriptor?: GPUTextureViewDescriptor) =>
-                    track(createView(viewDescriptor), owner);
+                    recordOrigin(
+                        createView(viewDescriptor),
+                        owner,
+                        viewDescriptor?.label ||
+                            (descriptor.label ? `${descriptor.label} view` : undefined),
+                    );
                 const destroy = texture.destroy.bind(texture);
                 texture.destroy = () => {
                     if (live.delete(texture)) destroy();
@@ -289,7 +326,8 @@ async function trackedDevice() {
         createSampler: {
             configurable: true,
             writable: true,
-            value: (descriptor?: GPUSamplerDescriptor) => track(createSampler(descriptor)),
+            value: (descriptor?: GPUSamplerDescriptor) =>
+                track(createSampler(descriptor), descriptor?.label),
         },
         createBindGroup: {
             configurable: true,
@@ -377,6 +415,36 @@ async function trackedDevice() {
         live,
         watch,
         labels,
+        async withBuild<T>(callback: () => Promise<T>): Promise<T> {
+            const previousBuildScope = buildScope;
+            const previousOverride = creationOwnerOverride;
+            const previousOverrideSet = hasCreationOwnerOverride;
+            buildScope = true;
+            creationOwnerOverride = undefined;
+            hasCreationOwnerOverride = false;
+            try {
+                return await callback();
+            } finally {
+                buildScope = previousBuildScope;
+                creationOwnerOverride = previousOverride;
+                hasCreationOwnerOverride = previousOverrideSet;
+            }
+        },
+        withWorld<T>(state: State, callback: () => T): T {
+            const previousBuildScope = buildScope;
+            const previousOverride = creationOwnerOverride;
+            const previousOverrideSet = hasCreationOwnerOverride;
+            buildScope = false;
+            creationOwnerOverride = state;
+            hasCreationOwnerOverride = true;
+            try {
+                return callback();
+            } finally {
+                buildScope = previousBuildScope;
+                creationOwnerOverride = previousOverride;
+                hasCreationOwnerOverride = previousOverrideSet;
+            }
+        },
         async withoutOwnershipChecks<T>(callback: () => Promise<T>): Promise<T> {
             const previous = checkingOwners;
             checkingOwners = false;
@@ -430,7 +498,7 @@ async function stepGpuWorld(
     label: string,
     tracked: Awaited<ReturnType<typeof trackedDevice>>,
 ): Promise<void> {
-    state.step(Time.FIXED_DT);
+    tracked.withWorld(state, () => state.step(Time.FIXED_DT));
     await tracked.watch.wait(
         `${label} frame submission`,
         tracked.device.queue.onSubmittedWorkDone(),
@@ -678,18 +746,20 @@ async function renderAlone(
     content: IsolationContent,
     label: string,
 ): Promise<Uint8Array> {
-    const app = await tracked.watch.wait(
-        `${label} solo world build`,
-        build({
-            defaults: false,
-            plugins: [...everyPlugin, featurePlugin()],
-            device: tracked.device,
-        }),
+    const app = await tracked.withBuild(() =>
+        tracked.watch.wait(
+            `${label} solo world build`,
+            build({
+                defaults: false,
+                plugins: [...everyPlugin, featurePlugin()],
+                device: tracked.device,
+            }),
+        ),
     );
     try {
         tracked.labels.set(app.state, label);
         const resources = app.state.resource(isolationKey, createIsolationResources);
-        authorIsolationContent(app.state, resources, content);
+        tracked.withWorld(app.state, () => authorIsolationContent(app.state, resources, content));
         await stepGpuWorld(app.state, `${label} solo world`, tracked);
         return await readRenderedFrame(app.state, resources, `${label} solo frame`, tracked);
     } finally {
@@ -705,32 +775,56 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
     let second: Awaited<ReturnType<typeof build>> | undefined;
     let firstPairPixels: Uint8Array | undefined;
     let secondPairPixels: Uint8Array | undefined;
+    let prebuildBuffer: GPUBuffer | undefined;
     try {
-        first = await firstDevice.watch.wait(
-            "first world build",
-            build({
-                defaults: false,
-                plugins: [...everyPlugin, seed],
-                device: firstDevice.device,
-            }),
-            4_000,
+        prebuildBuffer = secondDevice.device.createBuffer({
+            label: "reviewer pre-build buffer",
+            size: 16,
+            usage: GPUBufferUsage.COPY_DST,
+        });
+        first = await firstDevice.withBuild(() =>
+            firstDevice.watch.wait(
+                "first world build",
+                build({
+                    defaults: false,
+                    plugins: [...everyPlugin, seed],
+                    device: firstDevice.device,
+                }),
+                4_000,
+            ),
         );
         firstDevice.labels.set(first.state, "first world");
         const firstFeatures = first.state.resource(isolationKey, createIsolationResources);
-        const firstA = authorIsolationContent(first.state, firstFeatures, FIRST_CONTENT);
+        const firstA = firstDevice.withWorld(first.state, () =>
+            authorIsolationContent(first!.state, firstFeatures, FIRST_CONTENT),
+        );
 
-        second = await secondDevice.watch.wait(
-            "second world build",
-            build({
-                defaults: false,
-                plugins: [...everyPlugin, seed],
-                device: secondDevice.device,
-            }),
-            4_000,
+        second = await secondDevice.withBuild(() =>
+            secondDevice.watch.wait(
+                "second world build",
+                build({
+                    defaults: false,
+                    plugins: [...everyPlugin, seed],
+                    device: secondDevice.device,
+                }),
+                4_000,
+            ),
         );
         secondDevice.labels.set(second.state, "second world");
         const secondFeatures = second.state.resource(isolationKey, createIsolationResources);
-        const peerA = authorIsolationContent(second.state, secondFeatures, SECOND_CONTENT);
+        let prebuildWriteError: unknown;
+        try {
+            withCompute(second.state.gpu, () =>
+                secondDevice.device.queue.writeBuffer(prebuildBuffer!, 0, new Uint8Array(16)),
+            );
+        } catch (error) {
+            prebuildWriteError = error;
+        }
+        expect(String(prebuildWriteError)).toContain("reviewer pre-build buffer");
+        expect(String(prebuildWriteError)).toContain("created outside a World callback");
+        const peerA = secondDevice.withWorld(second.state, () =>
+            authorIsolationContent(second!.state, secondFeatures, SECOND_CONTENT),
+        );
 
         await stepGpuWorld(first.state, "first world", firstDevice);
         await stepGpuWorld(second.state, "second world", secondDevice);
@@ -849,6 +943,7 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
         try {
             second?.dispose();
             first?.dispose();
+            prebuildBuffer?.destroy();
         } finally {
             firstDevice.watch.dispose();
             firstDevice.device.destroy();
