@@ -14,6 +14,7 @@ import {
 import "../../standard";
 import { Transform, transformTable } from "../../transitional/transforms";
 import { type State, Time } from "../index";
+import { CanvasContext } from "./canvas.fixture";
 import { build } from "./index";
 
 const peerModule = "bun-webgpu";
@@ -21,7 +22,7 @@ const peer = (await import(peerModule)) as Record<string, unknown> & {
     setupGlobals(): Promise<void>;
 };
 const { setupGlobals } = peer;
-const CanvasContextMock = peer["GPUCanvasContextMock"] as {
+const CanvasContextMock = CanvasContext as unknown as {
     new (canvas: HTMLCanvasElement, width: number, height: number): GPUCanvasContext;
 };
 await setupGlobals();

@@ -69,6 +69,7 @@ import {
 } from "../../transitional/physics";
 import { Compute, type Plugin, probeTexture, type State, Time } from "../index";
 import { currentWorld, withCompute } from "../runtime";
+import { CanvasContext } from "./canvas.fixture";
 import { build } from "./index";
 
 const everyPlugin: readonly Plugin[] = [
@@ -96,7 +97,7 @@ const peer = (await import(peerModule)) as Record<string, unknown> & {
     setupGlobals(): Promise<void>;
 };
 await withTimeout("WebGPU global setup", peer.setupGlobals(), 750);
-const createCanvasContext = peer.GPUCanvasContextMock as new (
+const createCanvasContext = CanvasContext as unknown as new (
     canvas: HTMLCanvasElement,
     width: number,
     height: number,

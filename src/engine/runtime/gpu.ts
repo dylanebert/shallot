@@ -600,7 +600,9 @@ const _observedDevices = new WeakSet<GPUDevice>();
 const _lostDevices = new WeakSet<GPUDevice>();
 const _rawDevices = new WeakMap<GPUDevice, GPUDevice>();
 
-function rawDevice(device: GPUDevice): GPUDevice {
+/** Native device identity for host APIs such as GPUCanvasContext.configure. Use the world's
+ * device for resource creation so allocations remain world-owned. */
+export function rawDevice(device: GPUDevice): GPUDevice {
     return _rawDevices.get(device) ?? device;
 }
 

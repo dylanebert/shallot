@@ -362,7 +362,10 @@ const EndFrameSystem: System = {
         Views.forEach(clearTargets);
     },
     dispose() {
-        for (const view of Views.values()) view.observer?.disconnect();
+        for (const view of Views.values()) {
+            view.observer?.disconnect();
+            view.context?.unconfigure();
+        }
         Views.clear();
         clearOffscreens();
         clearScratch();

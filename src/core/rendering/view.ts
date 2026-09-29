@@ -2,7 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute, type State } from "../../engine";
-import { worldResource } from "../../engine/runtime";
+import { rawDevice, worldResource } from "../../engine/runtime";
 import { chunk, spliceNs } from "../../engine/utils";
 import { devices, reportViewport } from "../input";
 import { Camera, Resolution } from "./camera";
@@ -247,7 +247,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, state?: Sta
 
     const linearFormat = navigator.gpu.getPreferredCanvasFormat();
     context.configure({
-        device: Compute.device,
+        device: rawDevice(Compute.device),
         format: linearFormat,
         alphaMode: "premultiplied",
         // the present path is a compute composite writing the swapchain via textureStore, so it needs
