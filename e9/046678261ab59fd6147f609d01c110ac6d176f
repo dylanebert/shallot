@@ -1,0 +1,2 @@
+stage: 3
+finding: Restore accepts a destroyed target: with one sibling still live, the count is 1 and restore rewinds its velocity 8→1. The frame oracle also misses shared uniform ownership: a temporary probe made both paired States use the same Render.viewBuffers with distinct camera poses, yet the shared-device test passed with pair frames equal to solo frames because it serializes and waits each draw.
