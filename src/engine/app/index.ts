@@ -23,7 +23,7 @@ import {
     withCompute,
     withComputeAsync,
 } from "../runtime";
-import { diagnose, load, parse, preload } from "../scene";
+import { diagnose, load, parse } from "../scene";
 import { coalesce, frameDelta, median } from "./coalesce";
 import { resolvePlugins } from "./compose";
 
@@ -326,8 +326,7 @@ async function buildNow(config: Config): Promise<App> {
             }
         }
 
-        // assign every registered component its membership bit now, so the GPU
-        // membership mirror's generation count is fixed before any warm sizes it
+        // Assign registered components their world-owned columns and membership bits before loading.
         state.addSystem(ClearChangeMarksSystem, "Engine");
 
         for (const { component } of entries(state)) {
@@ -365,19 +364,12 @@ async function buildNow(config: Config): Promise<App> {
             const xml = scene.startsWith("<") ? scene : await readFile(scene);
             const nodes = parse(xml);
             for (const d of diagnose(state, nodes)) console.warn(`[shallot] ${d.message}`);
-            // the pre-load resolve pass: a plugin whose assets the scene references by name (glTF)
-            // imports them here, so every mesh name resolves when `load` applies the attrs
-            await preload(nodes, state);
             load(nodes, state);
             loading?.update((sorted.length + i + 1) / total);
         }
 
         const warmBase = sorted.length + scenes.length;
-        // freeze the membership generation count before any plugin's `warm` runs:
-        // `allocMembership` (SlabPlugin.warm) sizes the GPU mirror from it, and the
-        // fixed-generation-count invariant must hold before a device-bound
-        // plugin can build against it. Owned here, not in a standard plugin, so it
-        // holds for every State regardless of which plugins are loaded.
+        // Fix component membership bit assignments before plugin warm.
         state.membership.freeze();
         await withComputeAsync(state.gpu, () =>
             warmPlugins(state.gpu.device, state, warmable, (progress) => {

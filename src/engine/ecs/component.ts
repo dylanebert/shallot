@@ -1,7 +1,7 @@
 import { packColor4 } from "../utils";
 import type { Entity } from "./entity";
 
-/** SoA component schema: each field names a type and its storage hint; worlds own the columns. */
+/** SoA component schema: each field names a type; worlds own the columns. */
 export type Component = Record<string, unknown>;
 
 const FIELD = Symbol("component field");
@@ -10,8 +10,6 @@ const FIELD = Symbol("component field");
 export interface FieldSchema<T extends Type = Type> {
     readonly [FIELD]: true;
     readonly type: T;
-    readonly storage: "sparse" | "slab";
-    readonly name?: string;
 }
 
 export type SchemaField<T extends Type> = FieldSchema<T> &
@@ -44,17 +42,11 @@ function bound(field: FieldSchema): Single | Pair | Quad {
 }
 
 /** create a schema descriptor; values and columns remain owned by its State. @internal */
-export function fieldSchema<T extends Type>(
-    type: T,
-    storage: FieldSchema["storage"],
-    name?: string,
-): SchemaField<T> {
+export function fieldSchema<T extends Type>(type: T): SchemaField<T> {
     let descriptor!: SchemaField<T>;
     descriptor = {
         [FIELD]: true as const,
         type,
-        storage,
-        ...(name === undefined ? {} : { name }),
         set(eid: number, x: number, y = 0, z = 0, w = 0) {
             const storage = bound(descriptor);
             if (descriptor.type.lanes === 1) {
@@ -89,9 +81,6 @@ export function fieldSchema<T extends Type>(
         get dirty() {
             return (bound(descriptor) as Single | Pair | Quad).dirty;
         },
-        get gpu() {
-            return (bound(descriptor) as Single | Pair | Quad).gpu;
-        },
     };
     return descriptor;
 }
@@ -101,12 +90,12 @@ export function isFieldSchema(value: unknown): value is FieldSchema {
     return !!value && typeof value === "object" && (value as FieldSchema)[FIELD] === true;
 }
 
-/** typed-array element backing: the set `sparse`/`slab` factories support */
+/** typed-array element backing for component columns. */
 export type TypedArray = Float32Array | Int32Array | Uint32Array | Uint16Array | Uint8Array;
 
 /**
  * typed-array storage descriptor. Shared between {@link Single}/{@link Pair}/{@link Quad}
- * factories (`sparse`, `slab`) so a consumer can swap one for the other without
+ * fields so a consumer can change the type without
  * changing the type spelling. Metadata only. Descriptors don't carry state.
  *
  * @expand
@@ -129,7 +118,7 @@ export interface Type<TArray extends TypedArray = TypedArray> {
     readonly decode?: (raw: number) => number;
     /**
      * a packed GPU mirror: the CPU storage stays the full `ctor`×`lanes` (so `.set` / lane accessors /
-     * `read` / serialize see lossless floats), but the slab's `.gpu` buffer holds the `pack(...)` form:
+     * `read` / serialize see lossless floats). A GPU producer may use the `pack(...)` form:
      * what the per-lane {@link encode} can't express, since it folds across lanes (4 lanes → an `srgb8x4`
      * u32, or → an `f16x4` `vec2<u32>` pair). Quantization is a storage-boundary concern: the
      * pack runs once at the per-frame flush, the CPU side never sees it. The reader shader binds `wgsl`.
@@ -198,8 +187,7 @@ export function sameTypeLayout(a: Type, b: Type): boolean {
 }
 
 /**
- * 8-bit unsigned integer. `slab(u8)` warns and stays CPU-only — WGSL has no
- * sub-32-bit storage; pack into u32 manually. `field(u8)` works for CPU-only fields.
+ * 8-bit unsigned CPU column. WGSL has no u8 storage type; a GPU record uses u32.
  */
 export const u8: Type<Uint8Array> & { readonly lanes: 1 } = {
     ctor: Uint8Array,
@@ -209,8 +197,7 @@ export const u8: Type<Uint8Array> & { readonly lanes: 1 } = {
 };
 
 /**
- * 16-bit unsigned integer. `slab(u16)` warns and stays CPU-only — WGSL has no
- * sub-32-bit storage; pack into u32 manually. `field(u16)` works for CPU-only fields.
+ * 16-bit unsigned CPU column. WGSL has no u16 storage type; a GPU record uses u32.
  */
 export const u16: Type<Uint16Array> & { readonly lanes: 1 } = {
     ctor: Uint16Array,
@@ -261,7 +248,7 @@ function f16decode(bits: number): number {
  * 16-bit IEEE float. CPU storage uses `Uint16Array` of bit patterns; reads
  * and writes go through the half-float codec. The reader shader binds a native
  * `f16`, which needs an `enable f16` directive — `shader-f16` is NOT on the
- * platform floor, so a `slab(f16)` consumer declares it in its own
+ * platform floor, so a native-f16 GPU consumer declares it in its own
  * `Plugin.features`. For four half lanes with no feature at all, use {@link f16x4}.
  */
 export const f16: Type<Uint16Array> & { readonly lanes: 1 } = {
@@ -346,8 +333,7 @@ export const srgb8x4: Type<Float32Array> & { readonly lanes: 4 } = {
  * Component fields that need dirty tracking, GPU mirroring, or other
  * lifecycle behavior expose this instead of a bare typed array. `state.add`
  * routes default values through `.set`, so defaults flow into dirty bits
- * automatically, no listener subsystem needed. `gpu` is `null` for CPU-only
- * fields (`sparse`) and a buffer for GPU-mirrored fields (`slab`)
+ * automatically. GPU consumers declare record tables separately.
  */
 export interface Single {
     set(eid: number, value: number): void;
@@ -358,8 +344,6 @@ export interface Single {
     readonly column: TypedArray;
     /** entities changed since the field's last upload */
     readonly dirty: Uint32Array;
-    /** canonical GPU buffer; `null` for CPU-only fields */
-    readonly gpu: GPUBuffer | null;
 }
 
 /**
@@ -377,7 +361,6 @@ export interface Pair {
     readonly type: Type;
     readonly column: TypedArray;
     readonly dirty: Uint32Array;
-    readonly gpu: GPUBuffer | null;
 }
 
 /**
@@ -394,7 +377,6 @@ export interface Quad {
     readonly type: Type;
     readonly column: TypedArray;
     readonly dirty: Uint32Array;
-    readonly gpu: GPUBuffer | null;
 }
 
 /**
@@ -409,8 +391,7 @@ export function lanes(value: unknown): 0 | 1 | 2 | 4 {
     if (!value || typeof value !== "object") return 0;
     const v = value as Record<string, unknown>;
     if (typeof v.set !== "function") return 0;
-    // classify by an actual lane handle, not key presence: the Slab class declares x/y/z/w fields, so a
-    // scalar slab carries them as `undefined` — `"z" in v` would misread it as a Quad
+    // Classify by an actual lane handle, not just a property name.
     if (v.z != null && v.w != null) return 4;
     if (v.x != null && v.y != null) return 2;
     if (typeof v.get === "function") return 1;
@@ -441,12 +422,7 @@ export function sameComponentSchema(a: Component, b: Component): boolean {
     for (let i = 0; i < af.length; i++) {
         const left = af[i];
         const right = bf[i];
-        if (
-            left.name !== right.name ||
-            !sameTypeLayout(left.field.type, right.field.type) ||
-            left.field.storage !== right.field.storage ||
-            left.field.name !== right.field.name
-        ) {
+        if (left.name !== right.name || !sameTypeLayout(left.field.type, right.field.type)) {
             return false;
         }
     }
@@ -454,7 +430,7 @@ export function sameComponentSchema(a: Component, b: Component): boolean {
 }
 
 /**
- * the fields holding an entity ref: those declared `field(entity)` / `slab(entity)`.
+ * the fields holding an entity ref: those declared `field(entity)`.
  * `serialize` reads it to emit each as `@<id>`; the ref-ness lives on the field's type, so it
  * can't drift from a separate list. A sibling of {@link fields}.
  */

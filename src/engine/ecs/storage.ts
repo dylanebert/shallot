@@ -11,26 +11,20 @@ type Column = {
     schema: FieldSchema;
     array: TypedArray;
     dirty: Uint32Array;
-    gpu: GPUBuffer | null;
 };
 
 /** world-owned field column. The exposed accessors close over this record, not a component singleton. */
 export class WorldField<T extends Type = Type> {
     readonly type: T;
-    readonly storage: "sparse" | "slab";
-    readonly name?: string;
     readonly #column: Column;
     readonly #observers = new Set<(eid: number) => void>();
 
     constructor(schema: FieldSchema<T>, initialCapacity: number) {
         this.type = schema.type;
-        this.storage = schema.storage;
-        this.name = schema.name;
         this.#column = {
             schema,
             array: new schema.type.ctor(initialCapacity * schema.type.lanes),
             dirty: new Uint32Array((initialCapacity + 31) >>> 5),
-            gpu: null,
         };
     }
 
@@ -95,14 +89,6 @@ export class WorldField<T extends Type = Type> {
         return this.#column.dirty;
     }
 
-    get gpu(): GPUBuffer | null {
-        return this.#column.gpu;
-    }
-
-    set gpu(buffer: GPUBuffer | null) {
-        this.#column.gpu = buffer;
-    }
-
     bind(): FieldStorage<T> {
         const field = this;
         const lane = (offset: number): Single => ({
@@ -119,9 +105,6 @@ export class WorldField<T extends Type = Type> {
             get dirty() {
                 return field.dirty;
             },
-            get gpu() {
-                return field.gpu;
-            },
         });
         const base = { type: this.type };
         if (this.type.lanes === 1) {
@@ -132,9 +115,6 @@ export class WorldField<T extends Type = Type> {
                 },
                 get dirty() {
                     return field.dirty;
-                },
-                get gpu() {
-                    return field.gpu;
                 },
                 set: (eid: number, value: number) => this.set(eid, value),
                 get: (eid: number) => this.get(eid),
@@ -149,9 +129,6 @@ export class WorldField<T extends Type = Type> {
                 get dirty() {
                     return field.dirty;
                 },
-                get gpu() {
-                    return field.gpu;
-                },
                 set: (eid: number, x: number, y: number) => this.set(eid, x, y),
                 read: (eid: number, out: Float32Array) => this.read(eid, out),
                 x: lane(0),
@@ -165,9 +142,6 @@ export class WorldField<T extends Type = Type> {
             },
             get dirty() {
                 return field.dirty;
-            },
-            get gpu() {
-                return field.gpu;
             },
             set: (eid: number, x: number, y: number, z: number, w: number) =>
                 this.set(eid, x, y, z, w),

@@ -35,7 +35,7 @@ Multiple Apps can coexist on one or separate devices. Dispose each App when fini
 
 ## Replace Slab fields with GPU record tables
 
-`slab()`, `sparse()` and `SlabPlugin` are no longer exported from the public package surface. Use `field(type)` for component columns and declare GPU records through the owning State:
+`slab()`, `sparse()` and `SlabPlugin` are removed. Component fields no longer expose `.gpu` or declare a storage kind. Use `field(type)` for component columns and declare GPU records through the owning State:
 
 ```ts
 const Record = d.struct({ value: d.f32 });
@@ -62,6 +62,8 @@ The logical eid still reaches `VsIn.eid` and `ctx.eid`; use those for identity. 
 ## glTF, Skin and Cells are removed
 
 0.10 no longer exports `GltfPlugin`, `SkinPlugin`, `CellsPlugin` or their import, animation, live-skin and ASCII-grid helpers. Remove these plugins from your manifest and imports. They return later as separate packages; there is no replacement in 0.10.
+
+The importer-only scene hooks `Preloader`, `Preloads` and `preload` are removed. Load assets in your plugin's `initialize` before the scene is applied.
 
 The importer's per-mesh shader specialization is also removed: `Surface.specialize`, `Specialize` and `Mesh.variant` are gone. Register separate named surfaces instead. Text's glyph-atlas extension exports used by Cells are removed; the `Text` component and `TextPlugin` remain.
 

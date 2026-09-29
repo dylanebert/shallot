@@ -10,7 +10,6 @@ export {
     serialize,
     setFieldValue,
 } from "./codec";
-export { type Preloader, Preloads, preload } from "./preload";
 export {
     type Attr,
     findNodeById,

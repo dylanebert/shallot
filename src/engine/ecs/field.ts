@@ -6,5 +6,5 @@ export function field<T extends Type & { readonly lanes: 1 }>(type: T): SchemaFi
 export function field<T extends Type & { readonly lanes: 2 }>(type: T): SchemaField<T>;
 export function field<T extends Type & { readonly lanes: 4 }>(type: T): SchemaField<T>;
 export function field(type: Type): SchemaField<Type> {
-    return fieldSchema(type, "sparse");
+    return fieldSchema(type);
 }

@@ -2,7 +2,6 @@
 // generator can classify a manifest without importing game modules into the Vite/Node tool process.
 // `catalog.test.ts` gates it against the engine's real `DEFAULT_PLUGINS` so this list can't drift.
 export const DEFAULT_PLUGIN_NAMES = [
-    "Slab",
     "Transforms",
     "Input",
     "Render",
