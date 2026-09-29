@@ -3,6 +3,7 @@
 import * as d from "typegpu/data";
 import type { Plugin, State, System } from "../../engine";
 import { Compute, formatHex, invert } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 import { SlabPlugin } from "../../transitional/slab";
 import {
     composeTransform,
@@ -13,18 +14,21 @@ import {
 import { Camera, CameraMode, computeViewProj, Resolution } from "./camera";
 import {
     ClusterSystem,
+    initializeClusterState,
     LightCull,
     LightCullSystem,
     packClusterView,
     warmClusters,
     warmLightCull,
 } from "./cluster";
-import { FRAME_UNIFORM_SIZE, Frame, writeFrame } from "./frame";
+import { initializeSurfaceState } from "./contract";
+import { FRAME_UNIFORM_SIZE, Frame, initializeFrameState, writeFrame } from "./frame";
 import { CULL_VOLUME_FLOATS, frustumVolume } from "./frustum";
-
+import { initializeImageState } from "./image";
 import {
     AmbientLight,
     DirectionalLight,
+    initializeLightingState,
     LIGHTING_UNIFORM_SIZE,
     Lighting,
     PointLight,
@@ -32,13 +36,14 @@ import {
     Volumetric,
     writeLighting,
 } from "./lighting";
-import { clearMeshes, flushMeshes } from "./mesh";
-import { Draws, Surfaces } from "./registry";
-import { Render } from "./render";
+import { clearMeshes, flushMeshes, initializeMeshState } from "./mesh";
+import { Draws, initializeDrawState, Surfaces } from "./registry";
+import { initializeRenderState, Render } from "./render";
 import {
     bindCamera,
     clearOffscreens,
     clearScratch,
+    initializeViewState,
     MAX_SLOTS,
     MAX_VIEWS,
     offscreen,
@@ -63,28 +68,56 @@ export { AmbientLight, DirectionalLight, PointLight, Spot, Volumetric } from "./
 export type { Mesh } from "./mesh";
 export { mesh } from "./mesh";
 
-const _camWorld = new Float32Array(16);
 const SLOT_FLOATS = VIEW_STRIDE / 4;
 const CAMERAS = [Camera];
-// the frame encoder's descriptor and the one-buffer submit list, held so opening and closing a frame
-// mints only its WebGPU objects
 const FRAME_ENCODER: GPUCommandEncoderDescriptor = { label: "shallot-frame" };
-const _submit: GPUCommandBuffer[] = [];
-// this frame's canvas-less views in query order, packed after every shading view (explicit count)
-const _depthOnlyEids: number[] = [];
-const _depthOnlyViews: ViewSlot[] = [];
-// per-slot views over the staging buffers (each slot's viewProj and invViewProj, each shading slot's
-// world→view matrix), built with the buffers so packing a slot subarrays nothing
-let _viewProjs: Float32Array[] = [];
-let _invViewProjs: Float32Array[] = [];
-let _lightViews: Float32Array[] = [];
-// the inputs each slot was last packed from: the camera eid and create-stamp, whether it shades, the view's
-// pixel size, the Camera projection fields, and the camera's world matrix. Every value `packView` writes is
-// a pure function of them and lives in retained staging, so a slot whose inputs are unchanged is already
-// packed and the frame re-derives nothing for it. NaN-filled per rebuild, so the first frame always packs.
 const VIEW_KEY_FLOATS = 26;
-const _viewKeys = new Float64Array(MAX_SLOTS * VIEW_KEY_FLOATS).fill(Number.NaN);
-const _viewKeyNext = new Float64Array(VIEW_KEY_FLOATS);
+
+interface RenderFrameState {
+    camWorld: Float32Array;
+    submit: GPUCommandBuffer[];
+    depthOnlyEids: number[];
+    depthOnlyViews: ViewSlot[];
+    viewProjs: Float32Array[];
+    invViewProjs: Float32Array[];
+    lightViews: Float32Array[];
+    viewKeys: Float64Array;
+    viewKeyNext: Float64Array;
+}
+
+const renderFrameKey = Symbol("shallot.render-frame");
+
+function createRenderFrameState(): RenderFrameState {
+    return {
+        camWorld: new Float32Array(16),
+        submit: [],
+        depthOnlyEids: [],
+        depthOnlyViews: [],
+        viewProjs: [],
+        invViewProjs: [],
+        lightViews: [],
+        viewKeys: new Float64Array(MAX_SLOTS * VIEW_KEY_FLOATS).fill(Number.NaN),
+        viewKeyNext: new Float64Array(VIEW_KEY_FLOATS),
+    };
+}
+
+function renderFrameState(): RenderFrameState {
+    return worldResource(renderFrameKey, createRenderFrameState);
+}
+
+function initializeRenderFrameState(state: State): void {
+    state.resource(renderFrameKey, createRenderFrameState);
+}
+
+const _frame = new Proxy({} as RenderFrameState, {
+    get(_target, key) {
+        return renderFrameState()[key as keyof RenderFrameState];
+    },
+    set(_target, key, value) {
+        (renderFrameState() as unknown as Record<PropertyKey, unknown>)[key] = value;
+        return true;
+    },
+});
 
 // write a world-matrix column (base = column index * 4), normalized, into `out` at `at`
 function basisColumn(world: Float32Array, base: number, out: Float32Array, at: number): void {
@@ -109,17 +142,17 @@ function packView(state: State, eid: number, view: ViewSlot, shading: boolean, s
     view.slot = slot;
     // the camera basis (floats 20-27) and the eye (32-35) come from the world matrix, which is also what
     // the viewProj is composed from, so it is read before the unchanged-slot test below
-    composeTransform(eid, _camWorld);
+    composeTransform(eid, _frame.camWorld);
     if (!slotInputsChanged(state, eid, view, shading, slot)) return;
     const offset = slot * SLOT_FLOATS;
-    const viewProj = _viewProjs[slot];
+    const viewProj = _frame.viewProjs[slot];
     // the light cull reads each shading slot's world→view matrix to bring
     // world-space lights into cluster space
     computeViewProj(
         eid,
         view.width / view.height,
         viewProj,
-        shading ? _lightViews[slot] : undefined,
+        shading ? _frame.lightViews[slot] : undefined,
     );
     // resolution (pixels) follows viewProj in the View struct — a screen-space
     // producer (lines) reads it to size constant-pixel-width geometry
@@ -128,8 +161,8 @@ function packView(state: State, eid: number, view: ViewSlot, shading: boolean, s
     // camera basis (right at floats 20-23, up at 24-27; 18-19 pad before the vec4) —
     // billboard surfaces orient quads from it (in a shadow pass, the light camera's, so
     // billboards face the light). Normalized: the camera Transform may scale
-    basisColumn(_camWorld, 0, Render.viewStaging, offset + 20);
-    basisColumn(_camWorld, 4, Render.viewStaging, offset + 24);
+    basisColumn(_frame.camWorld, 0, Render.viewStaging, offset + 20);
+    basisColumn(_frame.camWorld, 4, Render.viewStaging, offset + 24);
     // pack this view's frustum cull volume — the pack tests each instance's bound against
     // cullVolumes[slot]'s 6 planes. Every view culls by frustum: cameras, the sun, and each
     // point/spot shadow combo (its own frustum-culled depth view)
@@ -151,21 +184,21 @@ function packView(state: State, eid: number, view: ViewSlot, shading: boolean, s
     Render.viewStaging[offset + 31] = slot;
     // eye (floats 32-35): the camera's world-space position — viewProj's translation column —
     // for view-dependent shading (specular V = normalize(eye - world))
-    Render.viewStaging[offset + 32] = _camWorld[12];
-    Render.viewStaging[offset + 33] = _camWorld[13];
-    Render.viewStaging[offset + 34] = _camWorld[14];
+    Render.viewStaging[offset + 32] = _frame.camWorld[12];
+    Render.viewStaging[offset + 33] = _frame.camWorld[13];
+    Render.viewStaging[offset + 34] = _frame.camWorld[14];
     Render.viewStaging[offset + 35] = 1;
     // invViewProj (floats 36-51): a screen-space pass (fog) reconstructs world position from depth
     // via ndc → invViewProj. Only a shading view (a presenting camera) runs such a pass, so a
     // depth-only shadow view skips the 4×4 inverse — the costliest op in the pack — and zeroes the
     // slot. invert reads viewProj fully into locals before writing, so inverting into a sibling
     // view of the same staging never aliases
-    if (shading) invert(viewProj, _invViewProjs[slot]);
+    if (shading) invert(viewProj, _frame.invViewProjs[slot]);
     else Render.viewStaging.fill(0, offset + 36, offset + 52);
 }
 
 // whether this slot's pack inputs differ from the ones it was last packed with; records them when they do.
-// `_camWorld` holds the camera's world matrix, composed by the caller.
+// `_frame.camWorld` holds the camera's world matrix, composed by the caller.
 function slotInputsChanged(
     state: State,
     eid: number,
@@ -173,26 +206,26 @@ function slotInputsChanged(
     shading: boolean,
     slot: number,
 ): boolean {
-    _viewKeyNext[0] = eid;
-    _viewKeyNext[1] = state.stamp(eid);
-    _viewKeyNext[2] = shading ? 1 : 0;
-    _viewKeyNext[3] = view.width;
-    _viewKeyNext[4] = view.height;
-    _viewKeyNext[5] = Camera.mode.get(eid);
-    _viewKeyNext[6] = Camera.fov.get(eid);
-    _viewKeyNext[7] = Camera.size.get(eid);
-    _viewKeyNext[8] = Camera.near.get(eid);
-    _viewKeyNext[9] = Camera.far.get(eid);
-    _viewKeyNext.set(_camWorld, 10);
+    _frame.viewKeyNext[0] = eid;
+    _frame.viewKeyNext[1] = state.stamp(eid);
+    _frame.viewKeyNext[2] = shading ? 1 : 0;
+    _frame.viewKeyNext[3] = view.width;
+    _frame.viewKeyNext[4] = view.height;
+    _frame.viewKeyNext[5] = Camera.mode.get(eid);
+    _frame.viewKeyNext[6] = Camera.fov.get(eid);
+    _frame.viewKeyNext[7] = Camera.size.get(eid);
+    _frame.viewKeyNext[8] = Camera.near.get(eid);
+    _frame.viewKeyNext[9] = Camera.far.get(eid);
+    _frame.viewKeyNext.set(_frame.camWorld, 10);
     const at = slot * VIEW_KEY_FLOATS;
     let changed = false;
     for (let i = 0; i < VIEW_KEY_FLOATS; i++) {
-        if (_viewKeys[at + i] !== _viewKeyNext[i]) {
+        if (_frame.viewKeys[at + i] !== _frame.viewKeyNext[i]) {
             changed = true;
             break;
         }
     }
-    if (changed) _viewKeys.set(_viewKeyNext, at);
+    if (changed) _frame.viewKeys.set(_frame.viewKeyNext, at);
     return changed;
 }
 
@@ -252,8 +285,8 @@ export const BeginFrameSystem: System = {
                 // packs its viewProj, but draws no framebuffer — its owner renders it to its own target
                 view.framebuffer = null;
                 view.present = null;
-                _depthOnlyEids[depthOnly] = eid;
-                _depthOnlyViews[depthOnly] = view;
+                _frame.depthOnlyEids[depthOnly] = eid;
+                _frame.depthOnlyViews[depthOnly] = view;
                 depthOnly++;
                 continue;
             }
@@ -279,11 +312,11 @@ export const BeginFrameSystem: System = {
         for (let i = 0; i < depthOnly; i++) {
             if (count >= MAX_SLOTS) {
                 console.warn(
-                    `shallot: ${MAX_SLOTS} view-slot cap reached; entity ${_depthOnlyEids[i]} skipped`,
+                    `shallot: ${MAX_SLOTS} view-slot cap reached; entity ${_frame.depthOnlyEids[i]} skipped`,
                 );
                 break;
             }
-            packView(state, _depthOnlyEids[i], _depthOnlyViews[i], false, count);
+            packView(state, _frame.depthOnlyEids[i], _frame.depthOnlyViews[i], false, count);
             count++;
         }
 
@@ -324,8 +357,8 @@ const EndFrameSystem: System = {
         const encoder = Render.encoder;
         if (!encoder)
             throw new Error("render submission requires BeginFrameSystem to open an encoder");
-        _submit[0] = encoder.finish();
-        device.queue.submit(_submit);
+        _frame.submit[0] = encoder.finish();
+        device.queue.submit(_frame.submit);
         Compute.frame++;
         Render.encoder = null;
         Views.forEach(clearTargets);
@@ -387,15 +420,15 @@ async function initRender(): Promise<void> {
     );
     Render.viewStaging = new Float32Array(VIEW_UNIFORM_SIZE / 4);
     // fresh staging: every slot repacks on its first frame against the new buffers
-    _viewKeys.fill(Number.NaN);
+    _frame.viewKeys.fill(Number.NaN);
     const staging = Render.viewStaging;
-    _viewProjs = Array.from({ length: MAX_SLOTS }, (_, slot) =>
+    _frame.viewProjs = Array.from({ length: MAX_SLOTS }, (_, slot) =>
         staging.subarray(slot * SLOT_FLOATS, slot * SLOT_FLOATS + 16),
     );
-    _invViewProjs = Array.from({ length: MAX_VIEWS }, (_, slot) =>
+    _frame.invViewProjs = Array.from({ length: MAX_VIEWS }, (_, slot) =>
         staging.subarray(slot * SLOT_FLOATS + 36, slot * SLOT_FLOATS + 52),
     );
-    _lightViews = Array.from({ length: MAX_VIEWS }, (_, slot) =>
+    _frame.lightViews = Array.from({ length: MAX_VIEWS }, (_, slot) =>
         LightCull.viewStaging.subarray(slot * 16, slot * 16 + 16),
     );
     Frame.buffer = uniform("shallot-frame", FRAME_UNIFORM_SIZE);
@@ -493,7 +526,17 @@ export const RenderPlugin: Plugin = {
     },
     dependencies: [SlabPlugin, TransformsPlugin],
 
-    async initialize() {
+    async initialize(state) {
+        initializeRenderState(state);
+        initializeViewState(state);
+        initializeClusterState(state);
+        initializeFrameState(state);
+        initializeLightingState(state);
+        initializeMeshState(state);
+        initializeImageState(state);
+        initializeRenderFrameState(state);
+        initializeDrawState(state);
+        initializeSurfaceState(state);
         await initRender();
     },
 

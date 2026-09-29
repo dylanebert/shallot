@@ -21,6 +21,7 @@ export {
     validateGpu,
     withCompute,
     withComputeAsync,
+    worldResource,
 } from "./gpu";
 export { drainLog, type GpuLog } from "./log";
 export { now, Runtime, readBinary, readFile, requestFrame } from "./platform";

@@ -36,6 +36,7 @@ import {
     u32,
     vec2,
 } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 import { packColor, Xform, xformPoint } from "../../engine/utils";
 import { PrepassSystem } from "../../standard/rendering";
 import { Transform, TransformsPlugin } from "../../transitional/transforms";
@@ -55,7 +56,7 @@ import {
     sdfToSignedDistance,
     textSrgbToLinear,
 } from "./glyph";
-import { resetPipelines } from "./sdf";
+import { initializeSdfState, resetPipelines } from "./sdf";
 
 // Inter, the default face when the consumer registers no font of its own
 const DEFAULT_FONT =
@@ -223,25 +224,6 @@ const QUAD_INDICES = new Uint32Array([0, 1, 2, 0, 2, 3]);
 // initial glyph capacity; the CPU staging + GPU buffer double on demand (long paragraphs push thousands)
 const INITIAL = 1 << 12;
 
-let _loaded: (Font | null)[] = [];
-let _atlases: (GlyphAtlas | null)[] = [];
-let _sampler: GPUSampler | null = null;
-let _glyphBuf: (TgpuBuffer<d.WgslArray<typeof Glyph>> & StorageFlag) | null = null;
-let _argBuf:
-    | (TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> & { usableAsIndirect: true })
-    | null = null;
-let _staging = new ArrayBuffer(INITIAL * GLYPH_BYTES);
-let _f32 = new Float32Array(_staging);
-let _u32 = new Uint32Array(_staging);
-let _cap = INITIAL;
-let _count = 0;
-let _quadBase = 0;
-// the last signature an upload was built for; -1 forces the first frame's build
-let _sig = -1;
-// per-font glyph staging lists, rebuilt each dirty frame, then packed into the shared buffer in id order
-const _byFont: LabelGlyph[][] = [];
-const _ranges: { start: number; count: number }[] = [];
-
 interface LabelGlyph {
     eid: number;
     x: number;
@@ -255,13 +237,71 @@ interface LabelGlyph {
     color: number;
 }
 
+interface TextState {
+    loaded: (Font | null)[];
+    atlases: (GlyphAtlas | null)[];
+    sampler: GPUSampler | null;
+    glyphBuf: (TgpuBuffer<d.WgslArray<typeof Glyph>> & StorageFlag) | null;
+    argBuf:
+        | (TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> & { usableAsIndirect: true })
+        | null;
+    staging: ArrayBuffer;
+    f32: Float32Array;
+    u32: Uint32Array;
+    cap: number;
+    count: number;
+    quadBase: number;
+    sig: number;
+    byFont: LabelGlyph[][];
+    ranges: { start: number; count: number }[];
+    bits: Float32Array;
+    bitsU: Uint32Array;
+}
+
+const textStateKey = Symbol("shallot.text");
+
+function createTextState(): TextState {
+    const staging = new ArrayBuffer(INITIAL * GLYPH_BYTES);
+    const bits = new Float32Array(1);
+    return {
+        loaded: [],
+        atlases: [],
+        sampler: null,
+        glyphBuf: null,
+        argBuf: null,
+        staging,
+        f32: new Float32Array(staging),
+        u32: new Uint32Array(staging),
+        cap: INITIAL,
+        count: 0,
+        quadBase: 0,
+        sig: -1,
+        byFont: [],
+        ranges: [],
+        bits,
+        bitsU: new Uint32Array(bits.buffer),
+    };
+}
+
+function textState(): TextState {
+    return worldResource(textStateKey, createTextState);
+}
+
+const _text = new Proxy({} as TextState, {
+    get(_target, key) {
+        return textState()[key as keyof TextState];
+    },
+    set(_target, key, value) {
+        (textState() as unknown as Record<PropertyKey, unknown>)[key] = value;
+        return true;
+    },
+});
+
 // bitcast scratch + an fnv-1a fold over the layout-affecting fields. The transform is deliberately absent
 // — it flows through the slab, so moving a label leaves the signature (and the glyph buffer) untouched
-const _bits = new Float32Array(1);
-const _bitsU = new Uint32Array(_bits.buffer);
 function fbits(v: number): number {
-    _bits[0] = v;
-    return _bitsU[0];
+    _text.bits[0] = v;
+    return _text.bitsU[0];
 }
 function fold(h: number, x: number): number {
     return Math.imul(h ^ x, 16777619);
@@ -286,31 +326,31 @@ function signature(state: State): number {
 }
 
 function grow(min: number): void {
-    let cap = _cap;
+    let cap = _text.cap;
     while (cap < min) cap *= 2;
     const next = new ArrayBuffer(cap * GLYPH_BYTES);
-    new Uint8Array(next).set(new Uint8Array(_staging, 0, _count * GLYPH_BYTES));
-    _staging = next;
-    _f32 = new Float32Array(next);
-    _u32 = new Uint32Array(next);
-    _cap = cap;
+    new Uint8Array(next).set(new Uint8Array(_text.staging, 0, _text.count * GLYPH_BYTES));
+    _text.staging = next;
+    _text.f32 = new Float32Array(next);
+    _text.u32 = new Uint32Array(next);
+    _text.cap = cap;
 }
 
 // lay every visible label out into per-font glyph lists, pack them into the shared staging in font-id
 // order (each font's draw indexes its contiguous range via firstInstance), grow + upload the GPU buffer,
 // and write each font's indirect record. Runs only on a signature change
 function rebuild(state: State, device: GPUDevice): void {
-    while (_byFont.length < _atlases.length) _byFont.push([]);
-    while (_ranges.length < _atlases.length) _ranges.push({ start: 0, count: 0 });
-    for (let i = 0; i < _atlases.length; i++) _byFont[i].length = 0;
+    while (_text.byFont.length < _text.atlases.length) _text.byFont.push([]);
+    while (_text.ranges.length < _text.atlases.length) _text.ranges.push({ start: 0, count: 0 });
+    for (let i = 0; i < _text.atlases.length; i++) _text.byFont[i].length = 0;
 
     for (const eid of state.query([Text, Transform])) {
         if (!Text.visible.get(eid)) continue;
         const content = Content.name(Text.content.get(eid));
         if (!content) continue;
         let fontId = Text.font.get(eid);
-        if (!_atlases[fontId]) fontId = 0;
-        const atlas = _atlases[fontId];
+        if (!_text.atlases[fontId]) fontId = 0;
+        const atlas = _text.atlases[fontId];
         if (!atlas) continue;
         ensureString(atlas, content);
         const layout = layoutText(content, atlas, Text.fontSize.get(eid));
@@ -318,7 +358,7 @@ function rebuild(state: State, device: GPUDevice): void {
         const oy = -layout.height * Text.anchor.y.get(eid);
         const color = packColor(Text.color.get(eid), Text.opacity.get(eid));
         for (const g of layout.glyphs) {
-            _byFont[fontId].push({
+            _text.byFont[fontId].push({
                 eid,
                 x: ox + g.x,
                 y: oy + g.y,
@@ -334,57 +374,57 @@ function rebuild(state: State, device: GPUDevice): void {
     }
 
     let total = 0;
-    for (let id = 0; id < _atlases.length; id++) total += _byFont[id]?.length ?? 0;
-    if (total > _cap) grow(total);
+    for (let id = 0; id < _text.atlases.length; id++) total += _text.byFont[id]?.length ?? 0;
+    if (total > _text.cap) grow(total);
 
     let n = 0;
-    for (let id = 0; id < _atlases.length; id++) {
-        _ranges[id].start = n;
-        for (const g of _byFont[id] ?? []) {
+    for (let id = 0; id < _text.atlases.length; id++) {
+        _text.ranges[id].start = n;
+        for (const g of _text.byFont[id] ?? []) {
             const o = n * GLYPH_FLOATS;
-            _f32[o + GLYPH_AT.pos] = g.x;
-            _f32[o + GLYPH_AT.pos + 1] = g.y;
-            _f32[o + GLYPH_AT.pos + 2] = 0;
-            _u32[o + GLYPH_AT.eid] = g.eid;
-            _f32[o + GLYPH_AT.uvRect] = g.u0;
-            _f32[o + GLYPH_AT.uvRect + 1] = g.v0;
-            _f32[o + GLYPH_AT.uvRect + 2] = g.u1;
-            _f32[o + GLYPH_AT.uvRect + 3] = g.v1;
-            _f32[o + GLYPH_AT.size] = g.w;
-            _f32[o + GLYPH_AT.size + 1] = g.h;
-            _u32[o + GLYPH_AT.color] = g.color;
+            _text.f32[o + GLYPH_AT.pos] = g.x;
+            _text.f32[o + GLYPH_AT.pos + 1] = g.y;
+            _text.f32[o + GLYPH_AT.pos + 2] = 0;
+            _text.u32[o + GLYPH_AT.eid] = g.eid;
+            _text.f32[o + GLYPH_AT.uvRect] = g.u0;
+            _text.f32[o + GLYPH_AT.uvRect + 1] = g.v0;
+            _text.f32[o + GLYPH_AT.uvRect + 2] = g.u1;
+            _text.f32[o + GLYPH_AT.uvRect + 3] = g.v1;
+            _text.f32[o + GLYPH_AT.size] = g.w;
+            _text.f32[o + GLYPH_AT.size + 1] = g.h;
+            _text.u32[o + GLYPH_AT.color] = g.color;
             n++;
         }
-        _ranges[id].count = n - _ranges[id].start;
+        _text.ranges[id].count = n - _text.ranges[id].start;
     }
-    _count = n;
+    _text.count = n;
 
-    if (_cap * GLYPH_BYTES > Compute.root.unwrap(_glyphBuf!).size) {
-        const stale = _glyphBuf!;
-        _glyphBuf = Compute.root
-            .createBuffer(d.arrayOf(Glyph, _cap))
+    if (_text.cap * GLYPH_BYTES > Compute.root.unwrap(_text.glyphBuf!).size) {
+        const stale = _text.glyphBuf!;
+        _text.glyphBuf = Compute.root
+            .createBuffer(d.arrayOf(Glyph, _text.cap))
             .$usage("storage")
             .$name("shallot-text-glyphs");
-        Compute.buffers.set("textGlyphs", Compute.root.unwrap(_glyphBuf));
-        Compute.typed.set("textGlyphs", _glyphBuf);
+        Compute.buffers.set("textGlyphs", Compute.root.unwrap(_text.glyphBuf));
+        Compute.typed.set("textGlyphs", _text.glyphBuf);
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
     }
-    if (_count > 0)
+    if (_text.count > 0)
         device.queue.writeBuffer(
-            Compute.root.unwrap(_glyphBuf!),
+            Compute.root.unwrap(_text.glyphBuf!),
             0,
-            _staging,
+            _text.staging,
             0,
-            _count * GLYPH_BYTES,
+            _text.count * GLYPH_BYTES,
         );
 
-    _argBuf!.write(
-        Array.from({ length: Math.max(1, _atlases.length) }, (_, id) => ({
+    _text.argBuf!.write(
+        Array.from({ length: Math.max(1, _text.atlases.length) }, (_, id) => ({
             indexCount: 6,
-            instanceCount: _atlases[id] ? _ranges[id].count : 0,
-            firstIndex: _quadBase,
+            instanceCount: _text.atlases[id] ? _text.ranges[id].count : 0,
+            firstIndex: _text.quadBase,
             baseVertex: 0,
-            firstInstance: _atlases[id] ? _ranges[id].start : 0,
+            firstInstance: _text.atlases[id] ? _text.ranges[id].start : 0,
         })),
     );
 }
@@ -397,22 +437,23 @@ const TextSystem: System = {
     after: [BeginFrameSystem],
     before: [PrepassSystem],
     setup() {
-        _quadBase = Meshes.get("textQuad")?.indexBase ?? 0;
-        for (let id = 0; id < _atlases.length; id++) {
-            if (!_atlases[id]) continue;
+        _text.quadBase = Meshes.get("textQuad")?.indexBase ?? 0;
+        for (let id = 0; id < _text.atlases.length; id++) {
+            if (!_text.atlases[id]) continue;
             Draws.register({
                 name: `text${id}`,
                 surface: surfaceName(id),
                 mesh: "textQuad",
-                args: { indirect: _argBuf!, offset: id * 20 },
+                args: { indirect: _text.argBuf!, offset: id * 20 },
             });
         }
     },
     update(state) {
-        if (!Compute.device || !_glyphBuf || !_argBuf || _atlases.length === 0) return;
+        if (!Compute.device || !_text.glyphBuf || !_text.argBuf || _text.atlases.length === 0)
+            return;
         const sig = signature(state);
-        if (sig === _sig) return;
-        _sig = sig;
+        if (sig === _text.sig) return;
+        _text.sig = sig;
         rebuild(state, Compute.device);
     },
 };
@@ -453,12 +494,14 @@ export const TextPlugin: Plugin = {
     },
 
     async initialize(state) {
-        _loaded = [];
-        _atlases = [];
-        _glyphBuf = null;
-        _argBuf = null;
-        _sampler = null;
-        _sig = -1;
+        state.resource(textStateKey, createTextState);
+        initializeSdfState(state);
+        _text.loaded = [];
+        _text.atlases = [];
+        _text.glyphBuf = null;
+        _text.argBuf = null;
+        _text.sampler = null;
+        _text.sig = -1;
 
         if (!Compute.device) return;
         const device = Compute.device;
@@ -471,26 +514,26 @@ export const TextPlugin: Plugin = {
             Array.from({ length: Fonts.size }, async (_, id) => {
                 const url = Fonts.get(Fonts.name(id)!)!.url;
                 try {
-                    _loaded[id] = await loadFont(url);
+                    _text.loaded[id] = await loadFont(url);
                 } catch (e) {
                     console.warn(`[Text] font ${id} (${url}) failed to load:`, e);
-                    _loaded[id] = null;
+                    _text.loaded[id] = null;
                 }
             }),
         );
 
-        _sampler = device.createSampler({
+        _text.sampler = device.createSampler({
             label: "text",
             magFilter: "linear",
             minFilter: "linear",
         });
-        Compute.samplers.set("textSamp", _sampler);
+        Compute.samplers.set("textSamp", _text.sampler);
 
-        for (let id = 0; id < _loaded.length; id++) {
-            const loaded = _loaded[id];
+        for (let id = 0; id < _text.loaded.length; id++) {
+            const loaded = _text.loaded[id];
             if (!loaded) continue;
             const atlas = createGlyphAtlas(device, loaded);
-            _atlases[id] = atlas;
+            _text.atlases[id] = atlas;
             Compute.textures.set(atlasName(id), atlas.texture);
             const { layout, vs, fs } = typedTextSurface(id);
             registerSurface(state, {
@@ -507,35 +550,35 @@ export const TextPlugin: Plugin = {
 
     warm() {
         if (!Compute.device) return;
-        _cap = INITIAL;
-        _staging = new ArrayBuffer(INITIAL * GLYPH_BYTES);
-        _f32 = new Float32Array(_staging);
-        _u32 = new Uint32Array(_staging);
-        _count = 0;
-        _sig = -1;
-        _glyphBuf = Compute.root
+        _text.cap = INITIAL;
+        _text.staging = new ArrayBuffer(INITIAL * GLYPH_BYTES);
+        _text.f32 = new Float32Array(_text.staging);
+        _text.u32 = new Uint32Array(_text.staging);
+        _text.count = 0;
+        _text.sig = -1;
+        _text.glyphBuf = Compute.root
             .createBuffer(d.arrayOf(Glyph, INITIAL))
             .$usage("storage")
             .$name("shallot-text-glyphs");
-        Compute.buffers.set("textGlyphs", Compute.root.unwrap(_glyphBuf));
-        Compute.typed.set("textGlyphs", _glyphBuf);
-        _argBuf = Compute.root
-            .createBuffer(d.arrayOf(DrawIndexedIndirect, Math.max(1, _atlases.length)))
+        Compute.buffers.set("textGlyphs", Compute.root.unwrap(_text.glyphBuf));
+        Compute.typed.set("textGlyphs", _text.glyphBuf);
+        _text.argBuf = Compute.root
+            .createBuffer(d.arrayOf(DrawIndexedIndirect, Math.max(1, _text.atlases.length)))
             .$usage("indirect")
             .$name("shallot-text-args");
-        for (const atlas of _atlases) if (atlas) ensureString(atlas, ASCII_CACHE);
+        for (const atlas of _text.atlases) if (atlas) ensureString(atlas, ASCII_CACHE);
     },
 
     dispose() {
-        _glyphBuf?.destroy();
-        _argBuf?.destroy();
-        disposeAtlases(_atlases);
+        _text.glyphBuf?.destroy();
+        _text.argBuf?.destroy();
+        disposeAtlases(_text.atlases);
         resetPipelines();
-        _glyphBuf = null;
-        _argBuf = null;
-        _atlases = [];
-        _loaded = [];
-        _count = 0;
+        _text.glyphBuf = null;
+        _text.argBuf = null;
+        _text.atlases = [];
+        _text.loaded = [];
+        _text.count = 0;
     },
 };
 

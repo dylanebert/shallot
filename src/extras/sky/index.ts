@@ -8,6 +8,7 @@
 import { BeginFrameSystem, RenderPlugin, registerBackground } from "../../core/rendering";
 import type { Plugin, System } from "../../engine";
 import { Compute, f32, formatHex, sparse } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 import { ColorSystem, SearPlugin } from "../../standard/rendering";
 import { packSky } from "./pack";
 import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
@@ -56,8 +57,14 @@ export const Sky = {
     hazeDensity: sparse(f32),
 };
 
-let _buffer: GPUBuffer | null = null;
-const _staging = new Float32Array(SKY_FLOATS);
+interface SkyState {
+    buffer: GPUBuffer | null;
+    staging: Float32Array;
+}
+
+const skyStateKey = Symbol("shallot.sky");
+const createSkyState = (): SkyState => ({ buffer: null, staging: new Float32Array(SKY_FLOATS) });
+const skyState = () => worldResource(skyStateKey, createSkyState);
 
 // writes the `Sky` uniform each frame from the scene's Sky singleton, before sear's color pass reads it for
 // the backdrop draw. No-op unless the scene has a Sky singleton.
@@ -68,11 +75,12 @@ const SkySystem: System = {
     before: [ColorSystem],
     update(state) {
         const device = Compute.device;
-        if (!device || !_buffer) return;
+        const sky = skyState();
+        if (!device || !sky.buffer) return;
         const eid = state.only([Sky]);
         if (eid < 0) return;
-        packSky(eid, _staging);
-        device.queue.writeBuffer(_buffer, 0, _staging as Float32Array<ArrayBuffer>);
+        packSky(eid, sky.staging);
+        device.queue.writeBuffer(sky.buffer, 0, sky.staging as Float32Array<ArrayBuffer>);
     },
 };
 
@@ -118,6 +126,7 @@ export const SkyPlugin: Plugin = {
     dependencies: [RenderPlugin, SearPlugin],
 
     initialize(state) {
+        state.resource(skyStateKey, createSkyState);
         // Each State owns a distinct spec identity. Reusing the module singleton here would let an old
         // State's exact-object disposal guard mistake a later build for its own registration.
         registerBackground(state, { ...skyBackground });
@@ -126,23 +135,25 @@ export const SkyPlugin: Plugin = {
     warm() {
         const { device } = Compute;
         if (!device) return;
-        _buffer?.destroy();
-        _buffer = device.createBuffer({
+        const sky = skyState();
+        sky.buffer?.destroy();
+        sky.buffer = device.createBuffer({
             label: "sky-config",
             size: SKY_BYTES,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
         // the background bind group resolves the `sky` binding from Compute.buffers by name; republish every
         // warm — the map is wiped on each build()
-        Compute.buffers.set("sky", _buffer);
+        Compute.buffers.set("sky", sky.buffer);
         Compute.typed.set(
             "sky",
-            Compute.root.createBuffer(SkyGpu, _buffer).$usage("uniform").$name("sky-config"),
+            Compute.root.createBuffer(SkyGpu, sky.buffer).$usage("uniform").$name("sky-config"),
         );
     },
 
-    dispose() {
-        _buffer?.destroy();
-        _buffer = null;
+    dispose(state) {
+        const sky = state.resource(skyStateKey, createSkyState);
+        sky.buffer?.destroy();
+        sky.buffer = null;
     },
 };

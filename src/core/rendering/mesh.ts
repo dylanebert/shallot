@@ -1,7 +1,8 @@
 import type { IndexFlag, StorageFlag, TgpuBuffer, UniformFlag } from "typegpu";
 import type { AnyData, AnyWgslData, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
-import { Compute, Registry } from "../../engine";
+import { Compute, Registry, type State } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 import { MeshQuant, octEncode, packUnorm2 } from "../../engine/utils";
 
 export type MeshStorage<T extends AnyWgslData> = TgpuBuffer<WgslArray<T>> & StorageFlag;
@@ -93,7 +94,12 @@ export interface Mesh {
 }
 
 /** every registered mesh, keyed by name with a stable numeric ID */
-export const Meshes: Registry<Mesh> = new Registry<Mesh>();
+export const Meshes: Registry<Mesh> = new Proxy(new Registry<Mesh>(), {
+    get(_target, key) {
+        const registry = meshResources().meshes;
+        return Reflect.get(registry, key, registry) as unknown;
+    },
+});
 
 /** bytes per vertex in the **f32 staging array** producers fill (8 floats × 4 = 32 B). The lossless
  *  authoring layout. {@link quantizeMeshes} packs it to the 16 B GPU main stream + 8 B position stream
@@ -112,9 +118,32 @@ interface PendingMesh {
     indices: Uint32Array;
     bounds: [number, number, number, number];
 }
-const _pending: PendingMesh[] = [];
-let _placeholderVertices: MeshStorage<d.Vec4u> | null = null;
-let _placeholderIndices: MeshIndex | null = null;
+interface MeshResources {
+    meshes: Registry<Mesh>;
+    pending: PendingMesh[];
+    placeholderVertices: MeshStorage<d.Vec4u> | null;
+    placeholderIndices: MeshIndex | null;
+}
+
+const meshResourcesKey = Symbol("shallot.meshes");
+
+function createMeshResources(): MeshResources {
+    return {
+        meshes: new Registry<Mesh>(),
+        pending: [],
+        placeholderVertices: null,
+        placeholderIndices: null,
+    };
+}
+
+function meshResources(): MeshResources {
+    return worldResource(meshResourcesKey, createMeshResources);
+}
+
+/** Create this world's mesh registry and staging during RenderPlugin initialization. */
+export function initializeMeshState(state: State): void {
+    state.resource(meshResourcesKey, createMeshResources);
+}
 
 /**
  * local-space axis-aligned bounds `{ min, max }` of a vertex buffer (the shared
@@ -190,20 +219,21 @@ export function mesh(spec: { name: string; vertices: Float32Array; indices: Uint
     if (!device) return;
     // a placeholder reserves the registry entry now (fixing Meshes.size before
     // warm); flushMeshes swaps in the real shared buffer + correct indexBase
-    _placeholderVertices ??= Compute.root
+    const resources = meshResources();
+    resources.placeholderVertices ??= Compute.root
         .createBuffer(d.arrayOf(d.vec4u, 1))
         .$usage("storage")
         .$name("shallot-mesh-pending-vertices");
-    _placeholderIndices ??= Compute.root
+    resources.placeholderIndices ??= Compute.root
         .createBuffer(d.arrayOf(d.u32, 1))
         .$usage("storage", "index")
         .$name("shallot-mesh-pending-indices");
     const bounds = meshBounds(spec.vertices);
-    _pending.push({ ...spec, bounds });
+    resources.pending.push({ ...spec, bounds });
     Meshes.register({
         name: spec.name,
-        vertices: _placeholderVertices,
-        indices: _placeholderIndices,
+        vertices: resources.placeholderVertices,
+        indices: resources.placeholderIndices,
         indexBase: 0,
         indexCount: spec.indices.length,
         bounds,
@@ -365,11 +395,12 @@ export function quantizeMeshes(
 // drop the staged-but-unflushed mesh data + the placeholder buffer. flushMeshes calls it after packing,
 // clearMeshes after discarding — one source of truth for the staging state to reset.
 function resetStaging(): void {
-    _pending.length = 0;
-    _placeholderVertices?.destroy();
-    _placeholderIndices?.destroy();
-    _placeholderVertices = null;
-    _placeholderIndices = null;
+    const resources = meshResources();
+    resources.pending.length = 0;
+    resources.placeholderVertices?.destroy();
+    resources.placeholderIndices?.destroy();
+    resources.placeholderVertices = null;
+    resources.placeholderIndices = null;
 }
 
 /**
@@ -379,8 +410,9 @@ function resetStaging(): void {
  */
 export function flushMeshes(): void {
     const device = Compute.device;
-    if (!device || _pending.length === 0) return;
-    const packed = packMeshes(_pending);
+    const resources = meshResources();
+    if (!device || resources.pending.length === 0) return;
+    const packed = packMeshes(resources.pending);
     const q = quantizeMeshes(packed.vertices, packed.slices);
     const vertices = Compute.root
         .createBuffer(d.arrayOf(d.vec4u, q.main.length / 4))
@@ -402,7 +434,7 @@ export function flushMeshes(): void {
     position.write(q.position.buffer as ArrayBuffer);
     quant.write(q.quant.buffer as ArrayBuffer);
     indices.write(packed.indices.buffer as ArrayBuffer);
-    const bounds = new Map(_pending.map((m) => [m.name, m.bounds]));
+    const bounds = new Map(resources.pending.map((m) => [m.name, m.bounds]));
     for (const s of packed.slices) {
         Meshes.register({
             name: s.name,

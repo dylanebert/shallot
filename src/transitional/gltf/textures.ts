@@ -1,5 +1,5 @@
 import * as d from "typegpu/data";
-import { Compute } from "../../engine";
+import type { State } from "../../engine";
 import type { Ktx2Image } from "./basis";
 import { ALBEDO_NAMES, albedoSampler, fallback1x1 } from "./image";
 import { MATERIAL_STRIDE, MaterialData } from "./palette";
@@ -78,16 +78,17 @@ export function textureResources(set: AssembledTextures): (GPUTexture | GPUBuffe
  * (the asset cache / union memo owns the real set; the build-scoped fallback is freed in dispose). `albedo`
  * is padded to ALBEDO_NAMES, so an unused bucket's binding still resolves.
  */
-export function publishTextures(set: AssembledTextures): void {
+export function publishTextures(state: State, set: AssembledTextures): void {
+    const gpu = state.gpu;
     set.albedo.forEach((tex, b) => {
-        Compute.textures.set(ALBEDO_NAMES[b], tex);
+        gpu.textures.set(ALBEDO_NAMES[b], tex);
     });
-    for (const name of DATA_NAMES) Compute.textures.set(name, set.data[name]);
-    Compute.samplers.set("albedoSamp", set.sampler);
-    Compute.buffers.set("materialData", set.palette);
-    Compute.typed.set(
+    for (const name of DATA_NAMES) gpu.textures.set(name, set.data[name]);
+    gpu.samplers.set("albedoSamp", set.sampler);
+    gpu.buffers.set("materialData", set.palette);
+    gpu.typed.set(
         "materialData",
-        Compute.root
+        gpu.root
             .createBuffer(
                 d.arrayOf(MaterialData, Math.max(1, set.palette.size / MATERIAL_STRIDE)),
                 set.palette,
@@ -100,14 +101,14 @@ export function publishTextures(set: AssembledTextures): void {
 // no-op, since no entity uses them yet) before a load resolves — no startup "binding not published" warning,
 // the same fallback shape sear's shadow map uses. A real load re-publishes the cache-owned union over it,
 // and dispose frees it.
-let _fallback: AssembledTextures | null = null;
+const fallbackKey = Symbol("shallot.gltf-texture-fallback");
 
 /**
  * build + publish the build-scoped 1×1 fallback set (every albedo bucket + data slot a 1×1, an empty
  * palette) so the textured draws bind cleanly before a load resolves. Tracked so dispose frees it; a real
  * load re-publishes the cache-owned union over it.
  */
-export function fallbackTextures(device: GPUDevice): void {
+export function fallbackTextures(state: State, device: GPUDevice): void {
     const albedo = ALBEDO_NAMES.map(() => fallback1x1(device, "rgba8unorm-srgb"));
     const data = Object.fromEntries(
         DATA_NAMES.map((name) => [name, fallback1x1(device, DATA_FORMAT[name])]),
@@ -117,16 +118,17 @@ export function fallbackTextures(device: GPUDevice): void {
         size: MATERIAL_STRIDE,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-    _fallback = { albedo, data, sampler: albedoSampler(device), palette };
-    publishTextures(_fallback);
+    const fallback = { albedo, data, sampler: albedoSampler(device), palette };
+    state.resource(fallbackKey, () => fallback);
+    publishTextures(state, fallback);
 }
 
 /** free the build-scoped fallback set (GltfPlugin.dispose). The cache-owned union arrays + palette survive,
  *  freed only by invalidate / clearGltfCache. */
-export function disposeTextureFallbacks(): void {
-    if (!_fallback) return;
-    for (const tex of _fallback.albedo) tex.destroy();
-    for (const name of DATA_NAMES) _fallback.data[name].destroy();
-    _fallback.palette.destroy();
-    _fallback = null;
+export function disposeTextureFallbacks(state: State): void {
+    const fallback = state.resource<AssembledTextures | null>(fallbackKey, () => null);
+    if (!fallback) return;
+    for (const tex of fallback.albedo) tex.destroy();
+    for (const name of DATA_NAMES) fallback.data[name].destroy();
+    fallback.palette.destroy();
 }

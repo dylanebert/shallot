@@ -18,7 +18,14 @@ import type { State } from "../../engine/ecs/state";
 import type { WorldField } from "../../engine/ecs/storage";
 import { deviceLost, type LazyAlloc, precompile } from "../../engine/runtime";
 import { allocMembership, MembershipSystem } from "./membership";
-import { compiled, elementBytes, elementOf, resetPipelines, scatterKey } from "./scatter";
+import {
+    compiled,
+    elementBytes,
+    elementOf,
+    initializeScatterState,
+    resetPipelines,
+    scatterKey,
+} from "./scatter";
 
 // Toji's persistent-staging pattern — packing dirty bits straight into a mapped buffer, then scattering
 // them on the GPU, beats a per-slot `writeBuffer` at every K measured: CPU-side pack+encode+submit is
@@ -530,7 +537,9 @@ interface WorldSlab {
     packed?: Uint32Array;
 }
 
-const worldSlabs = new WeakMap<State, WorldSlab[]>();
+const worldSlabsKey = Symbol("shallot.slab-world");
+const worldSlabsFor = (state: State): WorldSlab[] =>
+    state.resource(worldSlabsKey, () => [] as WorldSlab[]);
 
 function prepareWorldSlabs(state: State): void {
     const slabs: WorldSlab[] = [];
@@ -560,12 +569,11 @@ function prepareWorldSlabs(state: State): void {
             });
         }
     }
-    worldSlabs.set(state, slabs);
+    worldSlabsFor(state).push(...slabs);
 }
 
 function flushWorldSlabs(state: State): void {
-    const slabs = worldSlabs.get(state);
-    if (!slabs) return;
+    const slabs = worldSlabsFor(state);
     for (const { field, packed } of slabs) {
         const dirty = field.dirty;
         let changed = false;
@@ -602,14 +610,14 @@ function flushWorldSlabs(state: State): void {
 }
 
 function releaseWorldSlabs(state: State): void {
-    for (const { field } of worldSlabs.get(state) ?? []) {
+    for (const { field } of worldSlabsFor(state)) {
         if (field.name && Compute.buffers.get(field.name) === field.gpu) {
             Compute.buffers.delete(field.name);
             Compute.typed.delete(field.name);
         }
         field.gpu = null;
     }
-    worldSlabs.delete(state);
+    worldSlabsFor(state).length = 0;
 }
 
 /**
@@ -687,6 +695,7 @@ export const SlabPlugin: Plugin = {
     systems: [SlabSystem, MembershipSystem],
 
     initialize(state) {
+        initializeScatterState(state);
         prepareWorldSlabs(state);
     },
 

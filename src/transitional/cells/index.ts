@@ -14,6 +14,7 @@
 import { Camera, OverlaySystem, Render, RenderPlugin, Views } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
 import { Compute, unpackColor } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 import {
     createGlyphAtlas,
     disposeAtlases,
@@ -23,7 +24,7 @@ import {
 } from "../../extras/text";
 import { ColorSystem } from "../../standard/rendering";
 import { GlazeSystem } from "../glaze";
-import { drawCells, resetDrawPipeline } from "./draw";
+import { drawCells, initializeDrawState, resetDrawPipeline } from "./draw";
 import {
     buildGlyphSizeTable,
     buildGlyphUvTable,
@@ -32,7 +33,7 @@ import {
 } from "./glyphs";
 import { type CellGrid, createCellGrid, deriveCellGridSize } from "./grid";
 import { CELL_GLYPH_COUNT, cellGlyphString } from "./ramp";
-import { recordSelect, resetSelectPipelines } from "./select";
+import { initializeSelectState, recordSelect, resetSelectPipelines } from "./select";
 
 /** legacy fixture dimensions for headless producer examples; the live sink derives its own shape. @internal */
 export const COLS = 80;
@@ -43,18 +44,41 @@ export const ROWS = 24;
 export const DEFAULT_FONT =
     "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbY2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKxjPQ.ttf";
 
-let _atlas: GlyphAtlas | null = null;
-let _glyphUv: GlyphUvBuffer | null = null;
-let _glyphSize: GlyphSizeBuffer | null = null;
-let _sampler: GPUSampler | null = null;
-const _grids = new Map<number, CellGrid>();
+interface CellsState {
+    atlas: GlyphAtlas | null;
+    glyphUv: GlyphUvBuffer | null;
+    glyphSize: GlyphSizeBuffer | null;
+    sampler: GPUSampler | null;
+    grids: Map<number, CellGrid>;
+    warnedMultiCamera: boolean;
+}
+
+const cellsStateKey = Symbol("shallot.cells");
+const createCellsState = (): CellsState => ({
+    atlas: null,
+    glyphUv: null,
+    glyphSize: null,
+    sampler: null,
+    grids: new Map(),
+    warnedMultiCamera: false,
+});
+const cellsState = () => worldResource(cellsStateKey, createCellsState);
+const _cells = new Proxy({} as CellsState, {
+    get(_target, key) {
+        return cellsState()[key as keyof CellsState];
+    },
+    set(_target, key, value) {
+        (cellsState() as unknown as Record<PropertyKey, unknown>)[key] = value;
+        return true;
+    },
+});
 
 function gridFor(eid: number, cols: number, rows: number): CellGrid {
-    const cached = _grids.get(eid);
+    const cached = _cells.grids.get(eid);
     if (cached?.cols === cols && cached.rows === rows) return cached;
     cached?.buffer.destroy();
     const grid = createCellGrid(cols, rows, CELL_GLYPH_COUNT);
-    _grids.set(eid, grid);
+    _cells.grids.set(eid, grid);
     return grid;
 }
 
@@ -64,12 +88,11 @@ function gridFor(eid: number, cols: number, rows: number): CellGrid {
  *  game-author API; not re-exported on the main `extras` barrel, same as everything else
  *  module-private to this directory. */
 export function cellsGridFor(eid: number): CellGrid | undefined {
-    return _grids.get(eid);
+    return _cells.grids.get(eid);
 }
 
 // warn-once guard for the single-camera scope below — module state, not per-frame, so a scene that
 // carries a second camera doesn't spam the console every frame.
-let _warnedMultiCamera = false;
 
 /**
  * for every camera with a rendered scene, select this frame's cell grid from its offscreen color, then
@@ -92,14 +115,22 @@ const CellsSystem: System = {
     before: [GlazeSystem],
     update(state: State) {
         const encoder = Render.encoder;
-        if (!encoder || !Compute.device || !_atlas || !_glyphUv || !_glyphSize || !_sampler) return;
+        if (
+            !encoder ||
+            !Compute.device ||
+            !_cells.atlas ||
+            !_cells.glyphUv ||
+            !_cells.glyphSize ||
+            !_cells.sampler
+        )
+            return;
         let drawnEid: number | null = null;
         for (const eid of state.query([Camera])) {
             const view = Views.get(eid);
             if (!view?.framebuffer) continue;
             if (drawnEid !== null) {
-                if (!_warnedMultiCamera) {
-                    _warnedMultiCamera = true;
+                if (!_cells.warnedMultiCamera) {
+                    _cells.warnedMultiCamera = true;
                     console.warn(
                         `shallot: Cells drew camera ${drawnEid} this frame; camera ${eid} shares its ` +
                             "one persistent select/draw buffer set and would silently corrupt both — " +
@@ -151,10 +182,10 @@ const CellsSystem: System = {
                 encoder,
                 view.framebuffer,
                 grid.buffer,
-                _glyphUv,
-                _glyphSize,
-                _atlas.textureView,
-                _sampler,
+                _cells.glyphUv,
+                _cells.glyphSize,
+                _cells.atlas.textureView,
+                _cells.sampler,
                 cols,
                 rows,
                 view.width,
@@ -181,15 +212,21 @@ export function cells(fontUrl = DEFAULT_FONT): Plugin {
         systems: [CellsSystem],
         dependencies: [RenderPlugin],
 
+        initialize(state) {
+            state.resource(cellsStateKey, createCellsState);
+            initializeDrawState(state);
+            initializeSelectState(state);
+        },
+
         async warm() {
             if (!Compute.device) return;
             const device = Compute.device;
             const font = await loadFont(fontUrl);
-            _atlas = createGlyphAtlas(device, font);
-            ensureString(_atlas, cellGlyphString());
-            _glyphUv = buildGlyphUvTable(_atlas);
-            _glyphSize = buildGlyphSizeTable(_atlas);
-            _sampler = device.createSampler({
+            _cells.atlas = createGlyphAtlas(device, font);
+            ensureString(_cells.atlas, cellGlyphString());
+            _cells.glyphUv = buildGlyphUvTable(_cells.atlas);
+            _cells.glyphSize = buildGlyphSizeTable(_cells.atlas);
+            _cells.sampler = device.createSampler({
                 label: "cells",
                 magFilter: "linear",
                 minFilter: "linear",
@@ -197,15 +234,15 @@ export function cells(fontUrl = DEFAULT_FONT): Plugin {
         },
 
         dispose() {
-            if (_atlas) disposeAtlases([_atlas]);
-            _atlas = null;
-            _glyphUv?.destroy();
-            _glyphUv = null;
-            _glyphSize?.destroy();
-            _glyphSize = null;
-            _sampler = null;
-            for (const grid of _grids.values()) grid.buffer.destroy();
-            _grids.clear();
+            if (_cells.atlas) disposeAtlases([_cells.atlas]);
+            _cells.atlas = null;
+            _cells.glyphUv?.destroy();
+            _cells.glyphUv = null;
+            _cells.glyphSize?.destroy();
+            _cells.glyphSize = null;
+            _cells.sampler = null;
+            for (const grid of _cells.grids.values()) grid.buffer.destroy();
+            _cells.grids.clear();
             resetSelectPipelines();
             resetDrawPipeline();
         },

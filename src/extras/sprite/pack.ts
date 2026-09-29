@@ -91,21 +91,6 @@ export const INITIAL = 1 << 8;
 /** six buckets, billboard-major: bucket = billboard * 2 + blend */
 export const BUCKETS = 6;
 
-// `_staging`/`_f32`/`_u32` are eid-indexed (a sprite's instance lands at `eid * SPRITE_FLOATS`, not
-// its slot) — the shadow atlas re-gathers instances mesh-major across combos and preserves only
-// `eid`, so a slot-major buffer reads garbage there. Sized off `maxEid + 1`, never the live count.
-let _staging = new ArrayBuffer(INITIAL * SPRITE_BYTES);
-let _f32 = new Float32Array(_staging);
-let _u32 = new Uint32Array(_staging);
-let _dataCap = INITIAL;
-// the slot-major eids array, parallel to the bucket-contiguous ranges (one u32/slot) — the
-// instancing convention's `eids` binding. Stays sized off the live slot count, not eid capacity.
-let _eids = new Uint32Array(INITIAL);
-let _slotCap = INITIAL;
-let _count = 0;
-const _byBucket: Instance[][] = Array.from({ length: BUCKETS }, () => []);
-const _ranges = Array.from({ length: BUCKETS }, () => ({ start: 0, count: 0 }));
-
 interface Instance {
     eid: number;
     ox: number;
@@ -117,16 +102,52 @@ interface Instance {
     fill: number;
 }
 
+interface SpritePackState {
+    staging: ArrayBuffer;
+    f32: Float32Array<ArrayBuffer>;
+    u32: Uint32Array<ArrayBuffer>;
+    dataCap: number;
+    eids: Uint32Array<ArrayBuffer>;
+    slotCap: number;
+    count: number;
+    byBucket: Instance[][];
+    ranges: { start: number; count: number }[];
+    bits: Float32Array;
+    bitsU: Uint32Array;
+}
+
+const spritePackKey = Symbol("shallot.sprite-pack");
+
+function createSpritePackState(): SpritePackState {
+    const staging = new ArrayBuffer(INITIAL * SPRITE_BYTES);
+    const bits = new Float32Array(1);
+    return {
+        staging,
+        f32: new Float32Array(staging),
+        u32: new Uint32Array(staging),
+        dataCap: INITIAL,
+        eids: new Uint32Array(INITIAL),
+        slotCap: INITIAL,
+        count: 0,
+        byBucket: Array.from({ length: BUCKETS }, () => []),
+        ranges: Array.from({ length: BUCKETS }, () => ({ start: 0, count: 0 })),
+        bits,
+        bitsU: new Uint32Array(bits.buffer),
+    };
+}
+
+function spritePackState(state: State): SpritePackState {
+    return state.resource(spritePackKey, createSpritePackState);
+}
+
 function packFill(amount: number, mode: number): number {
     const a = Math.round(Math.min(1, Math.max(0, amount)) * 0xffff);
     return ((mode & 0xffff) << 16) | a;
 }
 
-const _bits = new Float32Array(1);
-const _bitsU = new Uint32Array(_bits.buffer);
-function fbits(v: number): number {
-    _bits[0] = v;
-    return _bitsU[0];
+function fbits(v: number, state: SpritePackState): number {
+    state.bits[0] = v;
+    return state.bitsU[0];
 }
 function fold(h: number, x: number): number {
     return Math.imul(h ^ x, 16777619);
@@ -136,54 +157,56 @@ function fold(h: number, x: number): number {
 // included (they pick the bucket). The transform is deliberately absent — it flows through the
 // slab, so moving a sprite leaves the signature (and the instance buffer) untouched
 export function signature(state: State): number {
+    const scratch = spritePackState(state);
     let h = 0x811c9dc5 | 0;
     for (const eid of state.query([Sprite, Transform])) {
         if (!Sprite.visible.get(eid)) continue;
         h = fold(h, eid);
         h = fold(h, Sprite.image.get(eid));
-        h = fold(h, fbits(Sprite.size.x.get(eid)));
-        h = fold(h, fbits(Sprite.size.y.get(eid)));
-        h = fold(h, fbits(Sprite.anchor.x.get(eid)));
-        h = fold(h, fbits(Sprite.anchor.y.get(eid)));
+        h = fold(h, fbits(Sprite.size.x.get(eid), scratch));
+        h = fold(h, fbits(Sprite.size.y.get(eid), scratch));
+        h = fold(h, fbits(Sprite.anchor.x.get(eid), scratch));
+        h = fold(h, fbits(Sprite.anchor.y.get(eid), scratch));
         h = fold(h, Sprite.color.get(eid));
-        h = fold(h, fbits(Sprite.opacity.get(eid)));
+        h = fold(h, fbits(Sprite.opacity.get(eid), scratch));
         h = fold(h, Sprite.billboard.get(eid));
         h = fold(h, Sprite.blend.get(eid));
-        h = fold(h, fbits(Sprite.fill.get(eid)));
+        h = fold(h, fbits(Sprite.fill.get(eid), scratch));
         h = fold(h, Sprite.fillMode.get(eid));
     }
     return h;
 }
 
-function growData(min: number): void {
-    let cap = _dataCap;
+function growData(min: number, state: SpritePackState): void {
+    let cap = state.dataCap;
     while (cap < min) cap *= 2;
     const next = new ArrayBuffer(cap * SPRITE_BYTES);
-    new Uint8Array(next).set(new Uint8Array(_staging, 0, _dataCap * SPRITE_BYTES));
-    _staging = next;
-    _f32 = new Float32Array(next);
-    _u32 = new Uint32Array(next);
-    _dataCap = cap;
+    new Uint8Array(next).set(new Uint8Array(state.staging, 0, state.dataCap * SPRITE_BYTES));
+    state.staging = next;
+    state.f32 = new Float32Array(next);
+    state.u32 = new Uint32Array(next);
+    state.dataCap = cap;
 }
 
-function growSlots(min: number): void {
-    let cap = _slotCap;
+function growSlots(min: number, state: SpritePackState): void {
+    let cap = state.slotCap;
     while (cap < min) cap *= 2;
     const next = new Uint32Array(cap);
-    next.set(_eids.subarray(0, _slotCap));
-    _eids = next;
-    _slotCap = cap;
+    next.set(state.eids.subarray(0, state.slotCap));
+    state.eids = next;
+    state.slotCap = cap;
 }
 
 /** restore the staging to its initial capacity: the producer's `warm` reset */
-export function resetPack(): void {
-    _dataCap = INITIAL;
-    _staging = new ArrayBuffer(INITIAL * SPRITE_BYTES);
-    _f32 = new Float32Array(_staging);
-    _u32 = new Uint32Array(_staging);
-    _slotCap = INITIAL;
-    _eids = new Uint32Array(INITIAL);
-    _count = 0;
+export function resetPack(state: State): void {
+    const pack = spritePackState(state);
+    pack.dataCap = INITIAL;
+    pack.staging = new ArrayBuffer(INITIAL * SPRITE_BYTES);
+    pack.f32 = new Float32Array(pack.staging);
+    pack.u32 = new Uint32Array(pack.staging);
+    pack.slotCap = INITIAL;
+    pack.eids = new Uint32Array(INITIAL);
+    pack.count = 0;
 }
 
 export function packSprites(state: State): {
@@ -194,7 +217,8 @@ export function packSprites(state: State): {
     u32: Uint32Array<ArrayBuffer>;
     eids: Uint32Array<ArrayBuffer>;
 } {
-    for (const bucket of _byBucket) bucket.length = 0;
+    const pack = spritePackState(state);
+    for (const bucket of pack.byBucket) bucket.length = 0;
 
     let maxEid = -1;
     for (const eid of state.query([Sprite, Transform])) {
@@ -204,7 +228,7 @@ export function packSprites(state: State): {
         const billboard = Math.min(Sprite.billboard.get(eid), 2);
         const blend = Math.min(Sprite.blend.get(eid), 1);
         if (eid > maxEid) maxEid = eid;
-        _byBucket[billboard * 2 + blend].push({
+        pack.byBucket[billboard * 2 + blend].push({
             eid,
             ox: -w * Sprite.anchor.x.get(eid),
             oy: -h * Sprite.anchor.y.get(eid),
@@ -217,28 +241,35 @@ export function packSprites(state: State): {
     }
 
     let total = 0;
-    for (const bucket of _byBucket) total += bucket.length;
-    if (total > _slotCap) growSlots(total);
-    if (maxEid + 1 > _dataCap) growData(maxEid + 1);
+    for (const bucket of pack.byBucket) total += bucket.length;
+    if (total > pack.slotCap) growSlots(total, pack);
+    if (maxEid + 1 > pack.dataCap) growData(maxEid + 1, pack);
 
     let n = 0;
     for (let b = 0; b < BUCKETS; b++) {
-        _ranges[b].start = n;
-        for (const s of _byBucket[b]) {
+        pack.ranges[b].start = n;
+        for (const s of pack.byBucket[b]) {
             const o = s.eid * SPRITE_FLOATS;
-            _f32[o] = s.ox;
-            _f32[o + 1] = s.oy;
-            _f32[o + 2] = s.w;
-            _f32[o + 3] = s.h;
-            _u32[o + 4] = s.eid;
-            _u32[o + 5] = s.layer;
-            _u32[o + 6] = s.color;
-            _u32[o + 7] = s.fill;
-            _eids[n] = s.eid;
+            pack.f32[o] = s.ox;
+            pack.f32[o + 1] = s.oy;
+            pack.f32[o + 2] = s.w;
+            pack.f32[o + 3] = s.h;
+            pack.u32[o + 4] = s.eid;
+            pack.u32[o + 5] = s.layer;
+            pack.u32[o + 6] = s.color;
+            pack.u32[o + 7] = s.fill;
+            pack.eids[n] = s.eid;
             n++;
         }
-        _ranges[b].count = n - _ranges[b].start;
+        pack.ranges[b].count = n - pack.ranges[b].start;
     }
-    _count = n;
-    return { ranges: _ranges, count: _count, dataCap: _dataCap, f32: _f32, u32: _u32, eids: _eids };
+    pack.count = n;
+    return {
+        ranges: pack.ranges,
+        count: pack.count,
+        dataCap: pack.dataCap,
+        f32: pack.f32,
+        u32: pack.u32,
+        eids: pack.eids,
+    };
 }

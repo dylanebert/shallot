@@ -21,9 +21,9 @@ import {
     sceneTransform,
     Views,
 } from "../../core/rendering";
-import type { Plugin, System } from "../../engine";
+import type { Plugin, State, System } from "../../engine";
 import { Compute, f32, formatHex, sparse, u32 } from "../../engine";
-import { precompile } from "../../engine/runtime";
+import { precompile, worldResource } from "../../engine/runtime";
 import {
     ColorSystem,
     DEPTH_FORMAT,
@@ -74,12 +74,47 @@ export const Fog = {
     scatterIntensity: sparse(f32),
 };
 
-const _fog = {
-    pipeline: null as TgpuComputePipeline | null,
-    buffer: null as (TgpuBuffer<typeof FogGpu> & UniformFlag) | null,
-};
+interface FogState {
+    fog: {
+        pipeline: TgpuComputePipeline | null;
+        buffer: (TgpuBuffer<typeof FogGpu> & UniformFlag) | null;
+    };
+    staging: Float32Array;
+    lights: { keys: (GPUBuffer | GPUTextureView | GPUSampler)[]; group: LightsGroup } | null;
+    views: Map<
+        number,
+        {
+            read: GPUTextureView;
+            write: GPUTextureView;
+            depth: GPUTextureView;
+            slot: number;
+            group: ViewGroup;
+        }
+    >;
+}
 
-const _staging = new Float32Array(FOG_FLOATS);
+const fogStateKey = Symbol("shallot.fog");
+const createFogState = (): FogState => ({
+    fog: { pipeline: null, buffer: null },
+    staging: new Float32Array(FOG_FLOATS),
+    lights: null,
+    views: new Map(),
+});
+const fogState = () => worldResource(fogStateKey, createFogState);
+
+function initializeFogState(state: State): void {
+    state.resource(fogStateKey, createFogState);
+}
+
+const _fog = new Proxy({} as FogState["fog"], {
+    get(_target, key) {
+        return fogState().fog[key as keyof FogState["fog"]];
+    },
+    set(_target, key, value) {
+        (fogState().fog as unknown as Record<PropertyKey, unknown>)[key] = value;
+        return true;
+    },
+});
 
 type LightsGroup = TgpuBindGroup<(typeof fogLayout1)["entries"]>;
 type ViewGroup = TgpuBindGroup<(typeof fogLayout0)["entries"]>;
@@ -88,22 +123,10 @@ type ViewGroup = TgpuBindGroup<(typeof fogLayout0)["entries"]>;
 // it binds. The cull already binned every shading view this frame, so one group serves all cameras; sear's
 // shadow resources can flip identity (the atlas allocates lazily, the sun map toggles with a casting frame),
 // so rebuild only when one changes — sear's `shadowGroup` idiom, not a per-frame allocation
-let _lights: { keys: (GPUBuffer | GPUTextureView | GPUSampler)[]; group: LightsGroup } | null =
-    null;
 
 // per-camera group 0 (scene / depth / output / view / fog), cached per eid on the `sceneTransform` read +
 // write + the depth view (all three reallocate only on a resize, so the group rebuilds then, not every
 // frame) and the view slot (the per-slot View buffer it binds — a per-slot-buffer design)
-const _views = new Map<
-    number,
-    {
-        read: GPUTextureView;
-        write: GPUTextureView;
-        depth: GPUTextureView;
-        slot: number;
-        group: ViewGroup;
-    }
->();
 
 function fogLights(): LightsGroup {
     const atlas = pointAtlasView()!;
@@ -124,7 +147,7 @@ function fogLights(): LightsGroup {
         Lighting.buffer,
         tileRects,
     ];
-    const cached = _lights;
+    const cached = fogState().lights;
     if (cached && keys.every((k, i) => cached.keys[i] === k)) return cached.group;
     const group = Compute.root.createBindGroup(fogLayout1, {
         pointLights: LightCull.lights!,
@@ -138,7 +161,7 @@ function fogLights(): LightsGroup {
         lighting: Lighting.buffer,
         tileRects,
     });
-    _lights = { keys, group };
+    fogState().lights = { keys, group };
     return group;
 }
 
@@ -161,15 +184,15 @@ export const FogSystem: System = {
         if (!encoder || !Compute.device || !_fog.pipeline || !_fog.buffer) return;
         const fogEid = state.only([Fog]);
         if (fogEid < 0) return;
-        packFog(fogEid, _staging);
-        _fog.buffer.write(_staging.buffer as ArrayBuffer);
+        packFog(fogEid, fogState().staging);
+        _fog.buffer.write(fogState().staging.buffer as ArrayBuffer);
         // a null resource is a wiring bug, not a frame to skip (gpu firehose rule) — fogLights asserts them
         const lights = fogLights();
         for (const eid of state.query([Camera, Sear])) {
             const view = Views.get(eid);
             if (!view?.framebuffer || !view.depth) continue;
             const { read, write } = sceneTransform(view, eid);
-            let cam = _views.get(eid);
+            let cam = fogState().views.get(eid);
             if (
                 !cam ||
                 cam.read !== read ||
@@ -190,7 +213,7 @@ export const FogSystem: System = {
                         fog: _fog.buffer,
                     }),
                 };
-                _views.set(eid, cam);
+                fogState().views.set(eid, cam);
             }
             const pass = encoder.beginComputePass({
                 label: `fog/${eid}`,
@@ -238,6 +261,10 @@ export const FogPlugin: Plugin = {
     systems: [FogSystem],
     dependencies: [RenderPlugin, SearPlugin],
 
+    initialize(state) {
+        initializeFogState(state);
+    },
+
     async warm() {
         const device = Compute.device;
         if (!device) return;
@@ -245,8 +272,8 @@ export const FogPlugin: Plugin = {
         _fog.buffer = Compute.root.createBuffer(FogGpu).$usage("uniform").$name("fog-config");
         _fog.pipeline = Compute.root.createComputePipeline({ compute: fogKernel }).$name("fog");
         // the pipeline just changed identity — drop any group cached against the prior build
-        _lights = null;
-        _views.clear();
+        fogState().lights = null;
+        fogState().views.clear();
 
         // typegpu creates pipelines synchronously, so Dawn defers the real compile — and
         // the march runs every frame `Fog` + `Depth` are both present, so an unfired compile would land the
@@ -291,8 +318,8 @@ export const FogPlugin: Plugin = {
         _fog.buffer?.destroy();
         _fog.buffer = null;
         _fog.pipeline = null;
-        _lights = null;
-        _views.clear();
+        fogState().lights = null;
+        fogState().views.clear();
     },
 };
 

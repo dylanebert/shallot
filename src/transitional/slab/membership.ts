@@ -9,7 +9,14 @@ import { Compute, type State, type System } from "../../engine";
 // satisfying the gate the frame after the change, with no per-field reset and
 // no sentinel value reserved out of the data domain.
 
-const mirrors = new WeakMap<State, { gpu: GPUBuffer; mirror: Uint32Array<ArrayBuffer> }>();
+interface MembershipWorld {
+    gpu: GPUBuffer | null;
+    mirror: Uint32Array<ArrayBuffer>;
+}
+
+const membershipKey = Symbol("shallot.membership");
+const membershipWorld = (state: State): MembershipWorld =>
+    state.resource(membershipKey, () => ({ gpu: null, mirror: new Uint32Array(0) }));
 
 /**
  * allocate the mirror + CPU staging. Sized from the generation count, which
@@ -31,7 +38,8 @@ export function allocMembership(state: State): void {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
     state.own(gpu);
-    mirrors.set(state, { gpu, mirror });
+    membershipWorld(state).gpu = gpu;
+    membershipWorld(state).mirror = mirror;
     Compute.buffers.set("membership", gpu);
     Compute.typed.set(
         "membership",
@@ -46,9 +54,9 @@ export function allocMembership(state: State): void {
  * transform firehose — so the full re-upload on dirty frames stays cheap
  */
 function flush(state: State): void {
-    const world = mirrors.get(state);
-    if (!world) return;
+    const world = membershipWorld(state);
     const { gpu, mirror } = world;
+    if (!gpu) return;
     const changed = state.membership.drain((eid, gen, word) => {
         const i = gen * state.capacity + eid;
         if (i < mirror.length) mirror[i] = word;
@@ -57,11 +65,12 @@ function flush(state: State): void {
 }
 
 function release(state: State): void {
-    const world = mirrors.get(state);
-    if (world && Compute.buffers.get("membership") === world.gpu)
+    const world = membershipWorld(state);
+    if (world.gpu && Compute.buffers.get("membership") === world.gpu)
         Compute.buffers.delete("membership");
     Compute.typed.delete("membership");
-    mirrors.delete(state);
+    world.gpu = null;
+    world.mirror = new Uint32Array(0);
 }
 
 /**

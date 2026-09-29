@@ -1,9 +1,10 @@
 // Loader for the wasm-simd128 physics kernel (kernel/, inlined by scripts/build-kernel.ts).
 //
 // The kernel is ~tens of KB, too large for a synchronous main-thread compile, so instantiation is
-// async: call `init()` once before the first `step()`. `step()` itself stays synchronous. Every
-// consumer shares one kernel instance over one `WebAssembly.Memory` — the SoA solver columns live
-// in its linear memory and the TS side views them as `Float32Array`s.
+// async: call `init()` once before the first `step()`. `step()` itself stays synchronous. Each active
+// engine State owns one kernel instance, memory and worker pool; the SoA columns and their TypeScript
+// views therefore cannot overlap another PhysicsPlugin world's memory. Standalone solver calls without
+// an active State retain one process-local kernel for the low-level World API.
 //
 // Two artifacts (scripts/build-kernel.ts). `init()` resolves threading itself: standalone (bun/node) and a
 // cross-origin-isolated browser get the multithreaded artifact, which needs a shared `WebAssembly.Memory`;
@@ -11,6 +12,8 @@
 // host is missing. `init({ threads })` is the advanced escape — 0 forces single-thread, n overrides the
 // auto count. The MT artifact loads behind a dynamic `import()`, so a single-thread consumer never parses it.
 
+import type { State } from "../../../engine";
+import { currentWorld } from "../../../engine/runtime";
 import { KERNEL_WASM_BASE64 } from "./kernel.wasm";
 import { createPool, maxWorkers, type Pool } from "./pool";
 
@@ -339,13 +342,33 @@ export type InitOptions = {
     threads?: number;
 };
 
-let instance: Kernel | null = null;
-let sharedMemory: WebAssembly.Memory | null = null;
-let pool: Pool | null = null;
-let resolved = 1;
-let booting: Promise<void> | null = null;
-/** Latched when a worker trapped inside a pool round — see `runPool`. The kernel never steps again. */
-let dead = false;
+interface KernelState {
+    instance: Kernel | null;
+    sharedMemory: WebAssembly.Memory | null;
+    pool: Pool | null;
+    resolved: number;
+    booting: Promise<void> | null;
+    dead: boolean;
+}
+
+function createKernelState(): KernelState {
+    return {
+        instance: null,
+        sharedMemory: null,
+        pool: null,
+        resolved: 1,
+        booting: null,
+        dead: false,
+    };
+}
+
+const kernelStateKey = Symbol("shallot.physics-kernel");
+const standaloneKernelState = createKernelState();
+
+function kernelState(): KernelState {
+    const state = currentWorld<State>();
+    return state ? state.resource(kernelStateKey, createKernelState) : standaloneKernelState;
+}
 
 function decode(base64: string): Uint8Array<ArrayBuffer> {
     const bin = atob(base64);
@@ -406,14 +429,12 @@ function host(): Host {
     return { browser: true, shared: g.crossOriginIsolated === true };
 }
 
-async function single(): Promise<void> {
+async function single(runtime: KernelState): Promise<void> {
     const result = await WebAssembly.instantiate(decode(KERNEL_WASM_BASE64), {});
-    // Don't clobber an instance a lazy `kernel()` created while this was in flight — every consumer must
-    // share one instance (one linear memory), so first writer wins.
-    instance ??= result.instance.exports as unknown as Kernel;
+    runtime.instance ??= result.instance.exports as unknown as Kernel;
 }
 
-async function multi(want: number): Promise<void> {
+async function multi(runtime: KernelState, want: number): Promise<void> {
     const { KERNEL_SHARED_WASM_BASE64, SHARED_INITIAL_PAGES, SHARED_MAX_PAGES, SHARED_STACK_SIZE } =
         await import("./kernel.shared.wasm");
 
@@ -430,9 +451,9 @@ async function multi(want: number): Promise<void> {
         // biome-ignore lint/style/useNamingConvention: LLD's global, exported under its own name.
         __stack_pointer: WebAssembly.Global;
     };
-    // A lazy `kernel()` can have run during those awaits; it wins (a live world already holds views into
-    // its memory), and the threads are declined rather than swapping the memory out from under it.
-    if (instance) return;
+    // A lazy `kernel()` can have run during those awaits; it wins rather than swapping memory out from
+    // under views already held by this world's solver.
+    if (runtime.instance) return;
 
     const count = Math.min(want, 1 + maxWorkers(SHARED_STACK_SIZE)) - 1;
     // Instantiating ran the start function to completion on THIS thread, which is the ordering the pool
@@ -450,22 +471,19 @@ async function multi(want: number): Promise<void> {
               )
             : null;
 
-    instance = { ...exports, memory } as Kernel;
-    sharedMemory = memory;
-    pool = spawned;
-    resolved = count + 1;
+    runtime.instance = { ...exports, memory } as Kernel;
+    runtime.sharedMemory = memory;
+    runtime.pool = spawned;
+    runtime.resolved = count + 1;
 }
 
-async function boot(threads: number | undefined): Promise<void> {
-    // A lazy `kernel()` may already have instantiated the single-thread module (bun/node skip the await),
-    // and every consumer must share one instance — one linear memory. Swapping it out from under a live
-    // world would strand its columns, so the first instance wins and the threads are declined.
-    if (instance) return;
+async function boot(runtime: KernelState, threads: number | undefined): Promise<void> {
+    if (runtime.instance) return;
     const plan = resolve(threads, host());
     announce(plan);
     if (plan.want >= 1) {
         try {
-            await multi(plan.want);
+            await multi(runtime, plan.want);
             return;
         } catch (e) {
             // A host with shared memory can still refuse the workers themselves (a CSP that blocks blob:
@@ -475,19 +493,19 @@ async function boot(threads: number | undefined): Promise<void> {
             console.log(
                 `physics: running single-threaded. The host blocked the worker pool: ${e instanceof Error ? e.message : String(e)}`,
             );
-            await pool?.terminate();
-            pool = null;
-            sharedMemory = null;
-            instance = null;
-            resolved = 1;
+            await runtime.pool?.terminate();
+            runtime.pool = null;
+            runtime.sharedMemory = null;
+            runtime.instance = null;
+            runtime.resolved = 1;
         }
     }
-    await single();
+    await single(runtime);
 }
 
 /**
- * instantiate the physics kernel. idempotent — subsequent calls resolve immediately, and the first call
- * decides threading. await once before the first `step()`. required in a browser, where the main thread
+ * instantiate the active State's physics kernel (or the standalone kernel when no State is active).
+ * idempotent — subsequent calls resolve immediately, and the first call decides threading. await once before the first `step()`. required in a browser, where the main thread
  * refuses to compile a wasm module this size synchronously; outside a browser (bun/node/deno) `step()`
  * also instantiates lazily, so the await is optional there — but a lazy instance is single-threaded, so
  * `init()` before you touch a `World` if you want threads.
@@ -505,8 +523,9 @@ async function boot(threads: number | undefined): Promise<void> {
  * await init({ threads: 0 }); // force single-thread
  */
 export function init(options?: InitOptions): Promise<void> {
-    booting ??= boot(normalizeThreads(options?.threads));
-    return booting;
+    const runtime = kernelState();
+    runtime.booting ??= boot(runtime, normalizeThreads(options?.threads));
+    return runtime.booting;
 }
 
 /** Normalize the caller's `threads`: absent stays absent (auto-resolve), a non-finite value becomes 0
@@ -519,16 +538,17 @@ function normalizeThreads(v: number | undefined): number | undefined {
 
 /** threads the kernel resolved to — 1 when it is running single-threaded. */
 export function threads(): number {
-    return resolved;
+    return kernelState().resolved;
 }
 
 /** Stop the worker pool; the kernel keeps stepping, single-threaded. Optional: the pooled workers are
  * `unref`'d at boot, so a script that inits, steps, and ends exits on its own without this (pool.ts). Call
  * it to release the worker threads deterministically — at a test suite's teardown, say. */
 export async function shutdown(): Promise<void> {
-    await pool?.terminate();
-    pool = null;
-    resolved = 1;
+    const runtime = kernelState();
+    await runtime.pool?.terminate();
+    runtime.pool = null;
+    runtime.resolved = 1;
 }
 
 /**
@@ -537,17 +557,18 @@ export async function shutdown(): Promise<void> {
  * `await init()` first.
  */
 export function kernel(): Kernel {
-    if (dead) {
+    const runtime = kernelState();
+    if (runtime.dead) {
         throw new Error(
             "physics kernel is dead: a worker trapped mid-step, so the shared columns hold a partial one",
         );
     }
-    if (!instance) {
-        if (booting) throw new Error("await init() before stepping");
+    if (!runtime.instance) {
+        if (runtime.booting) throw new Error("await init() before stepping");
         const mod = new WebAssembly.Module(decode(KERNEL_WASM_BASE64));
-        instance = new WebAssembly.Instance(mod, {}).exports as unknown as Kernel;
+        runtime.instance = new WebAssembly.Instance(mod, {}).exports as unknown as Kernel;
     }
-    return instance;
+    return runtime.instance;
 }
 
 /**
@@ -560,12 +581,14 @@ export function kernel(): Kernel {
  * only misses the new tail. Views over the shared path therefore key staleness on this length changing.
  */
 export function sharedBytes(): number {
-    return sharedMemory === null ? 0 : sharedMemory.buffer.byteLength;
+    const memory = kernelState().sharedMemory;
+    return memory === null ? 0 : memory.buffer.byteLength;
 }
 
 /** The worker pool the solve may run on, or null when the kernel is single-threaded — or when a worker
  * has faulted, which kills the kernel (`runPool`). */
 export function workers(): Pool | null {
+    const pool = kernelState().pool;
     return pool?.alive ? pool : null;
 }
 
@@ -586,7 +609,7 @@ export function runPool(pool: Pool, orchestrate: () => void): void {
     try {
         pool.run(orchestrate);
     } catch (e) {
-        dead = true;
+        kernelState().dead = true;
         // The dead worker is gone; terminate the survivors to reclaim the threads (they are `unref`'d, so
         // they would not block exit, but they are live and now useless). Not awaited — this path is
         // already unwinding.

@@ -1,4 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
+import { attachCanvas, Camera } from "../../core/rendering";
+import { SearPlugin } from "../../standard/rendering";
 import {
     Body,
     hash as hashPhysics,
@@ -6,12 +8,26 @@ import {
     readBody,
     ShapeKind,
 } from "../../transitional/physics";
+import "../../standard";
+import { Transform } from "../../transitional/transforms";
 import { type State, Time } from "../index";
 import { build } from "./index";
 
 const peerModule = "bun-webgpu";
-const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+const peer = (await import(peerModule)) as Record<string, unknown> & {
+    setupGlobals(): Promise<void>;
+};
+const { setupGlobals } = peer;
+const CanvasContextMock = peer["GPUCanvasContextMock"] as {
+    new (canvas: HTMLCanvasElement, width: number, height: number): GPUCanvasContext;
+};
 await setupGlobals();
+if (typeof ResizeObserver === "undefined") {
+    globalThis.ResizeObserver = class {
+        observe() {}
+        disconnect() {}
+    } as unknown as typeof ResizeObserver;
+}
 
 let live: Awaited<ReturnType<typeof build>> | null = null;
 
@@ -125,6 +141,109 @@ test("overlapping public builds serialize their setup and then coexist as indepe
     second.dispose();
 }, 20_000);
 
+function cameraPlugin(label: string) {
+    const canvas = {
+        width: 16,
+        height: 16,
+        style: { imageRendering: "auto" },
+        getBoundingClientRect: () => ({ width: 16, height: 16 }),
+    } as unknown as HTMLCanvasElement;
+    const context = new CanvasContextMock(canvas, 16, 16);
+    canvas.getContext = ((kind: string) =>
+        kind === "webgpu" ? context : null) as typeof canvas.getContext;
+    return {
+        name: label,
+        dependencies: [SearPlugin],
+        initialize(state: State) {
+            const eid = state.create();
+            state.add(eid, Transform);
+            state.add(eid, Camera);
+            attachCanvas(eid, canvas, state);
+        },
+    };
+}
+
+test("default renderer worlds step independently on a shared and on separate devices", async () => {
+    const makeTrackedDevice = async () => {
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) throw new Error("Dawn adapter unavailable");
+        const requiredLimits: Record<string, number> = { maxStorageBuffersPerShaderStage: 10 };
+        for (const limit of [
+            "maxStorageBuffersInVertexStage",
+            "maxStorageBuffersInFragmentStage",
+            "maxStorageTexturesInVertexStage",
+            "maxStorageTexturesInFragmentStage",
+        ] as const) {
+            if (adapter.limits[limit] === 0) requiredLimits[limit] = 0;
+        }
+        const device = await adapter.requestDevice({
+            requiredFeatures: ["bgra8unorm-storage", "rg11b10ufloat-renderable"],
+            requiredLimits,
+        });
+        const live = new Set<GPUBuffer | GPUTexture>();
+        const createBuffer = device.createBuffer.bind(device);
+        const createTexture = device.createTexture.bind(device);
+        Object.defineProperties(device, {
+            createBuffer: {
+                configurable: true,
+                value: (descriptor: GPUBufferDescriptor) => {
+                    const buffer = createBuffer(descriptor);
+                    live.add(buffer);
+                    const destroy = buffer.destroy.bind(buffer);
+                    buffer.destroy = () => {
+                        if (live.delete(buffer)) destroy();
+                    };
+                    return buffer;
+                },
+            },
+            createTexture: {
+                configurable: true,
+                value: (descriptor: GPUTextureDescriptor) => {
+                    const texture = createTexture(descriptor);
+                    live.add(texture);
+                    const destroy = texture.destroy.bind(texture);
+                    texture.destroy = () => {
+                        if (live.delete(texture)) destroy();
+                    };
+                    return texture;
+                },
+            },
+        });
+        return { device, live };
+    };
+
+    const exercise = async (
+        firstDevice: GPUDevice,
+        secondDevice: GPUDevice,
+        live: Set<GPUBuffer | GPUTexture>,
+    ) => {
+        let first: Awaited<ReturnType<typeof build>> | undefined;
+        let second: Awaited<ReturnType<typeof build>> | undefined;
+        try {
+            first = await build({ plugins: [cameraPlugin("DefaultCameraA")], device: firstDevice });
+            second = await build({
+                plugins: [cameraPlugin("DefaultCameraB")],
+                device: secondDevice,
+            });
+            expect(first.state.gpu.root).not.toBe(second.state.gpu.root);
+            first.state.step(Time.FIXED_DT);
+            second.state.step(Time.FIXED_DT);
+            first.state.step(Time.FIXED_DT);
+        } finally {
+            second?.dispose();
+            first?.dispose();
+        }
+        expect(live.size).toBe(0);
+    };
+
+    const shared = await makeTrackedDevice();
+    await exercise(shared.device, shared.device, shared.live);
+    const first = await makeTrackedDevice();
+    const second = await makeTrackedDevice();
+    await exercise(first.device, second.device, first.live);
+    expect(second.live.size).toBe(0);
+}, 30_000);
+
 test("live Physics apps keep their authored component values and solver worlds isolated", async () => {
     const author = (state: State, y: number) => {
         const eid = state.create();
@@ -158,7 +277,7 @@ test("live Physics apps keep their authored component values and solver worlds i
     second.dispose();
 }, 20_000);
 
-test.todo("two live Physics apps keep sibling bodies and hash unchanged when only one steps (owner: stage 3)", async () => {
+test("two live Physics apps keep sibling bodies and hash unchanged when only one steps", async () => {
     const author = (state: State, y: number) => {
         const eid = state.create();
         state.add(eid, Body);

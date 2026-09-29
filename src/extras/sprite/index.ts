@@ -25,6 +25,7 @@ import {
     registerSurface,
 } from "../../core/rendering";
 import { Compute, formatHex, type Plugin, Registry, type State, type System } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 import { PrepassSystem } from "../../standard/rendering";
 import { Transform, TransformsPlugin } from "../../transitional/transforms";
 import {
@@ -80,20 +81,40 @@ const QUAD_VERTS = new Float32Array([
 ]);
 const QUAD_INDICES = new Uint32Array([0, 1, 2, 0, 2, 3]);
 
-let _atlas: GPUTexture | null = null;
-let _sampler: GPUSampler | null = null;
-let _spriteBuf: (TgpuBuffer<d.WgslArray<typeof SpriteData>> & StorageFlag) | null = null;
-// the slot-major eids buffer (the instancing convention's `eids` binding; `_spriteBuf` is
-// eid-indexed instead, sized independently — see pack.ts) — overridden per-draw via `spriteQuad`'s
-// `mesh.bindings` since it's sprite's own packed instance list, not the global entity-transform
-// firehose (`transforms` stays unoverridden, resolving to that global)
-let _eidsBuf: (TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag) | null = null;
-let _argBuf:
-    | (TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
-          StorageFlag & { usableAsIndirect: true })
-    | null = null;
-let _quadBase = 0;
-let _sig = -1;
+interface SpriteGpuState {
+    atlas: GPUTexture | null;
+    sampler: GPUSampler | null;
+    spriteBuf: (TgpuBuffer<d.WgslArray<typeof SpriteData>> & StorageFlag) | null;
+    eidsBuf: (TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag) | null;
+    argBuf:
+        | (TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
+              StorageFlag & { usableAsIndirect: true })
+        | null;
+    quadBase: number;
+    sig: number;
+}
+
+const spriteGpuKey = Symbol("shallot.sprites");
+const createSpriteGpuState = (): SpriteGpuState => ({
+    atlas: null,
+    sampler: null,
+    spriteBuf: null,
+    eidsBuf: null,
+    argBuf: null,
+    quadBase: 0,
+    sig: -1,
+});
+const spriteGpuState = () => worldResource(spriteGpuKey, createSpriteGpuState);
+
+const _sprite = new Proxy({} as SpriteGpuState, {
+    get(_target, key) {
+        return spriteGpuState()[key as keyof SpriteGpuState];
+    },
+    set(_target, key, value) {
+        (spriteGpuState() as unknown as Record<PropertyKey, unknown>)[key] = value;
+        return true;
+    },
+});
 
 function rebuild(state: State, device: GPUDevice): void {
     const { ranges, count, dataCap, f32, eids } = packSprites(state);
@@ -101,44 +122,45 @@ function rebuild(state: State, device: GPUDevice): void {
     // `dataCap` is eid-indexed (sized off `maxEid + 1`), not slot count — a sprite's instance data
     // lands at `eid * SPRITE_BYTES`, so the whole eid-addressable range must upload, not just the
     // first `count` records
-    if (dataCap * SPRITE_BYTES > Compute.root.unwrap(_spriteBuf!).size) {
-        const stale = _spriteBuf!;
-        _spriteBuf = Compute.root
+    if (dataCap * SPRITE_BYTES > Compute.root.unwrap(_sprite.spriteBuf!).size) {
+        const stale = _sprite.spriteBuf!;
+        _sprite.spriteBuf = Compute.root
             .createBuffer(d.arrayOf(SpriteData, dataCap))
             .$usage("storage")
             .$name("shallot-sprites");
-        Compute.buffers.set("spriteData", Compute.root.unwrap(_spriteBuf));
-        Compute.typed.set("spriteData", _spriteBuf);
+        Compute.buffers.set("spriteData", Compute.root.unwrap(_sprite.spriteBuf));
+        Compute.typed.set("spriteData", _sprite.spriteBuf);
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
     }
     // eid-indexed, so the whole capacity uploads every rebuild — a dead eid's stale slot is never
     // read (only an eid appearing in `eids` this rebuild is), so uploading it costs bandwidth, not
     // correctness
     device.queue.writeBuffer(
-        Compute.root.unwrap(_spriteBuf!),
+        Compute.root.unwrap(_sprite.spriteBuf!),
         0,
         f32,
         0,
         dataCap * (SPRITE_BYTES / 4),
     );
 
-    if (eids.length * 4 > Compute.root.unwrap(_eidsBuf!).size) {
-        const stale = _eidsBuf!;
-        _eidsBuf = Compute.root
+    if (eids.length * 4 > Compute.root.unwrap(_sprite.eidsBuf!).size) {
+        const stale = _sprite.eidsBuf!;
+        _sprite.eidsBuf = Compute.root
             .createBuffer(d.arrayOf(d.u32, eids.length))
             .$usage("storage")
             .$name("shallot-sprite-eids");
         const quad = Meshes.get("spriteQuad");
-        if (quad) quad.bindings = { ...quad.bindings, eids: _eidsBuf };
+        if (quad) quad.bindings = { ...quad.bindings, eids: _sprite.eidsBuf };
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
     }
-    if (count > 0) device.queue.writeBuffer(Compute.root.unwrap(_eidsBuf!), 0, eids, 0, count * 4);
+    if (count > 0)
+        device.queue.writeBuffer(Compute.root.unwrap(_sprite.eidsBuf!), 0, eids, 0, count * 4);
 
-    _argBuf!.write(
+    _sprite.argBuf!.write(
         ranges.map((range) => ({
             indexCount: 6,
             instanceCount: range.count,
-            firstIndex: _quadBase,
+            firstIndex: _sprite.quadBase,
             baseVertex: 0,
             firstInstance: range.start,
         })),
@@ -151,22 +173,22 @@ const SpriteSystem: System = {
     after: [BeginFrameSystem],
     before: [PrepassSystem],
     setup() {
-        _quadBase = Meshes.get("spriteQuad")?.indexBase ?? 0;
+        _sprite.quadBase = Meshes.get("spriteQuad")?.indexBase ?? 0;
         // all six draws, unconditionally — an empty bucket packs instanceCount 0 and no-ops
         for (let b = 0; b < BUCKETS; b++) {
             Draws.register({
                 name: surfaceName(b),
                 surface: surfaceName(b),
                 mesh: "spriteQuad",
-                args: { indirect: _argBuf!, offset: b * 20 },
+                args: { indirect: _sprite.argBuf!, offset: b * 20 },
             });
         }
     },
     update(state) {
-        if (!Compute.device || !_spriteBuf || !_eidsBuf || !_argBuf) return;
+        if (!Compute.device || !_sprite.spriteBuf || !_sprite.eidsBuf || !_sprite.argBuf) return;
         const sig = signature(state);
-        if (sig === _sig) return;
-        _sig = sig;
+        if (sig === _sprite.sig) return;
+        _sprite.sig = sig;
         rebuild(state, Compute.device);
     },
 };
@@ -210,12 +232,14 @@ export const SpritePlugin: Plugin = {
     },
 
     initialize(state) {
-        _atlas = null;
-        _sampler = null;
-        _spriteBuf = null;
-        _eidsBuf = null;
-        _argBuf = null;
-        _sig = -1;
+        state.resource(spriteGpuKey, createSpriteGpuState);
+        resetPack(state);
+        _sprite.atlas = null;
+        _sprite.sampler = null;
+        _sprite.spriteBuf = null;
+        _sprite.eidsBuf = null;
+        _sprite.argBuf = null;
+        _sprite.sig = -1;
 
         for (let b = 0; b < BUCKETS; b++) {
             registerSurface(state, spriteSurface(b));
@@ -228,7 +252,7 @@ export const SpritePlugin: Plugin = {
     // the atlas builds in warm, not initialize: warm runs after EVERY plugin's initialize, so any plugin
     // (e.g. a gauge plugin) can register images in its own initialize with no pre-run call. Draws bind
     // the atlas at frame 1 (after warm), so the timing is safe.
-    async warm() {
+    async warm(state) {
         if (!Compute.device) return;
         const device = Compute.device;
 
@@ -251,54 +275,54 @@ export const SpritePlugin: Plugin = {
                     }
                 }),
             );
-            _atlas = await imageArray(device, blobs);
+            _sprite.atlas = await imageArray(device, blobs);
         } else {
-            _atlas = device.createTexture({
+            _sprite.atlas = device.createTexture({
                 label: "sprite-atlas-fallback",
                 size: { width: 1, height: 1, depthOrArrayLayers: 1 },
                 format: "rgba8unorm-srgb",
                 usage: GPUTextureUsage.TEXTURE_BINDING,
             });
         }
-        Compute.textures.set("spriteAtlas", _atlas);
+        Compute.textures.set("spriteAtlas", _sprite.atlas);
         // clamp-to-edge (the default), not repeat — a wrapping icon bleeds its opposite edge
-        _sampler = device.createSampler({
+        _sprite.sampler = device.createSampler({
             label: "sprite",
             magFilter: "linear",
             minFilter: "linear",
             mipmapFilter: "linear",
         });
-        Compute.samplers.set("spriteSamp", _sampler);
+        Compute.samplers.set("spriteSamp", _sprite.sampler);
 
-        resetPack();
-        _sig = -1;
-        _spriteBuf = Compute.root
+        resetPack(state);
+        _sprite.sig = -1;
+        _sprite.spriteBuf = Compute.root
             .createBuffer(d.arrayOf(SpriteData, INITIAL))
             .$usage("storage")
             .$name("shallot-sprites");
-        Compute.buffers.set("spriteData", Compute.root.unwrap(_spriteBuf));
-        Compute.typed.set("spriteData", _spriteBuf);
-        _eidsBuf = Compute.root
+        Compute.buffers.set("spriteData", Compute.root.unwrap(_sprite.spriteBuf));
+        Compute.typed.set("spriteData", _sprite.spriteBuf);
+        _sprite.eidsBuf = Compute.root
             .createBuffer(d.arrayOf(d.u32, INITIAL))
             .$usage("storage")
             .$name("shallot-sprite-eids");
         const quad = Meshes.get("spriteQuad");
-        if (quad) quad.bindings = { ...quad.bindings, eids: _eidsBuf };
-        _argBuf = Compute.root
+        if (quad) quad.bindings = { ...quad.bindings, eids: _sprite.eidsBuf };
+        _sprite.argBuf = Compute.root
             .createBuffer(d.arrayOf(DrawIndexedIndirect, BUCKETS))
             .$usage("storage", "indirect")
             .$name("shallot-sprite-args");
     },
 
     dispose() {
-        _spriteBuf?.destroy();
-        _eidsBuf?.destroy();
-        _argBuf?.destroy();
-        _atlas?.destroy();
-        _spriteBuf = null;
-        _eidsBuf = null;
-        _argBuf = null;
-        _atlas = null;
-        _sampler = null;
+        _sprite.spriteBuf?.destroy();
+        _sprite.eidsBuf?.destroy();
+        _sprite.argBuf?.destroy();
+        _sprite.atlas?.destroy();
+        _sprite.spriteBuf = null;
+        _sprite.eidsBuf = null;
+        _sprite.argBuf = null;
+        _sprite.atlas = null;
+        _sprite.sampler = null;
     },
 };

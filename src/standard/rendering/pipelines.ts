@@ -31,7 +31,8 @@ import {
     Surfaces,
     VsIn,
 } from "../../core/rendering";
-import { Compute, type Registry } from "../../engine";
+import { Compute, type Registry, type State } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 import {
     decodePos,
     decodeUv,
@@ -71,16 +72,43 @@ export type BindResource =
 
 const variantKey = (surface: string, variant: number) => `${surface}#${variant}`;
 
+interface PipelineState {
+    compiledTyped: Map<string, CompiledSurface>;
+    typedGroups: Map<string, SurfaceGroupEntry>;
+    bgQuant: GPUBuffer | null;
+    compiledTypedBg: Map<string, CompiledBackground>;
+}
+
+const pipelineStateKey = Symbol("shallot.sear-pipelines");
+
+function createPipelineState(): PipelineState {
+    return {
+        compiledTyped: new Map(),
+        typedGroups: new Map(),
+        bgQuant: null,
+        compiledTypedBg: new Map(),
+    };
+}
+
+function pipelineState(): PipelineState {
+    return worldResource(pipelineStateKey, createPipelineState);
+}
+
+/** Create this world's Sear pipeline caches during plugin initialization. */
+export function initializePipelineState(state: State): void {
+    state.resource(pipelineStateKey, createPipelineState);
+}
+
 export function clearGroups(): void {
-    _typedGroups.clear();
+    pipelineState().typedGroups.clear();
 }
 
 export function resetPipelineCaches(): void {
-    _compiledTyped.clear();
-    _compiledTypedBg.clear();
-    _typedGroups.clear();
-    _bgQuant?.destroy();
-    _bgQuant = null;
+    pipelineState().compiledTyped.clear();
+    pipelineState().compiledTypedBg.clear();
+    pipelineState().typedGroups.clear();
+    pipelineState().bgQuant?.destroy();
+    pipelineState().bgQuant = null;
 }
 
 // ---- the typed pipeline builder (the template + its extensions): compiles a `Surface`'s
@@ -140,7 +168,6 @@ export interface CompiledSurface {
         name: string;
     };
 }
-const _compiledTyped = new Map<string, CompiledSurface>();
 
 /** the per-draw group-2 state a typed draw binds.
  * `color` builds against `layout` (the 16 B main stream at the `vertices` slot); opaque depth/atlas
@@ -183,15 +210,14 @@ export type SurfaceGroupEntry = {
     /** the material variant the entry's compiled surface was looked up at. */
     variant: number;
 };
-const _typedGroups = new Map<string, SurfaceGroupEntry>();
 
 /** the cached typed per-draw group-2 state for a Draw name, or `undefined` on a cache miss (`record`
  * rebuilds it). Supplying the current surface also invalidates a same-name replacement: bind groups
  * are layout-object-specific even when every resolved GPU resource is unchanged. */
 export function getGroup(name: string, surface?: AnySurface): SurfaceGroupEntry | undefined {
-    const entry = _typedGroups.get(name);
+    const entry = pipelineState().typedGroups.get(name);
     if (entry && surface && (entry.owner !== surface || entry.layout !== surface.layout)) {
-        _typedGroups.delete(name);
+        pipelineState().typedGroups.delete(name);
         return undefined;
     }
     return entry;
@@ -199,7 +225,7 @@ export function getGroup(name: string, surface?: AnySurface): SurfaceGroupEntry 
 
 /** cache a typed draw's resolved group-2 state (`record`, on a resource-identity change). */
 export function setGroup(name: string, entry: SurfaceGroupEntry): void {
-    _typedGroups.set(name, entry);
+    pipelineState().typedGroups.set(name, entry);
 }
 
 /** the engine group-0 bind group for a view slot against one meshQuant buffer — the shared live
@@ -232,16 +258,16 @@ export function engineGroup(
 // a background reads no mesh, but `engineLayout` (the shared group-0 instance the Backgrounds lock
 // names) still carries the `meshQuant` slot — a one-record placeholder buffer fills it, never read (the
 // slot-0 View placeholder precedent)
-let _bgQuant: GPUBuffer | null = null;
 
 /** the never-read `meshQuant` placeholder a typed background's engine group binds. */
 export function bgQuant(): GPUBuffer {
-    _bgQuant ??= Compute.device.createBuffer({
+    const state = pipelineState();
+    state.bgQuant ??= Compute.device.createBuffer({
         label: "sear-bg-quant",
         size: d.sizeOf(MeshQuant),
         usage: GPUBufferUsage.STORAGE,
     });
-    return _bgQuant;
+    return state.bgQuant;
 }
 
 /** the widest `Surface` shape (any bindings, any varyings) — the bare `Surface` default pins
@@ -1294,7 +1320,7 @@ export function compileVariant<
     V extends Record<string, AnyWgslData>,
 >(surface: Surface<B, V>, capacity: number, variant = 0): CompiledSurface {
     const key = variantKey(surface.name, surface.specialize ? variant : 0);
-    const cached = _compiledTyped.get(key);
+    const cached = pipelineState().compiledTyped.get(key);
     if (cached?.owner === surface && cached.layout === surface.layout) return cached;
     const resolved = typedVariant(surface, variant);
     // a `screen` surface's clip position comes from its own `vs` chunk's `patch.clip` and from nowhere
@@ -1382,7 +1408,7 @@ export function compileVariant<
         compiled.point = point;
         compiled.cascade = cascade;
     }
-    _compiledTyped.set(key, compiled);
+    pipelineState().compiledTyped.set(key, compiled);
     return compiled;
 }
 
@@ -2106,7 +2132,7 @@ export function shadowWgsl(
 /** the compiled typed pipeline(s) for a `Surfaces` entry, or `undefined` until
  * {@link compileVariant} has run for it. */
 export function getCompiledSurface(name: string, variant = 0): CompiledSurface | undefined {
-    return _compiledTyped.get(variantKey(name, variant));
+    return pipelineState().compiledTyped.get(variantKey(name, variant));
 }
 
 /** the color/transparent pipeline's emitted vs+fs WGSL for one `Surface` — device-free; both pipeline
@@ -2249,7 +2275,6 @@ export interface CompiledBackground {
     // the bg's quant fill is the stable per-build `bgQuant()`, so this never sees buffer churn)
     engineCache: Map<number, GPUBindGroup>;
 }
-const _compiledTypedBg = new Map<string, CompiledBackground>();
 
 /**
  * compile one typed background's color pipelines — both the 4× MSAA + single-sample twins, eagerly
@@ -2260,7 +2285,7 @@ const _compiledTypedBg = new Map<string, CompiledBackground>();
  * or layout-bound groups from its previous owner.
  */
 export function compileBackground(bg: AnyBackground): CompiledBackground {
-    const cached = _compiledTypedBg.get(bg.name);
+    const cached = pipelineState().compiledTypedBg.get(bg.name);
     if (cached?.owner === bg && cached.layout === bg.layout) return cached;
     const fragment = typedBgFs(bg);
     const primitive: GPUPrimitiveState = { topology: "triangle-list", cullMode: "none" };
@@ -2297,16 +2322,16 @@ export function compileBackground(bg: AnyBackground): CompiledBackground {
         group2: null,
         engineCache: new Map(),
     };
-    _compiledTypedBg.set(bg.name, compiled);
+    pipelineState().compiledTypedBg.set(bg.name, compiled);
     return compiled;
 }
 
 /** the compiled typed pipeline(s) for a `Backgrounds` entry, or `undefined` until
  * {@link compileBackground} has run for it. */
 export function getBackground(name: string, bg?: AnyBackground): CompiledBackground | undefined {
-    const compiled = _compiledTypedBg.get(name);
+    const compiled = pipelineState().compiledTypedBg.get(name);
     if (compiled && bg && (compiled.owner !== bg || compiled.layout !== bg.layout)) {
-        _compiledTypedBg.delete(name);
+        pipelineState().compiledTypedBg.delete(name);
         return undefined;
     }
     return compiled;

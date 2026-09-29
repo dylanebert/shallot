@@ -11,7 +11,8 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { DrawIndexedIndirect } from "../../core/rendering";
-import { Compute } from "../../engine";
+import { Compute, type State } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 
 // the re-gather packs each instance's (eid, dense combo index) into one u32 in the re-gathered list — eid in
 // the low bits, the combo above. The exact split follows the owning world's capacity; Pass B and the atlas
@@ -26,22 +27,37 @@ export function eidPacking(capacity: number): { comboShift: number; eidMask: num
 // (a second hand-authored stride is layout drift waiting to happen).
 export const SHADOW_ARG_STRIDE = d.sizeOf(DrawIndexedIndirect);
 
-// the two A/B compute pipelines — module-scope singletons, compiled once by prepareRegather. The WGSL is
-// geometry-blind (slot-major counts + the eid pool + meta), so both the point atlas and the cascade atlas
-// share them; only the bound buffers differ per Regather instance.
-let _aPipe: GPUComputePipeline | null = null;
-let _bPipe: GPUComputePipeline | null = null;
-let _aLayout: GPUBindGroupLayout | null = null;
-let _bLayout: GPUBindGroupLayout | null = null;
+interface RegatherState {
+    aPipe: GPUComputePipeline | null;
+    bPipe: GPUComputePipeline | null;
+    aLayout: GPUBindGroupLayout | null;
+    bLayout: GPUBindGroupLayout | null;
+    pipelineDevice: GPUDevice | null;
+    pipelineCapacity: number;
+}
 
-let _aWgsl: string | null = null;
-let _bWgsl: string | null = null;
-let _pipelineDevice: GPUDevice | null = null;
-let _pipelineCapacity = 0;
+const regatherStateKey = Symbol("shallot.regather");
+const createRegatherState = (): RegatherState => ({
+    aPipe: null,
+    bPipe: null,
+    aLayout: null,
+    bLayout: null,
+    pipelineDevice: null,
+    pipelineCapacity: 0,
+});
+
+function regatherState(): RegatherState {
+    return worldResource(regatherStateKey, createRegatherState);
+}
+
+/** Create this world's regather pipeline state during Sear initialization. */
+export function initializeRegatherState(state: State): void {
+    state.resource(regatherStateKey, createRegatherState);
+}
 
 /** Pass A's exact compiled source, exposed lazily for the device-free indirect-record contract test. */
 export const regatherArgsWgsl = (): string =>
-    (_aWgsl ??= tgpu.resolve({
+    tgpu.resolve({
         names: "strict",
         externals: { DrawIndexedIndirect },
         template: /* wgsl */ `
@@ -77,10 +93,10 @@ fn main() {
         base = base + total;
     }
 }`,
-    }));
+    });
 
 const regatherEidsWgsl = (comboShift: number): string =>
-    (_bWgsl ??= tgpu.resolve({
+    tgpu.resolve({
         names: "strict",
         externals: { DrawIndexedIndirect },
         template: /* wgsl */ `
@@ -117,25 +133,28 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         shadowEids[dst + k] = packedEids[src + k] | (c << ${comboShift}u);
     }
 }`,
-    }));
+    });
 
 /** compile the shared A/B re-gather pipelines once (idempotent): called from `prepareSear`, folded into its
  * warm `Promise.all`. Every {@link Regather} instance binds against these singleton layouts. */
 export async function prepareRegather(device: GPUDevice, capacity: number): Promise<void> {
-    if (_aPipe && _pipelineDevice === device && _pipelineCapacity === capacity) return;
-    _aPipe = null;
-    _bPipe = null;
-    _aLayout = null;
-    _bLayout = null;
-    _aWgsl = null;
-    _bWgsl = null;
-    _pipelineDevice = device;
-    _pipelineCapacity = capacity;
+    if (
+        regatherState().aPipe &&
+        regatherState().pipelineDevice === device &&
+        regatherState().pipelineCapacity === capacity
+    )
+        return;
+    regatherState().aPipe = null;
+    regatherState().bPipe = null;
+    regatherState().aLayout = null;
+    regatherState().bLayout = null;
+    regatherState().pipelineDevice = device;
+    regatherState().pipelineCapacity = capacity;
     // Pass A — one thread: for each casting mesh, sum its per-combo culled counts (the spine's drawArgs at
     // each combo slot), exclusive-prefix the totals into per-mesh run bases, and write one DrawIndexedIndirect
     // record (instanceCount = the sum, firstInstance = the base; the static indexCount/firstIndex from any
     // combo slot, which the pack seeds per slot). D + C are tiny, so a serial single thread is free
-    _aLayout = device.createBindGroupLayout({
+    regatherState().aLayout = device.createBindGroupLayout({
         label: "sear-regather-a",
         entries: [
             {
@@ -157,7 +176,7 @@ export async function prepareRegather(device: GPUDevice, capacity: number): Prom
     // counts), packing the dense combo index above the eid. The serial inner copy is the per-(mesh, combo)
     // count; a per-instance dispatch is the deferred optimization if a mesh ever owns a large
     // per-combo count
-    _bLayout = device.createBindGroupLayout({
+    regatherState().bLayout = device.createBindGroupLayout({
         label: "sear-regather-b",
         entries: [
             {
@@ -191,7 +210,7 @@ export async function prepareRegather(device: GPUDevice, capacity: number): Prom
     const [a, b] = await Promise.all([
         device.createComputePipelineAsync({
             label: "sear-regather-a",
-            layout: device.createPipelineLayout({ bindGroupLayouts: [_aLayout] }),
+            layout: device.createPipelineLayout({ bindGroupLayouts: [regatherState().aLayout] }),
             compute: {
                 module: device.createShaderModule({
                     label: "sear-regather-a",
@@ -202,15 +221,15 @@ export async function prepareRegather(device: GPUDevice, capacity: number): Prom
         }),
         device.createComputePipelineAsync({
             label: "sear-regather-b",
-            layout: device.createPipelineLayout({ bindGroupLayouts: [_bLayout] }),
+            layout: device.createPipelineLayout({ bindGroupLayouts: [regatherState().bLayout] }),
             compute: {
                 module: device.createShaderModule({ label: "sear-regather-b", code: bWgsl }),
                 entryPoint: "main",
             },
         }),
     ]);
-    _aPipe = a;
-    _bPipe = b;
+    regatherState().aPipe = a;
+    regatherState().bPipe = b;
 }
 
 /** one shadow atlas's re-gather instance: its own packed list + indirect args + meta, sharing the
@@ -340,7 +359,7 @@ export function createRegather(label: string): Regather {
         }
         const group = Compute.device.createBindGroup({
             label: `sear-${label}-regather-a`,
-            layout: _aLayout!,
+            layout: regatherState().aLayout!,
             entries: [
                 { binding: 0, resource: { buffer: drawArgs } },
                 { binding: 1, resource: { buffer: meta } },
@@ -372,7 +391,7 @@ export function createRegather(label: string): Regather {
         }
         const group = Compute.device.createBindGroup({
             label: `sear-${label}-regather-b`,
-            layout: _bLayout!,
+            layout: regatherState().bLayout!,
             entries: [
                 { binding: 0, resource: { buffer: drawArgs } },
                 { binding: 1, resource: { buffer: packed } },
@@ -453,10 +472,10 @@ export function createRegather(label: string): Regather {
             // Pass A (per-mesh args, 1 thread) → Pass B (scatter, one thread per (mesh, combo)) in one pass —
             // the same intra-pass dispatch-ordering the Part pack relies on, so B sees A's args writes
             //. The atlas render then sees the compute output by in-encoder ordering
-            cpass.setPipeline(_aPipe!);
+            cpass.setPipeline(regatherState().aPipe!);
             cpass.setBindGroup(0, aGroup(drawArgs, meta, runIndex));
             cpass.dispatchWorkgroups(1);
-            cpass.setPipeline(_bPipe!);
+            cpass.setPipeline(regatherState().bPipe!);
             cpass.setBindGroup(0, bGroup(drawArgs, packedEids, meta, runIndex));
             cpass.dispatchWorkgroups(Math.ceil((D * C) / 64));
         },

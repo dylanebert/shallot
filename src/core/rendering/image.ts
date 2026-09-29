@@ -13,7 +13,8 @@
 import tgpu, { type TgpuRenderPipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Compute, checkTextureLimits } from "../../engine";
+import { Compute, checkTextureLimits, type State } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 
 /** mip levels for a square texture of `size` px: the full chain down to 1×1. */
 export function mipLevels(size: number): number {
@@ -67,10 +68,19 @@ const blitFs = tgpu.fragmentFn({
 // pipelines bind to the root that created them (device-scoped, memoized — `engine/runtime/gpu.ts`), so a
 // stale entry from a torn-down device must not be reused; keyed like the pre-port cache, by format alone
 // (the per-device root memo means `Compute.root` always matches whichever device is currently adopted).
-const _blit = new Map<string, TgpuRenderPipeline>();
+const blitPipelinesKey = Symbol("shallot.image-blit-pipelines");
+
+function blitPipelines(): Map<string, TgpuRenderPipeline> {
+    return worldResource(blitPipelinesKey, () => new Map<string, TgpuRenderPipeline>());
+}
+
+/** Create this world's image pipeline cache during RenderPlugin initialization. */
+export function initializeImageState(state: State): void {
+    state.resource(blitPipelinesKey, () => new Map<string, TgpuRenderPipeline>());
+}
 
 function blitPipeline(format: GPUTextureFormat): TgpuRenderPipeline {
-    const cached = _blit.get(format);
+    const cached = blitPipelines().get(format);
     if (cached) return cached;
     const pipeline = Compute.root
         .createRenderPipeline({
@@ -80,7 +90,7 @@ function blitPipeline(format: GPUTextureFormat): TgpuRenderPipeline {
             primitive: { topology: "triangle-list" },
         })
         .$name("image-mipmap");
-    _blit.set(format, pipeline);
+    blitPipelines().set(format, pipeline);
     return pipeline;
 }
 

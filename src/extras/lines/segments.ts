@@ -7,7 +7,8 @@
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { DrawIndexedIndirect } from "../../core/rendering";
-import { Compute } from "../../engine";
+import { Compute, type State } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 import { packColor } from "../../engine/utils";
 import { Segment } from "./surface";
 
@@ -20,12 +21,38 @@ const SEGMENT_FLOATS = SEGMENT_BYTES / 4;
 // initial segment capacity; the CPU staging + GPU buffer double on demand (BVH wireframes push thousands)
 const INITIAL = 1 << 14;
 
-let _segBuf: (TgpuBuffer<d.WgslArray<typeof Segment>> & StorageFlag) | null = null;
-let _staging = new ArrayBuffer(INITIAL * SEGMENT_BYTES);
-let _f32 = new Float32Array(_staging);
-let _u32 = new Uint32Array(_staging);
-let _cap = INITIAL;
-let _count = 0;
+interface SegmentState {
+    buffer: (TgpuBuffer<d.WgslArray<typeof Segment>> & StorageFlag) | null;
+    staging: ArrayBuffer;
+    f32: Float32Array;
+    u32: Uint32Array;
+    capacity: number;
+    count: number;
+    args: (TgpuBuffer<typeof DrawIndexedIndirect> & { usableAsIndirect: true }) | null;
+}
+
+const segmentStateKey = Symbol("shallot.line-segments");
+
+function createSegmentState(): SegmentState {
+    const staging = new ArrayBuffer(INITIAL * SEGMENT_BYTES);
+    return {
+        buffer: null,
+        staging,
+        f32: new Float32Array(staging),
+        u32: new Uint32Array(staging),
+        capacity: INITIAL,
+        count: 0,
+        args: null,
+    };
+}
+
+function segmentState(): SegmentState {
+    return worldResource(segmentStateKey, createSegmentState);
+}
+
+export function initializeSegmentState(state: State): void {
+    state.resource(segmentStateKey, createSegmentState);
+}
 
 // the producer's GPU publication. `count` is the segments packed this frame (reset after the upload);
 // `args` is the `DrawIndexedIndirect` buffer whose `instanceCount` lane the live segment count drives.
@@ -36,22 +63,28 @@ interface Lines {
     args: (TgpuBuffer<typeof DrawIndexedIndirect> & { usableAsIndirect: true }) | null;
 }
 
-export const Lines: Lines = {
-    get count(): number {
-        return _count;
+export const Lines: Lines = new Proxy({} as Lines, {
+    get(_target, key) {
+        const state = segmentState();
+        return key === "count" ? state.count : state[key as keyof SegmentState];
     },
-    args: null,
-};
+    set(_target, key, value) {
+        (segmentState() as unknown as Record<PropertyKey, unknown>)[key] = value;
+        return true;
+    },
+});
 
 function grow(min: number): void {
-    let cap = _cap;
+    let cap = segmentState().capacity;
     while (cap < min) cap *= 2;
     const next = new ArrayBuffer(cap * SEGMENT_BYTES);
-    new Uint8Array(next).set(new Uint8Array(_staging, 0, _count * SEGMENT_BYTES));
-    _staging = next;
-    _f32 = new Float32Array(next);
-    _u32 = new Uint32Array(next);
-    _cap = cap;
+    new Uint8Array(next).set(
+        new Uint8Array(segmentState().staging, 0, segmentState().count * SEGMENT_BYTES),
+    );
+    segmentState().staging = next;
+    segmentState().f32 = new Float32Array(next);
+    segmentState().u32 = new Uint32Array(next);
+    segmentState().capacity = cap;
 }
 
 export function push(
@@ -64,17 +97,17 @@ export function push(
     width: number,
     color: number,
 ): void {
-    if (_count >= _cap) grow(_count + 1);
-    const o = _count * SEGMENT_FLOATS;
-    _f32[o] = ax;
-    _f32[o + 1] = ay;
-    _f32[o + 2] = az;
-    _f32[o + 3] = width;
-    _f32[o + 4] = bx;
-    _f32[o + 5] = by;
-    _f32[o + 6] = bz;
-    _u32[o + 7] = color;
-    _count++;
+    if (segmentState().count >= segmentState().capacity) grow(segmentState().count + 1);
+    const o = segmentState().count * SEGMENT_FLOATS;
+    segmentState().f32[o] = ax;
+    segmentState().f32[o + 1] = ay;
+    segmentState().f32[o + 2] = az;
+    segmentState().f32[o + 3] = width;
+    segmentState().f32[o + 4] = bx;
+    segmentState().f32[o + 5] = by;
+    segmentState().f32[o + 6] = bz;
+    segmentState().u32[o + 7] = color;
+    segmentState().count++;
 }
 
 // four world-space fins from the tip back along the shaft. perpendicular basis off an up reference that
@@ -176,27 +209,29 @@ export function arrow(
 
 /** true once the GPU buffers are allocated (`warmSegments` ran with a device) */
 export function ready(): boolean {
-    return !!_segBuf && !!Lines.args;
+    return !!segmentState().buffer && !!Lines.args;
 }
 
 /** reset the segment count without touching the GPU buffers (reload-safe pre-warm init) */
 export function resetCount(): void {
-    _count = 0;
+    segmentState().count = 0;
 }
 
 /** allocate the segment storage + indirect-args buffers and publish `lineSegments` */
 export function warmSegments(_device: GPUDevice): void {
-    _cap = INITIAL;
-    _staging = new ArrayBuffer(INITIAL * SEGMENT_BYTES);
-    _f32 = new Float32Array(_staging);
-    _u32 = new Uint32Array(_staging);
-    _count = 0;
-    _segBuf = Compute.root
+    segmentState().capacity = INITIAL;
+    segmentState().staging = new ArrayBuffer(INITIAL * SEGMENT_BYTES);
+    segmentState().f32 = new Float32Array(segmentState().staging);
+    segmentState().u32 = new Uint32Array(segmentState().staging);
+    segmentState().count = 0;
+    const state = segmentState();
+    const buffer = Compute.root
         .createBuffer(d.arrayOf(Segment, INITIAL))
         .$usage("storage")
         .$name("shallot-line-segments");
-    Compute.buffers.set("lineSegments", Compute.root.unwrap(_segBuf));
-    Compute.typed.set("lineSegments", _segBuf);
+    state.buffer = buffer;
+    Compute.buffers.set("lineSegments", Compute.root.unwrap(buffer));
+    Compute.typed.set("lineSegments", buffer);
     Lines.args = Compute.root
         .createBuffer(DrawIndexedIndirect)
         .$usage("indirect")
@@ -206,39 +241,44 @@ export function warmSegments(_device: GPUDevice): void {
 // grow the GPU buffer to match the CPU staging (rare); republish so sear re-resolves the binding, then
 // upload this frame's segments, write the indirect record (instanceCount = live count), and clear
 export function flushSegments(device: GPUDevice, quadBase: number): void {
-    if (!_segBuf || !Lines.args) return;
-    if (_cap * SEGMENT_BYTES > Compute.root.unwrap(_segBuf).size) {
-        const stale = _segBuf;
-        _segBuf = Compute.root
-            .createBuffer(d.arrayOf(Segment, _cap))
+    const state = segmentState();
+    if (!state.buffer || !Lines.args) return;
+    if (state.capacity * SEGMENT_BYTES > Compute.root.unwrap(state.buffer).size) {
+        const stale = state.buffer;
+        const buffer = Compute.root
+            .createBuffer(d.arrayOf(Segment, state.capacity))
             .$usage("storage")
             .$name("shallot-line-segments");
-        Compute.buffers.set("lineSegments", Compute.root.unwrap(_segBuf));
-        Compute.typed.set("lineSegments", _segBuf);
+        state.buffer = buffer;
+        Compute.buffers.set("lineSegments", Compute.root.unwrap(buffer));
+        Compute.typed.set("lineSegments", buffer);
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
     }
-    if (_count > 0)
+    const buffer = state.buffer;
+    const args = Lines.args;
+    if (!buffer || !args) return;
+    if (state.count > 0)
         device.queue.writeBuffer(
-            Compute.root.unwrap(_segBuf),
+            Compute.root.unwrap(buffer),
             0,
-            _staging,
+            state.staging,
             0,
-            _count * SEGMENT_BYTES,
+            state.count * SEGMENT_BYTES,
         );
-    Lines.args.write({
+    args.write({
         indexCount: 6,
-        instanceCount: _count,
+        instanceCount: state.count,
         firstIndex: quadBase,
         baseVertex: 0,
         firstInstance: 0,
     });
-    _count = 0;
+    segmentState().count = 0;
 }
 
 export function disposeSegments(): void {
-    _segBuf?.destroy();
+    segmentState().buffer?.destroy();
     Lines.args?.destroy();
-    _segBuf = null;
+    segmentState().buffer = null;
     Lines.args = null;
-    _count = 0;
+    segmentState().count = 0;
 }

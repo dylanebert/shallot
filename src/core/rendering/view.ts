@@ -2,6 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute, type State } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 import { chunk, spliceNs } from "../../engine/utils";
 import { devices, reportViewport } from "../input";
 import { Camera, Resolution } from "./camera";
@@ -147,8 +148,50 @@ export interface View {
     stamp: number;
 }
 
+interface ViewResources {
+    views: Map<number, View>;
+    offscreen: Map<number, { texture: GPUTexture; view: GPUTextureView; w: number; h: number }>;
+    scratch: Map<number, { a: Scratch | null; b: Scratch | null; w: number; h: number }>;
+}
+
+const viewResourcesKey = Symbol("shallot.views");
+
+function stateMap<K, V>(): Map<K, V> {
+    const map = new Map<K, V>();
+    const methods = new Map<PropertyKey, (...args: never[]) => unknown>();
+    for (const key of Reflect.ownKeys(Map.prototype)) {
+        const value = Reflect.get(map, key, map) as unknown;
+        if (typeof value === "function") {
+            methods.set(key, value.bind(map) as (...args: never[]) => unknown);
+        }
+    }
+    return new Proxy(map, {
+        get(target, key) {
+            return methods.get(key) ?? Reflect.get(target, key, target);
+        },
+    });
+}
+
+function createViewResources(): ViewResources {
+    return { views: stateMap(), offscreen: stateMap(), scratch: stateMap() };
+}
+
+function viewResources(): ViewResources {
+    return worldResource(viewResourcesKey, createViewResources);
+}
+
+/** Create this world's view and target registries during RenderPlugin initialization. */
+export function initializeViewState(state: State): void {
+    state.resource(viewResourcesKey, createViewResources);
+}
+
 /** every camera with a view, keyed by eid: canvas-bound ({@link attachCanvas}) or off-screen ({@link attachView}) */
-export const Views: Map<number, View> = new Map();
+export const Views: Map<number, View> = new Proxy(new Map<number, View>(), {
+    get(_target, key) {
+        const views = viewResources().views;
+        return Reflect.get(views, key, views) as unknown;
+    },
+});
 
 // canvas → the State that last bound it, for the dev-only rebuild guard below. WeakMap so a collected
 // canvas drops its entry; never populated in production (the guard is dev-gated).
@@ -392,10 +435,15 @@ function pruneView(this: State, view: View, eid: number): void {
 // into and glaze composites to the swapchain. `Render.format` is rg11b10ufloat (HDR): a renderer writes
 // linear and glaze's `textureLoad` reads it linear, keeping radiance >1 alive for the tonemap. Sized to
 // the view, recreated on resize; one per camera so multi-view never last-camera-wins a single shared texture
-const _offscreen = new Map<
-    number,
-    { texture: GPUTexture; view: GPUTextureView; w: number; h: number }
->();
+const _offscreen = new Proxy(
+    new Map<number, { texture: GPUTexture; view: GPUTextureView; w: number; h: number }>(),
+    {
+        get(_target, key) {
+            const map = viewResources().offscreen;
+            return Reflect.get(map, key, map) as unknown;
+        },
+    },
+);
 
 /** the camera's offscreen color target, (re)allocated to the view size. Renderer-agnostic: sear's
  * MSAA resolve and the `Custom` single-sample draw both target it; {@link BeginFrameSystem} sets it on
@@ -436,7 +484,15 @@ interface Scratch {
     texture: GPUTexture;
     view: GPUTextureView;
 }
-const _scratch = new Map<number, { a: Scratch | null; b: Scratch | null; w: number; h: number }>();
+const _scratch = new Proxy(
+    new Map<number, { a: Scratch | null; b: Scratch | null; w: number; h: number }>(),
+    {
+        get(_target, key) {
+            const map = viewResources().scratch;
+            return Reflect.get(map, key, map) as unknown;
+        },
+    },
+);
 
 function scratchTexture(eid: number, slot: "a" | "b", w: number, h: number): Scratch {
     const texture = Compute.device.createTexture({

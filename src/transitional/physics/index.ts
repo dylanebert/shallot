@@ -30,6 +30,7 @@ import {
     type SoftJointConfig,
     type Body as SolverBody,
     type SphericalJointConfig,
+    shutdown,
     snapshot as snapshotWorld,
     type WheelJointConfig,
     World,
@@ -366,6 +367,7 @@ export interface PhysicsCounters {
 }
 
 interface PhysicsRuntime {
+    initialized: boolean;
     world: World | null;
     bodies: Map<number, SolverBody>;
     stamps: Map<number, number>;
@@ -388,13 +390,12 @@ interface PhysicsRuntime {
     jointSig: number;
 }
 
-const runtimes = new WeakMap<State, PhysicsRuntime>();
-const liveRuntimes = new Set<PhysicsRuntime>();
-const residentSnapshots = new WeakMap<PhysicsRuntime, WorldSnapshot>();
+const physicsRuntimeKey = Symbol("shallot.physics-runtime");
 
 function newRuntime(): PhysicsRuntime {
     const failed: PhysicsRuntime["failed"] = new Map();
     return {
+        initialized: false,
         world: null,
         bodies: new Map(),
         stamps: new Map(),
@@ -415,8 +416,9 @@ function newRuntime(): PhysicsRuntime {
 }
 
 function runtimeFor(state: State): PhysicsRuntime {
-    const runtime = runtimes.get(state);
-    if (!runtime) throw new Error("physics: PhysicsPlugin is not initialized for this State");
+    const runtime = state.resource(physicsRuntimeKey, newRuntime);
+    if (!runtime.initialized)
+        throw new Error("physics: PhysicsPlugin is not initialized for this State");
     return runtime;
 }
 // the create-stamp each body was marshaled at. Presence in `bodies` catches a
@@ -684,7 +686,6 @@ export function restore(state: State, saved: WorldSnapshot): void {
     const world = runtimeFor(state).world;
     if (!world) throw new Error("physics: world is not warm");
     restoreWorld(world, saved);
-    if (liveRuntimes.size > 1) residentSnapshots.set(runtimeFor(state), saved);
 }
 export function hash(state: State): bigint {
     const world = runtimeFor(state).world;
@@ -721,12 +722,7 @@ export const StepSystem: System = {
         const runtime = runtimeFor(state);
         const world = runtime.world;
         if (!world) return;
-        if (liveRuntimes.size > 1) {
-            const saved = residentSnapshots.get(runtime);
-            if (saved) restoreWorld(world, saved);
-        }
         world.step(FIXED_DT, SUBSTEPS);
-        if (liveRuntimes.size > 1) residentSnapshots.set(runtime, snapshotWorld(world));
         runtime.movedCount = 0;
         runtime.counters.bytesUploaded = 0;
         const events = world.getBodyEvents();
@@ -954,9 +950,7 @@ export const PhysicsPlugin: Plugin = {
     },
 
     initialize(state) {
-        const runtime = newRuntime();
-        runtimes.set(state, runtime);
-        liveRuntimes.add(runtime);
+        state.resource(physicsRuntimeKey, newRuntime).initialized = true;
     },
 
     async warm(state) {
@@ -974,14 +968,11 @@ export const PhysicsPlugin: Plugin = {
     },
 
     dispose(state) {
-        const runtime = runtimes.get(state);
-        if (!runtime) return;
+        const runtime = runtimeFor(state);
         clearBodies(runtime);
         runtime.world?.destroy();
         runtime.world = null;
-        runtimes.delete(state);
-        liveRuntimes.delete(runtime);
-        residentSnapshots.delete(runtime);
+        void shutdown();
     },
 };
 

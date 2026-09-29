@@ -1,6 +1,7 @@
 import * as d from "typegpu/data";
 import type { State } from "../../engine";
 import { Compute } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 import { chunk, spliceNs } from "../../engine/utils";
 
 /** the per-frame `Frame` UBO schema — the single source of truth for both sides of the layout (the
@@ -42,13 +43,33 @@ export interface Frame {
     stagingU32: Uint32Array;
 }
 
-const _backing = new ArrayBuffer(FRAME_UNIFORM_SIZE);
+const frameKey = Symbol("shallot.frame");
 
-export const Frame: Frame = {
-    buffer: null!,
-    staging: new Float32Array(_backing),
-    stagingU32: new Uint32Array(_backing),
-};
+function createFrame(): Frame {
+    const backing = new ArrayBuffer(FRAME_UNIFORM_SIZE);
+    return {
+        buffer: null!,
+        staging: new Float32Array(backing),
+        stagingU32: new Uint32Array(backing),
+    };
+}
+
+/** Create this world's frame UBO state during RenderPlugin initialization. */
+export function initializeFrameState(state: State): void {
+    state.resource(frameKey, createFrame);
+}
+
+export const Frame: Frame = new Proxy({} as Frame, {
+    get(_target, key) {
+        return worldResource<Frame>(frameKey, createFrame)[key as keyof Frame];
+    },
+    set(_target, key, value) {
+        (worldResource<Frame>(frameKey, createFrame) as unknown as Record<PropertyKey, unknown>)[
+            key
+        ] = value;
+        return true;
+    },
+});
 
 /** pack time + frame counter into the Frame UBO */
 export function writeFrame(state: State): void {

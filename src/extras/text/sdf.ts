@@ -1,7 +1,8 @@
 import tgpu, { type TgpuRenderPipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Compute } from "../../engine";
+import { Compute, type State } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 
 // The glyph SDF generator: two raster passes per glyph, both authored in TGSL over explicit bind group
 // layouts. The distance pass rasterizes one instanced fullscreen triangle per outline segment into a
@@ -271,15 +272,24 @@ export function sdfWgsl(): { distance: string; finalize: string } {
 // pipelines come from `Compute.root`, which is device-scoped and memoized per device (`engine/runtime/
 // gpu.ts`), so `Compute.root` always matches whichever device is currently adopted — one cache entry is
 // enough. Shared across generators (one per font), which the per-instance pair they replaced was not.
-let _pipelines: {
+interface SdfPipelines {
     distance: TgpuRenderPipeline;
     finalize: TgpuRenderPipeline;
-} | null = null;
+}
+
+const sdfPipelinesKey = Symbol("shallot.text-sdf-pipelines");
+const createSdfPipelines = () => ({ value: null as SdfPipelines | null });
+const sdfPipelines = () => worldResource(sdfPipelinesKey, createSdfPipelines);
+
+export function initializeSdfState(state: State): void {
+    state.resource(sdfPipelinesKey, createSdfPipelines);
+}
 
 function pipelines() {
-    if (_pipelines) return _pipelines;
+    const cache = sdfPipelines();
+    if (cache.value) return cache.value;
     const root = Compute.root;
-    _pipelines = {
+    cache.value = {
         distance: root
             .createRenderPipeline({
                 vertex: distanceVs,
@@ -305,7 +315,7 @@ function pipelines() {
             })
             .$name("text-sdf-finalize"),
     };
-    return _pipelines;
+    return cache.value;
 }
 
 /** drop the memoized SDF pipeline pair. Pipelines bind to the root that created them, so a re-adopted
@@ -313,7 +323,7 @@ function pipelines() {
  *  `slab/scatter.ts`'s `resetPipelines`.
  *  @internal */
 export function resetPipelines(): void {
-    _pipelines = null;
+    sdfPipelines().value = null;
 }
 
 export interface SDFGeneratorConfig {

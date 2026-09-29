@@ -13,6 +13,7 @@ import tgpu, { isTgpuFn } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import { Registry, type State } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 import { Xform } from "../../engine/utils";
 
 // Free functions (barrel-named — `layout`/`register` are too generic for a barrel), not `Surfaces.layout`/`Surfaces.register` methods (the spec's literal wording):
@@ -288,7 +289,22 @@ export interface Surface<
 }
 
 /** every schema-backed surface, keyed by name with a stable renderer-owned id. */
-export const Surfaces: Registry<Surface> = new Registry<Surface>();
+const surfacesKey = Symbol("shallot.surfaces");
+const createSurfaces = () => new Registry<Surface>();
+
+/** every registered surface in the active world's registry. */
+export const Surfaces: Registry<Surface> = new Proxy(new Registry<Surface>(), {
+    get(_target, key) {
+        const registry = worldResource(surfacesKey, createSurfaces);
+        return Reflect.get(registry, key, registry) as unknown;
+    },
+});
+
+/** Create this world's surface and background registries during RenderPlugin initialization. */
+export function initializeSurfaceState(state: State): void {
+    state.resource(surfacesKey, createSurfaces);
+    state.resource(backgroundsKey, createBackgrounds);
+}
 
 /**
  * brand-check one incoming TGSL fn against this engine's own resolution of typegpu, at the seam where a
@@ -315,27 +331,6 @@ export function assertOwnFn(label: string, fn: unknown): void {
     );
 }
 
-function owned<T extends { name: string }>(registry: Registry<T>) {
-    const byState = new WeakMap<State, Map<string, T>>();
-    return (state: State, spec: T): number => {
-        let entries = byState.get(state);
-        if (!entries) {
-            entries = new Map();
-            byState.set(state, entries);
-            state.onDispose(() => {
-                for (const [name, owner] of entries!) {
-                    if (registry.get(name) === owner) registry.delete(name);
-                }
-                byState.delete(state);
-            });
-        }
-        entries.set(spec.name, spec);
-        return registry.register(spec);
-    };
-}
-
-const ownSurface = owned(Surfaces);
-
 /**
  * register a surface for the lifetime of its owning State. Disposal removes it only while this exact
  * spec still owns the name, so a rebuilt State cannot delete its replacement.
@@ -348,7 +343,7 @@ export function registerSurface<
     assertOwnFn(`registerSurface "${spec.name}" vs`, spec.vs);
     assertOwnFn(`registerSurface "${spec.name}" fs`, spec.fs);
     assertOwnFn(`registerSurface "${spec.name}" tag`, spec.tag);
-    return ownSurface(state, spec as Surface);
+    return state.resource(surfacesKey, createSurfaces).register(spec as Surface);
 }
 
 // Background bindings use the same group-2 scheme, minus the mesh vertex slot and depth variant.
@@ -378,9 +373,16 @@ export interface Background<B extends Record<string, Binding> = Record<string, B
 }
 
 /** every registered background, keyed by name. */
-export const Backgrounds: Registry<Background> = new Registry<Background>();
+const backgroundsKey = Symbol("shallot.backgrounds");
+const createBackgrounds = () => new Registry<Background>();
 
-const ownBackground = owned(Backgrounds);
+/** every registered background in the active world's registry. */
+export const Backgrounds: Registry<Background> = new Proxy(new Registry<Background>(), {
+    get(_target, key) {
+        const registry = worldResource(backgroundsKey, createBackgrounds);
+        return Reflect.get(registry, key, registry) as unknown;
+    },
+});
 
 /**
  * register a background for the lifetime of its owning State.
@@ -391,5 +393,5 @@ export function registerBackground<B extends Record<string, Binding>>(
     spec: Background<B>,
 ): number {
     assertOwnFn(`registerBackground "${spec.name}" fs`, spec.fs);
-    return ownBackground(state, spec as Background);
+    return state.resource(backgroundsKey, createBackgrounds).register(spec as Background);
 }

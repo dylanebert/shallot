@@ -38,7 +38,8 @@
 import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Compute } from "../../engine";
+import { Compute, type State } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 import { Cell, packCell } from "./cell";
 import { CELL_FILL_GLYPHS } from "./ramp";
 
@@ -429,11 +430,27 @@ const selectKernel = tgpu.computeFn({
     selectLayout.$.cells[i].bg = packed.z;
 });
 
-let _avgBuffer: ReturnType<typeof allocAvg> | null = null;
-let _avgCells = 0;
-let _avgPipeline: TgpuComputePipeline | null = null;
-let _selectPipeline: TgpuComputePipeline | null = null;
-let _paramsBuffer: ReturnType<typeof allocParams> | null = null;
+interface SelectState {
+    avgBuffer: ReturnType<typeof allocAvg> | null;
+    avgCells: number;
+    avgPipeline: TgpuComputePipeline | null;
+    selectPipeline: TgpuComputePipeline | null;
+    paramsBuffer: ReturnType<typeof allocParams> | null;
+}
+
+const selectStateKey = Symbol("shallot.cells-select");
+const createSelectState = (): SelectState => ({
+    avgBuffer: null,
+    avgCells: 0,
+    avgPipeline: null,
+    selectPipeline: null,
+    paramsBuffer: null,
+});
+const selectState = () => worldResource(selectStateKey, createSelectState);
+
+export function initializeSelectState(state: State): void {
+    state.resource(selectStateKey, createSelectState);
+}
 
 function allocParams() {
     return Compute.root.createBuffer(SelectParams).$usage("uniform").$name("cells-select-params");
@@ -447,8 +464,9 @@ function allocParams() {
 // destroyed" GPUValidationError flooding every frame after the first). Writing into one long-lived buffer
 // sidesteps the lifecycle question entirely — mirrors `transitional/glaze/index.ts`'s per-slot `configBuffer`.
 function paramsBuffer() {
-    if (!_paramsBuffer) _paramsBuffer = allocParams();
-    return _paramsBuffer;
+    const state = selectState();
+    if (!state.paramsBuffer) state.paramsBuffer = allocParams();
+    return state.paramsBuffer;
 }
 
 function allocAvg(cells: number) {
@@ -467,37 +485,35 @@ function allocAvg(cells: number) {
 // caller exists; out of this module's scope today.
 
 function avgBuffer(cells: number) {
-    if (_avgBuffer && _avgCells === cells) return _avgBuffer;
-    _avgBuffer?.destroy();
-    _avgBuffer = allocAvg(cells);
-    _avgCells = cells;
-    return _avgBuffer;
+    const state = selectState();
+    if (state.avgBuffer && state.avgCells === cells) return state.avgBuffer;
+    state.avgBuffer?.destroy();
+    state.avgBuffer = allocAvg(cells);
+    state.avgCells = cells;
+    return state.avgBuffer;
 }
 
 function pipelines(): { avg: TgpuComputePipeline; select: TgpuComputePipeline } {
-    if (!_avgPipeline) {
-        _avgPipeline = Compute.root
-            .createComputePipeline({ compute: avgKernel })
-            .$name("cells-avg");
-    }
-    if (!_selectPipeline) {
-        _selectPipeline = Compute.root
-            .createComputePipeline({ compute: selectKernel })
-            .$name("cells-select");
-    }
-    return { avg: _avgPipeline, select: _selectPipeline };
+    const state = selectState();
+    state.avgPipeline ??= Compute.root
+        .createComputePipeline({ compute: avgKernel })
+        .$name("cells-avg");
+    state.selectPipeline ??= Compute.root
+        .createComputePipeline({ compute: selectKernel })
+        .$name("cells-select");
+    return { avg: state.avgPipeline, select: state.selectPipeline };
 }
 
 /** drop the memoized select pipelines + the intermediate average and params buffers — a re-adopted device
  *  needs fresh ones. @internal */
 export function resetSelectPipelines(): void {
-    _avgBuffer?.destroy();
-    _avgBuffer = null;
-    _avgCells = 0;
-    _avgPipeline = null;
-    _selectPipeline = null;
-    _paramsBuffer?.destroy();
-    _paramsBuffer = null;
+    selectState().avgBuffer?.destroy();
+    selectState().avgBuffer = null;
+    selectState().avgCells = 0;
+    selectState().avgPipeline = null;
+    selectState().selectPipeline = null;
+    selectState().paramsBuffer?.destroy();
+    selectState().paramsBuffer = null;
 }
 
 /**

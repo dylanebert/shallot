@@ -45,7 +45,7 @@ import {
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
 import { Compute, f32, sparse, vec4 } from "../../engine";
-import { precompile } from "../../engine/runtime";
+import { precompile, worldResource } from "../../engine/runtime";
 import { ColorSystem, DEPTH_FORMAT } from "../../standard/rendering";
 import { GlazeSystem } from "../../transitional/glaze";
 import { Part, PartPlugin } from "../../transitional/part";
@@ -110,20 +110,6 @@ type StepBuffer = TgpuBuffer<typeof d.f32> & UniformFlag;
 
 type MaskTargets = { seed: d.Vec4u; attr: d.Vec4f };
 
-const _gpu = {
-    maskPlain: null as TgpuRenderPipeline<MaskTargets> | null,
-    maskOcclude: null as TgpuRenderPipeline<MaskTargets> | null,
-    jfa: null as TgpuRenderPipeline<d.Vec4u> | null,
-    composite: null as TgpuComputePipeline | null,
-    eids: null as GPUBuffer | null,
-    attrs: null as GPUBuffer | null,
-    steps: [] as StepBuffer[],
-    capacity: 0,
-};
-
-let _eidsStaging = new Uint32Array(0);
-let _attrStaging = new Float32Array(0);
-
 // per-camera screen-space targets: two ping-pong seed textures + the static attr texture, sized to the
 // view and recreated on resize (sear's _laneTargets pattern). Keyed by camera eid so multi-view never
 // shares one set
@@ -137,10 +123,8 @@ interface Targets {
     w: number;
     h: number;
 }
-const _targets = new Map<number, Targets>();
-
 function targets(eid: number, w: number, h: number): Targets {
-    const cached = _targets.get(eid);
+    const cached = outlineState().targets.get(eid);
     if (cached && cached.w === w && cached.h === h) return cached;
     cached?.seedA.destroy();
     cached?.seedB.destroy();
@@ -161,7 +145,7 @@ function targets(eid: number, w: number, h: number): Targets {
         w,
         h,
     };
-    _targets.set(eid, entry);
+    outlineState().targets.set(eid, entry);
     return entry;
 }
 
@@ -171,16 +155,65 @@ function targets(eid: number, w: number, h: number): Targets {
 // mask/JFA bind groups (rebuilt each frame because their seed src ping-pongs within the JFA loop)
 type CompositeGroup = TgpuBindGroup<(typeof compositeLayout)["entries"]>;
 
-const _composite = new Map<
-    number,
-    {
-        read: GPUTextureView;
-        write: GPUTextureView;
-        seed: GPUTextureView;
-        attr: GPUTextureView;
-        group: CompositeGroup;
-    }
->();
+type CompositeEntry = {
+    read: GPUTextureView;
+    write: GPUTextureView;
+    seed: GPUTextureView;
+    attr: GPUTextureView;
+    group: CompositeGroup;
+};
+
+interface OutlineGpuState {
+    maskPlain: TgpuRenderPipeline<MaskTargets> | null;
+    maskOcclude: TgpuRenderPipeline<MaskTargets> | null;
+    jfa: TgpuRenderPipeline<d.Vec4u> | null;
+    composite: TgpuComputePipeline | null;
+    eids: GPUBuffer | null;
+    attrs: GPUBuffer | null;
+    steps: StepBuffer[];
+    capacity: number;
+}
+
+interface OutlineState {
+    gpu: OutlineGpuState;
+    eidsStaging: Uint32Array;
+    attrStaging: Float32Array;
+    targets: Map<number, Targets>;
+    composites: Map<number, CompositeEntry>;
+}
+
+const outlineStateKey = Symbol("shallot.outline");
+const createOutlineState = (): OutlineState => ({
+    gpu: {
+        maskPlain: null,
+        maskOcclude: null,
+        jfa: null,
+        composite: null,
+        eids: null,
+        attrs: null,
+        steps: [],
+        capacity: 0,
+    },
+    eidsStaging: new Uint32Array(0),
+    attrStaging: new Float32Array(0),
+    targets: new Map(),
+    composites: new Map(),
+});
+const outlineState = () => worldResource(outlineStateKey, createOutlineState);
+
+function initializeOutlineState(state: State): void {
+    state.resource(outlineStateKey, createOutlineState);
+}
+
+const _gpu = new Proxy({} as OutlineGpuState, {
+    get(_target, key) {
+        return outlineState().gpu[key as keyof OutlineGpuState];
+    },
+    set(_target, key, value) {
+        (outlineState().gpu as unknown as Record<PropertyKey, unknown>)[key] = value;
+        return true;
+    },
+});
 
 function compositeBind(
     eid: number,
@@ -189,7 +222,7 @@ function compositeBind(
     seed: GPUTextureView,
     attr: GPUTextureView,
 ): CompositeGroup {
-    const cached = _composite.get(eid);
+    const cached = outlineState().composites.get(eid);
     if (
         cached &&
         cached.read === read &&
@@ -204,7 +237,7 @@ function compositeBind(
         attr,
         output: write,
     });
-    _composite.set(eid, { read, write, seed, attr, group });
+    outlineState().composites.set(eid, { read, write, seed, attr, group });
     return group;
 }
 
@@ -225,8 +258,8 @@ function ensureInstances(n: number): void {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
     _gpu.capacity = cap;
-    _eidsStaging = new Uint32Array(cap);
-    _attrStaging = new Float32Array(cap * 8);
+    outlineState().eidsStaging = new Uint32Array(cap);
+    outlineState().attrStaging = new Float32Array(cap * 8);
 }
 
 interface Group {
@@ -362,16 +395,16 @@ const OutlineSystem: System = {
             if (!mesh) continue; // mesh deleted / unregistered — skip the group
             const first = cursor;
             for (const eid of group) {
-                _eidsStaging[cursor] = eid;
+                outlineState().eidsStaging[cursor] = eid;
                 const o = cursor * 8;
-                _attrStaging[o] = Outline.color.x.get(eid);
-                _attrStaging[o + 1] = Outline.color.y.get(eid);
-                _attrStaging[o + 2] = Outline.color.z.get(eid);
-                _attrStaging[o + 3] = Outline.color.w.get(eid);
+                outlineState().attrStaging[o] = Outline.color.x.get(eid);
+                outlineState().attrStaging[o + 1] = Outline.color.y.get(eid);
+                outlineState().attrStaging[o + 2] = Outline.color.z.get(eid);
+                outlineState().attrStaging[o + 3] = Outline.color.w.get(eid);
                 const w = Math.max(0, Math.min(MAX_WIDTH, Outline.width.get(eid)));
                 const occ = Outline.occlude.get(eid);
-                _attrStaging[o + 4] = w;
-                _attrStaging[o + 5] = occ;
+                outlineState().attrStaging[o + 4] = w;
+                outlineState().attrStaging[o + 5] = occ;
                 if (w > maxWidth) maxWidth = w;
                 if (occ > 0.5) occlude = true;
                 cursor++;
@@ -379,8 +412,8 @@ const OutlineSystem: System = {
             groups.push({ mesh, first, count: group.length });
         }
         if (cursor === 0) return;
-        Compute.device.queue.writeBuffer(_gpu.eids!, 0, _eidsStaging, 0, cursor);
-        Compute.device.queue.writeBuffer(_gpu.attrs!, 0, _attrStaging, 0, cursor * 8);
+        Compute.device.queue.writeBuffer(_gpu.eids!, 0, outlineState().eidsStaging, 0, cursor);
+        Compute.device.queue.writeBuffer(_gpu.attrs!, 0, outlineState().attrStaging, 0, cursor * 8);
 
         const steps = jfaSteps(maxWidth);
         for (let k = 0; k < steps.length; k++) _gpu.steps[k].write(steps[k]);
@@ -578,13 +611,13 @@ function disposeOutline(): void {
     _gpu.eids?.destroy();
     _gpu.attrs?.destroy();
     for (const s of _gpu.steps) s.destroy();
-    for (const t of _targets.values()) {
+    for (const t of outlineState().targets.values()) {
         t.seedA.destroy();
         t.seedB.destroy();
         t.attr.destroy();
     }
-    _targets.clear();
-    _composite.clear();
+    outlineState().targets.clear();
+    outlineState().composites.clear();
     _gpu.eids = null;
     _gpu.attrs = null;
     _gpu.steps = [];
@@ -593,8 +626,8 @@ function disposeOutline(): void {
     _gpu.jfa = null;
     _gpu.composite = null;
     _gpu.capacity = 0;
-    _eidsStaging = new Uint32Array(0);
-    _attrStaging = new Float32Array(0);
+    outlineState().eidsStaging = new Uint32Array(0);
+    outlineState().attrStaging = new Float32Array(0);
 }
 
 /**
@@ -617,6 +650,10 @@ export const OutlinePlugin: Plugin = {
                 occlude: 0,
             }),
         },
+    },
+
+    initialize(state) {
+        initializeOutlineState(state);
     },
 
     async warm() {

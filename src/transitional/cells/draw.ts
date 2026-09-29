@@ -26,7 +26,8 @@ import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuRenderPipeline } from
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Render } from "../../core/rendering";
-import { Compute } from "../../engine";
+import { Compute, type State } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 import { sdfToSignedDistance, textSrgbToLinear } from "../../extras/text";
 import { Cell } from "./cell";
 import type { GlyphSizeBuffer, GlyphUvBuffer } from "./glyphs";
@@ -225,8 +226,18 @@ export const cellFragment = tgpu
     })
     .$name("cellsFs");
 
-let _pipeline: TgpuRenderPipeline<d.Vec4f> | null = null;
-let _paramsBuffer: ReturnType<typeof allocParams> | null = null;
+interface DrawState {
+    pipeline: TgpuRenderPipeline<d.Vec4f> | null;
+    paramsBuffer: ReturnType<typeof allocParams> | null;
+}
+
+const drawStateKey = Symbol("shallot.cells-draw");
+const createDrawState = (): DrawState => ({ pipeline: null, paramsBuffer: null });
+const drawState = () => worldResource(drawStateKey, createDrawState);
+
+export function initializeDrawState(state: State): void {
+    state.resource(drawStateKey, createDrawState);
+}
 
 function allocParams() {
     return Compute.root.createBuffer(DrawParams).$usage("uniform").$name("cells-draw-params");
@@ -239,16 +250,18 @@ function allocParams() {
 // GPUValidationError `select.ts`'s `paramsBuffer` docblock names — measured here too). Shares that
 // function's single-camera/stable-dims scope limit.
 function paramsBuffer() {
-    if (!_paramsBuffer) _paramsBuffer = allocParams();
-    return _paramsBuffer;
+    const state = drawState();
+    if (!state.paramsBuffer) state.paramsBuffer = allocParams();
+    return state.paramsBuffer;
 }
 
 /** the draw pipeline, over `Render.format` (the offscreen's HDR format — `view.framebuffer` targets
  *  match it exactly, `core/rendering/view.ts`'s `offscreen()`). Memoized; a re-adopted device needs a
  *  fresh one ({@link resetDrawPipeline}). @internal */
 export function drawPipeline(): TgpuRenderPipeline<d.Vec4f> {
-    if (_pipeline) return _pipeline;
-    _pipeline = Compute.root
+    const state = drawState();
+    if (state.pipeline) return state.pipeline;
+    state.pipeline = Compute.root
         .createRenderPipeline({
             vertex: cellVertex,
             fragment: cellFragment,
@@ -256,14 +269,15 @@ export function drawPipeline(): TgpuRenderPipeline<d.Vec4f> {
             primitive: { topology: "triangle-list", cullMode: "none" },
         })
         .$name("cells-draw");
-    return _pipeline;
+    return state.pipeline;
 }
 
 /** drop the memoized draw pipeline + params buffer. @internal */
 export function resetDrawPipeline(): void {
-    _pipeline = null;
-    _paramsBuffer?.destroy();
-    _paramsBuffer = null;
+    const state = drawState();
+    state.pipeline = null;
+    state.paramsBuffer?.destroy();
+    state.paramsBuffer = null;
 }
 
 /**

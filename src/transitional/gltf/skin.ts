@@ -9,7 +9,7 @@ import {
     vsPatchSchema,
 } from "../../core/rendering";
 import type { State, System } from "../../engine";
-import { Compute, checkTextureLimits } from "../../engine";
+import { checkTextureLimits } from "../../engine";
 import { unpackLdrColor, Xform, xformNormal, xformPoint } from "../../engine/utils";
 import { Skin } from "../skin";
 import { MaterialData } from "./palette";
@@ -173,20 +173,18 @@ export interface AssembledVat {
 // draws over non-skinned meshes resolve cleanly before any skinned mesh loads — and freed in dispose. A real
 // skinned mesh binds its own VAT per-draw (Mesh.bindings), never this; the per-instance clip duration rides
 // the `skin` slab's w lane (SkinSystem), not a module global.
-let _fallbackVat: AssembledVat | null = null;
+const fallbackVatKey = Symbol("shallot.gltf-vat-fallback");
 
 // bind a VAT set to the global `vat*` binding names — the build-scoped fallback ({@link fallbackVat}) uses
 // this so a skin surface's no-op draws over non-skinned meshes resolve before any skinned mesh loads. A real
 // skinned mesh overrides these per-draw via `Mesh.bindings`, so its VAT is never published globally.
-function publishVat(vat: AssembledVat): void {
-    Compute.textures.set("vatPos", vat.pos);
-    Compute.textures.set("vatNorm", vat.norm);
-    Compute.samplers.set("vatSamp", vat.sampler);
-    Compute.buffers.set("vatParams", vat.params);
-    Compute.typed.set(
-        "vatParams",
-        Compute.root.createBuffer(VatParams, vat.params).$usage("uniform"),
-    );
+function publishVat(state: State, vat: AssembledVat): void {
+    const gpu = state.gpu;
+    gpu.textures.set("vatPos", vat.pos);
+    gpu.textures.set("vatNorm", vat.norm);
+    gpu.samplers.set("vatSamp", vat.sampler);
+    gpu.buffers.set("vatParams", vat.params);
+    gpu.typed.set("vatParams", gpu.root.createBuffer(VatParams, vat.params).$usage("uniform"));
 }
 
 /**
@@ -283,7 +281,7 @@ function vatSampler(device: GPUDevice): GPUSampler {
  * is skipped). A real skinned mesh binds its own VAT per-draw (`Mesh.bindings`), so this set is never replaced,
  * only the no-op pairs read it. Build-scoped, freed in {@link disposeVatFallback}.
  */
-export function fallbackVat(device: GPUDevice): void {
+export function fallbackVat(state: State, device: GPUDevice): void {
     const fallback = (format: GPUTextureFormat) =>
         device.createTexture({
             label: "gltf-vat-fallback",
@@ -296,26 +294,27 @@ export function fallbackVat(device: GPUDevice): void {
         size: 48,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    _fallbackVat = {
+    const vat = {
         pos: fallback("rgba16float"),
         norm: fallback("rgba16float"),
         params,
         sampler: vatSampler(device),
         duration: 0,
     };
-    publishVat(_fallbackVat);
+    state.resource(fallbackVatKey, () => vat);
+    publishVat(state, vat);
 }
 
 /**
  * free the build-scoped VAT fallback (GltfPlugin.dispose). The cache-owned real VATs survive, freed only by
  * the asset cache's invalidate / clearGltfCache.
  */
-export function disposeVatFallback(): void {
-    if (!_fallbackVat) return;
-    _fallbackVat.pos.destroy();
-    _fallbackVat.norm.destroy();
-    _fallbackVat.params.destroy();
-    _fallbackVat = null;
+export function disposeVatFallback(state: State): void {
+    const fallback = state.resource<AssembledVat | null>(fallbackVatKey, () => null);
+    if (!fallback) return;
+    fallback.pos.destroy();
+    fallback.norm.destroy();
+    fallback.params.destroy();
 }
 
 /**

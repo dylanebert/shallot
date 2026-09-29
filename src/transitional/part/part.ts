@@ -18,7 +18,7 @@ import {
 } from "../../core/rendering";
 import type { Registry, State, System } from "../../engine";
 import { Compute, srgb8x4, u32 } from "../../engine";
-import { precompile } from "../../engine/runtime";
+import { precompile, worldResource } from "../../engine/runtime";
 import { slab } from "../slab";
 import { Transform } from "../transforms";
 import {
@@ -84,35 +84,7 @@ export const Color = {
 // Culling lives here, in the producer's per-view compaction, shadow slots
 // included, because a consumer that culled would already have paid for every
 // instance it never draws.
-let _counts: AtomicU32Buffer | null = null;
-let _meshBounds: Vec4fBuffer | null = null;
-let _cullParams: (TgpuBuffer<typeof CullParams> & UniformFlag) | null = null;
-let _cullGroup: TgpuBindGroup<(typeof cullLayout)["entries"]> | null = null;
-let _countPipe: TgpuComputePipeline | null = null;
-let _scanPipe: TgpuComputePipeline | null = null;
-let _scatterPipe: TgpuComputePipeline | null = null;
-// each bound pass as the raw pipeline and the raw bind groups at their declared indices (`pack.ts`'s
-// `$idx`): the dispatches run on a raw compute pass, so typegpu's per-apply state work leaves the frame
-let _countBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null = null;
-let _scanBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null = null;
-let _scatterBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null = null;
-let _surfaceCount = 0;
-let _meshCount = 0;
-let _pairCount = 0;
-// monotonic high-water of the active camera count — the slot dimension of
-// drawArgs / counts / packedEids. Starts at 1 so a headless frame (no camera)
-// still packs into slot 0, where the cull is a no-op (`visible` returns true
-// once `slot >= viewCount`)
-let _viewDim = 1;
-// the pack pass descriptor, the raw counts buffer the pass clears (unwrapped once per buffer), and the
-// cull params last written with the buffer they went to: both scalars change only when a camera or mesh
-// arrives, so a steady frame writes nothing
-const _packPass: GPUComputePassDescriptor = { label: "shallot-part-pack" };
-let _countsUnwrapped: AtomicU32Buffer | null = null;
-let _countsRaw: GPUBuffer | null = null;
-let _paramsTarget: (TgpuBuffer<typeof CullParams> & UniformFlag) | null = null;
-let _paramsViewCount = -1;
-let _paramsPairCount = -1;
+// Per-world GPU pack state is created by PartPlugin.initialize below.
 
 /**
  * GPU-resident Part draw publication. `drawArgs` holds `DrawIndexedIndirect` entries
@@ -134,10 +106,85 @@ export interface Parts {
     packedEids: U32Buffer | null;
 }
 
-export const Parts: Parts = {
-    drawArgs: null,
-    packedEids: null,
-};
+interface PartGpuState {
+    parts: Parts;
+    counts: AtomicU32Buffer | null;
+    meshBounds: Vec4fBuffer | null;
+    cullParams: (TgpuBuffer<typeof CullParams> & UniformFlag) | null;
+    cullGroup: TgpuBindGroup<(typeof cullLayout)["entries"]> | null;
+    countPipe: TgpuComputePipeline | null;
+    scanPipe: TgpuComputePipeline | null;
+    scatterPipe: TgpuComputePipeline | null;
+    countBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
+    scanBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
+    scatterBound: { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null;
+    surfaceCount: number;
+    meshCount: number;
+    pairCount: number;
+    viewDim: number;
+    packPass: GPUComputePassDescriptor;
+    countsUnwrapped: AtomicU32Buffer | null;
+    countsRaw: GPUBuffer | null;
+    paramsTarget: (TgpuBuffer<typeof CullParams> & UniformFlag) | null;
+    paramsViewCount: number;
+    paramsPairCount: number;
+}
+
+const partGpuKey = Symbol("shallot.part");
+
+function createPartGpuState(): PartGpuState {
+    return {
+        parts: { drawArgs: null, packedEids: null },
+        counts: null,
+        meshBounds: null,
+        cullParams: null,
+        cullGroup: null,
+        countPipe: null,
+        scanPipe: null,
+        scatterPipe: null,
+        countBound: null,
+        scanBound: null,
+        scatterBound: null,
+        surfaceCount: 0,
+        meshCount: 0,
+        pairCount: 0,
+        viewDim: 1,
+        packPass: { label: "shallot-part-pack" },
+        countsUnwrapped: null,
+        countsRaw: null,
+        paramsTarget: null,
+        paramsViewCount: -1,
+        paramsPairCount: -1,
+    };
+}
+
+function partGpuState(): PartGpuState {
+    return worldResource(partGpuKey, createPartGpuState);
+}
+
+export function initializePartState(state: State): void {
+    state.resource(partGpuKey, createPartGpuState);
+}
+
+const _part = new Proxy({} as Omit<PartGpuState, "parts">, {
+    get(_target, key) {
+        return partGpuState()[key as keyof PartGpuState] as never;
+    },
+    set(_target, key, value) {
+        (partGpuState() as unknown as Record<PropertyKey, unknown>)[key] = value;
+        return true;
+    },
+});
+
+export const Parts: Parts = new Proxy({} as Parts, {
+    get(_target, key) {
+        return partGpuState().parts[key as keyof Parts];
+    },
+    set(_target, key, value) {
+        (partGpuState().parts as unknown as Record<PropertyKey, unknown>)[key] = value;
+        return true;
+    },
+});
 
 /**
  * per-frame Part pack. Clears the counts, then cull → count → scan → scatter
@@ -151,9 +198,9 @@ export const PartSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
     update(state) {
-        if (!Render.encoder || !_countPipe || !_scanPipe || !_scatterPipe) return;
+        if (!Render.encoder || !_part.countPipe || !_part.scanPipe || !_part.scatterPipe) return;
         syncBuffers(state);
-        if (_pairCount === 0) return;
+        if (_part.pairCount === 0) return;
         const count = bindCount();
         const scan = bindScan();
         const scatter = bindScatter();
@@ -168,30 +215,30 @@ export const PartSystem: System = {
         // The "CPU truth stays typed arrays" law governs the per-entity firehoses, where the
         // schema serializer is orders slower than a bulk `Float32Array.set`; two scalars are not that
         if (
-            _paramsTarget !== _cullParams ||
-            _paramsViewCount !== Render.viewCount ||
-            _paramsPairCount !== _pairCount
+            _part.paramsTarget !== _part.cullParams ||
+            _part.paramsViewCount !== Render.viewCount ||
+            _part.paramsPairCount !== _part.pairCount
         ) {
-            _cullParams!.write({ viewCount: Render.viewCount, pairCount: _pairCount });
-            _paramsTarget = _cullParams;
-            _paramsViewCount = Render.viewCount;
-            _paramsPairCount = _pairCount;
+            _part.cullParams!.write({ viewCount: Render.viewCount, pairCount: _part.pairCount });
+            _part.paramsTarget = _part.cullParams;
+            _part.paramsViewCount = Render.viewCount;
+            _part.paramsPairCount = _part.pairCount;
         }
 
-        if (_countsUnwrapped !== _counts) {
-            _countsUnwrapped = _counts;
-            _countsRaw = Compute.root.unwrap(_counts!);
+        if (_part.countsUnwrapped !== _part.counts) {
+            _part.countsUnwrapped = _part.counts;
+            _part.countsRaw = Compute.root.unwrap(_part.counts!);
         }
-        Render.encoder.clearBuffer(_countsRaw!);
-        _packPass.timestampWrites = Compute.span?.("part:pack");
-        const pass = Render.encoder.beginComputePass(_packPass);
+        Render.encoder.clearBuffer(_part.countsRaw!);
+        _part.packPass.timestampWrites = Compute.span?.("part:pack");
+        const pass = Render.encoder.beginComputePass(_part.packPass);
         const rows = Math.ceil(state.capacity / 64);
         setBound(pass, count);
         pass.dispatchWorkgroups(rows, views);
-        // one workgroup per allocated view slot (the counts buffer spans _viewDim ×
+        // one workgroup per allocated view slot (the counts buffer spans _part.viewDim ×
         // pairCount); slots past the active views carry zero counts → zero instanceCount
         setBound(pass, scan);
-        pass.dispatchWorkgroups(_viewDim);
+        pass.dispatchWorkgroups(_part.viewDim);
         setBound(pass, scatter);
         pass.dispatchWorkgroups(rows, views);
         pass.end();
@@ -210,12 +257,12 @@ function setBound(
 // the one shared cull bind group both count and scatter reference. Its inputs are the per-entity slabs +
 // membership mirror, the world-transform firehose and the per-view cull volumes — all stable,
 // fixed-capacity identities published by their owners before any draw-group consumer runs, so a missing
-// one is a wiring bug and throws. `_cullParams` / `_meshBounds` are this module's own and genuinely late
+// one is a wiring bug and throws. `_part.cullParams` / `_part.meshBounds` are this module's own and genuinely late
 // (`syncBuffers` sizes them off the final mesh count), which is the one null the callers tolerate.
 // A typed bind group takes a raw GPUBuffer, which is what keeps those publishers' reach-in open
 function cullGroup(): TgpuBindGroup<(typeof cullLayout)["entries"]> | null {
-    if (_cullGroup) return _cullGroup;
-    if (!_cullParams || !_meshBounds) return null;
+    if (_part.cullGroup) return _part.cullGroup;
+    if (!_part.cullParams || !_part.meshBounds) return null;
     const surface = Part.surface.gpu;
     const mesh = Part.mesh.gpu;
     const membership = Compute.buffers.get("membership");
@@ -226,77 +273,80 @@ function cullGroup(): TgpuBindGroup<(typeof cullLayout)["entries"]> | null {
             "[part] cull inputs missing — declare RenderPlugin + SlabPlugin as dependencies",
         );
     }
-    _cullGroup = Compute.root.createBindGroup(cullLayout, {
+    _part.cullGroup = Compute.root.createBindGroup(cullLayout, {
         surfaceField: surface,
         meshField: mesh,
         membership,
         transforms,
-        meshBounds: _meshBounds,
+        meshBounds: _part.meshBounds,
         cullVolumes,
-        params: _cullParams,
+        params: _part.cullParams,
     });
-    return _cullGroup;
+    return _part.cullGroup;
 }
 
 function bindCount(): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
-    if (_countBound) return _countBound;
+    if (_part.countBound) return _part.countBound;
     const cull = cullGroup();
-    if (!_countPipe || !cull || !_counts) return null;
-    _countBound = {
-        pipeline: Compute.root.unwrap(_countPipe),
+    if (!_part.countPipe || !cull || !_part.counts) return null;
+    _part.countBound = {
+        pipeline: Compute.root.unwrap(_part.countPipe),
         groups: [
             Compute.root.unwrap(cull),
-            Compute.root.unwrap(Compute.root.createBindGroup(countLayout, { counts: _counts })),
+            Compute.root.unwrap(
+                Compute.root.createBindGroup(countLayout, { counts: _part.counts }),
+            ),
         ],
     };
-    return _countBound;
+    return _part.countBound;
 }
 
 function bindScan(): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
-    if (_scanBound) return _scanBound;
-    if (!_scanPipe || !_counts || !Parts.drawArgs || !_cullParams) return null;
-    _scanBound = {
-        pipeline: Compute.root.unwrap(_scanPipe),
+    if (_part.scanBound) return _part.scanBound;
+    if (!_part.scanPipe || !_part.counts || !Parts.drawArgs || !_part.cullParams) return null;
+    _part.scanBound = {
+        pipeline: Compute.root.unwrap(_part.scanPipe),
         groups: [
             Compute.root.unwrap(
                 Compute.root.createBindGroup(scanLayout, {
-                    counts: _counts,
+                    counts: _part.counts,
                     drawArgs: Parts.drawArgs,
-                    params: _cullParams,
+                    params: _part.cullParams,
                 }),
             ),
         ],
     };
-    return _scanBound;
+    return _part.scanBound;
 }
 
 function bindScatter(): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
-    if (_scatterBound) return _scatterBound;
+    if (_part.scatterBound) return _part.scatterBound;
     const cull = cullGroup();
-    if (!_scatterPipe || !cull || !_counts || !Parts.drawArgs || !Parts.packedEids) return null;
-    _scatterBound = {
-        pipeline: Compute.root.unwrap(_scatterPipe),
+    if (!_part.scatterPipe || !cull || !_part.counts || !Parts.drawArgs || !Parts.packedEids)
+        return null;
+    _part.scatterBound = {
+        pipeline: Compute.root.unwrap(_part.scatterPipe),
         groups: [
             Compute.root.unwrap(cull),
             Compute.root.unwrap(
                 Compute.root.createBindGroup(scatterLayout, {
                     drawArgs: Parts.drawArgs,
-                    counts: _counts,
+                    counts: _part.counts,
                     packedEids: Parts.packedEids,
                 }),
             ),
         ],
     };
-    return _scatterBound;
+    return _part.scatterBound;
 }
 
 // every bound pipeline names at least one buffer `syncBuffers` can reallocate, so growth drops all of
 // them together rather than tracking which buffer each one holds
 function unbind(): void {
-    _cullGroup = null;
-    _countBound = null;
-    _scanBound = null;
-    _scatterBound = null;
+    _part.cullGroup = null;
+    _part.countBound = null;
+    _part.scanBound = null;
+    _part.scatterBound = null;
 }
 
 /**
@@ -312,27 +362,27 @@ function unbind(): void {
  * buffers free behind the submit fence: a prior frame may still reference them
  */
 function syncBuffers(state: State): void {
-    if (_surfaceCount === 0) return;
+    if (_part.surfaceCount === 0) return;
     const meshCount = Meshes.size;
     const viewDim = Math.max(1, Render.viewCount);
-    const growMesh = meshCount > _meshCount;
-    const growView = viewDim > _viewDim;
+    const growMesh = meshCount > _part.meshCount;
+    const growView = viewDim > _part.viewDim;
     if (!growMesh && !growView && Parts.drawArgs) return;
 
     const device = Compute.device;
-    _meshCount = Math.max(_meshCount, meshCount);
-    _viewDim = Math.max(_viewDim, viewDim);
-    _pairCount = _surfaceCount * _meshCount;
-    const records = _viewDim * _pairCount;
+    _part.meshCount = Math.max(_part.meshCount, meshCount);
+    _part.viewDim = Math.max(_part.viewDim, viewDim);
+    _part.pairCount = _part.surfaceCount * _part.meshCount;
+    const records = _part.viewDim * _part.pairCount;
 
     // drawArgs + counts span every (view, pair) — realloc when either dimension
     // grows. COPY_SRC for GPU-debug readback + the pack tests
-    const staleArgs = [Parts.drawArgs, _counts];
+    const staleArgs = [Parts.drawArgs, _part.counts];
     Parts.drawArgs = Compute.root
         .createBuffer(d.arrayOf(DrawIndexedIndirect, records))
         .$usage("storage", "indirect")
         .$name("shallot-draw-args");
-    _counts = Compute.root
+    _part.counts = Compute.root
         .createBuffer(d.arrayOf(d.atomic(d.u32), records))
         .$usage("storage")
         .$name("shallot-part-counts");
@@ -344,7 +394,7 @@ function syncBuffers(state: State): void {
     if (growView || !Parts.packedEids) {
         stalePacked = Parts.packedEids;
         Parts.packedEids = Compute.root
-            .createBuffer(d.arrayOf(d.u32, _viewDim * state.capacity))
+            .createBuffer(d.arrayOf(d.u32, _part.viewDim * state.capacity))
             .$usage("storage")
             .$name("shallot-packed-eids");
         Compute.buffers.set("eids", Compute.root.unwrap(Parts.packedEids));
@@ -353,9 +403,9 @@ function syncBuffers(state: State): void {
 
     // meshBounds is indexed by mesh id — rebuild only when a mesh registers
     let staleBounds: Vec4fBuffer | null = null;
-    if (growMesh || !_meshBounds) {
-        staleBounds = _meshBounds;
-        _meshBounds = writeMeshBounds(device);
+    if (growMesh || !_part.meshBounds) {
+        staleBounds = _part.meshBounds;
+        _part.meshBounds = writeMeshBounds(device);
     }
 
     unbind();
@@ -377,10 +427,10 @@ function syncBuffers(state: State): void {
  */
 function writeMeshBounds(device: GPUDevice): Vec4fBuffer {
     const buffer = Compute.root
-        .createBuffer(d.arrayOf(d.vec4f, _meshCount))
+        .createBuffer(d.arrayOf(d.vec4f, _part.meshCount))
         .$usage("storage")
         .$name("shallot-mesh-bounds");
-    const data = new Float32Array(_meshCount * 4);
+    const data = new Float32Array(_part.meshCount * 4);
     for (const m of Meshes) {
         const id = Meshes.id(m.name)!;
         if (m.bounds) data.set(m.bounds, id * 4);
@@ -443,12 +493,16 @@ export function publishPartDraws(
 }
 
 function registerDraws(): void {
-    if (!Compute.device || !Parts.drawArgs || _pairCount === 0) return;
-    const viewStride = _pairCount * DRAW_ARG_STRIDE;
-    for (const { offset, args } of publishPartDraws(Parts.drawArgs, _surfaceCount, _pairCount)) {
+    if (!Compute.device || !Parts.drawArgs || _part.pairCount === 0) return;
+    const viewStride = _part.pairCount * DRAW_ARG_STRIDE;
+    for (const { offset, args } of publishPartDraws(
+        Parts.drawArgs,
+        _part.surfaceCount,
+        _part.pairCount,
+    )) {
         const bytes = new ArrayBuffer(DRAW_ARG_STRIDE);
         writeToArrayBuffer(bytes, DrawIndexedIndirect, args);
-        for (let slot = 0; slot < _viewDim; slot++) {
+        for (let slot = 0; slot < _part.viewDim; slot++) {
             Compute.device.queue.writeBuffer(
                 Compute.root.unwrap(Parts.drawArgs),
                 slot * viewStride + offset,
@@ -483,13 +537,13 @@ export function initPart(state: State): void {
 export function warmPart(state: State): void {
     if (!Compute.device) return;
     const root = Compute.root;
-    _surfaceCount = Surfaces.size;
-    _meshCount = 0;
-    _pairCount = 0;
-    _viewDim = 1;
+    _part.surfaceCount = Surfaces.size;
+    _part.meshCount = 0;
+    _part.pairCount = 0;
+    _part.viewDim = 1;
     Parts.drawArgs = null;
-    _counts = null;
-    _meshBounds = null;
+    _part.counts = null;
+    _part.meshBounds = null;
     unbind();
 
     // one capacity-sized region (slot 0); syncBuffers grows it as cameras attach.
@@ -501,20 +555,27 @@ export function warmPart(state: State): void {
     Compute.buffers.set("eids", root.unwrap(Parts.packedEids));
     Compute.typed.set("eids", Parts.packedEids);
 
-    _cullParams = root.createBuffer(CullParams).$usage("uniform").$name("shallot-part-cull-params");
-    if (_surfaceCount === 0) return;
+    _part.cullParams = root
+        .createBuffer(CullParams)
+        .$usage("uniform")
+        .$name("shallot-part-cull-params");
+    if (_part.surfaceCount === 0) return;
 
     const part = state.membership.bit(Part);
     const capacity = state.capacity;
     const base = part.gen * capacity;
-    _countPipe = root
-        .createComputePipeline({ compute: countKernel(base, part.mask, _surfaceCount, capacity) })
+    _part.countPipe = root
+        .createComputePipeline({
+            compute: countKernel(base, part.mask, _part.surfaceCount, capacity),
+        })
         .$name("shallot-part-count");
-    _scanPipe = root
+    _part.scanPipe = root
         .createComputePipeline({ compute: scanKernel(capacity) })
         .$name("shallot-part-scan");
-    _scatterPipe = root
-        .createComputePipeline({ compute: scatterKernel(base, part.mask, _surfaceCount, capacity) })
+    _part.scatterPipe = root
+        .createComputePipeline({
+            compute: scatterKernel(base, part.mask, _part.surfaceCount, capacity),
+        })
         .$name("shallot-part-scatter");
 
     // both the allocation and the bind are deferred into the forcers, not done here. The drain runs

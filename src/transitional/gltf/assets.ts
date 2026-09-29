@@ -1019,20 +1019,12 @@ interface AssembledGltf {
 // the active set so a rebuild re-publishes them with no re-upload. All freed only by {@link invalidate} /
 // {@link clearGltfCache} — a rebuild never touches files, a deployed game never changes its assets, so the
 // key holds forever (no LRU; device-loss recovery is engine-wide, not built here).
-interface GltfAsset {
-    decoded: DecodedGltf;
-    // the GPU resources, assembled lazily on the first register (needs a device); null until then
-    assembled: AssembledGltf | null;
-    // the in-flight assemble, so concurrent registers of one asset upload once
-    assembling: Promise<void> | null;
-}
-
-const _cache = new Map<string, GltfAsset>();
+// Only the deviceless decode survives a State. GPU assemblies and their union live in GltfWorldState below.
+const _decoded = new Map<string, DecodedGltf>();
 // in-flight decodes, so two entities sharing a src decode once (warm loads them concurrently)
-const _decoding = new Map<string, Promise<GltfAsset>>();
-// total decodes since process start — the decode-count counter the rebuild-reuse gate reads (it must not
-// advance across a rebuild). Exposed via {@link gltfCacheStats}.
-let _decodes = 0;
+const _decodePromises = new Map<string, Promise<DecodedGltf>>();
+// total successful decodes since process start. Exposed via {@link gltfCacheStats}.
+let _decodeCount = 0;
 
 function assetKey(src: string, clip: number, live: boolean): string {
     return `${src}|${clip}|${live ? "L" : ""}`;
@@ -1053,12 +1045,12 @@ export async function ensureDecoded(
     live = false,
 ): Promise<DecodedGltf> {
     const k = assetKey(src, clip, live);
-    const cached = _cache.get(k);
-    if (cached) return cached.decoded;
-    let pending = _decoding.get(k);
+    const cached = _decoded.get(k);
+    if (cached) return cached;
+    let pending = _decodePromises.get(k);
     if (!pending) {
-        // the `finally` frees the in-flight slot on settle either way — a success leaves the entry in
-        // `_cache`, a failure leaves the slot clear so the next load retries (never a cached rejection)
+        // the `finally` frees the in-flight slot on settle either way — a success leaves the decode
+        // cached, a failure leaves the slot clear so the next load retries (never a cached rejection)
         pending = (async () => {
             try {
                 const decoded = await poolDecode(src, { clip, targets, live });
@@ -1066,94 +1058,110 @@ export async function ensureDecoded(
                 // the caller's src, the key `register` / `activate` recompute from `decoded.url` (a cache miss
                 // there → a duplicate asset). A no-op on the inline path, where url already equals src.
                 decoded.url = src;
-                _decodes++;
-                const entry: GltfAsset = { decoded, assembled: null, assembling: null };
-                _cache.set(k, entry);
-                return entry;
+                _decodeCount++;
+                _decoded.set(k, decoded);
+                return decoded;
             } finally {
-                _decoding.delete(k);
+                _decodePromises.delete(k);
             }
         })();
-        _decoding.set(k, pending);
+        _decodePromises.set(k, pending);
     }
-    return (await pending).decoded;
+    return pending;
 }
 
 // ───────────────────────────────────────────────────────────────────────────────────────────────────────
 // The active set + the union texture assembly. The shared albedo arrays + material palette
 // accumulate every ACTIVE asset's layers/materials: a `texture_2d_array` is one set under global binding
-// names, so two textured sources can't each publish without clobbering. `_active` is the ordered list of
-// active `(src, clip)` keys (the order the palette bases follow), `_paletteBase` each key's material offset,
-// `_matCount` the running total. The assembled union is memoized in `_union` keyed by the active-set order and
-// survives rebuilds (module-level), so a rebuild re-accumulating the same set re-publishes the same arrays
-// with no re-upload — the multi-asset generalization of the decode cache's rebuild win. `_active` /
-// `_paletteBase` / `_matCount` reset each build (initialize → {@link clearActive}); `_union` is freed only by
-// invalidate / clearGltfCache.
-const _active: string[] = [];
-const _paletteBase = new Map<string, number>();
-let _matCount = 0;
-let _union: { key: string; textures: AssembledTextures } | null = null;
-// the in-flight staged union upload (the cold path), held across frames as the carry-over and drained one byte
-// budget per frame by {@link UnionBuildSystem}; null when no upload is mid-flight. The previous union (or the
-// 1×1 fallback) stays bound until it completes — the atomic flip. `_stagingGen` is a monotonic build counter:
-// every cold `ensureUnion` bumps it and tags its `beginUnion`, so a later begin (a second concurrent load that
-// grows the active set) supersedes an earlier in-flight one — the convergence the removed serialize lock gave.
-let _staging: UnionStaging | null = null;
-let _stagingGen = 0;
-// the in-flight begin (allocate + plan) before it hands off to `_staging` — tracked so `unionPending()` is true
-// from the instant a cold `ensureUnion` kicks off, not only once the async begin resolves (else a drain that
-// polls right after `loadGltf` resolves could miss the build that hasn't started its first step yet).
-let _begin: Promise<unknown> | null = null;
+interface GltfWorldState {
+    assets: Map<
+        string,
+        { decoded: DecodedGltf; assembled: AssembledGltf | null; assembling: Promise<void> | null }
+    >;
+    active: string[];
+    paletteBase: Map<string, number>;
+    matCount: number;
+    union: { key: string; textures: AssembledTextures } | null;
+    staging: UnionStaging | null;
+    stagingGen: number;
+    begin: Promise<unknown> | null;
+}
+
+const gltfWorldKey = Symbol("shallot.gltf-world");
+
+function createGltfWorldState(): GltfWorldState {
+    return {
+        assets: new Map(),
+        active: [],
+        paletteBase: new Map(),
+        matCount: 0,
+        union: null,
+        staging: null,
+        stagingGen: 0,
+        begin: null,
+    };
+}
+
+function gltfWorld(state: State): GltfWorldState {
+    return state.resource(gltfWorldKey, createGltfWorldState);
+}
 
 // the per-frame time budget for the staged upload — each frame uploads layers until this many ms of main-thread
 // work is spent (always ≥1 layer), so cheap compressed layers batch while one slow mip-blit layer still caps the
 // frame near budget. A textured scene pops in over ~N frames; the spend stays single-digit per frame.
 const STEP_BUDGET_MS = 4;
 
-const activeKey = (): string => _active.join("\n");
+const activeKey = (world: GltfWorldState): string => world.active.join("\n");
 
 // free the in-flight staging's (partial) textures behind the submit fence + drop it — a discard path (a rebuild
 // resets the active set, an invalidate drops the union, or a later begin supersedes this one). The textures were
 // never published, so the fence is harmless; it keeps the free uniform with the published-set path.
-function freeStaging(): void {
-    if (!_staging) return;
-    freeBehindFence(textureResources(_staging.textures));
-    _staging = null;
+function freeStaging(state: State, world: GltfWorldState): void {
+    if (!world.staging) return;
+    freeBehindFence(state, textureResources(world.staging.textures));
+    world.staging = null;
 }
 
 // install a completed union: memoize it, publish it over the previous binding (the atomic flip), free the
 // superseded set behind the fence. Shared by the staged finish + the no-step (untextured / compressed-only)
 // inline finish.
-function finalizeUnion(key: string, textures: AssembledTextures): void {
-    const old = _union;
-    _union = { key, textures };
-    publishTextures(textures);
-    if (old) freeBehindFence(textureResources(old.textures));
+function finalizeUnion(
+    state: State,
+    world: GltfWorldState,
+    key: string,
+    textures: AssembledTextures,
+): void {
+    const old = world.union;
+    world.union = { key, textures };
+    publishTextures(state, textures);
+    if (old) freeBehindFence(state, textureResources(old.textures));
 }
 
 // reset the per-build active set (GltfPlugin.initialize) + drop any in-flight staging (the rebuild re-begins it
 // for the rebuilt set). The `_union` memo survives, so a rebuild re-accumulating the same set hits it; the bases
 // re-accumulate as each asset re-places. Routes key on per-build mesh ids, so they reset with the set.
-function clearActive(): void {
-    _active.length = 0;
-    _paletteBase.clear();
-    _matCount = 0;
+function clearActive(state: State): void {
+    const world = gltfWorld(state);
+    world.active.length = 0;
+    world.paletteBase.clear();
+    world.matCount = 0;
     routes.clear();
-    _stagingGen++; // supersede any in-flight begin/staging — the rebuild re-begins for the rebuilt set
-    freeStaging();
+    world.stagingGen++; // supersede any in-flight begin/staging — the rebuild re-begins for the rebuilt set
+    freeStaging(state, world);
 }
 
 // assign an asset its palette base + active-set slot the first time it places this build (idempotent on the
 // rebuild re-place). Append order, so an already-placed asset's base never shifts — a later asset only appends
 // its materials to the union palette.
-function activate(entry: GltfAsset): number {
-    const k = assetKey(entry.decoded.url, entry.decoded.clip, entry.decoded.live);
-    let base = _paletteBase.get(k);
+function activate(state: State, decoded: DecodedGltf): number {
+    const world = gltfWorld(state);
+    const k = assetKey(decoded.url, decoded.clip, decoded.live);
+    let base = world.paletteBase.get(k);
     if (base === undefined) {
-        base = _matCount;
-        _paletteBase.set(k, base);
-        _active.push(k);
-        _matCount += entry.decoded.scene.materials.length;
+        base = world.matCount;
+        world.paletteBase.set(k, base);
+        world.active.push(k);
+        world.matCount += decoded.scene.materials.length;
     }
     return base;
 }
@@ -1165,51 +1173,53 @@ function activate(entry: GltfAsset): number {
 // (or the 1×1 fallback) staying bound until the staged set is ready. Not awaited: a second concurrent load that
 // grows the active set re-begins for the fuller set and supersedes the earlier begin via `_stagingGen` (the
 // convergence the old serialize lock gave). The superseded set is freed behind the submit fence.
-function ensureUnion(): void {
+function ensureUnion(state: State): void {
+    const world = gltfWorld(state);
     const device = Compute.device;
-    if (!device || _active.length === 0) return;
-    const key = activeKey();
-    if (_union?.key === key) {
-        // the rebuild memo hit: the assembled set is unchanged, but `build()`'s requestGPU wiped
-        // `Compute.textures`/`buffers` (clear-then-rebuild), so re-point them at the surviving union — the
-        // pointer-republish, no re-upload. Skipping it left the warm-published 1×1 fallback bound (black).
-        publishTextures(_union.textures);
-        freeStaging(); // a stale in-flight build for this key is superseded by the completed memo
+    if (!device || world.active.length === 0) return;
+    const key = activeKey(world);
+    if (world.union?.key === key) {
+        publishTextures(state, world.union!.textures);
+        freeStaging(state, world);
         return;
     }
-    const assets: UnionAsset[] = _active.map((k) => {
-        const e = _cache.get(k) as GltfAsset;
+    const assets: UnionAsset[] = world.active.map((k) => {
+        const asset = world.assets.get(k);
+        if (!asset) throw new Error(`[gltf] active asset missing from this world: ${k}`);
+        const decoded = asset.decoded;
         return {
-            textures: e.decoded.textures,
-            materials: e.decoded.scene.materials,
-            base: _paletteBase.get(k) as number,
+            textures: decoded.textures,
+            materials: decoded.scene.materials,
+            base: world.paletteBase.get(k) as number,
         };
     });
-    const matCount = _matCount;
-    const gen = ++_stagingGen;
-    freeStaging(); // discard a prior in-flight staging — the active set changed, its plan is stale
+    const matCount = world.matCount;
+    const gen = ++world.stagingGen;
+    freeStaging(state, world);
     const p = beginUnion(device, assets, matCount, key, gen)
         .then((staging) => {
-            if (gen !== _stagingGen) {
-                // a newer ensureUnion superseded this begin mid-flight — its textures were never published
-                freeBehindFence(textureResources(staging.textures));
+            if (gen !== world.stagingGen) {
+                freeBehindFence(state, textureResources(staging.textures));
                 return;
             }
-            if (staging.steps.length === 0)
-                finalizeUnion(key, staging.textures); // untextured / compressed-only — no layers to stage
-            else _staging = staging; // hand off to UnionBuildSystem
+            if (staging.steps.length === 0) {
+                finalizeUnion(state, world, key, staging.textures);
+            } else {
+                world.staging = staging;
+            }
         })
         .finally(() => {
-            if (_begin === p) _begin = null;
+            if (world.begin === p) world.begin = null;
         });
-    _begin = p;
+    world.begin = p;
 }
 
 /** true while the frame-staged union upload is mid-flight (the textured set isn't published yet): a load
  *  screen can hold on it, and a test drains on it before asserting the published union. Covers both the
  *  begin (allocate + plan) and the per-frame layer drain. */
-export function unionPending(): boolean {
-    return _staging !== null || _begin !== null;
+export function unionPending(state: State): boolean {
+    const world = gltfWorld(state);
+    return world.staging !== null || world.begin !== null;
 }
 
 // drain one time budget of the in-flight union upload per frame, publishing the whole set the frame it completes
@@ -1220,16 +1230,17 @@ export function unionPending(): boolean {
 const UnionBuildSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
-    update() {
-        const staging = _staging;
+    update(state) {
+        const world = gltfWorld(state);
+        const staging = world.staging;
         if (!staging || staging.busy) return;
         staging.busy = true;
         void stepUnion(staging, STEP_BUDGET_MS).then((done) => {
             staging.busy = false;
-            if (_staging !== staging) return; // superseded / freed mid-step
+            if (world.staging !== staging) return;
             if (done) {
-                _staging = null;
-                finalizeUnion(staging.key, staging.textures);
+                world.staging = null;
+                finalizeUnion(state, world, staging.key, staging.textures);
             }
         });
     },
@@ -1254,57 +1265,60 @@ function assetResources(a: AssembledGltf): GpuResource[] {
 
 // destroy GPU resources behind the submit fence — an in-flight frame may still bind them through sear's cached
 // group; the caller (a live asset-swap) rebuilds before the next frame so the State re-registers.
-function freeBehindFence(res: GpuResource[]): void {
-    const device = Compute.device;
-    if (!device) return;
-    device.queue.onSubmittedWorkDone().then(() => {
+function freeBehindFence(state: State, res: GpuResource[]): void {
+    state.gpu.device.queue.onSubmittedWorkDone().then(() => {
         for (const r of res) r.destroy();
     });
 }
 
-function freeAsset(entry: GltfAsset): void {
-    if (entry.assembled) freeBehindFence(assetResources(entry.assembled));
+function freeAsset(state: State, assembled: AssembledGltf | null | undefined): void {
+    if (assembled) freeBehindFence(state, assetResources(assembled));
 }
 
-// drop the active union + free its shared arrays/palette behind the fence (invalidate / clearGltfCache — a
-// changed asset invalidates the accumulated union; the paired rebuild re-accumulates + reassembles).
-function dropUnion(): void {
-    clearActive();
-    if (_union) {
-        freeBehindFence(textureResources(_union.textures));
-        _union = null;
+// drop one world's active union + free its shared arrays/palette behind the fence.
+function dropUnion(state: State): void {
+    const world = gltfWorld(state);
+    clearActive(state);
+    if (world.union) {
+        freeBehindFence(state, textureResources(world.union.textures));
+        world.union = null;
     }
+}
+
+function clearWorldGltfState(state: State): void {
+    const world = gltfWorld(state);
+    for (const asset of world.assets.values()) freeAsset(state, asset.assembled);
+    world.assets.clear();
+    dropUnion(state);
 }
 
 /**
  * drop a glTF source from the asset cache + free its GPU resources (behind the submit fence): every clip
  * variant of `src`, plus the accumulated union (it included this source). The next {@link loadGltf}
- * re-decodes + re-uploads. The push-driven invalidation seam a live host wires to its file-watch / HMR:
- * pair it with a State rebuild so the active State re-registers before the next frame,
- * since the freed resources may still be bound.
+ * re-decodes + re-uploads. Invalidation is scoped to the owning State; pair it with a rebuild so the State
+ * re-registers before the next frame, since the freed resources may still be bound.
  */
-export function invalidate(src: string): void {
+export function invalidate(src: string, state: State): void {
     const prefix = `${src}|`;
-    for (const [k, entry] of _cache) {
+    for (const k of _decoded.keys()) if (k.startsWith(prefix)) _decoded.delete(k);
+    const world = gltfWorld(state);
+    for (const [k, asset] of world.assets) {
         if (!k.startsWith(prefix)) continue;
-        freeAsset(entry);
-        _cache.delete(k);
+        freeAsset(state, asset.assembled);
+        world.assets.delete(k);
     }
-    dropUnion();
+    dropUnion(state);
 }
 
-/** drop every cached glTF asset + the union + free their GPU resources (behind the submit fence). */
-export function clearGltfCache(): void {
-    for (const entry of _cache.values()) freeAsset(entry);
-    _cache.clear();
-    dropUnion();
+/** drop the deviceless decode cache and this State's assembled GPU resources. */
+export function clearGltfCache(state: State): void {
+    _decoded.clear();
+    clearWorldGltfState(state);
 }
 
-/** asset-cache stats. `decodes` is the total successful decodes since process start (must not advance
- *  across a rebuild, the rebuild-reuse gate), `assets` the live cache entries, `inflight` the in-flight
- *  decodes (a failed decode must leave it clear, so the source stays retryable). */
+/** asset-cache stats: decoded process entries and in-flight decodes, with no GPU resources retained here. */
 export function gltfCacheStats(): { decodes: number; assets: number; inflight: number } {
-    return { decodes: _decodes, assets: _cache.size, inflight: _decoding.size };
+    return { decodes: _decodeCount, assets: _decoded.size, inflight: _decodePromises.size };
 }
 
 // assemble a decoded asset's per-asset GPU resources — the VATs + the geometry buffers + Mesh specs (each
@@ -1323,32 +1337,33 @@ async function assemble(device: GPUDevice, decoded: DecodedGltf): Promise<Assemb
     return { geometry, vats, live };
 }
 
-// the per-asset cache entry for a decoded payload (created on first sight; `ensureDecoded` already created it
-// for the cached-decode path, so this resolves it there).
-function ensureEntry(decoded: DecodedGltf): GltfAsset {
-    const k = assetKey(decoded.url, decoded.clip, decoded.live);
-    let entry = _cache.get(k);
+// assemble one decoded asset's GPU resources once for this world. A different State gets its own buffers,
+// VATs and mesh handles even when the source decode is shared by the process cache.
+async function ensureAssembled(
+    state: State,
+    device: GPUDevice,
+    decoded: DecodedGltf,
+): Promise<AssembledGltf> {
+    const world = gltfWorld(state);
+    const key = assetKey(decoded.url, decoded.clip, decoded.live);
+    let entry = world.assets.get(key);
     if (!entry) {
         entry = { decoded, assembled: null, assembling: null };
-        _cache.set(k, entry);
+        world.assets.set(key, entry);
     }
-    return entry;
-}
-
-// ensure a cached asset's per-asset GPU resources are assembled (once, concurrency-deduped). A failed assemble
-// stays retryable (`assembled` null, `assembling` clear) rather than caching a rejection across rebuilds.
-async function ensureAssembled(device: GPUDevice, entry: GltfAsset): Promise<void> {
-    if (entry.assembled) return;
+    if (entry.assembled) return entry.assembled;
     if (!entry.assembling) {
         entry.assembling = (async () => {
             try {
-                entry.assembled = await assemble(device, entry.decoded);
+                entry!.assembled = await assemble(device, decoded);
             } finally {
-                entry.assembling = null;
+                entry!.assembling = null;
             }
         })();
     }
     await entry.assembling;
+    if (!entry.assembled) throw new Error(`[gltf] assembly did not produce resources for ${key}`);
+    return entry.assembled;
 }
 
 // decode through the cache, treating a dispose-time abort (the rejected pool waiter when the State tore down
@@ -1391,25 +1406,21 @@ export async function register(state: State, decoded: DecodedGltf): Promise<Gltf
     if (state.disposed) return emptyImport(); // a late decode onto a torn-down State — no-op, never throw
     const device = Compute.device;
     if (!device) throw new Error("[gltf] no GPU device — call register after build()");
-    const entry = ensureEntry(decoded);
-    await ensureAssembled(device, entry);
+    const assembly = await ensureAssembled(state, device, decoded);
     if (state.disposed) return emptyImport();
-    // re-register the cached Mesh specs into the (wiped) `Meshes` + build the descriptor at the asset's palette
-    // base, then publish the accumulated union — the cheap, idempotent per-build half (no decode, no re-upload)
-    const a = entry.assembled as AssembledGltf;
-    const base = activate(entry);
-    const meshIds = registerGeometry(a.geometry, entry.decoded.scene.meshes.length);
-    wireLive(device, a.live, meshIds); // fills the live meshes' slots + the per-build LiveSkin/skinParams wiring
+    const base = activate(state, decoded);
+    const meshIds = registerGeometry(assembly.geometry, decoded.scene.meshes.length);
+    wireLive(device, assembly.live, meshIds);
     const desc = describe(
-        entry.decoded.scene,
+        decoded.scene,
         meshIds,
         base,
-        entry.decoded.textured,
-        entry.decoded.vats,
-        entry.decoded.liveMeshes,
+        decoded.textured,
+        decoded.vats,
+        decoded.liveMeshes,
     );
     for (const h of desc.meshes) routes.set(h.mesh, h);
-    ensureUnion(); // kicks off the frame-staged union upload; textures pop in over N frames, geometry is ready now
+    ensureUnion(state);
     return desc;
 }
 
@@ -1501,6 +1512,7 @@ export const GltfPlugin: Plugin = {
     // parse. Publishing the fallbacks at warm would clobber a union an `initialize`-time import already
     // published (both write the same `Compute.textures` names) — so they sit here, before any import.
     initialize(state) {
+        gltfWorld(state);
         registerTexturedSurfaces(state);
         registerSkinSurfaces(state);
         registerLiveSkinSurfaces(state);
@@ -1509,24 +1521,25 @@ export const GltfPlugin: Plugin = {
         Preloads.register({ name: "gltf", resolve: resolveRefs });
         // reset the per-build active set; the `_union` memo survives so a rebuild re-accumulating the same set
         // re-publishes its arrays with no re-upload
-        clearActive();
+        clearActive(state);
         // the live joint-palette substrate is a module singleton — reset its layout each build so a State
         // rebuild starts clean and the next flush republishes `skinData` into the wiped `Compute.buffers`
         LiveSkin.reset();
         if (!Compute.device) return;
-        fallbackTextures(Compute.device);
-        fallbackVat(Compute.device);
+        fallbackTextures(state, Compute.device);
+        fallbackVat(state, Compute.device);
     },
     // free only the build-scoped fallbacks — the cache-owned per-asset resources survive the rebuild (that's
     // the spike this kills); they're freed by invalidate / clearGltfCache, not the plugin lifecycle. Drop the
     // pool's queued decodes too (a scene switch abandons them); an in-flight one finishes into the cache and the
     // load guards no-op it against the dead State. dispose runs before state.dispose (engine/app), so the
     // rejected awaiters see `state.disposed === true` by the time their microtask runs.
-    dispose() {
+    dispose(state) {
         Preloads.delete("gltf");
         abortDecodes();
-        disposeTextureFallbacks();
-        disposeVatFallback();
+        clearWorldGltfState(state);
+        disposeTextureFallbacks(state);
+        disposeVatFallback(state);
         LiveSkin.dispose();
     },
 };

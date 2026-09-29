@@ -26,6 +26,7 @@ import {
     disposeSegments,
     flushSegments,
     head,
+    initializeSegmentState,
     Lines,
     push,
     ready,
@@ -86,7 +87,6 @@ const QUAD_VERTS = new Float32Array([
 const QUAD_INDICES = new Uint32Array([0, 1, 2, 0, 2, 3]);
 
 const _m = new Float32Array(16);
-let _quadBase = 0;
 
 // each retained Line is one segment from the entity's world pos along its rotated offset; an Arrow on it
 // adds fletched heads at the endpoints. Appended on top of this frame's immediate segments. Small counts
@@ -123,7 +123,6 @@ const LinesSystem: System = {
     after: [BeginFrameSystem],
     before: [PrepassSystem],
     setup() {
-        _quadBase = Meshes.get("lineQuad")?.indexBase ?? 0;
         Draws.register({
             name: "lines",
             surface: "lines",
@@ -134,7 +133,7 @@ const LinesSystem: System = {
     update(state) {
         if (!Compute.device || !ready()) return;
         expandRetained(state);
-        flushSegments(Compute.device, _quadBase);
+        flushSegments(Compute.device, Meshes.get("lineQuad")?.indexBase ?? 0);
     },
 };
 
@@ -168,6 +167,7 @@ export const LinesPlugin: Plugin = {
     },
 
     initialize(state) {
+        initializeSegmentState(state);
         resetCount();
         mesh({ name: "lineQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
         registerSurface(state, {

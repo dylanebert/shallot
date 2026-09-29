@@ -1,6 +1,7 @@
 import tgpu, { type TgpuBindGroupLayout, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
-import { Compute, type Type } from "../../engine";
+import { Compute, type State, type Type } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 
 // The scatter kernel: the compute half of the slab flush, one pipeline per GPU element type. Its
 // element schemas are also where a slab's mirror layout is declared, so the buffer sizes and the stager
@@ -87,13 +88,20 @@ export interface Scatter {
     pipeline: TgpuComputePipeline;
 }
 
-const pipelines = new Map<string, Scatter>();
+const scatterPipelinesKey = Symbol("shallot.slab-scatter");
+const createScatterPipelines = () => new Map<string, Scatter>();
+const scatterPipelines = () => worldResource(scatterPipelinesKey, createScatterPipelines);
+
+/** Create this world's Slab scatter-pipeline cache during plugin initialization. */
+export function initializeScatterState(state: State): void {
+    state.resource(scatterPipelinesKey, createScatterPipelines);
+}
 
 /** the memoized scatter pipeline for a slab type's GPU element, created against the active root.
  *  @internal */
 export function scatterPipeline(type: Type): Scatter {
     const key = scatterKey(type);
-    const cached = pipelines.get(key);
+    const cached = scatterPipelines().get(key);
     if (cached) return cached;
     const element = elementOf(type)!;
     const layout = scatterLayout(element);
@@ -101,7 +109,7 @@ export function scatterPipeline(type: Type): Scatter {
         .createComputePipeline({ compute: scatterKernel(element, layout) })
         .$name(`slab-scatter-${key}`);
     const ctx = { layout, pipeline };
-    pipelines.set(key, ctx);
+    scatterPipelines().set(key, ctx);
     return ctx;
 }
 
@@ -109,14 +117,14 @@ export function scatterPipeline(type: Type): Scatter {
  *  owning plugin never warmed.
  *  @internal */
 export function compiled(type: Type): Scatter | undefined {
-    return pipelines.get(scatterKey(type));
+    return scatterPipelines().get(scatterKey(type));
 }
 
 /** drop every compiled pipeline. Pipelines bind to the root that created them, so a build against a new
  *  device recompiles.
  *  @internal */
 export function resetPipelines(): void {
-    pipelines.clear();
+    scatterPipelines().clear();
 }
 
 /** the emitted scatter WGSL for a slab type — the device-free structural seam its test resolves. It

@@ -305,6 +305,7 @@ async function buildNow(config: Config): Promise<App> {
         const preferred = [...new Set(sorted.flatMap((p) => p.preferredFeatures ?? []))];
         const compute = await requestGPU(config.device, features, preferred, config.adapter, {
             own: state.own.bind(state),
+            resource: state.resource.bind(state),
             world: state,
         });
         state.attachGpu(compute, (callback) => withCompute(compute, callback));

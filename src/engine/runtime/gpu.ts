@@ -131,10 +131,9 @@ export interface Compute {
     /**
      * TypeGPU root adopting {@link device} — the handle every typed buffer, bind group, and pipeline
      * is created through, and the reach-back out (`root.unwrap(...)`) to the raw WebGPU handle.
-     * Created by {@link requestGPU} (never at import time — the module stays side-effect free) and
-     * **memoized per device**: a rebuild on the same device keeps the same root, so a cross-build memo
-     * may hold a typed resource exactly like a raw one. It has no teardown of its own — typed
-     * resources die with the device, and an adopted device's lifetime is the host's
+     * Created by {@link requestGPU} for the owning State (never at import time — the module stays
+     * side-effect free), so two States sharing a device still own distinct typed handles. It has no
+     * teardown of its own; GPU resources are tracked and released with the State.
      */
     readonly root: TgpuRoot;
     /** monotonically incremented per frame */
@@ -239,6 +238,15 @@ export async function withComputeAsync<T>(
 /** The familiar compute surface resolves to the world active for this callback. */
 export function currentWorld<T extends object>(): T | undefined {
     return activeCompute?.world as T | undefined;
+}
+
+/** Resolve a resource in the State active for this lifecycle or system callback. */
+export function worldResource<T>(key: PropertyKey, create: () => T): T {
+    const world = activeCompute?.world as
+        | { resource?: (key: PropertyKey, create: () => T) => T }
+        | undefined;
+    if (!world?.resource) throw new Error("worldResource accessed outside a world's lifecycle");
+    return world.resource(key, create);
 }
 
 export const Compute: Compute = new Proxy({} as Compute, {
@@ -1198,19 +1206,15 @@ export async function precompileAll(): Promise<void> {
     }
 }
 
-// the root is device-scoped, not build-scoped. A device outlives any one build (a host sharing one
-// across builds is the cross-build memo case), and `initFromDevice`'s `destroy` frees nothing but the
-// texture cache — so a per-build teardown would buy no cleanup and leave a window where `Compute.root`
-// is undefined. One root per device, memoized; it dies with the device, exactly like a raw GPUBuffer.
-let _rootDevice: GPUDevice | undefined;
-let _root: TgpuRoot | undefined;
+// TypeGPU's root and resource handles belong to the State using them, even when two States share a device.
+const typegpuRootKey = Symbol("shallot.typegpu-root");
 
-function adopt(device: GPUDevice): TgpuRoot {
-    if (_root && _rootDevice === device) return _root;
-    _precompile.length = 0;
-    _rootDevice = device;
-    _root = tgpu.initFromDevice({ device });
-    return _root;
+function adopt(
+    device: GPUDevice,
+    owner?: { resource?: <T>(key: PropertyKey, create: () => T) => T },
+): TgpuRoot {
+    const create = () => tgpu.initFromDevice({ device });
+    return owner?.resource ? owner.resource(typegpuRootKey, create) : create();
 }
 
 /** classify the adapter and warn once when the result is not real hardware. */
@@ -1241,15 +1245,19 @@ export function stampAdapter(
  * otherwise. `preferred` features are requested only where the adapter has them
  * (never gating the device). Pass an external device to adopt it as-is; the caller
  * is responsible for feature support. Either way the device is adopted by {@link Compute.root}, the
- * TypeGPU handle typed resources are created through — memoized per device, so only a *new* device
- * mints a new root.
+ * TypeGPU handle typed resources are created through — one root belongs to the owning State, even when
+ * two States adopt the same device.
  */
 export async function requestGPU(
     device?: GPUDevice,
     features: readonly GPUFeatureName[] = [],
     preferred: readonly GPUFeatureName[] = [],
     adapter?: GPUAdapter,
-    owner?: { own(resource: { destroy(): void }): void; world?: object },
+    owner?: {
+        own(resource: { destroy(): void }): void;
+        resource?: <T>(key: PropertyKey, create: () => T) => T;
+        world?: object;
+    },
 ): Promise<Compute> {
     // before anything resolves: typegpu binds the console method a TGSL `console.log` calls at
     // shader-generation time, so a capture installed later never sees that kernel's lines.
@@ -1296,7 +1304,7 @@ export async function requestGPU(
           })
         : d;
     _rawDevices.set(trackedDevice, d);
-    const root = adopt(d);
+    const root = adopt(d, owner);
     const trackedRoot = owner
         ? new Proxy(root, {
               get(target, key) {

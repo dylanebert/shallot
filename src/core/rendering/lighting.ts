@@ -3,6 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State } from "../../engine";
 import { Compute, f32, sparse, unpackColor, vec4 } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/utils";
 import { slab } from "../../transitional/slab";
 import { Transform } from "../../transitional/transforms";
@@ -130,21 +131,52 @@ export interface Lighting {
     staging: Float32Array;
 }
 
-const _backing = new ArrayBuffer(LIGHTING_UNIFORM_SIZE);
+interface LightingResources {
+    gpu: Lighting;
+    ambientRgb: Float64Array;
+    ambientPacked: number;
+    sunRgb: Float64Array;
+    sunPacked: number;
+    overflowWarned: boolean;
+}
 
-export const Lighting: Lighting = {
-    buffer: null!,
-    staging: new Float32Array(_backing),
-};
+const lightingKey = Symbol("shallot.lighting");
+
+function createLightingResources(): LightingResources {
+    const backing = new ArrayBuffer(LIGHTING_UNIFORM_SIZE);
+    return {
+        gpu: { buffer: null!, staging: new Float32Array(backing) },
+        ambientRgb: new Float64Array(3),
+        ambientPacked: -1,
+        sunRgb: new Float64Array(3),
+        sunPacked: -1,
+        overflowWarned: false,
+    };
+}
+
+function lightingResources(): LightingResources {
+    return worldResource(lightingKey, createLightingResources);
+}
+
+/** Create this world's lighting state during RenderPlugin initialization. */
+export function initializeLightingState(state: State): void {
+    state.resource(lightingKey, createLightingResources);
+}
+
+export const Lighting: Lighting = new Proxy({} as Lighting, {
+    get(_target, key) {
+        return lightingResources().gpu[key as keyof Lighting];
+    },
+    set(_target, key, value) {
+        (lightingResources().gpu as unknown as Record<PropertyKey, unknown>)[key] = value;
+        return true;
+    },
+});
 
 // the singleton query terms and each light's decoded color, held so the per-frame pack mints nothing: a
 // color is unpacked only on the frame its packed value changes, and the linear triple is read from here
 const AMBIENT_TERMS = [AmbientLight];
 const SUN_TERMS = [DirectionalLight];
-const _ambientRgb = new Float64Array(3);
-let _ambientPacked = -1;
-const _sunRgb = new Float64Array(3);
-let _sunPacked = -1;
 
 /** read the singleton AmbientLight + DirectionalLight entities and pack the Lighting UBO */
 export function writeLighting(state: State): void {
@@ -158,16 +190,16 @@ export function writeLighting(state: State): void {
     const ambient = state.only(AMBIENT_TERMS);
     if (ambient >= 0) {
         const packed = AmbientLight.color.get(ambient);
-        if (packed !== _ambientPacked) {
+        if (packed !== lightingResources().ambientPacked) {
             const rgb = unpackColor(packed);
-            _ambientRgb[0] = rgb.r;
-            _ambientRgb[1] = rgb.g;
-            _ambientRgb[2] = rgb.b;
-            _ambientPacked = packed;
+            lightingResources().ambientRgb[0] = rgb.r;
+            lightingResources().ambientRgb[1] = rgb.g;
+            lightingResources().ambientRgb[2] = rgb.b;
+            lightingResources().ambientPacked = packed;
         }
-        s[0] = _ambientRgb[0];
-        s[1] = _ambientRgb[1];
-        s[2] = _ambientRgb[2];
+        s[0] = lightingResources().ambientRgb[0];
+        s[1] = lightingResources().ambientRgb[1];
+        s[2] = lightingResources().ambientRgb[2];
         s[3] = AmbientLight.intensity.get(ambient);
     }
 
@@ -185,17 +217,17 @@ export function writeLighting(state: State): void {
             s[6] = dz / len;
         }
         const packed = DirectionalLight.color.get(dir);
-        if (packed !== _sunPacked) {
+        if (packed !== lightingResources().sunPacked) {
             const rgb = unpackColor(packed);
-            _sunRgb[0] = rgb.r;
-            _sunRgb[1] = rgb.g;
-            _sunRgb[2] = rgb.b;
-            _sunPacked = packed;
+            lightingResources().sunRgb[0] = rgb.r;
+            lightingResources().sunRgb[1] = rgb.g;
+            lightingResources().sunRgb[2] = rgb.b;
+            lightingResources().sunPacked = packed;
         }
         const i = DirectionalLight.intensity.get(dir);
-        s[8] = _sunRgb[0] * i;
-        s[9] = _sunRgb[1] * i;
-        s[10] = _sunRgb[2] * i;
+        s[8] = lightingResources().sunRgb[0] * i;
+        s[9] = lightingResources().sunRgb[1] * i;
+        s[10] = lightingResources().sunRgb[2] * i;
         // the sun's volumetric opt-in: a `Volumetric` marker flags the otherwise-pad sunDirection.w lane
         // (1 = scatter shafts in the fog march). The lit path reads only sunDirection.xyz, so the flag is
         // inert there — the analogue of the point light's radius-sign flag, no 4th vec4
@@ -304,7 +336,6 @@ export function spotParams(innerDeg: number, outerDeg: number): { scale: number;
     return { scale, offset: -cosOuter * scale };
 }
 
-let _overflowWarned = false;
 const POINT_LIGHT_TERMS = [PointLight, Transform];
 
 /**
@@ -317,13 +348,14 @@ export function warnLightOverflow(state: State): void {
     let count = 0;
     for (const _ of state.query(POINT_LIGHT_TERMS)) count++;
     if (count > MAX_POINT_LIGHTS) {
-        if (!_overflowWarned) {
-            _overflowWarned = true;
+        const resources = state.resource(lightingKey, createLightingResources);
+        if (!resources.overflowWarned) {
+            resources.overflowWarned = true;
             console.warn(
                 `shallot: ${count} point lights exceed the ${MAX_POINT_LIGHTS} cap; ${count - MAX_POINT_LIGHTS} ignored`,
             );
         }
     } else {
-        _overflowWarned = false;
+        state.resource(lightingKey, createLightingResources).overflowWarned = false;
     }
 }

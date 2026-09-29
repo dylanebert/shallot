@@ -3,7 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State, System } from "../../engine";
 import { Compute } from "../../engine";
-import { precompile } from "../../engine/runtime";
+import { precompile, worldResource } from "../../engine/runtime";
 import {
     idiv,
     octEncodeNormal,
@@ -24,6 +24,80 @@ import {
 } from "./lighting";
 import { Render } from "./render";
 import { MAX_VIEWS } from "./view";
+
+interface ClusterGpuState {
+    clusters: Clusters;
+    lightCull: LightCull;
+    pipe: TgpuComputePipeline | null;
+    bound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
+    typedViews: (TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag) | null;
+    typedAabbs: (TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag) | null;
+    typedLights: (TgpuBuffer<typeof PointLightsRw> & StorageFlag) | null;
+    compactPipe: TgpuComputePipeline | null;
+    cullPipe: TgpuComputePipeline | null;
+    compactBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
+    cullBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
+    overflowStaging: GPUBuffer | null;
+    overflowPending: boolean;
+    overflowInFlight: boolean;
+    overflowWarned: boolean;
+    gridPass: GPUComputePassDescriptor;
+    cullPass: GPUComputePassDescriptor;
+}
+
+const clusterGpuKey = Symbol("shallot.cluster-gpu");
+
+function createClusterGpuState(): ClusterGpuState {
+    return {
+        clusters: {
+            aabbs: null,
+            views: null,
+            staging: new Float32Array(MAX_VIEWS * CLUSTER_VIEW_FLOATS),
+            last: new Float32Array(MAX_VIEWS * CLUSTER_VIEW_FLOATS),
+        },
+        lightCull: {
+            lights: null,
+            grid: null,
+            indices: null,
+            viewMats: null,
+            viewStaging: new Float32Array(MAX_VIEWS * 16),
+        },
+        pipe: null,
+        bound: null,
+        typedViews: null,
+        typedAabbs: null,
+        typedLights: null,
+        compactPipe: null,
+        cullPipe: null,
+        compactBound: null,
+        cullBound: null,
+        overflowStaging: null,
+        overflowPending: false,
+        overflowInFlight: false,
+        overflowWarned: false,
+        gridPass: { label: "shallot-cluster-aabbs" },
+        cullPass: { label: "shallot-light-cull" },
+    };
+}
+
+function clusterGpu(): ClusterGpuState {
+    return worldResource(clusterGpuKey, createClusterGpuState);
+}
+
+/** Create this world's cluster and light-cull state during RenderPlugin initialization. */
+export function initializeClusterState(state: State): void {
+    state.resource(clusterGpuKey, createClusterGpuState);
+}
+
+const _gpu = new Proxy({} as Omit<ClusterGpuState, "clusters" | "lightCull">, {
+    get(_target, key) {
+        return clusterGpu()[key as keyof ClusterGpuState] as never;
+    },
+    set(_target, key, value) {
+        (clusterGpu() as unknown as Record<PropertyKey, unknown>)[key] = value;
+        return true;
+    },
+});
 
 // The froxel cluster substrate: the grid (per-view view-space cluster AABBs)
 // and the per-frame light passes that bin into it (compact + cull, below) —
@@ -208,12 +282,15 @@ export interface Clusters {
     last: Float32Array;
 }
 
-export const Clusters: Clusters = {
-    aabbs: null,
-    views: null,
-    staging: new Float32Array(MAX_VIEWS * CLUSTER_VIEW_FLOATS),
-    last: new Float32Array(MAX_VIEWS * CLUSTER_VIEW_FLOATS),
-};
+export const Clusters: Clusters = new Proxy({} as Clusters, {
+    get(_target, key) {
+        return clusterGpu().clusters[key as keyof Clusters];
+    },
+    set(_target, key, value) {
+        (clusterGpu().clusters as unknown as Record<PropertyKey, unknown>)[key] = value;
+        return true;
+    },
+});
 
 /**
  * pack a camera's {@link ClusterView} into the staging slot, called per view by
@@ -291,11 +368,6 @@ export function gridWgsl(): string {
     return tgpu.resolve([gridKernel], { names: "strict" });
 }
 
-let _pipe: TgpuComputePipeline | null = null;
-let _bound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null = null;
-let _typedViews: (TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag) | null = null;
-let _typedAabbs: (TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag) | null = null;
-
 /**
  * rebuilds the cluster AABB buffer when any active view's projection changed
  * since the last build (the staging prefix is the dirty signal: pose changes
@@ -306,7 +378,7 @@ let _typedAabbs: (TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag) | null = null;
 export const ClusterSystem: System = {
     group: "draw",
     update() {
-        if (!Render.encoder || !_pipe || Render.shadeCount === 0) return;
+        if (!Render.encoder || !_gpu.pipe || Render.shadeCount === 0) return;
         const used = Render.shadeCount * CLUSTER_VIEW_FLOATS;
         let changed = false;
         for (let i = 0; i < used; i++) {
@@ -324,9 +396,9 @@ export const ClusterSystem: System = {
             0,
             used,
         );
-        _gridPass.timestampWrites = Compute.span?.("cluster:aabbs");
+        _gpu.gridPass.timestampWrites = Compute.span?.("cluster:aabbs");
         const grid = bindGrid();
-        const pass = Render.encoder.beginComputePass(_gridPass);
+        const pass = Render.encoder.beginComputePass(_gpu.gridPass);
         pass.setPipeline(grid.pipeline);
         pass.setBindGroup(0, grid.group);
         pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
@@ -334,27 +406,25 @@ export const ClusterSystem: System = {
     },
 };
 
-// the grid and light-cull pass descriptors; their timestamp spans are re-read each frame
-const _gridPass: GPUComputePassDescriptor = { label: "shallot-cluster-aabbs" };
-const _cullPass: GPUComputePassDescriptor = { label: "shallot-light-cull" };
+// Pass descriptors are part of the world's mutable dispatch state.
 
 // bound once, on the forced precompile (which drains after every plugin has warmed). Every input is
 // this module's own, allocated in `warmClusters` before the forcer is registered — so a missing one is
 // a wiring bug and throws, never a silently skipped frame
 function bindGrid(): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
-    if (_bound) return _bound;
-    if (!_pipe || !_typedViews || !_typedAabbs)
+    if (_gpu.bound) return _gpu.bound;
+    if (!_gpu.pipe || !_gpu.typedViews || !_gpu.typedAabbs)
         throw new Error("[render] cluster grid used before warmClusters");
-    _bound = {
-        pipeline: Compute.root.unwrap(_pipe),
+    _gpu.bound = {
+        pipeline: Compute.root.unwrap(_gpu.pipe),
         group: Compute.root.unwrap(
             Compute.root.createBindGroup(gridLayout, {
-                clusterViews: _typedViews,
-                aabbs: _typedAabbs,
+                clusterViews: _gpu.typedViews,
+                aabbs: _gpu.typedAabbs,
             }),
         ),
     };
-    return _bound;
+    return _gpu.bound;
 }
 
 /** allocate the cluster buffers + compile the AABB-build pipeline */
@@ -362,24 +432,24 @@ export function warmClusters(): void {
     if (!Compute.device) return;
     const root = Compute.root;
     Clusters.last.fill(0);
-    _bound = null;
+    _gpu.bound = null;
 
-    _typedViews = root
+    _gpu.typedViews = root
         .createBuffer(d.arrayOf(d.vec4f, MAX_VIEWS * (CLUSTER_VIEW_FLOATS / 4)))
         .$usage("storage")
         .$name("shallot-cluster-views");
-    Clusters.views = root.unwrap(_typedViews);
+    Clusters.views = root.unwrap(_gpu.typedViews);
     // typegpu grants COPY_SRC on every buffer it creates, which is what a Mirror readback
     // reads the AABBs back through
-    _typedAabbs = root
+    _gpu.typedAabbs = root
         .createBuffer(d.arrayOf(d.vec4f, MAX_VIEWS * CLUSTER_COUNT * 2))
         .$usage("storage")
         .$name("shallot-cluster-aabbs");
-    Clusters.aabbs = root.unwrap(_typedAabbs);
+    Clusters.aabbs = root.unwrap(_gpu.typedAabbs);
     Compute.buffers.set("clusterAabbs", Clusters.aabbs);
-    Compute.typed.set("clusterAabbs", _typedAabbs);
+    Compute.typed.set("clusterAabbs", _gpu.typedAabbs);
 
-    _pipe = root.createComputePipeline({ compute: gridKernel }).$name("shallot-cluster-aabbs");
+    _gpu.pipe = root.createComputePipeline({ compute: gridKernel }).$name("shallot-cluster-aabbs");
     // the bind is deferred into the forcer: it runs after every plugin's warm
     // has resolved (warm hooks run under `Promise.all`), the first moment every input buffer is up
     precompile("shallot-cluster-aabbs", () => {
@@ -427,13 +497,15 @@ export interface LightCull {
     viewStaging: Float32Array;
 }
 
-export const LightCull: LightCull = {
-    lights: null,
-    grid: null,
-    indices: null,
-    viewMats: null,
-    viewStaging: new Float32Array(MAX_VIEWS * 16),
-};
+export const LightCull: LightCull = new Proxy({} as LightCull, {
+    get(_target, key) {
+        return clusterGpu().lightCull[key as keyof LightCull];
+    },
+    set(_target, key, value) {
+        (clusterGpu().lightCull as unknown as Record<PropertyKey, unknown>)[key] = value;
+        return true;
+    },
+});
 
 const compactLayout = tgpu
     .bindGroupLayout({
@@ -655,27 +727,18 @@ export function lightCullWgsl(
     };
 }
 
-let _typedLights: (TgpuBuffer<typeof PointLightsRw> & StorageFlag) | null = null;
-let _compactPipe: TgpuComputePipeline | null = null;
-let _cullPipe: TgpuComputePipeline | null = null;
-let _compactBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null = null;
-let _cullBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null = null;
-
 // pool-overflow surfacing: the reserve counter lives GPU-side, so a throttled
 // 8-byte readback (copy one frame, map the next) carries the warn — never
 // silent truncation, never a per-frame stall
-let _overflowStaging: GPUBuffer | null = null;
-let _overflowPending = false;
-let _overflowInFlight = false;
-let _overflowWarned = false;
+
 const OVERFLOW_PERIOD = 240;
 
 // bound once, on the forced precompile. A typed bind group takes a raw GPUBuffer, which is what keeps
 // the slab mirrors' and `membership`'s reach-in open. Every input is stable post-warm, so a missing one
 // is a wiring bug and gets the named throw — never a skipped frame
 function bindCompact(): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
-    if (_compactBound) return _compactBound;
-    if (!_compactPipe || !_typedLights)
+    if (_gpu.compactBound) return _gpu.compactBound;
+    if (!_gpu.compactPipe || !_gpu.typedLights)
         throw new Error("[render] light compact used before warmLightCull");
     const inputs = {
         membership: Compute.buffers.get("membership"),
@@ -695,30 +758,30 @@ function bindCompact(): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
             `[render] light compact inputs missing (${missing.join(", ")}) — SlabPlugin + TransformsPlugin must be loaded`,
         );
     }
-    _compactBound = {
-        pipeline: Compute.root.unwrap(_compactPipe),
+    _gpu.compactBound = {
+        pipeline: Compute.root.unwrap(_gpu.compactPipe),
         group: Compute.root.unwrap(
             Compute.root.createBindGroup(compactLayout, {
                 ...(inputs as Required<{ [K in keyof typeof inputs]: GPUBuffer }>),
-                lights: _typedLights,
+                lights: _gpu.typedLights,
             }),
         ),
     };
-    return _compactBound;
+    return _gpu.compactBound;
 }
 
 function bindCull(): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
-    if (_cullBound) return _cullBound;
-    if (!_cullPipe || !_typedAabbs || !LightCull.lights)
+    if (_gpu.cullBound) return _gpu.cullBound;
+    if (!_gpu.cullPipe || !_gpu.typedAabbs || !LightCull.lights)
         throw new Error("[render] light cull used before warmLightCull");
     // the light list binds RAW here and typed in the compact group: same buffer, two schemas (the
     // writer's count word is atomic, which WGSL forbids in a read-only binding — `PointLightsRw` vs
     // `PointLights`, layouts pinned equal in lighting.test.ts)
-    _cullBound = {
-        pipeline: Compute.root.unwrap(_cullPipe),
+    _gpu.cullBound = {
+        pipeline: Compute.root.unwrap(_gpu.cullPipe),
         group: Compute.root.unwrap(
             Compute.root.createBindGroup(cullLayout, {
-                aabbs: _typedAabbs,
+                aabbs: _gpu.typedAabbs,
                 lights: LightCull.lights,
                 viewMats: LightCull.viewMats!,
                 grid: LightCull.grid!,
@@ -726,38 +789,42 @@ function bindCull(): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
             }),
         ),
     };
-    return _cullBound;
+    return _gpu.cullBound;
 }
 
 // The two readback reactions, held as module functions rather than minted at each map: both read only
 // module state, so neither needs a closure or a context per frame.
-function overflowMapped(): void {
-    const words = new Uint32Array(_overflowStaging!.getMappedRange());
+function overflowMapped(state: ClusterGpuState): void {
+    const words = new Uint32Array(state.overflowStaging!.getMappedRange());
     const dropped = words[1];
     if (dropped > 0) {
-        if (!_overflowWarned) {
-            _overflowWarned = true;
+        if (!state.overflowWarned) {
+            state.overflowWarned = true;
             console.warn(
                 `shallot: light index pool overflow — ${dropped} cluster-light entries dropped this frame (pool ${LIGHT_POOL})`,
             );
         }
     } else {
-        _overflowWarned = false;
+        state.overflowWarned = false;
     }
-    _overflowStaging!.unmap();
-    _overflowInFlight = false;
+    state.overflowStaging!.unmap();
+    state.overflowInFlight = false;
 }
 
-function overflowUnmapped(): void {
-    _overflowInFlight = false;
+function overflowUnmapped(state: ClusterGpuState): void {
+    state.overflowInFlight = false;
 }
 
 function checkOverflow(): void {
-    if (!_overflowStaging) return;
+    const state = clusterGpu();
+    if (!state.overflowStaging) return;
     // copy was submitted with last frame's encoder — safe to map now
-    if (_overflowInFlight) return;
-    _overflowInFlight = true;
-    _overflowStaging.mapAsync(GPUMapMode.READ).then(overflowMapped).catch(overflowUnmapped);
+    if (state.overflowInFlight) return;
+    state.overflowInFlight = true;
+    state.overflowStaging
+        .mapAsync(GPUMapMode.READ)
+        .then(() => overflowMapped(state))
+        .catch(() => overflowUnmapped(state));
 }
 
 /**
@@ -769,7 +836,8 @@ function checkOverflow(): void {
 export const LightCullSystem: System = {
     group: "draw",
     update(state) {
-        if (!Render.encoder || !_compactPipe || !_cullPipe || Render.shadeCount === 0) return;
+        if (!Render.encoder || !_gpu.compactPipe || !_gpu.cullPipe || Render.shadeCount === 0)
+            return;
         warnLightOverflow(state);
 
         Compute.device.queue.writeBuffer(
@@ -781,10 +849,10 @@ export const LightCullSystem: System = {
         );
         Render.encoder.clearBuffer(LightCull.lights!, 0, 16);
         Render.encoder.clearBuffer(LightCull.indices!, 0, POOL_HEADER * 4);
-        _cullPass.timestampWrites = Compute.span?.("light:cull");
+        _gpu.cullPass.timestampWrites = Compute.span?.("light:cull");
         const compact = bindCompact();
         const cull = bindCull();
-        const pass = Render.encoder.beginComputePass(_cullPass);
+        const pass = Render.encoder.beginComputePass(_gpu.cullPass);
         pass.setPipeline(compact.pipeline);
         pass.setBindGroup(0, compact.group);
         pass.dispatchWorkgroups(Math.ceil(state.capacity / 64));
@@ -793,12 +861,12 @@ export const LightCullSystem: System = {
         pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
         pass.end();
 
-        if (_overflowPending) {
-            _overflowPending = false;
+        if (_gpu.overflowPending) {
+            _gpu.overflowPending = false;
             checkOverflow();
-        } else if (Compute.frame % OVERFLOW_PERIOD === 0 && !_overflowInFlight) {
-            Render.encoder.copyBufferToBuffer(LightCull.indices!, 0, _overflowStaging!, 0, 8);
-            _overflowPending = true;
+        } else if (Compute.frame % OVERFLOW_PERIOD === 0 && !_gpu.overflowInFlight) {
+            Render.encoder.copyBufferToBuffer(LightCull.indices!, 0, _gpu.overflowStaging!, 0, 8);
+            _gpu.overflowPending = true;
         }
     },
 };
@@ -808,12 +876,12 @@ export function warmLightCull(state: State): void {
     if (!Compute.device) return;
     const device = Compute.device;
     const root = Compute.root;
-    _compactBound = null;
-    _cullBound = null;
-    _overflowPending = false;
+    _gpu.compactBound = null;
+    _gpu.cullBound = null;
+    _gpu.overflowPending = false;
 
-    _typedLights = root.createBuffer(PointLightsRw).$usage("storage").$name("shallot-lights");
-    LightCull.lights = root.unwrap(_typedLights);
+    _gpu.typedLights = root.createBuffer(PointLightsRw).$usage("storage").$name("shallot-lights");
+    LightCull.lights = root.unwrap(_gpu.typedLights);
     // COPY_SRC throughout for Mirror readback (typegpu grants it on the
     // buffers it creates)
     LightCull.grid = device.createBuffer({
@@ -831,8 +899,8 @@ export function warmLightCull(state: State): void {
         size: MAX_VIEWS * 64,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-    _overflowInFlight = false;
-    _overflowStaging = device.createBuffer({
+    _gpu.overflowInFlight = false;
+    _gpu.overflowStaging = device.createBuffer({
         label: "shallot-light-overflow",
         size: 8,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
@@ -856,7 +924,7 @@ export function warmLightCull(state: State): void {
     const bit = state.membership.bit(PointLight);
     const spotBit = state.membership.bit(Spot);
     const volBit = state.membership.bit(Volumetric);
-    _compactPipe = root
+    _gpu.compactPipe = root
         .createComputePipeline({
             compute: compactKernel(
                 capacity,
@@ -866,7 +934,7 @@ export function warmLightCull(state: State): void {
             ),
         })
         .$name("shallot-light-compact");
-    _cullPipe = root.createComputePipeline({ compute: cullKernel }).$name("shallot-light-cull");
+    _gpu.cullPipe = root.createComputePipeline({ compute: cullKernel }).$name("shallot-light-cull");
     precompile("shallot-light-compact", () => [bindCompact().pipeline]);
     precompile("shallot-light-cull", () => [bindCull().pipeline]);
 }

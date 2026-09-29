@@ -1,6 +1,7 @@
 import type { TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
-import { Registry } from "../../engine";
+import { Registry, type State } from "../../engine";
+import { worldResource } from "../../engine/runtime";
 
 export { Surfaces } from "./contract";
 
@@ -77,5 +78,18 @@ class DrawRegistry extends Registry<Draw> {
     }
 }
 
-/** every registered draw, keyed by name */
-export const Draws: Registry<Draw> = new DrawRegistry();
+const drawsKey = Symbol("shallot.draws");
+const createDraws = () => new DrawRegistry();
+
+/** every registered draw in the active world's registry, keyed by name */
+export const Draws: Registry<Draw> = new Proxy(new DrawRegistry(), {
+    get(_target, key) {
+        const registry = worldResource(drawsKey, createDraws);
+        return Reflect.get(registry, key, registry) as unknown;
+    },
+});
+
+/** Create this world's draw registry during RenderPlugin initialization. */
+export function initializeDrawState(state: State): void {
+    state.resource(drawsKey, createDraws);
+}

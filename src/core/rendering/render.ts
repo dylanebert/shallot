@@ -1,3 +1,6 @@
+import type { State } from "../../engine";
+import { worldResource } from "../../engine/runtime";
+
 /**
  * device-level render state owned by `RenderPlugin`. `encoder` is the frame's
  * raw `GPUCommandEncoder`, opened by `BeginFrameSystem`: every pass in the
@@ -35,13 +38,35 @@ export interface Render {
     shadeCount: number;
 }
 
-export const Render: Render = {
-    format: "" as GPUTextureFormat,
-    encoder: null,
-    viewBuffers: [],
-    viewStaging: null!,
-    cullVolumes: null!,
-    cullVolumeStaging: null!,
-    viewCount: 0,
-    shadeCount: 0,
-};
+const renderKey = Symbol("shallot.render");
+
+function createRender(): Render {
+    return {
+        format: "" as GPUTextureFormat,
+        encoder: null,
+        viewBuffers: [],
+        viewStaging: null!,
+        cullVolumes: null!,
+        cullVolumeStaging: null!,
+        viewCount: 0,
+        shadeCount: 0,
+    };
+}
+
+/** Create this world's render state during RenderPlugin initialization. */
+export function initializeRenderState(state: State): void {
+    state.resource(renderKey, createRender);
+}
+
+/** Active world's render state. Systems run inside their State's GPU callback. */
+export const Render: Render = new Proxy({} as Render, {
+    get(_target, key) {
+        return worldResource<Render>(renderKey, createRender)[key as keyof Render];
+    },
+    set(_target, key, value) {
+        (worldResource<Render>(renderKey, createRender) as unknown as Record<PropertyKey, unknown>)[
+            key
+        ] = value;
+        return true;
+    },
+});

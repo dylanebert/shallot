@@ -4,7 +4,16 @@ import { RenderPlugin } from "../../core/rendering";
 import type { Plugin } from "../../engine";
 import { SlabPlugin } from "../slab";
 import { initMeshes } from "./mesh";
-import { Color, ColorTraits, initPart, Part, PartSystem, PartTraits, warmPart } from "./part";
+import {
+    Color,
+    ColorTraits,
+    initializePartState,
+    initPart,
+    Part,
+    PartSystem,
+    PartTraits,
+    warmPart,
+} from "./part";
 
 export { Color, Part } from "./part";
 
@@ -31,6 +40,7 @@ export const PartPlugin: Plugin = {
     dependencies: [RenderPlugin, SlabPlugin],
 
     initialize(state) {
+        initializePartState(state);
         initPart(state);
         initMeshes();
     },

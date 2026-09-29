@@ -2,10 +2,29 @@
 import type { StorageFlag, TgpuBuffer, TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import { Compute, type Plugin, type State, vec4 } from "../../engine";
-import { precompile } from "../../engine/runtime";
+import { precompile, worldResource } from "../../engine/runtime";
 import { eulerAlias, Xform } from "../../engine/utils";
 import { SlabPlugin, slab } from "../slab";
 import { composeKernel, composeLayout } from "./compose";
+
+interface TransformGpuState {
+    typed: (TgpuBuffer<d.WgslArray<typeof Xform>> & StorageFlag) | null;
+    pipeline: TgpuComputePipeline | null;
+    bound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
+    pass: GPUComputePassDescriptor;
+}
+
+const transformGpuKey = Symbol("shallot.transforms");
+const createTransformGpuState = (): TransformGpuState => ({
+    typed: null,
+    pipeline: null,
+    bound: null,
+    pass: { label: "shallot-transforms-compose" },
+});
+
+function transformGpuState(): TransformGpuState {
+    return worldResource(transformGpuKey, createTransformGpuState);
+}
 
 // the transform firehose: one capacity-sized buffer of decomposed per-entity {pos, quat, scale} (`Xform`,
 // 48 B) the compose pass gathers from the pos/rot/scale slabs; readers reconstruct the world transform on
@@ -13,18 +32,14 @@ import { composeKernel, composeLayout } from "./compose";
 // "transforms" (the access path — surfaces resolve it by name). A derived GPU buffer, not a per-entity
 // field, so it lives here, not on the Transform component (mirrors `Lighting` vs `DirectionalLight` in
 // render/). null until initialize (headless: stays null).
-let _typed: (TgpuBuffer<d.WgslArray<typeof Xform>> & StorageFlag) | null = null;
-let _composePipeline: TgpuComputePipeline | null = null;
-// the compose pipeline and its bind group, unwrapped for the raw dispatch and built on first use — the
-// slab mirrors and the membership buffer it reads are published by another plugin's `warm`, and `warm`
-// hooks run concurrently (`Promise.all` in `build`), so nothing may read them from inside a sibling's warm
-let _bound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null = null;
+// the compose pipeline and bind group are held by this world's GPU resource.
 
 // build once, on the first call that has every buffer: the forced precompile (drained after every
 // plugin has warmed) or, failing that, the first frame's dispatch.
 function bind(): { pipeline: GPUComputePipeline; group: GPUBindGroup } | null {
-    if (_bound) return _bound;
-    if (!_composePipeline || !_typed) return null;
+    const resources = transformGpuState();
+    if (resources.bound) return resources.bound;
+    if (!resources.pipeline || !resources.typed) return null;
     // the firehose binds typed; the slab mirrors and `membership` are raw handles their owning modules
     // publish — a typed bind group takes either, which is what keeps the raw reach-in open. A missing
     // one is a wiring bug: let the bind group creation throw, never skip a frame
@@ -32,14 +47,14 @@ function bind(): { pipeline: GPUComputePipeline; group: GPUBindGroup } | null {
         pos: Transform.pos.gpu!,
         rot: Transform.rot.gpu!,
         scale: Transform.scale.gpu!,
-        transforms: _typed,
+        transforms: resources.typed,
         membership: Compute.buffers.get("membership")!,
     });
-    _bound = {
-        pipeline: Compute.root.unwrap(_composePipeline),
+    resources.bound = {
+        pipeline: Compute.root.unwrap(resources.pipeline),
         group: Compute.root.unwrap(group),
     };
-    return _bound;
+    return resources.bound;
 }
 
 /**
@@ -60,9 +75,6 @@ export const Transform = {
     scale: slab(vec4),
 };
 
-// the compose pass descriptor; its timestamp span is re-read each frame
-const _composePass: GPUComputePassDescriptor = { label: "shallot-transforms-compose" };
-
 /**
  * record the per-frame world-matrix compose dispatch onto `encoder`. Reads
  * the slab canonical GPU buffers (populated by the prior frame's SlabSystem
@@ -72,11 +84,11 @@ const _composePass: GPUComputePassDescriptor = { label: "shallot-transforms-comp
 export function composeTransforms(encoder: GPUCommandEncoder, state: State): void {
     const bound = bind();
     if (!bound) return;
-    _composePass.timestampWrites = Compute.span?.("transforms:compose");
+    transformGpuState().pass.timestampWrites = Compute.span?.("transforms:compose");
     // the dispatch is issued on the raw pass over the unwrapped pipeline and bind group (both resolved
     // once by `bind`), the shape `sear/regather.ts` uses: typegpu's per-apply state work would otherwise
     // run on every frame's single dispatch
-    const pass = encoder.beginComputePass(_composePass);
+    const pass = encoder.beginComputePass(transformGpuState().pass);
     pass.setPipeline(bound.pipeline);
     pass.setBindGroup(0, bound.group);
     pass.dispatchWorkgroups(Math.ceil(state.capacity / 64));
@@ -160,9 +172,10 @@ export const TransformsPlugin: Plugin = {
 
     initialize(state) {
         const capacity = state.capacity;
-        _typed = null;
-        _composePipeline = null;
-        _bound = null;
+        const resources = state.resource(transformGpuKey, createTransformGpuState);
+        resources.typed = null;
+        resources.pipeline = null;
+        resources.bound = null;
 
         if (!Compute.device) return;
 
@@ -170,21 +183,21 @@ export const TransformsPlugin: Plugin = {
         // (physics) writes a mover's interpolated pose straight in via `queue.writeBuffer` (transitional/physics
         // ComposeSystem).
         // but the buffer is shared, so the usage covers both.
-        _typed = Compute.root
+        resources.typed = Compute.root
             .createBuffer(d.arrayOf(Xform, capacity))
             .$usage("storage")
             .$name("shallot-transforms");
-        Compute.buffers.set("transforms", Compute.root.unwrap(_typed));
-        Compute.typed.set("transforms", _typed);
+        Compute.buffers.set("transforms", Compute.root.unwrap(resources.typed));
+        Compute.typed.set("transforms", resources.typed);
 
         const t = state.membership.bit(Transform);
-        _composePipeline = Compute.root
+        resources.pipeline = Compute.root
             .createComputePipeline({ compute: composeKernel(t.gen * capacity, t.mask, capacity) })
             .$name("shallot-transforms-compose");
     },
 
     warm() {
-        if (!_composePipeline) return;
+        if (!transformGpuState().pipeline) return;
         // the bind is deferred into the forcer: the drain runs after every
         // plugin's warm has resolved, which is the first moment the buffers this reads are all up
         precompile("shallot-transforms-compose", () => {
