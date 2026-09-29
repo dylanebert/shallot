@@ -1,7 +1,6 @@
 // Destination: core/physics and standard/physics; owner: physics-boundary.md.
 /// <reference types="@webgpu/types" />
 
-import { BeginFrameSystem, Render } from "../../core/rendering";
 import {
     Compute,
     entity,
@@ -9,6 +8,8 @@ import {
     f32,
     field,
     type Plugin,
+    type Quad,
+    type Single,
     type State,
     type System,
     Time,
@@ -17,7 +18,6 @@ import {
 } from "../../engine";
 import { currentWorld, withCompute } from "../../engine/runtime";
 import { eulerAlias } from "../../engine/utils";
-import { PrepassSystem } from "../../standard/rendering";
 import { Transform, TransformsPlugin, transformTable } from "../transforms";
 import {
     type ContactEvents,
@@ -36,7 +36,7 @@ import {
     World,
     type WorldSnapshot,
 } from "./api";
-import { nlerpShortest, renderScale } from "./compose";
+import { nlerpShortestInto } from "./compose";
 import { Hulls } from "./hull";
 import {
     type ConstraintCache,
@@ -419,6 +419,7 @@ interface PhysicsRuntime {
     // array, releases its backing store and the next tick's adds allocate it again.
     movedThisTick: Int32Array;
     movedCount: number;
+    renderRecords: Float32Array;
     stale: StaleScan;
     counters: PhysicsCounters;
     springSig: number;
@@ -446,6 +447,7 @@ function newRuntime(): PhysicsRuntime {
         currQuat: new Float32Array(0),
         movedThisTick: new Int32Array(0),
         movedCount: 0,
+        renderRecords: new Float32Array(0),
         stale: { state: null, eids: [], count: 0 },
         counters: { bodiesVisited: 0, bytesUploaded: 0 },
         springSig: FNV_BASIS,
@@ -471,6 +473,10 @@ function scopedHandle<T extends object>(state: State, value: T): T {
     const runtime = runtimeFor(state);
     const cached = runtime.handleProxies.get(value);
     if (cached) return cached as T;
+    return createScopedHandle(state, value, runtime);
+}
+
+function createScopedHandle<T extends object>(state: State, value: T, runtime: PhysicsRuntime): T {
     const proxy = new Proxy(value, {
         get(target, key) {
             const member = Reflect.get(target, key, target) as unknown;
@@ -519,19 +525,20 @@ function runtimeFor(state: State): PhysicsRuntime {
     return runtime;
 }
 
+function growFloat(source: Float32Array, lanes: number, capacity: number): Float32Array {
+    const next = new Float32Array(capacity * lanes);
+    next.set(source);
+    return next;
+}
+
 function ensurePoseCapacity(runtime: PhysicsRuntime, rows: number): void {
     if (rows <= runtime.movedThisTick.length) return;
     let capacity = Math.max(16, runtime.movedThisTick.length);
     while (capacity < rows) capacity *= 2;
-    const growFloat = (source: Float32Array, lanes: number) => {
-        const next = new Float32Array(capacity * lanes);
-        next.set(source);
-        return next;
-    };
-    runtime.prevPos = growFloat(runtime.prevPos, 3);
-    runtime.prevQuat = growFloat(runtime.prevQuat, 4);
-    runtime.currPos = growFloat(runtime.currPos, 3);
-    runtime.currQuat = growFloat(runtime.currQuat, 4);
+    runtime.prevPos = growFloat(runtime.prevPos, 3, capacity);
+    runtime.prevQuat = growFloat(runtime.prevQuat, 4, capacity);
+    runtime.currPos = growFloat(runtime.currPos, 3, capacity);
+    runtime.currQuat = growFloat(runtime.currQuat, 4, capacity);
     const moved = new Int32Array(capacity);
     moved.set(runtime.movedThisTick);
     runtime.movedThisTick = moved;
@@ -603,8 +610,12 @@ function clearBodies(runtime: PhysicsRuntime): void {
  * `null` until {@link PhysicsPlugin} warms. `body(state, eid)` bridges a `Body` entity to its live solver
  * handle (`null` before its first fixed tick). The pose functions are no-ops before warm.
  */
+function physicsWorldOutside(state: State): World | null {
+    return withCompute(state.gpu, () => physicsWorld(state));
+}
+
 export function physicsWorld(state: State): World | null {
-    if (currentWorld<State>() !== state) return withCompute(state.gpu, () => physicsWorld(state));
+    if (currentWorld<State>() !== state) return physicsWorldOutside(state);
     const world = runtimeFor(state).world;
     return world ? scopedHandle(state, world) : null;
 }
@@ -895,6 +906,7 @@ export const StepSystem: System = {
         world.step(FIXED_DT, SUBSTEPS);
         runtime.movedCount = 0;
         runtime.counters.bytesUploaded = 0;
+        const pose = state.of(Pose);
         const events = world.getBodyEvents();
         for (let i = 0; i < events.count; i++) {
             const ev = events.moveEvents[i];
@@ -917,16 +929,16 @@ export const StepSystem: System = {
             runtime.currQuat[q + 3] = ev.transform.q.s;
             const live = runtime.bodies.get(eid);
             const velocity = live ? live.getLinearVelocity(stepVel) : null;
-            Pose.pos.set(eid, ev.transform.p.x, ev.transform.p.y, ev.transform.p.z, 0);
-            Pose.quat.set(
+            pose.pos.set(eid, ev.transform.p.x, ev.transform.p.y, ev.transform.p.z, 0);
+            pose.quat.set(
                 eid,
                 ev.transform.q.v.x,
                 ev.transform.q.v.y,
                 ev.transform.q.v.z,
                 ev.transform.q.s,
             );
-            if (velocity) Pose.vel.set(eid, velocity.x, velocity.y, velocity.z, 0);
-            else Pose.vel.set(eid, 0, 0, 0, 0);
+            if (velocity) pose.vel.set(eid, velocity.x, velocity.y, velocity.z, 0);
+            else pose.vel.set(eid, 0, 0, 0, 0);
             runtime.movedThisTick[runtime.movedCount++] = eid;
         }
     },
@@ -1048,71 +1060,68 @@ const SyncSystem: System = {
     },
 };
 
-// one reused Xform-shaped record (48 B / 12 f32: pos.xyz+pad, quat.xyzw, scale.xyz+pad — the `Xform` schema).
-const _record = new Float32Array(12);
-
-/** write the movers' interpolated pose into the `transforms` firehose at `alpha` (the fixed-step interpolation blend). */
+/** Fill moved dense pose rows in bulk before the engine's single range upload. */
 export function composePose(
     runtime: PhysicsRuntime,
     transforms: ReturnType<typeof transformTable>,
     alpha: number,
+    body: { shape: Single; halfExtents: Quad } = Body,
 ): void {
-    if (!Compute.device) return;
+    if (!Compute.device || runtime.movedCount === 0) return;
+    const bytes = transforms.bytes;
+    if (runtime.renderRecords.buffer !== bytes.buffer)
+        runtime.renderRecords = new Float32Array(bytes.buffer);
+    const records = runtime.renderRecords;
     const moved = runtime.movedThisTick;
+    const shapes = body.shape.column;
+    const half = body.halfExtents.column;
+    const stride = transforms.rowBytes / 4;
+    let first = transforms.capacity;
+    let last = -1;
     for (let i = 0; i < runtime.movedCount; i++) {
         const eid = moved[i];
+        const row = transforms.rowIndex(eid);
+        if (row < 0) continue;
+        first = Math.min(first, row);
+        last = Math.max(last, row);
         const p = eid * 3;
         const q = eid * 4;
-        const quat = nlerpShortest(
-            [
-                runtime.prevQuat[q],
-                runtime.prevQuat[q + 1],
-                runtime.prevQuat[q + 2],
-                runtime.prevQuat[q + 3],
-            ],
-            [
-                runtime.currQuat[q],
-                runtime.currQuat[q + 1],
-                runtime.currQuat[q + 2],
-                runtime.currQuat[q + 3],
-            ],
-            alpha,
-        );
-        const scale = renderScale(
-            Body.shape.get(eid),
-            [Body.halfExtents.x.get(eid), Body.halfExtents.y.get(eid), Body.halfExtents.z.get(eid)],
-            Body.halfExtents.w.get(eid),
-        );
-        _record[0] = runtime.prevPos[p] * (1 - alpha) + runtime.currPos[p] * alpha;
-        _record[1] = runtime.prevPos[p + 1] * (1 - alpha) + runtime.currPos[p + 1] * alpha;
-        _record[2] = runtime.prevPos[p + 2] * (1 - alpha) + runtime.currPos[p + 2] * alpha;
-        runtime.counters.bytesUploaded += 48;
-        _record[3] = 0;
-        _record[4] = quat[0];
-        _record[5] = quat[1];
-        _record[6] = quat[2];
-        _record[7] = quat[3];
-        _record[8] = scale[0];
-        _record[9] = scale[1];
-        _record[10] = scale[2];
-        _record[11] = 0;
-        const row = transforms.rowIndex(eid);
-        if (row >= 0)
-            Compute.device.queue.writeBuffer(transforms.buffer, row * transforms.rowBytes, _record);
+        const base = row * stride;
+        records[base] = runtime.prevPos[p] * (1 - alpha) + runtime.currPos[p] * alpha;
+        records[base + 1] = runtime.prevPos[p + 1] * (1 - alpha) + runtime.currPos[p + 1] * alpha;
+        records[base + 2] = runtime.prevPos[p + 2] * (1 - alpha) + runtime.currPos[p + 2] * alpha;
+        records[base + 3] = 0;
+        nlerpShortestInto(runtime.prevQuat, q, runtime.currQuat, q, alpha, records, base + 4);
+        const shape = shapes[eid];
+        const radius = half[q + 3];
+        if (shape === ShapeKind.Sphere) {
+            records[base + 8] = records[base + 9] = records[base + 10] = 2 * radius;
+        } else if (shape === ShapeKind.Capsule) {
+            records[base + 8] = records[base + 10] = 2 * radius;
+            records[base + 9] = half[q + 1] + radius;
+        } else {
+            records[base + 8] = 2 * half[q];
+            records[base + 9] = 2 * half[q + 1];
+            records[base + 10] = 2 * half[q + 2];
+        }
+        records[base + 11] = 0;
     }
+    if (last < first) return;
+    const count = last - first + 1;
+    transforms.markRange(first, count);
+    runtime.counters.bytesUploaded += count * transforms.rowBytes;
 }
 
-/** scatters the live pose into the `transforms` firehose so a Body+Part renders. A `Body` eid's slot is physics-owned: the Transform compose is membership-gated and never touches it (`Body` excludes `Transform`, so the two writers partition the firehose by slot). `after: [BeginFrameSystem]`; `before: [PrepassSystem]` so every sear geometry pass reads the fresh pose. No-op with no renderer or no transforms firehose (physics runs headless unchanged). */
+/** Fill physics-owned pose rows at the end of simulation, before the draw-head table upload. */
 export const ComposeSystem: System = {
     name: "compose",
-    group: "draw",
-    after: [BeginFrameSystem],
-    before: [PrepassSystem],
+    group: "simulation",
+    last: true,
     update(state) {
         const runtime = runtimeFor(state);
-        if (!runtime.world || !Render.encoder) return;
+        if (!runtime.world) return;
         ensurePoseCapacity(runtime, state.entityHighWater);
-        composePose(runtime, transformTable(state), state.time.fixedAlpha);
+        composePose(runtime, transformTable(state), state.time.fixedAlpha, state.of(Body));
     },
 };
 

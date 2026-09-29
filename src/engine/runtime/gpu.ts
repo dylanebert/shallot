@@ -235,6 +235,19 @@ export async function withComputeAsync<T>(
     }
 }
 
+type BoundMethod = (...args: never[]) => unknown;
+type MethodCache = Map<PropertyKey, { source: BoundMethod; bound: BoundMethod }>;
+
+function cachedMember(target: object, key: PropertyKey, methods: MethodCache): unknown {
+    const source = Reflect.get(target, key, target);
+    if (typeof source !== "function") return source;
+    const cached = methods.get(key);
+    if (cached && cached.source === source) return cached.bound;
+    const bound = source.bind(target);
+    methods.set(key, { source, bound });
+    return bound;
+}
+
 /** The familiar compute surface resolves to the world active for this callback. */
 export function currentWorld<T extends object>(): T | undefined {
     return activeCompute?.world as T | undefined;
@@ -1283,11 +1296,12 @@ export async function requestGPU(
               const deviceOverrides = new Map<PropertyKey, unknown>();
               const queue = d.queue;
               const queueOverrides = new Map<PropertyKey, unknown>();
+              const queueMethods: MethodCache = new Map();
+              const deviceMethods: MethodCache = new Map();
               const trackedQueue = new Proxy(queue, {
                   get(target, key) {
                       if (queueOverrides.has(key)) return queueOverrides.get(key);
-                      const value = Reflect.get(target, key, target);
-                      return typeof value === "function" ? value.bind(target) : value;
+                      return cachedMember(target, key, queueMethods);
                   },
                   set(_target, key, value) {
                       queueOverrides.set(key, value);
@@ -1296,26 +1310,23 @@ export async function requestGPU(
               });
               const createBuffer = d.createBuffer.bind(d);
               const createTexture = d.createTexture.bind(d);
+              const ownedBuffer = (descriptor: GPUBufferDescriptor) => {
+                  const buffer = createBuffer(descriptor);
+                  owner.own(buffer);
+                  return buffer;
+              };
+              const ownedTexture = (descriptor: GPUTextureDescriptor) => {
+                  const texture = createTexture(descriptor);
+                  owner.own(texture);
+                  return texture;
+              };
               return new Proxy(d, {
                   get(target, key) {
                       if (deviceOverrides.has(key)) return deviceOverrides.get(key);
                       if (key === "queue") return trackedQueue;
-                      if (key === "createBuffer") {
-                          return (descriptor: GPUBufferDescriptor) => {
-                              const buffer = createBuffer(descriptor);
-                              owner.own(buffer);
-                              return buffer;
-                          };
-                      }
-                      if (key === "createTexture") {
-                          return (descriptor: GPUTextureDescriptor) => {
-                              const texture = createTexture(descriptor);
-                              owner.own(texture);
-                              return texture;
-                          };
-                      }
-                      const value = Reflect.get(target, key, target);
-                      return typeof value === "function" ? value.bind(target) : value;
+                      if (key === "createBuffer") return ownedBuffer;
+                      if (key === "createTexture") return ownedTexture;
+                      return cachedMember(target, key, deviceMethods);
                   },
                   set(_target, key, value) {
                       deviceOverrides.set(key, value);
@@ -1326,20 +1337,23 @@ export async function requestGPU(
         : d;
     _rawDevices.set(trackedDevice, d);
     const root = adopt(d, owner);
+    const rootMethods: MethodCache = new Map();
+    const ownedRootBuffer = (...args: unknown[]) => {
+        const resource = (root.createBuffer as (...args: unknown[]) => unknown)(...args);
+        owner?.own(resource as { destroy(): void });
+        return resource;
+    };
+    const ownedRootTexture = (...args: unknown[]) => {
+        const resource = (root.createTexture as (...args: unknown[]) => unknown)(...args);
+        owner?.own(resource as { destroy(): void });
+        return resource;
+    };
     const trackedRoot = owner
         ? new Proxy(root, {
               get(target, key) {
-                  if (key === "createBuffer" || key === "createTexture") {
-                      return (...args: unknown[]) => {
-                          const resource = (target[key] as (...args: unknown[]) => unknown)(
-                              ...args,
-                          );
-                          owner.own(resource as { destroy(): void });
-                          return resource;
-                      };
-                  }
-                  const value = Reflect.get(target, key, target);
-                  return typeof value === "function" ? value.bind(target) : value;
+                  if (key === "createBuffer") return ownedRootBuffer;
+                  if (key === "createTexture") return ownedRootTexture;
+                  return cachedMember(target, key, rootMethods);
               },
           })
         : root;

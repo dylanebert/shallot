@@ -5,9 +5,13 @@ import { eulerAlias, Xform } from "../../engine/utils";
 
 const TRANSFORM_TABLE = Symbol("shallot.transforms.table");
 
+function createTransformTable(state: State): GpuTable<typeof Xform> {
+    return state.table("transforms", Xform);
+}
+
 /** The dense world-pose table shared by rendering and physics. */
 export function transformTable(state: State): GpuTable<typeof Xform> {
-    return state.resource(TRANSFORM_TABLE, () => state.table("transforms", Xform));
+    return state.resource(TRANSFORM_TABLE, createTransformTable);
 }
 
 /** Per-entity authored transform fields; the State-owned table mirrors them as one struct row. */

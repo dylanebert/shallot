@@ -62,6 +62,8 @@ export class State {
     /** this world's component registrations, defaults, exclusions, and reflection data. @internal */
     readonly registry = new ComponentRegistry();
     private _scheduler = new Scheduler();
+    private _stepDelta = Time.DEFAULT_DT;
+    private readonly _runStep = () => this._scheduler.step(this, this._stepDelta);
     private _entities = new Entities();
     private _components = new Components();
     private _queries = new Queries();
@@ -107,9 +109,9 @@ export class State {
     }
 
     /** resolve a typed world resource once for this State; the entry dies with its world. */
-    resource<T>(key: PropertyKey, create: () => T): T {
+    resource<T>(key: PropertyKey, create: (state: State) => T): T {
         if (this._resources.has(key)) return this._resources.get(key) as T;
-        const value = create();
+        const value = create(this);
         this._resources.set(key, value);
         return value;
     }
@@ -285,10 +287,10 @@ export class State {
         useState(this);
         this._fieldUploadSeen = false;
         this._changesClearedAtUpload = false;
-        const step = () => this._scheduler.step(this, deltaTime);
+        this._stepDelta = deltaTime;
         try {
-            if (this._withCompute) this._withCompute(step);
-            else step();
+            if (this._withCompute) this._withCompute(this._runStep);
+            else this._runStep();
         } finally {
             useState(this);
             if (!this._gpu) this.clearChangesIfNeeded();

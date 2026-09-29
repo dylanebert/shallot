@@ -47,7 +47,8 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private _generation = 0;
     private _bytes: Uint8Array | undefined;
     private _view: DataView | undefined;
-    private _dirty = new Uint32Array(0);
+    private _dirtyFirst = Number.POSITIVE_INFINITY;
+    private _dirtyLast = -1;
     private _buffer!: GPUBuffer;
     private _typed!: TgpuBuffer<d.AnyWgslData>;
     private _disposed = false;
@@ -207,9 +208,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             this._bytes = bytes;
             this._view = new DataView(bytes.buffer);
         }
-        const dirty = new Uint32Array((capacity + 31) >>> 5);
-        dirty.set(this._dirty);
-        this._dirty = dirty;
         this.replaceRecordBuffer(oldCapacity);
         this.ensureSlotCapacity(capacity);
     }
@@ -228,15 +226,8 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         if (count === 0) return;
         this.reserveSlots(firstRow + count);
         const last = firstRow + count - 1;
-        const firstWord = firstRow >>> 5;
-        const lastWord = last >>> 5;
-        for (let word = firstWord; word <= lastWord; word++) {
-            const low = word === firstWord ? firstRow & 31 : 0;
-            const high = word === lastWord ? last & 31 : 31;
-            const upperMask = high === 31 ? 0xffffffff : (1 << (high + 1)) - 1;
-            const lowerMask = low === 0 ? 0 : (1 << low) - 1;
-            this._dirty[word] |= (upperMask & ~lowerMask) >>> 0;
-        }
+        this._dirtyFirst = Math.min(this._dirtyFirst, firstRow);
+        this._dirtyLast = Math.max(this._dirtyLast, last);
     }
 
     /** Bind component fields to this struct table and use component membership to allocate rows. */
@@ -492,19 +483,20 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     upload(): void {
         if (this._disposed) return;
         this._lastMapUploadBytes = 0;
-        if (this.changedRows() === 0) {
+        if (this._dirtyLast < this._dirtyFirst) {
             this._lastUploadPath = "none";
         } else {
             if (!this._bytes) throw new Error(`GpuTable "${this.name}" is GPU-only`);
             this._state.gpu.device.queue.writeBuffer(
                 this._buffer,
-                0,
+                this._dirtyFirst * this.rowBytes,
                 this._bytes.buffer,
-                0,
-                this._highWater * this.rowBytes,
+                this._dirtyFirst * this.rowBytes,
+                (this._dirtyLast - this._dirtyFirst + 1) * this.rowBytes,
             );
             this._lastUploadPath = "writeBuffer";
-            this._dirty.fill(0);
+            this._dirtyFirst = Number.POSITIVE_INFINITY;
+            this._dirtyLast = -1;
         }
         this.uploadMap();
         this.uploadActiveRows();
@@ -545,18 +537,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         throw new RangeError(
             `GpuTable "${this.name}" exceeds device limit maxStorageBufferBindingSize (${limit} bytes): ${rows} rows × ${this.rowBytes} bytes`,
         );
-    }
-
-    private changedRows(): number {
-        let count = 0;
-        for (let i = 0; i < this._dirty.length; i++) {
-            let bits = this._dirty[i];
-            while (bits !== 0) {
-                bits &= bits - 1;
-                count++;
-            }
-        }
-        return count;
     }
 
     private writeBoundField(binding: ComponentBinding, field: BoundField, eid: number): void {

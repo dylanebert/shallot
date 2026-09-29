@@ -325,7 +325,7 @@ export function runPar(
         serial();
         return;
     }
-    runPool(pool, () => k.runMt());
+    runPool(pool, k.runMt);
 }
 
 /** Options for {@link init}. */
