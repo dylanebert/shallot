@@ -21,8 +21,8 @@ export {
     Textured,
 } from "../transitional/gltf";
 export {
-    LiveSkin,
     LiveSkinSystem,
+    liveSkin,
     Skin,
     SkinPlugin,
     skinMatrix,
@@ -67,6 +67,7 @@ export {
     PhysicsProfilePlugin,
     Profile,
     ProfilePlugin,
+    profile,
     showProfiler,
     timingClock,
 } from "./profile";

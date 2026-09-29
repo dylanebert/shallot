@@ -9,7 +9,7 @@ import { confirmOnDisplay, openOnDisplay } from "./display-seat";
 import { launchPlan } from "./launch";
 import { resolveViteCli } from "../../src/project/vite-command";
 import { resolveSeat } from "./seat";
-import { CHROMIUM_ARGS } from "../../scripts/chromium";
+import { CHROMIUM_USE } from "../../scripts/chromium";
 import {
     type AllocationSample,
     type AllocationSite,
@@ -372,7 +372,7 @@ export async function samplePage(
         browser = await chromium.launch({
             headless: false,
             channel: plan.channel,
-            args: [...CHROMIUM_ARGS, ...placement.args, tiers],
+            args: [...CHROMIUM_USE.launchOptions.args, ...placement.args, tiers],
             timeout: remaining(),
         });
         const page = await bounded(

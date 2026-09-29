@@ -307,7 +307,7 @@ export interface GltfScene {
 }
 
 /** one skinned mesh quantized for the live joint-palette path: the per-vertex packed skin influences (the
- *  `skinData` region-B block {@link LiveSkin.registerMesh} uploads) + the joint count (palette block size,
+ *  `skinData` region-B block the owning State's live-skin resource uploads) + the joint count (palette block size,
  *  header) + the conservative object-space reach sphere the mesh culls against ({@link reachBound}). The
  *  runtime-posed twin of {@link GltfVat}, derived from a {@link SkinInput} by {@link quantizeLive}. */
 export interface LiveMesh {
@@ -859,7 +859,7 @@ const MAX_LIVE_JOINTS = 256;
 /**
  * quantize a {@link SkinInput} to the live joint-palette payload: per-vertex packed joint slots (4×u8) +
  * weights (4×unorm8, renormalized to sum 255 so the surface skips a runtime renorm) + the joint count + the
- * reach bound. The deviceless half of the live route (the VAT `bakeVat` twin); {@link LiveSkin} uploads the
+ * reach bound. The deviceless half of the live route (the VAT `bakeVat` twin); the State's live-skin resource uploads the
  * packed streams + the importer culls against `reach`.
  *
  * @example

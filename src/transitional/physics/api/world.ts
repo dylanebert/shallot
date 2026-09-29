@@ -112,12 +112,19 @@ import {
     WheelJoint,
 } from "./joints";
 import { Contact, Shape } from "./shape";
-import { restore as restoreWorld, snapshot as snapshotWorld, type WorldSnapshot } from "./snapshot";
+import {
+    restore as restoreWorld,
+    type SavedSnapshot,
+    snapshot as snapshotWorld,
+    type WorldSnapshot,
+} from "./snapshot";
 
 /** A simulation world: bodies, shapes, and the broad-phase. */
 export class World {
     /** @internal the underlying world state */
     readonly state: WorldState;
+    /** @internal snapshots retained by this World handle until it is destroyed. */
+    readonly savedSnapshots = new Map<number, SavedSnapshot>();
     private readonly _worldId: WorldId;
     // Reused wrappers over the internal move-event pool, so getBodyEvents allocates nothing in steady
     // state (matching the internal pool). Rebuilt lazily; valid until the next step or getBodyEvents.
@@ -135,9 +142,11 @@ export class World {
     static _wrap(state: WorldState): World {
         const world = Object.create(World.prototype) as {
             state: WorldState;
+            savedSnapshots: Map<number, SavedSnapshot>;
             _worldId: WorldId;
         };
         world.state = state;
+        world.savedSnapshots = new Map();
         world._worldId = { index1: state.worldId + 1, generation: state.generation };
         return world as unknown as World;
     }
@@ -149,6 +158,7 @@ export class World {
 
     /** Destroy this world and every body and shape in it. */
     destroy(): void {
+        this.savedSnapshots.clear();
         destroyWorld(this.state);
     }
 

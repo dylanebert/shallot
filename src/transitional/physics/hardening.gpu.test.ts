@@ -49,21 +49,15 @@ async function cleanState() {
     return { app, state: app.state, body };
 }
 
-test("sequential clean physics States and a restored wasm world replay one fixed action stream, so rollback reproduces a confirmed tick without overlapping global slabs", async () => {
+test("sequential clean physics States and an owner-world snapshot replay one fixed action stream, so rollback reproduces a confirmed tick without overlapping global slabs", async () => {
     const left = await cleanState();
     const leftHashes: string[] = [];
-    let saved = snapshot(left.state);
-    let savedHash = hash(left.state);
     const leftAfterSaved: string[] = [];
     try {
         for (let tick = 0; tick < 6; tick++) {
             setVelocity(left.state, left.body, 1, 0, 0);
             left.state.step(Time.FIXED_DT);
             leftHashes.push(hash(left.state).toString(16));
-            if (tick === 2) {
-                saved = snapshot(left.state);
-                savedHash = hash(left.state);
-            }
             if (tick > 2) leftAfterSaved.push(hash(left.state).toString(16));
         }
     } finally {
@@ -89,7 +83,9 @@ test("sequential clean physics States and a restored wasm world replay one fixed
             setVelocity(replay.state, replay.body, 1, 0, 0);
             replay.state.step(Time.FIXED_DT);
         }
-        const before = hash(replay.state);
+        const saved = snapshot(replay.state);
+        const savedHash = hash(replay.state);
+        const before = savedHash;
         replay.state.step(Time.FIXED_DT);
         restore(replay.state, saved);
         expect(hash(replay.state)).toBe(savedHash);

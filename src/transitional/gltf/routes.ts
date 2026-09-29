@@ -2,7 +2,7 @@ import { Surfaces } from "../../core/rendering";
 import { type State, type System, u32 } from "../../engine";
 import type { Node } from "../../engine/scene";
 import { Part } from "../part";
-import { LiveSkin, Skin } from "../skin";
+import { liveSkin, Skin } from "../skin";
 import { slab } from "../slab";
 import type { GltfHandle } from "./assets";
 
@@ -62,9 +62,12 @@ export function scanRefs(nodes: Node[]): GltfRef[] {
     return [...refs.values()];
 }
 
-/** mesh id → its handle, repopulated as each asset registers (per build: mesh ids die with the
- *  registry). `register` writes it, {@link RouteSystem} reads it; internal seam, not on the barrel. */
-export const routes = new Map<number, GltfHandle>();
+const routesKey = Symbol("shallot.gltf-routes");
+
+/** Mesh handles registered by this State; ids are local to its registry. */
+export function routesFor(state: State): Map<number, GltfHandle> {
+    return state.resource(routesKey, () => new Map());
+}
 
 /** the surfaces the importer owns. A Part sitting on one of these — or on sear's `default` — follows its
  *  mesh's route (the effective default surface of a glTF mesh is its imported route); any other surface is
@@ -87,7 +90,7 @@ export const ROUTE_SURFACES = [
 // (it never allocated one), so it's safe to call whenever Skin comes off regardless of the prior route.
 function dropSkin(state: State, eid: number): void {
     if (!state.has(eid, Skin)) return;
-    LiveSkin.free(eid);
+    liveSkin(state).free(eid);
     state.remove(eid, Skin);
 }
 
@@ -101,6 +104,7 @@ export const RouteSystem: System = {
     name: "GltfRoute",
     group: "simulation",
     update(state: State) {
+        const routes = routesFor(state);
         if (routes.size === 0) return;
         const solid = Surfaces.id("default") ?? 0;
         const owned = new Set<number>();
@@ -123,8 +127,8 @@ export const RouteSystem: System = {
             }
             if (handle.skinned) {
                 // a live→VAT swap frees the prior live palette block (a no-op for an entity that never
-                // allocated one — `dropSkin`'s own comment certifies `LiveSkin.free` safe on a VAT entity)
-                LiveSkin.free(eid);
+                // allocated one — `dropSkin`'s own comment certifies `liveSkin(state).free` safe on a VAT entity)
+                liveSkin(state).free(eid);
                 if (!state.has(eid, Skin)) state.add(eid, Skin);
                 if (Skin.anim.y.get(eid) !== handle.material) Skin.anim.y.set(eid, handle.material);
                 // fround: the slab stores f32, the handle holds the f64 bake — compare in f32 or the
@@ -137,7 +141,7 @@ export const RouteSystem: System = {
                 // allocate the instance's palette block (idempotent — returns the existing base) and publish
                 // it in lane x for the surface; a producer poses it, unposed it renders the bind pose. w = 0
                 // so SkinSystem's clip-advance skips it.
-                const base = LiveSkin.alloc(eid, handle.jointCount, state.stamp(eid));
+                const base = liveSkin(state).alloc(eid, handle.jointCount, state.stamp(eid));
                 if (Skin.anim.x.get(eid) !== base) Skin.anim.x.set(eid, base);
                 if (Skin.anim.y.get(eid) !== handle.material) Skin.anim.y.set(eid, handle.material);
                 if (Skin.anim.w.get(eid) !== 0) Skin.anim.w.set(eid, 0);

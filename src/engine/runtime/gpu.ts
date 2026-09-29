@@ -1282,26 +1282,50 @@ export async function requestGPU(
         inFlight--;
     };
     const trackedDevice = owner
-        ? new Proxy(d, {
-              get(target, key) {
-                  if (key === "createBuffer") {
-                      return (descriptor: GPUBufferDescriptor) => {
-                          const buffer = target.createBuffer(descriptor);
-                          owner.own(buffer);
-                          return buffer;
-                      };
-                  }
-                  if (key === "createTexture") {
-                      return (descriptor: GPUTextureDescriptor) => {
-                          const texture = target.createTexture(descriptor);
-                          owner.own(texture);
-                          return texture;
-                      };
-                  }
-                  const value = Reflect.get(target, key, target);
-                  return typeof value === "function" ? value.bind(target) : value;
-              },
-          })
+        ? (() => {
+              const deviceOverrides = new Map<PropertyKey, unknown>();
+              const queue = d.queue;
+              const queueOverrides = new Map<PropertyKey, unknown>();
+              const trackedQueue = new Proxy(queue, {
+                  get(target, key) {
+                      if (queueOverrides.has(key)) return queueOverrides.get(key);
+                      const value = Reflect.get(target, key, target);
+                      return typeof value === "function" ? value.bind(target) : value;
+                  },
+                  set(_target, key, value) {
+                      queueOverrides.set(key, value);
+                      return true;
+                  },
+              });
+              const createBuffer = d.createBuffer.bind(d);
+              const createTexture = d.createTexture.bind(d);
+              return new Proxy(d, {
+                  get(target, key) {
+                      if (deviceOverrides.has(key)) return deviceOverrides.get(key);
+                      if (key === "queue") return trackedQueue;
+                      if (key === "createBuffer") {
+                          return (descriptor: GPUBufferDescriptor) => {
+                              const buffer = createBuffer(descriptor);
+                              owner.own(buffer);
+                              return buffer;
+                          };
+                      }
+                      if (key === "createTexture") {
+                          return (descriptor: GPUTextureDescriptor) => {
+                              const texture = createTexture(descriptor);
+                              owner.own(texture);
+                              return texture;
+                          };
+                      }
+                      const value = Reflect.get(target, key, target);
+                      return typeof value === "function" ? value.bind(target) : value;
+                  },
+                  set(_target, key, value) {
+                      deviceOverrides.set(key, value);
+                      return true;
+                  },
+              });
+          })()
         : d;
     _rawDevices.set(trackedDevice, d);
     const root = adopt(d, owner);

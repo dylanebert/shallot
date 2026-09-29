@@ -1,6 +1,6 @@
 import type { LazyAlloc, Plugin, State, System } from "../../engine";
 import { Compute, mountOverlay } from "../../engine";
-import { UnsupportedError } from "../../engine/runtime";
+import { currentWorld, UnsupportedError } from "../../engine/runtime";
 import { createMeasure, foldIndirect, INDIRECT_FLOOR_US } from "./benchmark";
 import { reorderRows } from "./reorder";
 
@@ -103,6 +103,8 @@ interface ResourceAlloc {
     label: string;
     bytes: number;
     kind: "buffer" | "texture";
+    destroy: () => void;
+    lazy: boolean;
 }
 
 // one readback ring slot: a MAP_READ buffer plus the pass names + count for the queries copied into
@@ -133,13 +135,10 @@ const READ_RING = 4;
 // the one feature this plugin requires — `ProfilePlugin.features` and `attach`'s guard read the same list,
 // so an acquired device and an adopted one fail on identical terms.
 const TIMESTAMP: readonly GPUFeatureName[] = ["timestamp-query"];
+const profileKey = Symbol("shallot.profile");
 
-// timestamp queries + pipeline-compile timing + live allocation tracking. Owns
-// the GPU query set + staging buffers (singleton-lifetime — live with the
-// device, never destroyed per-state) and patches `device.createBuffer` /
-// `createTexture` / the async AND sync pipeline-constructor pairs
-// (`create{Compute,Render}PipelineAsync` / `create{Compute,Render}Pipeline`)
-// on attach.
+// timestamp queries + pipeline-compile timing + live allocation tracking. Each State owns its query set,
+// staging ring, counters and device hooks; dispose releases the allocations with that world.
 class ProfileImpl implements Profile {
     readonly cpu = new Map<string, number>();
     readonly gpu = new Map<string, number>();
@@ -192,6 +191,8 @@ class ProfileImpl implements Profile {
     // resolved their async map and await drain.
     private readonly _free: ReadSlot[] = [];
     private readonly _mapped: ReadSlot[] = [];
+    private readonly _restorePatches: (() => void)[] = [];
+    private _disposed = false;
 
     attach(device: GPUDevice, capacity = 2048): void {
         // `ProfilePlugin.features` covers an acquired device, but `requestGPU(externalDevice)` adopts one
@@ -230,6 +231,9 @@ class ProfileImpl implements Profile {
             this.recordCompile(desc.label ?? "", start, performance.now(), true);
             return pipeline;
         };
+        this._restorePatches.push(() => {
+            device.createComputePipelineAsync = origCompute;
+        });
         const origRender = device.createRenderPipelineAsync.bind(device);
         device.createRenderPipelineAsync = async (desc: GPURenderPipelineDescriptor) => {
             const start = performance.now();
@@ -237,6 +241,9 @@ class ProfileImpl implements Profile {
             this.recordCompile(desc.label ?? "", start, performance.now(), true);
             return pipeline;
         };
+        this._restorePatches.push(() => {
+            device.createRenderPipelineAsync = origRender;
+        });
 
         // TypeGPU builds every pipeline through these SYNCHRONOUS constructors, never the awaited
         // `*Async` pair above — so without this patch no typed pipeline ever reaches `compile` at all,
@@ -252,6 +259,9 @@ class ProfileImpl implements Profile {
             this.recordCompile(desc.label ?? "", start, performance.now(), true);
             return pipeline;
         };
+        this._restorePatches.push(() => {
+            device.createComputePipeline = origComputeSync;
+        });
         const origRenderSync = device.createRenderPipeline.bind(device);
         device.createRenderPipeline = (desc: GPURenderPipelineDescriptor) => {
             const start = performance.now();
@@ -259,6 +269,9 @@ class ProfileImpl implements Profile {
             this.recordCompile(desc.label ?? "", start, performance.now(), true);
             return pipeline;
         };
+        this._restorePatches.push(() => {
+            device.createRenderPipeline = origRenderSync;
+        });
 
         const origCreateBuffer = device.createBuffer.bind(device);
         device.createBuffer = (desc) =>
@@ -270,6 +283,9 @@ class ProfileImpl implements Profile {
                 "buffer",
                 (desc as GPUBufferDescriptor & LazyAlloc).lazy === true,
             );
+        this._restorePatches.push(() => {
+            device.createBuffer = origCreateBuffer;
+        });
 
         const origCreateTexture = device.createTexture.bind(device);
         device.createTexture = (desc) =>
@@ -281,6 +297,9 @@ class ProfileImpl implements Profile {
                 "texture",
                 (desc as GPUTextureDescriptor & LazyAlloc).lazy === true,
             );
+        this._restorePatches.push(() => {
+            device.createTexture = origCreateTexture;
+        });
 
         // count every submit (the patch lives on the queue object, so a caller caching `device.queue`
         // still sees it). The profiler's own resolve submit counts too — it's a real per-frame submit.
@@ -290,6 +309,9 @@ class ProfileImpl implements Profile {
             this.submitCount++;
             origSubmit(buffers);
         };
+        this._restorePatches.push(() => {
+            queue.submit = origSubmit;
+        });
     }
 
     private trackAlloc<T extends GPUBuffer | GPUTexture>(
@@ -301,13 +323,15 @@ class ProfileImpl implements Profile {
         lazy: boolean,
     ): T {
         const totals = kind === "buffer" ? "bufferBytes" : "textureBytes";
+        const origDestroy = obj.destroy.bind(obj);
+        const allocation: ResourceAlloc = { label, bytes, kind, destroy: origDestroy, lazy };
         set.add(obj);
         this[totals] += bytes;
         if (lazy) this.lazyBytes += bytes;
-        this.sizes.set(obj, { label, bytes, kind });
+        this.sizes.set(obj, allocation);
         this.allocBytes.set(label, (this.allocBytes.get(label) ?? 0) + bytes);
-        const origDestroy = obj.destroy.bind(obj);
         (obj as { destroy: () => void }).destroy = () => {
+            if (this.sizes.get(obj) !== allocation) return;
             set.delete(obj);
             this[totals] -= bytes;
             if (lazy) this.lazyBytes -= bytes;
@@ -318,6 +342,42 @@ class ProfileImpl implements Profile {
             origDestroy();
         };
         return obj;
+    }
+
+    dispose(): void {
+        this._disposed = true;
+        for (const restore of this._restorePatches.reverse()) restore();
+        this._restorePatches.length = 0;
+        this._querySet?.destroy();
+        this._querySet = null;
+        this._resolveBuffer?.destroy();
+        this._resolveBuffer = null;
+        for (const slot of this._free) slot.buffer.destroy();
+        for (const slot of this._mapped) slot.buffer.destroy();
+        this._free.length = 0;
+        this._mapped.length = 0;
+        for (const [resource, allocation] of this.sizes) {
+            (resource as { destroy: () => void }).destroy = allocation.destroy;
+        }
+        this.buffers.clear();
+        this.textures.clear();
+        this.sizes.clear();
+        this.allocBytes.clear();
+        this.cpu.clear();
+        this.gpu.clear();
+        this.gpuTime.clear();
+        this.gpuFires.clear();
+        this.indirect.clear();
+        this.indirectCount.clear();
+        this.indirectFires.clear();
+        this.compile.clear();
+        this.compiledPipelines.clear();
+        this._slotCache.length = 0;
+        this._passes.length = 0;
+        this._capacity = 0;
+        this.bufferBytes = 0;
+        this.textureBytes = 0;
+        this.lazyBytes = 0;
     }
 
     record(name: string, ms: number): void {
@@ -376,8 +436,13 @@ class ProfileImpl implements Profile {
         for (let i = 0; i < this._nextSlot; i++) slot.passes[i] = this._passes[i];
         device.queue.submit([encoder.finish()]);
         slot.buffer.mapAsync(GPUMapMode.READ).then(
-            () => this._mapped.push(slot),
-            () => this._free.push(slot),
+            () => {
+                if (this._disposed) slot.buffer.unmap();
+                else this._mapped.push(slot);
+            },
+            () => {
+                if (!this._disposed) this._free.push(slot);
+            },
         );
     }
 
@@ -1067,11 +1132,19 @@ function collectStats(s: State, profile: ProfileImpl): OverlayData {
     };
 }
 
-// Profile singleton lives for the module's lifetime. The plugin attaches the GPU device on init; the
-// DOM overlay + F3 listener ride the State's lifetime (onDispose / signal), the Compute hook wiring
-// tears down in the plugin dispose hook. GPU resources persist with the device.
-const _profile = new ProfileImpl();
-export const Profile: Profile = _profile;
+/** Resolve the profiler state owned by one App. */
+export function profile(state: State): Profile {
+    return state.resource(profileKey, () => new ProfileImpl());
+}
+
+/** Active-callback facade; code outside a State callback uses `profile(state)`. */
+export const Profile: Profile = new Proxy({} as Profile, {
+    get(_target, key) {
+        const state = currentWorld<State>();
+        if (!state) throw new Error("profile: use profile(state) outside a world callback");
+        return Reflect.get(profile(state), key);
+    },
+});
 let _overlay: Overlay | null = null;
 let _benchmarkReady = false;
 // the overlay is a convenience HUD, off by default and toggled with F3 (owned here, not per-consumer).
@@ -1103,11 +1176,12 @@ export function showProfiler(show = true): void {
 const ProfileFrameBeginSystem: System = {
     group: "setup",
     first: true,
-    update() {
-        _profile.drain();
+    update(state: State) {
+        const profiler = profile(state) as ProfileImpl;
+        profiler.drain();
         const compute = Compute;
-        if (compute) _profile.resolve(compute.device);
-        _profile.reset();
+        if (compute) profiler.resolve(compute.device);
+        profiler.reset();
     },
 };
 
@@ -1121,13 +1195,13 @@ const ProfileRenderSystem: System = {
         _benchmarkReady = true;
         if (typeof document === "undefined" || !_visible) return;
         if (!_overlay) _overlay = createOverlay();
-        _overlay.update(state, _profile);
+        _overlay.update(state, profile(state) as ProfileImpl);
     },
 };
 
 /**
  * performance profiler: an F3-toggled stats overlay (FPS, per-pass GPU/CPU timings, memory, shader
- * compile) plus the {@link Profile} singleton and the `window.__benchmark` measurement API. Off by
+ * compile) plus the State-owned {@link Profile} view and the `window.__benchmark` measurement API. Off by
  * default: add it and press F3 to show the overlay; the data is on `Profile` whether it's shown or not.
  * Register it first so its `createBuffer` / pipeline patches catch every allocation. Physics phase
  * timings are separate: add {@link PhysicsProfilePlugin} for `World.getProfile`, which this plugin does
@@ -1149,14 +1223,15 @@ export const ProfilePlugin: Plugin = {
         const compute = Compute;
         if (!compute) return;
 
-        _profile.attach(compute.device);
+        const profiler = profile(state) as ProfileImpl;
+        profiler.attach(compute.device);
 
-        compute.span = (name) => _profile.span(name);
-        compute.indirect = (name, count) => _profile.recordIndirect(name, count);
-        compute.precompiled = (label, start, end) => _profile.recordCompile(label, start, end);
-        state.recordSink = (name, ms) => _profile.record(name, ms);
+        compute.span = (name) => profiler.span(name);
+        compute.indirect = (name, count) => profiler.recordIndirect(name, count);
+        compute.precompiled = (label, start, end) => profiler.recordCompile(label, start, end);
+        state.recordSink = (name, ms) => profiler.record(name, ms);
         state.fenceWaitSink = (ms) => {
-            _profile.fenceWaitMs = ms;
+            profiler.fenceWaitMs = ms;
         };
 
         // the overlay is a DOM mount; its removal rides the State's lifetime, so a host that calls
@@ -1168,7 +1243,7 @@ export const ProfilePlugin: Plugin = {
 
         if (typeof window !== "undefined") {
             _benchmarkReady = false;
-            const measure = createMeasure(state, _profile);
+            const measure = createMeasure(state, profiler);
             window.__benchmark = {
                 get ready() {
                     return _benchmarkReady;
@@ -1189,9 +1264,10 @@ export const ProfilePlugin: Plugin = {
         }
     },
 
-    // the process-lifetime teardown that isn't a listener or a mount: the Compute-singleton profile hooks
-    // and the window.__benchmark global. The DOM overlay + F3 listener ride the State (initialize above).
+    // Clear the active Compute hooks and the window.__benchmark global; the DOM overlay + F3 listener
+    // ride the State (initialize above), and the profiler releases its own resources below.
     dispose(state: State) {
+        const profiler = profile(state) as ProfileImpl;
         const compute = Compute;
         if (compute) {
             compute.span = undefined;
@@ -1204,5 +1280,6 @@ export const ProfilePlugin: Plugin = {
             delete window.__benchmark;
         }
         _benchmarkReady = false;
+        profiler.dispose();
     },
 };

@@ -26,7 +26,7 @@ import type { Node } from "../../engine/scene";
 import { Preloads } from "../../engine/scene";
 import { MeshQuant, unpackLdrColor, Xform } from "../../engine/utils";
 import { Color, Part } from "../part";
-import { LiveSkin, LiveSkinSystem, Skin, skinTraits } from "../skin";
+import { LiveSkinSystem, liveSkin, Skin, skinTraits } from "../skin";
 import { SlabPlugin } from "../slab";
 import { Transform } from "../transforms";
 import { isGlb, parseGlb } from "./glb";
@@ -43,7 +43,7 @@ import {
 import { liveSkinSurface, registerLiveSkinSurfaces } from "./live";
 import { MaterialData } from "./palette";
 import { abortDecodes, poolDecode } from "./pool";
-import { RouteSystem, routes, scanRefs, Textured } from "./routes";
+import { RouteSystem, routesFor, scanRefs, Textured } from "./routes";
 import { mapSet, materialFns } from "./shade";
 import {
     type AssembledVat,
@@ -330,9 +330,9 @@ function assembleGeometry(
 }
 
 // one assembled live-skinned mesh: its own geometry buffers (cached, like a VAT skinned mesh) + the packed
-// joints/weights {@link LiveSkin.registerMesh} uploads + the jointCount. The `skinData` GPU buffer + the
-// `skinParams` uniform are per-build (LiveSkin resets each build), so the register path (not the cache) does
-// that wiring + builds the Mesh spec fresh — this holds only the cache-safe half.
+// joints/weights uploaded into `liveSkin(state)` + the jointCount. The `skinData` GPU buffer + the
+// `skinParams` uniform belong to each State, so the register path (not the process CPU decode cache) wires
+// them and builds the Mesh spec fresh — this holds only the cache-safe half.
 interface LiveAssembly {
     meshIndex: number;
     name: string;
@@ -350,8 +350,8 @@ interface LiveAssembly {
 }
 
 // upload each live-skinned mesh's own geometry buffers + carry its packed joints/weights — the cache-owned
-// half (buffers survive a rebuild). The `skinData` upload + the `skinParams` uniform + the Mesh spec are
-// per-build ({@link wireLive}), since LiveSkin resets each build.
+// half (buffers survive a rebuild). Each State's `skinData` + `skinParams` resources + Mesh spec are wired
+// by {@link wireLive}, beside its per-State live-skin substrate.
 function assembleLive(
     device: GPUDevice,
     live: SkinnedGeometry[],
@@ -413,12 +413,12 @@ function registerGeometry(specs: GeometrySpec[], meshCount: number): number[] {
 }
 
 // wire each live-skinned mesh into the per-build GPU state — the register-path half the cache can't hold
-// ({@link LiveSkin} resets every build). Registers a fresh Mesh spec (buffers from the cache, `skinParams`
-// from LiveSkin), uploads the mesh's joints/weights into `skinData` region B, and binds its `skinParams`
-// uniform (LiveSkin owns + rewrites it on a palette-growth realloc). Fills the live meshes' slots in
+// (`liveSkin(state)` is State-owned). Registers a fresh Mesh spec (buffers from the CPU cache, `skinParams`
+// from the State's live-skin resource), uploads the mesh's joints/weights into `skinData` region B, and binds
+// its `skinParams` uniform (the resource rewrites it on palette growth). Fills the live meshes' slots in
 // `meshIds`. The spec is built fresh (not the cached geometry spec), so binding the per-build uniform mutates
 // no cross-build state.
-function wireLive(device: GPUDevice, live: LiveAssembly[], meshIds: number[]): void {
+function wireLive(state: State, device: GPUDevice, live: LiveAssembly[], meshIds: number[]): void {
     for (const g of live) {
         const meshId = Meshes.register({
             name: g.name,
@@ -432,9 +432,10 @@ function wireLive(device: GPUDevice, live: LiveAssembly[], meshIds: number[]): v
             variant: g.variant,
         });
         meshIds[g.meshIndex] = meshId;
-        LiveSkin.registerMesh(meshId, g.joints, g.weights);
+        const skin = liveSkin(state);
+        skin.registerMesh(meshId, g.joints, g.weights);
         const spec = Meshes.get(g.name);
-        if (spec) spec.bindings = { skinParams: LiveSkin.paramsBuffer(device, meshId) };
+        if (spec) spec.bindings = { skinParams: skin.paramsBuffer(device, meshId) };
     }
 }
 
@@ -608,8 +609,8 @@ export function placeGltf(
         state.add(eid, Skin);
         // allocate this instance's palette block (seeded to the rest/bind pose) — lanes: palette base (the
         // surface reads skin[eid].x), material index, unused, 0 (w ≤ 0 so SkinSystem skips it). A producer
-        // poses it via LiveSkin.writePalette; unposed, it renders the bind pose.
-        const paletteBase = LiveSkin.alloc(eid, handle.jointCount, state.stamp(eid));
+        // poses it via `liveSkin(state).writePalette`; unposed, it renders the bind pose.
+        const paletteBase = liveSkin(state).alloc(eid, handle.jointCount, state.stamp(eid));
         Skin.anim.set(eid, paletteBase, handle.material, 0, 0);
     } else if (handle.textured) {
         state.add(eid, Textured);
@@ -915,7 +916,7 @@ export interface DecodedGltf {
      *  each binding its own VAT textures per-draw, so N skinned meshes coexist in one scene. */
     vats: (GltfVat | null)[];
     /** quantized live-skin payload per scene mesh (parallel to `scene.meshes`): non-null for a live-skinned
-     *  mesh (`scene.live`), holding the packed joints/weights {@link LiveSkin} uploads + the reach bound. */
+     *  mesh (`scene.live`), holding the packed joints/weights the State's live-skin resource uploads + the reach bound. */
     liveMeshes: (LiveMesh | null)[];
     textured: boolean;
 }
@@ -1005,7 +1006,7 @@ interface AssembledGltf {
     // baked VAT GPU resources per scene mesh (parallel to scene.meshes); non-null for each VAT-skinned mesh
     vats: (AssembledVat | null)[];
     // per-asset geometry buffers + JW payload for each live-skinned mesh; the per-build `skinData` upload +
-    // `skinParams` uniform + Mesh spec are wired in `register`, not cached (LiveSkin resets each build)
+    // `skinParams` uniform + Mesh spec are wired in `register`, not cached (they belong to the State)
     live: LiveAssembly[];
 }
 
@@ -1145,7 +1146,7 @@ function clearActive(state: State): void {
     world.active.length = 0;
     world.paletteBase.clear();
     world.matCount = 0;
-    routes.clear();
+    routesFor(state).clear();
     world.stagingGen++; // supersede any in-flight begin/staging — the rebuild re-begins for the rebuilt set
     freeStaging(state, world);
 }
@@ -1410,7 +1411,7 @@ export async function register(state: State, decoded: DecodedGltf): Promise<Gltf
     if (state.disposed) return emptyImport();
     const base = activate(state, decoded);
     const meshIds = registerGeometry(assembly.geometry, decoded.scene.meshes.length);
-    wireLive(device, assembly.live, meshIds);
+    wireLive(state, device, assembly.live, meshIds);
     const desc = describe(
         decoded.scene,
         meshIds,
@@ -1419,6 +1420,7 @@ export async function register(state: State, decoded: DecodedGltf): Promise<Gltf
         decoded.vats,
         decoded.liveMeshes,
     );
+    const routes = routesFor(state);
     for (const h of desc.meshes) routes.set(h.mesh, h);
     ensureUnion(state);
     return desc;
@@ -1442,7 +1444,7 @@ export async function register(state: State, decoded: DecodedGltf): Promise<Gltf
  * fallback for a few frames before the textures pop in.
  *
  * `live` forces the **live joint-palette** route for the asset's skinned meshes: the mesh renders the bind
- * pose until a producer (a physics ragdoll, a scripted driver) poses it via `LiveSkin`, so no clip is baked
+ * pose until a producer (a physics ragdoll, a scripted driver) writes it through `liveSkin(state)`, so no clip is baked
  * to a VAT. A clip-less rig auto-rescues to live without the flag; the flag is for a *bakeable* rig you want
  * to pose at runtime (the ragdoll case). It's part of the cache key, so a VAT load and a live load of one url
  * are distinct cached assets.
@@ -1513,6 +1515,7 @@ export const GltfPlugin: Plugin = {
     // published (both write the same `Compute.textures` names) — so they sit here, before any import.
     initialize(state) {
         gltfWorld(state);
+        liveSkin(state);
         registerTexturedSurfaces(state);
         registerSkinSurfaces(state);
         registerLiveSkinSurfaces(state);
@@ -1522,9 +1525,6 @@ export const GltfPlugin: Plugin = {
         // reset the per-build active set; the `_union` memo survives so a rebuild re-accumulating the same set
         // re-publishes its arrays with no re-upload
         clearActive(state);
-        // the live joint-palette substrate is a module singleton — reset its layout each build so a State
-        // rebuild starts clean and the next flush republishes `skinData` into the wiped `Compute.buffers`
-        LiveSkin.reset();
         if (!Compute.device) return;
         fallbackTextures(state, Compute.device);
         fallbackVat(state, Compute.device);
@@ -1538,8 +1538,8 @@ export const GltfPlugin: Plugin = {
         Preloads.delete("gltf");
         abortDecodes();
         clearWorldGltfState(state);
+        liveSkin(state).dispose();
         disposeTextureFallbacks(state);
         disposeVatFallback(state);
-        LiveSkin.dispose();
     },
 };

@@ -5,8 +5,7 @@ import type { World } from "./world";
 /** Opaque binary snapshot of a wasm-backed physics world. */
 export type WorldSnapshot = Uint8Array;
 
-type SavedSnapshot = { state: WorldState; memory: Uint8Array };
-const saved = new Map<number, SavedSnapshot>();
+export type SavedSnapshot = { state: WorldState; memory: Uint8Array };
 let nextId = 1;
 
 function clone<T>(value: T, seen: Map<object, unknown>, opaque: Set<object>): T {
@@ -65,7 +64,7 @@ export function snapshot(world: World): WorldSnapshot {
     const state = world.state;
     const savedState = clone(state, new Map(), opaqueStores(state));
     const memory = new Uint8Array(kernel().memory.buffer).slice();
-    saved.set(id, { state: savedState, memory });
+    world.savedSnapshots.set(id, { state: savedState, memory });
     const bytes = new Uint8Array(8);
     new DataView(bytes.buffer).setBigUint64(0, BigInt(id), true);
     return bytes;
@@ -77,7 +76,7 @@ export function restore(world: World, bytes: WorldSnapshot): void {
     const id = Number(
         new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(0, true),
     );
-    const entry = saved.get(id);
+    const entry = world.savedSnapshots.get(id);
     if (!entry) throw new Error("physics: unknown world snapshot");
     const state = world.state;
     const restored = clone(entry.state, new Map(), opaqueStores(state));

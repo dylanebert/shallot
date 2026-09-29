@@ -78,29 +78,28 @@ const springKey = (d: SpringDef): string =>
     `${d.a}|${d.b}|${d.rA}|${d.rB}|${d.stiffness}|${d.rest}`;
 const jointKey = (d: JointDef): string => `${d.a}|${d.b}|${d.rA}|${d.rB}|${d.stiffnessAng}`;
 
-// the live physics joints per def key — arrays because identical defs are legal (two equal springs
-// both pull). A destroyed Body took its joints with it (physics cascades), so a kept handle is
-// re-checked via isValid() before reuse.
-const liveSprings = new Map<string, SolverJoint[]>();
-const liveJoints = new Map<string, SolverJoint[]>();
-// the last authored def sets — retained so `SyncSystem` can re-invoke `syncJoints`/`syncSprings` over them
-// when a deferred body marshals (the pump half of the late-marshal fix).  A ledger without a pump is inert: nothing
-// calls back into `joints.ts` between signature changes, so the retained set + the re-invoke are both needed.
-let retainedSprings: readonly SpringDef[] = [];
-let retainedJoints: readonly JointDef[] = [];
-// warned-key dedupe sets — keyed on `${springKey}|${cause}` / `${jointKey}|${cause}` so each diagnostic site
-// (endpoint-unavailable, hertz-zero, both-static, non-positive-stiffness) is deduped independently. The
-// endpoint-unavailable cause folds in the per-endpoint classification (`parts`), so a narrowed composition
-// (a deferred half marshals, leaving only the genuinely-non-`Body` half) is a DISTINCT key that re-warns
-// once — a mixed pair does not inherit the authored upload's stale key. Cleared on an authored upload
-// (`syncSprings`/`syncJoints`) and in `resetConstraints`. This mirrors `index.ts`'s `failed` ledger: it gates
-// the *attempt* and re-warns when the key moves — it does not mute. A boolean `quiet` that silenced the retry
-// path (S2's stopgap) hid every cause that only becomes visible after a deferred marshal resolves (the
-// both-static guard sits after `endpoints()` returns a pair, so the retry is the only path that can evaluate
-// it). Dedupe on the composite key lets the both-static warning fire once on the retry even though the
-// endpoint warning already banked the def's base key on the authored upload.
-const warnedSprings = new Set<string>();
-const warnedJoints = new Set<string>();
+// The authored defs, live handles, and diagnostics belong to one Physics world. Arrays are needed because
+// identical defs are legal (two equal springs both pull); a destroyed Body takes its joints with it, so a
+// kept handle is re-checked via isValid() before reuse.
+export interface ConstraintCache {
+    liveSprings: Map<string, SolverJoint[]>;
+    liveJoints: Map<string, SolverJoint[]>;
+    retainedSprings: readonly SpringDef[];
+    retainedJoints: readonly JointDef[];
+    warnedSprings: Set<string>;
+    warnedJoints: Set<string>;
+}
+
+export function createConstraintCache(): ConstraintCache {
+    return {
+        liveSprings: new Map(),
+        liveJoints: new Map(),
+        retainedSprings: [],
+        retainedJoints: [],
+        warnedSprings: new Set(),
+        warnedJoints: new Set(),
+    };
+}
 
 const warnOnce = (warned: Set<string>, key: string, message: string): void => {
     if (warned.has(key)) return;
@@ -277,29 +276,31 @@ function createJoint(
 
 /** reconcile the authored spring set against the live physics joints: unchanged defs keep their joint (warm-started impulses survive), changed/new defs create, leftovers destroy. Retains the def set for `resyncConstraints` and clears the warned-key set so the authored upload's diagnostics fire fresh. */
 export function syncSprings(
+    cache: ConstraintCache,
     world: SolverWorld,
     bodies: ReadonlyMap<number, SolverBody>,
     defs: readonly SpringDef[],
     isDeferred: (eid: number) => boolean,
 ): void {
-    retainedSprings = defs;
-    warnedSprings.clear();
-    syncSet(liveSprings, defs, springKey, (d) =>
-        createSpring(world, bodies, d, isDeferred, warnedSprings),
+    cache.retainedSprings = defs;
+    cache.warnedSprings.clear();
+    syncSet(cache.liveSprings, defs, springKey, (d) =>
+        createSpring(world, bodies, d, isDeferred, cache.warnedSprings),
     );
 }
 
 /** reconcile the authored joint set against the live physics joints — the `syncSprings` twin over the Spherical/Weld mapping. Retains the def set for `resyncConstraints` and clears the warned-key set so the authored upload's diagnostics fire fresh. */
 export function syncJoints(
+    cache: ConstraintCache,
     world: SolverWorld,
     bodies: ReadonlyMap<number, SolverBody>,
     defs: readonly JointDef[],
     isDeferred: (eid: number) => boolean,
 ): void {
-    retainedJoints = defs;
-    warnedJoints.clear();
-    syncSet(liveJoints, defs, jointKey, (d) =>
-        createJoint(world, bodies, d, isDeferred, warnedJoints),
+    cache.retainedJoints = defs;
+    cache.warnedJoints.clear();
+    syncSet(cache.liveJoints, defs, jointKey, (d) =>
+        createJoint(world, bodies, d, isDeferred, cache.warnedJoints),
     );
 }
 
@@ -314,26 +315,27 @@ export function syncJoints(
  *  cause that only becomes visible after the marshal resolves (the both-static guard) fires once, because its
  *  composite key was never banked (index.ts's never-thrash-the-frame-loop invariant). */
 export function resyncConstraints(
+    cache: ConstraintCache,
     world: SolverWorld,
     bodies: ReadonlyMap<number, SolverBody>,
     isDeferred: (eid: number) => boolean,
 ): void {
-    if (retainedSprings.length > 0)
-        syncSet(liveSprings, retainedSprings, springKey, (d) =>
-            createSpring(world, bodies, d, isDeferred, warnedSprings),
+    if (cache.retainedSprings.length > 0)
+        syncSet(cache.liveSprings, cache.retainedSprings, springKey, (d) =>
+            createSpring(world, bodies, d, isDeferred, cache.warnedSprings),
         );
-    if (retainedJoints.length > 0)
-        syncSet(liveJoints, retainedJoints, jointKey, (d) =>
-            createJoint(world, bodies, d, isDeferred, warnedJoints),
+    if (cache.retainedJoints.length > 0)
+        syncSet(cache.liveJoints, cache.retainedJoints, jointKey, (d) =>
+            createJoint(world, bodies, d, isDeferred, cache.warnedJoints),
         );
 }
 
 /** drop every tracked joint handle without destroying (the world they lived in is gone). Call beside the world teardown in `warm()`/`dispose()`. */
-export function resetConstraints(): void {
-    liveSprings.clear();
-    liveJoints.clear();
-    retainedSprings = [];
-    retainedJoints = [];
-    warnedSprings.clear();
-    warnedJoints.clear();
+export function resetConstraints(cache: ConstraintCache): void {
+    cache.liveSprings.clear();
+    cache.liveJoints.clear();
+    cache.retainedSprings = [];
+    cache.retainedJoints = [];
+    cache.warnedSprings.clear();
+    cache.warnedJoints.clear();
 }
