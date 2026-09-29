@@ -128,7 +128,7 @@ export function snapshot(world: World): WorldSnapshot {
     };
 }
 
-/** Restore a snapshot into a compatible World while its kernel has no other live World. */
+/** Restore into a live compatible World while its kernel has no other live World. */
 export function restore(world: World, snapshot: WorldSnapshot): void {
     if (
         snapshot === null ||
@@ -138,6 +138,9 @@ export function restore(world: World, snapshot: WorldSnapshot): void {
         typeof snapshot.state !== "object"
     )
         throw new Error("physics: invalid world snapshot");
+
+    if (!world.isValid())
+        throw new Error("physics: cannot restore a snapshot because its target World is not live");
 
     if (liveWorldCount(kernel()) > 1)
         throw new Error(

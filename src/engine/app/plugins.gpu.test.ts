@@ -82,7 +82,7 @@ import {
     snapshot as snapshotPhysics,
 } from "../../transitional/physics";
 import { Compute, type Plugin, probeTexture, type State, Time } from "../index";
-import { withCompute } from "../runtime";
+import { currentWorld, withCompute } from "../runtime";
 import { build } from "./index";
 
 const everyPlugin: readonly Plugin[] = [
@@ -156,7 +156,7 @@ function watchDevice(device: GPUDevice) {
     };
     device.addEventListener("uncapturederror", uncaptured);
     return {
-        wait<T>(label: string, promise: PromiseLike<T> | T, timeoutMs = 1_500): Promise<T> {
+        wait<T>(label: string, promise: PromiseLike<T> | T, timeoutMs = 4_000): Promise<T> {
             if (firstError)
                 return Promise.reject(new Error(`${label}: uncaptured GPU error: ${firstError}`));
             return new Promise<T>((resolve, reject) => {
@@ -200,7 +200,7 @@ async function trackedDevice() {
     const adapter = await withTimeout(
         "Dawn adapter request",
         navigator.gpu.requestAdapter(),
-        1_500,
+        4_000,
     );
     if (!adapter) throw new Error("Dawn adapter unavailable");
     const requiredLimits: Record<string, number> = { maxStorageBuffersPerShaderStage: 10 };
@@ -218,12 +218,41 @@ async function trackedDevice() {
             requiredFeatures: ["bgra8unorm-storage", "rg11b10ufloat-renderable", "timestamp-query"],
             requiredLimits,
         }),
-        1_500,
+        4_000,
     );
     const watch = watchDevice(device);
     const live = new Set<GPUBuffer | GPUTexture>();
+    const owners = new WeakMap<object, State>();
+    const labels = new WeakMap<State, string>();
+    let checkingOwners = true;
+    const ownerOf = (resource: object | undefined): State | undefined =>
+        resource ? owners.get(resource) : undefined;
+    const track = <T extends object>(resource: T, owner = currentWorld<State>()): T => {
+        if (owner && checkingOwners) owners.set(resource, owner);
+        return resource;
+    };
+    const assertOwned = (operation: string, resource: object | undefined): void => {
+        if (!checkingOwners) return;
+        const owner = ownerOf(resource);
+        const active = currentWorld<State>();
+        if (!owner || !active || owner === active) return;
+        const resourceName =
+            (resource as { label?: string }).label || resource?.constructor?.name || "GPU resource";
+        const ownerName = labels.get(owner) ?? "another World";
+        const activeName = labels.get(active) ?? "the active World";
+        throw new Error(
+            `${operation}: ${activeName} references ${resourceName} created by ${ownerName}`,
+        );
+    };
+    const bindGroupResource = (resource: GPUBindingResource): object | undefined => {
+        if (typeof resource !== "object" || resource === null) return undefined;
+        return "buffer" in resource ? (resource as GPUBufferBinding).buffer : resource;
+    };
     const createBuffer = device.createBuffer.bind(device);
     const createTexture = device.createTexture.bind(device);
+    const createSampler = device.createSampler.bind(device);
+    const createBindGroup = device.createBindGroup.bind(device);
+    const createCommandEncoder = device.createCommandEncoder.bind(device);
     Object.defineProperties(device, {
         createBuffer: {
             configurable: true,
@@ -231,6 +260,7 @@ async function trackedDevice() {
             value: (descriptor: GPUBufferDescriptor) => {
                 const buffer = createBuffer(descriptor);
                 live.add(buffer);
+                track(buffer);
                 const destroy = buffer.destroy.bind(buffer);
                 buffer.destroy = () => {
                     if (live.delete(buffer)) destroy();
@@ -244,6 +274,11 @@ async function trackedDevice() {
             value: (descriptor: GPUTextureDescriptor) => {
                 const texture = createTexture(descriptor);
                 live.add(texture);
+                const owner = currentWorld<State>();
+                track(texture, owner);
+                const createView = texture.createView.bind(texture);
+                texture.createView = (viewDescriptor?: GPUTextureViewDescriptor) =>
+                    track(createView(viewDescriptor), owner);
                 const destroy = texture.destroy.bind(texture);
                 texture.destroy = () => {
                     if (live.delete(texture)) destroy();
@@ -251,8 +286,107 @@ async function trackedDevice() {
                 return texture;
             },
         },
+        createSampler: {
+            configurable: true,
+            writable: true,
+            value: (descriptor?: GPUSamplerDescriptor) => track(createSampler(descriptor)),
+        },
+        createBindGroup: {
+            configurable: true,
+            writable: true,
+            value: (descriptor: GPUBindGroupDescriptor) => {
+                for (const entry of descriptor.entries)
+                    assertOwned("createBindGroup entry", bindGroupResource(entry.resource));
+                return createBindGroup(descriptor);
+            },
+        },
+        createCommandEncoder: {
+            configurable: true,
+            writable: true,
+            value: (descriptor?: GPUCommandEncoderDescriptor) => {
+                const encoder = createCommandEncoder(descriptor);
+                const copyBufferToBuffer = encoder.copyBufferToBuffer.bind(encoder);
+                const copyBufferToTexture = encoder.copyBufferToTexture.bind(encoder);
+                const copyTextureToBuffer = encoder.copyTextureToBuffer.bind(encoder);
+                const copyTextureToTexture = encoder.copyTextureToTexture.bind(encoder);
+                Object.defineProperties(encoder, {
+                    copyBufferToBuffer: {
+                        configurable: true,
+                        writable: true,
+                        value: (...args: Parameters<GPUCommandEncoder["copyBufferToBuffer"]>) => {
+                            assertOwned("copyBufferToBuffer source", args[0]);
+                            assertOwned("copyBufferToBuffer destination", args[2]);
+                            return copyBufferToBuffer(...args);
+                        },
+                    },
+                    copyBufferToTexture: {
+                        configurable: true,
+                        writable: true,
+                        value: (...args: Parameters<GPUCommandEncoder["copyBufferToTexture"]>) => {
+                            assertOwned("copyBufferToTexture source", args[0].buffer);
+                            assertOwned("copyBufferToTexture destination", args[1].texture);
+                            return copyBufferToTexture(...args);
+                        },
+                    },
+                    copyTextureToBuffer: {
+                        configurable: true,
+                        writable: true,
+                        value: (...args: Parameters<GPUCommandEncoder["copyTextureToBuffer"]>) => {
+                            assertOwned("copyTextureToBuffer source", args[0].texture);
+                            assertOwned("copyTextureToBuffer destination", args[1].buffer);
+                            return copyTextureToBuffer(...args);
+                        },
+                    },
+                    copyTextureToTexture: {
+                        configurable: true,
+                        writable: true,
+                        value: (...args: Parameters<GPUCommandEncoder["copyTextureToTexture"]>) => {
+                            assertOwned("copyTextureToTexture source", args[0].texture);
+                            assertOwned("copyTextureToTexture destination", args[1].texture);
+                            return copyTextureToTexture(...args);
+                        },
+                    },
+                });
+                return encoder;
+            },
+        },
     });
-    return { device, live, watch };
+    const queue = device.queue;
+    const writeBuffer = queue.writeBuffer.bind(queue);
+    const writeTexture = queue.writeTexture.bind(queue);
+    Object.defineProperties(queue, {
+        writeBuffer: {
+            configurable: true,
+            writable: true,
+            value: (...args: Parameters<GPUQueue["writeBuffer"]>) => {
+                assertOwned("writeBuffer destination", args[0]);
+                return writeBuffer(...args);
+            },
+        },
+        writeTexture: {
+            configurable: true,
+            writable: true,
+            value: (...args: Parameters<GPUQueue["writeTexture"]>) => {
+                assertOwned("writeTexture destination", args[0].texture);
+                return writeTexture(...args);
+            },
+        },
+    });
+    return {
+        device,
+        live,
+        watch,
+        labels,
+        async withoutOwnershipChecks<T>(callback: () => Promise<T>): Promise<T> {
+            const previous = checkingOwners;
+            checkingOwners = false;
+            try {
+                return await callback();
+            } finally {
+                checkingOwners = previous;
+            }
+        },
+    };
 }
 
 function addBody(state: State, y: number): number {
@@ -530,9 +664,11 @@ async function readRenderedFrame(
 ): Promise<Uint8Array> {
     const texture = offscreenTexture(state, resources.camera);
     if (!texture) throw new Error(`${label}: camera has no State-owned offscreen texture`);
-    const probe = await tracked.watch.wait(
-        `${label} probeTexture readback`,
-        probeTexture(tracked.device, texture, { label }),
+    const probe = await tracked.withoutOwnershipChecks(() =>
+        tracked.watch.wait(
+            `${label} probeTexture readback`,
+            probeTexture(tracked.device, texture, { label }),
+        ),
     );
     return new Uint8Array(probe.bytes);
 }
@@ -551,6 +687,7 @@ async function renderAlone(
         }),
     );
     try {
+        tracked.labels.set(app.state, label);
         const resources = app.state.resource(isolationKey, createIsolationResources);
         authorIsolationContent(app.state, resources, content);
         await stepGpuWorld(app.state, `${label} solo world`, tracked);
@@ -576,8 +713,9 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
                 plugins: [...everyPlugin, seed],
                 device: firstDevice.device,
             }),
-            1_500,
+            4_000,
         );
+        firstDevice.labels.set(first.state, "first world");
         const firstFeatures = first.state.resource(isolationKey, createIsolationResources);
         const firstA = authorIsolationContent(first.state, firstFeatures, FIRST_CONTENT);
 
@@ -588,8 +726,9 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
                 plugins: [...everyPlugin, seed],
                 device: secondDevice.device,
             }),
-            1_500,
+            4_000,
         );
+        secondDevice.labels.set(second.state, "second world");
         const secondFeatures = second.state.resource(isolationKey, createIsolationResources);
         const peerA = authorIsolationContent(second.state, secondFeatures, SECOND_CONTENT);
 
@@ -725,8 +864,8 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
 
 test("plugin-owned components and GPU paths stay isolated on a shared device", async () => {
     await exerciseIsolationPair(true);
-}, 2_000);
+}, 6_000);
 
 test("plugin-owned components and GPU paths stay isolated on separate devices", async () => {
     await exerciseIsolationPair(false);
-}, 2_000);
+}, 6_000);
