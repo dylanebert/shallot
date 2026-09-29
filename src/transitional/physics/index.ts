@@ -245,12 +245,21 @@ const JOINT_TERMS = [Joint];
 
 // FNV_BASIS is the empty-set signature, so an unconstrained scene's first frame already matches → no upload.
 /** re-arm the warning dedupe when a plugin world is warmed. Signatures themselves are State-owned. */
+const signatureWarningsKey = Symbol("shallot.physics-signature-warnings");
+
+function signatureWarningsFor(state: State) {
+    return state.resource(signatureWarningsKey, () => ({
+        joints: new Set<number>(),
+        springs: new Set<number>(),
+    }));
+}
+
 export function resetSignatures(state: State): void {
     inState(state, () => {
-        const runtime = runtimeFor(state);
-        runtime.warnedJointEids.clear();
-        runtime.warnedSpringEids.clear();
-        resetConstraints(runtime.constraints);
+        const warnings = signatureWarningsFor(state);
+        warnings.joints.clear();
+        warnings.springs.clear();
+        resetConstraints(state.resource(physicsRuntimeKey, newRuntime).constraints);
     });
 }
 
@@ -320,7 +329,7 @@ export function jointSignature(state: State): number {
 /** the authored {@link Spring} set as {@link SpringDef}s, dropping (and warning once for) a negative or NaN stiffness. */
 export function springDefs(state: State): SpringDef[] {
     return inState(state, () => {
-        const runtime = runtimeFor(state);
+        const warnings = signatureWarningsFor(state);
         const out: SpringDef[] = [];
         for (const eid of state.query([Spring])) {
             const stiffness = Spring.stiffness.get(eid);
@@ -328,15 +337,15 @@ export function springDefs(state: State): SpringDef[] {
             // 0 and ∞ are valid authored values (0 = non-positive → downstream skip; ∞ = rigid) — only negative
             // and NaN are rejected, at the authoring layer so every solver inherits one behavior.
             if (Number.isNaN(stiffness) || stiffness < 0) {
-                if (!runtime.warnedSpringEids.has(eid)) {
+                if (!warnings.springs.has(eid)) {
                     console.warn(
                         `[physics] spring (a: ${Spring.a.get(eid)}, b: ${Spring.b.get(eid)}) has negative or NaN stiffness — skipped`,
                     );
-                    runtime.warnedSpringEids.add(eid);
+                    warnings.springs.add(eid);
                 }
                 continue;
             }
-            runtime.warnedSpringEids.delete(eid);
+            warnings.springs.delete(eid);
             out.push({
                 a: Spring.a.get(eid),
                 b: Spring.b.get(eid),
@@ -353,7 +362,7 @@ export function springDefs(state: State): SpringDef[] {
 /** the authored {@link Joint} set as {@link JointDef}s, dropping (and warning once for) a negative or NaN angular stiffness. */
 export function jointDefs(state: State): JointDef[] {
     return inState(state, () => {
-        const runtime = runtimeFor(state);
+        const warnings = signatureWarningsFor(state);
         const out: JointDef[] = [];
         for (const eid of state.query([Joint])) {
             const stiffnessAng = Joint.stiffnessAng.get(eid);
@@ -361,15 +370,15 @@ export function jointDefs(state: State): JointDef[] {
             // 0 (spherical) and ∞ (fixed) are valid authored values — only negative and NaN are rejected, at the
             // authoring layer so every solver inherits one behavior.
             if (Number.isNaN(stiffnessAng) || stiffnessAng < 0) {
-                if (!runtime.warnedJointEids.has(eid)) {
+                if (!warnings.joints.has(eid)) {
                     console.warn(
                         `[physics] joint (a: ${Joint.a.get(eid)}, b: ${Joint.b.get(eid)}) has negative or NaN angular stiffness — skipped`,
                     );
-                    runtime.warnedJointEids.add(eid);
+                    warnings.joints.add(eid);
                 }
                 continue;
             }
-            runtime.warnedJointEids.delete(eid);
+            warnings.joints.delete(eid);
             out.push({
                 a: Joint.a.get(eid),
                 b: Joint.b.get(eid),
@@ -397,8 +406,6 @@ interface PhysicsRuntime {
     stamps: Map<number, number>;
     kinPrev: Map<number, { pos: [number, number, number]; quat: [number, number, number, number] }>;
     failed: Map<number, { stamp: number; hulls: number }>;
-    warnedJointEids: Set<number>;
-    warnedSpringEids: Set<number>;
     constraints: ConstraintCache;
     handleProxies: WeakMap<object, object>;
     handleMethods: WeakMap<object, Map<PropertyKey, (...args: unknown[]) => unknown>>;
@@ -430,8 +437,6 @@ function newRuntime(): PhysicsRuntime {
         stamps: new Map(),
         kinPrev: new Map(),
         failed,
-        warnedJointEids: new Set(),
-        warnedSpringEids: new Set(),
         constraints: createConstraintCache(),
         handleProxies: new WeakMap(),
         handleMethods: new WeakMap(),
@@ -572,8 +577,6 @@ function clearBodies(runtime: PhysicsRuntime): void {
     runtime.springSig = FNV_BASIS;
     runtime.jointSig = FNV_BASIS;
     runtime.counters = { bodiesVisited: 0, bytesUploaded: 0 };
-    runtime.warnedJointEids.clear();
-    runtime.warnedSpringEids.clear();
     resetConstraints(runtime.constraints);
 }
 
@@ -1133,6 +1136,9 @@ export const PhysicsPlugin: Plugin = {
     dispose(state) {
         const runtime = runtimeFor(state);
         clearBodies(runtime);
+        const warnings = signatureWarningsFor(state);
+        warnings.joints.clear();
+        warnings.springs.clear();
         runtime.world?.destroy();
         runtime.world = null;
         void shutdown();
