@@ -118,16 +118,51 @@ const verticesDepth = {
     access: "readonly" as const,
     visibility: VS_FS,
 };
+const transformRowsEntry = {
+    storage: d.arrayOf(d.u32),
+    access: "readonly" as const,
+    visibility: VS_FS,
+};
+const partRowMapEntry = {
+    storage: d.arrayOf(d.u32),
+    access: "readonly" as const,
+    visibility: VS_FS,
+};
+
+/** Dense per-Part fields read by instanced typed surfaces. */
+export const PartInput = d
+    .struct({
+        surface: d.u32,
+        mesh: d.u32,
+        color: d.vec4f,
+        material: d.vec4f,
+    })
+    .$name("PartInput");
+const partInputsEntry = {
+    storage: d.arrayOf(PartInput),
+    access: "readonly" as const,
+    visibility: VS_FS,
+};
 
 /** a synthesized typed surface layout: group 2, a consumer's own bindings by name (`layout.$.name`) plus
  *  the sear-injected `vertices` slot (color-pass shape). {@link depthVariant} is the same bindings at the
  *  same `$idx`, `vertices` swapped to the prepass/shadow shape — the typed pipeline builder selects
  *  between them per pass, the same way `uniformWgsl(pass)` does today. */
 export type SurfaceLayout<B extends Record<string, Binding>> = TgpuBindGroupLayout<
-    { [K in keyof B]: EntryFor<B[K]> } & { vertices: typeof verticesColor }
+    { [K in keyof B]: EntryFor<B[K]> } & {
+        transformRows: typeof transformRowsEntry;
+        partRowMap: typeof partRowMapEntry;
+        partInputs: typeof partInputsEntry;
+        vertices: typeof verticesColor;
+    }
 > & {
     readonly depthVariant: TgpuBindGroupLayout<
-        { [K in keyof B]: EntryFor<B[K]> } & { vertices: typeof verticesDepth }
+        { [K in keyof B]: EntryFor<B[K]> } & {
+            transformRows: typeof transformRowsEntry;
+            partRowMap: typeof partRowMapEntry;
+            partInputs: typeof partInputsEntry;
+            vertices: typeof verticesDepth;
+        }
     >;
 };
 
@@ -154,8 +189,24 @@ function ownEntries<B extends Record<string, Binding>>(
  */
 export function surfaceLayout<B extends Record<string, Binding>>(bindings: B): SurfaceLayout<B> {
     const own = ownEntries(bindings);
-    const color = tgpu.bindGroupLayout({ ...own, vertices: verticesColor }).$idx(SURFACE_GROUP);
-    const depth = tgpu.bindGroupLayout({ ...own, vertices: verticesDepth }).$idx(SURFACE_GROUP);
+    const color = tgpu
+        .bindGroupLayout({
+            ...own,
+            transformRows: transformRowsEntry,
+            partRowMap: partRowMapEntry,
+            partInputs: partInputsEntry,
+            vertices: verticesColor,
+        })
+        .$idx(SURFACE_GROUP);
+    const depth = tgpu
+        .bindGroupLayout({
+            ...own,
+            transformRows: transformRowsEntry,
+            partRowMap: partRowMapEntry,
+            partInputs: partInputsEntry,
+            vertices: verticesDepth,
+        })
+        .$idx(SURFACE_GROUP);
     return Object.assign(color, { depthVariant: depth }) as SurfaceLayout<B>;
 }
 
@@ -197,6 +248,8 @@ export const VsIn = d
         xform: Xform,
         world: d.vec4f,
         worldNormal: d.vec3f,
+        color: d.vec4f,
+        material: d.vec4f,
     })
     .$name("VsIn");
 
@@ -222,6 +275,8 @@ export function fsCtxSchema<V extends Record<string, AnyWgslData> = Record<strin
         worldNormal: d.vec3f,
         uv: d.vec2f,
         localPos: d.vec3f,
+        color: d.vec4f,
+        material: d.vec4f,
         ...varyings,
     });
 }

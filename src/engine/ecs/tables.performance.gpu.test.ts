@@ -783,7 +783,7 @@ test("measure component setter overhead against direct column writes", async () 
             state = current;
         },
     };
-    const app = await build({ defaults: false, capacity: count + 1, plugins: [plugin] });
+    const app = await build({ defaults: false, plugins: [plugin] });
 
     try {
         const { class: adapterClass, identity } = state.gpu.adapter;

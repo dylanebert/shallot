@@ -5,7 +5,6 @@ import type { State } from "../../engine";
 import { Compute, f32, field, unpackColor, vec4 } from "../../engine";
 import { worldResource } from "../../engine/runtime";
 import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/utils";
-import { slab } from "../../transitional/slab";
 import { Transform } from "../../transitional/transforms";
 
 /**
@@ -44,8 +43,8 @@ export const DirectionalLight = {
  * point light component. Position comes from the entity's `Transform`; sear's
  * `lit` / `lightFactor` helpers accumulate the fragment's cluster's point
  * lights: inverse-square falloff windowed smoothly to exactly zero at
- * `range`. `color` is hex sRGB; `intensity` is a linear multiplier. Slab
- * fields: the light-cull compute passes read them straight off the GPU (no
+ * `range`. `color` is hex sRGB; `intensity` is a linear multiplier. Dense table
+ * fields: the light-cull compute pass reads them from struct records (no
  * CPU light list)
  *
  * @example
@@ -55,14 +54,14 @@ export const DirectionalLight = {
  */
 export const PointLight = {
     /** the light's hex sRGB color (e.g. 0xffd9a0) */
-    color: slab(f32),
+    color: field(f32),
     /** linear brightness multiplier */
-    intensity: slab(f32),
+    intensity: field(f32),
     /** the distance (metres) the falloff smoothly reaches zero at: the cull cutoff */
-    range: slab(f32),
+    range: field(f32),
     /** the physical source radius (metres): a soft sphere, not a point. Larger softens the near-field
      * bulb and widens the specular highlight; 0.01 reproduces the old bare-filament hotspot */
-    radius: slab(f32),
+    radius: field(f32),
 };
 
 /**
@@ -79,9 +78,9 @@ export const PointLight = {
  */
 export const Spot = {
     /** the cone's inner half-angle (degrees, axis→edge): full brightness inside it */
-    inner: slab(f32),
+    inner: field(f32),
     /** the cone's outer half-angle (degrees, axis→edge): dark past it, smooth between inner and outer */
-    outer: slab(f32),
+    outer: field(f32),
 };
 
 /**

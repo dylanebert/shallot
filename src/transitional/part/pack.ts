@@ -1,7 +1,12 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { CULL_FRUSTUM, CULL_VOLUME_FLOATS, DrawIndexedIndirect } from "../../core/rendering";
+import {
+    CULL_FRUSTUM,
+    CULL_VOLUME_FLOATS,
+    DrawIndexedIndirect,
+    PartInput,
+} from "../../core/rendering";
 import { Xform, xformPoint } from "../../engine/utils";
 
 // The pack kernels: cull → count → scan → scatter, the compute half of the Part producer. Count and
@@ -11,20 +16,24 @@ import { Xform, xformPoint } from "../../engine/utils";
 // raw compute pass, which addresses a bind group by index, so the index is declared here rather than left
 // to resolution order. This displaces the note that the group index is invisible to the CPU side.
 
-/** `{ viewCount, pairCount }` — written each frame, read by all three passes @internal */
-export const CullParams = d.struct({ viewCount: d.u32, pairCount: d.u32 });
+/** dense Part row counts and view/pair dimensions, written once per changed frame @internal */
+export const CullParams = d.struct({
+    viewCount: d.u32,
+    pairCount: d.u32,
+    partCount: d.u32,
+    partCapacity: d.u32,
+});
 
-/** the cull inputs shared by count + scatter: the per-entity slabs + membership mirror, the world-transform
- *  firehose, the per-mesh bounds, and the per-view cull volumes the visibility test needs. Part is the only
- *  producer that culls and compacts per view (sprite and text draw every instance), so these cull inputs stay
- *  Part's own: one caller can't show where a shared seam belongs.
- *  @internal */
+/** one dense record per Part row, shared with typed surface vertex stages @internal */
+export const PartRecord = PartInput;
+
+/** shared dense inputs for count + scatter, plus mesh bounds and per-view cull volumes @internal */
 export const cullLayout = tgpu
     .bindGroupLayout({
-        surfaceField: { storage: d.arrayOf(d.u32), access: "readonly" },
-        meshField: { storage: d.arrayOf(d.u32), access: "readonly" },
-        membership: { storage: d.arrayOf(d.u32), access: "readonly" },
+        partRows: { storage: d.arrayOf(d.vec2u), access: "readonly" },
+        parts: { storage: d.arrayOf(PartRecord), access: "readonly" },
         transforms: { storage: d.arrayOf(Xform), access: "readonly" },
+        transformRows: { storage: d.arrayOf(d.u32), access: "readonly" },
         meshBounds: { storage: d.arrayOf(d.vec4f), access: "readonly" },
         cullVolumes: { storage: d.arrayOf(d.vec4f), access: "readonly" },
         params: { uniform: CullParams },
@@ -71,10 +80,10 @@ const CULL_STRIDE = CULL_VOLUME_FLOATS / 4;
 export const visible = tgpu.fn(
     [d.u32, d.u32, d.u32],
     d.bool,
-)((eid, mid, slot) => {
+)((mid, transformRow, slot) => {
     "use gpu";
     if (slot >= cullLayout.$.params.viewCount) return true;
-    const xf = cullLayout.$.transforms[eid];
+    const xf = cullLayout.$.transforms[transformRow];
     const b = cullLayout.$.meshBounds[mid];
     const center = xformPoint(xf, d.vec3f(b.x, b.y, b.z));
     const radius =
@@ -92,53 +101,58 @@ export const visible = tgpu.fn(
     return true;
 });
 
-// the entity's within-view (surface, mesh) pair plus the mesh id the frustum test needs, read once each.
-// TGSL has no optional, so a miss returns `pair = params.pairCount` — an out-of-range index the callers
-// already test against.
-const Pair = d.struct({ pair: d.u32, mid: d.u32 });
+// Resolve one active table row to its pair, identity and transform slot. A miss is an out-of-range pair.
+const Pair = d.struct({ pair: d.u32, mid: d.u32, eid: d.u32, row: d.u32, transformRow: d.u32 });
 
-// surfaceCount is baked (surfaces are WGSL programs declared in code, so the count is final at warm);
-// pairCount comes from the uniform, so a late mesh whose pair sits past the current grid is skipped until
-// `syncBuffers` grows it
+// Surface count is baked; the active row list and pair grid remain dynamic.
 function pairFactory(surfaceCount: number) {
     return tgpu
         .fn(
             [d.u32],
             Pair,
-        )((eid) => {
+        )((index) => {
             "use gpu";
-            const sid = cullLayout.$.surfaceField[eid];
-            const mid = cullLayout.$.meshField[eid];
-            if (sid >= surfaceCount) return Pair({ pair: cullLayout.$.params.pairCount, mid });
-            return Pair({ pair: mid * surfaceCount + sid, mid });
+            const entry = cullLayout.$.partRows[index];
+            const eid = entry.x;
+            const row = entry.y;
+            const part = cullLayout.$.parts[row];
+            const encodedTransform = cullLayout.$.transformRows[eid];
+            const invalidPair = cullLayout.$.params.pairCount;
+            if (part.surface >= surfaceCount || encodedTransform === 0) {
+                return Pair({
+                    pair: invalidPair,
+                    mid: part.mesh,
+                    eid,
+                    row,
+                    transformRow: 0,
+                });
+            }
+            return Pair({
+                pair: part.mesh * surfaceCount + part.surface,
+                mid: part.mesh,
+                eid,
+                row,
+                transformRow: encodedTransform - 1,
+            });
         })
         .$name("partPair");
 }
 
-/**
- * tally the frustum-visible parts per (view slot, pair). One thread per (eid, slot): every thread gates on
- * the mirrored component-membership bit, then on the view's frustum — no CPU iteration over Parts. `base`
- * (the Part component's membership generation row), `mask`, and `surfaceCount` are captured numbers, so
- * they fold to literals.
- * @internal
- */
-export function countKernel(base: number, mask: number, surfaceCount: number, capacity: number) {
+/** Tally frustum-visible active Part rows per (view slot, pair); no entity-capacity scan. @internal */
+export function countKernel(surfaceCount: number) {
     const pair = pairFactory(surfaceCount);
-    // a factory-returned kernel has no binding for `names: "strict"` to read, so it resolves to `fn item`
-    // unless named — and that name is what a Tint compile error and every GPU `console.log` line reports
     return tgpu
         .computeFn({
             workgroupSize: [64],
             in: { gid: d.builtin.globalInvocationId },
         })((input) => {
             "use gpu";
-            const eid = input.gid.x;
+            const index = input.gid.x;
             const slot = input.gid.y;
-            if (eid >= capacity) return;
-            if ((cullLayout.$.membership[base + eid] & mask) === 0) return;
-            const g = pair(eid);
+            if (index >= cullLayout.$.params.partCount) return;
+            const g = pair(index);
             if (g.pair >= cullLayout.$.params.pairCount) return;
-            if (!visible(eid, g.mid, slot)) return;
+            if (!visible(g.mid, g.transformRow, slot)) return;
             std.atomicAdd(countLayout.$.counts[slot * cullLayout.$.params.pairCount + g.pair], 1);
         })
         .$name("partCount");
@@ -152,14 +166,14 @@ const carry = tgpu.workgroupVar(d.u32);
 /**
  * exclusive prefix sum, one workgroup per view slot. Each slot's row is scanned in parallel: a `SCAN_WG`-wide
  * LDS Hillis-Steele scan walks the row in tiles, a `carry` threading the running offset across tiles, so the
- * slot's packedEids region starts at `slot * capacity`. Writes instanceCount + the compacted firstInstance,
+ * slot's packedEids region starts at `slot * partCapacity`. Writes instanceCount + the compacted firstInstance,
  * resets counts so scatter reuses them as a cursor, and leaves the static indexCount / firstIndex (lanes 0,
  * 2) alone. Pure LDS (no subgroup ops) — the part pack stays inside the base feature floor, so a
  * physics-free app never needs `subgroups`. One workgroup per slot keeps the pass independent of the
  * view-slot count. Compaction is this GPU prefix-sum scan, never a CPU gather.
  * @internal
  */
-export function scanKernel(capacity: number) {
+export function scanKernel() {
     return tgpu.computeFn({
         workgroupSize: [SCAN_WG],
         in: { wid: d.builtin.workgroupId, lid: d.builtin.localInvocationId },
@@ -200,7 +214,8 @@ export function scanKernel(capacity: number) {
 
             if (inRange) {
                 scanLayout.$.drawArgs[idx].instanceCount = c;
-                scanLayout.$.drawArgs[idx].firstInstance = slot * capacity + carry.$ + excl;
+                scanLayout.$.drawArgs[idx].firstInstance =
+                    slot * scanLayout.$.params.partCapacity + carry.$ + excl;
                 std.atomicStore(scanLayout.$.counts[idx], 0);
             }
             std.workgroupBarrier();
@@ -212,13 +227,8 @@ export function scanKernel(capacity: number) {
     });
 }
 
-/**
- * append each surviving eid into its slice of packedEids, re-running the identical membership + pair +
- * frustum gate the count pass ran so the two agree exactly. `counts`, zeroed by the scan, is the per-slice
- * cursor.
- * @internal
- */
-export function scatterKernel(base: number, mask: number, surfaceCount: number, capacity: number) {
+/** Scatter visible identities and Part rows into matching dense per-view draw lists. @internal */
+export function scatterKernel(surfaceCount: number) {
     const pair = pairFactory(surfaceCount);
     return tgpu
         .computeFn({
@@ -226,33 +236,29 @@ export function scatterKernel(base: number, mask: number, surfaceCount: number, 
             in: { gid: d.builtin.globalInvocationId },
         })((input) => {
             "use gpu";
-            const eid = input.gid.x;
+            const index = input.gid.x;
             const slot = input.gid.y;
-            if (eid >= capacity) return;
-            if ((cullLayout.$.membership[base + eid] & mask) === 0) return;
-            const g = pair(eid);
+            if (index >= cullLayout.$.params.partCount) return;
+            const g = pair(index);
             if (g.pair >= cullLayout.$.params.pairCount) return;
-            if (!visible(eid, g.mid, slot)) return;
+            if (!visible(g.mid, g.transformRow, slot)) return;
             const idx = slot * cullLayout.$.params.pairCount + g.pair;
             const local = std.atomicAdd(scatterLayout.$.counts[idx], 1);
-            scatterLayout.$.packedEids[scatterLayout.$.drawArgs[idx].firstInstance + local] = eid;
+            const target = scatterLayout.$.drawArgs[idx].firstInstance + local;
+            scatterLayout.$.packedEids[target] = g.eid;
         })
         .$name("partScatter");
 }
 
-/** the emitted pack WGSL — the device-free structural seam the pack tests resolve.
- *  @internal */
-export function packWgsl(
-    base: number,
-    mask: number,
-    surfaceCount: number,
-    capacity: number,
-): { count: string; scan: string; scatter: string } {
+/** the emitted pack WGSL — the device-free structural seam the pack tests resolve. @internal */
+export function packWgsl(surfaceCount: number): {
+    count: string;
+    scan: string;
+    scatter: string;
+} {
     return {
-        count: tgpu.resolve([countKernel(base, mask, surfaceCount, capacity)], { names: "strict" }),
-        scan: tgpu.resolve([scanKernel(capacity)], { names: "strict" }),
-        scatter: tgpu.resolve([scatterKernel(base, mask, surfaceCount, capacity)], {
-            names: "strict",
-        }),
+        count: tgpu.resolve([countKernel(surfaceCount)], { names: "strict" }),
+        scan: tgpu.resolve([scanKernel()], { names: "strict" }),
+        scatter: tgpu.resolve([scatterKernel(surfaceCount)], { names: "strict" }),
     };
 }

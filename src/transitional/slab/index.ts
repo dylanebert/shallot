@@ -390,7 +390,7 @@ export class Slab {
         for (const { component } of entries(state)) {
             for (const field of Object.values(component)) {
                 if (field instanceof Slab) {
-                    field.alloc(state.capacity);
+                    field.alloc(state.entityHighWater);
                     Slab._all.push(field);
                 }
             }
@@ -550,7 +550,7 @@ function prepareWorldSlabs(state: State): void {
             const bytes = elementBytes(field.type);
             if (!element || bytes === null) continue;
             const typed = Compute.root
-                .createBuffer(d.arrayOf(element, state.capacity))
+                .createBuffer(d.arrayOf(element, state.entityHighWater))
                 .$usage("storage")
                 .$name(field.name ? `slab-${field.name}` : `slab-${field.type.name}`);
             const buffer = Compute.root.unwrap(typed) as GPUBuffer;
@@ -564,7 +564,11 @@ function prepareWorldSlabs(state: State): void {
                 field,
                 typed,
                 ...(field.type.gpu
-                    ? { packed: new Uint32Array((state.capacity * field.type.gpu.bytes) >>> 2) }
+                    ? {
+                          packed: new Uint32Array(
+                              (state.entityHighWater * field.type.gpu.bytes) >>> 2,
+                          ),
+                      }
                     : {}),
             });
         }
@@ -588,7 +592,7 @@ function flushWorldSlabs(state: State): void {
             const lanes = field.type.lanes;
             const words = field.type.gpu.bytes >>> 2;
             const source = field.column;
-            const count = Math.min(state.capacity, Math.floor(source.length / lanes));
+            const count = Math.min(state.entityHighWater, Math.floor(source.length / lanes));
             for (let eid = 0; eid < count; eid++) {
                 const at = eid * lanes;
                 field.type.gpu.pack(
@@ -603,7 +607,7 @@ function flushWorldSlabs(state: State): void {
             Compute.device.queue.writeBuffer(field.gpu, 0, packed);
         } else {
             const lanes = field.type.lanes;
-            const count = Math.min(state.capacity, Math.floor(field.column.length / lanes));
+            const count = Math.min(state.entityHighWater, Math.floor(field.column.length / lanes));
             Compute.device.queue.writeBuffer(field.gpu, 0, field.column.subarray(0, count * lanes));
         }
     }

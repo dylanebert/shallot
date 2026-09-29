@@ -17,15 +17,15 @@ import {
     Surfaces,
 } from "../../core/rendering";
 import type { Registry, State, System } from "../../engine";
-import { Compute, srgb8x4, u32 } from "../../engine";
+import { Compute, field, u32, vec4 } from "../../engine";
 import { precompile, worldResource } from "../../engine/runtime";
-import { slab } from "../slab";
-import { Transform } from "../transforms";
+import { Transform, transformTable } from "../transforms";
 import {
     CullParams,
     countKernel,
     countLayout,
     cullLayout,
+    PartRecord,
     scanKernel,
     scanLayout,
     scatterKernel,
@@ -44,7 +44,7 @@ type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
 /**
  * ECS-shaped opt-in for Part rendering. `surface` holds the {@link Surfaces}
  * ID for the entity's shading; `mesh` holds the {@link Meshes} ID for its
- * geometry: both `slab(u32)` the pack reads on GPU. The pack groups Parts by
+ * geometry. A dense struct table feeds the GPU pack, which groups Parts by
  * `(surface, mesh)` and emits one indirect draw per used pair, so a surface is
  * shading only and renders any mesh. `surface` defaults to `"default"`, `mesh`
  * to `"cube"`; scenes pick others via `<a part="surface: checker; mesh: wall" />`
@@ -56,17 +56,15 @@ type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
  * ```
  */
 export const Part = {
-    surface: slab(u32),
-    mesh: slab(u32),
+    surface: field(u32),
+    mesh: field(u32),
 };
 
 /**
- * per-entity base color. Authored CPU-side as a linear {@link Quad}, but mirrored to the GPU as one
- * sRGB-packed u32 ({@link srgb8x4}, 16 B → 4 B), published to `Compute.buffers` under the name
- * `"color"`; a surface reads it as `unpackLdrColor(color[eid])`. Alpha is reserved for transparency
+ * per-entity base color, authored and stored as linear RGBA in its Part table record. Alpha is reserved for transparency.
  */
 export const Color = {
-    rgba: slab(srgb8x4, "color"),
+    rgba: field(vec4),
 };
 
 // Pack is cull → count → scan → scatter, run per active view: count tallies the
@@ -102,7 +100,7 @@ export const Color = {
 export interface Parts {
     /** `DrawIndexedIndirect` records, slot-major (`slot * pairCount + pair`); null until the first frame's `syncBuffers` */
     drawArgs: DrawBuffer | null;
-    /** packed survivor eids, one `capacity`-sized region per view slot; null until `warmPart` */
+    /** packed entity identities, one dense list per view slot; null until `warmPart` */
     packedEids: U32Buffer | null;
 }
 
@@ -128,9 +126,29 @@ interface PartGpuState {
     paramsTarget: (TgpuBuffer<typeof CullParams> & UniformFlag) | null;
     paramsViewCount: number;
     paramsPairCount: number;
+    paramsPartCount: number;
+    paramsPartCapacity: number;
+    rowCapacity: number;
+    inputGeneration: string | null;
 }
 
 const partGpuKey = Symbol("shallot.part");
+const partTableKey = Symbol("shallot.part-table");
+
+/** Dense Part records shared by the GPU pack and typed surface stages. */
+export function partTable(state: State) {
+    return state.resource(partTableKey, () => {
+        const table = state.table("partInputs", PartRecord);
+        table.enableEidLookup();
+        const publishMap = (buffer: GPUBuffer) => {
+            state.gpu.buffers.set("partRowMap", buffer);
+            state.gpu.typed.set("partRowMap", table.eidToRowTyped!);
+        };
+        table.subscribeMap(publishMap);
+        publishMap(table.eidToRowBuffer!);
+        return table;
+    });
+}
 
 function createPartGpuState(): PartGpuState {
     return {
@@ -155,6 +173,10 @@ function createPartGpuState(): PartGpuState {
         paramsTarget: null,
         paramsViewCount: -1,
         paramsPairCount: -1,
+        paramsPartCount: -1,
+        paramsPartCapacity: -1,
+        rowCapacity: 0,
+        inputGeneration: null,
     };
 }
 
@@ -164,6 +186,17 @@ function partGpuState(): PartGpuState {
 
 export function initializePartState(state: State): void {
     state.resource(partGpuKey, createPartGpuState);
+    const table = partTable(state);
+    table.bindComponent(Part, { surface: "surface", mesh: "mesh" });
+    table.bindFields(Color, { color: "rgba" });
+    const seedMissingColor = (eid: number) => {
+        if (!state.has(eid, Color)) Color.rgba.set(eid, 1, 0, 1, 1);
+    };
+    const removeMissingColorDefault = state.observeMembership(Part, (eid, present) => {
+        if (present) seedMissingColor(eid);
+    });
+    for (const eid of state.query([Part])) seedMissingColor(eid);
+    state.onDispose(removeMissingColorDefault);
 }
 
 const _part = new Proxy({} as Omit<PartGpuState, "parts">, {
@@ -201,9 +234,9 @@ export const PartSystem: System = {
         if (!Render.encoder || !_part.countPipe || !_part.scanPipe || !_part.scatterPipe) return;
         syncBuffers(state);
         if (_part.pairCount === 0) return;
-        const count = bindCount();
+        const count = bindCount(state);
         const scan = bindScan();
-        const scatter = bindScatter();
+        const scatter = bindScatter(state);
         if (!count || !scan || !scatter) return;
 
         // viewCount + pairCount let the cull shader find a view's frustum and
@@ -214,15 +247,25 @@ export const PartSystem: System = {
         // a two-word uniform written when either word changes: the typed write is the idiomatic path here.
         // The "CPU truth stays typed arrays" law governs the per-entity firehoses, where the
         // schema serializer is orders slower than a bulk `Float32Array.set`; two scalars are not that
+        const partCount = partTable(state).count;
         if (
             _part.paramsTarget !== _part.cullParams ||
             _part.paramsViewCount !== Render.viewCount ||
-            _part.paramsPairCount !== _part.pairCount
+            _part.paramsPairCount !== _part.pairCount ||
+            _part.paramsPartCount !== partCount ||
+            _part.paramsPartCapacity !== _part.rowCapacity
         ) {
-            _part.cullParams!.write({ viewCount: Render.viewCount, pairCount: _part.pairCount });
+            _part.cullParams!.write({
+                viewCount: Render.viewCount,
+                pairCount: _part.pairCount,
+                partCount,
+                partCapacity: _part.rowCapacity,
+            });
             _part.paramsTarget = _part.cullParams;
             _part.paramsViewCount = Render.viewCount;
             _part.paramsPairCount = _part.pairCount;
+            _part.paramsPartCount = partCount;
+            _part.paramsPartCapacity = _part.rowCapacity;
         }
 
         if (_part.countsUnwrapped !== _part.counts) {
@@ -232,15 +275,19 @@ export const PartSystem: System = {
         Render.encoder.clearBuffer(_part.countsRaw!);
         _part.packPass.timestampWrites = Compute.span?.("part:pack");
         const pass = Render.encoder.beginComputePass(_part.packPass);
-        const rows = Math.ceil(state.capacity / 64);
-        setBound(pass, count);
-        pass.dispatchWorkgroups(rows, views);
+        const rows = Math.ceil(partCount / 64);
+        if (rows > 0) {
+            setBound(pass, count);
+            pass.dispatchWorkgroups(rows, views);
+        }
         // one workgroup per allocated view slot (the counts buffer spans _part.viewDim ×
         // pairCount); slots past the active views carry zero counts → zero instanceCount
         setBound(pass, scan);
         pass.dispatchWorkgroups(_part.viewDim);
-        setBound(pass, scatter);
-        pass.dispatchWorkgroups(rows, views);
+        if (rows > 0) {
+            setBound(pass, scatter);
+            pass.dispatchWorkgroups(rows, views);
+        }
         pass.end();
     },
 };
@@ -254,30 +301,30 @@ function setBound(
     for (let i = 0; i < bound.groups.length; i++) pass.setBindGroup(i, bound.groups[i]);
 }
 
-// the one shared cull bind group both count and scatter reference. Its inputs are the per-entity slabs +
-// membership mirror, the world-transform firehose and the per-view cull volumes — all stable,
-// fixed-capacity identities published by their owners before any draw-group consumer runs, so a missing
-// one is a wiring bug and throws. `_part.cullParams` / `_part.meshBounds` are this module's own and genuinely late
-// (`syncBuffers` sizes them off the final mesh count), which is the one null the callers tolerate.
-// A typed bind group takes a raw GPUBuffer, which is what keeps those publishers' reach-in open
-function cullGroup(): TgpuBindGroup<(typeof cullLayout)["entries"]> | null {
-    if (_part.cullGroup) return _part.cullGroup;
+// Bind dense Part and Transform tables, replacing groups only when one of their GPU buffers grows.
+function cullGroup(state: State): TgpuBindGroup<(typeof cullLayout)["entries"]> | null {
     if (!_part.cullParams || !_part.meshBounds) return null;
-    const surface = Part.surface.gpu;
-    const mesh = Part.mesh.gpu;
-    const membership = Compute.buffers.get("membership");
-    const transforms = Compute.buffers.get("transforms");
+    const parts = partTable(state);
+    const transforms = transformTable(state);
+    const generation = `${parts.generation}:${parts.activeGeneration}:${transforms.generation}:${transforms.mapGeneration}`;
+    if (_part.inputGeneration !== generation) {
+        unbind();
+        _part.inputGeneration = generation;
+    }
+    if (_part.cullGroup) return _part.cullGroup;
     const cullVolumes = Compute.buffers.get("cullVolumes");
-    if (!surface || !mesh || !membership || !transforms || !cullVolumes) {
+    const partRows = parts.activeRowsBuffer;
+    const transformRows = transforms.eidToRowBuffer;
+    if (!cullVolumes || !partRows || !transformRows) {
         throw new Error(
-            "[part] cull inputs missing — declare RenderPlugin + SlabPlugin as dependencies",
+            "[part] dense table inputs missing — declare RenderPlugin + TransformsPlugin",
         );
     }
     _part.cullGroup = Compute.root.createBindGroup(cullLayout, {
-        surfaceField: surface,
-        meshField: mesh,
-        membership,
-        transforms,
+        partRows,
+        parts: parts.buffer,
+        transforms: transforms.buffer,
+        transformRows,
         meshBounds: _part.meshBounds,
         cullVolumes,
         params: _part.cullParams,
@@ -285,9 +332,9 @@ function cullGroup(): TgpuBindGroup<(typeof cullLayout)["entries"]> | null {
     return _part.cullGroup;
 }
 
-function bindCount(): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
+function bindCount(state: State): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
+    const cull = cullGroup(state);
     if (_part.countBound) return _part.countBound;
-    const cull = cullGroup();
     if (!_part.countPipe || !cull || !_part.counts) return null;
     _part.countBound = {
         pipeline: Compute.root.unwrap(_part.countPipe),
@@ -319,9 +366,11 @@ function bindScan(): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | 
     return _part.scanBound;
 }
 
-function bindScatter(): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
+function bindScatter(
+    state: State,
+): { pipeline: GPUComputePipeline; groups: GPUBindGroup[] } | null {
+    const cull = cullGroup(state);
     if (_part.scatterBound) return _part.scatterBound;
-    const cull = cullGroup();
     if (!_part.scatterPipe || !cull || !_part.counts || !Parts.drawArgs || !Parts.packedEids)
         return null;
     _part.scatterBound = {
@@ -351,12 +400,10 @@ function unbind(): void {
 
 /**
  * size the pack's buffers to the live mesh count (the pair dimension) and
- * active camera count (the view/slot dimension), growing when either rises
- * after warm: procedural producers size geometry from scene data and cameras
- * attach at runtime, so neither is final at warm. Called each frame; the two
- * `<=` compares are ints, not per-entity dirty tracking. `drawArgs` + `counts`
- * scale with `viewDim × pairCount`; `packedEids` with `viewDim × capacity`;
- * `meshBounds` with mesh count. Pair growth only appends slots
+ * active Part table row capacity and camera count, growing when any axis rises
+ * after warm. `drawArgs` + `counts` scale with `viewDim × pairCount`; dense
+ * output lists scale with `viewDim × rowCapacity`; mesh bounds scale with mesh count.
+ * Pair growth only appends slots
  * (`mid * surfaceCount + sid`) so existing offsets hold, and the pipelines read
  * both dimensions from `cullParams` + `arrayLength`, never recompiling. Old
  * buffers free behind the submit fence: a prior frame may still reference them
@@ -365,36 +412,38 @@ function syncBuffers(state: State): void {
     if (_part.surfaceCount === 0) return;
     const meshCount = Meshes.size;
     const viewDim = Math.max(1, Render.viewCount);
+    const rowCapacity = partTable(state).capacity;
     const growMesh = meshCount > _part.meshCount;
     const growView = viewDim > _part.viewDim;
-    if (!growMesh && !growView && Parts.drawArgs) return;
+    const growRows = rowCapacity > _part.rowCapacity;
+    if (!growMesh && !growView && !growRows && Parts.drawArgs) return;
 
     const device = Compute.device;
     _part.meshCount = Math.max(_part.meshCount, meshCount);
     _part.viewDim = Math.max(_part.viewDim, viewDim);
+    _part.rowCapacity = Math.max(_part.rowCapacity, rowCapacity);
     _part.pairCount = _part.surfaceCount * _part.meshCount;
     const records = _part.viewDim * _part.pairCount;
 
-    // drawArgs + counts span every (view, pair) — realloc when either dimension
-    // grows. COPY_SRC for GPU-debug readback + the pack tests
-    const staleArgs = [Parts.drawArgs, _part.counts];
-    Parts.drawArgs = Compute.root
-        .createBuffer(d.arrayOf(DrawIndexedIndirect, records))
-        .$usage("storage", "indirect")
-        .$name("shallot-draw-args");
-    _part.counts = Compute.root
-        .createBuffer(d.arrayOf(d.atomic(d.u32), records))
-        .$usage("storage")
-        .$name("shallot-part-counts");
+    const staleArgs: (DrawBuffer | AtomicU32Buffer | null)[] = [];
+    if (growMesh || growView || !Parts.drawArgs) {
+        staleArgs.push(Parts.drawArgs, _part.counts);
+        Parts.drawArgs = Compute.root
+            .createBuffer(d.arrayOf(DrawIndexedIndirect, records))
+            .$usage("storage", "indirect")
+            .$name("shallot-draw-args");
+        _part.counts = Compute.root
+            .createBuffer(d.arrayOf(d.atomic(d.u32), records))
+            .$usage("storage")
+            .$name("shallot-part-counts");
+    }
 
-    // packedEids holds one capacity-sized region per view — realloc only when
-    // the view dimension grows, so a mesh registering doesn't churn the buffer
-    // sear binds (its identity invalidates the bind-group cache)
     let stalePacked: U32Buffer | null = null;
-    if (growView || !Parts.packedEids) {
+    if (growView || growRows || !Parts.packedEids) {
         stalePacked = Parts.packedEids;
+        const listCapacity = _part.viewDim * _part.rowCapacity;
         Parts.packedEids = Compute.root
-            .createBuffer(d.arrayOf(d.u32, _part.viewDim * state.capacity))
+            .createBuffer(d.arrayOf(d.u32, listCapacity))
             .$usage("storage")
             .$name("shallot-packed-eids");
         Compute.buffers.set("eids", Compute.root.unwrap(Parts.packedEids));
@@ -512,15 +561,8 @@ function registerDraws(): void {
     }
 }
 
-/** seed Part defaults. The slab arrays are allocated by SlabPlugin (a dependency) before this runs */
-export function initPart(state: State): void {
-    // base every slot in magenta — the visible "Part without an explicit Color" indicator (an entity
-    // with Color overwrites its slot via the white trait default on add). `Part.surface`/`mesh`/
-    // `Color.rgba` are declared inline (`slab(...)`); collect() in SlabPlugin.initialize allocated
-    // their arrays already. The pack gates each slot on the Part-membership bit, so a destroyed or
-    // non-Part slot is skipped regardless of the stale ids it holds.
-    for (let i = 0; i < state.capacity; i++) Color.rgba.set(i, 1, 0, 1, 1);
-
+/** Reset cached bind groups for a newly built world. */
+export function initPart(): void {
     unbind();
 }
 
@@ -542,18 +584,16 @@ export function warmPart(state: State): void {
     _part.pairCount = 0;
     _part.viewDim = 1;
     Parts.drawArgs = null;
+    Parts.packedEids = null;
     _part.counts = null;
     _part.meshBounds = null;
+    _part.rowCapacity = 0;
+    _part.inputGeneration = null;
+    _part.paramsViewCount = -1;
+    _part.paramsPairCount = -1;
+    _part.paramsPartCount = -1;
+    _part.paramsPartCapacity = -1;
     unbind();
-
-    // one capacity-sized region (slot 0); syncBuffers grows it as cameras attach.
-    // COPY_SRC for GPU-debug readback + the pack tests
-    Parts.packedEids = root
-        .createBuffer(d.arrayOf(d.u32, state.capacity))
-        .$usage("storage")
-        .$name("shallot-packed-eids");
-    Compute.buffers.set("eids", root.unwrap(Parts.packedEids));
-    Compute.typed.set("eids", Parts.packedEids);
 
     _part.cullParams = root
         .createBuffer(CullParams)
@@ -561,31 +601,24 @@ export function warmPart(state: State): void {
         .$name("shallot-part-cull-params");
     if (_part.surfaceCount === 0) return;
 
-    const part = state.membership.bit(Part);
-    const capacity = state.capacity;
-    const base = part.gen * capacity;
     _part.countPipe = root
-        .createComputePipeline({
-            compute: countKernel(base, part.mask, _part.surfaceCount, capacity),
-        })
+        .createComputePipeline({ compute: countKernel(_part.surfaceCount) })
         .$name("shallot-part-count");
     _part.scanPipe = root
-        .createComputePipeline({ compute: scanKernel(capacity) })
+        .createComputePipeline({ compute: scanKernel() })
         .$name("shallot-part-scan");
     _part.scatterPipe = root
-        .createComputePipeline({
-            compute: scatterKernel(base, part.mask, _part.surfaceCount, capacity),
-        })
+        .createComputePipeline({ compute: scatterKernel(_part.surfaceCount) })
         .$name("shallot-part-scatter");
 
     // both the allocation and the bind are deferred into the forcers, not done here. The drain runs
     // after every plugin's warm has resolved (warm hooks run under `Promise.all`), which is the first
-    // moment `Meshes` is flushed and `membership` / `transforms` / `cullVolumes` are published — so
+    // moment meshes, dense table buffers, the transform lookup, and cull volumes are published — so
     // `syncBuffers` can size the pack's buffers there, and the pipeline that forces the compile has
     // something to bind. One forcer per pipeline, so each gets its own row in the compile table
     precompile("shallot-part-count", () => {
         syncBuffers(state);
-        const bound = bindCount();
+        const bound = bindCount(state);
         return bound && [bound.pipeline];
     });
     precompile("shallot-part-scan", () => {
@@ -593,7 +626,7 @@ export function warmPart(state: State): void {
         return bound && [bound.pipeline];
     });
     precompile("shallot-part-scatter", () => {
-        const bound = bindScatter();
+        const bound = bindScatter(state);
         return bound && [bound.pipeline];
     });
 }

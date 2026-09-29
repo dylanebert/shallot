@@ -18,8 +18,7 @@ import {
 import { currentWorld, withCompute } from "../../engine/runtime";
 import { eulerAlias } from "../../engine/utils";
 import { PrepassSystem } from "../../standard/rendering";
-import { SlabPlugin, slab } from "../slab";
-import { Transform } from "../transforms";
+import { Transform, TransformsPlugin, transformTable } from "../transforms";
 import {
     type ContactEvents,
     hash as hashWorld,
@@ -75,24 +74,24 @@ export const ShapeKind = { Box: 0, Sphere: 1, Capsule: 2, Hull: 3 } as const;
  */
 export const Body = {
     /** the collider, a `ShapeKind`: `Box` (an OBB of `halfExtents`), `Sphere`, `Capsule` (a segment along local Y inflated by the radius), or `Hull` (a convex polytope registered in `Hulls`). */
-    shape: slab(u32),
+    shape: field(u32),
     /** spawn position; physics owns it after spawn. */
-    pos: slab(vec4),
+    pos: field(vec4),
     /** spawn orientation, authored as euler degrees like `Transform.rot`; physics-owned after spawn. */
-    quat: slab(vec4),
+    quat: field(vec4),
     /** box/AABB half-extents in `xyz`; `w` doubles as the rounding radius (sphere/capsule) or the `Hull` id (a hull has radius 0, so the lane is free). */
-    halfExtents: slab(vec4),
+    halfExtents: field(vec4),
     /** mass in kg; `0` or less marks a static body that never moves. */
-    mass: slab(f32),
+    mass: field(f32),
     /** coulomb friction coefficient: `0` slides freely, higher grips. */
-    friction: slab(f32),
+    friction: field(f32),
 };
 
 /** live pose written by the physics plugin; consumers such as the harness resolve it by registered name. */
 export const Pose = {
-    pos: slab(vec4),
-    quat: slab(vec4),
-    vel: slab(vec4),
+    pos: field(vec4),
+    quat: field(vec4),
+    vel: field(vec4),
 };
 
 /** Pose is runtime-derived and never scene-authored. */
@@ -519,6 +518,24 @@ function runtimeFor(state: State): PhysicsRuntime {
         throw new Error("physics: PhysicsPlugin is not initialized for this State");
     return runtime;
 }
+
+function ensurePoseCapacity(runtime: PhysicsRuntime, rows: number): void {
+    if (rows <= runtime.movedThisTick.length) return;
+    let capacity = Math.max(16, runtime.movedThisTick.length);
+    while (capacity < rows) capacity *= 2;
+    const growFloat = (source: Float32Array, lanes: number) => {
+        const next = new Float32Array(capacity * lanes);
+        next.set(source);
+        return next;
+    };
+    runtime.prevPos = growFloat(runtime.prevPos, 3);
+    runtime.prevQuat = growFloat(runtime.prevQuat, 4);
+    runtime.currPos = growFloat(runtime.currPos, 3);
+    runtime.currQuat = growFloat(runtime.currQuat, 4);
+    const moved = new Int32Array(capacity);
+    moved.set(runtime.movedThisTick);
+    runtime.movedThisTick = moved;
+}
 // the create-stamp each body was marshaled at. Presence in `bodies` catches a
 // plain spawn/despawn; a same-update destroy+create recycling an eid keeps Body membership AND the map entry,
 // so the stamp is the only signal that the slot now holds a new body, and a mismatch re-marshals it.
@@ -726,7 +743,7 @@ const readVel = { x: 0, y: 0, z: 0 };
 export function readBody(state: State, eid: number, out?: BodyStateOut): BodyState | null {
     if (currentWorld<State>() !== state)
         return withCompute(state.gpu, () => readBody(state, eid, out));
-    const tb = body(state, eid);
+    const tb = runtimeFor(state).bodies.get(eid);
     if (!tb) return null;
     const p = tb.getPosition(readPos);
     const q = tb.getRotation(readQuat);
@@ -986,6 +1003,7 @@ const SyncSystem: System = {
         const runtime = runtimeFor(state);
         const world = runtime.world;
         if (!world) return;
+        ensurePoseCapacity(runtime, state.entityHighWater);
         runtime.counters.bodiesVisited = 0;
         // a deferred body finally marshaling (or a body going stale) is the transition a dropped constraint
         // waits on, and `ConstraintSystem` re-uploads on an authored signature change only, so the constraint
@@ -1034,7 +1052,11 @@ const SyncSystem: System = {
 const _record = new Float32Array(12);
 
 /** write the movers' interpolated pose into the `transforms` firehose at `alpha` (the fixed-step interpolation blend). */
-export function composePose(runtime: PhysicsRuntime, transforms: GPUBuffer, alpha: number): void {
+export function composePose(
+    runtime: PhysicsRuntime,
+    transforms: ReturnType<typeof transformTable>,
+    alpha: number,
+): void {
     if (!Compute.device) return;
     const moved = runtime.movedThisTick;
     for (let i = 0; i < runtime.movedCount; i++) {
@@ -1074,7 +1096,9 @@ export function composePose(runtime: PhysicsRuntime, transforms: GPUBuffer, alph
         _record[9] = scale[1];
         _record[10] = scale[2];
         _record[11] = 0;
-        Compute.device.queue.writeBuffer(transforms, eid * 48, _record);
+        const row = transforms.rowIndex(eid);
+        if (row >= 0)
+            Compute.device.queue.writeBuffer(transforms.buffer, row * transforms.rowBytes, _record);
     }
 }
 
@@ -1087,9 +1111,8 @@ export const ComposeSystem: System = {
     update(state) {
         const runtime = runtimeFor(state);
         if (!runtime.world || !Render.encoder) return;
-        const transforms = Compute.buffers.get("transforms");
-        if (!transforms) return;
-        composePose(runtime, transforms, state.time.fixedAlpha);
+        ensurePoseCapacity(runtime, state.entityHighWater);
+        composePose(runtime, transformTable(state), state.time.fixedAlpha);
     },
 };
 
@@ -1107,7 +1130,7 @@ export const PhysicsPlugin: Plugin = {
     name: "Physics",
     components: { Body, Pose, Spring, Joint },
     systems: [SyncSystem, ConstraintSystem, StepSystem, ComposeSystem],
-    dependencies: [SlabPlugin],
+    dependencies: [TransformsPlugin],
     traits: {
         Body: bodyTraits,
         Pose: poseTraits,
@@ -1117,6 +1140,7 @@ export const PhysicsPlugin: Plugin = {
 
     initialize(state) {
         state.resource(physicsRuntimeKey, newRuntime).initialized = true;
+        transformTable(state).bindMembership(Body);
     },
 
     async warm(state) {
@@ -1125,11 +1149,7 @@ export const PhysicsPlugin: Plugin = {
         runtime.world?.destroy();
         runtime.world = new World({ gravity: { x: 0, y: GRAVITY, z: 0 } });
         clearBodies(runtime);
-        runtime.prevPos = new Float32Array(state.capacity * 3);
-        runtime.prevQuat = new Float32Array(state.capacity * 4);
-        runtime.currPos = new Float32Array(state.capacity * 3);
-        runtime.currQuat = new Float32Array(state.capacity * 4);
-        runtime.movedThisTick = new Int32Array(state.capacity);
+        ensurePoseCapacity(runtime, state.entityHighWater);
         resetSignatures(state); // the fresh world receives the authored constraint set on its first frame
     },
 

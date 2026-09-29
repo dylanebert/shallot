@@ -20,6 +20,7 @@ export class WorldField<T extends Type = Type> {
     readonly storage: "sparse" | "slab";
     readonly name?: string;
     readonly #column: Column;
+    readonly #observers = new Set<(eid: number) => void>();
 
     constructor(schema: FieldSchema<T>, initialCapacity: number) {
         this.type = schema.type;
@@ -47,6 +48,11 @@ export class WorldField<T extends Type = Type> {
         column.dirty = dirty;
     }
 
+    observe(observer: (eid: number) => void): () => void {
+        this.#observers.add(observer);
+        return () => this.#observers.delete(observer);
+    }
+
     set(eid: number, x: number, y = 0, z = 0, w = 0): void {
         this.ensure(eid + 1);
         const { array, dirty } = this.#column;
@@ -59,6 +65,7 @@ export class WorldField<T extends Type = Type> {
             array[base + 3] = encode(w);
         }
         dirty[eid >>> 5] |= 1 << (eid & 31);
+        for (const observer of this.#observers) observer(eid);
     }
 
     get(eid: number, lane = 0): number {
@@ -77,6 +84,7 @@ export class WorldField<T extends Type = Type> {
         if (base + this.type.lanes > array.length) return;
         for (let lane = 0; lane < this.type.lanes; lane++) array[base + lane] = 0;
         dirty[eid >>> 5] |= 1 << (eid & 31);
+        for (const observer of this.#observers) observer(eid);
     }
 
     get column(): TypedArray {
@@ -176,6 +184,7 @@ export class WorldField<T extends Type = Type> {
         const encode = this.type.encode ?? identity;
         this.#column.array[eid * this.type.lanes + lane] = encode(value);
         this.#column.dirty[eid >>> 5] |= 1 << (eid & 31);
+        for (const observer of this.#observers) observer(eid);
     }
 }
 

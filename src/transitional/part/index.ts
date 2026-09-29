@@ -2,7 +2,6 @@
 
 import { RenderPlugin } from "../../core/rendering";
 import type { Plugin } from "../../engine";
-import { SlabPlugin } from "../slab";
 import { initMeshes } from "./mesh";
 import {
     Color,
@@ -15,7 +14,7 @@ import {
     warmPart,
 } from "./part";
 
-export { Color, Part } from "./part";
+export { Color, Part, partTable } from "./part";
 
 /**
  * the dogfooded Part producer. ECS-shaped per-entity rendering: `Part` +
@@ -26,8 +25,7 @@ export { Color, Part } from "./part";
  * and renders under any consumer. The surfaces its entities point at
  * (`Part.surface` defaults to the name `"default"`) ship with the renderer:
  * sear registers `default`/`unlit`/`vertex` against the `eids` + `transforms`
- * instance convention and its own `lit`. Depends on {@link RenderPlugin} (the
- * substrate) + `SlabPlugin`
+ * instance convention and its own `lit`. Depends on {@link RenderPlugin}.
  */
 export const PartPlugin: Plugin = {
     name: "Part",
@@ -37,11 +35,11 @@ export const PartPlugin: Plugin = {
         Part: PartTraits,
         Color: ColorTraits,
     },
-    dependencies: [RenderPlugin, SlabPlugin],
+    dependencies: [RenderPlugin],
 
     initialize(state) {
         initializePartState(state);
-        initPart(state);
+        initPart();
         initMeshes();
     },
 

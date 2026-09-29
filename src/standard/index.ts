@@ -83,13 +83,11 @@ import type { Plugin } from "../engine";
 import { setDefaultLoading, setDefaultPlugins } from "../engine/app";
 import { GlazePlugin } from "../transitional/glaze";
 import { PartPlugin } from "../transitional/part";
-import { SlabPlugin } from "../transitional/slab";
 import { TransformsPlugin } from "../transitional/transforms";
 import { shallotDark } from "./loading";
 import { SearPlugin } from "./rendering";
 
 export const DEFAULT_PLUGINS: readonly Plugin[] = [
-    SlabPlugin,
     TransformsPlugin,
     InputPlugin,
     BrowserInputPlugin,

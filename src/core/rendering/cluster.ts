@@ -12,6 +12,7 @@ import {
     Xform,
     xformQuat,
 } from "../../engine/utils";
+import { transformTable } from "../../transitional/transforms";
 import { Camera, CameraMode } from "./camera";
 import {
     MAX_POINT_LIGHTS,
@@ -36,6 +37,9 @@ interface ClusterGpuState {
     compactPipe: TgpuComputePipeline | null;
     cullPipe: TgpuComputePipeline | null;
     compactBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
+    compactGeneration: string | null;
+    lightCountBuffer: GPUBuffer | null;
+    lightCountValue: number;
     cullBound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
     overflowStaging: GPUBuffer | null;
     overflowPending: boolean;
@@ -70,6 +74,9 @@ function createClusterGpuState(): ClusterGpuState {
         compactPipe: null,
         cullPipe: null,
         compactBound: null,
+        compactGeneration: null,
+        lightCountBuffer: null,
+        lightCountValue: -1,
         cullBound: null,
         overflowStaging: null,
         overflowPending: false,
@@ -84,9 +91,42 @@ function clusterGpu(): ClusterGpuState {
     return worldResource(clusterGpuKey, createClusterGpuState);
 }
 
-/** Create this world's cluster and light-cull state during RenderPlugin initialization. */
+const LightInput = d
+    .struct({
+        color: d.f32,
+        intensity: d.f32,
+        range: d.f32,
+        radius: d.f32,
+        spotInner: d.f32,
+        spotOuter: d.f32,
+        flags: d.u32,
+        padding: d.u32,
+    })
+    .$name("LightInput");
+const LIGHT_SPOT = 1;
+const LIGHT_VOLUMETRIC = 2;
+const lightInputKey = Symbol("shallot.light-input-table");
+const lightCountData = new Uint32Array(1);
+
+function lightInputTable(state: State) {
+    return state.resource(lightInputKey, () => state.table("lightInputs", LightInput));
+}
+
+/** Create this world's cluster and dense light-input state during RenderPlugin initialization. */
 export function initializeClusterState(state: State): void {
     state.resource(clusterGpuKey, createClusterGpuState);
+    const table = lightInputTable(state);
+    table.bindFields(PointLight, {
+        color: "color",
+        intensity: "intensity",
+        range: "range",
+        radius: "radius",
+    });
+    table.bindMembership(PointLight);
+    table.bindFields(Spot, { spotInner: "inner", spotOuter: "outer" });
+    table.bindMembership(Spot);
+    table.bindPresence(Spot, "flags", LIGHT_SPOT);
+    table.bindPresence(Volumetric, "flags", LIGHT_VOLUMETRIC);
 }
 
 const _gpu = new Proxy({} as Omit<ClusterGpuState, "clusters" | "lightCull">, {
@@ -509,14 +549,11 @@ export const LightCull: LightCull = new Proxy({} as LightCull, {
 
 const compactLayout = tgpu
     .bindGroupLayout({
-        membership: { storage: d.arrayOf(d.u32), access: "readonly" },
+        lightRows: { storage: d.arrayOf(d.vec2u), access: "readonly" },
+        lightInput: { storage: d.arrayOf(LightInput), access: "readonly" },
         transforms: { storage: d.arrayOf(Xform), access: "readonly" },
-        colorF: { storage: d.arrayOf(d.f32), access: "readonly" },
-        intensityF: { storage: d.arrayOf(d.f32), access: "readonly" },
-        rangeF: { storage: d.arrayOf(d.f32), access: "readonly" },
-        radiusF: { storage: d.arrayOf(d.f32), access: "readonly" },
-        spotInnerF: { storage: d.arrayOf(d.f32), access: "readonly" },
-        spotOuterF: { storage: d.arrayOf(d.f32), access: "readonly" },
+        transformRows: { storage: d.arrayOf(d.u32), access: "readonly" },
+        lightCount: { uniform: d.u32 },
         lights: { storage: PointLightsRw, access: "mutable" },
     })
     .$idx(0);
@@ -531,72 +568,51 @@ const cullLayout = tgpu
     })
     .$idx(0);
 
-// the GPU twin of the deleted CPU pack: membership-gated scan over capacity, world position from the
-// transforms firehose, hex sRGB color decoded to linear with intensity pre-baked, posRange.w = 1/range².
-// The three membership gates (PointLight, Spot, Volumetric) come in as captured row bases + masks, so
-// they fold to literals — no uniform to bind.
-function compactKernel(
-    capacity: number,
-    light: { base: number; mask: number },
-    spot: { base: number; mask: number },
-    vol: { base: number; mask: number },
-) {
-    // a factory-returned kernel has no binding for `names: "strict"` to read, so it resolves to `fn item`
-    // unless named — and that name is what a Tint compile error and every GPU `console.log` line reports
+// Compact only active point-light rows. Dense table slots feed the record fields; the optional eid map is
+// a point lookup into transforms, never a capacity-sized pass. Hex sRGB is decoded on GPU.
+function compactKernel() {
     return tgpu
         .computeFn({
             workgroupSize: [64],
             in: { gid: d.builtin.globalInvocationId },
         })((input) => {
             "use gpu";
-            const eid = input.gid.x;
-            if (eid >= capacity) return;
-            if ((compactLayout.$.membership[light.base + eid] & light.mask) === 0) return;
-            const range = compactLayout.$.rangeF[eid];
-            if (range <= 0) return;
+            const index = input.gid.x;
+            if (index >= compactLayout.$.lightCount) return;
+            const entry = compactLayout.$.lightRows[index];
+            const eid = entry.x;
+            const record = compactLayout.$.lightInput[entry.y];
+            const transformEncoded = compactLayout.$.transformRows[eid];
+            if (transformEncoded === 0 || record.range <= 0) return;
+            const transform = compactLayout.$.transforms[transformEncoded - 1];
             const i = std.atomicAdd(compactLayout.$.lights.count[0], 1);
             if (i >= MAX_POINT_LIGHTS) return;
-            const hex = d.u32(compactLayout.$.colorF[eid]);
-            const intensity = compactLayout.$.intensityF[eid];
+            const hex = d.u32(record.color);
             const rgb = std.mul(
                 d.vec3f(
                     srgbToLinear1(d.f32((hex >>> 16) & 0xff) / 255),
                     srgbToLinear1(d.f32((hex >>> 8) & 0xff) / 255),
                     srgbToLinear1(d.f32(hex & 0xff) / 255),
                 ),
-                intensity,
+                record.intensity,
             );
-            const pos = compactLayout.$.transforms[eid].pos;
+            const pos = transform.pos;
             compactLayout.$.lights.lights[i].posRange = d.vec4f(
                 pos.x,
                 pos.y,
                 pos.z,
-                1 / (range * range),
+                1 / (record.range * record.range),
             );
-            // color.a carries the source entity id (exact in f32 up to 2^24 ≫ capacity) — the hook a
-            // consumer matches per-entity light extensions on (sear's point-shadow casters)
+            // color.a carries the source entity id for per-entity light extensions.
             compactLayout.$.lights.lights[i].color = d.vec4f(rgb.x, rgb.y, rgb.z, d.f32(eid));
 
-            // params.x = source radius (the soft-sphere falloff clamp + representative-point spec). Its sign
-            // is the Volumetric opt-in flag: the lit path only ever reads radiusSq = params.x·params.x
-            // (sign-immune), so a negated radius leaves shading unchanged while the fog march reads
-            // params.x < 0 as "scatter this light" through the haze. max(.,1e-4) keeps the flag a nonzero
-            // negative for a radius-0 light
-            let radius = compactLayout.$.radiusF[eid];
-            if ((compactLayout.$.membership[vol.base + eid] & vol.mask) !== 0) {
-                radius = -std.max(radius, 1e-4);
-            }
-            // the spot lanes (y = cone-axis oct, z/w = angular scale/offset) are (0, 0, 1) for a plain point
-            // light so the FS angular factor is 1; a Spot bakes the cone here (axis = the entity's forward,
-            // scale/offset = Frostbite getAngleAtt from the inner/outer half-angles — the spotParams oracle's
-            // twin)
+            let radius = record.radius;
+            if ((record.flags & LIGHT_VOLUMETRIC) !== 0) radius = -std.max(radius, 1e-4);
             let params = d.vec4f(radius, 0, 0, 1);
-            if ((compactLayout.$.membership[spot.base + eid] & spot.mask) !== 0) {
-                const dir = std.normalize(
-                    xformQuat(compactLayout.$.transforms[eid].quat, d.vec3f(0, 0, -1)),
-                );
-                const cosInner = std.cos(std.radians(compactLayout.$.spotInnerF[eid]));
-                const cosOuter = std.cos(std.radians(compactLayout.$.spotOuterF[eid]));
+            if ((record.flags & LIGHT_SPOT) !== 0) {
+                const dir = std.normalize(xformQuat(transform.quat, d.vec3f(0, 0, -1)));
+                const cosInner = std.cos(std.radians(record.spotInner));
+                const cosOuter = std.cos(std.radians(record.spotOuter));
                 const scale = 1 / std.max(cosInner - cosOuter, 1e-4);
                 params = d.vec4f(
                     radius,
@@ -715,14 +731,9 @@ const cullKernel = tgpu.computeFn({
 
 /** the emitted light compact + cull WGSL — the device-free structural seam their tests resolve.
  *  @internal */
-export function lightCullWgsl(
-    capacity: number,
-    light: { base: number; mask: number },
-    spot: { base: number; mask: number },
-    vol: { base: number; mask: number },
-): { compact: string; cull: string } {
+export function lightCullWgsl(): { compact: string; cull: string } {
     return {
-        compact: tgpu.resolve([compactKernel(capacity, light, spot, vol)], { names: "strict" }),
+        compact: tgpu.resolve([compactKernel()], { names: "strict" }),
         cull: tgpu.resolve([cullKernel], { names: "strict" }),
     };
 }
@@ -733,30 +744,26 @@ export function lightCullWgsl(
 
 const OVERFLOW_PERIOD = 240;
 
-// bound once, on the forced precompile. A typed bind group takes a raw GPUBuffer, which is what keeps
-// the slab mirrors' and `membership`'s reach-in open. Every input is stable post-warm, so a missing one
-// is a wiring bug and gets the named throw — never a skipped frame
-function bindCompact(): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
-    if (_gpu.compactBound) return _gpu.compactBound;
-    if (!_gpu.compactPipe || !_gpu.typedLights)
+// Keep bind groups until a table buffer generation changes; row membership alone never rebuilds one.
+function bindCompact(state: State): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
+    if (!_gpu.compactPipe || !_gpu.typedLights || !_gpu.lightCountBuffer)
         throw new Error("[render] light compact used before warmLightCull");
+    const lights = lightInputTable(state);
+    const transforms = transformTable(state);
+    const generation = `${lights.generation}:${lights.activeGeneration}:${transforms.generation}:${transforms.mapGeneration}`;
+    if (_gpu.compactBound && _gpu.compactGeneration === generation) return _gpu.compactBound;
     const inputs = {
-        membership: Compute.buffers.get("membership"),
-        transforms: Compute.buffers.get("transforms"),
-        colorF: PointLight.color.gpu,
-        intensityF: PointLight.intensity.gpu,
-        rangeF: PointLight.range.gpu,
-        radiusF: PointLight.radius.gpu,
-        spotInnerF: Spot.inner.gpu,
-        spotOuterF: Spot.outer.gpu,
+        lightRows: lights.activeRowsBuffer,
+        lightInput: lights.buffer,
+        transforms: transforms.buffer,
+        transformRows: transforms.eidToRowBuffer,
+        lightCount: _gpu.lightCountBuffer,
     };
     const missing = Object.entries(inputs)
         .filter(([, buffer]) => !buffer)
         .map(([name]) => name);
     if (missing.length > 0) {
-        throw new Error(
-            `[render] light compact inputs missing (${missing.join(", ")}) — SlabPlugin + TransformsPlugin must be loaded`,
-        );
+        throw new Error(`[render] light compact table inputs missing (${missing.join(", ")})`);
     }
     _gpu.compactBound = {
         pipeline: Compute.root.unwrap(_gpu.compactPipe),
@@ -767,6 +774,7 @@ function bindCompact(): { pipeline: GPUComputePipeline; group: GPUBindGroup } {
             }),
         ),
     };
+    _gpu.compactGeneration = generation;
     return _gpu.compactBound;
 }
 
@@ -828,8 +836,7 @@ function checkOverflow(): void {
 }
 
 /**
- * per-frame light compact + cull: builds the compacted light list from the
- * PointLight slabs + transforms firehose, then bins it into the cluster grid.
+ * per-frame light compact + cull: builds the compacted list from active light-table rows, then bins it.
  * Runs after `ClusterSystem` by registration order, before the renderers
  * (which sort after `BeginFrameSystem` in the same registration stream)
  */
@@ -850,12 +857,20 @@ export const LightCullSystem: System = {
         Render.encoder.clearBuffer(LightCull.lights!, 0, 16);
         Render.encoder.clearBuffer(LightCull.indices!, 0, POOL_HEADER * 4);
         _gpu.cullPass.timestampWrites = Compute.span?.("light:cull");
-        const compact = bindCompact();
+        const lightCount = lightInputTable(state).count;
+        if (lightCount !== _gpu.lightCountValue) {
+            lightCountData[0] = lightCount;
+            Compute.device.queue.writeBuffer(_gpu.lightCountBuffer!, 0, lightCountData);
+            _gpu.lightCountValue = lightCount;
+        }
+        const compact = lightCount > 0 ? bindCompact(state) : null;
         const cull = bindCull();
         const pass = Render.encoder.beginComputePass(_gpu.cullPass);
-        pass.setPipeline(compact.pipeline);
-        pass.setBindGroup(0, compact.group);
-        pass.dispatchWorkgroups(Math.ceil(state.capacity / 64));
+        if (compact) {
+            pass.setPipeline(compact.pipeline);
+            pass.setBindGroup(0, compact.group);
+            pass.dispatchWorkgroups(Math.ceil(lightCount / 64));
+        }
         pass.setPipeline(cull.pipeline);
         pass.setBindGroup(0, cull.group);
         pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
@@ -877,6 +892,7 @@ export function warmLightCull(state: State): void {
     const device = Compute.device;
     const root = Compute.root;
     _gpu.compactBound = null;
+    _gpu.compactGeneration = null;
     _gpu.cullBound = null;
     _gpu.overflowPending = false;
 
@@ -899,6 +915,12 @@ export function warmLightCull(state: State): void {
         size: MAX_VIEWS * 64,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
+    _gpu.lightCountBuffer = device.createBuffer({
+        label: "shallot-light-count",
+        size: 4,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    _gpu.lightCountValue = -1;
     _gpu.overflowInFlight = false;
     _gpu.overflowStaging = device.createBuffer({
         label: "shallot-light-overflow",
@@ -907,6 +929,7 @@ export function warmLightCull(state: State): void {
     });
     Compute.buffers.set("lightGrid", LightCull.grid);
     Compute.buffers.set("lightIndices", LightCull.indices);
+    Compute.buffers.set("lightCount", _gpu.lightCountBuffer);
     Compute.typed.set(
         "lightGrid",
         root
@@ -920,21 +943,10 @@ export function warmLightCull(state: State): void {
             .$usage("storage"),
     );
 
-    const capacity = state.capacity;
-    const bit = state.membership.bit(PointLight);
-    const spotBit = state.membership.bit(Spot);
-    const volBit = state.membership.bit(Volumetric);
     _gpu.compactPipe = root
-        .createComputePipeline({
-            compute: compactKernel(
-                capacity,
-                { base: bit.gen * capacity, mask: bit.mask },
-                { base: spotBit.gen * capacity, mask: spotBit.mask },
-                { base: volBit.gen * capacity, mask: volBit.mask },
-            ),
-        })
+        .createComputePipeline({ compute: compactKernel() })
         .$name("shallot-light-compact");
     _gpu.cullPipe = root.createComputePipeline({ compute: cullKernel }).$name("shallot-light-cull");
-    precompile("shallot-light-compact", () => [bindCompact().pipeline]);
+    precompile("shallot-light-compact", () => [bindCompact(state).pipeline]);
     precompile("shallot-light-cull", () => [bindCull().pipeline]);
 }

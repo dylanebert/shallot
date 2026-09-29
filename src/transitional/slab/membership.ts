@@ -31,7 +31,7 @@ const membershipWorld = (state: State): MembershipWorld =>
  * @internal
  */
 export function allocMembership(state: State): void {
-    const mirror = new Uint32Array(state.membership.generations * state.capacity);
+    const mirror = new Uint32Array(state.membership.generations * state.entityHighWater);
     const gpu = Compute.device.createBuffer({
         label: "membership",
         size: mirror.byteLength,
@@ -58,7 +58,7 @@ function flush(state: State): void {
     const { gpu, mirror } = world;
     if (!gpu) return;
     const changed = state.membership.drain((eid, gen, word) => {
-        const i = gen * state.capacity + eid;
+        const i = gen * state.entityHighWater + eid;
         if (i < mirror.length) mirror[i] = word;
     });
     if (changed) Compute.device.queue.writeBuffer(gpu, 0, mirror);

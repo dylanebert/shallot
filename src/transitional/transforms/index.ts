@@ -1,108 +1,23 @@
 // Destination: engine; owner: engine-gpu-core.md.
-import type { StorageFlag, TgpuBuffer, TgpuComputePipeline } from "typegpu";
-import * as d from "typegpu/data";
-import { Compute, type Plugin, type State, vec4 } from "../../engine";
-import { precompile, worldResource } from "../../engine/runtime";
+import type { GpuTable, Plugin, State } from "../../engine";
+import { field, vec4 } from "../../engine";
 import { eulerAlias, Xform } from "../../engine/utils";
-import { SlabPlugin, slab } from "../slab";
-import { composeKernel, composeLayout } from "./compose";
 
-interface TransformGpuState {
-    typed: (TgpuBuffer<d.WgslArray<typeof Xform>> & StorageFlag) | null;
-    pipeline: TgpuComputePipeline | null;
-    bound: { pipeline: GPUComputePipeline; group: GPUBindGroup } | null;
-    pass: GPUComputePassDescriptor;
+const TRANSFORM_TABLE = Symbol("shallot.transforms.table");
+
+/** The dense world-pose table shared by rendering and physics. */
+export function transformTable(state: State): GpuTable<typeof Xform> {
+    return state.resource(TRANSFORM_TABLE, () => state.table("transforms", Xform));
 }
 
-const transformGpuKey = Symbol("shallot.transforms");
-const createTransformGpuState = (): TransformGpuState => ({
-    typed: null,
-    pipeline: null,
-    bound: null,
-    pass: { label: "shallot-transforms-compose" },
-});
-
-function transformGpuState(): TransformGpuState {
-    return worldResource(transformGpuKey, createTransformGpuState);
-}
-
-// the transform firehose: one capacity-sized buffer of decomposed per-entity {pos, quat, scale} (`Xform`,
-// 48 B) the compose pass gathers from the pos/rot/scale slabs; readers reconstruct the world transform on
-// read (`xformWgsl()`), keeping the per-instance read one AoS cache line. Published to `Compute.buffers` as
-// "transforms" (the access path — surfaces resolve it by name). A derived GPU buffer, not a per-entity
-// field, so it lives here, not on the Transform component (mirrors `Lighting` vs `DirectionalLight` in
-// render/). null until initialize (headless: stays null).
-// the compose pipeline and bind group are held by this world's GPU resource.
-
-// build once, on the first call that has every buffer: the forced precompile (drained after every
-// plugin has warmed) or, failing that, the first frame's dispatch.
-function bind(): { pipeline: GPUComputePipeline; group: GPUBindGroup } | null {
-    const resources = transformGpuState();
-    if (resources.bound) return resources.bound;
-    if (!resources.pipeline || !resources.typed) return null;
-    // the firehose binds typed; the slab mirrors and `membership` are raw handles their owning modules
-    // publish — a typed bind group takes either, which is what keeps the raw reach-in open. A missing
-    // one is a wiring bug: let the bind group creation throw, never skip a frame
-    const group = Compute.root.createBindGroup(composeLayout, {
-        pos: Transform.pos.gpu!,
-        rot: Transform.rot.gpu!,
-        scale: Transform.scale.gpu!,
-        transforms: resources.typed,
-        membership: Compute.buffers.get("membership")!,
-    });
-    resources.bound = {
-        pipeline: Compute.root.unwrap(resources.pipeline),
-        group: Compute.root.unwrap(group),
-    };
-    return resources.bound;
-}
-
-/**
- * per-entity transform: pos, rot, scale as direct {@link Quad} fields. Lanes
- * are individually addressable as Singles (`Transform.pos.x.set(eid, v)`) and
- * writable in bulk (`Transform.pos.set(eid, x, y, z, 0)`). The CPU writes flow
- * through the slab plugin; SlabSystem flushes dirty slots once per frame and
- * the compose pass derives world matrices into the `"transforms"` firehose.
- *
- * @example
- * ```
- * <a transform="pos: 0 1 0; rot: 0 0 0 1; scale: 1 1 1" />
- * ```
- */
+/** Per-entity authored transform fields; the State-owned table mirrors them as one struct row. */
 export const Transform = {
-    pos: slab(vec4),
-    rot: slab(vec4),
-    scale: slab(vec4),
+    pos: field(vec4),
+    rot: field(vec4),
+    scale: field(vec4),
 };
 
-/**
- * record the per-frame world-matrix compose dispatch onto `encoder`. Reads
- * the slab canonical GPU buffers (populated by the prior frame's SlabSystem
- * submit), writes the `"transforms"` firehose. Headless (no device) leaves the
- * pipeline unbuilt and the call is a no-op
- */
-export function composeTransforms(encoder: GPUCommandEncoder, state: State): void {
-    const bound = bind();
-    if (!bound) return;
-    transformGpuState().pass.timestampWrites = Compute.span?.("transforms:compose");
-    // the dispatch is issued on the raw pass over the unwrapped pipeline and bind group (both resolved
-    // once by `bind`), the shape `sear/regather.ts` uses: typegpu's per-apply state work would otherwise
-    // run on every frame's single dispatch
-    const pass = encoder.beginComputePass(transformGpuState().pass);
-    pass.setPipeline(bound.pipeline);
-    pass.setBindGroup(0, bound.group);
-    pass.dispatchWorkgroups(Math.ceil(state.capacity / 64));
-    pass.end();
-}
-
-/**
- * compose one entity's world matrix on CPU from its slab fields. For camera
- * view derivation and other low-count CPU consumers. Per-frame entity loops
- * should read the `"transforms"` firehose on GPU instead
- *
- * @example
- * const world = composeTransform(eid, new Float32Array(16));
- */
+/** Compose one entity's world matrix on CPU for low-count camera and query consumers. */
 export function composeTransform(eid: number, out: Float32Array): Float32Array {
     const { pos, rot, scale } = Transform;
 
@@ -149,15 +64,10 @@ export function composeTransform(eid: number, out: Float32Array): Float32Array {
     return out;
 }
 
-/**
- * the transform substrate: registers the {@link Transform} component and runs the per-frame compose pass
- * that gathers the pos/rot/scale slabs into the `"transforms"` GPU firehose surfaces read by name. In
- * `DEFAULT_PLUGINS`; every rendered entity needs a Transform.
- */
+/** Register Transform storage and its dense `Xform` record table. */
 export const TransformsPlugin: Plugin = {
     name: "Transforms",
     components: { Transform },
-    dependencies: [SlabPlugin],
     traits: {
         Transform: {
             defaults: () => ({
@@ -165,46 +75,22 @@ export const TransformsPlugin: Plugin = {
                 rot: [0, 0, 0, 1],
                 scale: [1, 1, 1, 1],
             }),
-            // rot is stored as a quaternion but authored as euler degrees
             aliases: { rot: eulerAlias("rot") },
         },
     },
-
     initialize(state) {
-        const capacity = state.capacity;
-        const resources = state.resource(transformGpuKey, createTransformGpuState);
-        resources.typed = null;
-        resources.pipeline = null;
-        resources.bound = null;
-
-        if (!Compute.device) return;
-
-        // COPY_DST (typegpu grants it, with COPY_SRC, on every buffer it creates): a CPU physics backend
-        // (physics) writes a mover's interpolated pose straight in via `queue.writeBuffer` (transitional/physics
-        // ComposeSystem).
-        // but the buffer is shared, so the usage covers both.
-        resources.typed = Compute.root
-            .createBuffer(d.arrayOf(Xform, capacity))
-            .$usage("storage")
-            .$name("shallot-transforms");
-        Compute.buffers.set("transforms", Compute.root.unwrap(resources.typed));
-        Compute.typed.set("transforms", resources.typed);
-
-        const t = state.membership.bit(Transform);
-        resources.pipeline = Compute.root
-            .createComputePipeline({ compute: composeKernel(t.gen * capacity, t.mask, capacity) })
-            .$name("shallot-transforms-compose");
-    },
-
-    warm() {
-        if (!transformGpuState().pipeline) return;
-        // the bind is deferred into the forcer: the drain runs after every
-        // plugin's warm has resolved, which is the first moment the buffers this reads are all up
-        precompile("shallot-transforms-compose", () => {
-            const bound = bind();
-            // the raw pipeline, already unwrapped for the dispatch: the forcer's raw-pipeline shape, which
-            // Dawn compiles on the drain like any other
-            return bound && [bound.pipeline];
+        const table = transformTable(state);
+        table.bindComponent(Transform, {
+            pos: "pos",
+            quat: "rot",
+            scale: "scale",
         });
+        table.enableEidLookup();
+        const publishMap = (buffer: GPUBuffer) => {
+            state.gpu.buffers.set("transformRows", buffer);
+            state.gpu.typed.set("transformRows", table.eidToRowTyped!);
+        };
+        table.subscribeMap(publishMap);
+        publishMap(table.eidToRowBuffer!);
     },
 };

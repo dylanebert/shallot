@@ -15,8 +15,8 @@ export type PluginValue = boolean | string | [string, boolean];
 
 /**
  * the on-disk manifest, tolerant-parsed — the serialized form of the runtime `Config`, read identically
- * by the toolchain and a standalone boot. `plugins` is name → {@link PluginValue}; `capacity` is the fixed
- * entity capacity and `pixelRatio` is the render scale, each omitted to take the engine default.
+ * by the toolchain and a standalone boot. `plugins` is name → {@link PluginValue}; `pixelRatio` is the
+ * render scale and is omitted to take the engine default.
  */
 export interface Manifest {
     /** JSON Schema pointer for IDE autocomplete/validation (`@dylanebert/shallot/shallot.schema.json`);
@@ -24,7 +24,6 @@ export interface Manifest {
     $schema?: string;
     scene?: string;
     plugins?: Record<string, PluginValue>;
-    capacity?: number;
     pixelRatio?: number | "auto";
     /** the bundle identifier for native builds (mac `CFBundleIdentifier`). Omit for the default
      *  `com.shallot.<basename>`. */
@@ -50,7 +49,6 @@ export function normalize(raw: string | null): Manifest {
     if (typeof obj.plugins === "object" && obj.plugins !== null && !Array.isArray(obj.plugins)) {
         manifest.plugins = obj.plugins as Record<string, PluginValue>;
     }
-    if (typeof obj.capacity === "number") manifest.capacity = obj.capacity;
     if (obj.pixelRatio === "auto" || (typeof obj.pixelRatio === "number" && obj.pixelRatio > 0)) {
         manifest.pixelRatio = obj.pixelRatio;
     }

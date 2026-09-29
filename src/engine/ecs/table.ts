@@ -1,5 +1,7 @@
 import type { TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
+import type { Component, FieldSchema, TypedArray } from "./component";
+import { idOf, isFieldSchema } from "./component";
 import type { State } from "./state";
 
 export type TableUploadPath = "none" | "writeBuffer";
@@ -9,6 +11,27 @@ export interface GpuTableOptions {
 }
 
 type Consumer = (buffer: GPUBuffer, generation: number) => void;
+const ACTIVE_ROW = d.struct({ eid: d.u32, row: d.u32 });
+type BoundField = {
+    readonly recordName: string;
+    readonly componentName: string;
+    readonly offset: number;
+    readonly lanes: number;
+    readonly sourceLanes: number;
+    readonly bytesPerLane: number;
+};
+type ComponentBinding = {
+    readonly component: Component;
+    readonly fields: BoundField[];
+    readonly unsubscribes: (() => void)[];
+    ownsRows: boolean;
+};
+type PresenceBinding = {
+    readonly component: Component;
+    readonly recordName: string;
+    readonly offset: number;
+    readonly mask: number;
+};
 
 /** Dense-slot storage with stable free-list allocation and one typed record layout. */
 export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
@@ -23,6 +46,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private _highWater = 1;
     private _generation = 0;
     private _bytes: Uint8Array | undefined;
+    private _view: DataView | undefined;
     private _dirty = new Uint32Array(0);
     private _buffer!: GPUBuffer;
     private _typed!: TgpuBuffer<d.AnyWgslData>;
@@ -52,6 +76,10 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private _activeTyped: TgpuBuffer<d.AnyWgslData> | undefined;
     private _activeGeneration = 0;
     private _activeConsumers: Consumer[] = [];
+    private _componentBindings: ComponentBinding[] = [];
+    private _membershipCounts = new Map<number, number>();
+    private _presenceBindings: PresenceBinding[] = [];
+    private _presenceUnsubscribes: (() => void)[] = [];
 
     constructor(state: State, name: string, record: T, options: GpuTableOptions = {}) {
         if (!name) throw new Error("GpuTable: name must not be empty");
@@ -76,10 +104,11 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         if (this.maxRows < 1) this.refuse(bindingLimit, 1);
         if (!this.gpuOnly) {
             this._bytes = new Uint8Array(0);
+            this._view = new DataView(this._bytes.buffer);
         }
         this._freeRows = new Uint32Array(1);
         this.reserveSlots(1);
-        this._activeRows = new Uint32Array(1);
+        this._activeRows = new Uint32Array(2);
         this._activeIndex = new Int32Array(1);
         this._activeIndex.fill(-1);
         this.replaceActiveBuffer(1);
@@ -176,6 +205,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             const bytes = new Uint8Array(capacity * this.rowBytes);
             bytes.set(this._bytes);
             this._bytes = bytes;
+            this._view = new DataView(bytes.buffer);
         }
         const dirty = new Uint32Array((capacity + 31) >>> 5);
         dirty.set(this._dirty);
@@ -209,6 +239,186 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         }
     }
 
+    /** Bind component fields to this struct table and use component membership to allocate rows. */
+    bindComponent(component: Component, fields: Record<string, string>): void {
+        this.bindFields(component, fields);
+        this.bindMembership(component);
+    }
+
+    /** Bind selected struct fields to component columns without making that component own rows. */
+    bindFields(component: Component, fields: Record<string, string>): void {
+        if (this.gpuOnly)
+            throw new Error(`GpuTable "${this.name}" cannot bind CPU component columns`);
+        const record = this.record as d.AnyWgslStruct;
+        if (record.type !== "struct") {
+            throw new Error(`GpuTable "${this.name}": component binding requires a struct record`);
+        }
+        const recordFields = record.propTypes as Record<string, d.BaseData>;
+        const binding = this.binding(component);
+        this._state.of(component);
+        for (const [recordName, componentName] of Object.entries(fields)) {
+            if (!recordFields[recordName]) {
+                throw new Error(`GpuTable "${this.name}": unknown record field "${recordName}"`);
+            }
+            if (binding.fields.some((field) => field.recordName === recordName)) {
+                throw new Error(
+                    `GpuTable "${this.name}": record field "${recordName}" is already bound`,
+                );
+            }
+            const descriptor = component[componentName] as FieldSchema;
+            if (!isFieldSchema(descriptor)) {
+                throw new Error(
+                    `GpuTable "${this.name}": component field "${componentName}" is not a field schema`,
+                );
+            }
+            const recordType = recordFields[recordName];
+            const recordTypeName = (recordType as unknown as { type: string }).type;
+            const format =
+                descriptor.type.ctor === Float32Array
+                    ? "f"
+                    : descriptor.type.ctor === Int32Array
+                      ? "i"
+                      : descriptor.type.ctor === Uint32Array
+                        ? "u"
+                        : null;
+            const expectedFormat =
+                recordTypeName === "f32" || recordTypeName.endsWith("f")
+                    ? "f"
+                    : recordTypeName === "i32" || recordTypeName.endsWith("i")
+                      ? "i"
+                      : recordTypeName === "u32" || recordTypeName.endsWith("u")
+                        ? "u"
+                        : null;
+            const lanes =
+                (recordType as unknown as { componentCount?: number }).componentCount ?? 1;
+            const bytesPerLane = d.sizeOf(recordType as d.AnyWgslData) / lanes;
+            const sourceBytesPerLane = descriptor.type.ctor.BYTES_PER_ELEMENT;
+            if (
+                format === null ||
+                format !== expectedFormat ||
+                sourceBytesPerLane !== bytesPerLane ||
+                descriptor.type.lanes < lanes ||
+                descriptor.type.encode !== undefined ||
+                descriptor.type.decode !== undefined
+            ) {
+                throw new Error(
+                    `GpuTable "${this.name}": component field "${componentName}" does not match record field "${recordName}"`,
+                );
+            }
+            const offset = d.memoryLayoutOf(this.record, (row: any) => row[recordName]).offset;
+            const field: BoundField = {
+                recordName,
+                componentName,
+                offset,
+                lanes,
+                sourceLanes: descriptor.type.lanes,
+                bytesPerLane,
+            };
+            binding.fields.push(field);
+            binding.unsubscribes.push(
+                this._state.observeField(component, componentName, (eid) =>
+                    this.writeBoundField(binding, field, eid),
+                ),
+            );
+        }
+        for (let i = 0; i < this._activeCount; i++) {
+            const eid = this._activeRows[i * 2];
+            for (const field of binding.fields) this.writeBoundField(binding, field, eid);
+        }
+    }
+
+    /** Allocate rows for members of this component without binding component fields. */
+    bindMembership(component: Component): void {
+        const binding = this.binding(component);
+        if (binding.ownsRows) return;
+        binding.ownsRows = true;
+        this._state.bindTableComponent(component, this);
+        for (const eid of this._state.query([component])) this.attachComponent(eid, component);
+    }
+
+    /** Mirror component presence into a u32 record mask without making that component own a row. */
+    bindPresence(component: Component, recordName: string, mask = 1): void {
+        if (this.gpuOnly)
+            throw new Error(`GpuTable "${this.name}" cannot bind CPU component presence`);
+        if (!Number.isSafeInteger(mask) || mask <= 0 || mask > 0xffffffff) {
+            throw new RangeError(`GpuTable "${this.name}": presence mask must be a positive u32`);
+        }
+        const record = this.record as d.AnyWgslStruct;
+        const recordType = record.type === "struct" ? record.propTypes[recordName] : undefined;
+        if (!recordType || (recordType as unknown as { type: string }).type !== "u32") {
+            throw new Error(`GpuTable "${this.name}": presence field "${recordName}" must be u32`);
+        }
+        const offset = d.memoryLayoutOf(this.record, (row: any) => row[recordName]).offset;
+        const binding = { component, recordName, offset, mask };
+        this._presenceBindings.push(binding);
+        this._presenceUnsubscribes.push(
+            this._state.observeMembership(component, (eid, present) =>
+                this.writePresence(eid, binding, present),
+            ),
+        );
+        const active = this._activeRows;
+        for (let i = 0; i < this._activeCount; i++) {
+            const eid = active[i * 2];
+            this.writePresence(eid, binding, this._state.has(eid, component));
+        }
+    }
+
+    private writePresence(eid: number, binding: PresenceBinding, present: boolean): void {
+        const row = this.rowIndex(eid);
+        if (row < 0) return;
+        const byteOffset = row * this.rowBytes + binding.offset;
+        const current = this._view!.getUint32(byteOffset, true);
+        const next = present ? current | binding.mask : current & ~binding.mask;
+        if (current === next) return;
+        this._view!.setUint32(byteOffset, next, true);
+        this.markRange(row, 1);
+    }
+
+    /** Attach an entity to a bound component table and seed its row from all bound columns. @internal */
+    attachComponent(eid: number, component: Component): void {
+        const binding = this._componentBindings.find(
+            (item) => item.ownsRows && idOf(item.component) === idOf(component),
+        );
+        if (!binding) throw new Error(`GpuTable "${this.name}": component has no row binding`);
+        this.acquire(eid);
+        const id = idOf(component);
+        this._membershipCounts.set(id, (this._membershipCounts.get(id) ?? 0) + 1);
+        for (const source of this._componentBindings) {
+            for (const field of source.fields) this.writeBoundField(source, field, eid);
+        }
+        for (const presence of this._presenceBindings) {
+            this.writePresence(eid, presence, this._state.has(eid, presence.component));
+        }
+    }
+
+    /** Detach one component owner, releasing the row when its last owner leaves. @internal */
+    detachComponent(eid: number, component: Component): void {
+        const id = idOf(component);
+        const count = this._membershipCounts.get(id) ?? 0;
+        if (count <= 1) this._membershipCounts.delete(id);
+        else this._membershipCounts.set(id, count - 1);
+        let owned = false;
+        for (const ownerCount of this._membershipCounts.values()) {
+            if (ownerCount > 0) owned = true;
+        }
+        if (!owned) this.release(eid);
+    }
+
+    private binding(component: Component): ComponentBinding {
+        const existing = this._componentBindings.find(
+            (item) => idOf(item.component) === idOf(component),
+        );
+        if (existing) return existing;
+        const binding: ComponentBinding = {
+            component,
+            fields: [],
+            unsubscribes: [],
+            ownsRows: false,
+        };
+        this._componentBindings.push(binding);
+        return binding;
+    }
+
     /** Map an eid to a stable dense row, taking a freed slot before extending the table. */
     acquire(eid: number): number {
         this.ensureEntityRows(eid + 1);
@@ -218,12 +428,13 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this.reserveSlots(row + 1);
         this._eidToRow[eid] = row + 1;
         this._mapDirty = true;
-        this.activateRow(row);
+        this.activateRow(eid, row);
         return row;
     }
 
     /** Release an eid's dense slot; the next acquire may reuse the slot. */
     release(eid: number): void {
+        this._membershipCounts.delete(eid);
         if (!Number.isSafeInteger(eid) || eid < 0 || eid >= this._eidToRow.length) return;
         const encoded = this._eidToRow[eid];
         if (encoded === 0) return;
@@ -238,7 +449,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     activate(eid: number): void {
         const row = this.rowIndex(eid);
         if (row < 0) throw new Error(`GpuTable "${this.name}": eid ${eid} has no row`);
-        this.activateRow(row);
+        this.activateRow(eid, row);
     }
 
     /** Remove an eid row from the compact active list. */
@@ -311,6 +522,15 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     dispose(): void {
         if (this._disposed) return;
         this._disposed = true;
+        for (const binding of this._componentBindings) {
+            for (const unsubscribe of binding.unsubscribes) unsubscribe();
+            if (binding.ownsRows) this._state.unbindTableComponent(binding.component, this);
+        }
+        this._componentBindings.length = 0;
+        for (const unsubscribe of this._presenceUnsubscribes) unsubscribe();
+        this._presenceUnsubscribes.length = 0;
+        this._presenceBindings.length = 0;
+        this._membershipCounts.clear();
         const buffers = [this._buffer];
         if (this._mapBuffer) buffers.push(this._mapBuffer);
         if (this._activeBuffer) buffers.push(this._activeBuffer);
@@ -345,6 +565,31 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             }
         }
         return count;
+    }
+
+    private writeBoundField(binding: ComponentBinding, field: BoundField, eid: number): void {
+        const row = this.rowIndex(eid);
+        if (row < 0) return;
+        const bytes = this._bytes;
+        const view = this._view;
+        if (!bytes || !view) return;
+        const source = this._state.of(binding.component)[field.componentName] as {
+            column: TypedArray;
+        };
+        const column = source.column;
+        const sourceBase = eid * field.sourceLanes;
+        const targetBase = row * this.rowBytes + field.offset;
+        for (let lane = 0; lane < field.lanes; lane++) {
+            const offset = targetBase + lane * field.bytesPerLane;
+            const value = column[sourceBase + lane];
+            if (column instanceof Float32Array) view.setFloat32(offset, value, true);
+            else if (column instanceof Int32Array) view.setInt32(offset, value, true);
+            else if (column instanceof Uint32Array) view.setUint32(offset, value, true);
+            else if (column instanceof Uint16Array) view.setUint16(offset, value, true);
+            else if (column instanceof Uint8Array) view.setUint8(offset, value);
+            else throw new Error(`GpuTable "${this.name}": unsupported component column`);
+        }
+        this.markRange(row, 1);
     }
 
     private ensureEntityRows(rows: number): void {
@@ -409,13 +654,14 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     }
 
     private ensureSlotCapacity(rows: number): void {
-        if (rows <= this._activeRows.length) return;
-        let capacity = Math.max(1, this._activeRows.length);
+        const currentCapacity = this._activeRows.length >>> 1;
+        if (rows <= currentCapacity) return;
+        let capacity = Math.max(1, currentCapacity);
         while (capacity < rows) capacity = Math.min(this.maxRows, capacity * 2);
         const free = new Uint32Array(capacity);
         free.set(this._freeRows);
         this._freeRows = free;
-        const active = new Uint32Array(capacity);
+        const active = new Uint32Array(capacity * 2);
         active.set(this._activeRows);
         this._activeRows = active;
         const indices = new Int32Array(capacity);
@@ -469,7 +715,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         const previous = this._activeBuffer;
         const buffer = device.createBuffer({
             label: `table-${this.name}-active-g${this._activeGeneration + 1}`,
-            size: capacity * 4,
+            size: capacity * d.sizeOf(ACTIVE_ROW),
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
         });
         this._state.own(buffer);
@@ -484,7 +730,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this._activeBuffer = buffer;
         this._activeCapacity = capacity;
         this._activeTyped = this._state.gpu.root
-            .createBuffer(d.arrayOf(d.u32, capacity), buffer)
+            .createBuffer(d.arrayOf(ACTIVE_ROW, capacity), buffer)
             .$usage("storage") as TgpuBuffer<d.AnyWgslData>;
         this._state.gpu.buffers.set(`${this.name}:active-rows`, buffer);
         this._state.gpu.typed.set(`${this.name}:active-rows`, this._activeTyped);
@@ -494,13 +740,15 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         }
     }
 
-    private activateRow(row: number): void {
+    private activateRow(eid: number, row: number): void {
         this.ensureSlotCapacity(row + 1);
         if (this._activeIndex[row] >= 0) return;
         if (this._activeCount >= this._activeCapacity)
             this.replaceActiveBuffer(Math.min(this.maxRows, this._activeCapacity * 2));
-        this._activeIndex[row] = this._activeCount;
-        this._activeRows[this._activeCount++] = row;
+        const activeIndex = this._activeCount++;
+        this._activeIndex[row] = activeIndex;
+        this._activeRows[activeIndex * 2] = eid;
+        this._activeRows[activeIndex * 2 + 1] = row;
         this._activeDirty = true;
     }
 
@@ -509,8 +757,10 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         const index = this._activeIndex[row];
         if (index < 0) return;
         const lastIndex = --this._activeCount;
-        const lastRow = this._activeRows[lastIndex];
-        this._activeRows[index] = lastRow;
+        const lastEid = this._activeRows[lastIndex * 2];
+        const lastRow = this._activeRows[lastIndex * 2 + 1];
+        this._activeRows[index * 2] = lastEid;
+        this._activeRows[index * 2 + 1] = lastRow;
         this._activeIndex[lastRow] = index;
         this._activeIndex[row] = -1;
         this._activeDirty = true;
@@ -524,7 +774,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                 0,
                 this._activeRows.buffer,
                 0,
-                this._activeCount * 4,
+                this._activeCount * d.sizeOf(ACTIVE_ROW),
             );
         }
         this._activeDirty = false;

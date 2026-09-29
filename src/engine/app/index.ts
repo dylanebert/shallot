@@ -127,8 +127,6 @@ export interface Config {
     device?: GPUDevice;
     /** adapter that supplied an externally-acquired {@link device}; omitted devices are stamped unidentified */
     adapter?: GPUAdapter;
-    /** entity capacity; fixed at app construction. defaults to 65536. */
-    capacity?: number;
     /**
      * render device-pixel ratio for canvas views; fixed at app construction. `"auto"` (default)
      * clamps `devicePixelRatio` to `[1, 2]`. A number forces a fixed ratio (`1` = CSS resolution /
@@ -292,10 +290,7 @@ async function buildNow(config: Config): Promise<App> {
         }
 
         const sorted = composition.plugins;
-        state = new State({
-            capacity: config.capacity,
-            pixelRatio: config.pixelRatio,
-        });
+        state = new State({ pixelRatio: config.pixelRatio });
         stateCreated = true;
         loading = config.loading ?? _defaultLoading?.();
         cleanup = loading?.show() ?? undefined;

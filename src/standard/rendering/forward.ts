@@ -40,11 +40,11 @@ import {
     vsPatchSchema,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, f16x4, field, laneAlias, u32, unpackColor } from "../../engine";
+import { Compute, field, laneAlias, u32, unpackColor, vec4 } from "../../engine";
 import { precompile, worldResource } from "../../engine/runtime";
-import { unpackLdrColor, Xform } from "../../engine/utils";
+import { Xform } from "../../engine/utils";
 import { GlazeSystem } from "../../transitional/glaze";
-import { SlabPlugin, slab } from "../../transitional/slab";
+import { Part, partTable } from "../../transitional/part";
 import {
     cascadeRegather,
     disposeShadowAtlas,
@@ -231,7 +231,7 @@ export const Depth = {};
 
 /**
  * per-entity PBR material the `default` / `vertex` surfaces read (alongside `Color`, the base albedo).
- * One slab `Quad` published as `"material"`, lanes `(metallic, roughness, emissive, occlusion)`:
+ * One table `vec4`, lanes `(metallic, roughness, emissive, occlusion)`:
  * `metallic` and `roughness` are the metallic-roughness knobs ([0,1]); `emissive` is a glow **strength**
  * tinting the base color (`Color.rgb * emissive`); `occlusion` dims ambient ([0,1]). Defaults are flat
  * (metallic 0, roughness 1, emissive 0, occlusion 1), so a Part without it shades exactly like the
@@ -245,7 +245,7 @@ export const Depth = {};
  */
 export const Material = {
     /** the four PBR lanes `(metallic, roughness, emissive, occlusion)`, authored named via the `material` attribute (`material="metallic: 1; roughness: 0.2"`). */
-    params: slab(f16x4, "material"),
+    params: field(vec4),
 };
 
 const MATERIAL_FLAT: [number, number, number, number] = [0, 1, 0, 1];
@@ -259,7 +259,15 @@ const MaterialTraits = {
 // diffuse default (an entity with Material overwrites its slot via the trait default on add). Mirrors
 // Part.initPart's magenta Color base; the pack gates each slot on membership, so stale slots never draw.
 function initMaterial(state: State): void {
-    for (let i = 0; i < state.capacity; i++) Material.params.set(i, ...MATERIAL_FLAT);
+    partTable(state).bindFields(Material, { material: "params" });
+    const seedMissingMaterial = (eid: number) => {
+        if (!state.has(eid, Material)) Material.params.set(eid, ...MATERIAL_FLAT);
+    };
+    const removeMissingMaterialDefault = state.observeMembership(Part, (eid, present) => {
+        if (present) seedMissingMaterial(eid);
+    });
+    for (const eid of state.query([Part])) seedMissingMaterial(eid);
+    state.onDispose(removeMissingMaterialDefault);
 }
 
 /**
@@ -1082,7 +1090,7 @@ export const PrepassSystem: System = {
     update(state) {
         if (!Render.encoder) return;
         // resolve once for the prepass + shadow map + color pass (they all run after this)
-        resolveDraws(state.capacity);
+        resolveDraws(state.entityHighWater);
         for (const eid of state.query(SEAR_CAMERAS)) {
             const view = Views.get(eid);
             if (!view?.framebuffer) continue;
@@ -1156,9 +1164,10 @@ const ShadowCameraSystem: System = {
         // groups that bind it — so the first casting frame's groups include it (the alloc clears the
         // resolved-bind-group cache), no one-frame delay. Idempotent once allocated; the render fns call it
         // again harmlessly
-        if (casters > 0 && shadowReady()) pointRegather.ensure(pointCasters() * 6, state.capacity);
+        if (casters > 0 && shadowReady())
+            pointRegather.ensure(pointCasters() * 6, state.entityHighWater);
         if (cascadeCount(state) > 0 && shadowReady())
-            cascadeRegather.ensure(MAX_CASCADES, state.capacity);
+            cascadeRegather.ensure(MAX_CASCADES, state.entityHighWater);
     },
 };
 
@@ -1175,8 +1184,8 @@ const ShadowMapSystem: System = {
     after: [PrepassSystem],
     before: [ColorSystem],
     update(state) {
-        renderPointShadows(state, _sear.frameDraws, _sear.frameCount, state.capacity);
-        renderCascades(state, _sear.frameDraws, _sear.frameCount, state.capacity);
+        renderPointShadows(state, _sear.frameDraws, _sear.frameCount, state.entityHighWater);
+        renderCascades(state, _sear.frameDraws, _sear.frameCount, state.entityHighWater);
     },
 };
 
@@ -1185,26 +1194,25 @@ const ShadowMapSystem: System = {
 const typedDefaultLayout = typedLayout({
     eids: { type: "storage", element: d.u32 },
     transforms: { type: "storage", element: Xform },
-    color: { type: "storage", element: d.u32 },
-    material: { type: "storage", element: d.vec2u },
 });
 
-// the typed twin of the raw `default` fs (`matOf`/`emissiveOf`/`litPbr`, string-registered above):
-// `Pbr(albedo, metallic, roughness, occlusion, dielectric)` from the packed `material` lanes — word x
-// (metallic, roughness), word y (emissive, occlusion) — same f16-via-`unpack2x16float` shape, no
-// `shader-f16` needed. `litPbr` (`sear/engine.ts`) reads the fs-scaffold privates the typed pipeline
+// The dense Part record carries linear base color and `(metallic, roughness, emissive, occlusion)`.
+// `litPbr` (`sear/engine.ts`) reads the fs-scaffold privates the typed pipeline
 // builder (`pipelines.ts`) fills before calling this.
 const typedDefaultFs = tgpu.fn(
     [fsCtxSchema()],
     d.vec4f,
 )((ctx) => {
     "use gpu";
-    const m = typedDefaultLayout.$.material[ctx.eid];
-    const mr = std.unpack2x16float(m.x);
-    const eo = std.unpack2x16float(m.y);
-    const albedo = unpackLdrColor(typedDefaultLayout.$.color[ctx.eid]).xyz;
-    const pbr = Pbr({ albedo, metallic: mr.x, roughness: mr.y, occlusion: eo.y, dielectric: 0 });
-    const emissive = std.mul(albedo, eo.x);
+    const albedo = ctx.color.xyz;
+    const pbr = Pbr({
+        albedo,
+        metallic: ctx.material.x,
+        roughness: ctx.material.y,
+        occlusion: ctx.material.w,
+        dielectric: 0,
+    });
+    const emissive = std.mul(albedo, ctx.material.z);
     return d.vec4f(std.add(litPbr(pbr, ctx.worldNormal, ctx.world), emissive), 1);
 });
 
@@ -1212,17 +1220,15 @@ const typedDefaultFs = tgpu.fn(
 const typedColorLayout = typedLayout({
     eids: { type: "storage", element: d.u32 },
     transforms: { type: "storage", element: Xform },
-    color: { type: "storage", element: d.u32 },
 });
 
-// the typed twin of the raw `unlit` fs: `unpackLdrColor(color[eid]).rgb` verbatim, no lighting call —
-// the simplest surface the typed template carries.
+// The unlit surface reads the same linear color carried in the dense Part record.
 const typedUnlitFs = tgpu.fn(
     [fsCtxSchema()],
     d.vec4f,
 )((ctx) => {
     "use gpu";
-    return d.vec4f(unpackLdrColor(typedColorLayout.$.color[ctx.eid]).xyz, 1);
+    return d.vec4f(ctx.color.xyz, 1);
 });
 
 // the typed twin of the raw `vertex` surface (per-vertex Gouraud): `litColor` crosses vs→fs as a custom
@@ -1237,12 +1243,15 @@ const typedVertexVs = tgpu.fn(
     typedVertexPatch,
 )((vsIn) => {
     "use gpu";
-    const m = typedDefaultLayout.$.material[vsIn.eid];
-    const mr = std.unpack2x16float(m.x);
-    const eo = std.unpack2x16float(m.y);
-    const albedo = unpackLdrColor(typedDefaultLayout.$.color[vsIn.eid]).xyz;
-    const pbr = Pbr({ albedo, metallic: mr.x, roughness: mr.y, occlusion: eo.y, dielectric: 0 });
-    const emissive = std.mul(albedo, eo.x);
+    const albedo = vsIn.color.xyz;
+    const pbr = Pbr({
+        albedo,
+        metallic: vsIn.material.x,
+        roughness: vsIn.material.y,
+        occlusion: vsIn.material.w,
+        dielectric: 0,
+    });
+    const emissive = std.mul(albedo, vsIn.material.z);
     const litColor = std.add(
         litPbr(pbr, std.normalize(vsIn.worldNormal), vsIn.world.xyz),
         emissive,
@@ -1283,9 +1292,7 @@ export function createSearPlugin(): Plugin {
         name: "Sear",
         components: { Sear, Tag, Depth, Shadow, Material, Backdrop },
         systems: [PrepassSystem, ColorSystem, ShadowCameraSystem, ShadowMapSystem],
-        // SlabPlugin: the `Material` slab is collected + published as `"material"`, and `initMaterial`
-        // bases every slot through it (Part brings SlabPlugin anyway; declaring it keeps sear self-sufficient)
-        dependencies: [RenderPlugin, SlabPlugin],
+        dependencies: [RenderPlugin],
         traits: {
             Shadow: { defaults: () => ({ ...SHADOW_DEFAULTS }) },
             Material: MaterialTraits,
@@ -1339,7 +1346,7 @@ export function createSearPlugin(): Plugin {
 
         async warm(state) {
             if (!Compute.device) return;
-            await prepareSear(Compute.device, state.capacity);
+            await prepareSear(Compute.device, state.entityHighWater);
         },
 
         dispose(state) {

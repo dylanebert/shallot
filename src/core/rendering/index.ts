@@ -4,13 +4,7 @@ import * as d from "typegpu/data";
 import type { Plugin, State, System } from "../../engine";
 import { Compute, formatHex, invert } from "../../engine";
 import { worldResource } from "../../engine/runtime";
-import { SlabPlugin } from "../../transitional/slab";
-import {
-    composeTransform,
-    composeTransforms,
-    Transform,
-    TransformsPlugin,
-} from "../../transitional/transforms";
+import { composeTransform, Transform, TransformsPlugin } from "../../transitional/transforms";
 import { Camera, CameraMode, computeViewProj, Resolution } from "./camera";
 import {
     ClusterSystem,
@@ -262,7 +256,6 @@ export const BeginFrameSystem: System = {
         Render.encoder = encoder;
         writeFrame(state);
         writeLighting(state);
-        composeTransforms(encoder, state);
 
         let count = 0;
         let depthOnly = 0;
@@ -529,7 +522,7 @@ export const RenderPlugin: Plugin = {
             defaults: () => ({}),
         },
     },
-    dependencies: [SlabPlugin, TransformsPlugin],
+    dependencies: [TransformsPlugin],
 
     async initialize(state) {
         initializeRenderState(state);

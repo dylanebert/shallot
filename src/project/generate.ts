@@ -39,11 +39,10 @@ export function generateModuleFromPlan(project: ProjectPlan): string {
     lines.push(`const manifest = ${JSON.stringify(manifest)};`);
     lines.push(`const scenes = ${JSON.stringify(scenes)};`);
     lines.push(`const scene = ${JSON.stringify(manifest.scene ?? null)};`);
-    lines.push(`const capacity = ${JSON.stringify(manifest.capacity ?? null)};`);
     lines.push(`const pixelRatio = ${JSON.stringify(manifest.pixelRatio ?? null)};`);
     lines.push(`const dir = ${JSON.stringify(dir)};`);
     lines.push(
-        `const project = { dir, scene, capacity, pixelRatio, scenes, manifest, locals, plugins: [...engine, ...locals.map((l) => l.plugin)] };`,
+        `const project = { dir, scene, pixelRatio, scenes, manifest, locals, plugins: [...engine, ...locals.map((l) => l.plugin)] };`,
     );
     lines.push(`export default project;`);
 

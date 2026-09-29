@@ -1,6 +1,5 @@
 import { test } from "bun:test";
 import { build, Color } from "@dylanebert/shallot";
-import { SlabPlugin } from "../slab";
 import { ColorTraits } from "./part";
 
 const peerModule = "bun-webgpu";
@@ -11,7 +10,6 @@ const ColorOwner = {
     name: "ColorAuthoringOwner",
     components: { Color },
     traits: { Color: ColorTraits },
-    dependencies: [SlabPlugin],
 };
 
 test("Color loads canonical rgba field syntax and rejects CSS-function syntax at the scene owner, so an authored invalid color cannot reach runtime silently", async () => {

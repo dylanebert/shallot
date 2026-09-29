@@ -18,8 +18,6 @@ import { GpuTable, type GpuTableOptions } from "./table";
 import { ComponentRegistry } from "./traits";
 
 const INITIAL_CAPACITY = 16;
-/** entity reservation used when a build does not specify one. */
-const DEFAULT_CAPACITY = 65536;
 
 /**
  * render device-pixel ratio for canvas-bound views, fixed at app construction. `"auto"`
@@ -78,8 +76,9 @@ export class State {
     >();
     private _resources = new Map<PropertyKey, unknown>();
     private _tables = new Map<string, GpuTable>();
+    private _tablesByComponent = new Map<number, GpuTable[]>();
+    private _membershipObservers = new Map<number, Set<(eid: number, present: boolean) => void>>();
     private _highWater = 1;
-    private _capacity: number;
     private _pixelRatio: number | "auto";
     private _fieldUploadSeen = false;
     private _changesClearedAtUpload = false;
@@ -91,15 +90,7 @@ export class State {
     private _withCompute: ((callback: () => void) => void) | undefined;
     private _gpuResources = new Set<{ destroy(): void }>();
 
-    constructor(opts?: {
-        capacity?: number;
-        pixelRatio?: number | "auto";
-    }) {
-        const worldCapacity = opts?.capacity ?? DEFAULT_CAPACITY;
-        if (!Number.isSafeInteger(worldCapacity) || worldCapacity < 1) {
-            throw new Error(`State: capacity ${worldCapacity} is not a safe integer >= 1`);
-        }
-        this._capacity = worldCapacity;
+    constructor(opts?: { pixelRatio?: number | "auto" }) {
         this._pixelRatio = opts?.pixelRatio ?? "auto";
     }
 
@@ -152,14 +143,65 @@ export class State {
         return table;
     }
 
+    /** @internal Bind a table's dense rows to a component's membership lifecycle. */
+    bindTableComponent(component: Component, table: GpuTable): void {
+        const id = idOf(component);
+        const tables = this._tablesByComponent.get(id);
+        if (tables) {
+            if (tables.includes(table)) return;
+            tables.push(table);
+        } else {
+            this._tablesByComponent.set(id, [table]);
+        }
+        for (const eid of this.query([component])) table.attachComponent(eid, component);
+    }
+
+    /** @internal Observe component membership without putting state on the component schema. */
+    observeMembership(
+        component: Component,
+        observer: (eid: number, present: boolean) => void,
+    ): () => void {
+        const id = idOf(component);
+        let observers = this._membershipObservers.get(id);
+        if (!observers) this._membershipObservers.set(id, (observers = new Set()));
+        observers.add(observer);
+        return () => {
+            observers!.delete(observer);
+            if (observers!.size === 0) this._membershipObservers.delete(id);
+        };
+    }
+
+    private notifyMembership(component: Component, eid: number, present: boolean): void {
+        this._membershipObservers.get(idOf(component))?.forEach((observer) => {
+            observer(eid, present);
+        });
+    }
+
+    /** @internal Observe a field setter without putting state on the component schema. */
+    observeField(component: Component, name: string, observer: (eid: number) => void): () => void {
+        const field = this._storage.get(idOf(component))?.fields.get(name);
+        if (!field) throw new Error(`State.observeField: unknown field "${name}"`);
+        return field.observe(observer);
+    }
+
+    /** @internal Unbind a table from a component's membership lifecycle. */
+    unbindTableComponent(component: Component, table: GpuTable): void {
+        const id = idOf(component);
+        const tables = this._tablesByComponent.get(id);
+        if (!tables) return;
+        const index = tables.indexOf(table);
+        if (index >= 0) tables.splice(index, 1);
+        if (tables.length === 0) this._tablesByComponent.delete(id);
+    }
+
     /** @internal Upload all declared tables at the head of draw. */
     uploadTables(): void {
         for (const table of this._tables.values()) table.upload();
     }
 
-    /** Fixed eid reservation retained until capacity-sized consumers move to tables. @deprecated */
-    get capacity(): number {
-        return this._capacity;
+    /** Highest allocated entity id plus one; CPU storage grows with this value. */
+    get entityHighWater(): number {
+        return this._highWater;
     }
 
     /** render device-pixel ratio fixed to this world's build config. */
@@ -267,14 +309,6 @@ export class State {
     /** create a new entity, returns its ID */
     create(): number {
         const eid = this._entities.add();
-        if (eid + 1 > this._capacity) {
-            this._entities.remove(eid);
-            throw new Error(
-                `Entity eid ${eid} exceeds configured capacity ${this._capacity} (slot 0 reserved, so capacity ` +
-                    `admits ${this._capacity - 1} entities). ` +
-                    `Increase via app build config: { capacity: ${Math.max(eid + 1, this._capacity * 2)} }.`,
-            );
-        }
         if (eid + 1 > this._highWater) this._highWater = eid + 1;
         for (const entry of this._storage.values()) {
             for (const field of entry.fields.values()) field.ensure(eid + 1);
@@ -286,6 +320,9 @@ export class State {
     destroy(eid: number): void {
         if (!this._entities.exists(eid)) return;
         this._queries.onEntityRemoved(eid);
+        for (const tables of this._tablesByComponent.values()) {
+            for (const table of tables) table.release(eid);
+        }
         this._components.clear(eid);
         for (const entry of this._storage.values()) {
             for (const field of entry.fields.values()) field.clear(eid);
@@ -361,6 +398,22 @@ export class State {
         }
         this.of(component as Component);
         if (this._components.add(eid, component)) {
+            this.notifyMembership(component as Component, eid, true);
+            const tables = this._tablesByComponent.get(idOf(component as Component));
+            const attached: GpuTable[] = [];
+            try {
+                if (tables) {
+                    for (const table of tables) {
+                        table.attachComponent(eid, component as Component);
+                        attached.push(table);
+                    }
+                }
+            } catch (error) {
+                for (const table of attached) table.detachComponent(eid, component as Component);
+                this._components.remove(eid, component);
+                this.notifyMembership(component as Component, eid, false);
+                throw error;
+            }
             this._queries.onComponentChanged(eid, component, this._components);
             this.registry.applyDefaults(this, component as Component, eid);
         } else {
@@ -371,6 +424,10 @@ export class State {
     /** detach a component from an entity */
     remove(eid: number, component: any): void {
         if (this._components.remove(eid, component)) {
+            this.notifyMembership(component as Component, eid, false);
+            const tables = this._tablesByComponent.get(idOf(component as Component));
+            if (tables)
+                for (const table of tables) table.detachComponent(eid, component as Component);
             this._queries.onComponentChanged(eid, component, this._components);
         }
     }

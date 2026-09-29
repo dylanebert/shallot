@@ -114,6 +114,105 @@ test("dense tables skip unchanged rows and upload changed ranges with writeBuffe
     }
 }, 5_000);
 
+test("tables combine source fields, optional presence, and several row owners", async () => {
+    let state!: State;
+    let table!: ReturnType<State["table"]>;
+    const Core = { x: field(f32) };
+    const Optional = { y: field(f32) };
+    const Flag = {};
+    const Record = d.struct({ x: d.f32, y: d.f32, flags: d.u32 });
+    const plugin: Plugin = {
+        name: "TablePresenceProbe",
+        components: { Core, Optional, Flag },
+        initialize(current) {
+            state = current;
+            table = current.table("table-presence-probe", Record);
+            table.bindComponent(Core, { x: "x" });
+            table.bindFields(Optional, { y: "y" });
+            table.bindMembership(Optional);
+            table.bindPresence(Optional, "flags", 1);
+            table.bindPresence(Flag, "flags", 2);
+        },
+    };
+    const app = await build({ defaults: false, plugins: [plugin] });
+    apps.push(app);
+    const eid = state.create();
+    state.add(eid, Core);
+    state.add(eid, Optional);
+    state.add(eid, Flag);
+    Core.x.set(eid, 4.5);
+    Optional.y.set(eid, 8.25);
+    const row = table.rowIndex(eid);
+    expect(row).toBeGreaterThanOrEqual(0);
+    expect(table.count).toBe(1);
+    const bytes = new DataView(table.bytes.buffer);
+    expect(bytes.getFloat32(row * table.rowBytes, true)).toBe(4.5);
+    expect(bytes.getFloat32(row * table.rowBytes + 4, true)).toBe(8.25);
+    expect(bytes.getUint32(row * table.rowBytes + 8, true)).toBe(3);
+
+    state.remove(eid, Optional);
+    expect(table.rowIndex(eid)).toBe(row);
+    expect(table.count).toBe(1);
+    expect(bytes.getUint32(row * table.rowBytes + 8, true)).toBe(2);
+    state.remove(eid, Flag);
+    expect(bytes.getUint32(row * table.rowBytes + 8, true)).toBe(0);
+    state.remove(eid, Core);
+    expect(table.rowIndex(eid)).toBe(-1);
+    expect(table.count).toBe(0);
+}, 20_000);
+
+test("component fields bulk-upload through a dense struct table and release their slots", async () => {
+    let state!: State;
+    const Bound = { x: field(f32), y: field(f32) };
+    let table!: ReturnType<State["table"]>;
+    const plugin: Plugin = {
+        name: "BoundTableProbe",
+        components: { Bound },
+        initialize(current) {
+            state = current;
+            table = current.table("bound-table-probe", d.struct({ x: d.f32, y: d.f32 }));
+            table.bindComponent(Bound, { x: "x", y: "y" });
+        },
+    };
+    const app = await build({ defaults: false, plugins: [plugin] });
+    apps.push(app);
+
+    const eid = state.create();
+    state.add(eid, Bound);
+    const columns = state.of(Bound);
+    columns.x.set(eid, 12.5);
+    columns.y.set(eid, -4.25);
+    expect(table.count).toBe(1);
+    await stepAndValidate(state, "component-bound struct upload");
+    const record = await bounded(
+        "probe component-bound row",
+        probeBuffer(state.gpu.device, table.buffer, {
+            size: table.rowBytes,
+            label: "component-bound-table-proof",
+        }),
+    );
+    const data = new DataView(record.bytes);
+    expect(data.getFloat32(0, true)).toBe(12.5);
+    expect(data.getFloat32(4, true)).toBe(-4.25);
+
+    state.remove(eid, Bound);
+    expect(table.count).toBe(0);
+    state.add(eid, Bound);
+    expect(table.count).toBe(1);
+    columns.x.set(eid, 7.5);
+    await stepAndValidate(state, "reused component-bound row upload");
+    const reused = await bounded(
+        "probe reused component-bound row",
+        probeBuffer(state.gpu.device, table.buffer, {
+            size: table.rowBytes,
+            label: "component-bound-table-reuse-proof",
+        }),
+    );
+    expect(new DataView(reused.bytes).getFloat32(0, true)).toBe(7.5);
+    state.destroy(eid);
+    expect(table.count).toBe(0);
+}, 5_000);
+
 test("dense tables reuse free-list slots, lazily publish eid mappings, and expose active rows", async () => {
     let state!: State;
     let table!: ReturnType<State["table"]>;
@@ -174,11 +273,16 @@ test("dense tables reuse free-list slots, lazily publish eid mappings, and expos
     const active = await bounded(
         "probe compact active-row list",
         probeBuffer(state.gpu.device, table.activeRowsBuffer!, {
-            size: table.count * 4,
+            size: table.count * 8,
             label: "dense-table-active-rows-proof",
         }),
     );
-    expect(Array.from(new Uint32Array(active.bytes))).toEqual([secondRow, reusedRow]);
+    expect(Array.from(new Uint32Array(active.bytes))).toEqual([
+        second,
+        secondRow,
+        third,
+        reusedRow,
+    ]);
     const data = await bounded(
         "probe dense table records",
         probeBuffer(state.gpu.device, table.buffer, {

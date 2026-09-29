@@ -342,6 +342,8 @@ const SurfaceVertex = d
         world: d.vec3f,
         uv: d.vec2f,
         localPos: d.vec3f,
+        color: d.vec4f,
+        material: d.vec4f,
     })
     .$name("SurfaceVertex");
 
@@ -351,7 +353,13 @@ function typedColorVertex(surface: AnySurface, clip: boolean, suffix = clip ? "C
     const hasVs = !!surface.vs;
     const vsFn = surface.vs;
     const layout = surface.layout;
-    const bound = layout.$ as unknown as { eids: any[]; transforms: any[] };
+    const bound = layout.$ as unknown as {
+        eids: any[];
+        transforms: any[];
+        transformRows: any[];
+        partRowMap: any[];
+        partInputs: any[];
+    };
     return tgpu
         .fn(
             [d.u32, d.u32],
@@ -366,10 +374,18 @@ function typedColorVertex(surface: AnySurface, clip: boolean, suffix = clip ? "C
             let eid = d.u32(0);
             let world = d.vec4f(localPos, 1);
             let worldNormal = d.vec3f(localNormal);
+            let color = d.vec4f(1);
+            let material = d.vec4f(0, 1, 0, 1);
             let xform = identityXform();
             if (instanced) {
                 eid = bound.eids[iid];
-                xform = Xform(bound.transforms[eid]);
+                const partEncoded = bound.partRowMap[eid];
+                if (partEncoded !== 0) {
+                    const part = bound.partInputs[partEncoded - 1];
+                    color = d.vec4f(part.color);
+                    material = d.vec4f(part.material);
+                }
+                xform = Xform(bound.transforms[bound.transformRows[eid] - 1]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
                 worldNormal = d.vec3f(xformNormal(xform, worldNormal));
             }
@@ -386,6 +402,8 @@ function typedColorVertex(surface: AnySurface, clip: boolean, suffix = clip ? "C
                         xform,
                         world,
                         worldNormal,
+                        color,
+                        material,
                     }),
                 );
                 world = d.vec4f(patched.world);
@@ -401,6 +419,8 @@ function typedColorVertex(surface: AnySurface, clip: boolean, suffix = clip ? "C
                 world: world.xyz,
                 uv,
                 localPos,
+                color,
+                material,
             });
         })
         .$name(`${surface.name}${suffix}Vertex`);
@@ -415,6 +435,8 @@ function typedColorVs(surface: AnySurface, clip = false, suffix = clip ? "Clip" 
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
+        color: d.vec4f,
+        material: d.vec4f,
     };
     const uv = !!surface.fragmentInputs?.uv;
     const localPos = !!surface.fragmentInputs?.localPos;
@@ -430,6 +452,8 @@ function typedColorVs(surface: AnySurface, clip = false, suffix = clip ? "Clip" 
                     world: v.world,
                     uv: v.uv,
                     localPos: v.localPos,
+                    color: v.color,
+                    material: v.material,
                 };
             })
             .$name(name);
@@ -445,6 +469,8 @@ function typedColorVs(surface: AnySurface, clip = false, suffix = clip ? "Clip" 
                     eid: v.eid,
                     world: v.world,
                     uv: v.uv,
+                    color: v.color,
+                    material: v.material,
                 };
             })
             .$name(name);
@@ -460,6 +486,8 @@ function typedColorVs(surface: AnySurface, clip = false, suffix = clip ? "Clip" 
                     eid: v.eid,
                     world: v.world,
                     localPos: v.localPos,
+                    color: v.color,
+                    material: v.material,
                 };
             })
             .$name(name);
@@ -468,7 +496,14 @@ function typedColorVs(surface: AnySurface, clip = false, suffix = clip ? "Clip" 
         .vertexFn({ in: input, out: fixed })((i) => {
             "use gpu";
             const v = vertex(i.vidx, i.iid);
-            return { pos: v.pos, worldNormal: v.worldNormal, eid: v.eid, world: v.world };
+            return {
+                pos: v.pos,
+                worldNormal: v.worldNormal,
+                eid: v.eid,
+                world: v.world,
+                color: v.color,
+                material: v.material,
+            };
         })
         .$name(name);
 }
@@ -495,6 +530,8 @@ function typedColorFs(surface: AnySurface) {
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
+        color: d.vec4f,
+        material: d.vec4f,
         ...fragmentInterstage(surface),
     };
     return tgpu
@@ -544,6 +581,8 @@ function typedColorFs(surface: AnySurface) {
                 worldNormal,
                 uv: needUv ? input.uv : d.vec2f(0),
                 localPos: needLocalPos ? input.localPos : d.vec3f(0),
+                color: input.color,
+                material: input.material,
             } as any);
             const col = surface.fs(ctx);
             return d.vec4f(std.add(col, d.vec4f(forcedZero)));
@@ -568,7 +607,13 @@ function typedPrepassVs(surface: AnySurface) {
     const hasVs = !!surface.vs;
     const vsFn = surface.vs;
     const layout = surface.layout.depthVariant;
-    const bound = layout.$ as unknown as { eids: any[]; transforms: any[] };
+    const bound = layout.$ as unknown as {
+        eids: any[];
+        transforms: any[];
+        transformRows: any[];
+        partRowMap: any[];
+        partInputs: any[];
+    };
     return tgpu
         .vertexFn({
             in: { vidx: d.builtin.vertexIndex, iid: d.builtin.instanceIndex },
@@ -587,10 +632,18 @@ function typedPrepassVs(surface: AnySurface) {
             let eid = d.u32(0);
             let world = d.vec4f(localPos, 1);
             let worldNormal = d.vec3f(localNormal);
+            let color = d.vec4f(1);
+            let material = d.vec4f(0, 1, 0, 1);
             let xform = identityXform();
             if (instanced) {
                 eid = bound.eids[input.iid];
-                xform = Xform(bound.transforms[eid]);
+                const partEncoded = bound.partRowMap[eid];
+                if (partEncoded !== 0) {
+                    const part = bound.partInputs[partEncoded - 1];
+                    color = d.vec4f(part.color);
+                    material = d.vec4f(part.material);
+                }
+                xform = Xform(bound.transforms[bound.transformRows[eid] - 1]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
                 worldNormal = d.vec3f(xformNormal(xform, worldNormal));
             }
@@ -607,6 +660,8 @@ function typedPrepassVs(surface: AnySurface) {
                         xform,
                         world,
                         worldNormal,
+                        color,
+                        material,
                     }),
                 );
                 world = d.vec4f(patched.world);
@@ -634,11 +689,22 @@ function typedTagVs(surface: AnySurface) {
     const hasVs = !!surface.vs;
     const vsFn = surface.vs;
     const layout = surface.layout.depthVariant;
-    const bound = layout.$ as unknown as { eids: any[]; transforms: any[] };
+    const bound = layout.$ as unknown as {
+        eids: any[];
+        transforms: any[];
+        transformRows: any[];
+        partRowMap: any[];
+        partInputs: any[];
+    };
     return tgpu
         .vertexFn({
             in: { vidx: d.builtin.vertexIndex, iid: d.builtin.instanceIndex },
-            out: { pos: d.builtin.position, eid: d.interpolate("flat", d.u32) },
+            out: {
+                pos: d.builtin.position,
+                eid: d.interpolate("flat", d.u32),
+                color: d.vec4f,
+                material: d.vec4f,
+            },
         })((input) => {
             "use gpu";
             const v = layout.$.vertices[input.vidx];
@@ -650,10 +716,18 @@ function typedTagVs(surface: AnySurface) {
             let eid = d.u32(instanced ? 0 : TAG_NONE);
             let world = d.vec4f(localPos, 1);
             let worldNormal = d.vec3f(localNormal);
+            let color = d.vec4f(1);
+            let material = d.vec4f(0, 1, 0, 1);
             let xform = identityXform();
             if (instanced) {
                 eid = bound.eids[input.iid];
-                xform = Xform(bound.transforms[eid]);
+                const partEncoded = bound.partRowMap[eid];
+                if (partEncoded !== 0) {
+                    const part = bound.partInputs[partEncoded - 1];
+                    color = d.vec4f(part.color);
+                    material = d.vec4f(part.material);
+                }
+                xform = Xform(bound.transforms[bound.transformRows[eid] - 1]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
                 worldNormal = d.vec3f(xformNormal(xform, worldNormal));
             }
@@ -670,6 +744,8 @@ function typedTagVs(surface: AnySurface) {
                         xform,
                         world,
                         worldNormal,
+                        color,
+                        material,
                     }),
                 );
                 world = d.vec4f(patched.world);
@@ -680,7 +756,7 @@ function typedTagVs(surface: AnySurface) {
             // same group-1 hole fill as `typedPrepassVs` — the tag pipeline shares the prepass's
             // groups-0+2 shape
             const forcedZero = shadowLayout.$.tileRects.rects[0].x * 0;
-            return { pos: std.add(clip, d.vec4f(forcedZero)), eid };
+            return { pos: std.add(clip, d.vec4f(forcedZero)), eid, color, material };
         })
         .$name(`${surface.name}PrepassTagVs`);
 }
@@ -716,6 +792,8 @@ function typedAuthoredTagFs(surface: AnySurface) {
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
+        color: d.vec4f,
+        material: d.vec4f,
         ...fragmentInterstage(surface),
     };
     return tgpu
@@ -727,6 +805,8 @@ function typedAuthoredTagFs(surface: AnySurface) {
                 worldNormal: std.normalize(fin.worldNormal),
                 uv: needUv ? (fin as any).uv : d.vec2f(0),
                 localPos: needLocalPos ? (fin as any).localPos : d.vec3f(0),
+                color: fin.color,
+                material: fin.material,
             });
             return d.vec4u(tagFn(ctx, instanced ? fin.eid : TAG_NONE), 0, 0, 0);
         })
@@ -743,6 +823,8 @@ function typedClipFs(surface: AnySurface, tag: boolean) {
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
+        color: d.vec4f,
+        material: d.vec4f,
         ...fragmentInterstage(surface),
     };
     if (tag) {
@@ -755,6 +837,8 @@ function typedClipFs(surface: AnySurface, tag: boolean) {
                     worldNormal: std.normalize(fin.worldNormal),
                     uv: needUv ? (fin as any).uv : d.vec2f(0),
                     localPos: needLocalPos ? (fin as any).localPos : d.vec3f(0),
+                    color: fin.color,
+                    material: fin.material,
                 });
                 surface.fs(ctx);
                 return d.vec4u(instanced ? fin.eid : TAG_NONE, 0, 0, 0);
@@ -770,6 +854,8 @@ function typedClipFs(surface: AnySurface, tag: boolean) {
                 worldNormal: std.normalize(fin.worldNormal),
                 uv: needUv ? (fin as any).uv : d.vec2f(0),
                 localPos: needLocalPos ? (fin as any).localPos : d.vec3f(0),
+                color: fin.color,
+                material: fin.material,
             });
             surface.fs(ctx);
         })
@@ -793,10 +879,10 @@ function clipVaryingCopier(surface: AnySurface) {
     const CtxSchema = (fsFn as unknown as { shell: { argTypes: [unknown] } }).shell.argTypes[0];
     const copier = tgpu
         .fn(
-            [d.vec3f, d.u32, d.vec3f, d.vec2f, d.vec3f, varyingSchema],
+            [d.vec3f, d.u32, d.vec3f, d.vec2f, d.vec3f, d.vec4f, d.vec4f, varyingSchema],
             d.Void,
-        )(/* wgsl */ `(worldNormalIn: vec3f, eid: u32, world: vec3f, uv: vec2f, localPos: vec3f, v0: ${varyingType}) {
-    let ctx = Ctx(eid, world, normalize(worldNormalIn), uv, localPos, v0);
+        )(/* wgsl */ `(worldNormalIn: vec3f, eid: u32, world: vec3f, uv: vec2f, localPos: vec3f, color: vec4f, material: vec4f, v0: ${varyingType}) {
+    let ctx = Ctx(eid, world, normalize(worldNormalIn), uv, localPos, color, material, v0);
     fs(ctx);
 }`)
         .$uses({ Ctx: CtxSchema, fs: fsFn })
@@ -813,6 +899,8 @@ function varyingClipFs(surface: AnySurface, tag: boolean) {
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
+        color: d.vec4f,
+        material: d.vec4f,
         ...fragmentInterstage(surface),
         v0: d.location(VARYING_BASE, varyingSchema as d.Vec3f),
     };
@@ -829,6 +917,8 @@ function varyingClipFs(surface: AnySurface, tag: boolean) {
                     input.world,
                     needUv ? (input as any).uv : d.vec2f(0),
                     needLocalPos ? (input as any).localPos : d.vec3f(0),
+                    input.color,
+                    input.material,
                     input.v0,
                 );
                 return d.vec4u(instanced ? input.eid : TAG_NONE, 0, 0, 0);
@@ -847,6 +937,8 @@ function varyingClipFs(surface: AnySurface, tag: boolean) {
                 input.world,
                 needUv ? (input as any).uv : d.vec2f(0),
                 needLocalPos ? (input as any).localPos : d.vec3f(0),
+                input.color,
+                input.material,
                 input.v0,
             );
         })
@@ -939,6 +1031,8 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
                 worldNormal: d.vec3f,
                 eid: d.interpolate("flat", d.u32),
                 world: d.vec3f,
+                color: d.vec4f,
+                material: d.vec4f,
                 ...fragmentFields,
                 // no type-directed `@interpolate(flat)` insertion — an INTEGER varying is unsupported
                 // and fails loudly at resolve/device compile; every shipped varying is float-typed.
@@ -954,17 +1048,25 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
     var xform = Xform(vec3f(0.0), vec4f(0.0, 0.0, 0.0, 1.0), vec3f(1.0));
     var world = vec4f(localPos, 1.0);
     var worldNormal = vec3f(localNormal);
+    var color = vec4f(1.0);
+    var material = vec4f(0.0, 1.0, 0.0, 1.0);
 ${
     instanced
         ? `    eid = bound.eids[in.iid];
-    xform = bound.transforms[eid];
+    let partEncoded = bound.partRowMap[eid];
+    if (partEncoded != 0u) {
+        let part = bound.partInputs[partEncoded - 1u];
+        color = part.color;
+        material = part.material;
+    }
+    xform = bound.transforms[bound.transformRows[eid] - 1u];
     world = vec4f(xformPoint(xform, world.xyz), world.w);
     worldNormal = vec3f(xformNormal(xform, worldNormal));
 `
         : ""
 }${
     hasVs
-        ? `    let patched = vs(VsIn(localPos, localNormal, uv, vidx, eid, iid, xform, world, worldNormal));
+        ? `    let patched = vs(VsIn(localPos, localNormal, uv, vidx, eid, iid, xform, world, worldNormal, color, material));
     world = patched.world;
     worldNormal = patched.worldNormal;
 `
@@ -975,6 +1077,8 @@ ${
     out.worldNormal = normalize(worldNormal);
     out.eid = eid;
     out.world = world.xyz;
+    out.color = color;
+    out.material = material;
 ${fragmentAssigns}
 ${assigns}
     return out;
@@ -1058,11 +1162,11 @@ function typedVaryingFs(surface: AnySurface) {
     const CtxSchema = (fsFn as unknown as { shell: { argTypes: [unknown] } }).shell.argTypes[0];
     const copier = tgpu
         .fn(
-            [d.vec4f, d.vec3f, d.u32, d.vec3f, d.vec2f, d.vec3f, ...schemas],
+            [d.vec4f, d.vec3f, d.u32, d.vec3f, d.vec2f, d.vec3f, d.vec4f, d.vec4f, ...schemas],
             d.vec4f,
-        )(/* wgsl */ `(pos: vec4f, worldNormalIn: vec3f, eid: u32, world: vec3f, uv: vec2f, localPos: vec3f, ${params}) -> vec4f {
+        )(/* wgsl */ `(pos: vec4f, worldNormalIn: vec3f, eid: u32, world: vec3f, uv: vec2f, localPos: vec3f, color: vec4f, material: vec4f, ${params}) -> vec4f {
     let worldNormal = normalize(worldNormalIn);
-    let ctx = Ctx(eid, world, worldNormal, uv, localPos, ${schemas.map((_, i) => `v${i}`).join(", ")});
+    let ctx = Ctx(eid, world, worldNormal, uv, localPos, color, material, ${schemas.map((_, i) => `v${i}`).join(", ")});
     return fs(ctx);
 }`)
         .$uses({ Ctx: CtxSchema, fs: fsFn })
@@ -1080,6 +1184,8 @@ function typedVaryingFs(surface: AnySurface) {
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
+        color: d.vec4f,
+        material: d.vec4f,
         ...fragmentInterstage(surface),
     };
     const name = `${surface.name}Fs`;
@@ -1095,6 +1201,8 @@ function typedVaryingFs(surface: AnySurface) {
                     input.world,
                     needUv ? (input as any).uv : d.vec2f(0),
                     needLocalPos ? (input as any).localPos : d.vec3f(0),
+                    input.color,
+                    input.material,
                     input.v0,
                 );
                 return d.vec4f(std.add(col, d.vec4f(shadowForce())));
@@ -1116,6 +1224,8 @@ function typedVaryingFs(surface: AnySurface) {
                     input.world,
                     needUv ? (input as any).uv : d.vec2f(0),
                     needLocalPos ? (input as any).localPos : d.vec3f(0),
+                    input.color,
+                    input.material,
                     input.v0,
                     input.v1,
                 );
@@ -1144,6 +1254,8 @@ function typedVaryingFs(surface: AnySurface) {
                     input.world,
                     needUv ? (input as any).uv : d.vec2f(0),
                     needLocalPos ? (input as any).localPos : d.vec3f(0),
+                    input.color,
+                    input.material,
                     input.v0,
                     input.v1,
                     input.v2,
@@ -1169,6 +1281,8 @@ function typedVaryingFs(surface: AnySurface) {
                 input.world,
                 needUv ? (input as any).uv : d.vec2f(0),
                 needLocalPos ? (input as any).localPos : d.vec3f(0),
+                input.color,
+                input.material,
                 input.v0,
                 input.v1,
                 input.v2,
@@ -1195,10 +1309,10 @@ function typedVaryingTagFs(surface: AnySurface) {
     const Ctx = (tagFn as unknown as { shell: { argTypes: [unknown, unknown] } }).shell.argTypes[0];
     const copier = tgpu
         .fn(
-            [d.vec3f, d.u32, d.vec3f, d.vec2f, d.vec3f, d.u32, ...schemas],
+            [d.vec3f, d.u32, d.vec3f, d.vec2f, d.vec3f, d.vec4f, d.vec4f, d.u32, ...schemas],
             d.u32,
-        )(/* wgsl */ `(worldNormalIn: vec3f, eid: u32, world: vec3f, uv: vec2f, localPos: vec3f, defaultTag: u32, ${params}) -> u32 {
-    let ctx = Ctx(eid, world, normalize(worldNormalIn), uv, localPos, ${schemas.map((_, i) => `v${i}`).join(", ")});
+        )(/* wgsl */ `(worldNormalIn: vec3f, eid: u32, world: vec3f, uv: vec2f, localPos: vec3f, color: vec4f, material: vec4f, defaultTag: u32, ${params}) -> u32 {
+    let ctx = Ctx(eid, world, normalize(worldNormalIn), uv, localPos, color, material, ${schemas.map((_, i) => `v${i}`).join(", ")});
     return tag(ctx, defaultTag);
 }`)
         .$uses({ Ctx, tag: tagFn })
@@ -1211,6 +1325,8 @@ function typedVaryingTagFs(surface: AnySurface) {
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
+        color: d.vec4f,
+        material: d.vec4f,
         ...fragmentInterstage(surface),
     };
     const name = `${surface.name}PrepassTagFs`;
@@ -1225,6 +1341,8 @@ function typedVaryingTagFs(surface: AnySurface) {
                     input.world,
                     needUv ? (input as any).uv : d.vec2f(0),
                     needLocalPos ? (input as any).localPos : d.vec3f(0),
+                    input.color,
+                    input.material,
                     instanced ? input.eid : TAG_NONE,
                     input.v0,
                 );
@@ -1246,6 +1364,8 @@ function typedVaryingTagFs(surface: AnySurface) {
                     input.world,
                     needUv ? (input as any).uv : d.vec2f(0),
                     needLocalPos ? (input as any).localPos : d.vec3f(0),
+                    input.color,
+                    input.material,
                     instanced ? input.eid : TAG_NONE,
                     input.v0,
                     input.v1,
@@ -1270,6 +1390,8 @@ function typedVaryingTagFs(surface: AnySurface) {
                     input.world,
                     needUv ? (input as any).uv : d.vec2f(0),
                     needLocalPos ? (input as any).localPos : d.vec3f(0),
+                    input.color,
+                    input.material,
                     instanced ? input.eid : TAG_NONE,
                     input.v0,
                     input.v1,
@@ -1295,6 +1417,8 @@ function typedVaryingTagFs(surface: AnySurface) {
                 input.world,
                 needUv ? (input as any).uv : d.vec2f(0),
                 needLocalPos ? (input as any).localPos : d.vec3f(0),
+                input.color,
+                input.material,
                 instanced ? input.eid : TAG_NONE,
                 input.v0,
                 input.v1,
@@ -1573,7 +1697,13 @@ function typedShadowVs(
     const hasVs = !!surface.vs;
     const vsFn = surface.vs;
     const layout = surface.layout.depthVariant;
-    const bound = layout.$ as unknown as { eids: any[]; transforms: any[] };
+    const bound = layout.$ as unknown as {
+        eids: any[];
+        transforms: any[];
+        transformRows: any[];
+        partRowMap: any[];
+        partInputs: any[];
+    };
     const shadowBound = shadowGroup.$ as unknown as {
         faceVP: { m: any[] };
         comboMeta: { m: any[] };
@@ -1595,7 +1725,15 @@ function typedShadowVs(
             const packed = bound.eids[input.iid];
             const eid = packed & eidMask;
             const combo = packed >>> comboShift;
-            const xform = Xform(bound.transforms[eid]);
+            let color = d.vec4f(1);
+            let material = d.vec4f(0, 1, 0, 1);
+            const partEncoded = bound.partRowMap[eid];
+            if (partEncoded !== 0) {
+                const part = bound.partInputs[partEncoded - 1];
+                color = d.vec4f(part.color);
+                material = d.vec4f(part.material);
+            }
+            const xform = Xform(bound.transforms[bound.transformRows[eid] - 1]);
             let world = d.vec4f(xformPoint(xform, localPos), 1);
             let worldNormal = d.vec3f(xformNormal(xform, localNormal));
             if (hasVs) {
@@ -1610,6 +1748,8 @@ function typedShadowVs(
                         xform,
                         world,
                         worldNormal,
+                        color,
+                        material,
                     }),
                 );
                 world = d.vec4f(patched.world);
@@ -1635,6 +1775,8 @@ const ClipShadowVertex = d
         world: d.vec3f,
         uv: d.vec2f,
         localPos: d.vec3f,
+        color: d.vec4f,
+        material: d.vec4f,
     })
     .$name("ClipShadowVertex");
 
@@ -1649,7 +1791,13 @@ function typedClipShadowVertex(
     const hasVs = !!surface.vs;
     const vsFn = surface.vs;
     const layout = surface.layout;
-    const bound = layout.$ as unknown as { eids: any[]; transforms: any[] };
+    const bound = layout.$ as unknown as {
+        eids: any[];
+        transforms: any[];
+        transformRows: any[];
+        partRowMap: any[];
+        partInputs: any[];
+    };
     const shadowBound = shadowGroup.$ as unknown as {
         faceVP: { m: any[] };
         comboMeta: { m: any[] };
@@ -1669,7 +1817,15 @@ function typedClipShadowVertex(
             const packed = bound.eids[iid];
             const eid = packed & eidMask;
             const combo = packed >>> comboShift;
-            const xform = Xform(bound.transforms[eid]);
+            let color = d.vec4f(1);
+            let material = d.vec4f(0, 1, 0, 1);
+            const partEncoded = bound.partRowMap[eid];
+            if (partEncoded !== 0) {
+                const part = bound.partInputs[partEncoded - 1];
+                color = d.vec4f(part.color);
+                material = d.vec4f(part.material);
+            }
+            const xform = Xform(bound.transforms[bound.transformRows[eid] - 1]);
             let world = d.vec4f(xformPoint(xform, localPos), 1);
             let worldNormal = d.vec3f(xformNormal(xform, localNormal));
             if (hasVs) {
@@ -1684,6 +1840,8 @@ function typedClipShadowVertex(
                         xform,
                         world,
                         worldNormal,
+                        color,
+                        material,
                     }),
                 );
                 world = d.vec4f(patched.world);
@@ -1701,6 +1859,8 @@ function typedClipShadowVertex(
                 world: world.xyz,
                 uv,
                 localPos,
+                color,
+                material,
             });
         })
         .$name(`${surface.name}${cascade ? "Cascade" : "Point"}ClipVertex`);
@@ -1722,6 +1882,8 @@ function clipShadowVs(
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
+        color: d.vec4f,
+        material: d.vec4f,
     };
     const uv = !!surface.fragmentInputs?.uv;
     const localPos = !!surface.fragmentInputs?.localPos;
@@ -1738,6 +1900,8 @@ function clipShadowVs(
                     world: v.world,
                     uv: v.uv,
                     localPos: v.localPos,
+                    color: v.color,
+                    material: v.material,
                 };
             })
             .$name(name);
@@ -1754,6 +1918,8 @@ function clipShadowVs(
                     eid: v.eid,
                     world: v.world,
                     uv: v.uv,
+                    color: v.color,
+                    material: v.material,
                 };
             })
             .$name(name);
@@ -1770,6 +1936,8 @@ function clipShadowVs(
                     eid: v.eid,
                     world: v.world,
                     localPos: v.localPos,
+                    color: v.color,
+                    material: v.material,
                 };
             })
             .$name(name);
@@ -1784,6 +1952,8 @@ function clipShadowVs(
                 worldNormal: v.worldNormal,
                 eid: v.eid,
                 world: v.world,
+                color: v.color,
+                material: v.material,
             };
         })
         .$name(name);
@@ -1821,6 +1991,8 @@ function varyingShadowVs(
             worldNormal: d.vec3f,
             eid: d.u32,
             world: d.vec3f,
+            color: d.vec4f,
+            material: d.vec4f,
             ...fragmentFields,
             ...varyings,
         })
@@ -1841,12 +2013,20 @@ function varyingShadowVs(
     let packed = bound.eids[iid];
     let eid = packed & ${eidMask}u;
     let combo = packed >> ${comboShift}u;
-    let xform = bound.transforms[eid];
+    let partEncoded = bound.partRowMap[eid];
+    var color = vec4f(1.0);
+    var material = vec4f(0.0, 1.0, 0.0, 1.0);
+    if (partEncoded != 0u) {
+        let part = bound.partInputs[partEncoded - 1u];
+        color = part.color;
+        material = part.material;
+    }
+    let xform = bound.transforms[bound.transformRows[eid] - 1u];
     var world = vec4f(xformPoint(xform, localPos), 1.0);
     var worldNormal = vec3f(xformNormal(xform, localNormal));
 ${
     hasVs
-        ? `    let patched = vs(VsIn(localPos, localNormal, uv, vidx, eid, iid, xform, world, worldNormal));
+        ? `    let patched = vs(VsIn(localPos, localNormal, uv, vidx, eid, iid, xform, world, worldNormal, color, material));
     world = patched.world;
     worldNormal = patched.worldNormal;
 `
@@ -1860,6 +2040,8 @@ ${
     out.worldNormal = normalize(worldNormal);
     out.eid = eid;
     out.world = world.xyz;
+    out.color = color;
+    out.material = material;
 ${fragmentAssigns}
 ${assigns}
     return out;
@@ -1893,6 +2075,8 @@ ${assigns}
                 worldNormal: d.vec3f,
                 eid: d.interpolate("flat", d.u32),
                 world: d.vec3f,
+                color: d.vec4f,
+                material: d.vec4f,
                 ...fragmentFields,
                 ...located,
             },
@@ -1914,6 +2098,8 @@ function varyingShadowFs(surface: AnySurface) {
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
+        color: d.vec4f,
+        material: d.vec4f,
         ...fragmentInterstage(surface),
         v0: d.location(VARYING_BASE, varyingSchema as d.Vec3f),
     };
@@ -1935,6 +2121,8 @@ function varyingShadowFs(surface: AnySurface) {
                 input.world,
                 needUv ? (input as any).uv : d.vec2f(0),
                 needLocalPos ? (input as any).localPos : d.vec3f(0),
+                input.color,
+                input.material,
                 input.v0,
             );
         })
@@ -1956,6 +2144,8 @@ function clipShadowFs(surface: AnySurface) {
                 worldNormal: d.vec3f,
                 eid: d.interpolate("flat", d.u32),
                 world: d.vec3f,
+                color: d.vec4f,
+                material: d.vec4f,
                 ...fragmentInterstage(surface),
             },
             out: d.Void,
@@ -1973,6 +2163,8 @@ function clipShadowFs(surface: AnySurface) {
                 worldNormal: std.normalize(input.worldNormal),
                 uv: needUv ? (input as any).uv : d.vec2f(0),
                 localPos: needLocalPos ? (input as any).localPos : d.vec3f(0),
+                color: input.color,
+                material: input.material,
             });
             surface.fs(ctx);
         })

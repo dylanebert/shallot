@@ -1,31 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
 import * as d from "typegpu/data";
-import { attachCanvas, Camera, PointLight } from "../../core/rendering";
-import { Sear, SearPlugin } from "../../standard/rendering";
-import { Part, PartPlugin, Parts } from "../../transitional/part";
-import { Body, PhysicsPlugin } from "../../transitional/physics";
-import { SlabPlugin, slab } from "../../transitional/slab";
+import { PartInput, PointLight, RenderPlugin } from "../../core/rendering";
+import { SearPlugin } from "../../standard/rendering";
+import { Part, PartPlugin } from "../../transitional/part";
 import { Transform } from "../../transitional/transforms";
-import { Compute, f16x4, f32, field, type Plugin, type State, u8 } from "../index";
+import { Compute, f32, field, type State } from "../index";
 import { probeBuffer } from "../runtime";
 import { serialize } from "../scene";
-import { Xform } from "../utils";
 import { build, swap } from "./index";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
-const createCanvasContext = (await import(peerModule)).GPUCanvasContextMock as new (
-    canvas: HTMLCanvasElement,
-    width: number,
-    height: number,
-) => GPUCanvasContext;
 await setupGlobals();
-if (typeof ResizeObserver === "undefined") {
-    globalThis.ResizeObserver = class {
-        observe() {}
-        disconnect() {}
-    } as unknown as typeof ResizeObserver;
-}
 
 const Value = { amount: field(f32) };
 const resourceKey = Symbol("world-probe");
@@ -59,42 +45,6 @@ afterEach(() => {
 
 function amount(state: State) {
     return state.of(Value).amount;
-}
-
-function expectCapacityBuffers(state: State, capacity: number): void {
-    expect(state.gpu.buffers.get("transforms")?.size).toBe(capacity * d.sizeOf(Xform));
-    expect(state.gpu.buffers.get("membership")?.size).toBe(
-        state.membership.generations * capacity * 4,
-    );
-    expect(state.gpu.buffers.get("material")?.size).toBe(capacity * f16x4.gpu!.bytes);
-    expect(state.gpu.buffers.get("eids")?.size).toBe(capacity * 4);
-}
-
-function capacityViewPlugin(): Plugin {
-    let context: GPUCanvasContext;
-    const canvas = {
-        width: 16,
-        height: 16,
-        style: { imageRendering: "auto" },
-        getContext(kind: string) {
-            return kind === "webgpu" ? context : null;
-        },
-        getBoundingClientRect() {
-            return { width: 16, height: 16 };
-        },
-    } as unknown as HTMLCanvasElement;
-    context = new createCanvasContext(canvas, canvas.width, canvas.height);
-    return {
-        name: "WorldCapacityView",
-        dependencies: [SearPlugin],
-        initialize(state) {
-            const eid = state.create();
-            state.add(eid, Transform);
-            state.add(eid, Camera);
-            state.add(eid, Sear);
-            attachCanvas(eid, canvas, state);
-        },
-    };
 }
 
 test("live and later worlds keep component columns separate", async () => {
@@ -268,17 +218,9 @@ test("world GPU registries and owned resources are isolated and released on disp
     device.destroy();
 }, 20_000);
 
-test("frame change marks clear after slab uploads, including fields without GPU uploads", async () => {
-    const Changed = {
-        sparse: field(f32),
-        uploaded: slab(f32, "change-mark-uploaded"),
-        unsupported: slab(u8),
-    };
-    const plugin = {
-        name: "WorldChangeMarkProbe",
-        dependencies: [SlabPlugin],
-        components: { Changed },
-    };
+test("frame change marks clear at the world upload point", async () => {
+    const Changed = { sparse: field(f32), uploaded: field(f32) };
+    const plugin = { name: "WorldChangeMarkProbe", components: { Changed } };
     const app = await build({ defaults: false, plugins: [plugin] });
     apps.push(app);
     const { state } = app;
@@ -287,14 +229,13 @@ test("frame change marks clear after slab uploads, including fields without GPU 
     const storage = state.of(Changed);
     storage.sparse.set(eid, 1);
     storage.uploaded.set(eid, 2);
-    storage.unsupported.set(eid, 3);
 
     state.step(0);
     expect(
-        [storage.sparse, storage.uploaded, storage.unsupported].map((field) =>
+        [storage.sparse, storage.uploaded].map((field) =>
             Array.from(field.dirty).some((word) => word !== 0),
         ),
-    ).toEqual([false, false, false]);
+    ).toEqual([false, false]);
 
     let writeAfterUpload = false;
     const lateWriter = {
@@ -313,92 +254,94 @@ test("frame change marks clear after slab uploads, including fields without GPU 
     expect(storage.uploaded.dirty[0]).toBe(0);
 }, 20_000);
 
-test("each world's capacity sizes entities, membership, and Slab buffers independently", async () => {
-    const CapacityField = { value: slab(f32, "world-capacity-value") };
-    const plugin = {
-        name: "WorldCapacityProbe",
-        dependencies: [SlabPlugin],
-        components: { CapacityField },
-    };
-    const first = await build({ defaults: false, plugins: [plugin], capacity: 64 });
-    apps.push(first);
-    const second = await build({ defaults: false, plugins: [plugin], capacity: 8 });
-    apps.push(second);
+test("render light inputs upload as active dense table rows", async () => {
+    const app = await build({ defaults: false, plugins: [RenderPlugin] });
+    apps.push(app);
+    const { state } = app;
+    const eid = state.create();
+    state.add(eid, Transform);
+    state.add(eid, PointLight);
+    Transform.pos.set(eid, 2, 3, 4, 0);
+    PointLight.color.set(eid, 0xffd9a0);
+    PointLight.intensity.set(eid, 2.5);
+    PointLight.range.set(eid, 7);
+    PointLight.radius.set(eid, 0.25);
 
-    expect(first.state.capacity).toBe(64);
-    expect(second.state.capacity).toBe(8);
-    expect(first.state.gpu.buffers.get("world-capacity-value")?.size).toBe(64 * 4);
-    expect(second.state.gpu.buffers.get("world-capacity-value")?.size).toBe(8 * 4);
-    expect(first.state.gpu.buffers.get("membership")?.size).toBe(
-        first.state.membership.generations * 64 * 4,
+    state.gpu.device.pushErrorScope("validation");
+    state.step(0);
+    await state.gpu.device.queue.onSubmittedWorkDone();
+    expect(await state.gpu.device.popErrorScope()).toBeNull();
+    const active = await probeBuffer(
+        state.gpu.device,
+        state.gpu.buffers.get("lightInputs:active-rows")!,
+        {
+            size: 8,
+        },
     );
-    expect(second.state.gpu.buffers.get("membership")?.size).toBe(
-        second.state.membership.generations * 8 * 4,
-    );
-
-    for (let i = 0; i < 63; i++) first.state.create();
-    for (let i = 0; i < 7; i++) second.state.create();
-    expect(() => first.state.create()).toThrow("configured capacity 64");
-    expect(() => second.state.create()).toThrow("configured capacity 8");
+    const [activeEid, row] = new Uint32Array(active.bytes);
+    expect(activeEid).toBe(eid);
+    const record = await probeBuffer(state.gpu.device, state.gpu.buffers.get("lightInputs")!, {
+        offset: row * 32,
+        size: 32,
+    });
+    const data = new DataView(record.bytes);
+    expect(data.getFloat32(0, true)).toBe(Math.fround(0xffd9a0));
+    expect(data.getFloat32(4, true)).toBe(2.5);
+    expect(data.getFloat32(8, true)).toBe(7);
+    expect(data.getFloat32(12, true)).toBe(0.25);
 }, 20_000);
 
-test("built-in capacity readers size both worlds and render and step the top eid", async () => {
-    const below = 32;
-    const small = await build({
-        defaults: false,
-        plugins: [PhysicsPlugin, PartPlugin, SearPlugin, capacityViewPlugin()],
-        capacity: below,
-    });
-    apps.push(small);
-    expectCapacityBuffers(small.state, below);
-    small.state.gpu.device.pushErrorScope("validation");
-    small.state.step();
-    await small.state.gpu.device.queue.onSubmittedWorkDone();
-    expect(await small.state.gpu.device.popErrorScope()).toBeNull();
-    small.dispose();
-    apps = apps.filter((app) => app !== small);
-
-    const above = 65544;
-    const large = await build({
-        defaults: false,
-        plugins: [PhysicsPlugin, PartPlugin, SearPlugin, capacityViewPlugin()],
-        capacity: above,
-    });
-    apps.push(large);
-    expectCapacityBuffers(large.state, above);
-
-    let topEid = 0;
-    for (let i = 0; i < above - 2; i++) topEid = large.state.create();
-    expect(topEid).toBe(above - 1);
-    large.state.add(topEid, Body);
-    large.state.add(topEid, Part);
-    large.state.add(topEid, PointLight);
-
-    let drawArgs: GPUBuffer | undefined;
-    large.state.addSystem({
-        name: "WorldCapacityDrawProbe",
-        group: "draw",
-        update() {
-            if (!Parts.drawArgs) throw new Error("Part draw args were not allocated");
-            drawArgs = Compute.root.unwrap(Parts.drawArgs);
-        },
-    });
-    large.state.gpu.device.pushErrorScope("validation");
-    large.state.step();
-    await large.state.gpu.device.queue.onSubmittedWorkDone();
-    expect(await large.state.gpu.device.popErrorScope()).toBeNull();
-
-    const packed = large.state.gpu.buffers.get("eids");
-    expect(packed).toBeDefined();
-    expect(drawArgs).toBeDefined();
-    const packedEid = await probeBuffer(large.state.gpu.device, packed!, { size: 4 });
-    const drawInstanceCount = await probeBuffer(large.state.gpu.device, drawArgs!, {
-        offset: 4,
+test("Part and Sear warm and compact a component-bound dense instance", async () => {
+    const app = await build({ defaults: false, plugins: [RenderPlugin, PartPlugin, SearPlugin] });
+    apps.push(app);
+    const { state } = app;
+    const eid = state.create();
+    state.add(eid, Transform);
+    state.add(eid, Part);
+    state.gpu.device.pushErrorScope("validation");
+    state.step(0);
+    await state.gpu.device.queue.onSubmittedWorkDone();
+    expect(await state.gpu.device.popErrorScope()).toBeNull();
+    const packed = await probeBuffer(state.gpu.device, state.gpu.buffers.get("eids")!, {
         size: 4,
     });
-    expect(new Uint32Array(packedEid.bytes)[0]).toBe(topEid);
-    expect(new Uint32Array(drawInstanceCount.bytes)[0]).toBe(1);
-}, 30_000);
+    expect(new Uint32Array(packed.bytes)[0]).toBe(eid);
+    const active = await probeBuffer(
+        state.gpu.device,
+        state.gpu.buffers.get("partInputs:active-rows")!,
+        { size: 8 },
+    );
+    const [activeEid, row] = new Uint32Array(active.bytes);
+    expect(activeEid).toBe(eid);
+    const recordSize = d.sizeOf(PartInput);
+    const colorOffset = d.memoryLayoutOf(PartInput, (value) => value.color).offset;
+    const materialOffset = d.memoryLayoutOf(PartInput, (value) => value.material).offset;
+    const record = await probeBuffer(state.gpu.device, state.gpu.buffers.get("partInputs")!, {
+        offset: row * recordSize,
+        size: recordSize,
+    });
+    const data = new DataView(record.bytes);
+    expect([0, 1, 2, 3].map((lane) => data.getFloat32(colorOffset + lane * 4, true))).toEqual([
+        1, 0, 1, 1,
+    ]);
+    expect([0, 1, 2, 3].map((lane) => data.getFloat32(materialOffset + lane * 4, true))).toEqual([
+        0, 1, 0, 1,
+    ]);
+}, 20_000);
+
+test("entity ids and component columns grow without a configured capacity", async () => {
+    const Grow = { value: field(f32) };
+    const plugin = { name: "WorldGrowthProbe", components: { Grow } };
+    const app = await build({ defaults: false, plugins: [plugin] });
+    apps.push(app);
+    let eid = 0;
+    for (let i = 0; i < 4096; i++) eid = app.state.create();
+    app.state.add(eid, Grow);
+    Grow.value.set(eid, 73.5);
+    expect(app.state.entityHighWater).toBe(eid + 1);
+    expect(app.state.of(Grow).value.column.length).toBeGreaterThan(eid);
+    expect(Grow.value.get(eid)).toBe(73.5);
+}, 20_000);
 
 test("reordered component fields swap without rebuilding their world columns", async () => {
     const firstValue = { x: field(f32), y: field(f32) };
