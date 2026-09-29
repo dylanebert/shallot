@@ -526,7 +526,12 @@ function featurePlugin(subject: Plugin): Plugin {
         name: "GpuIsolationFeatureSeed",
         components: Object.assign({}, ...everyPlugin.map((plugin) => plugin.components)),
         traits: Object.assign({}, ...everyPlugin.map((plugin) => plugin.traits)),
-        dependencies: [...DEFAULT_PLUGINS, subject],
+        // Character's app composes Physics explicitly; this fixture is that app.
+        dependencies: [
+            ...DEFAULT_PLUGINS,
+            ...(uses(subject, CharacterPlugin) ? [PhysicsPlugin] : []),
+            subject,
+        ],
         initialize(state) {
             const resources = state.resource(isolationKey, createIsolationResources);
             let context: GPUCanvasContext;
@@ -748,7 +753,7 @@ async function renderAlone(
 }
 
 async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Promise<void> {
-    const hasPhysics = uses(subject, PhysicsPlugin);
+    const hasPhysics = uses(subject, PhysicsPlugin) || uses(subject, CharacterPlugin);
     const firstDevice = await trackedDevice();
     const secondDevice = sharedDevice ? firstDevice : await trackedDevice();
     const seed = featurePlugin(subject);
