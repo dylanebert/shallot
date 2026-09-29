@@ -47,6 +47,9 @@ export function fieldSchema<T extends Type>(type: T): SchemaField<T> {
     descriptor = {
         [FIELD]: true as const,
         type,
+        write(eids: Uint32Array, source: TypedArray) {
+            bound(descriptor).write(eids, source);
+        },
         set(eid: number, x: number, y = 0, z = 0, w = 0) {
             const storage = bound(descriptor);
             if (descriptor.type.lanes === 1) {
@@ -336,6 +339,8 @@ export const srgb8x4: Type<Float32Array> & { readonly lanes: 4 } = {
  * automatically. GPU consumers declare record tables separately.
  */
 export interface Single {
+    /** Copy encoded typed rows in eid order; source must match this lane's element type. */
+    write(eids: Uint32Array, source: TypedArray): void;
     set(eid: number, value: number): void;
     get(eid: number): number;
     /** type descriptor — needed for surface binding (WGSL element type) */
@@ -354,6 +359,8 @@ export interface Single {
  * out param without allocation
  */
 export interface Pair {
+    /** Copy encoded two-lane typed rows in eid order and mark each entity changed. */
+    write(eids: Uint32Array, source: TypedArray): void;
     set(eid: number, x: number, y: number): void;
     read(eid: number, out: Float32Array): Float32Array;
     readonly x: Single;
@@ -368,6 +375,8 @@ export interface Pair {
  * with two more lanes
  */
 export interface Quad {
+    /** Copy encoded four-lane typed rows in eid order and mark each entity changed. */
+    write(eids: Uint32Array, source: TypedArray): void;
     set(eid: number, x: number, y: number, z: number, w: number): void;
     read(eid: number, out: Float32Array): Float32Array;
     readonly x: Single;

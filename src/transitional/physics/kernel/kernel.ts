@@ -44,6 +44,8 @@ export type Kernel = {
     // `bodyLayoutPtr` returns the byte-offset header TS derives its column views from (bodycolumns.ts).
     reserveBodies(cap: number): number;
     bodyLayoutPtr(): number;
+    bodySetEntity(world: number, body: number, eid: number): void;
+    bodySyncMoved(count: number): number;
     /** The record capacity the resident body region is sized to — the single source of truth for the
      * TS body-store's column-view lengths (bodycolumns.ts). Zero before the first `reserveBodies`. */
     bodyCap(): number;

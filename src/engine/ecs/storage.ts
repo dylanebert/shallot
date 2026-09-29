@@ -18,6 +18,7 @@ export class WorldField<T extends Type = Type> {
     readonly type: T;
     readonly #column: Column;
     readonly #observers = new Set<(eid: number) => void>();
+    readonly #writeRows = new WeakMap<TypedArray, Map<number, TypedArray[]>>();
 
     constructor(schema: FieldSchema<T>, initialCapacity: number) {
         this.type = schema.type;
@@ -62,6 +63,45 @@ export class WorldField<T extends Type = Type> {
         for (const observer of this.#observers) observer(eid);
     }
 
+    /** Copy encoded typed rows and publish the same change notifications as scalar setters. */
+    write(eids: Uint32Array, source: TypedArray, lane = -1): void {
+        const lanes = lane < 0 ? this.type.lanes : 1;
+        if (!(eids instanceof Uint32Array))
+            throw new Error("WorldField.write: eids must be Uint32Array");
+        if (source.constructor !== this.#column.array.constructor) {
+            throw new Error(
+                `WorldField.write: expected ${this.#column.array.constructor.name}, received ${source.constructor.name}`,
+            );
+        }
+        if (source.length !== eids.length * lanes) {
+            throw new Error(
+                `WorldField.write: source length ${source.length} does not match ${eids.length} rows with ${lanes} lanes`,
+            );
+        }
+        let capacity = 0;
+        for (let i = 0; i < eids.length; i++) capacity = Math.max(capacity, eids[i] + 1);
+        this.ensure(capacity);
+        let byLanes = this.#writeRows.get(source);
+        if (!byLanes) {
+            byLanes = new Map();
+            this.#writeRows.set(source, byLanes);
+        }
+        let rows = byLanes.get(lanes);
+        if (!rows) {
+            rows = [];
+            for (let i = 0; i < eids.length; i++)
+                rows.push(source.subarray(i * lanes, (i + 1) * lanes) as TypedArray);
+            byLanes.set(lanes, rows);
+        }
+        const { array, dirty } = this.#column;
+        for (let i = 0; i < eids.length; i++) {
+            const eid = eids[i];
+            array.set(rows[i], eid * this.type.lanes + Math.max(0, lane));
+            dirty[eid >>> 5] |= 1 << (eid & 31);
+            for (const observer of this.#observers) observer(eid);
+        }
+    }
+
     get(eid: number, lane = 0): number {
         const value = this.#column.array[eid * this.type.lanes + lane] ?? 0;
         return this.type.decode ? this.type.decode(value) : value;
@@ -92,6 +132,9 @@ export class WorldField<T extends Type = Type> {
     bind(): FieldStorage<T> {
         const field = this;
         const lane = (offset: number): Single => ({
+            write(eids, source) {
+                field.write(eids, source, offset);
+            },
             set(eid, value) {
                 field.setLane(eid, offset, value);
             },
@@ -106,7 +149,10 @@ export class WorldField<T extends Type = Type> {
                 return field.dirty;
             },
         });
-        const base = { type: this.type };
+        const base = {
+            type: this.type,
+            write: (eids: Uint32Array, source: TypedArray) => this.write(eids, source),
+        };
         if (this.type.lanes === 1) {
             return {
                 ...base,

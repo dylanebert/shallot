@@ -55,7 +55,13 @@ const B_RECORD_GENERATION: usize = 6;
 const B_RECORD_ALIVE: usize = 7;
 const B_RECORD_NEXT: usize = 8;
 const B_MOVE: usize = 9;
-const N_BODY: usize = 10;
+const B_RECORD_EID: usize = 10;
+const B_SYNC_EID: usize = 11;
+const B_SYNC_POS: usize = 12;
+const B_SYNC_QUAT: usize = 13;
+const B_SYNC_VEL: usize = 14;
+const B_SYNC_INDEX: usize = 15;
+const N_BODY: usize = 16;
 
 pub const MOVE_STRIDE: usize = 3;
 const MAX_WORLDS: usize = 128;
@@ -243,9 +249,22 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
         off += lifecycle * 4;
         BODY_LAYOUT[B_RECORD_NEXT] = off as u32;
         off += lifecycle * 4;
+        BODY_LAYOUT[B_RECORD_EID] = off as u32;
+        off += lifecycle * 4;
         off = align16(off);
         BODY_LAYOUT[B_MOVE] = off as u32;
         off += cap * MOVE_STRIDE * 4;
+        for (column, lanes) in [
+            (B_SYNC_EID, 1),
+            (B_SYNC_POS, 4),
+            (B_SYNC_QUAT, 4),
+            (B_SYNC_VEL, 4),
+            (B_SYNC_INDEX, 1),
+        ] {
+            off = align16(off);
+            BODY_LAYOUT[column] = off as u32;
+            off += cap * lanes * 4;
+        }
         let new_end = align16(off);
 
         // Relocate the live persistent data above the body region up by the growth delta. The fat-AABB,
@@ -305,7 +324,12 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
 
             // Lifecycle records are world-major at the old and new strides. Move each row rather than
             // copying the flat matrix: every world keeps its id-indexed generation/alive/free-list data.
-            for c in [B_RECORD_NEXT, B_RECORD_ALIVE, B_RECORD_GENERATION] {
+            for c in [
+                B_RECORD_EID,
+                B_RECORD_NEXT,
+                B_RECORD_ALIVE,
+                B_RECORD_GENERATION,
+            ] {
                 for world in (0..MAX_WORLDS).rev() {
                     let old_row = old_layout[c] as usize + world * old_cap * 4;
                     let new_row = BODY_LAYOUT[c] as usize + world * cap * 4;
@@ -336,6 +360,7 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
                     *generation.add(i) = 0;
                     *alive.add(i) = 0;
                     *next.add(i) = u32::MAX;
+                    *(BODY_LAYOUT[B_RECORD_EID] as *mut u32).add(i) = u32::MAX;
                 }
             }
             let moves = BODY_LAYOUT[B_MOVE] as *mut u32;
@@ -364,6 +389,55 @@ pub extern "C" fn reserve_bodies(cap: usize) -> u32 {
         BODY_END = new_end as u32;
         BODY_CAP = cap;
         1
+    }
+}
+
+/// Attach the ECS identity to a managed body's public slot. Non-ECS bodies are not published.
+#[export_name = "bodySetEntity"]
+pub extern "C" fn body_set_entity(world: usize, body: usize, eid: u32) {
+    unsafe {
+        *(BODY_LAYOUT[B_RECORD_EID] as *mut u32).add(record_index(world, body, BODY_CAP)) = eid;
+    }
+}
+
+/// Publish moved rows after CCD and before sleeping compacts the awake columns.
+#[export_name = "bodySyncMoved"]
+pub extern "C" fn body_sync_moved(count: usize) -> usize {
+    unsafe {
+        let mut written = 0;
+        for row in 0..count {
+            let body = *(BODY_LAYOUT[B_MOVE] as *const u32).add(row * MOVE_STRIDE) as usize;
+            let eid = *(BODY_LAYOUT[B_RECORD_EID] as *const u32).add(record_index(
+                ACTIVE_WORLD,
+                body,
+                BODY_CAP,
+            ));
+            let index = (BODY_LAYOUT[B_SYNC_INDEX] as *mut u32).add(row);
+            *index = u32::MAX;
+            if eid == u32::MAX {
+                continue;
+            }
+            *index = written as u32;
+            *(BODY_LAYOUT[B_SYNC_EID] as *mut u32).add(written) = eid;
+            let pos = (BODY_LAYOUT[B_SYNC_POS] as *mut f32).add(written * 4);
+            let quat = (BODY_LAYOUT[B_SYNC_QUAT] as *mut f32).add(written * 4);
+            let vel = (BODY_LAYOUT[B_SYNC_VEL] as *mut f32).add(written * 4);
+            for lane in 0..3 {
+                *pos.add(lane) =
+                    *(BODY_LAYOUT[B_FIN] as *const f32).add(row * FIN_STRIDE + 9 + lane);
+                *vel.add(lane) =
+                    *(BODY_LAYOUT[B_STATE] as *const f32).add(row * STATE_STRIDE + lane);
+            }
+            *pos.add(3) = 0.0;
+            *vel.add(3) = 0.0;
+            core::ptr::copy_nonoverlapping(
+                (BODY_LAYOUT[B_SIM] as *const f32).add(row * SIM_STRIDE + 28),
+                quat,
+                4,
+            );
+            written += 1;
+        }
+        written
     }
 }
 
@@ -404,6 +478,7 @@ pub extern "C" fn body_create(world: u32) -> u32 {
         *generation = (*generation).wrapping_add(1);
         *(BODY_LAYOUT[B_RECORD_ALIVE] as *mut u32).add(slot) = 1;
         *(BODY_LAYOUT[B_RECORD_NEXT] as *mut u32).add(slot) = u32::MAX;
+        *(BODY_LAYOUT[B_RECORD_EID] as *mut u32).add(slot) = u32::MAX;
         BODY_LIVE_COUNT[world] += 1;
         id as u32
     }

@@ -124,6 +124,10 @@ function syncStates(state: State): void {
     const sig = signature(state);
     if (sig === drive.signature) return;
     drive.signature = sig;
+    rebuildStates(state, drive);
+}
+
+function rebuildStates(state: State, drive: ReturnType<typeof driveFor>): void {
     const seen = new Set<number>();
     for (const eid of state.query([Character, Body])) {
         seen.add(eid);

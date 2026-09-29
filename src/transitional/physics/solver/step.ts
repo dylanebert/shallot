@@ -61,6 +61,7 @@ export function step(world: WorldState, timeStep: number, subStepCount: number):
     // these into fresh wrapped objects per call (api.ts), never expose the raw arrays, so a caller can
     // only ever hold copies and the reuse is unobservable.
     world.bodyMoveCount = 0;
+    world.bodyStore.syncCount = 0;
     world.sensorBeginEvents.length = 0;
     world.contactBeginEvents.length = 0;
     world.contactHitEvents.length = 0;

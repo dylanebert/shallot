@@ -46,6 +46,7 @@ import {
     syncJoints,
     syncSprings,
 } from "./joints";
+import { kernel } from "./kernel/kernel";
 import { marshalBody } from "./marshal";
 
 export { createPool, maxWorkers, type Pool, type WorkerReady } from "./kernel/pool";
@@ -892,9 +893,6 @@ export function physicsStepConfig(state: State): PhysicsStepConfig {
     });
 }
 
-// the velocity register the step reads each moved body through.
-const stepVel = { x: 0, y: 0, z: 0 };
-
 /** the fixed-group solver step: the ordering anchor a producer that moves bodies before the solve (the character sweep's kinematic upload) orders `before:`. */
 export const StepSystem: System = {
     name: "step",
@@ -907,10 +905,13 @@ export const StepSystem: System = {
         runtime.movedCount = 0;
         runtime.counters.bytesUploaded = 0;
         const pose = state.of(Pose);
-        const events = world.getBodyEvents();
-        for (let i = 0; i < events.count; i++) {
-            const ev = events.moveEvents[i];
-            const eid = ev.userData as number;
+        const rows = world.state.bodyStore.movedRows();
+        pose.pos.write(rows.eids, rows.pos);
+        pose.quat.write(rows.eids, rows.quat);
+        pose.vel.write(rows.eids, rows.vel);
+        for (let i = 0; i < rows.eids.length; i++) {
+            const eid = rows.eids[i];
+            const offset = i * 4;
             const p = eid * 3;
             const q = eid * 4;
             runtime.prevPos[p] = runtime.currPos[p];
@@ -920,25 +921,13 @@ export const StepSystem: System = {
             runtime.prevQuat[q + 1] = runtime.currQuat[q + 1];
             runtime.prevQuat[q + 2] = runtime.currQuat[q + 2];
             runtime.prevQuat[q + 3] = runtime.currQuat[q + 3];
-            runtime.currPos[p] = ev.transform.p.x;
-            runtime.currPos[p + 1] = ev.transform.p.y;
-            runtime.currPos[p + 2] = ev.transform.p.z;
-            runtime.currQuat[q] = ev.transform.q.v.x;
-            runtime.currQuat[q + 1] = ev.transform.q.v.y;
-            runtime.currQuat[q + 2] = ev.transform.q.v.z;
-            runtime.currQuat[q + 3] = ev.transform.q.s;
-            const live = runtime.bodies.get(eid);
-            const velocity = live ? live.getLinearVelocity(stepVel) : null;
-            pose.pos.set(eid, ev.transform.p.x, ev.transform.p.y, ev.transform.p.z, 0);
-            pose.quat.set(
-                eid,
-                ev.transform.q.v.x,
-                ev.transform.q.v.y,
-                ev.transform.q.v.z,
-                ev.transform.q.s,
-            );
-            if (velocity) pose.vel.set(eid, velocity.x, velocity.y, velocity.z, 0);
-            else pose.vel.set(eid, 0, 0, 0, 0);
+            runtime.currPos[p] = rows.pos[offset];
+            runtime.currPos[p + 1] = rows.pos[offset + 1];
+            runtime.currPos[p + 2] = rows.pos[offset + 2];
+            runtime.currQuat[q] = rows.quat[offset];
+            runtime.currQuat[q + 1] = rows.quat[offset + 1];
+            runtime.currQuat[q + 2] = rows.quat[offset + 2];
+            runtime.currQuat[q + 3] = rows.quat[offset + 3];
             runtime.movedThisTick[runtime.movedCount++] = eid;
         }
     },
@@ -1036,6 +1025,7 @@ const SyncSystem: System = {
                 continue;
             }
             runtime.failed.delete(eid);
+            kernel().bodySetEntity(tb.id.world0, tb.id.index1 - 1, eid);
             runtime.bodies.set(eid, tb);
             runtime.stamps.set(eid, stamp);
             if (!state.has(eid, Pose)) state.add(eid, Pose);

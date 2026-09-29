@@ -820,6 +820,10 @@ export function solve(world: WorldState, context: StepContext): void {
         clock.span("bullets", SOLVE_PHASE_SLOT);
     }
 
+    // Publish the finalized, CCD-clipped pose before sleep compacts the resident body columns.
+    world.bodyStore.refreshViews();
+    world.bodyStore.syncCount = kernel().bodySyncMoved(world.bodyMoveCount);
+
     // Island sleeping — must be last, because sleeping invalidates the enlarged-body bookkeeping.
     if (world.enableSleep) {
         clock.mark(SOLVE_PHASE_SLOT);

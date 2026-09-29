@@ -48,7 +48,14 @@ const B_FIN = 2;
 export const B_FLAGS = 4;
 const B_SIM2 = 5;
 const B_MOVE = 9;
-export const N_BODY = 10;
+const B_SYNC_EID = 11;
+const B_SYNC_POS = 12;
+const B_SYNC_QUAT = 13;
+const B_SYNC_VEL = 14;
+const B_SYNC_INDEX = 15;
+export const N_BODY = 16;
+
+type MovedRows = { eids: Uint32Array; pos: Float32Array; quat: Float32Array; vel: Float32Array };
 
 /** Null-lane identity records the region holds past `bodyCap` — one per thread, since the wide
  * gather/scatter writes the running worker's record (bodies.rs `IDENT_RECORDS`). */
@@ -95,6 +102,10 @@ export class BodyStore {
     sim2U = new Uint32Array(0);
     /** Retained kernel body-move records: body index, generation, fellAsleep. */
     moveU = new Uint32Array(0);
+    syncCount = 0;
+    #syncIndex = new Uint32Array(0);
+    #syncVel = new Float32Array(0);
+    #syncRanges = new Map<number, MovedRows>();
     /** Memory size the views were derived at, on the shared (multithreaded) path; 0 single-threaded,
      * where detachment is the signal instead. See `stale`. */
     bytes = 0;
@@ -140,11 +151,34 @@ export class BodyStore {
         this.sim2F = new Float32Array(buf, layout[B_SIM2], cap * SIM2_STRIDE);
         this.sim2U = new Uint32Array(buf, layout[B_SIM2], cap * SIM2_STRIDE);
         this.moveU = new Uint32Array(buf, layout[B_MOVE], cap * MOVE_STRIDE);
+        this.#syncIndex = new Uint32Array(buf, layout[B_SYNC_INDEX], cap);
+        this.#syncVel = new Float32Array(buf, layout[B_SYNC_VEL], cap * 4);
+        this.#syncRanges.clear();
+    }
+
+    /** Stable views of the kernel's compact, ECS-tagged moved rows. */
+    movedRows(): MovedRows {
+        this.refreshViews();
+        const count = this.syncCount;
+        const cached = this.#syncRanges.get(count);
+        if (cached) return cached;
+        const buf = this.stateF.buffer;
+        const layout = this._layout;
+        const rows = {
+            eids: new Uint32Array(buf, layout[B_SYNC_EID], count),
+            pos: new Float32Array(buf, layout[B_SYNC_POS], count * 4),
+            quat: new Float32Array(buf, layout[B_SYNC_QUAT], count * 4),
+            vel: new Float32Array(buf, layout[B_SYNC_VEL], count * 4),
+        };
+        this.#syncRanges.set(count, rows);
+        return rows;
     }
 
     /** Mark a published body move as asleep without allocating an event object. */
     markMoveAsleep(index: number): void {
         this.moveU[index * MOVE_STRIDE + 2] = 1;
+        const row = this.#syncIndex[index];
+        if (row !== 0xffffffff) this.#syncVel.fill(0, row * 4, row * 4 + 4);
     }
 
     /** Read a retained body move record into caller-owned storage. */

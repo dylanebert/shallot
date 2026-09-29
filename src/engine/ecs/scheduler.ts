@@ -1,5 +1,9 @@
 import type { State } from "./state";
 
+function invalidDelta(deltaTime: number): never {
+    throw new Error(`step received ${deltaTime} (must be a finite, non-negative number)`);
+}
+
 /** the fixed simulation step in seconds; {@link Time.FIXED_DT} is this value */
 export const FIXED_DT = 1 / 60;
 
@@ -173,7 +177,7 @@ export class Scheduler {
 
     step(state: State, deltaTime = Time.DEFAULT_DT): void {
         if (!Number.isFinite(deltaTime) || deltaTime < 0) {
-            throw new Error(`step received ${deltaTime} (must be a finite, non-negative number)`);
+            invalidDelta(deltaTime);
         }
         const fixedDt = Time.FIXED_DT;
         const maxDt = fixedDt * Time.MAX_FIXED_STEPS;

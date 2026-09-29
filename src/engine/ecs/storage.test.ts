@@ -2,6 +2,29 @@ import { expect, test } from "bun:test";
 import { f32, field, State, vec2, vec4 } from "./index";
 import { WorldField } from "./storage";
 
+test("bulk field writes copy typed rows, preserve other rows, publish scalar-equivalent marks and refuse mismatches", () => {
+    const column = new WorldField(field(vec4), 16);
+    const storage = column.bind();
+    const observed: number[] = [];
+    column.observe((eid) => observed.push(eid));
+    storage.set(3, 9, 8, 7, 6);
+    storage.dirty.fill(0);
+    observed.length = 0;
+    const eids = new Uint32Array([99, 2, 7, 99]).subarray(1, 3);
+    const source = new Float32Array([1, 2, 3, 4, 5, 6, 7, 8]);
+    storage.write(eids, source);
+    expect(Array.from(storage.column.slice(8, 12))).toEqual([1, 2, 3, 4]);
+    expect(Array.from(storage.column.slice(28, 32))).toEqual([5, 6, 7, 8]);
+    expect(Array.from(storage.column.slice(12, 16))).toEqual([9, 8, 7, 6]);
+    expect(storage.dirty[0]).toBe((1 << 2) | (1 << 7));
+    expect(observed).toEqual([2, 7]);
+    expect(() => storage.write(eids, new Float32Array(7))).toThrow(/write.*length.*4 lanes/);
+    expect(() => storage.write(eids, new Uint32Array(8))).toThrow(
+        /write.*Float32Array.*Uint32Array/,
+    );
+    expect(observed).toEqual([2, 7]);
+});
+
 test("binding a component freezes its schema against later mutation", () => {
     const Component = { value: field(f32) };
     const state = new State();
