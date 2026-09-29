@@ -172,12 +172,12 @@ export class State {
         const existing = this._storage.get(id);
         if (existing) {
             if (existing.schemas.has(component)) return existing.storage as ComponentStorage<T>;
-            bindFields(component);
             if (!sameSchema(existing.schema, component)) {
                 throw new Error(
                     `state.of: component schema changed for "${String(id)}"; rebuild this world`,
                 );
             }
+            bindFields(component);
             existing.schemas.add(component);
             return existing.storage as ComponentStorage<T>;
         }

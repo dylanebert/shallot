@@ -2,6 +2,18 @@ import { expect, test } from "bun:test";
 import { f32, State, sparse, vec2, vec4 } from "./index";
 import { WorldField } from "./storage";
 
+test("binding a component freezes its schema against later mutation", () => {
+    const Component = { value: sparse(f32) };
+    const state = new State();
+    state.of(Component);
+    state.dispose();
+
+    expect(Object.isFrozen(Component)).toBe(true);
+    expect(() => {
+        (Component as Record<string, unknown>).added = sparse(f32);
+    }).toThrow();
+});
+
 test("schema field access reuses cached columns without repeating schema sorts", () => {
     const Component = { value: sparse(f32) };
     const state = new State();

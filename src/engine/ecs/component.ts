@@ -31,6 +31,7 @@ export function bindFields(component: Component): void {
         const field = component[name];
         if (isFieldSchema(field)) owners.set(field, { component, name });
     }
+    Object.freeze(component);
 }
 
 function bound(field: FieldSchema): Single | Pair | Quad {
