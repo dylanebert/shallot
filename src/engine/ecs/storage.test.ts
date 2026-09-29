@@ -5,8 +5,13 @@ import { WorldField } from "./storage";
 test("binding a component freezes its schema against later mutation", () => {
     const Component = { value: sparse(f32) };
     const state = new State();
+    const second = new State();
+    state.registry.register("FrozenComponent", Component);
     state.of(Component);
+    second.registry.register("FrozenComponent", Component);
+    second.of(Component);
     state.dispose();
+    second.dispose();
 
     expect(Object.isFrozen(Component)).toBe(true);
     expect(() => {

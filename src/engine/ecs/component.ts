@@ -471,11 +471,8 @@ export function refs(component: Component): string[] {
 // test marker) auto-mints an anonymous id on first sight, stable for the
 // object's lifetime. Process-global and monotonic: ids never reset, so no id is
 // ever reused for a different name (a `clear()` between sessions leaves them intact).
-//
-// The key is a Symbol so it stays out of every `Object.keys`/`Object.entries`
-// field walk (reflection's readFields/inspect, this file's `fields`) — an
-// enumerable `id` would be misread as a component field.
-const $id = Symbol("id");
+// The WeakMap keeps identity off the frozen schema object and out of field walks.
+const _idByComponent = new WeakMap<object, number>();
 const _idByName = new Map<string, number>();
 let _nextId = 0;
 
@@ -486,26 +483,26 @@ let _nextId = 0;
  * object) resolves to the same id.
  */
 export function idOf(component: object): number {
-    const c = component as { [$id]?: number };
-    const id = c[$id];
+    const id = _idByComponent.get(component);
     if (id !== undefined) return id;
-    return (c[$id] = _nextId++);
+    const next = _nextId++;
+    _idByComponent.set(component, next);
+    return next;
 }
 
 /**
- * intern the stable id for `name`, stamping it on `component`: first sight assigns
- * one (adopting an id the component auto-minted while bare), re-registration under
- * the same name resolves to it, the reload contract that re-attaches a fresh
- * module object. Called by `register`.
+ * intern the stable id for `name` on `component`: first sight assigns one
+ * (adopting an id the component auto-minted while bare), and re-registration
+ * under the same name resolves to it, the reload contract that re-attaches a
+ * fresh module object. Called by `register`.
  */
 export function intern(component: object, name: string): number {
     let id = _idByName.get(name);
     if (id === undefined) {
-        const existing = (component as { [$id]?: number })[$id];
-        id = existing ?? _nextId++;
+        id = _idByComponent.get(component) ?? _nextId++;
         _idByName.set(name, id);
     }
-    (component as { [$id]?: number })[$id] = id;
+    _idByComponent.set(component, id);
     return id;
 }
 
