@@ -122,7 +122,7 @@ test("a Vite build does not ship scanner-emitted assets without a surviving bund
         expect(messages[0]).toContain("pruned 1 orphaned asset(s)");
     });
 
-test("dev clients fully reload when a scene, shallot.json or public model changes", () => {
+test("dev clients fully reload when a scene or shallot.json changes", () => {
         const root = mkdtempSync(join(tmpdir(), "shallot-watch-"));
         try {
             const publicDir = join(root, "public");
@@ -152,10 +152,9 @@ test("dev clients fully reload when a scene, shallot.json or public model change
             if (!changed) throw new Error("shallot plugin did not install its file watcher");
             changed(join(root, "shallot.json"));
             changed(join(root, "arena.scene"));
-            changed(join(publicDir, "ship.glb"));
-            expect(reloads).toHaveLength(3);
+            expect(reloads).toHaveLength(2);
             expect(invalidations).toBe(2);
         } finally {
             rmSync(root, { recursive: true, force: true });
         }
-    });
+    }, 20);

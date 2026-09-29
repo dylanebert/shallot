@@ -49,7 +49,9 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
     /** schema-carrying source passed at construction; raw sources remain raw for the WebGPU escape */
     readonly source: T;
     /** byte size of each staging slot and each {@link snapshot} */
-    get size(): number { return this._raw.size; }
+    get size(): number {
+        return this._raw.size;
+    }
 
     /** latest map-resolved snapshot. `null` until the first map completes. `bytes` is reused across
      *  readbacks (see the class doc) — read it in-frame, don't retain it. */
@@ -67,6 +69,7 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
     private readonly _device: GPUDevice;
     private _generation = 0;
     private _unsubscribe: (() => void) | undefined;
+    private readonly _timers = new Map<GPUBuffer, ReturnType<typeof setTimeout>>();
 
     constructor(state: State, source: T, opts?: { ring?: number }) {
         this.state = state;
@@ -75,12 +78,13 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
         this._raw = unwrap(state, source);
         this._ringSize = opts?.ring ?? 2;
         const table = state.tableForBuffer(this._raw);
-        if (table) this._unsubscribe = table.subscribe((buffer) => {
-            if (buffer === this._raw) return;
-            this._raw = buffer;
-            this._generation++;
-            this._release();
-        });
+        if (table)
+            this._unsubscribe = table.subscribe((buffer) => {
+                if (buffer === this._raw) return;
+                this._raw = buffer;
+                this._generation++;
+                this._release();
+            });
         mirrorsFor(state).add(this);
     }
 
@@ -99,6 +103,8 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
     }
 
     private _release(): void {
+        for (const timer of this._timers.values()) clearTimeout(timer);
+        this._timers.clear();
         for (const b of this._slots) b.destroy();
         this._slots.length = 0;
         this._free.length = 0;
@@ -158,9 +164,22 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
 
         for (const { m, slot } of pending) {
             const generation = m._generation;
-            boundedMap(slot, m.size, `Mirror ${m._raw.label} frame ${frame} readback`).then(
+            const label = `Mirror ${m._raw.label} frame ${frame} readback`;
+            const timer = setTimeout(() => {
+                m._timers.delete(slot);
+                if (m._disposed || generation !== m._generation) return;
+                slot.destroy();
+                const index = m._slots.indexOf(slot);
+                if (index >= 0) m._slots.splice(index, 1);
+                console.error(`${label} timed out after 2000 ms`);
+            }, 2000);
+            m._timers.set(slot, timer);
+            slot.mapAsync(GPUMapMode.READ, 0, m.size).then(
                 () => {
-                    if (m._disposed || generation !== m._generation) return;
+                    clearTimeout(timer);
+                    m._timers.delete(slot);
+                    if (m._disposed || generation !== m._generation || !m._slots.includes(slot))
+                        return;
                     if (m.state.disposed || deviceLost(m._device)) {
                         m.dispose();
                         return;
@@ -186,27 +205,20 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
                     }
                 },
                 (error: unknown) => {
-                    if (m._disposed || generation !== m._generation) return;
+                    clearTimeout(timer);
+                    m._timers.delete(slot);
+                    if (m._disposed || generation !== m._generation || !m._slots.includes(slot))
+                        return;
                     if (m.state.disposed || deviceLost(m._device)) {
                         m.dispose();
                         return;
                     }
-                    m.dispose();
-                    console.error(`Mirror ${m._raw.label} frame ${frame} readback failed: ${String(error)}`);
+                    m._free.push(slot);
+                    console.error(`${label} map failed; the slot was recycled: ${String(error)}`);
                 },
             );
         }
     }
-}
-
-function boundedMap(slot: GPUBuffer, size: number, label: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`${label} timed out after 2000 ms`)), 2000);
-        slot.mapAsync(GPUMapMode.READ, 0, size).then(
-            () => { clearTimeout(timer); resolve(); },
-            (error: unknown) => { clearTimeout(timer); reject(new Error(`${label}: ${String(error)}`)); },
-        );
-    });
 }
 
 /** construct a buffer-level mirror over a raw or typed buffer; registers with {@link MirrorSystem} */

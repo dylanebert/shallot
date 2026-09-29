@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "fs";
-import { isAbsolute, join, relative, resolve } from "path";
+import { isAbsolute, join, resolve } from "path";
 import typegpu from "unplugin-typegpu/vite";
 import type { Plugin, Rollup, ViteDevServer } from "vite";
 import { contentType, manifestPath, resolveAssetPath } from "./assets";
@@ -42,29 +42,6 @@ function findPublicDirs(projectDir: string): string[] {
     return existsSync(own) ? [own] : [];
 }
 
-// the glTF importer's two container formats — the unit a live asset-swap watches. A changed `.glb`/`.gltf`
-// maps directly to its cache `src`; its external sidecars (`.bin`, separate textures) re-decode through the
-// container, which any re-export (Blender, glTF-Transform) rewrites — so watching the container covers the
-// re-export workflow. A hand-edit of a sidecar alone (no container rewrite) is the one uncovered case: it
-// needs the asset dependency graph the gltf module doesn't track, the deliberate boundary for this sub-stage.
-const MODEL_EXT = /\.(glb|gltf)$/i;
-
-/**
- * the glTF asset-cache `src` a changed project file maps to — its path relative to the public dir it sits
- * under (the path a scene's `part="mesh: …#i"` names and `readBinary` fetches, so the key `invalidate`
- * consumes), or `null` if it isn't a `.glb`/`.gltf` under a public dir. Always `/`-separated (a fetch path,
- * not an OS path), so it matches the cache key on Windows too. The watcher uses a match to full-reload
- * on a model change; an unmatched file falls through to the scene/manifest watch.
- */
-function assetSrc(file: string, publicDirs: string[]): string | null {
-    if (!MODEL_EXT.test(file)) return null;
-    for (const dir of publicDirs) {
-        const rel = relative(dir, file);
-        if (rel && !rel.startsWith("..") && !isAbsolute(rel)) return rel.replace(/\\/g, "/");
-    }
-    return null;
-}
-
 // signal a project file changing on disk: the dev server has no live edit session to weigh the change
 // against, so a full page reload is the clean answer — the page re-imports `virtual:project` (already
 // invalidated by the caller) and re-fetches assets.
@@ -86,9 +63,7 @@ function configureServer(server: ViteDevServer, projectDir: string) {
                 const data = readFileSync(filePath);
                 const mime = contentType(filePath);
                 if (mime) res.setHeader("Content-Type", mime);
-                // dev assets must never sit in the browser HTTP cache, or a live model edit re-fetches
-                // the stale bytes after `invalidate` (the worker decode reads the cached response) and the
-                // swap silently shows the old asset. no-store forces a fresh read every load.
+                // Reloads must read changed asset bytes rather than a cached response.
                 res.setHeader("Cache-Control", "no-store");
                 res.end(data);
                 return;
@@ -143,19 +118,11 @@ function orphanedAssets(bundle: Rollup.OutputBundle): string[] {
 }
 
 /**
- * classify a changed project file: a model asset under a public dir (`"asset"`), a `.scene` or
- * manifest under the project dir (`"project"`), or neither (`null`). Both the watcher listener
- * (`onProjectFile`) and the HMR hook (`handleHotUpdate`) call this so the two paths cannot drift in
- * how they classify an event — the watcher path signals a reload for both arms; the HMR path only
- * invalidates + swallows default HMR for `"project"` (the reload comes from the watcher, so a single
- * `.scene` change fires one reload, not two).
+ * classify a changed scene or manifest under the project dir (`"project"`), or neither (`null`).
+ * The watcher signals the reload; the HMR hook invalidates and swallows default HMR so a scene
+ * change fires one reload, not two.
  */
-function classifyProjectFile(
-    file: string,
-    absDir: string,
-    publicDirs: string[],
-): "asset" | "project" | null {
-    if (assetSrc(file, publicDirs)) return "asset";
+function classifyProjectFile(file: string, absDir: string): "project" | null {
     if (file.startsWith(absDir) && (file.endsWith(".scene") || file === manifestPath(absDir)))
         return "project";
     return null;
@@ -171,7 +138,6 @@ export function shallot(projectDir?: string): Plugin[] {
     const resolvedId = "\0" + virtualId;
     let absProjectDir = projectDir ? resolve(projectDir) : resolve(process.cwd());
     let viteServer: ViteDevServer | undefined;
-    let publicDirs: string[] = [];
 
     const projectPlugin: Plugin = {
         name: "shallot",
@@ -220,7 +186,6 @@ export function shallot(projectDir?: string): Plugin[] {
             viteServer = server;
             configureServer(server, absProjectDir);
             const absDir = absProjectDir;
-            publicDirs = findPublicDirs(absDir);
             server.watcher.add(absDir);
             // a `.scene` add/remove changes the scene list; a `shallot.json` edit changes the plugin
             // set — both re-generate `virtual:project`, so invalidate + reload. Local plugin `.ts`
@@ -230,11 +195,7 @@ export function shallot(projectDir?: string): Plugin[] {
             // runs only for update/change events in Vite 8, so add/unlink were always single-fire
             // via the watcher path alone).
             const onProjectFile = (file: string) => {
-                const kind = classifyProjectFile(file, absDir, publicDirs);
-                if (kind === "asset") {
-                    signalChange(server);
-                    return;
-                }
+                const kind = classifyProjectFile(file, absDir);
                 if (kind === "project") {
                     const mod = server.moduleGraph.getModuleById(resolvedId);
                     if (mod) server.moduleGraph.invalidateModule(mod);
@@ -248,7 +209,7 @@ export function shallot(projectDir?: string): Plugin[] {
         handleHotUpdate({ file }) {
             if (!viteServer) return;
             const absDir = absProjectDir;
-            if (classifyProjectFile(file, absDir, publicDirs) === "project") {
+            if (classifyProjectFile(file, absDir) === "project") {
                 const mod = viteServer.moduleGraph.getModuleById(resolvedId);
                 if (mod) viteServer.moduleGraph.invalidateModule(mod);
                 // no signalChange here — the watcher's onProjectFile already sent the full-reload, so

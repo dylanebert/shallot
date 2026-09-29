@@ -695,11 +695,8 @@ export function observeDevice(
 // `DEFAULT_PLUGINS` need** — anything an opt-in plugin uses belongs on that plugin, via
 // `Plugin.features` (required — a missing one throws) or `Plugin.preferredFeatures` (best-effort —
 // requested only where the adapter has it, never throws). Hence the deliberate absentees:
-// `timestamp-query` is `ProfilePlugin.features`, the BC/ETC2/ASTC families are
-// `GltfPlugin.preferredFeatures` (preferred, because `gltf/target.ts` runtime-branches on
-// `device.features.has` — a family the device never *requested* reads false even where the hardware
-// has it), and `shader-f16` gates the WGSL `f16` *type*, not `pack2x16float` / `unpack2x16float`, so
-// the `f16x4` mirror binds `vec2<u32>` and unpacks. `subgroups` is the standing preferred case: the
+// `timestamp-query` is `ProfilePlugin.features`. `shader-f16` gates the WGSL `f16` type,
+// not `pack2x16float` / `unpack2x16float`. `subgroups` is the standing preferred case: the
 // BVH builder (physics broadphase / accel structure) runs a faster subgroup arm where present and an
 // LDS arm where absent (WebKit), so it's preferred, not required — a no-subgroup device still loads a
 // physics app, on the LDS arm.

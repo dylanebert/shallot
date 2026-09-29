@@ -46,7 +46,7 @@ export const SpriteFill = {
  * a registered image id ({@link image}), `size` the world-space quad size, `anchor` the 0..1 pivot
  * (0.5 0.5 = centered), `color` a hex sRGB tint, `billboard` a {@link SpriteBillboard} mode,
  * `blend` a {@link SpriteBlend} mode. `opacity` multiplies the texture alpha; under the default
- * `clip` blend that shrinks the cutout (the sprite vanishes below 0.5, the gltf-clip convention);
+ * `clip` blend that shrinks the cutout (the sprite vanishes below 0.5);
  * a smooth fade needs `blend: alpha`. The quad scales by the transform's scale on top of `size`.
  * `fill` shows only the leading 0..1 fraction of the image along a {@link SpriteFill} `fillMode`:
  * a radial fill over a ring icon is a progress ring, a vertical fill over a bar icon a gauge

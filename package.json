@@ -65,7 +65,6 @@
         "!examples/*/node_modules",
         "!examples/*/build",
         "!examples/*/dist",
-        "!src/transitional/gltf/fixtures",
         "!src/transitional/physics/solver/fixtures",
         "!src/transitional/physics/oracle/**",
         "shallot.schema.json",

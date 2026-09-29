@@ -299,7 +299,7 @@ export function compose(
  * the extracted rotation stays proper); the quaternion is read from the scale-normalized rotation columns
  * (Shepperd). Exact only for a similarity transform (T·R·scale); shear / non-uniform-scale-under-rotation
  * can't be captured by a TRS triple, so a caller that may see either measures the residual against a
- * recomposed matrix (the gltf live-skin import path warns past a derived epsilon).
+ * recomposed matrix.
  *
  * @example
  * const trs = decompose(compose(1, 2, 3, 0, 0, 0, 1, 2, 2, 2)); // → [1,2,3, 0,0,0,1, 2,2,2]

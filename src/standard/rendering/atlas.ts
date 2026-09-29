@@ -347,7 +347,7 @@ export const shadowLayout = tgpu
 // Each is its own self-contained schema instance (the `_shadowTypedCasters`/`_shadowTypedRects` discipline
 // above): a `FaceVPs`/`ComboMeta`/`TileRects`-named struct can't be resolved twice under the same name in one
 // `tgpu.resolve` call, so the point layout's instances and the cascade layout's instances must never land in
-// the same pipeline's resolve — true here, since `compileVariant`'s point pipeline and cascade pipeline
+// the same pipeline's resolve — true here, since `compileSurface`'s point pipeline and cascade pipeline
 // are two independent `Compute.root.createRenderPipeline` calls (pipelines.ts), never combined.
 const _pointTypedFaceVP = faceVPsSchema(pointCasters() * 6);
 const _pointTypedCombo = comboMetaSchema(pointCasters() * 6);

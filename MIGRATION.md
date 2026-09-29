@@ -59,6 +59,12 @@ For a custom typed surface, change the `eids` binding element from `d.u32` to `d
 
 The logical eid still reaches `VsIn.eid` and `ctx.eid`; use those for identity. Part color and material reach the surface context as `ctx.color` and `ctx.material`. The injected `transformRows` and `partRowMap` surface bindings are removed; the vertex stage reads records using the slots in its instance payload.
 
+## glTF, Skin and Cells are removed
+
+0.10 no longer exports `GltfPlugin`, `SkinPlugin`, `CellsPlugin` or their import, animation, live-skin and ASCII-grid helpers. Remove these plugins from your manifest and imports. They return later as separate packages; there is no replacement in 0.10.
+
+The importer's per-mesh shader specialization is also removed: `Surface.specialize`, `Specialize` and `Mesh.variant` are gone. Register separate named surfaces instead. Text's glyph-atlas extension exports used by Cells are removed; the `Text` component and `TextPlugin` remain.
+
 ## GPU resources and plugin helpers belong to an App
 
 Do not cache one App's buffers, textures, pipelines or bind groups for another App. Keep per-world plugin data in `state.resource(key, create)`. GPU resources created through the State's tracked device or TypeGPU root are released when the App is disposed; use `state.own(resource)` for raw buffers or textures whose disposal the State should own.
@@ -67,7 +73,6 @@ Access GPU registries through `state.gpu`. `Compute` remains available inside sy
 
 These helpers now take the owning State:
 
-- `liveSkin(state)` replaces the process-level `LiveSkin` object.
 - `profile(state)` replaces process-level `Profile` data.
 - `mirror(state, source)` replaces `mirror(source)`.
 - `cascadeCount`, `cascadeComboEids`, `pointComboCount` and `pointComboEids` take State first.

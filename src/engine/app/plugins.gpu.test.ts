@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { resolve } from "node:path";
 import {
     AmbientLight,
     attachCanvas,
@@ -15,15 +14,10 @@ import {
 import { offscreenTexture } from "../../core/rendering/view";
 import {
     Arrow,
-    CellsPlugin,
-    cellsGridFor,
     Fog,
     FogPlugin,
-    GltfPlugin,
     Line,
     LinesPlugin,
-    liveSkin,
-    loadGltf,
     Orbit,
     OrbitOverlayPlugin,
     OrbitPlugin,
@@ -33,9 +27,6 @@ import {
     Player,
     PlayerPlugin,
     ProfilePlugin,
-    placeScene,
-    Skin,
-    SkinPlugin,
     Sky,
     SkyPlugin,
     Sprite,
@@ -90,9 +81,7 @@ const everyPlugin: readonly Plugin[] = [
     AudioPlugin,
     BvhPlugin,
     CharacterPlugin,
-    CellsPlugin,
     FogPlugin,
-    GltfPlugin,
     LinesPlugin,
     MirrorPlugin,
     PhysicsPlugin,
@@ -102,7 +91,6 @@ const everyPlugin: readonly Plugin[] = [
     PhysicsProfilePlugin,
     PlayerPlugin,
     ProfilePlugin,
-    SkinPlugin,
     SkyPlugin,
     SpritePlugin,
     TextPlugin,
@@ -522,7 +510,6 @@ interface IsolationResources {
     sky: number;
     mirror: Mirror | null;
     bvh: Bvh | null;
-    gltfInstances: number[];
 }
 
 const isolationKey = Symbol("gpu-isolation");
@@ -533,20 +520,12 @@ const createIsolationResources = (): IsolationResources => ({
     sky: -1,
     mirror: null,
     bvh: null,
-    gltfInstances: [],
 });
 
 function featurePlugin(): Plugin {
     return {
         name: "GpuIsolationFeatureSeed",
-        dependencies: [
-            PartPlugin,
-            SkinPlugin,
-            MirrorPlugin,
-            TransformsPlugin,
-            GltfPlugin,
-            SkyPlugin,
-        ],
+        dependencies: [PartPlugin, MirrorPlugin, TransformsPlugin, SkyPlugin],
         initialize(state) {
             const resources = state.resource(isolationKey, createIsolationResources);
             let context: GPUCanvasContext;
@@ -606,13 +585,9 @@ function featurePlugin(): Plugin {
             state.add(part, Color);
             state.add(part, Material);
             state.add(part, Outline);
-            state.add(part, Skin);
             Transform.pos.set(part, 0, 1, 0, 0);
             Color.rgba.set(part, 0.8, 0.25, 0.1, 1);
             Material.params.set(part, 0.1, 0.6, 0, 1);
-            const skin = liveSkin(state);
-            Skin.anim.x.set(part, skin.alloc(part, 1, state.stamp(part)));
-            skin.flush(Compute.device);
 
             const line = state.create();
             state.add(line, Transform);
@@ -651,11 +626,6 @@ function featurePlugin(): Plugin {
         },
         async warm(state) {
             const resources = state.resource(isolationKey, createIsolationResources);
-            const imported = await loadGltf(
-                state,
-                resolve(import.meta.dir, "../../transitional/gltf/fixtures/box-meshopt.glb"),
-            );
-            resources.gltfInstances = placeScene(state, imported);
             const device = Compute.device;
             const bvh = await createBvh(device, 2);
             device.queue.writeBuffer(
@@ -877,8 +847,6 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
         expect(pose(first.state, firstFeatures.actor, firstActorPose)).toBe(true);
         expect(pose(second.state, secondFeatures.actor, secondActorPose)).toBe(true);
         expect(firstActorPose[1]).not.toBe(secondActorPose[1]);
-        expect(firstFeatures.gltfInstances.length).toBeGreaterThan(0);
-        expect(secondFeatures.gltfInstances.length).toBeGreaterThan(0);
         expect(firstFeatures.bvh).not.toBeNull();
         expect(secondFeatures.bvh).not.toBeNull();
         expect(firstFeatures.mirror?.allocated).toBeGreaterThan(0);
@@ -889,14 +857,7 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
         expectStateViews(second.state, pointComboEids(second.state));
         expect([...first.state.query([Pose])].length).toBeGreaterThan(0);
         expect([...second.state.query([Pose])].length).toBeGreaterThan(0);
-        expect(
-            withCompute(first.state.gpu, () => cellsGridFor(firstFeatures.camera)),
-        ).toBeDefined();
-        expect(
-            withCompute(second.state.gpu, () => cellsGridFor(secondFeatures.camera)),
-        ).toBeDefined();
-
-        for (const key of ["skinData", "spriteData", "textGlyphs", "lineSegments", "sky"]) {
+        for (const key of ["spriteData", "textGlyphs", "lineSegments", "sky"]) {
             const a = first.state.gpu.buffers.get(key);
             const b = second.state.gpu.buffers.get(key);
             expect(a).toBeDefined();
@@ -915,9 +876,6 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
             textures: [...second.state.gpu.textures],
             typed: [...second.state.gpu.typed],
         };
-        const skinData = second.state.gpu.buffers.get("skinData");
-        expect(skinData).toBeDefined();
-        expect(secondDevice.live.has(skinData as GPUBuffer)).toBe(true);
 
         first.dispose();
         first = undefined;
@@ -927,7 +885,6 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
         expect([...second.state.gpu.typed]).toEqual(peerRegistries.typed);
         expect(hashPhysics(second.state)).toBe(peerHashBeforeDispose);
         expect(readBody(second.state, peerA)).toEqual(peerBodyBeforeDispose);
-        expect(secondDevice.live.has(skinData as GPUBuffer)).toBe(true);
         await stepGpuWorld(second.state, "second world after sibling disposal", secondDevice);
         expect(readBody(second.state, peerA)).not.toEqual(peerBodyBeforeDispose);
 

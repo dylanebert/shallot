@@ -18,10 +18,8 @@ export const DEFAULT_PLUGIN_NAMES = [
 // "no export named ${name}Plugin" at bundle time).
 export const EXTRA_PLUGIN_NAMES = [
     "Audio",
-    "Cells",
     "Character",
     "Fog",
-    "Gltf",
     "Lines",
     "Mirror",
     "Orbit",
@@ -29,7 +27,6 @@ export const EXTRA_PLUGIN_NAMES = [
     "Outline",
     "Player",
     "Profile",
-    "Skin",
     "Sky",
     "Sprite",
     "Text",

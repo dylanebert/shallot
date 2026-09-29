@@ -53,12 +53,12 @@ export interface Profile {
      *  pipeline, its later `Compute.precompiled` completion measurement (an error-scope wrap, not a
      *  fence — only compile-timing attribution is reported here) overwrites
      *  the sync stub under the pipeline's own label; a typed pipeline with no forcer (or one forcer
-     *  covering several pipelines, `precompileVariants`) keeps only the near-zero sync entry — real
+     *  covering several pipelines) keeps only the near-zero sync entry — real
      *  per-pipeline compile time has no honest post-port instrument there. */
     readonly compile: ReadonlyMap<string, number>;
     /** the subset of {@link compile}'s keys an actual `create*Pipeline(Async)` call produced, as opposed
      *  to a `precompile` forcer-scope label that wraps several pipelines under one measurement
-     *  (`precompileVariants`'s `"sear-typed-variants"` is the shipped case) — a scope-only label's
+     *  — a scope-only label's
      *  timing still lands in {@link compile}, but it isn't one real pipeline, so a pipeline-count golden
      *  reads `[...compile.keys()].filter(k => compiledPipelines.has(k)).length`, never `compile.size`
      *  directly. */

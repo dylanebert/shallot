@@ -41,7 +41,7 @@ import {
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
 import { Compute, field, laneAlias, u32, unpackColor, vec4 } from "../../engine";
-import { precompile, worldResource } from "../../engine/runtime";
+import { worldResource } from "../../engine/runtime";
 import { Xform } from "../../engine/utils";
 import { GlazeSystem } from "../../transitional/glaze";
 import { Part, partTable } from "../../transitional/part";
@@ -70,14 +70,13 @@ import {
     type CompiledSurface,
     clearGroups,
     compileBackground,
-    compileVariant,
+    compileSurface,
     engineGroup,
     ensureSingle,
     getBackground,
     getCompiledSurface,
     getGroup,
     initializePipelineState,
-    knownVariants,
     preparePipelines,
     resetPipelineCaches,
     type SurfaceGroupEntry,
@@ -491,18 +490,14 @@ function recordSurface(draw: Draw, surface: Surface, capacity: number): FrameDra
     if (!mesh) return warnSkip(draw.name, `mesh "${draw.mesh}" not registered`);
     if (!mesh.position || !mesh.quant)
         return warnSkip(draw.name, `mesh "${draw.mesh}" has no quantized position/quant stream`);
-    const variant = surface.specialize ? (mesh.variant ?? 0) : 0;
-    // a steady frame reuses its entry's compiled surface while the spec and variant hold, so the cache key
-    // is built only when either changes
     const prev = getGroup(draw.name, surface);
-    const held = prev && prev.variant === variant ? prev.item.r.t : undefined;
-    let t = held ?? getCompiledSurface(surface.name, variant);
+    let t = prev?.item.r.t ?? getCompiledSurface(surface.name);
     if (!t || t.owner !== surface || t.layout !== surface.layout) {
         // registered after warm (`preparePipelines` compiles the rest) — sync, so no skip frame; a
         // throwing compile (a contract guard, or shader/device validation) must not take down the frame
         // loop, so it degrades to the warn-once skip
         try {
-            t = compileVariant(surface, capacity, variant);
+            t = compileSurface(surface, capacity);
         } catch (e) {
             return warnSkip(draw.name, `typed surface "${surface.name}" failed to compile: ${e}`);
         }
@@ -515,7 +510,6 @@ function recordSurface(draw: Draw, surface: Surface, capacity: number): FrameDra
     if (prev && sameResources(prev, mesh, pointList, cascadeList)) {
         prev.item.draw = draw;
         prev.item.r.t = t;
-        prev.variant = variant;
         return prev.item;
     }
 
@@ -573,7 +567,6 @@ function recordSurface(draw: Draw, surface: Surface, capacity: number): FrameDra
         registries: resolved.registries,
         bound: new Map(),
         item: null!,
-        variant,
     };
     entry.item = { draw, r: { t, g: entry, index: mesh.indices } };
     setGroup(draw.name, entry);
@@ -1022,52 +1015,8 @@ async function prepareSear(device: GPUDevice, capacity: number): Promise<void> {
     // the resolved-bind-group cache to rebuild with it
     pointRegather.reset(() => clearGroups());
     cascadeRegather.reset(() => clearGroups());
-    // eager-compile non-specializing surfaces plus the shared re-gather A/B pipelines (idempotent — the
-    // point + cascade atlases share them). Specializing variants queue after Part publishes its draws;
-    // a specializing mesh registered after warm remains lazy.
+    // Compile surfaces and the shared re-gather pipelines before the first draw.
     await Promise.all([prepareRegather(device, capacity), preparePipelines(capacity)]);
-    await precompileVariants(capacity);
-}
-
-function unwrapVariant(surface: Surface, variant: number, capacity: number): unknown[] {
-    const typed = compileVariant(surface, capacity, variant);
-    const warmed: unknown[] = [];
-    for (const pipeline of [
-        typed.color,
-        typed.transparent,
-        typed.point,
-        typed.cascade,
-        ...typed.prepass.values(),
-    ]) {
-        if (pipeline) warmed.push(Compute.root.unwrap(pipeline));
-    }
-    return warmed;
-}
-
-/** queue specializing typed-surface discovery after Part publishes its draw/mesh pairs.
- * `warm` is injectable so the ordering contract stays device-free in unit tests; production unwraps
- * every discovered variant's real pipelines.
- * @internal */
-export function precompileVariants(
-    capacity: number,
-    warm: (surface: Surface, variant: number, capacity: number) => unknown = unwrapVariant,
-    surfaces: Iterable<Surface> = Surfaces,
-    variants: (surface: Surface) => number[] = knownVariants,
-): Promise<void> {
-    return precompile(
-        "sear-typed-variants",
-        () => {
-            const warmed: unknown[] = [];
-            for (const surface of surfaces) {
-                if (!surface.specialize) continue;
-                for (const variant of variants(surface)) {
-                    warmed.push(warm(surface, variant, capacity));
-                }
-            }
-            return warmed;
-        },
-        { after: ["shallot-part-count"] },
-    );
 }
 
 /**

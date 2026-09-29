@@ -179,7 +179,7 @@ function ownEntries<B extends Record<string, Binding>>(
  * step one of the two-step typed registration: synthesize a surface's group-2 layout
  * from its own bindings, so a typed `vs`/`fs` can close over `layout.$.name` while it's being authored —
  * before {@link registerSurface} exists to call. Layouts are shareable across surfaces declaring the same
- * bindings (sprite ×6, gltf trios — register the same layout object on each).
+ * bindings (sprite ×6 — register the same layout object on each).
  *
  * @example
  * const layout = surfaceLayout({ eids: { type: "storage", element: InstanceInput }, transforms: { type: "storage", element: Xform } });
@@ -294,13 +294,6 @@ export type TagFn<V extends Record<string, AnyWgslData> = Record<string, never>>
     (ctx: ReturnType<typeof fsCtxSchema<V>>, defaultTag: d.U32) => d.U32
 >;
 
-/** compile-time pipeline specialization — a JS
- *  factory returning variant-folded fns (the outline `maskFragment` precedent: a captured JS boolean/number
- *  folds a branch at build time, no runtime cost), replacing gltf's string splicing. */
-export type Specialize<V extends Record<string, AnyWgslData> = Record<string, never>> = (
-    variant: number,
-) => { vs?: VsFn<V>; fs: FsFn<V> };
-
 /**
  * a surface authored against the typed contract: TGSL fns as the code (a synthesized `surfaceLayout()` is what
  * lets `vs`/`fs` close over `layout.$.name`, the accessor chicken-egg {@link surfaceLayout} solves). Structural
@@ -327,13 +320,11 @@ export interface Surface<
     /** optional id-lane shader evaluated by the tag prepass. It receives the fragment context and the
      * renderer's default tag, and replaces the color fragment function for that pass. */
     tag?: TagFn<V>;
-    /** compile-time mesh-variant shader factory. */
-    specialize?: Specialize<V>;
     /** alpha blends without depth writes; clip retains opaque depth/shadow routing and honors any
      * `discard` authored by {@link fs}. */
     blend?: "alpha" | "clip";
     /** lets {@link vs} author clip space directly instead of using the engine world projection. Requires
-     * {@link vs}; registration without one fails when the variant compiles. */
+     * {@link vs}; registration without one fails when the surface compiles. */
     screen?: boolean;
 }
 

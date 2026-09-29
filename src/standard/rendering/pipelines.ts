@@ -1,7 +1,7 @@
 // Sear's pipeline compilation: the compiled-surface / compiled-background caches and the async
 // TypeGPU pipeline factories that fill them. `atlas.ts` supplies the shadow-atlas bind-group layouts every color +
 // point + cascade pipeline binds group 1 against. `forward.ts` owns bind-group *resolution* per draw
-// (`record()`) — this file only compiles pipelines and caches them by `${surface}#${variant}`.
+// (`record()`) — this file compiles pipelines and caches them by surface name and spec identity.
 
 import type { Configurable, TgpuBindGroupLayout, TgpuRenderPipeline } from "typegpu";
 import tgpu from "typegpu";
@@ -13,25 +13,21 @@ import type {
     BgLayout,
     Binding,
     Draw,
-    Mesh,
     Surface,
     SurfaceLayout,
 } from "../../core/rendering";
 import {
-    assertOwnFn,
     Backgrounds,
     BgCtx,
-    Draws,
     Frame,
     type fsCtxSchema,
     LightCull,
     Lighting,
-    Meshes,
     Render,
     Surfaces,
     VsIn,
 } from "../../core/rendering";
-import { Compute, type Registry, type State } from "../../engine";
+import { Compute, type State } from "../../engine";
 import { worldResource } from "../../engine/runtime";
 import {
     decodePos,
@@ -68,8 +64,6 @@ export type BindResource =
     | GPUBuffer
     | GPUTexture
     | GPUSampler;
-
-const variantKey = (surface: string, variant: number) => `${surface}#${variant}`;
 
 interface PipelineState {
     compiledTyped: Map<string, CompiledSurface>;
@@ -118,15 +112,14 @@ export function resetPipelineCaches(): void {
 // shadow-atlas pipelines. A surface in `Surfaces` DRAWS through these in every pass — `record()`
 // consults the typed registry first (the built-in flip), and `forward.ts`/`atlas.ts` issue the
 // draws via `.with(pass)` on sear's own render passes. `screen` surfaces project through their own `vs`
-// chunk's `patch.clip` and draw un-culled; `"clip"` blend and `specialize` are carried for the glTF
-// typed migration.
+// chunk's `patch.clip` and draw un-culled.
 //
-// Cached by name + material variant. `preparePipelines` compiles every
-// non-specializing `Surfaces` entry and force-unwraps it, so the resolve + the sync
+// Cached by name and spec identity. `preparePipelines` compiles every
+// `Surfaces` entry and force-unwraps it, so the resolve + the sync
 // `createRenderPipeline` validate against the real device at warm — a malformed group split, a name
 // collision, a binding-limit breach all throw there, not mid-frame at first draw.
 export interface CompiledSurface {
-    /** exact registry spec + layout this entry was compiled from; name/variant alone cannot distinguish
+    /** exact registry spec + layout this entry was compiled from; name alone cannot distinguish
      * a same-name replacement after warm (or an in-place layout swap). */
     owner: AnySurface;
     layout: SurfaceLayout<Record<string, Binding>>;
@@ -135,7 +128,7 @@ export interface CompiledSurface {
     // the prepass pipelines for this typed surface (keyed by lane: `""` the position-only depth
     // pipeline, `"tag"` the id lane); empty for a `blend:
     // "alpha"` surface (a transparent pixel has no single owner, writes no prepass depth, casts nothing —
-    // the same rule `compileVariant` applies). Compiled off `layout.depthVariant` — a DISTINCT
+    // the same rule `compileSurface` applies). Compiled off `layout.depthVariant` — a DISTINCT
     // `TgpuBindGroupLayout` object from `layout`, so a draw-time bind-group
     // cache for these needs its own key space, never `layout`'s (`SurfaceGroupEntry.depth`, `record`).
     // the map holds both the depth-only (`Void` output) and the tag-lane (`u32` output) pipeline under one
@@ -207,7 +200,6 @@ export type SurfaceGroupEntry = {
     /** the entry's frame-draw record, rewritten in place when a steady frame re-resolves the draw. */
     item: { draw: Draw; r: Recorded };
     /** the material variant the entry's compiled surface was looked up at. */
-    variant: number;
 };
 
 /** the cached typed per-draw group-2 state for a Draw name, or `undefined` on a cache miss (`record`
@@ -274,20 +266,6 @@ export function bgQuant(): GPUBuffer {
  *  accept a real varyings-carrying surface (`vertex`) at the call boundary. */
 type AnySurface = Surface<Record<string, Binding>, Record<string, AnyWgslData>>;
 
-function typedVariant<B extends Record<string, Binding>, V extends Record<string, AnyWgslData>>(
-    surface: Surface<B, V>,
-    variant: number,
-): Surface<B, V> {
-    const spec = surface.specialize?.(variant);
-    if (!spec) return surface;
-    // `specialize` is the second seam a consumer-built TgpuFn enters through, and `registerSurface`
-    // can't reach it: these fns don't exist until a variant compiles. Same brand check, same reason.
-    const at = `surface "${surface.name}" variant ${variant}`;
-    assertOwnFn(`${at} vs`, spec.vs);
-    assertOwnFn(`${at} fs`, spec.fs);
-    return { ...surface, ...spec, specialize: undefined } as Surface<B, V>;
-}
-
 const identityXform = tgpu
     .fn(
         [],
@@ -317,7 +295,7 @@ function fragmentInterstage(surface: AnySurface): Record<string, AnyWgslData> {
 /** the raster state every typed surface pipeline shares (color, its single-sample twin, prepass, atlas).
  * A `screen` surface builds its own quads in clip space (lines), so their winding flips with segment
  * direction and back-face culling would drop half of them; world-space surfaces keep the cull (the
- * overdraw win + correct cutout/shadow facing) — `compileVariant`'s own law, one source of truth here so
+ * overdraw win + correct cutout/shadow facing) — `compileSurface`'s own law, one source of truth here so
  * the sites can't drift. */
 export function surfacePrimitive(screen?: boolean): GPUPrimitiveState {
     return { topology: "triangle-list", cullMode: screen ? "none" : "back", frontFace: "ccw" };
@@ -1437,19 +1415,18 @@ function typedVaryingTagFs(surface: AnySurface) {
  * compile a `Surface`'s color-pass pipeline(s): the opaque `color` pipeline, or — for a `blend:
  * "alpha"` surface — the single blended `transparent` pipeline instead (exactly one of the two
  * compiles, never both, matching the raw path's "one non-opaque pipeline" shape). Cached by name +
- * material variant plus exact source-surface/layout identity, so replacing a
+ * exact source-surface/layout identity, so replacing a
  * registry entry after warm cannot inherit the previous owner's pipelines. A `screen` surface projects
- * through its own `vs` chunk (`patch.clip`) and rasterizes un-culled; `"clip"` and a surface's
- * `specialize` factory are resolved here for the glTF typed migration.
+ * through its own `vs` chunk (`patch.clip`) and rasterizes un-culled.
  */
-export function compileVariant<
+export function compileSurface<
     B extends Record<string, Binding>,
     V extends Record<string, AnyWgslData>,
->(surface: Surface<B, V>, capacity: number, variant = 0): CompiledSurface {
-    const key = variantKey(surface.name, surface.specialize ? variant : 0);
+>(surface: Surface<B, V>, capacity: number): CompiledSurface {
+    const key = surface.name;
     const cached = pipelineState().compiledTyped.get(key);
     if (cached?.owner === surface && cached.layout === surface.layout) return cached;
-    const resolved = typedVariant(surface, variant);
+    const resolved = surface;
     // a `screen` surface's clip position comes from its own `vs` chunk's `patch.clip` and from nowhere
     // else — with no `vs` every vertex would collapse to the origin, silently drawing nothing
     if (resolved.screen && !resolved.vs) {
@@ -1471,7 +1448,7 @@ export function compileVariant<
         fragment,
         blend: resolved.blend,
         primitive,
-        name: `${surface.name}#${variant}`,
+        name: surface.name,
     };
     let compiled: CompiledSurface;
     if (resolved.blend === "alpha") {
@@ -1489,7 +1466,7 @@ export function compileVariant<
                 multisample: { count: SAMPLE_COUNT },
             })
             .$name(`sear-typed-transparent-${args.name}`);
-        // `blend: "alpha"` casts nothing (a transparent pixel has no single owner, `compileVariant`'s own
+        // `blend: "alpha"` casts nothing (a transparent pixel has no single owner, `compileSurface`'s own
         // rule) — the same reason its prepass map stays empty
         compiled = {
             owner: surface as AnySurface,
@@ -1529,9 +1506,9 @@ export function compileVariant<
             args,
         };
     }
-    compiled.prepass = compileTypedPrepass(resolved, variant);
+    compiled.prepass = compileTypedPrepass(resolved);
     if (resolved.blend !== "alpha") {
-        const { point, cascade } = compileTypedShadow(resolved, variant, capacity);
+        const { point, cascade } = compileTypedShadow(resolved, capacity);
         compiled.point = point;
         compiled.cascade = cascade;
     }
@@ -1589,13 +1566,10 @@ export function ensureSingle(t: CompiledSurface): void {
  * surfaces execute their authored cutoff and therefore use the full layout/main vertex stream. An
  * authored tag hook also uses the full stream, independently of the depth-only pipeline, through
  * `SurfaceGroupEntry.tag`. A `blend: "alpha"` surface casts no prepass at all — same rule
- * `compileVariant` applies (a transparent pixel has no single owner, writes no prepass depth) — so its map
+ * `compileSurface` applies (a transparent pixel has no single owner, writes no prepass depth) — so its map
  * stays empty.
  */
-function compileTypedPrepass(
-    surface: AnySurface,
-    variant: number,
-): Map<string, TgpuRenderPipeline<any>> {
+function compileTypedPrepass(surface: AnySurface): Map<string, TgpuRenderPipeline<any>> {
     const prepass = new Map<string, TgpuRenderPipeline<any>>();
     if (surface.blend === "alpha") return prepass;
     const primitive = surfacePrimitive(surface.screen);
@@ -1628,7 +1602,7 @@ function compileTypedPrepass(
             primitive,
             depthStencil,
         })
-        .$name(`sear-typed-prepass-${surface.name}#${variant}`);
+        .$name(`sear-typed-prepass-${surface.name}`);
     prepass.set("", depthOnly);
     const tag = root
         .createRenderPipeline({
@@ -1650,7 +1624,7 @@ function compileTypedPrepass(
             primitive,
             depthStencil,
         })
-        .$name(`sear-typed-prepass-tag-${surface.name}#${variant}`);
+        .$name(`sear-typed-prepass-tag-${surface.name}`);
     prepass.set("tag", tag);
     return prepass;
 }
@@ -2182,7 +2156,6 @@ function clipShadowFs(surface: AnySurface) {
  */
 function compileTypedShadow(
     surface: AnySurface,
-    variant: number,
     capacity: number,
 ): {
     point: TgpuRenderPipeline<any> | null;
@@ -2215,7 +2188,7 @@ function compileTypedShadow(
             depthStencil,
             multisample: { count: 1 },
         })
-        .$name(`sear-typed-point-${surface.name}#${variant}`);
+        .$name(`sear-typed-point-${surface.name}`);
     const cascade = root
         .createRenderPipeline({
             vertex: clip
@@ -2248,7 +2221,7 @@ function compileTypedShadow(
             depthStencil,
             multisample: { count: 1 },
         })
-        .$name(`sear-typed-cascade-${surface.name}#${variant}`);
+        .$name(`sear-typed-cascade-${surface.name}`);
     return { point, cascade };
 }
 
@@ -2260,9 +2233,8 @@ const stubReceiver = (cfg: Configurable) => cfg.with(pointShadowSlot, pointShado
 export function shadowWgsl(
     surface: AnySurface,
     capacity: number,
-    variant = 0,
 ): { point: string; cascade: string } {
-    const resolved = typedVariant(surface, variant);
+    const resolved = surface;
     const clip = resolved.blend === "clip";
     const varying = !!resolved.varyings && Object.keys(resolved.varyings).length > 0;
     return {
@@ -2322,15 +2294,15 @@ export function shadowWgsl(
 }
 
 /** the compiled typed pipeline(s) for a `Surfaces` entry, or `undefined` until
- * {@link compileVariant} has run for it. */
-export function getCompiledSurface(name: string, variant = 0): CompiledSurface | undefined {
-    return pipelineState().compiledTyped.get(variantKey(name, variant));
+ * {@link compileSurface} has run for it. */
+export function getCompiledSurface(name: string): CompiledSurface | undefined {
+    return pipelineState().compiledTyped.get(name);
 }
 
 /** the color/transparent pipeline's emitted vs+fs WGSL for one `Surface` — device-free; both pipeline
  * variants share these pure resolve inputs. */
-export function surfaceWgsl(surface: AnySurface, variant = 0): string {
-    const resolved = typedVariant(surface, variant);
+export function surfaceWgsl(surface: AnySurface): string {
+    const resolved = surface;
     const hasVaryings = !!resolved.varyings && Object.keys(resolved.varyings).length > 0;
     const vertex = hasVaryings ? typedVaryingVs(resolved) : typedColorVs(resolved);
     const fragment = hasVaryings ? typedVaryingFs(resolved) : typedColorFs(resolved);
@@ -2340,8 +2312,8 @@ export function surfaceWgsl(surface: AnySurface, variant = 0): string {
 /** the typed prepass pipelines' emitted WGSL for one `Surface` — device-free (`typedPrepassVs`/
  * `typedTagFs` are pure resolve inputs), the structural seam `pipelines.test.ts`'s differential resolves
  * against. `""` is the position-only depth pipeline (vertex-only, no fragment); `"tag"` the id-lane pair. */
-export function prepassWgsl(surface: AnySurface, variant = 0): { "": string; tag: string } {
-    const resolved = typedVariant(surface, variant);
+export function prepassWgsl(surface: AnySurface): { "": string; tag: string } {
+    const resolved = surface;
     const clip = resolved.blend === "clip";
     const varying = !!resolved.varyings && Object.keys(resolved.varyings).length > 0;
     const authoredTag = !!resolved.tag;
@@ -2534,32 +2506,14 @@ export function backgroundWgsl(bg: AnyBackground): string {
     return tgpu.resolve([typedBgVs, typedBgFs(bg)], { names: "strict" });
 }
 
-/** Compile every non-specializing surface and every background at warm; specializing variants queue after
- * Part publishes its draw pairs. TypeGPU pipelines are sync-created but lazy, so each is force-unwrapped. */
-/** variants already reachable through registered draws at warm, deduped per surface. */
-export function knownVariants(
-    surface: AnySurface,
-    draws: Registry<Draw> = Draws,
-    meshes: Registry<Mesh> = Meshes,
-): number[] {
-    if (!surface.specialize) return [0];
-    const variants = new Set<number>();
-    for (const draw of draws) {
-        if (draw.surface !== surface.name) continue;
-        const mesh = meshes.get(draw.mesh);
-        if (mesh) variants.add(mesh.variant ?? 0);
-    }
-    return [...variants];
-}
-
+/** Compile every surface and background at warm, before the first draw. */
 export async function preparePipelines(capacity: number): Promise<void> {
     // force each typed pipeline's memo at warm (`root.unwrap` runs the resolve + the sync
     // `createRenderPipeline`) — typegpu defers both to first use, which would otherwise land mid-frame
     // on the first draw and hide a resolution/validation error until then (the force-compile-at-warm
     // lock)
     for (const surface of Surfaces) {
-        if (surface.specialize) continue;
-        const t = compileVariant(surface, capacity);
+        const t = compileSurface(surface, capacity);
         for (const p of [t.color, t.transparent, t.point, t.cascade, ...t.prepass.values()]) {
             if (p) Compute.root.unwrap(p);
         }

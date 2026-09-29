@@ -75,20 +75,9 @@ export interface Mesh {
      */
     cast?: boolean;
     /**
-     * a surface-specialization index (default 0): for a draw whose surface declares
-     * {@link Surface.specialize}, it selects the compiled pipeline variant. The glTF importer sets it to
-     * a primitive's material map-set bitmask so a textured draw samples only the maps its material
-     * carries; a mesh whose surface doesn't specialize ignores it. Constant per mesh (a mesh is one glTF
-     * primitive = one material), so it specializes the `(surface, mesh)` draw with no per-instance branch.
-     */
-    variant?: number;
-    /**
      * per-mesh binding overrides: resources scoped to *this* mesh's draws, keyed by the surface's binding
      * name. A surface binding resolves to `mesh.bindings?.[name]` when present, else the published global
-     * (`Compute.*`). The skinned-mesh VAT is the worked case: each skinned mesh owns its position/normal VAT
-     * textures + params, so N skinned meshes coexist in one scene (the textured firehose shares its albedo
-     * arrays globally; a VAT can't (different size per mesh), so it binds per-mesh). A mesh is already its
-     * own bind group (own geometry buffers), so this adds no draw.
+     * (`Compute.*`). Per-mesh resources are shared by that mesh's draws.
      */
     bindings?: Record<string, MeshBinding>;
 }

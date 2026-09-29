@@ -2,32 +2,6 @@
 
 // the extras barrel lists each module's author names explicitly; extension names stay on the module.
 
-export {
-    CellsPlugin,
-    COLS,
-    cells,
-    cellsGridFor,
-    DEFAULT_FONT,
-    ROWS,
-} from "../transitional/cells";
-export {
-    type GltfHandle,
-    type GltfImport,
-    type GltfPlacement,
-    GltfPlugin,
-    loadGltf,
-    placeGltf,
-    placeScene,
-    Textured,
-} from "../transitional/gltf";
-export {
-    LiveSkinSystem,
-    liveSkin,
-    Skin,
-    SkinPlugin,
-    skinMatrix,
-    skinTraits,
-} from "../transitional/skin";
 export { Fog, FogPlugin } from "./fog";
 export {
     Arrow,

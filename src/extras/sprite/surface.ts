@@ -1,5 +1,5 @@
 // The typed sprite surface: six per-bucket registrations — (screen | y | world) billboard × (clip |
-// alpha) blend — sharing one `surfaceLayout` (the gltf-trio / skin shape). Sprite adopts the
+// alpha) blend — sharing one `surfaceLayout`. Sprite adopts the
 // `eids`+`transforms` instancing convention (its own layout declares both), so `VsIn.eid`/`VsIn.xform`
 // replace the hand-rolled `transforms[spriteData[iid].eid]` lookup and the engine's instanced
 // `tag = eid` default applies for free — the authored tag line is no longer needed.

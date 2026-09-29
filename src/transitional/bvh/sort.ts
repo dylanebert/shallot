@@ -143,7 +143,7 @@ export const binLayout = tgpu.bindGroupLayout({
 // The pointer is formed inside the leaf from the bound buffer and an index, never passed in: WGSL 1.0
 // admits a pointer parameter only in the function and private address spaces, and naga (Firefox's front
 // end) rejects a storage-space one outright, taking the whole module down. `binLayout.$` rides as one
-// external because a dereferenced `layout.$.x` throws outside a TGSL body (transitional/gltf/live.ts).
+// external because a dereferenced `layout.$.x` throws outside a TGSL body.
 const passHistCas = tgpu
     .fn(
         [d.u32, d.u32, d.u32],
