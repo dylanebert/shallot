@@ -1,4 +1,7 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(1000);
+
 import { build } from "../../engine";
 
 const peerModule = "bun-webgpu";
@@ -36,4 +39,4 @@ test("build awaits an application-owned loading completion promise before cleanu
     } finally {
         app.dispose();
     }
-}, 20_000);
+}, 1000);

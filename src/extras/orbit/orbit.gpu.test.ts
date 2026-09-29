@@ -1,4 +1,7 @@
-import { test } from "bun:test";
+import { setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(1000);
+
 import {
     build,
     devices,

@@ -74,7 +74,7 @@ jobs:
           node-version-file: .node-version
       - run: bun install --frozen-lockfile
       - name: Node tier
-        run: /usr/bin/time -p bun test ./examples/first-person/src/demo.node.ts ./scripts/packed-install.node.ts ./scripts/package-shape.node.ts
+        run: /usr/bin/time -p bun test $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts' -print)
 
   browser:
     runs-on: macos-15

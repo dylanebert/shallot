@@ -1,4 +1,7 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(20_000);
+
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -51,7 +54,8 @@ test("a packed headless app steps on a GPU and refuses without navigator.gpu", a
         writeFileSync(join(project, "bunfig.toml"), '[test]\npreload = ["./preload.ts"]\n');
         writeFileSync(
             join(project, "packed-engine.gpu.test.ts"),
-            `import { expect, test } from "bun:test";
+            `import { expect, setDefaultTimeout, test } from "bun:test";
+setDefaultTimeout(1000);
 import { build, type Plugin } from "@dylanebert/shallot/app";
 import { f32, field, Time } from "@dylanebert/shallot/ecs";
 import * as Rendering from "@dylanebert/shallot/rendering";
@@ -107,7 +111,7 @@ test("the packed headless plugin set steps the world through public engine subpa
     } finally {
         app.dispose();
     }
-}, 20_000);
+}, 1000);
 `,
         );
 
@@ -124,4 +128,4 @@ test("the packed headless plugin set steps the world through public engine subpa
     } finally {
         rmSync(scratch, { recursive: true, force: true });
     }
-}, 300_000);
+}, 20_000);

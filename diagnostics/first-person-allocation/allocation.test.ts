@@ -38,7 +38,7 @@ test("a Node allocation import does not load the display-only oracle or Hyprland
     expect(nodeImports.some((edge) => edge.external && /^(?:bun:|playwright)/.test(edge.path))).toBe(
         false,
     );
-}, 1_000);
+}, 250);
 
 test("a non-page allocation row can import the allocation instrument without loading Vite before requesting a page build", () => {
     const probe = `
@@ -68,7 +68,7 @@ test("a non-page allocation row can import the allocation instrument without loa
     });
     if (proc.exitCode !== 0)
         throw new Error(`Bun allocation import failed: ${proc.stderr.toString()}`);
-}, 1_000);
+}, 250);
 
 // Profiler modules: the `profile` extra, which owns the physics step's timing clock.
 const PROFILER = [/^src\/extras\/profile\//];
@@ -102,7 +102,7 @@ test("the allocation-gated first-person composition carries no timing or profili
         throw new Error(
             `gated bundle imports profiler modules:\n${found.map((path) => `  ${path} <- ${importers(path).join(", ")}`).join("\n")}`,
         );
-}, 1_000);
+}, 250);
 
 const steadySample = (sites: AllocationSample["windows"][number]["sites"]) => ({
     warm: 120,

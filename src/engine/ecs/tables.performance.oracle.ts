@@ -308,7 +308,7 @@ fn mappedEid(@builtin(global_invocation_id) id: vec3<u32>) {
     } finally {
         app.dispose();
     }
-}, 5_000);
+}, 0);
 
 test("measure struct records against per-field arrays for pose and light", async () => {
     let state!: State;
@@ -626,7 +626,7 @@ test("measure struct records against per-field arrays for pose and light", async
     } finally {
         app.dispose();
     }
-}, 5_000);
+}, 0);
 
 test("measure dense table range uploads at 0.1%, 10%, and 100% changed", async () => {
     let state!: State;
@@ -700,7 +700,7 @@ test("measure dense table range uploads at 0.1%, 10%, and 100% changed", async (
     } finally {
         app.dispose();
     }
-}, 10_000);
+}, 0);
 
 test("measure dense table GPU memory at 1% and 100% population", async () => {
     let state!: State;
@@ -770,7 +770,7 @@ test("measure dense table GPU memory at 1% and 100% population", async () => {
     } finally {
         app.dispose();
     }
-}, 10_000);
+}, 0);
 
 test("measure component setter overhead against direct column writes", async () => {
     let state!: State;
@@ -808,4 +808,4 @@ test("measure component setter overhead against direct column writes", async () 
     } finally {
         app.dispose();
     }
-}, 10_000);
+}, 0);

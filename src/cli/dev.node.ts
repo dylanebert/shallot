@@ -1,4 +1,7 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(20_000);
+
 import {
     existsSync,
     mkdirSync,
@@ -214,7 +217,7 @@ test("shallot dev, build and preview run the Vite declared by the project", asyn
     } finally {
         rmSync(project, { recursive: true, force: true });
     }
-}, 45_000);
+}, 20_000);
 
 test("native dev keeps the complete reported Local URL and can use a Network URL alone", () => {
     const network = "  ➜  Network:   http://192.168.0.139:41989/game/";

@@ -1,4 +1,7 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(1000);
+
 import { RenderPlugin } from "../../core/rendering";
 import { build, probeBuffer, Time } from "../../engine";
 import { Transform, transformTable } from "../transforms";

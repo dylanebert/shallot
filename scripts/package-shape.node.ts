@@ -1,4 +1,7 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(20_000);
+
 import {
     cpSync,
     existsSync,

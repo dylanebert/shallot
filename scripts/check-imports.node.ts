@@ -1,4 +1,7 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(20_000);
+
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
@@ -147,14 +150,14 @@ test("the import boundary resolves TypeScript specifiers, scans each source exte
             'src/core/rendering/index.ts:1: unresolved import "../../extras/fog"',
         ]);
     });
-}, 20_000);
+});
 
 test("the repository engine runtime does not import past the ECS barrel", () => {
     const root = resolve(import.meta.dir, "..");
     expect(
         checkImports(root).filter((red) => red.startsWith("src/engine/runtime/gpu.ts:")),
     ).toEqual([]);
-}, 20_000);
+});
 
 test("engine runtime imports ECS APIs through the ECS barrel", () => {
     withFixture((root) => {
@@ -184,4 +187,4 @@ test("engine runtime imports ECS APIs through the ECS barrel", () => {
         put(root, "engine/runtime/gpu.ts", 'import { useState } from "../ecs";\nvoid useState;\n');
         expect(checkImports(root)).toEqual([]);
     });
-}, 20_000);
+});

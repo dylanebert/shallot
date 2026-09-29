@@ -2,7 +2,10 @@
 // fixtures remain under fixtures/ as migration evidence, but their predecessor hashes are not the
 // current authority and are intentionally not asserted here.
 
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(20_000);
+
 import { World } from "../api/world";
 import { BodyType } from "../common/types";
 import { loadConsumerCorpus, runCommonInput } from "../oracle/consumer";

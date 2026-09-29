@@ -95,4 +95,4 @@ test("a warm requestAnimationFrame frame of the production first-person web buil
     if (major.length > 0 || promoted > 0)
         failures.push(`steady play ran ${major.length} major collections and promoted ${promoted} bytes`);
     if (failures.length > 0) throw new Error(`${failures.join("\n")}\n${tables}`);
-}, 20_000);
+}, 0);

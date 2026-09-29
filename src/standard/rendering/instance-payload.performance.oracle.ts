@@ -263,4 +263,4 @@ return vec4f(x.xyz + vec3f(f32(v % 3u), f32(eid % 3u), 10.0), x.w);
         for (const resource of owned.reverse()) resource.destroy();
         app.dispose();
     }
-}, 8000);
+}, 0);

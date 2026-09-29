@@ -1,4 +1,7 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(1000);
+
 import * as d from "typegpu/data";
 import { PartInput, PointLight, RenderPlugin } from "../../core/rendering";
 import { SearPlugin } from "../../standard/rendering";
@@ -137,7 +140,7 @@ test("component registrations, defaults, exclusions, and scene enumeration belon
             .attrs.map((attr) => attr.name)
             .sort(),
     ).toEqual(["blocker", "value"]);
-}, 20_000);
+}, 1000);
 
 test("world GPU registries and owned resources are isolated and released on dispose", async () => {
     const adapter = await navigator.gpu.requestAdapter();
@@ -216,7 +219,7 @@ test("world GPU registries and owned resources are isolated and released on disp
     expect(liveBuffers.size).toBe(0);
     expect(liveTextures.size).toBe(0);
     device.destroy();
-}, 20_000);
+}, 1000);
 
 test("frame change marks clear at the world upload point", async () => {
     const Changed = { sparse: field(f32), uploaded: field(f32) };
@@ -252,7 +255,7 @@ test("frame change marks clear at the world upload point", async () => {
     writeAfterUpload = false;
     state.step(0);
     expect(storage.uploaded.dirty[0]).toBe(0);
-}, 20_000);
+}, 1000);
 
 test("render light inputs upload as active dense table rows", async () => {
     const app = await build({ defaults: false, plugins: [RenderPlugin] });
@@ -289,7 +292,7 @@ test("render light inputs upload as active dense table rows", async () => {
     expect(data.getFloat32(4, true)).toBe(2.5);
     expect(data.getFloat32(8, true)).toBe(7);
     expect(data.getFloat32(12, true)).toBe(0.25);
-}, 20_000);
+}, 1000);
 
 test("Part and Sear warm and compact a component-bound dense instance", async () => {
     const app = await build({ defaults: false, plugins: [RenderPlugin, PartPlugin, SearPlugin] });
@@ -327,7 +330,7 @@ test("Part and Sear warm and compact a component-bound dense instance", async ()
     expect([0, 1, 2, 3].map((lane) => data.getFloat32(materialOffset + lane * 4, true))).toEqual([
         0, 1, 0, 1,
     ]);
-}, 20_000);
+}, 1000);
 
 test("entity ids and component columns grow without a configured capacity", async () => {
     const Grow = { value: field(f32) };
@@ -341,7 +344,7 @@ test("entity ids and component columns grow without a configured capacity", asyn
     expect(app.state.entityHighWater).toBe(eid + 1);
     expect(app.state.of(Grow).value.column.length).toBeGreaterThan(eid);
     expect(Grow.value.get(eid)).toBe(73.5);
-}, 20_000);
+}, 1000);
 
 test("reordered component fields swap without rebuilding their world columns", async () => {
     const firstValue = { x: field(f32), y: field(f32) };
@@ -363,7 +366,7 @@ test("reordered component fields swap without rebuilding their world columns", a
     expect(after.x.column).toBe(beforeX);
     expect(after.y.column).toBe(beforeY);
     expect(after.x.get(eid)).toBe(17);
-}, 20_000);
+}, 1000);
 
 test("a same-named Type with a different array layout forces a rebuild", async () => {
     const firstValue = { amount: field(f32) };
@@ -383,7 +386,7 @@ test("a same-named Type with a different array layout forces a rebuild", async (
     });
     app.state.registry.register("Value", reloadedValue);
     expect(() => app.state.of(reloadedValue)).toThrow("schema changed");
-}, 20_000);
+}, 1000);
 
 test("a Type's debug name does not invalidate an identical storage layout", async () => {
     const firstValue = { amount: field(f32) };
@@ -398,7 +401,7 @@ test("a Type's debug name does not invalidate an identical storage layout", asyn
         components: { Value: reloadedValue },
     };
     expect(await swap(app.state, [firstPlugin], [reloaded])).toEqual({ ok: true });
-}, 20_000);
+}, 1000);
 
 test("original, reloaded, and rebuilt component accessors stop rechecking bound schemas", async () => {
     const originalValue = { amount: field(f32) };
@@ -450,7 +453,7 @@ test("original, reloaded, and rebuilt component accessors stop rechecking bound 
 
     expect([originalRead, reloadedRead, rebuiltRead]).toEqual([11, 22, 33]);
     expect(sortCalls).toBe(0);
-}, 20_000);
+}, 1000);
 
 test("a compatible hot swap reattaches its schema in only the target world", async () => {
     const firstPlugin = {
@@ -493,4 +496,4 @@ test("a compatible hot swap reattaches its schema in only the target world", asy
     });
     expect(amount(first.state).get(firstEid)).toBe(13);
     expect(amount(second.state).get(secondEid)).toBe(7);
-}, 20_000);
+}, 1000);

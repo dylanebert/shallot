@@ -6,7 +6,7 @@ import { Glob } from "bun";
 
 const root = resolve(import.meta.dir, "..");
 const readers = [...new Glob("check-*.ts").scanSync(import.meta.dir)]
-    .filter((file) => !file.endsWith(".test.ts"))
+    .filter((file) => !/\.(?:test|node|oracle)\.ts$/.test(file))
     .sort();
 const arms: [string, string[]][] = [
     ["tsc", ["tsc"]],

@@ -1,4 +1,7 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(1000);
+
 import { build, type Plugin } from "@dylanebert/shallot";
 import { PhysicsProfilePlugin } from "@dylanebert/shallot/extras";
 import { Body, PhysicsPlugin, physicsWorld, ShapeKind } from "@dylanebert/shallot/physics";

@@ -6,6 +6,7 @@ import {
     type Hull,
     Hulls,
     Physics,
+    PhysicsPlugin,
     physicsWorld,
     readBody,
     ShapeKind,
@@ -321,6 +322,7 @@ export const CharacterSweepSystem: System = {
  *  {@link Player} for a ready first-person controller. */
 export const CharacterPlugin: Plugin = {
     name: "Character",
+    dependencies: [PhysicsPlugin],
     components: { Character },
     systems: [CharacterSweepSystem],
     traits: {

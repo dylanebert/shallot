@@ -1,4 +1,7 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(1000);
+
 import * as d from "typegpu/data";
 import { build } from "../../engine";
 import { Mirror, MirrorPlugin, mirror } from "./index";

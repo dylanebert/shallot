@@ -1,4 +1,7 @@
-import { test } from "bun:test";
+import { setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(1000);
+
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -269,4 +272,4 @@ test("the actual lift rises monotonically from its authored base, turns repeated
     } finally {
         app.dispose();
     }
-}, 20_000);
+}, 1000);

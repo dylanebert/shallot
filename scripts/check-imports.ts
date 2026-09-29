@@ -198,7 +198,7 @@ function transitionalRed(src: string, module: Module): string {
 export function checkImports(root: string): string[] {
     const src = resolve(root, SOURCE_ROOT);
     const files = [...new Glob("**/*.{ts,tsx,mts,cts}").scanSync(src)]
-        .filter((file) => !/\.test\.(?:ts|tsx|mts|cts)$/.test(file))
+        .filter((file) => !/\.(?:test|node|oracle)\.(?:ts|tsx|mts|cts)$/.test(file))
         .map((file) => resolve(src, file))
         .sort();
     const resolutions = moduleResolutions(root);

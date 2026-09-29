@@ -1,4 +1,7 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(1000);
+
 import {
     AmbientLight,
     attachCanvas,
@@ -35,15 +38,7 @@ import {
     TextPlugin,
     text,
 } from "../../extras";
-import {
-    Color,
-    DEFAULT_PLUGINS,
-    Glaze,
-    Part,
-    PartPlugin,
-    Transform,
-    TransformsPlugin,
-} from "../../standard";
+import { Color, DEFAULT_PLUGINS, Glaze, Part, Transform } from "../../standard";
 import {
     Backdrop,
     cascadeComboEids,
@@ -100,7 +95,7 @@ const peerModule = "bun-webgpu";
 const peer = (await import(peerModule)) as Record<string, unknown> & {
     setupGlobals(): Promise<void>;
 };
-await withTimeout("WebGPU global setup", peer.setupGlobals(), 4_000);
+await withTimeout("WebGPU global setup", peer.setupGlobals(), 750);
 const createCanvasContext = peer.GPUCanvasContextMock as new (
     canvas: HTMLCanvasElement,
     width: number,
@@ -144,7 +139,7 @@ function watchDevice(device: GPUDevice) {
     };
     device.addEventListener("uncapturederror", uncaptured);
     return {
-        wait<T>(label: string, promise: PromiseLike<T> | T, timeoutMs = 4_000): Promise<T> {
+        wait<T>(label: string, promise: PromiseLike<T> | T, timeoutMs = 750): Promise<T> {
             if (firstError)
                 return Promise.reject(new Error(`${label}: uncaptured GPU error: ${firstError}`));
             return new Promise<T>((resolve, reject) => {
@@ -185,11 +180,7 @@ function watchDevice(device: GPUDevice) {
 }
 
 async function trackedDevice() {
-    const adapter = await withTimeout(
-        "Dawn adapter request",
-        navigator.gpu.requestAdapter(),
-        4_000,
-    );
+    const adapter = await withTimeout("Dawn adapter request", navigator.gpu.requestAdapter(), 750);
     if (!adapter) throw new Error("Dawn adapter unavailable");
     const requiredLimits: Record<string, number> = { maxStorageBuffersPerShaderStage: 10 };
     for (const limit of [
@@ -206,7 +197,7 @@ async function trackedDevice() {
             requiredFeatures: ["bgra8unorm-storage", "rg11b10ufloat-renderable", "timestamp-query"],
             requiredLimits,
         }),
-        4_000,
+        750,
     );
     const watch = watchDevice(device);
     const live = new Set<GPUBuffer | GPUTexture>();
@@ -522,10 +513,19 @@ const createIsolationResources = (): IsolationResources => ({
     bvh: null,
 });
 
-function featurePlugin(): Plugin {
+function uses(subject: Plugin, dependency: Plugin): boolean {
+    return (
+        subject === dependency ||
+        (subject.dependencies ?? []).some((plugin) => uses(plugin, dependency))
+    );
+}
+
+function featurePlugin(subject: Plugin): Plugin {
     return {
         name: "GpuIsolationFeatureSeed",
-        dependencies: [PartPlugin, MirrorPlugin, TransformsPlugin, SkyPlugin],
+        components: Object.assign({}, ...everyPlugin.map((plugin) => plugin.components)),
+        traits: Object.assign({}, ...everyPlugin.map((plugin) => plugin.traits)),
+        dependencies: [...DEFAULT_PLUGINS, subject],
         initialize(state) {
             const resources = state.resource(isolationKey, createIsolationResources);
             let context: GPUCanvasContext;
@@ -560,17 +560,24 @@ function featurePlugin(): Plugin {
 
             const ambient = state.create();
             state.add(ambient, AmbientLight);
-            const sun = state.create();
-            state.add(sun, DirectionalLight);
-            state.add(sun, Shadow);
-            state.add(sun, Volumetric);
-            const point = state.create();
-            state.add(point, Transform);
-            state.add(point, PointLight);
-            state.add(point, Spot);
-            state.add(point, Shadow);
-            state.add(point, Volumetric);
-            Transform.pos.set(point, 1, 2, 1, 0);
+            if (
+                subject.name === "Render" ||
+                subject.name === "Sear" ||
+                subject.name === "Glaze" ||
+                uses(subject, SkyPlugin)
+            ) {
+                const sun = state.create();
+                state.add(sun, DirectionalLight);
+                state.add(sun, Shadow);
+                state.add(sun, Volumetric);
+                const point = state.create();
+                state.add(point, Transform);
+                state.add(point, PointLight);
+                state.add(point, Spot);
+                state.add(point, Shadow);
+                state.add(point, Volumetric);
+                Transform.pos.set(point, 1, 2, 1, 0);
+            }
 
             const sky = state.create();
             resources.sky = sky;
@@ -622,10 +629,11 @@ function featurePlugin(): Plugin {
 
             const transforms = Compute.buffers.get("transforms");
             if (!transforms) throw new Error("Transforms did not publish their buffer");
-            resources.mirror = mirror(state, transforms);
+            if (uses(subject, MirrorPlugin)) resources.mirror = mirror(state, transforms);
         },
         async warm(state) {
             const resources = state.resource(isolationKey, createIsolationResources);
+            if (!uses(subject, BvhPlugin)) return;
             const device = Compute.device;
             const bvh = await createBvh(device, 2);
             device.queue.writeBuffer(
@@ -715,13 +723,14 @@ async function renderAlone(
     tracked: Awaited<ReturnType<typeof trackedDevice>>,
     content: IsolationContent,
     label: string,
+    subject: Plugin,
 ): Promise<Uint8Array> {
     const app = await tracked.withBuild(() =>
         tracked.watch.wait(
             `${label} solo world build`,
             build({
                 defaults: false,
-                plugins: [...everyPlugin, featurePlugin()],
+                plugins: [featurePlugin(subject)],
                 device: tracked.device,
             }),
         ),
@@ -737,10 +746,11 @@ async function renderAlone(
     }
 }
 
-async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
+async function exerciseIsolationPair(sharedDevice: boolean, subject: Plugin): Promise<void> {
+    const hasPhysics = uses(subject, PhysicsPlugin);
     const firstDevice = await trackedDevice();
     const secondDevice = sharedDevice ? firstDevice : await trackedDevice();
-    const seed = featurePlugin();
+    const seed = featurePlugin(subject);
     let first: Awaited<ReturnType<typeof build>> | undefined;
     let second: Awaited<ReturnType<typeof build>> | undefined;
     let firstPairPixels: Uint8Array | undefined;
@@ -757,10 +767,10 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
                 "first world build",
                 build({
                     defaults: false,
-                    plugins: [...everyPlugin, seed],
+                    plugins: [seed],
                     device: firstDevice.device,
                 }),
-                4_000,
+                750,
             ),
         );
         firstDevice.labels.set(first.state, "first world");
@@ -774,10 +784,10 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
                 "second world build",
                 build({
                     defaults: false,
-                    plugins: [...everyPlugin, seed],
+                    plugins: [seed],
                     device: secondDevice.device,
                 }),
-                4_000,
+                750,
             ),
         );
         secondDevice.labels.set(second.state, "second world");
@@ -798,14 +808,16 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
 
         await stepGpuWorld(first.state, "first world", firstDevice);
         await stepGpuWorld(second.state, "second world", secondDevice);
-        await firstDevice.watch.wait(
-            "first-world Mirror mapAsync",
-            waitForMirrorMap(firstFeatures.mirror!),
-        );
-        await secondDevice.watch.wait(
-            "second-world Mirror mapAsync",
-            waitForMirrorMap(secondFeatures.mirror!),
-        );
+        if (firstFeatures.mirror)
+            await firstDevice.watch.wait(
+                "first-world Mirror mapAsync",
+                waitForMirrorMap(firstFeatures.mirror),
+            );
+        if (secondFeatures.mirror)
+            await secondDevice.watch.wait(
+                "second-world Mirror mapAsync",
+                waitForMirrorMap(secondFeatures.mirror),
+            );
         firstDevice.watch.check("first world GPU work");
         secondDevice.watch.check("second world GPU work");
         const firstTexture = offscreenTexture(first.state, firstFeatures.camera);
@@ -826,38 +838,56 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
             secondDevice,
         );
         expect(firstPairPixels).not.toEqual(secondPairPixels);
-        expect(physicsWorld(first.state)?.getCounters().jointCount).toBe(2);
-        expect(physicsWorld(second.state)?.getCounters().jointCount).toBe(2);
-        const firstHash = hashPhysics(first.state);
-        const firstBody = readBody(first.state, firstA);
-        if (!firstBody) throw new Error("first Physics body did not become live");
-        const siblingHash = hashPhysics(second.state);
-        const siblingBody = readBody(second.state, peerA);
-        const saved = snapshotPhysics(first.state);
-        setVelocity(first.state, firstA, 7, 0, 0);
-        expect(readBody(first.state, firstA)?.vel[0]).toBeCloseTo(7);
-        restorePhysics(first.state, saved);
-        expect(hashPhysics(first.state)).toBe(firstHash);
-        expect(readBody(first.state, firstA)).toEqual(firstBody);
-        expect(hashPhysics(second.state)).toBe(siblingHash);
-        expect(readBody(second.state, peerA)).toEqual(siblingBody);
+        if (hasPhysics) {
+            expect(physicsWorld(first.state)?.getCounters().jointCount).toBe(2);
+            expect(physicsWorld(second.state)?.getCounters().jointCount).toBe(2);
+            const firstHash = hashPhysics(first.state);
+            const firstBody = readBody(first.state, firstA);
+            if (!firstBody) throw new Error("first Physics body did not become live");
+            const siblingHash = hashPhysics(second.state);
+            const siblingBody = readBody(second.state, peerA);
+            const saved = snapshotPhysics(first.state);
+            setVelocity(first.state, firstA, 7, 0, 0);
+            expect(readBody(first.state, firstA)?.vel[0]).toBeCloseTo(7);
+            restorePhysics(first.state, saved);
+            expect(hashPhysics(first.state)).toBe(firstHash);
+            expect(readBody(first.state, firstA)).toEqual(firstBody);
+            expect(hashPhysics(second.state)).toBe(siblingHash);
+            expect(readBody(second.state, peerA)).toEqual(siblingBody);
 
-        const firstActorPose = [0, 0, 0] as [number, number, number];
-        const secondActorPose = [0, 0, 0] as [number, number, number];
-        expect(pose(first.state, firstFeatures.actor, firstActorPose)).toBe(true);
-        expect(pose(second.state, secondFeatures.actor, secondActorPose)).toBe(true);
-        expect(firstActorPose[1]).not.toBe(secondActorPose[1]);
-        expect(firstFeatures.bvh).not.toBeNull();
-        expect(secondFeatures.bvh).not.toBeNull();
-        expect(firstFeatures.mirror?.allocated).toBeGreaterThan(0);
-        expect(secondFeatures.mirror?.allocated).toBeGreaterThan(0);
-        expectStateViews(first.state, cascadeComboEids(first.state));
-        expectStateViews(second.state, cascadeComboEids(second.state));
-        expectStateViews(first.state, pointComboEids(first.state));
-        expectStateViews(second.state, pointComboEids(second.state));
-        expect([...first.state.query([Pose])].length).toBeGreaterThan(0);
-        expect([...second.state.query([Pose])].length).toBeGreaterThan(0);
-        for (const key of ["spriteData", "textGlyphs", "lineSegments", "sky"]) {
+            if (uses(subject, CharacterPlugin)) {
+                const firstActorPose = [0, 0, 0] as [number, number, number];
+                const secondActorPose = [0, 0, 0] as [number, number, number];
+                expect(pose(first.state, firstFeatures.actor, firstActorPose)).toBe(true);
+                expect(pose(second.state, secondFeatures.actor, secondActorPose)).toBe(true);
+                expect(firstActorPose[1]).not.toBe(secondActorPose[1]);
+            }
+        }
+        if (uses(subject, BvhPlugin)) {
+            expect(firstFeatures.bvh).not.toBeNull();
+            expect(secondFeatures.bvh).not.toBeNull();
+        }
+        if (uses(subject, MirrorPlugin)) {
+            expect(firstFeatures.mirror?.allocated).toBeGreaterThan(0);
+            expect(secondFeatures.mirror?.allocated).toBeGreaterThan(0);
+        }
+        if (uses(subject, SkyPlugin)) {
+            expectStateViews(first.state, cascadeComboEids(first.state));
+            expectStateViews(second.state, cascadeComboEids(second.state));
+            expectStateViews(first.state, pointComboEids(first.state));
+            expectStateViews(second.state, pointComboEids(second.state));
+        }
+        if (hasPhysics) {
+            expect([...first.state.query([Pose])].length).toBeGreaterThan(0);
+            expect([...second.state.query([Pose])].length).toBeGreaterThan(0);
+        }
+        for (const [plugin, key] of [
+            [SpritePlugin, "spriteData"],
+            [TextPlugin, "textGlyphs"],
+            [LinesPlugin, "lineSegments"],
+            [SkyPlugin, "sky"],
+        ] as const) {
+            if (!uses(subject, plugin)) continue;
             const a = first.state.gpu.buffers.get(key);
             const b = second.state.gpu.buffers.get(key);
             expect(a).toBeDefined();
@@ -865,8 +895,8 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
             expect(a).not.toBe(b);
         }
 
-        const peerHashBeforeDispose = hashPhysics(second.state);
-        const peerBodyBeforeDispose = readBody(second.state, peerA);
+        const peerHashBeforeDispose = hasPhysics ? hashPhysics(second.state) : 0n;
+        const peerBodyBeforeDispose = hasPhysics ? readBody(second.state, peerA) : null;
         const peerResources = new Set<GPUBuffer | GPUTexture>([
             ...second.state.gpu.buffers.values(),
             ...second.state.gpu.textures.values(),
@@ -883,17 +913,29 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
         expect([...second.state.gpu.buffers]).toEqual(peerRegistries.buffers);
         expect([...second.state.gpu.textures]).toEqual(peerRegistries.textures);
         expect([...second.state.gpu.typed]).toEqual(peerRegistries.typed);
-        expect(hashPhysics(second.state)).toBe(peerHashBeforeDispose);
-        expect(readBody(second.state, peerA)).toEqual(peerBodyBeforeDispose);
+        if (hasPhysics) {
+            expect(hashPhysics(second.state)).toBe(peerHashBeforeDispose);
+            expect(readBody(second.state, peerA)).toEqual(peerBodyBeforeDispose);
+        }
         await stepGpuWorld(second.state, "second world after sibling disposal", secondDevice);
-        expect(readBody(second.state, peerA)).not.toEqual(peerBodyBeforeDispose);
+        if (hasPhysics) expect(readBody(second.state, peerA)).not.toEqual(peerBodyBeforeDispose);
 
         second.dispose();
         second = undefined;
         if (!firstPairPixels || !secondPairPixels)
             throw new Error("both paired Worlds must produce a captured frame");
-        const firstSoloPixels = await renderAlone(firstDevice, FIRST_CONTENT, "first world");
-        const secondSoloPixels = await renderAlone(secondDevice, SECOND_CONTENT, "second world");
+        const firstSoloPixels = await renderAlone(
+            firstDevice,
+            FIRST_CONTENT,
+            "first world",
+            subject,
+        );
+        const secondSoloPixels = await renderAlone(
+            secondDevice,
+            SECOND_CONTENT,
+            "second world",
+            subject,
+        );
         expect(firstPairPixels).toEqual(firstSoloPixels);
         expect(secondPairPixels).toEqual(secondSoloPixels);
     } finally {
@@ -914,10 +956,10 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
     if (!sharedDevice) expect(secondDevice.live.size).toBe(0);
 }
 
-test("plugin-owned components and GPU paths stay isolated on a shared device", async () => {
-    await exerciseIsolationPair(true);
-}, 6_000);
-
-test("plugin-owned components and GPU paths stay isolated on separate devices", async () => {
-    await exerciseIsolationPair(false);
-}, 6_000);
+for (const plugin of everyPlugin) {
+    for (const shared of [true, false]) {
+        test(`${plugin.name}: components and GPU paths stay isolated on ${shared ? "a shared device" : "separate devices"}`, async () => {
+            await exerciseIsolationPair(shared, plugin);
+        });
+    }
+}

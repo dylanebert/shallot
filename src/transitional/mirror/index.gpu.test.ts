@@ -1,4 +1,7 @@
-import { expect, test } from "bun:test";
+import { expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(1000);
+
 import { State, Time } from "../../engine";
 import { Compute, observeDevice, withCompute, withComputeAsync } from "../../engine/runtime/gpu";
 import { Mirror, mirror as makeMirror } from "./index";
@@ -118,7 +121,7 @@ test("a Mirror snapshot carries the fixed tick and frame captured when its readb
             maps.restore();
         }
     });
-}, 20_000);
+}, 1000);
 
 test("Mirror.flush creates no staging work for a registered Mirror after its device is lost", async () => {
     await withGpuMirror(async (state, device, _source, subject) => {
@@ -128,7 +131,7 @@ test("Mirror.flush creates no staging work for a registered Mirror after its dev
         expect(subject.allocated).toBe(0);
         expect(subject.snapshot).toBeNull();
     });
-}, 20_000);
+}, 1000);
 
 test("a pending Mirror callback releases its staging buffers and leaves no snapshot after device loss", async () => {
     await withGpuMirror(async (state, device, _source, subject) => {
@@ -145,7 +148,7 @@ test("a pending Mirror callback releases its staging buffers and leaves no snaps
             maps.restore();
         }
     });
-}, 20_000);
+}, 1000);
 
 test("a rejected Mirror map recycles its slot so a later readback recovers at ring depth one", async () => {
     await withGpuMirror(async (state, device, source, subject) => {
@@ -214,4 +217,4 @@ test("a rejected Mirror map recycles its slot so a later readback recovers at ri
             for (const slot of slots) slot.restoreMap?.();
         }
     });
-}, 20_000);
+}, 1000);

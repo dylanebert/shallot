@@ -1,4 +1,7 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(1000);
+
 import * as d from "typegpu/data";
 import { build, type Plugin } from "../app";
 import { f32, field, u32 } from "../index";
@@ -14,7 +17,7 @@ afterEach(() => {
     for (const app of apps.splice(0)) app.dispose();
 });
 
-function bounded<T>(label: string, promise: PromiseLike<T>, timeout = 5_000): Promise<T> {
+function bounded<T>(label: string, promise: PromiseLike<T>, timeout = 750): Promise<T> {
     return new Promise((resolve, reject) => {
         const timer = setTimeout(
             () => reject(new Error(`${label} timed out after ${timeout} ms`)),
@@ -45,74 +48,84 @@ async function stepAndValidate(state: State, label: string): Promise<void> {
 const Record = d.struct({ amount: d.f32, tag: d.u32 });
 const Rows = { amount: field(f32), tag: field(u32) };
 
-test("dense tables skip unchanged rows and upload changed ranges with writeBuffer", async () => {
-    let state!: State;
-    let table!: ReturnType<State["table"]>;
-    const plugin: Plugin = {
-        name: "TableUploadProbe",
-        components: { Rows },
-        initialize(current) {
-            state = current;
-            table = current.table("table-upload-probe", Record);
-        },
-    };
-    const app = await build({ defaults: false, plugins: [plugin] });
-    apps.push(app);
+for (const range of ["unchanged", "sparse", "partial", "full"] as const) {
+    test(`dense tables upload ${range} ranges with writeBuffer and skip unchanged rows`, async () => {
+        let state!: State;
+        let table!: ReturnType<State["table"]>;
+        const plugin: Plugin = {
+            name: "TableUploadProbe",
+            components: { Rows },
+            initialize(current) {
+                state = current;
+                table = current.table("table-upload-probe", Record);
+            },
+        };
+        const app = await build({ defaults: false, plugins: [plugin] });
+        apps.push(app);
 
-    const eids = Array.from({ length: 1000 }, () => state.create());
-    const slots = eids.map((eid) => table.acquire(eid));
-    expect(table.eidToRowBuffer).toBeUndefined();
-    await stepAndValidate(state, "unchanged table upload");
-    expect(table.lastUploadPath).toBe("none");
+        const count = range === "full" ? 1000 : 100;
+        const eids = Array.from({ length: count }, () => state.create());
+        const slots = eids.map((eid) => table.acquire(eid));
+        expect(table.eidToRowBuffer).toBeUndefined();
+        await stepAndValidate(state, "unchanged table upload");
+        expect(table.lastUploadPath).toBe("none");
+        if (range === "unchanged") return;
 
-    const columns = state.of(Rows);
-    const tableView = new DataView(table.bytes.buffer);
-    const write = (eid: number, value: number) => {
-        columns.amount.set(eid, value);
-        columns.tag.set(eid, eid);
-        const offset = slots[eid - eids[0]] * table.rowBytes;
-        tableView.setFloat32(offset, columns.amount.get(eid), true);
-        tableView.setUint32(offset + 4, columns.tag.get(eid), true);
-    };
-    write(eids[0], 17.25);
-    table.markRange(slots[0], 1);
-    await stepAndValidate(state, "sparse record range upload");
-    expect(table.lastUploadPath).toBe("writeBuffer");
-    const sparseRows = await bounded(
-        "probe sparsely changed table row",
-        probeBuffer(state.gpu.device, table.buffer, {
-            offset: slots[0] * table.rowBytes,
-            size: table.rowBytes,
-            label: "table-range-write-proof",
-        }),
-    );
-    const sparseData = new DataView(sparseRows.bytes);
-    expect(sparseData.getFloat32(0, true)).toBe(17.25);
-    expect(sparseData.getUint32(4, true)).toBe(eids[0]);
+        const columns = state.of(Rows);
+        const tableView = new DataView(table.bytes.buffer);
+        const write = (eid: number, value: number) => {
+            columns.amount.set(eid, value);
+            columns.tag.set(eid, eid);
+            const offset = slots[eid - eids[0]] * table.rowBytes;
+            tableView.setFloat32(offset, columns.amount.get(eid), true);
+            tableView.setUint32(offset + 4, columns.tag.get(eid), true);
+        };
+        if (range === "sparse") {
+            write(eids[0], 17.25);
+            table.markRange(slots[0], 1);
+            await stepAndValidate(state, "sparse record range upload");
+            expect(table.lastUploadPath).toBe("writeBuffer");
+            const sparseRows = await bounded(
+                "probe sparsely changed table row",
+                probeBuffer(state.gpu.device, table.buffer, {
+                    offset: slots[0] * table.rowBytes,
+                    size: table.rowBytes,
+                    label: "table-range-write-proof",
+                }),
+            );
+            const sparseData = new DataView(sparseRows.bytes);
+            expect(sparseData.getFloat32(0, true)).toBe(17.25);
+            expect(sparseData.getUint32(4, true)).toBe(eids[0]);
+            return;
+        }
 
-    for (let i = 1; i < 100; i++) write(eids[i], i + 0.5);
-    table.markRange(slots[1], 99);
-    await stepAndValidate(state, "partial record range upload");
-    expect(table.lastUploadPath).toBe("writeBuffer");
+        if (range === "partial") {
+            for (let i = 1; i < 100; i++) write(eids[i], i + 0.5);
+            table.markRange(slots[1], 99);
+            await stepAndValidate(state, "partial record range upload");
+            expect(table.lastUploadPath).toBe("writeBuffer");
+            return;
+        }
 
-    for (let i = 0; i < eids.length; i++) write(eids[i], i + 1000);
-    table.markRange(slots[0], eids.length);
-    await stepAndValidate(state, "full table range upload");
-    expect(table.lastUploadPath).toBe("writeBuffer");
-    const readRows = await bounded(
-        "probe fully uploaded table rows",
-        probeBuffer(state.gpu.device, table.buffer, {
-            offset: 0,
-            size: eids.length * d.sizeOf(Record),
-            label: "table-full-upload-proof",
-        }),
-    );
-    const actual = new DataView(readRows.bytes);
-    for (let i = 0; i < eids.length; i++) {
-        expect(actual.getFloat32(i * 8, true)).toBe(columns.amount.get(eids[i]));
-        expect(actual.getUint32(i * 8 + 4, true)).toBe(columns.tag.get(eids[i]));
-    }
-}, 5_000);
+        for (let i = 0; i < eids.length; i++) write(eids[i], i + 1000);
+        table.markRange(slots[0], eids.length);
+        await stepAndValidate(state, "full table range upload");
+        expect(table.lastUploadPath).toBe("writeBuffer");
+        const readRows = await bounded(
+            "probe fully uploaded table rows",
+            probeBuffer(state.gpu.device, table.buffer, {
+                offset: 0,
+                size: eids.length * d.sizeOf(Record),
+                label: "table-full-upload-proof",
+            }),
+        );
+        const actual = new DataView(readRows.bytes);
+        for (let i = 0; i < eids.length; i++) {
+            expect(actual.getFloat32(i * 8, true)).toBe(columns.amount.get(eids[i]));
+            expect(actual.getUint32(i * 8 + 4, true)).toBe(columns.tag.get(eids[i]));
+        }
+    });
+}
 
 test("tables combine source fields, optional presence, and several row owners", async () => {
     let state!: State;
@@ -159,7 +172,7 @@ test("tables combine source fields, optional presence, and several row owners", 
     state.remove(eid, Core);
     expect(table.rowIndex(eid)).toBe(-1);
     expect(table.count).toBe(0);
-}, 20_000);
+}, 1000);
 
 test("component fields bulk-upload through a dense struct table and release their slots", async () => {
     let state!: State;
@@ -211,7 +224,7 @@ test("component fields bulk-upload through a dense struct table and release thei
     expect(new DataView(reused.bytes).getFloat32(0, true)).toBe(7.5);
     state.destroy(eid);
     expect(table.count).toBe(0);
-}, 5_000);
+}, 1000);
 
 test("dense tables reuse free-list slots, lazily publish eid mappings, and expose active rows", async () => {
     let state!: State;
@@ -291,7 +304,7 @@ test("dense tables reuse free-list slots, lazily publish eid mappings, and expos
         }),
     );
     expect(Array.from(new Uint32Array(data.bytes))).toEqual([333, 222]);
-}, 5_000);
+}, 1000);
 
 test("table growth changes generation and refuses beyond the named device limit", async () => {
     let table!: ReturnType<State["table"]>;
@@ -323,4 +336,4 @@ test("table growth changes generation and refuses beyond the named device limit"
     expect(() => table.reserveSlots(table.maxRows + 1)).toThrow(
         `maxStorageBufferBindingSize (${app.state.gpu.device.limits.maxStorageBufferBindingSize} bytes)`,
     );
-}, 5_000);
+}, 1000);

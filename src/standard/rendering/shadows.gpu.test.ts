@@ -1,4 +1,7 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
+
+setDefaultTimeout(1000);
+
 import { Camera, CameraMode, DirectionalLight } from "../../core/rendering";
 import { build } from "../../engine";
 import { Transform, TransformsPlugin } from "../../transitional/transforms";

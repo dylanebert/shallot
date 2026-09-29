@@ -74,6 +74,15 @@ bun run format                        # biome, scene formatter and examples inde
 
 A module's promises are tested beside the module and through the examples that use it. Each test name states the claim; its timeout is the wall-clock budget.
 
+| Tier | Per-test timeout ceiling |
+|---|---|
+| Cheap `*.test.ts` | 250 ms |
+| GPU `*.gpu.test.ts` | 1 s |
+| Node `*.node.ts` | 20 s |
+| Manual `*.oracle.ts` | Unbounded; run by path |
+
+A test may declare a lower timeout, never a higher one. A test that needs more is split or moves to a heavier tier. Each GPU and Node file sets its tier ceiling with `setDefaultTimeout`. `check-timeouts` rejects larger or unresolved timeout declarations and missing tier defaults. Every bounded GPU wait fits inside its test's ceiling.
+
 - `bun run test` discovers `*.test.ts` files, including `*.gpu.test.ts`, with a 250 ms default timeout per test. Individual test timeouts override it. Bare `bun test` discovers the same files with Bun's default timeout. Hosted jobs without a device exclude `*.gpu.test.ts` by pattern; the macOS GPU job runs `bun test gpu.test`. Node tests remain named `*.node.ts` files; the Node tier runs on macOS with Dawn's `webgpu` binding available to child processes. Oracles are manual and run by path.
 - Root `bunfig.toml` loads Shallot's Bun plugin so the engine tests receive the same TypeGPU transform as project test preloads.
 - Rust suites run directly with Cargo:

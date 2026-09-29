@@ -171,8 +171,8 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
                 slot.destroy();
                 const index = m._slots.indexOf(slot);
                 if (index >= 0) m._slots.splice(index, 1);
-                console.error(`${label} timed out after 2000 ms`);
-            }, 2000);
+                console.error(`${label} timed out after 750 ms`);
+            }, 750);
             m._timers.set(slot, timer);
             slot.mapAsync(GPUMapMode.READ, 0, m.size).then(
                 () => {
