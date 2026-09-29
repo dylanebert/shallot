@@ -11,7 +11,7 @@ import {
 import type { State, System } from "../../engine";
 import { checkTextureLimits } from "../../engine";
 import { Xform, xformNormal, xformPoint } from "../../engine/utils";
-import { Skin, SkinInput } from "../skin";
+import { Skin } from "../skin";
 import { MaterialData } from "./palette";
 import { materialFns } from "./shade";
 import type { GltfVat } from "./vat";
@@ -53,7 +53,7 @@ const VatParams = d
 const vatLayout = surfaceLayout({
     eids: { type: "storage", element: d.vec4u, visibility: ["vertex"] },
     transforms: { type: "storage", element: Xform, visibility: ["vertex"] },
-    skin: { type: "storage", element: SkinInput, visibility: ["vertex"] },
+    skin: { type: "storage", element: d.vec4f },
     materialData: { type: "storage", element: MaterialData, visibility: ["fragment"] },
     albedo0: { type: "texture-2d-array" },
     albedo1: { type: "texture-2d-array" },
@@ -69,9 +69,8 @@ const vatLayout = surfaceLayout({
     vatSamp: { type: "sampler" },
     vatParams: { type: "uniform", struct: VatParams },
 });
-const vatVaryings = { materialId: d.f32 };
-const VatPatch = vsPatchSchema(vatVaryings);
-const VatCtx = fsCtxSchema(vatVaryings);
+const VatPatch = vsPatchSchema();
+const VatCtx = fsCtxSchema();
 
 const vatVs = tgpu
     .fn(
@@ -80,8 +79,7 @@ const vatVs = tgpu
     )((vsIn) => {
         "use gpu";
         const params = vatLayout.$.vatParams;
-        const anim = vatLayout.$.skin[vsIn.surfaceData - 1].anim;
-        const fc = std.clamp(anim.x * params.fps, 0, params.frameMax);
+        const fc = std.clamp(vatLayout.$.skin[vsIn.eid].x * params.fps, 0, params.frameMax);
         const suv = d.vec2f(
             (d.f32(vsIn.vidx) + 0.5) / params.vertCount,
             (fc + 0.5) / params.frameCount,
@@ -101,8 +99,7 @@ const vatVs = tgpu
             world: d.vec4f(xformPoint(xf, p), 1),
             worldNormal: xformNormal(xf, n),
             clip: d.vec4f(0),
-            materialId: anim.y,
-        });
+        } as never);
     })
     .$name("skinVs");
 
@@ -116,7 +113,7 @@ function vatFs(variant: number, mode: "opaque" | "clip" | "blend") {
             d.vec4f,
         )((ctx) => {
             "use gpu";
-            const mid = d.u32(std.round(ctx.materialId));
+            const mid = d.u32(vatLayout.$.skin[ctx.eid].y);
             const tex = sampleAlbedo(mid, ctx.uv);
             const tint = ctx.color;
             const rgb = shadePbr(
@@ -144,7 +141,6 @@ export function registerSkinSurfaces(state: State): void {
         registerSurface(state, {
             name,
             layout: vatLayout,
-            varyings: vatVaryings,
             fragmentInputs: { uv: true },
             blend,
             vs: vatVs,

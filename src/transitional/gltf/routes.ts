@@ -1,20 +1,22 @@
 import { Surfaces } from "../../core/rendering";
-import { field, type State, type System, u32 } from "../../engine";
+import { type State, type System, u32 } from "../../engine";
 import type { Node } from "../../engine/scene";
 import { Part } from "../part";
 import { liveSkin, Skin } from "../skin";
+import { slab } from "../slab";
 import type { GltfHandle } from "./assets";
 
 /**
  * per-instance material id: an index into the per-material palette (`materialData`) the textured glTF
- * surfaces read through the Part input record's material index, sampling
- * `albedo[materialData[id].layer]` without another GPU column or draw. Distinct from sear's `Material` (the per-instance PBR knobs): this is the
+ * surfaces read. A `slab(u32)` published as `"materialIndex"`, so a surface samples
+ * `albedo[materialData[id].layer]`. The firehose seam for textures: one more per-entity GPU column, no
+ * new draws. Distinct from sear's `Material` (the per-instance PBR knobs): this is the
  * palette index, that is the shading params. A runtime-derived decoration. {@link GltfPlugin}'s route
  * sync owns it (the id is union-palette-relative, so scenes never author it).
  */
 // `Textured` is a `derived` trait — a system owns it, never authored or serialized — because its id is
 // recomputed per active set and can't be authored.
-export const Textured = { id: field(u32) };
+export const Textured = { id: slab(u32, "materialIndex") };
 
 // a registered glTF primitive name as a scene authors it: `src.glb#index`, with an optional baked-clip
 // variant `src.glb@clipN#index` (specName's shape). The capture groups are (src, clip).

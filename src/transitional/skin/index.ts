@@ -5,7 +5,7 @@
 // the same substrate data). It provides no surface: the WGSL a surface splices to read a palette is
 // exported at the end of this file, off the `extras` barrel.
 
-export { LiveSkinSystem, liveSkin, Skin, SkinInput, SkinPlugin, skinMatrix, skinTable, skinTraits } from "./live";
+export { LiveSkinSystem, liveSkin, Skin, SkinPlugin, skinMatrix, skinTraits } from "./live";
 
 // skinning-substrate extension surface: the WGSL a surface splices to read the joint palette — the vs
 // itself, the two preamble chunks (plus the `SkinParams` schema one of them emits), and the bindings they

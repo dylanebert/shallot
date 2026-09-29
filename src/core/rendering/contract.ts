@@ -136,7 +136,6 @@ export const PartInput = d
     .struct({
         surface: d.u32,
         mesh: d.u32,
-        surfaceData: d.u32,
         color: d.vec4f,
         material: d.vec4f,
     })
@@ -245,7 +244,6 @@ export const VsIn = d
         worldNormal: d.vec3f,
         color: d.vec4f,
         material: d.vec4f,
-        surfaceData: d.u32,
     })
     .$name("VsIn");
 

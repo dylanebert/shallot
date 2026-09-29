@@ -80,8 +80,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private _membershipCounts = new Map<number, number>();
     private _presenceBindings: PresenceBinding[] = [];
     private _presenceUnsubscribes: (() => void)[] = [];
-    private _rowObservers = new Set<(eid: number, row: number) => void>();
-    private _rowReferences: { source: GpuTable; offset: number; unsubscribe: () => void }[] = [];
 
     constructor(state: State, name: string, record: T, options: GpuTableOptions = {}) {
         if (!name) throw new Error("GpuTable: name must not be empty");
@@ -337,43 +335,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this._state.bindTableComponent(component, this);
     }
 
-    /** Keep a u32 record field equal to another table's slot + 1, or zero when absent. */
-    bindRowReference(source: GpuTable, recordName: string): void {
-        if (this.gpuOnly || this._state !== source._state || source === this)
-            throw new Error(`GpuTable "${this.name}": row references require distinct CPU tables in one State`);
-        const record = this.record as d.AnyWgslStruct;
-        if (record.type !== "struct" || record.propTypes[recordName]?.type !== "u32")
-            throw new Error(`GpuTable "${this.name}": row reference "${recordName}" must be u32`);
-        const offset = d.memoryLayoutOf(this.record, (row: any) => row[recordName]).offset;
-        if (this._rowReferences.some(reference => reference.offset === offset))
-            throw new Error(`GpuTable "${this.name}": row reference "${recordName}" is already bound`);
-        const observer = (eid: number, row: number) => this.writeRowReference(eid, row, offset);
-        source._rowObservers.add(observer);
-        this._rowReferences.push({ source, offset, unsubscribe: () => source._rowObservers.delete(observer) });
-        for (let i = 0; i < this._activeCount; i++) {
-            const eid = this._activeRows[i * 2];
-            this.writeRowReference(eid, source.rowIndex(eid), offset);
-        }
-    }
-
-    private writeRowReference(eid: number, sourceRow: number, offset: number): void {
-        const row = this.rowIndex(eid);
-        if (row < 0) return;
-        if (sourceRow < 0) {
-            for (const binding of this._componentBindings) {
-                if (!this._state.has(eid, binding.component)) continue;
-                for (const field of binding.fields) {
-                    if (field.offset === offset) {
-                        this.writeBoundField(binding, field, eid);
-                        return;
-                    }
-                }
-            }
-        }
-        this._view!.setUint32(row * this.rowBytes + offset, sourceRow + 1, true);
-        this.markRange(row, 1);
-    }
-
     /** Mirror component presence into a u32 record mask without making that component own a row. */
     bindPresence(component: Component, recordName: string, mask = 1): void {
         if (this.gpuOnly)
@@ -459,14 +420,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this.reserveSlots(row + 1);
         this._eidToRow[eid] = row + 1;
         this._mapDirty = true;
-        if (this._bytes) {
-            this._bytes.fill(0, row * this.rowBytes, (row + 1) * this.rowBytes);
-            this.markRange(row, 1);
-        }
         this.activateRow(eid, row);
-        for (const reference of this._rowReferences)
-            this.writeRowReference(eid, reference.source.rowIndex(eid), reference.offset);
-        for (const observer of this._rowObservers) observer(eid, row);
         return row;
     }
 
@@ -481,7 +435,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this._freeRows[this._freeCount++] = row;
         this._mapDirty = true;
         this.deactivateRow(row);
-        for (const observer of this._rowObservers) observer(eid, -1);
     }
 
     /** Activate an eid row in the compact active list. */
@@ -570,9 +523,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this._presenceUnsubscribes.length = 0;
         this._presenceBindings.length = 0;
         this._membershipCounts.clear();
-        for (const reference of this._rowReferences) reference.unsubscribe();
-        this._rowReferences.length = 0;
-        this._rowObservers.clear();
         const buffers = [this._buffer];
         if (this._mapBuffer) buffers.push(this._mapBuffer);
         if (this._activeBuffer) buffers.push(this._activeBuffer);
@@ -610,9 +560,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     }
 
     private writeBoundField(binding: ComponentBinding, field: BoundField, eid: number): void {
-        if (!this._state.has(eid, binding.component)) return;
-        for (const reference of this._rowReferences)
-            if (reference.offset === field.offset && reference.source.rowIndex(eid) >= 0) return;
         const row = this.rowIndex(eid);
         if (row < 0) return;
         const bytes = this._bytes;
