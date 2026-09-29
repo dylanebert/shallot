@@ -112,7 +112,7 @@ test("dense tables choose no upload, mapped scatter, or one full range upload an
         expect(actual.getFloat32(i * 8, true)).toBe(columns.amount.get(eids[i]));
         expect(actual.getUint32(i * 8 + 4, true)).toBe(columns.tag.get(eids[i]));
     }
-}, 30_000);
+}, 5_000);
 
 test("dense tables reuse free-list slots, lazily publish eid mappings, and expose active rows", async () => {
     let state!: State;
@@ -187,7 +187,7 @@ test("dense tables reuse free-list slots, lazily publish eid mappings, and expos
         }),
     );
     expect(Array.from(new Uint32Array(data.bytes))).toEqual([333, 222]);
-}, 20_000);
+}, 5_000);
 
 test("table growth changes generation and refuses beyond the named device limit", async () => {
     let table!: ReturnType<State["table"]>;
@@ -219,4 +219,4 @@ test("table growth changes generation and refuses beyond the named device limit"
     expect(() => table.reserveSlots(table.maxRows + 1)).toThrow(
         `maxStorageBufferBindingSize (${app.state.gpu.device.limits.maxStorageBufferBindingSize} bytes)`,
     );
-}, 20_000);
+}, 5_000);

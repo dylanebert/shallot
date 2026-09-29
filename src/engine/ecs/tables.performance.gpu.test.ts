@@ -38,6 +38,45 @@ function median(values: number[]): number {
     return ordered[Math.floor(ordered.length / 2)];
 }
 
+async function timestampedPass(
+    state: State,
+    label: string,
+    pipeline: GPUComputePipeline,
+    bindings: GPUBindGroup,
+    querySet: GPUQuerySet,
+    resolveBuffer: GPUBuffer,
+    readbackBuffer: GPUBuffer,
+    workgroups: number,
+    repetitions: number,
+): Promise<number> {
+    const device = state.gpu.device;
+    device.pushErrorScope("validation");
+    const encoder = device.createCommandEncoder({ label: `${label}-timed-batch` });
+    const pass = encoder.beginComputePass({
+        label: `${label}-timed-pass`,
+        timestampWrites: {
+            querySet,
+            beginningOfPassWriteIndex: 0,
+            endOfPassWriteIndex: 1,
+        },
+    });
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, bindings);
+    for (let i = 0; i < repetitions; i++) pass.dispatchWorkgroups(workgroups);
+    pass.end();
+    encoder.resolveQuerySet(querySet, 0, 2, resolveBuffer, 0);
+    encoder.copyBufferToBuffer(resolveBuffer, 0, readbackBuffer, 0, 16);
+    device.queue.submit([encoder.finish()]);
+    await bounded(`${label} queue completion`, device.queue.onSubmittedWorkDone());
+    await bounded(`${label} timestamp map`, readbackBuffer.mapAsync(GPUMapMode.READ));
+    const timestamps = new BigUint64Array(readbackBuffer.getMappedRange());
+    const nanoseconds = Number(timestamps[1] - timestamps[0]) / repetitions;
+    readbackBuffer.unmap();
+    const error = await bounded(`${label} validation scope`, device.popErrorScope());
+    if (error) throw new Error(`${label}: ${error.message}`);
+    return nanoseconds;
+}
+
 test("measure the opt-in eid-map cost against direct eid indexing at full population", async () => {
     let state!: State;
     const plugin: Plugin = {
@@ -58,13 +97,12 @@ test("measure the opt-in eid-map cost against direct eid indexing at full popula
 
         const device = state.gpu.device;
         const count = 100_000;
-        const batchSize = 128;
-        const table = state.table("mapped-eid-index", d.u32);
-        const values = new Uint32Array(table.bytes.buffer);
-        for (let eid = 0; eid < count; eid++) {
-            const slot = table.acquire(eid);
-            values[slot] = 1;
-        }
+        const batchSize = 512;
+        const poseRecord = d.struct({ transform: d.mat4x4f });
+        const table = state.table("mapped-eid-index", poseRecord);
+        const values = table.bytes;
+        for (let eid = 0; eid < count; eid++) table.acquire(eid);
+        values.fill(1, 0, count * d.sizeOf(poseRecord));
         table.markRange(0, count);
         const eidToSlot = table.enableEidLookup();
 
@@ -74,8 +112,9 @@ test("measure the opt-in eid-map cost against direct eid indexing at full popula
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
         state.own(direct);
-        const directValues = new Uint32Array(table.capacity);
-        directValues.fill(1, 0, count);
+        const wordsPerRow = table.rowBytes / 4;
+        const directValues = new Uint32Array(table.capacity * wordsPerRow);
+        directValues.fill(1, 0, count * wordsPerRow);
 
         device.pushErrorScope("validation");
         device.queue.writeBuffer(direct, 0, directValues);
@@ -83,7 +122,7 @@ test("measure the opt-in eid-map cost against direct eid indexing at full popula
         await waitAndValidate(state, "100%-population index inputs");
         const initialMapUploadBytes = table.lastMapUploadBytes;
         expect(initialMapUploadBytes).toBe(count * 4);
-        const poseBytes = d.sizeOf(d.mat4x4f);
+        const poseBytes = table.rowBytes;
         const instanceBytes = d.sizeOf(d.struct({ transform: d.mat4x4f, color: d.vec4f }));
         const poseMapPercent = (eidToSlot.size / (table.capacity * poseBytes)) * 100;
         const instanceMapPercent = (eidToSlot.size / (table.capacity * instanceBytes)) * 100;
@@ -97,27 +136,32 @@ test("measure the opt-in eid-map cost against direct eid indexing at full popula
 
         const output = device.createBuffer({
             label: "eid-map-cost-output",
-            size: count * 4,
+            size: count * 16,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
         state.own(output);
         const shader = device.createShaderModule({
             label: "eid-map-cost-shader",
             code: `
-@group(0) @binding(0) var<storage, read> records: array<u32>;
+struct Pose { transform: mat4x4f, };
+@group(0) @binding(0) var<storage, read> records: array<Pose>;
 @group(0) @binding(1) var<storage, read> eidToSlot: array<u32>;
-@group(0) @binding(2) var<storage, read_write> result: array<u32>;
+@group(0) @binding(2) var<storage, read_write> result: array<vec4f>;
 @compute @workgroup_size(64)
 fn directEid(@builtin(global_invocation_id) id: vec3<u32>) {
     let eid = id.x;
-    if (eid < ${count}u) { result[eid] = records[eid]; }
+    if (eid < ${count}u) {
+        let pose = records[eid].transform;
+        result[eid] = pose[0] + pose[1] + pose[2] + pose[3];
+    }
 }
 @compute @workgroup_size(64)
 fn mappedEid(@builtin(global_invocation_id) id: vec3<u32>) {
     let eid = id.x;
     if (eid < ${count}u) {
         let slot = eidToSlot[eid] - 1u;
-        result[eid] = records[slot];
+        let pose = records[slot].transform;
+        result[eid] = pose[0] + pose[1] + pose[2] + pose[3];
     }
 }`,
         });
@@ -234,7 +278,7 @@ fn mappedEid(@builtin(global_invocation_id) id: vec3<u32>) {
         }
         const directTimes: number[] = [];
         const mappedTimes: number[] = [];
-        for (let index = 0; index < 5; index++) {
+        for (let index = 0; index < 15; index++) {
             if ((index & 1) === 0) {
                 directTimes.push(
                     await sample("direct eid indexing", directPipeline, directGroup, index + 1),
@@ -255,9 +299,327 @@ fn mappedEid(@builtin(global_invocation_id) id: vec3<u32>) {
         const mappedMedian = median(mappedTimes);
         const difference = (mappedMedian / directMedian - 1) * 100;
         console.info(
-            `[gpu-table-perf] 100%-population dispatch median ms per ${count} rows; direct-eid=${directMedian.toFixed(4)} mapped-eid=${mappedMedian.toFixed(4)} difference=${difference.toFixed(1)}% recordBytes=${table.buffer.size} mapBytes=${eidToSlot.size} mapUploadBytes=${count * 4}`,
+            `[gpu-table-perf] 100%-population pose dispatch median ms per ${count} rows; direct-eid=${directMedian.toFixed(4)} mapped-eid=${mappedMedian.toFixed(4)} difference=${difference.toFixed(1)}% directSamples=${directTimes.map((time) => time.toFixed(4)).join("/")} mappedSamples=${mappedTimes.map((time) => time.toFixed(4)).join("/")} recordBytes=${table.buffer.size} mapBytes=${eidToSlot.size} mapUploadBytes=${count * 4}`,
         );
     } finally {
         app.dispose();
     }
-}, 30_000);
+}, 5_000);
+
+test("measure struct records against per-field arrays for pose and light", async () => {
+    let state!: State;
+    const plugin: Plugin = {
+        name: "TableRecordLayoutProbe",
+        features: ["timestamp-query"],
+        initialize(current) {
+            state = current;
+        },
+    };
+    const app = await build({ defaults: false, plugins: [plugin] });
+
+    try {
+        const { class: adapterClass, identity } = state.gpu.adapter;
+        console.info(`[gpu-table-layout] adapter class=${adapterClass} identity=${identity}`);
+        expect(adapterClass).toBe("real");
+        expect(identity.length).toBeGreaterThan(0);
+        const device = state.gpu.device;
+        const count = 100_000;
+        const outputBytes = count * 16;
+        const querySet = device.createQuerySet({ type: "timestamp", count: 2 });
+        state.own(querySet);
+        const resolveBuffer = device.createBuffer({
+            label: "table-layout-query-resolve",
+            size: 16,
+            usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+        });
+        state.own(resolveBuffer);
+        const readbackBuffer = device.createBuffer({
+            label: "table-layout-query-readback",
+            size: 16,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        });
+        state.own(readbackBuffer);
+
+        const scenarios = [
+            {
+                name: "pose",
+                recordBytes: d.sizeOf(
+                    d.struct({
+                        position: d.vec4f,
+                        rotation: d.vec4f,
+                        scale: d.vec4f,
+                    }),
+                ),
+                fieldBytes: [16, 16, 16],
+                structShader: `struct Row { position: vec4f, rotation: vec4f, scale: vec4f, };
+@group(0) @binding(0) var<storage, read> rows: array<Row>;
+@group(0) @binding(1) var<storage, read_write> output: array<vec4f>;
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x < ${count}u) { output[id.x] = rows[id.x].position + rows[id.x].rotation + rows[id.x].scale; }
+}`,
+                fieldShader: `@group(0) @binding(0) var<storage, read> position: array<vec4f>;
+@group(0) @binding(1) var<storage, read> rotation: array<vec4f>;
+@group(0) @binding(2) var<storage, read> scale: array<vec4f>;
+@group(0) @binding(3) var<storage, read_write> output: array<vec4f>;
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x < ${count}u) { output[id.x] = position[id.x] + rotation[id.x] + scale[id.x]; }
+}`,
+            },
+            {
+                name: "light",
+                recordBytes: d.sizeOf(d.struct({ color: d.vec4f, params: d.vec4f })),
+                fieldBytes: [16, 16],
+                structShader: `struct Row { color: vec4f, params: vec4f, };
+@group(0) @binding(0) var<storage, read> rows: array<Row>;
+@group(0) @binding(1) var<storage, read_write> output: array<vec4f>;
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x < ${count}u) { output[id.x] = rows[id.x].color + rows[id.x].params; }
+}`,
+                fieldShader: `@group(0) @binding(0) var<storage, read> color: array<vec4f>;
+@group(0) @binding(1) var<storage, read> params: array<vec4f>;
+@group(0) @binding(2) var<storage, read_write> output: array<vec4f>;
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x < ${count}u) { output[id.x] = color[id.x] + params[id.x]; }
+}`,
+            },
+        ];
+        const results: string[] = [];
+
+        for (const scenario of scenarios) {
+            const totalBytes = count * scenario.recordBytes;
+            expect(totalBytes).toBe(
+                count * scenario.fieldBytes.reduce((sum, bytes) => sum + bytes, 0),
+            );
+            const recordBuffer = device.createBuffer({
+                label: `${scenario.name}-struct-records`,
+                size: totalBytes,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            });
+            state.own(recordBuffer);
+            const recordSource = new Uint8Array(totalBytes);
+            const fieldBuffers = scenario.fieldBytes.map((bytes, index) => {
+                const buffer = device.createBuffer({
+                    label: `${scenario.name}-field-${index}`,
+                    size: count * bytes,
+                    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                });
+                state.own(buffer);
+                return buffer;
+            });
+            const fieldSources = scenario.fieldBytes.map((bytes) => new Uint8Array(count * bytes));
+            const structOutput = device.createBuffer({
+                label: `${scenario.name}-struct-output`,
+                size: outputBytes,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            });
+            state.own(structOutput);
+            const fieldsOutput = device.createBuffer({
+                label: `${scenario.name}-fields-output`,
+                size: outputBytes,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            });
+            state.own(fieldsOutput);
+
+            const measureUpload = async (shape: "struct" | "fields") => {
+                const submitTimes: number[] = [];
+                const cycleTimes: number[] = [];
+                for (let sample = 0; sample < 7; sample++) {
+                    device.pushErrorScope("validation");
+                    const start = performance.now();
+                    if (shape === "struct") device.queue.writeBuffer(recordBuffer, 0, recordSource);
+                    else {
+                        for (let i = 0; i < fieldBuffers.length; i++) {
+                            device.queue.writeBuffer(fieldBuffers[i], 0, fieldSources[i]);
+                        }
+                    }
+                    submitTimes.push(performance.now() - start);
+                    await bounded(
+                        `${scenario.name} ${shape} upload ${sample + 1} queue completion`,
+                        device.queue.onSubmittedWorkDone(),
+                    );
+                    const error = await bounded(
+                        `${scenario.name} ${shape} upload ${sample + 1} validation scope`,
+                        device.popErrorScope(),
+                    );
+                    if (error)
+                        throw new Error(`${scenario.name} ${shape} upload: ${error.message}`);
+                    cycleTimes.push(performance.now() - start);
+                }
+                return { submitMs: median(submitTimes), cycleMs: median(cycleTimes) };
+            };
+
+            const structLayout = device.createBindGroupLayout({
+                label: `${scenario.name}-struct-read-layout`,
+                entries: [
+                    {
+                        binding: 0,
+                        visibility: GPUShaderStage.COMPUTE,
+                        buffer: { type: "read-only-storage" },
+                    },
+                    { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+                ],
+            });
+            const fieldLayout = device.createBindGroupLayout({
+                label: `${scenario.name}-fields-read-layout`,
+                entries: [
+                    ...fieldBuffers.map((_, binding) => ({
+                        binding,
+                        visibility: GPUShaderStage.COMPUTE,
+                        buffer: { type: "read-only-storage" as const },
+                    })),
+                    {
+                        binding: fieldBuffers.length,
+                        visibility: GPUShaderStage.COMPUTE,
+                        buffer: { type: "storage" },
+                    },
+                ],
+            });
+            const pipelineLayout = (layout: GPUBindGroupLayout, label: string) =>
+                device.createPipelineLayout({ label, bindGroupLayouts: [layout] });
+            const structModule = device.createShaderModule({
+                label: `${scenario.name}-struct-read-shader`,
+                code: scenario.structShader,
+            });
+            const fieldsModule = device.createShaderModule({
+                label: `${scenario.name}-fields-read-shader`,
+                code: scenario.fieldShader,
+            });
+            const structPipeline = device.createComputePipeline({
+                label: `${scenario.name}-struct-read-pipeline`,
+                layout: pipelineLayout(structLayout, `${scenario.name}-struct-pipeline-layout`),
+                compute: { module: structModule, entryPoint: "main" },
+            });
+            const fieldsPipeline = device.createComputePipeline({
+                label: `${scenario.name}-fields-read-pipeline`,
+                layout: pipelineLayout(fieldLayout, `${scenario.name}-fields-pipeline-layout`),
+                compute: { module: fieldsModule, entryPoint: "main" },
+            });
+            const structGroup = device.createBindGroup({
+                label: `${scenario.name}-struct-read-bindings`,
+                layout: structLayout,
+                entries: [
+                    { binding: 0, resource: { buffer: recordBuffer } },
+                    { binding: 1, resource: { buffer: structOutput } },
+                ],
+            });
+            const fieldsGroup = device.createBindGroup({
+                label: `${scenario.name}-fields-read-bindings`,
+                layout: fieldLayout,
+                entries: [
+                    ...fieldBuffers.map((buffer, binding) => ({ binding, resource: { buffer } })),
+                    { binding: fieldBuffers.length, resource: { buffer: fieldsOutput } },
+                ],
+            });
+            device.pushErrorScope("validation");
+            device.queue.writeBuffer(recordBuffer, 0, recordSource);
+            for (let i = 0; i < fieldBuffers.length; i++) {
+                device.queue.writeBuffer(fieldBuffers[i], 0, fieldSources[i]);
+            }
+            await bounded(
+                `${scenario.name} initial input upload`,
+                device.queue.onSubmittedWorkDone(),
+            );
+            const pipelineError = await bounded(
+                `${scenario.name} pipeline validation scope`,
+                device.popErrorScope(),
+            );
+            if (pipelineError)
+                throw new Error(`${scenario.name} layout pipeline: ${pipelineError.message}`);
+
+            const structUpload = await measureUpload("struct");
+            const fieldsUpload = await measureUpload("fields");
+            const structGpu: number[] = [];
+            const fieldsGpu: number[] = [];
+            for (let warmup = 0; warmup < 2; warmup++) {
+                await timestampedPass(
+                    state,
+                    `${scenario.name} struct warmup ${warmup + 1}`,
+                    structPipeline,
+                    structGroup,
+                    querySet,
+                    resolveBuffer,
+                    readbackBuffer,
+                    Math.ceil(count / 64),
+                    32,
+                );
+                await timestampedPass(
+                    state,
+                    `${scenario.name} fields warmup ${warmup + 1}`,
+                    fieldsPipeline,
+                    fieldsGroup,
+                    querySet,
+                    resolveBuffer,
+                    readbackBuffer,
+                    Math.ceil(count / 64),
+                    32,
+                );
+            }
+            for (let sample = 0; sample < 7; sample++) {
+                if ((sample & 1) === 0) {
+                    structGpu.push(
+                        await timestampedPass(
+                            state,
+                            `${scenario.name} struct read ${sample + 1}`,
+                            structPipeline,
+                            structGroup,
+                            querySet,
+                            resolveBuffer,
+                            readbackBuffer,
+                            Math.ceil(count / 64),
+                            32,
+                        ),
+                    );
+                    fieldsGpu.push(
+                        await timestampedPass(
+                            state,
+                            `${scenario.name} fields read ${sample + 1}`,
+                            fieldsPipeline,
+                            fieldsGroup,
+                            querySet,
+                            resolveBuffer,
+                            readbackBuffer,
+                            Math.ceil(count / 64),
+                            32,
+                        ),
+                    );
+                } else {
+                    fieldsGpu.push(
+                        await timestampedPass(
+                            state,
+                            `${scenario.name} fields read ${sample + 1}`,
+                            fieldsPipeline,
+                            fieldsGroup,
+                            querySet,
+                            resolveBuffer,
+                            readbackBuffer,
+                            Math.ceil(count / 64),
+                            32,
+                        ),
+                    );
+                    structGpu.push(
+                        await timestampedPass(
+                            state,
+                            `${scenario.name} struct read ${sample + 1}`,
+                            structPipeline,
+                            structGroup,
+                            querySet,
+                            resolveBuffer,
+                            readbackBuffer,
+                            Math.ceil(count / 64),
+                            32,
+                        ),
+                    );
+                }
+            }
+            results.push(
+                `${scenario.name},${count},${scenario.recordBytes},${fieldBuffers.length},${structUpload.submitMs.toFixed(4)},${fieldsUpload.submitMs.toFixed(4)},${structUpload.cycleMs.toFixed(4)},${fieldsUpload.cycleMs.toFixed(4)},${median(structGpu).toFixed(1)},${median(fieldsGpu).toFixed(1)}`,
+            );
+        }
+
+        console.info(
+            `[gpu-table-layout] median values; columns=table,rows,recordBytes,fieldBuffers,structWriteBufferSubmitMs,fieldsWriteBufferSubmitMs,structUploadCycleMs,fieldsUploadCycleMs,structReadNsPerDispatch,fieldsReadNsPerDispatch\n${results.join("\n")}`,
+        );
+    } finally {
+        app.dispose();
+    }
+}, 5_000);
