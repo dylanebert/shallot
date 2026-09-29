@@ -24,7 +24,7 @@ import { Compute, type Plugin, type State, type System } from "../../engine";
 import { readBinary, UnsupportedError } from "../../engine/runtime";
 import type { Node } from "../../engine/scene";
 import { Preloads } from "../../engine/scene";
-import { MeshQuant, unpackLdrColor, Xform } from "../../engine/utils";
+import { MeshQuant, Xform } from "../../engine/utils";
 import { Color, Part } from "../part";
 import { LiveSkinSystem, liveSkin, Skin, skinTraits } from "../skin";
 import { SlabPlugin } from "../slab";
@@ -77,11 +77,10 @@ import { bakeVat, type GltfVat } from "./vat";
 // variant-invariant — every map-set variant binds the same arrays (an unused one is a 1×1 fallback, never
 // skipped); the `specialize` codegen, not a missing binding, is what drops a sparse-map material's samples.
 const texturedLayout = surfaceLayout({
-    eids: { type: "storage", element: d.vec4u },
-    transforms: { type: "storage", element: Xform },
-    color: { type: "storage", element: d.u32 },
-    materialIndex: { type: "storage", element: d.u32 },
-    materialData: { type: "storage", element: MaterialData },
+    eids: { type: "storage", element: d.vec4u, visibility: ["vertex"] },
+    transforms: { type: "storage", element: Xform, visibility: ["vertex"] },
+    materialIndex: { type: "storage", element: d.u32, visibility: ["fragment"] },
+    materialData: { type: "storage", element: MaterialData, visibility: ["fragment"] },
     albedo0: { type: "texture-2d-array" },
     albedo1: { type: "texture-2d-array" },
     albedo2: { type: "texture-2d-array" },
@@ -106,7 +105,7 @@ function texturedFs(variant: number, mode: "opaque" | "clip" | "blend") {
             "use gpu";
             const mid = texturedLayout.$.materialIndex[ctx.eid];
             const tex = sampleAlbedo(mid, ctx.uv);
-            const tint = unpackLdrColor(texturedLayout.$.color[ctx.eid]);
+            const tint = ctx.color;
             const base = std.mul(tex.xyz, tint.xyz);
             const rgb = shadePbr(mid, ctx.uv, base, std.normalize(ctx.worldNormal), ctx.world);
             if (clip && tex.w * tint.w < texturedLayout.$.materialData[mid].cutoff) std.discard();

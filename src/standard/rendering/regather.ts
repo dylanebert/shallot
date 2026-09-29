@@ -2,9 +2,8 @@
 // `drawArgs` + the `packedEids` pool), or duplicate a view-independent producer's direct range, into one
 // contiguous, mesh-major run per casting mesh + a per-instance combo index. Each shadow atlas (the
 // point/spot tiles, the CSM cascade tiles) instantiates its own `Regather`; the two A/B compute pipelines
-// are geometry-blind (they read slot-major counts + the eid pool alone, with no projection or mesh
-// knowledge), so they're module-scope singletons shared across every instance — one shader module, two
-// buffer sets. The re-gather is a *consumer* of the cull spine's output (`render` owns the spine that
+// are geometry-blind (they read slot-major counts + the instance pool alone, with no projection or mesh
+// knowledge). Each State owns the shared pipeline pair; each atlas owns its output buffers. The re-gather is a *consumer* of the cull spine's output (`render` owns the spine that
 // feeds it); it knows sear-private concepts (the packing convention below, the atlas record shape, the
 // `eids`-lane swap), so it lives here, not in render (render stays renderer-agnostic).
 
@@ -129,7 +128,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     });
 
 /** compile the shared A/B re-gather pipelines once (idempotent): called from `prepareSear`, folded into its
- * warm `Promise.all`. Every {@link Regather} instance binds against these singleton layouts. */
+ * warm `Promise.all`. Every {@link Regather} instance in this State uses these layouts. */
 export async function prepareRegather(device: GPUDevice, capacity: number): Promise<void> {
     if (
         regatherState().aPipe &&
@@ -225,7 +224,7 @@ export async function prepareRegather(device: GPUDevice, capacity: number): Prom
 }
 
 /** one shadow atlas's re-gather instance: its own packed list + indirect args + meta, sharing the
- * module-singleton A/B pipelines. The point atlas and the CSM cascade atlas each own one. */
+ * State-owned A/B pipelines. The point atlas and the CSM cascade atlas each own one. */
 export interface Regather {
     /** the re-gathered instance list (`eid, transformSlot, encodedPartSlot, combo`), bound at the consumer
      * pipeline's `eids` lane. `null` until {@link Regather.ensure} allocates it (the first casting frame). */

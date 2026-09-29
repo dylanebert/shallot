@@ -43,7 +43,13 @@ export type Binding =
     | { type: "uniform"; struct: AnyWgslStruct }
     // `AnyWgslData`, not the wider `AnyData`: `AnyData` also admits loose vertex-format-only schemas that
     // can't back a storage declaration — the narrower type is deliberate, not an accident of the spec's wording
-    | { type: "storage"; element: AnyWgslData; access?: "read" | "read_write" }
+    | {
+          type: "storage";
+          element: AnyWgslData;
+          access?: "read" | "read_write";
+          /** Stages that read this consumer-owned buffer; defaults to vertex and fragment. */
+          visibility?: readonly ShaderStage[];
+      }
     | { type: "texture-2d" }
     | { type: "texture-2d-array" }
     | { type: "texture-depth-2d" }
@@ -89,7 +95,11 @@ function layoutEntry<B extends Binding>(b: B): EntryFor<B> {
                 // never runs compute, so a mutable binding narrows to fragment-only (typegpu's own
                 // default for mutable storage is `["compute", "fragment"]`); a read-only binding stays
                 // VS_FS like every other entry
-                visibility: b.access === "read_write" ? (["fragment"] as ShaderStage[]) : VS_FS,
+                visibility: b.visibility
+                    ? [...b.visibility]
+                    : b.access === "read_write"
+                      ? (["fragment"] as ShaderStage[])
+                      : VS_FS,
             } as EntryFor<B>;
         case "texture-2d":
             return { texture: d.texture2d(), visibility: VS_FS } as EntryFor<B>;

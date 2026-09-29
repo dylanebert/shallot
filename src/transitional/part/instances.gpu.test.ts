@@ -68,4 +68,4 @@ test("Part compaction carries independent dense Transform and Part slots with ea
         readback.destroy();
         app.dispose();
     }
-}, 1000);
+}, 200);

@@ -132,7 +132,7 @@ function rebuild(state: State, device: GPUDevice): void {
             .$name("shallot-sprites");
         Compute.buffers.set("spriteData", Compute.root.unwrap(_sprite.spriteBuf));
         Compute.typed.set("spriteData", _sprite.spriteBuf);
-        device.queue.onSubmittedWorkDone().then(() => stale.destroy());
+        stale.destroy();
     }
     // eid-indexed, so the whole capacity uploads every rebuild — a dead eid's stale slot is never
     // read (only an eid appearing in `eids` this rebuild is), so uploading it costs bandwidth, not
@@ -153,7 +153,7 @@ function rebuild(state: State, device: GPUDevice): void {
             .$name("shallot-sprite-eids");
         const quad = Meshes.get("spriteQuad");
         if (quad) quad.bindings = { ...quad.bindings, eids: _sprite.eidsBuf };
-        device.queue.onSubmittedWorkDone().then(() => stale.destroy());
+        stale.destroy();
     }
     if (_sprite.instances.length < eids.length * 4)
         _sprite.instances = new Uint32Array(eids.length * 4);
@@ -169,13 +169,7 @@ function rebuild(state: State, device: GPUDevice): void {
         instances[i * 4 + 3] = 0;
     }
     if (count > 0)
-        device.queue.writeBuffer(
-            Compute.root.unwrap(_sprite.eidsBuf!),
-            0,
-            instances,
-            0,
-            count * 16,
-        );
+        device.queue.writeBuffer(Compute.root.unwrap(_sprite.eidsBuf!), 0, instances, 0, count * 4);
 
     _sprite.argBuf!.write(
         ranges.map((range) => ({

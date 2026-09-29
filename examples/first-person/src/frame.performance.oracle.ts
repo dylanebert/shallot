@@ -202,4 +202,4 @@ test("report production frame GPU time for first-person and a 10k-instance scene
         readback.destroy();
         device.destroy();
     }
-}, 2500);
+}, 1500);

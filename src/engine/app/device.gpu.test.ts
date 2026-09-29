@@ -9,7 +9,7 @@ import {
     ShapeKind,
 } from "../../transitional/physics";
 import "../../standard";
-import { Transform } from "../../transitional/transforms";
+import { Transform, transformTable } from "../../transitional/transforms";
 import { type State, Time } from "../index";
 import { build } from "./index";
 
@@ -265,17 +265,19 @@ test("live Physics apps keep their authored component values and solver worlds i
     const secondEid = author(second.state, 20);
     expect(second.state.of(Body).pos.y.get(secondEid)).toBe(20);
     expect(first.state.of(Body).pos.y.get(firstEid)).toBe(2);
-    expect(first.state.gpu.buffers.get("membership")).not.toBe(
-        second.state.gpu.buffers.get("membership"),
+    expect(first.state.of(Body).pos.column).not.toBe(second.state.of(Body).pos.column);
+    expect(transformTable(first.state).buffer).not.toBe(transformTable(second.state).buffer);
+    expect(transformTable(first.state).eidToRowBuffer).toBeDefined();
+    expect(transformTable(first.state).eidToRowBuffer).not.toBe(
+        transformTable(second.state).eidToRowBuffer,
     );
-    expect(first.state.of(Body).pos.gpu).not.toBe(second.state.of(Body).pos.gpu);
 
     first.dispose();
     for (let i = 0; i < 8; i++) second.state.step(Time.FIXED_DT);
     const secondAfter = readBody(second.state, secondEid);
     expect(secondAfter?.pos[1]).toBeLessThan(20);
     second.dispose();
-}, 20_000);
+}, 100);
 
 test("two live Physics apps keep sibling bodies and hash unchanged when only one steps", async () => {
     const author = (state: State, y: number) => {

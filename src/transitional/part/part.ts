@@ -461,11 +461,8 @@ function syncBuffers(state: State): void {
     registerDraws();
 
     const stale = [...staleArgs, stalePacked, staleBounds];
-    if (stale.some(Boolean)) {
-        device.queue.onSubmittedWorkDone().then(() => {
-            for (const b of stale) b?.destroy();
-        });
-    }
+    // Replaced bindings cannot be used by this frame; submitted work retains its backing storage.
+    for (const buffer of stale) buffer?.destroy();
 }
 
 /**

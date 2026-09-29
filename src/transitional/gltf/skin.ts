@@ -10,7 +10,7 @@ import {
 } from "../../core/rendering";
 import type { State, System } from "../../engine";
 import { checkTextureLimits } from "../../engine";
-import { unpackLdrColor, Xform, xformNormal, xformPoint } from "../../engine/utils";
+import { Xform, xformNormal, xformPoint } from "../../engine/utils";
 import { Skin } from "../skin";
 import { MaterialData } from "./palette";
 import { materialFns } from "./shade";
@@ -51,11 +51,10 @@ const VatParams = d
     })
     .$name("VatParams");
 const vatLayout = surfaceLayout({
-    eids: { type: "storage", element: d.vec4u },
-    transforms: { type: "storage", element: Xform },
-    color: { type: "storage", element: d.u32 },
+    eids: { type: "storage", element: d.vec4u, visibility: ["vertex"] },
+    transforms: { type: "storage", element: Xform, visibility: ["vertex"] },
     skin: { type: "storage", element: d.vec4f },
-    materialData: { type: "storage", element: MaterialData },
+    materialData: { type: "storage", element: MaterialData, visibility: ["fragment"] },
     albedo0: { type: "texture-2d-array" },
     albedo1: { type: "texture-2d-array" },
     albedo2: { type: "texture-2d-array" },
@@ -116,7 +115,7 @@ function vatFs(variant: number, mode: "opaque" | "clip" | "blend") {
             "use gpu";
             const mid = d.u32(vatLayout.$.skin[ctx.eid].y);
             const tex = sampleAlbedo(mid, ctx.uv);
-            const tint = unpackLdrColor(vatLayout.$.color[ctx.eid]);
+            const tint = ctx.color;
             const rgb = shadePbr(
                 mid,
                 ctx.uv,
