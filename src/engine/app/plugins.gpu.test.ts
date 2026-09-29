@@ -12,6 +12,7 @@ import {
     Views,
     Volumetric,
 } from "../../core/rendering";
+import { offscreenTexture } from "../../core/rendering/view";
 import {
     Arrow,
     CellsPlugin,
@@ -80,7 +81,7 @@ import {
     setVelocity,
     snapshot as snapshotPhysics,
 } from "../../transitional/physics";
-import { Compute, type Plugin, type State, Time } from "../index";
+import { Compute, type Plugin, probeTexture, type State, Time } from "../index";
 import { withCompute } from "../runtime";
 import { build } from "./index";
 
@@ -315,6 +316,8 @@ async function waitForMirrorMap(mirror: Mirror): Promise<void> {
 interface IsolationResources {
     camera: number;
     actor: number;
+    part: number;
+    sky: number;
     mirror: Mirror | null;
     bvh: Bvh | null;
     gltfInstances: number[];
@@ -324,6 +327,8 @@ const isolationKey = Symbol("gpu-isolation");
 const createIsolationResources = (): IsolationResources => ({
     camera: -1,
     actor: -1,
+    part: -1,
+    sky: -1,
     mirror: null,
     bvh: null,
     gltfInstances: [],
@@ -387,11 +392,13 @@ function featurePlugin(): Plugin {
             Transform.pos.set(point, 1, 2, 1, 0);
 
             const sky = state.create();
+            resources.sky = sky;
             state.add(sky, Sky);
             const fog = state.create();
             state.add(fog, Fog);
 
             const part = state.create();
+            resources.part = part;
             state.add(part, Transform);
             state.add(part, Part);
             state.add(part, Color);
@@ -470,12 +477,97 @@ function featurePlugin(): Plugin {
     };
 }
 
+type SceneColor = readonly [number, number, number, number];
+interface IsolationContent {
+    actorY: number;
+    clearColor: number;
+    skyZenith: number;
+    skyHorizon: number;
+    bodyHeights: readonly [number, number];
+    color: SceneColor;
+}
+const FIRST_CONTENT: IsolationContent = {
+    actorY: 4,
+    clearColor: 0xc04020,
+    skyZenith: 0xc04020,
+    skyHorizon: 0xf08020,
+    bodyHeights: [2, 3],
+    color: [0.8, 0.2, 0.1, 1],
+};
+const SECOND_CONTENT: IsolationContent = {
+    actorY: 8,
+    clearColor: 0x2040c0,
+    skyZenith: 0x2040c0,
+    skyHorizon: 0x40c0f0,
+    bodyHeights: [20, 21],
+    color: [0.1, 0.25, 0.8, 1],
+};
+
+function authorIsolationContent(
+    state: State,
+    resources: IsolationResources,
+    content: IsolationContent,
+): number {
+    const a = addBody(state, content.bodyHeights[0]);
+    const b = addBody(state, content.bodyHeights[1]);
+    addSpring(state, a, b);
+    addJoint(state, a, b);
+    withCompute(state.gpu, () => {
+        Body.pos.y.set(resources.actor, content.actorY);
+        Camera.clearColor.set(resources.camera, content.clearColor);
+        Sky.zenith.set(resources.sky, content.skyZenith);
+        Sky.horizon.set(resources.sky, content.skyHorizon);
+        Color.rgba.set(resources.part, ...content.color);
+    });
+    return a;
+}
+
+async function readRenderedFrame(
+    state: State,
+    resources: IsolationResources,
+    label: string,
+    tracked: Awaited<ReturnType<typeof trackedDevice>>,
+): Promise<Uint8Array> {
+    const texture = offscreenTexture(state, resources.camera);
+    if (!texture) throw new Error(`${label}: camera has no State-owned offscreen texture`);
+    const probe = await tracked.watch.wait(
+        `${label} probeTexture readback`,
+        probeTexture(tracked.device, texture, { label }),
+    );
+    return new Uint8Array(probe.bytes);
+}
+
+async function renderAlone(
+    tracked: Awaited<ReturnType<typeof trackedDevice>>,
+    content: IsolationContent,
+    label: string,
+): Promise<Uint8Array> {
+    const app = await tracked.watch.wait(
+        `${label} solo world build`,
+        build({
+            defaults: false,
+            plugins: [...everyPlugin, featurePlugin()],
+            device: tracked.device,
+        }),
+    );
+    try {
+        const resources = app.state.resource(isolationKey, createIsolationResources);
+        authorIsolationContent(app.state, resources, content);
+        await stepGpuWorld(app.state, `${label} solo world`, tracked);
+        return await readRenderedFrame(app.state, resources, `${label} solo frame`, tracked);
+    } finally {
+        app.dispose();
+    }
+}
+
 async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
     const firstDevice = await trackedDevice();
     const secondDevice = sharedDevice ? firstDevice : await trackedDevice();
     const seed = featurePlugin();
     let first: Awaited<ReturnType<typeof build>> | undefined;
     let second: Awaited<ReturnType<typeof build>> | undefined;
+    let firstPairPixels: Uint8Array | undefined;
+    let secondPairPixels: Uint8Array | undefined;
     try {
         first = await firstDevice.watch.wait(
             "first world build",
@@ -487,11 +579,7 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
             1_500,
         );
         const firstFeatures = first.state.resource(isolationKey, createIsolationResources);
-        const firstA = addBody(first.state, 2);
-        const firstB = addBody(first.state, 3);
-        addSpring(first.state, firstA, firstB);
-        addJoint(first.state, firstA, firstB);
-        Body.pos.y.set(firstFeatures.actor, 4);
+        const firstA = authorIsolationContent(first.state, firstFeatures, FIRST_CONTENT);
 
         second = await secondDevice.watch.wait(
             "second world build",
@@ -503,11 +591,7 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
             1_500,
         );
         const secondFeatures = second.state.resource(isolationKey, createIsolationResources);
-        const peerA = addBody(second.state, 20);
-        const peerB = addBody(second.state, 21);
-        addSpring(second.state, peerA, peerB);
-        addJoint(second.state, peerA, peerB);
-        Body.pos.y.set(secondFeatures.actor, 8);
+        const peerA = authorIsolationContent(second.state, secondFeatures, SECOND_CONTENT);
 
         await stepGpuWorld(first.state, "first world", firstDevice);
         await stepGpuWorld(second.state, "second world", secondDevice);
@@ -521,6 +605,24 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
         );
         firstDevice.watch.check("first world GPU work");
         secondDevice.watch.check("second world GPU work");
+        const firstTexture = offscreenTexture(first.state, firstFeatures.camera);
+        const secondTexture = offscreenTexture(second.state, secondFeatures.camera);
+        if (!firstTexture || !secondTexture)
+            throw new Error("both Worlds must own their rendered offscreen texture");
+        expect(firstTexture).not.toBe(secondTexture);
+        firstPairPixels = await readRenderedFrame(
+            first.state,
+            firstFeatures,
+            "first world frame",
+            firstDevice,
+        );
+        secondPairPixels = await readRenderedFrame(
+            second.state,
+            secondFeatures,
+            "second world frame",
+            secondDevice,
+        );
+        expect(firstPairPixels).not.toEqual(secondPairPixels);
         expect(physicsWorld(first.state)?.getCounters().jointCount).toBe(2);
         expect(physicsWorld(second.state)?.getCounters().jointCount).toBe(2);
         const firstHash = hashPhysics(first.state);
@@ -595,6 +697,15 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
         expect(secondDevice.live.has(skinData as GPUBuffer)).toBe(true);
         await stepGpuWorld(second.state, "second world after sibling disposal", secondDevice);
         expect(readBody(second.state, peerA)).not.toEqual(peerBodyBeforeDispose);
+
+        second.dispose();
+        second = undefined;
+        if (!firstPairPixels || !secondPairPixels)
+            throw new Error("both paired Worlds must produce a captured frame");
+        const firstSoloPixels = await renderAlone(firstDevice, FIRST_CONTENT, "first world");
+        const secondSoloPixels = await renderAlone(secondDevice, SECOND_CONTENT, "second world");
+        expect(firstPairPixels).toEqual(firstSoloPixels);
+        expect(secondPairPixels).toEqual(secondSoloPixels);
     } finally {
         try {
             second?.dispose();

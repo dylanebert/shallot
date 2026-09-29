@@ -1,5 +1,5 @@
 import { kernel } from "../kernel/kernel";
-import type { WorldState } from "../world/world";
+import { liveWorldCount, type WorldState } from "../world/world";
 import type { World } from "./world";
 
 /** Plain, reusable snapshot data from a wasm-backed physics world. */
@@ -128,7 +128,7 @@ export function snapshot(world: World): WorldSnapshot {
     };
 }
 
-/** Restore a snapshot into this or another compatible World. Snapshots remain reusable plain data. */
+/** Restore a snapshot into a compatible World while its kernel has no other live World. */
 export function restore(world: World, snapshot: WorldSnapshot): void {
     if (
         snapshot === null ||
@@ -138,6 +138,11 @@ export function restore(world: World, snapshot: WorldSnapshot): void {
         typeof snapshot.state !== "object"
     )
         throw new Error("physics: invalid world snapshot");
+
+    if (liveWorldCount(kernel()) > 1)
+        throw new Error(
+            "physics: cannot restore a snapshot while other live Worlds share its kernel (WASM memory spans the whole kernel)",
+        );
 
     const state = world.state;
     const restored = restoreClone(snapshot.state, new Map(), {

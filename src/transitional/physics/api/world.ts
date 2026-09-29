@@ -157,7 +157,7 @@ export class World {
         return snapshotWorld(this);
     }
 
-    /** Restore a snapshot previously captured from this world. */
+    /** Restore a snapshot into a compatible World; refuses while other live Worlds share its kernel. */
     restore(snapshot: WorldSnapshot): void {
         restoreWorld(this, snapshot);
     }

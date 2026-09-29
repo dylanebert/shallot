@@ -469,6 +469,11 @@ export function offscreen(eid: number, w: number, h: number): GPUTextureView {
     return view;
 }
 
+/** @internal the State-owned texture behind a camera's rendered offscreen view. */
+export function offscreenTexture(state: State, eid: number): GPUTexture | undefined {
+    return state.resource(viewResourcesKey, createViewResources).offscreen.get(eid)?.texture;
+}
+
 // free one camera's offscreen target (on detach). Safe on cameras that never allocated one
 function releaseOffscreen(eid: number): void {
     _offscreen.get(eid)?.texture.destroy();
