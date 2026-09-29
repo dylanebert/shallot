@@ -17,7 +17,7 @@ import {
     Surfaces,
 } from "../../core/rendering";
 import type { Registry, State, System } from "../../engine";
-import { Compute, capacity, srgb8x4, u32 } from "../../engine";
+import { Compute, srgb8x4, u32 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import { slab } from "../slab";
 import { Transform } from "../transforms";
@@ -150,9 +150,9 @@ export const Parts: Parts = {
 export const PartSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
-    update() {
+    update(state) {
         if (!Render.encoder || !_countPipe || !_scanPipe || !_scatterPipe) return;
-        syncBuffers();
+        syncBuffers(state);
         if (_pairCount === 0) return;
         const count = bindCount();
         const scan = bindScan();
@@ -185,7 +185,7 @@ export const PartSystem: System = {
         Render.encoder.clearBuffer(_countsRaw!);
         _packPass.timestampWrites = Compute.span?.("part:pack");
         const pass = Render.encoder.beginComputePass(_packPass);
-        const rows = Math.ceil(capacity / 64);
+        const rows = Math.ceil(state.capacity / 64);
         setBound(pass, count);
         pass.dispatchWorkgroups(rows, views);
         // one workgroup per allocated view slot (the counts buffer spans _viewDim ×
@@ -311,7 +311,7 @@ function unbind(): void {
  * both dimensions from `cullParams` + `arrayLength`, never recompiling. Old
  * buffers free behind the submit fence: a prior frame may still reference them
  */
-function syncBuffers(): void {
+function syncBuffers(state: State): void {
     if (_surfaceCount === 0) return;
     const meshCount = Meshes.size;
     const viewDim = Math.max(1, Render.viewCount);
@@ -344,7 +344,7 @@ function syncBuffers(): void {
     if (growView || !Parts.packedEids) {
         stalePacked = Parts.packedEids;
         Parts.packedEids = Compute.root
-            .createBuffer(d.arrayOf(d.u32, _viewDim * capacity))
+            .createBuffer(d.arrayOf(d.u32, _viewDim * state.capacity))
             .$usage("storage")
             .$name("shallot-packed-eids");
         Compute.buffers.set("eids", Compute.root.unwrap(Parts.packedEids));
@@ -459,13 +459,13 @@ function registerDraws(): void {
 }
 
 /** seed Part defaults. The slab arrays are allocated by SlabPlugin (a dependency) before this runs */
-export function initPart(): void {
+export function initPart(state: State): void {
     // base every slot in magenta — the visible "Part without an explicit Color" indicator (an entity
     // with Color overwrites its slot via the white trait default on add). `Part.surface`/`mesh`/
     // `Color.rgba` are declared inline (`slab(...)`); collect() in SlabPlugin.initialize allocated
     // their arrays already. The pack gates each slot on the Part-membership bit, so a destroyed or
     // non-Part slot is skipped regardless of the stale ids it holds.
-    for (let i = 0; i < capacity; i++) Color.rgba.set(i, 1, 0, 1, 1);
+    for (let i = 0; i < state.capacity; i++) Color.rgba.set(i, 1, 0, 1, 1);
 
     unbind();
 }
@@ -495,7 +495,7 @@ export function warmPart(state: State): void {
     // one capacity-sized region (slot 0); syncBuffers grows it as cameras attach.
     // COPY_SRC for GPU-debug readback + the pack tests
     Parts.packedEids = root
-        .createBuffer(d.arrayOf(d.u32, capacity))
+        .createBuffer(d.arrayOf(d.u32, state.capacity))
         .$usage("storage")
         .$name("shallot-packed-eids");
     Compute.buffers.set("eids", root.unwrap(Parts.packedEids));
@@ -505,13 +505,16 @@ export function warmPart(state: State): void {
     if (_surfaceCount === 0) return;
 
     const part = state.membership.bit(Part);
+    const capacity = state.capacity;
     const base = part.gen * capacity;
     _countPipe = root
-        .createComputePipeline({ compute: countKernel(base, part.mask, _surfaceCount) })
+        .createComputePipeline({ compute: countKernel(base, part.mask, _surfaceCount, capacity) })
         .$name("shallot-part-count");
-    _scanPipe = root.createComputePipeline({ compute: scanKernel }).$name("shallot-part-scan");
+    _scanPipe = root
+        .createComputePipeline({ compute: scanKernel(capacity) })
+        .$name("shallot-part-scan");
     _scatterPipe = root
-        .createComputePipeline({ compute: scatterKernel(base, part.mask, _surfaceCount) })
+        .createComputePipeline({ compute: scatterKernel(base, part.mask, _surfaceCount, capacity) })
         .$name("shallot-part-scatter");
 
     // both the allocation and the bind are deferred into the forcers, not done here. The drain runs
@@ -520,7 +523,7 @@ export function warmPart(state: State): void {
     // `syncBuffers` can size the pack's buffers there, and the pipeline that forces the compile has
     // something to bind. One forcer per pipeline, so each gets its own row in the compile table
     precompile("shallot-part-count", () => {
-        syncBuffers();
+        syncBuffers(state);
         const bound = bindCount();
         return bound && [bound.pipeline];
     });

@@ -2,7 +2,7 @@ import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuComputePipeline } fro
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State, System } from "../../engine";
-import { Compute, capacity } from "../../engine";
+import { Compute } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import {
     idiv,
@@ -464,6 +464,7 @@ const cullLayout = tgpu
 // The three membership gates (PointLight, Spot, Volumetric) come in as captured row bases + masks, so
 // they fold to literals — no uniform to bind.
 function compactKernel(
+    capacity: number,
     light: { base: number; mask: number },
     spot: { base: number; mask: number },
     vol: { base: number; mask: number },
@@ -643,12 +644,13 @@ const cullKernel = tgpu.computeFn({
 /** the emitted light compact + cull WGSL — the device-free structural seam their tests resolve.
  *  @internal */
 export function lightCullWgsl(
+    capacity: number,
     light: { base: number; mask: number },
     spot: { base: number; mask: number },
     vol: { base: number; mask: number },
 ): { compact: string; cull: string } {
     return {
-        compact: tgpu.resolve([compactKernel(light, spot, vol)], { names: "strict" }),
+        compact: tgpu.resolve([compactKernel(capacity, light, spot, vol)], { names: "strict" }),
         cull: tgpu.resolve([cullKernel], { names: "strict" }),
     };
 }
@@ -785,7 +787,7 @@ export const LightCullSystem: System = {
         const pass = Render.encoder.beginComputePass(_cullPass);
         pass.setPipeline(compact.pipeline);
         pass.setBindGroup(0, compact.group);
-        pass.dispatchWorkgroups(Math.ceil(capacity / 64));
+        pass.dispatchWorkgroups(Math.ceil(state.capacity / 64));
         pass.setPipeline(cull.pipeline);
         pass.setBindGroup(0, cull.group);
         pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
@@ -850,12 +852,14 @@ export function warmLightCull(state: State): void {
             .$usage("storage"),
     );
 
+    const capacity = state.capacity;
     const bit = state.membership.bit(PointLight);
     const spotBit = state.membership.bit(Spot);
     const volBit = state.membership.bit(Volumetric);
     _compactPipe = root
         .createComputePipeline({
             compute: compactKernel(
+                capacity,
                 { base: bit.gen * capacity, mask: bit.mask },
                 { base: spotBit.gen * capacity, mask: spotBit.mask },
                 { base: volBit.gen * capacity, mask: volBit.mask },

@@ -30,8 +30,8 @@ export const PartPlugin: Plugin = {
     },
     dependencies: [RenderPlugin, SlabPlugin],
 
-    initialize() {
-        initPart();
+    initialize(state) {
+        initPart(state);
         initMeshes();
     },
 

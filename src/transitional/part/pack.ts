@@ -2,7 +2,6 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { CULL_FRUSTUM, CULL_VOLUME_FLOATS, DrawIndexedIndirect } from "../../core/rendering";
-import { capacity } from "../../engine";
 import { Xform, xformPoint } from "../../engine/utils";
 
 // The pack kernels: cull → count → scan → scatter, the compute half of the Part producer. Count and
@@ -123,7 +122,7 @@ function pairFactory(surfaceCount: number) {
  * they fold to literals.
  * @internal
  */
-export function countKernel(base: number, mask: number, surfaceCount: number) {
+export function countKernel(base: number, mask: number, surfaceCount: number, capacity: number) {
     const pair = pairFactory(surfaceCount);
     // a factory-returned kernel has no binding for `names: "strict"` to read, so it resolves to `fn item`
     // unless named — and that name is what a Tint compile error and every GPU `console.log` line reports
@@ -160,56 +159,58 @@ const carry = tgpu.workgroupVar(d.u32);
  * view-slot count. Compaction is this GPU prefix-sum scan, never a CPU gather.
  * @internal
  */
-export const scanKernel = tgpu.computeFn({
-    workgroupSize: [SCAN_WG],
-    in: { wid: d.builtin.workgroupId, lid: d.builtin.localInvocationId },
-})((input) => {
-    "use gpu";
-    const slot = input.wid.x;
-    const pairCount = scanLayout.$.params.pairCount;
-    const local = input.lid.x;
-    const base = slot * pairCount;
+export function scanKernel(capacity: number) {
+    return tgpu.computeFn({
+        workgroupSize: [SCAN_WG],
+        in: { wid: d.builtin.workgroupId, lid: d.builtin.localInvocationId },
+    })((input) => {
+        "use gpu";
+        const slot = input.wid.x;
+        const pairCount = scanLayout.$.params.pairCount;
+        const local = input.lid.x;
+        const base = slot * pairCount;
 
-    if (local === 0) carry.$ = 0;
-    std.workgroupBarrier();
-
-    // tile the row: each pass scans SCAN_WG counts, carry holds the prefix of all prior tiles. The outer
-    // condition is workgroup-uniform (a uniform field + constants), so the in-loop barriers are legal
-    let tileBase = d.u32(0);
-    while (tileBase < pairCount) {
-        const p = tileBase + local;
-        const inRange = p < pairCount;
-        const idx = base + p;
-        let c = d.u32(0);
-        if (inRange) c = std.atomicLoad(scanLayout.$.counts[idx]);
-
-        // inclusive Hillis-Steele scan of c across the workgroup into temp
-        temp.$[local] = c;
+        if (local === 0) carry.$ = 0;
         std.workgroupBarrier();
-        let offset = d.u32(1);
-        while (offset < SCAN_WG) {
-            let add = d.u32(0);
-            if (local >= offset) add = temp.$[local - offset];
+
+        // tile the row: each pass scans SCAN_WG counts, carry holds the prefix of all prior tiles. The outer
+        // condition is workgroup-uniform (a uniform field + constants), so the in-loop barriers are legal
+        let tileBase = d.u32(0);
+        while (tileBase < pairCount) {
+            const p = tileBase + local;
+            const inRange = p < pairCount;
+            const idx = base + p;
+            let c = d.u32(0);
+            if (inRange) c = std.atomicLoad(scanLayout.$.counts[idx]);
+
+            // inclusive Hillis-Steele scan of c across the workgroup into temp
+            temp.$[local] = c;
             std.workgroupBarrier();
-            temp.$[local] = temp.$[local] + add;
+            let offset = d.u32(1);
+            while (offset < SCAN_WG) {
+                let add = d.u32(0);
+                if (local >= offset) add = temp.$[local - offset];
+                std.workgroupBarrier();
+                temp.$[local] = temp.$[local] + add;
+                std.workgroupBarrier();
+                offset = offset * 2;
+            }
+            const excl = temp.$[local] - c; // inclusive − own = exclusive prefix
+            const tileTotal = temp.$[SCAN_WG - 1]; // every out-of-range lane added 0
+
+            if (inRange) {
+                scanLayout.$.drawArgs[idx].instanceCount = c;
+                scanLayout.$.drawArgs[idx].firstInstance = slot * capacity + carry.$ + excl;
+                std.atomicStore(scanLayout.$.counts[idx], 0);
+            }
             std.workgroupBarrier();
-            offset = offset * 2;
-        }
-        const excl = temp.$[local] - c; // inclusive − own = exclusive prefix
-        const tileTotal = temp.$[SCAN_WG - 1]; // every out-of-range lane added 0
+            if (local === 0) carry.$ = carry.$ + tileTotal;
+            std.workgroupBarrier();
 
-        if (inRange) {
-            scanLayout.$.drawArgs[idx].instanceCount = c;
-            scanLayout.$.drawArgs[idx].firstInstance = slot * capacity + carry.$ + excl;
-            std.atomicStore(scanLayout.$.counts[idx], 0);
+            tileBase = tileBase + SCAN_WG;
         }
-        std.workgroupBarrier();
-        if (local === 0) carry.$ = carry.$ + tileTotal;
-        std.workgroupBarrier();
-
-        tileBase = tileBase + SCAN_WG;
-    }
-});
+    });
+}
 
 /**
  * append each surviving eid into its slice of packedEids, re-running the identical membership + pair +
@@ -217,7 +218,7 @@ export const scanKernel = tgpu.computeFn({
  * cursor.
  * @internal
  */
-export function scatterKernel(base: number, mask: number, surfaceCount: number) {
+export function scatterKernel(base: number, mask: number, surfaceCount: number, capacity: number) {
     const pair = pairFactory(surfaceCount);
     return tgpu
         .computeFn({
@@ -245,10 +246,13 @@ export function packWgsl(
     base: number,
     mask: number,
     surfaceCount: number,
+    capacity: number,
 ): { count: string; scan: string; scatter: string } {
     return {
-        count: tgpu.resolve([countKernel(base, mask, surfaceCount)], { names: "strict" }),
-        scan: tgpu.resolve([scanKernel], { names: "strict" }),
-        scatter: tgpu.resolve([scatterKernel(base, mask, surfaceCount)], { names: "strict" }),
+        count: tgpu.resolve([countKernel(base, mask, surfaceCount, capacity)], { names: "strict" }),
+        scan: tgpu.resolve([scanKernel(capacity)], { names: "strict" }),
+        scatter: tgpu.resolve([scatterKernel(base, mask, surfaceCount, capacity)], {
+            names: "strict",
+        }),
     };
 }

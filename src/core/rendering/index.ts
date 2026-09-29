@@ -228,7 +228,7 @@ export const BeginFrameSystem: System = {
         Render.encoder = encoder;
         writeFrame(state);
         writeLighting(state);
-        composeTransforms(encoder);
+        composeTransforms(encoder, state);
 
         let count = 0;
         let depthOnly = 0;

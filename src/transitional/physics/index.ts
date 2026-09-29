@@ -4,7 +4,6 @@
 import { BeginFrameSystem, Render } from "../../core/rendering";
 import {
     Compute,
-    capacity,
     entity,
     FIXED_DT,
     f32,
@@ -966,11 +965,11 @@ export const PhysicsPlugin: Plugin = {
         runtime.world?.destroy();
         runtime.world = new World({ gravity: { x: 0, y: GRAVITY, z: 0 } });
         clearBodies(runtime);
-        runtime.prevPos = new Float32Array(capacity * 3);
-        runtime.prevQuat = new Float32Array(capacity * 4);
-        runtime.currPos = new Float32Array(capacity * 3);
-        runtime.currQuat = new Float32Array(capacity * 4);
-        runtime.movedThisTick = new Int32Array(capacity);
+        runtime.prevPos = new Float32Array(state.capacity * 3);
+        runtime.prevQuat = new Float32Array(state.capacity * 4);
+        runtime.currPos = new Float32Array(state.capacity * 3);
+        runtime.currQuat = new Float32Array(state.capacity * 4);
+        runtime.movedThisTick = new Int32Array(state.capacity);
         resetSignatures(); // the fresh world receives the authored constraint set on its first frame
     },
 

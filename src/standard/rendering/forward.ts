@@ -40,7 +40,7 @@ import {
     vsPatchSchema,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, capacity, f16x4, laneAlias, sparse, u32, unpackColor } from "../../engine";
+import { Compute, f16x4, laneAlias, sparse, u32, unpackColor } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import { unpackLdrColor, Xform } from "../../engine/utils";
 import { GlazeSystem } from "../../transitional/glaze";
@@ -156,8 +156,8 @@ const MaterialTraits = {
 // base every slot to the flat material so a Part lacking the Material component shades like the pre-PBR
 // diffuse default (an entity with Material overwrites its slot via the trait default on add). Mirrors
 // Part.initPart's magenta Color base; the pack gates each slot on membership, so stale slots never draw.
-function initMaterial(): void {
-    for (let i = 0; i < capacity; i++) Material.params.set(i, ...MATERIAL_FLAT);
+function initMaterial(state: State): void {
+    for (let i = 0; i < state.capacity; i++) Material.params.set(i, ...MATERIAL_FLAT);
 }
 
 /**
@@ -271,9 +271,9 @@ type FrameDraw = { draw: Draw; r: Recorded };
  * The per-slot bind groups cache per draw, rebuilt only on a resource identity change; the fixed uniforms
  * are stable, so untracked
  */
-function record(draw: Draw): FrameDraw | null {
+function record(draw: Draw, capacity: number): FrameDraw | null {
     const surface = Surfaces.get(draw.surface);
-    return surface ? recordSurface(draw, surface) : null;
+    return surface ? recordSurface(draw, surface, capacity) : null;
 }
 
 // resolve a typed layout's own bindings (never the sear-injected `vertices`) to live resources by the
@@ -377,7 +377,7 @@ function surfaceGroup(
  * depth-side groups against the full layout so cutoff sees material UVs — plus the atlas `eids` swaps
  * and the slot-0 engine group the atlas passes bind.
  */
-function recordSurface(draw: Draw, surface: Surface): FrameDraw | null {
+function recordSurface(draw: Draw, surface: Surface, capacity: number): FrameDraw | null {
     const mesh = Meshes.get(draw.mesh);
     if (!mesh) return warnSkip(draw.name, `mesh "${draw.mesh}" not registered`);
     if (!mesh.position || !mesh.quant)
@@ -393,7 +393,7 @@ function recordSurface(draw: Draw, surface: Surface): FrameDraw | null {
         // throwing compile (a contract guard, or shader/device validation) must not take down the frame
         // loop, so it degrades to the warn-once skip
         try {
-            t = compileVariant(surface, variant);
+            t = compileVariant(surface, capacity, variant);
         } catch (e) {
             return warnSkip(draw.name, `typed surface "${surface.name}" failed to compile: ${e}`);
         }
@@ -484,13 +484,15 @@ let _frameCount = 0;
  * resolves it once per frame into `_frameDraws` and the prepass, shadow map, and color pass all
  * render every camera against that one list
  */
-function resolveDraws(): void {
+function resolveDraws(capacity: number): void {
     _frameCount = 0;
-    Draws.forEach(resolveDraw);
+    Draws.forEach((draw) => {
+        resolveDraw(draw, capacity);
+    });
 }
 
-function resolveDraw(draw: Draw): void {
-    const item = record(draw);
+function resolveDraw(draw: Draw, capacity: number): void {
+    const item = record(draw, capacity);
     if (item) _frameDraws[_frameCount++] = item;
 }
 
@@ -957,7 +959,7 @@ const _pointFrames: PointShadowFrame[] = [];
  * GPU resources sear owns (the comparison sampler, the 1×1 fallback, the group-1 layout, and the real
  * params buffer — `./atlas`), surviving HMR re-warms
  */
-async function prepareSear(device: GPUDevice): Promise<void> {
+async function prepareSear(device: GPUDevice, capacity: number): Promise<void> {
     // the caster count + atlas size fold into the shadow WGSL at its first resolve and the uniforms below
     // size from the same schemas, so a config mutated between builds is a hard error, not a silent mismatch
     checkShadowConfig();
@@ -971,12 +973,12 @@ async function prepareSear(device: GPUDevice): Promise<void> {
     // eager-compile non-specializing surfaces plus the shared re-gather A/B pipelines (idempotent — the
     // point + cascade atlases share them). Specializing variants queue after Part publishes its draws;
     // a specializing mesh registered after warm remains lazy.
-    await Promise.all([prepareRegather(device), preparePipelines()]);
-    await precompileVariants();
+    await Promise.all([prepareRegather(device, capacity), preparePipelines(capacity)]);
+    await precompileVariants(capacity);
 }
 
-function unwrapVariant(surface: Surface, variant: number): unknown[] {
-    const typed = compileVariant(surface, variant);
+function unwrapVariant(surface: Surface, variant: number, capacity: number): unknown[] {
+    const typed = compileVariant(surface, capacity, variant);
     const warmed: unknown[] = [];
     for (const pipeline of [
         typed.color,
@@ -995,7 +997,8 @@ function unwrapVariant(surface: Surface, variant: number): unknown[] {
  * every discovered variant's real pipelines.
  * @internal */
 export function precompileVariants(
-    warm: (surface: Surface, variant: number) => unknown = unwrapVariant,
+    capacity: number,
+    warm: (surface: Surface, variant: number, capacity: number) => unknown = unwrapVariant,
     surfaces: Iterable<Surface> = Surfaces,
     variants: (surface: Surface) => number[] = knownVariants,
 ): Promise<void> {
@@ -1006,7 +1009,7 @@ export function precompileVariants(
             for (const surface of surfaces) {
                 if (!surface.specialize) continue;
                 for (const variant of variants(surface)) {
-                    warmed.push(warm(surface, variant));
+                    warmed.push(warm(surface, variant, capacity));
                 }
             }
             return warmed;
@@ -1035,7 +1038,7 @@ export const PrepassSystem: System = {
     update(state) {
         if (!Render.encoder) return;
         // resolve once for the prepass + shadow map + color pass (they all run after this)
-        resolveDraws();
+        resolveDraws(state.capacity);
         for (const eid of state.query(SEAR_CAMERAS)) {
             const view = Views.get(eid);
             if (!view?.framebuffer) continue;
@@ -1109,8 +1112,9 @@ const ShadowCameraSystem: System = {
         // groups that bind it — so the first casting frame's groups include it (the alloc clears the
         // resolved-bind-group cache), no one-frame delay. Idempotent once allocated; the render fns call it
         // again harmlessly
-        if (casters > 0 && shadowReady()) pointRegather.ensure(pointCasters() * 6);
-        if (cascadeCount() > 0 && shadowReady()) cascadeRegather.ensure(MAX_CASCADES);
+        if (casters > 0 && shadowReady()) pointRegather.ensure(pointCasters() * 6, state.capacity);
+        if (cascadeCount() > 0 && shadowReady())
+            cascadeRegather.ensure(MAX_CASCADES, state.capacity);
     },
 };
 
@@ -1126,9 +1130,9 @@ const ShadowMapSystem: System = {
     group: "draw",
     after: [PrepassSystem],
     before: [ColorSystem],
-    update() {
-        renderPointShadows(_frameDraws, _frameCount);
-        renderCascades(_frameDraws, _frameCount);
+    update(state) {
+        renderPointShadows(_frameDraws, _frameCount, state.capacity);
+        renderCascades(_frameDraws, _frameCount, state.capacity);
     },
 };
 
@@ -1256,7 +1260,7 @@ export function createSearPlugin(): Plugin {
             // a prior build so this re-run never aliases recycled entities (the module-scope contract)
             resetPointShadows();
             resetCascades();
-            initMaterial();
+            initMaterial(state);
             // build the Pbr struct + the emissive tint (Color.rgb * the emissive strength lane) from the
             // f16 material lanes: word x holds (metallic, roughness), word y (emissive, occlusion), each
             // unpacked to f32 for the shading math. emissive is an unbounded HDR glow strength;
@@ -1285,9 +1289,9 @@ export function createSearPlugin(): Plugin {
             });
         },
 
-        async warm() {
+        async warm(state) {
             if (!Compute.device) return;
-            await prepareSear(Compute.device);
+            await prepareSear(Compute.device, state.capacity);
         },
 
         dispose(state) {

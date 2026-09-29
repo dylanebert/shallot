@@ -3,7 +3,6 @@ import type { TgpuBindGroup, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import {
     Compute,
-    capacity,
     f32,
     type Pair,
     type Plugin,
@@ -117,6 +116,7 @@ export class Slab {
     // torn-down build (prior size, possibly prior device) and must be destroyed, not re-pooled
     private _epoch = 0;
     private _device: GPUDevice | null = null;
+    private _capacity = 0;
 
     constructor(type: Type = f32, name: string | null = null) {
         this.type = type;
@@ -177,7 +177,8 @@ export class Slab {
      * reallocates fresh, so a rebuild starts from zeroed data. The `.gpu` mirror
      * is created separately by {@link prepare} at warm.
      */
-    alloc(): void {
+    alloc(capacity: number): void {
+        this._capacity = capacity;
         this.array = new this.type.ctor(capacity * this.type.lanes);
         this.dirty = new Uint32Array((capacity + 31) >>> 5);
     }
@@ -232,6 +233,7 @@ export class Slab {
         }
         const root = Compute.root;
         this._device = Compute.device;
+        const capacity = this._capacity;
         const values = d.arrayOf(element, capacity);
         this.typed = root
             .createBuffer(values)
@@ -272,6 +274,7 @@ export class Slab {
     private pack(stager: GPUBuffer): number {
         const lanes = this.type.lanes;
         const gpu = this.type.gpu;
+        const capacity = this._capacity;
         const range = stager.getMappedRange();
         const slotView = new Uint32Array(range, 0, capacity + 1);
         const valueOffset = (capacity + 1) * 4;
@@ -380,7 +383,7 @@ export class Slab {
         for (const { component } of entries(state)) {
             for (const field of Object.values(component)) {
                 if (field instanceof Slab) {
-                    field.alloc();
+                    field.alloc(state.capacity);
                     Slab._all.push(field);
                 }
             }
@@ -440,6 +443,7 @@ export class Slab {
                 }
                 if (!anyDirty) continue;
                 const bytes = elementBytes(slab.type)!;
+                const capacity = slab._capacity;
                 const stagerBytes = (capacity + 1) * 4 + capacity * bytes;
                 const stager = slab._stagingPool.pop() ?? slab.newStager(device, stagerBytes);
                 slab._flushStager = stager;
@@ -590,7 +594,9 @@ function flushWorldSlabs(state: State): void {
             }
             Compute.device.queue.writeBuffer(field.gpu, 0, packed);
         } else {
-            Compute.device.queue.writeBuffer(field.gpu, 0, field.column);
+            const lanes = field.type.lanes;
+            const count = Math.min(state.capacity, Math.floor(field.column.length / lanes));
+            Compute.device.queue.writeBuffer(field.gpu, 0, field.column.subarray(0, count * lanes));
         }
     }
 }

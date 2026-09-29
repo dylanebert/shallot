@@ -1,13 +1,31 @@
 import { afterEach, expect, test } from "bun:test";
 import * as d from "typegpu/data";
+import { attachCanvas, Camera, PointLight } from "../../core/rendering";
+import { Sear, SearPlugin } from "../../standard/rendering";
+import { Part, PartPlugin, Parts } from "../../transitional/part";
+import { Body, PhysicsPlugin } from "../../transitional/physics";
 import { SlabPlugin, slab } from "../../transitional/slab";
-import { Compute, f32, type State, sparse, u8 } from "../index";
+import { Transform } from "../../transitional/transforms";
+import { Compute, f16x4, f32, type Plugin, type State, sparse, u8 } from "../index";
+import { probeBuffer } from "../runtime";
 import { serialize } from "../scene";
+import { Xform } from "../utils";
 import { build, swap } from "./index";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
+const createCanvasContext = (await import(peerModule)).GPUCanvasContextMock as new (
+    canvas: HTMLCanvasElement,
+    width: number,
+    height: number,
+) => GPUCanvasContext;
 await setupGlobals();
+if (typeof ResizeObserver === "undefined") {
+    globalThis.ResizeObserver = class {
+        observe() {}
+        disconnect() {}
+    } as unknown as typeof ResizeObserver;
+}
 
 const Value = { amount: sparse(f32) };
 const resourceKey = Symbol("world-probe");
@@ -41,6 +59,42 @@ afterEach(() => {
 
 function amount(state: State) {
     return state.of(Value).amount;
+}
+
+function expectCapacityBuffers(state: State, capacity: number): void {
+    expect(state.gpu.buffers.get("transforms")?.size).toBe(capacity * d.sizeOf(Xform));
+    expect(state.gpu.buffers.get("membership")?.size).toBe(
+        state.membership.generations * capacity * 4,
+    );
+    expect(state.gpu.buffers.get("material")?.size).toBe(capacity * f16x4.gpu!.bytes);
+    expect(state.gpu.buffers.get("eids")?.size).toBe(capacity * 4);
+}
+
+function capacityViewPlugin(): Plugin {
+    let context: GPUCanvasContext;
+    const canvas = {
+        width: 16,
+        height: 16,
+        style: { imageRendering: "auto" },
+        getContext(kind: string) {
+            return kind === "webgpu" ? context : null;
+        },
+        getBoundingClientRect() {
+            return { width: 16, height: 16 };
+        },
+    } as unknown as HTMLCanvasElement;
+    context = new createCanvasContext(canvas, canvas.width, canvas.height);
+    return {
+        name: "WorldCapacityView",
+        dependencies: [SearPlugin],
+        initialize(state) {
+            const eid = state.create();
+            state.add(eid, Transform);
+            state.add(eid, Camera);
+            state.add(eid, Sear);
+            attachCanvas(eid, canvas, state);
+        },
+    };
 }
 
 test("live and later worlds keep component columns separate", async () => {
@@ -287,6 +341,64 @@ test("each world's capacity sizes entities, membership, and Slab buffers indepen
     expect(() => first.state.create()).toThrow("configured capacity 64");
     expect(() => second.state.create()).toThrow("configured capacity 8");
 }, 20_000);
+
+test("built-in capacity readers size both worlds and render and step the top eid", async () => {
+    const below = 32;
+    const small = await build({
+        defaults: false,
+        plugins: [PhysicsPlugin, PartPlugin, SearPlugin, capacityViewPlugin()],
+        capacity: below,
+    });
+    apps.push(small);
+    expectCapacityBuffers(small.state, below);
+    small.state.gpu.device.pushErrorScope("validation");
+    small.state.step();
+    await small.state.gpu.device.queue.onSubmittedWorkDone();
+    expect(await small.state.gpu.device.popErrorScope()).toBeNull();
+    small.dispose();
+    apps = apps.filter((app) => app !== small);
+
+    const above = 65544;
+    const large = await build({
+        defaults: false,
+        plugins: [PhysicsPlugin, PartPlugin, SearPlugin, capacityViewPlugin()],
+        capacity: above,
+    });
+    apps.push(large);
+    expectCapacityBuffers(large.state, above);
+
+    let topEid = 0;
+    for (let i = 0; i < above - 2; i++) topEid = large.state.create();
+    expect(topEid).toBe(above - 1);
+    large.state.add(topEid, Body);
+    large.state.add(topEid, Part);
+    large.state.add(topEid, PointLight);
+
+    let drawArgs: GPUBuffer | undefined;
+    large.state.addSystem({
+        name: "WorldCapacityDrawProbe",
+        group: "draw",
+        update() {
+            if (!Parts.drawArgs) throw new Error("Part draw args were not allocated");
+            drawArgs = Compute.root.unwrap(Parts.drawArgs);
+        },
+    });
+    large.state.gpu.device.pushErrorScope("validation");
+    large.state.step();
+    await large.state.gpu.device.queue.onSubmittedWorkDone();
+    expect(await large.state.gpu.device.popErrorScope()).toBeNull();
+
+    const packed = large.state.gpu.buffers.get("eids");
+    expect(packed).toBeDefined();
+    expect(drawArgs).toBeDefined();
+    const packedEid = await probeBuffer(large.state.gpu.device, packed!, { size: 4 });
+    const drawInstanceCount = await probeBuffer(large.state.gpu.device, drawArgs!, {
+        offset: 4,
+        size: 4,
+    });
+    expect(new Uint32Array(packedEid.bytes)[0]).toBe(topEid);
+    expect(new Uint32Array(drawInstanceCount.bytes)[0]).toBe(1);
+}, 30_000);
 
 test("reordered component fields swap without rebuilding their world columns", async () => {
     const firstValue = { x: sparse(f32), y: sparse(f32) };

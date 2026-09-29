@@ -20,7 +20,6 @@ export {
 export {
     and,
     type Component,
-    capacity,
     entity,
     FIXED_DT,
     f16,

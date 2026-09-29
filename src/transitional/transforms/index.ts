@@ -1,7 +1,7 @@
 // Destination: engine; owner: engine-gpu-core.md.
 import type { StorageFlag, TgpuBuffer, TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
-import { Compute, capacity, type Plugin, vec4 } from "../../engine";
+import { Compute, type Plugin, type State, vec4 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import { eulerAlias, Xform } from "../../engine/utils";
 import { SlabPlugin, slab } from "../slab";
@@ -69,7 +69,7 @@ const _composePass: GPUComputePassDescriptor = { label: "shallot-transforms-comp
  * submit), writes the `"transforms"` firehose. Headless (no device) leaves the
  * pipeline unbuilt and the call is a no-op
  */
-export function composeTransforms(encoder: GPUCommandEncoder): void {
+export function composeTransforms(encoder: GPUCommandEncoder, state: State): void {
     const bound = bind();
     if (!bound) return;
     _composePass.timestampWrites = Compute.span?.("transforms:compose");
@@ -79,7 +79,7 @@ export function composeTransforms(encoder: GPUCommandEncoder): void {
     const pass = encoder.beginComputePass(_composePass);
     pass.setPipeline(bound.pipeline);
     pass.setBindGroup(0, bound.group);
-    pass.dispatchWorkgroups(Math.ceil(capacity / 64));
+    pass.dispatchWorkgroups(Math.ceil(state.capacity / 64));
     pass.end();
 }
 
@@ -159,6 +159,7 @@ export const TransformsPlugin: Plugin = {
     },
 
     initialize(state) {
+        const capacity = state.capacity;
         _typed = null;
         _composePipeline = null;
         _bound = null;

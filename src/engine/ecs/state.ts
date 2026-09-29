@@ -16,8 +16,8 @@ import { type ComponentStorage, sameSchema, WorldField } from "./storage";
 import { ComponentRegistry } from "./traits";
 
 const INITIAL_CAPACITY = 16;
-/** default capacity for legacy fixed-size consumers; each State keeps its own configured value. */
-export const capacity = 65536;
+/** entity reservation used when a build does not specify one. */
+const DEFAULT_CAPACITY = 65536;
 
 /**
  * render device-pixel ratio for canvas-bound views, fixed at app construction. `"auto"`
@@ -92,7 +92,7 @@ export class State {
         capacity?: number;
         pixelRatio?: number | "auto";
     }) {
-        const worldCapacity = opts?.capacity ?? capacity;
+        const worldCapacity = opts?.capacity ?? DEFAULT_CAPACITY;
         if (!Number.isSafeInteger(worldCapacity) || worldCapacity < 1) {
             throw new Error(`State: capacity ${worldCapacity} is not a safe integer >= 1`);
         }

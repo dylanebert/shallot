@@ -686,6 +686,7 @@ function ensureCascadeAtlas(): void {
 export function renderPointShadows(
     frameDraws: { draw: Draw; r: Recorded }[],
     frameCount: number,
+    capacity: number,
 ): void {
     const encoder = Render.encoder;
     if (!encoder || !_shadowReady) return;
@@ -698,7 +699,7 @@ export function renderPointShadows(
         return;
     }
     ensureAtlas();
-    pointRegather.ensure(pointCasters() * 6);
+    pointRegather.ensure(pointCasters() * 6, capacity);
 
     // the caster params the FS samples (pos + source eid, clip planes + bias, + the spot basis —
     // right.xyz/coneTanHalf, up.xyz, fwd.xyz; coneTanHalf 0 routes the FS to the cube-face path). The tile
@@ -874,6 +875,7 @@ export function renderPointShadows(
 export function renderCascades(
     frameDraws: { draw: Draw; r: Recorded }[],
     frameCount: number,
+    capacity: number,
 ): void {
     const encoder = Render.encoder;
     if (!encoder || !_shadowReady) return;
@@ -883,7 +885,7 @@ export function renderCascades(
         return;
     }
     ensureCascadeAtlas();
-    cascadeRegather.ensure(MAX_CASCADES);
+    cascadeRegather.ensure(MAX_CASCADES, capacity);
 
     // filter combo (cascade) cameras to those with an attached View — a missing view is a wiring bug
     // (the cascade pool attaches a view per cascade). The survivors' original indices compact the

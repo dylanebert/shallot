@@ -54,7 +54,7 @@ import {
     sunVisibility,
 } from "./engine";
 import type { Recorded } from "./forward";
-import { COMBO_SHIFT, EID_MASK } from "./regather";
+import { eidPacking } from "./regather";
 import { sampleSunShadow } from "./shade";
 import { cascadeAtlasSize, pointAtlasSize, sunCascades, sunResolution } from "./shadows";
 
@@ -1292,7 +1292,7 @@ function typedVaryingTagFs(surface: AnySurface) {
 export function compileVariant<
     B extends Record<string, Binding>,
     V extends Record<string, AnyWgslData>,
->(surface: Surface<B, V>, variant = 0): CompiledSurface {
+>(surface: Surface<B, V>, capacity: number, variant = 0): CompiledSurface {
     const key = variantKey(surface.name, surface.specialize ? variant : 0);
     const cached = _compiledTyped.get(key);
     if (cached?.owner === surface && cached.layout === surface.layout) return cached;
@@ -1378,7 +1378,7 @@ export function compileVariant<
     }
     compiled.prepass = compileTypedPrepass(resolved, variant);
     if (resolved.blend !== "alpha") {
-        const { point, cascade } = compileTypedShadow(resolved, variant);
+        const { point, cascade } = compileTypedShadow(resolved, variant, capacity);
         compiled.point = point;
         compiled.cascade = cascade;
     }
@@ -1541,7 +1541,9 @@ function typedShadowVs(
     shadowGroup: TgpuBindGroupLayout<any>,
     atlas: number,
     cascade: boolean,
+    capacity: number,
 ) {
+    const { comboShift, eidMask } = eidPacking(capacity);
     const hasVs = !!surface.vs;
     const vsFn = surface.vs;
     const layout = surface.layout.depthVariant;
@@ -1565,8 +1567,8 @@ function typedShadowVs(
             const localNormal = d.vec3f(0, 0, 1);
             const uv = d.vec2f(0, 0);
             const packed = bound.eids[input.iid];
-            const eid = packed & EID_MASK;
-            const combo = packed >>> COMBO_SHIFT;
+            const eid = packed & eidMask;
+            const combo = packed >>> comboShift;
             const xform = Xform(bound.transforms[eid]);
             let world = d.vec4f(xformPoint(xform, localPos), 1);
             let worldNormal = d.vec3f(xformNormal(xform, localNormal));
@@ -1615,7 +1617,9 @@ function typedClipShadowVertex(
     shadowGroup: TgpuBindGroupLayout<any>,
     atlas: number,
     cascade: boolean,
+    capacity: number,
 ) {
+    const { comboShift, eidMask } = eidPacking(capacity);
     const hasVs = !!surface.vs;
     const vsFn = surface.vs;
     const layout = surface.layout;
@@ -1637,8 +1641,8 @@ function typedClipShadowVertex(
             const localNormal = octDecodeNormal(v.z);
             const uv = decodeUv(v.w, mq);
             const packed = bound.eids[iid];
-            const eid = packed & EID_MASK;
-            const combo = packed >>> COMBO_SHIFT;
+            const eid = packed & eidMask;
+            const combo = packed >>> comboShift;
             const xform = Xform(bound.transforms[eid]);
             let world = d.vec4f(xformPoint(xform, localPos), 1);
             let worldNormal = d.vec3f(xformNormal(xform, localNormal));
@@ -1681,8 +1685,9 @@ function clipShadowVs(
     shadowGroup: TgpuBindGroupLayout<any>,
     atlas: number,
     cascade: boolean,
+    capacity: number,
 ) {
-    const vertex = typedClipShadowVertex(surface, shadowGroup, atlas, cascade);
+    const vertex = typedClipShadowVertex(surface, shadowGroup, atlas, cascade, capacity);
     const name = `${surface.name}${cascade ? "Cascade" : "Point"}ClipVs`;
     const input = { vidx: d.builtin.vertexIndex, iid: d.builtin.instanceIndex };
     const fixed = {
@@ -1766,7 +1771,9 @@ function varyingShadowVs(
     shadowGroup: TgpuBindGroupLayout<any>,
     atlas: number,
     cascade: boolean,
+    capacity: number,
 ) {
+    const { comboShift, eidMask } = eidPacking(capacity);
     const varyings = surface.varyings ?? {};
     const keys = Object.keys(varyings);
     if (keys.length !== 1 || !surface.vs) {
@@ -1806,8 +1813,8 @@ function varyingShadowVs(
     let localNormal = octDecodeNormal(v.z);
     let uv = decodeUv(v.w, mq);
     let packed = bound.eids[iid];
-    let eid = packed & ${EID_MASK}u;
-    let combo = packed >> ${COMBO_SHIFT}u;
+    let eid = packed & ${eidMask}u;
+    let combo = packed >> ${comboShift}u;
     let xform = bound.transforms[eid];
     var world = vec4f(xformPoint(xform, localPos), 1.0);
     var worldNormal = vec3f(xformNormal(xform, localNormal));
@@ -1958,6 +1965,7 @@ function clipShadowFs(surface: AnySurface) {
 function compileTypedShadow(
     surface: AnySurface,
     variant: number,
+    capacity: number,
 ): {
     point: TgpuRenderPipeline<any> | null;
     cascade: TgpuRenderPipeline<any> | null;
@@ -1979,9 +1987,9 @@ function compileTypedShadow(
         .createRenderPipeline({
             vertex: clip
                 ? varying
-                    ? varyingShadowVs(surface, pointLayout, pointAtlasSize(), false)
-                    : clipShadowVs(surface, pointLayout, pointAtlasSize(), false)
-                : typedShadowVs(surface, pointLayout, pointAtlasSize(), false),
+                    ? varyingShadowVs(surface, pointLayout, pointAtlasSize(), false, capacity)
+                    : clipShadowVs(surface, pointLayout, pointAtlasSize(), false, capacity)
+                : typedShadowVs(surface, pointLayout, pointAtlasSize(), false, capacity),
             fragment: clip
                 ? ((varying ? varyingShadowFs(surface) : clipShadowFs(surface)) as never)
                 : typedShadowFs,
@@ -1999,18 +2007,21 @@ function compileTypedShadow(
                           cascadeLayout,
                           cascadeAtlasSize(sunResolution(), sunCascades()),
                           true,
+                          capacity,
                       )
                     : clipShadowVs(
                           surface,
                           cascadeLayout,
                           cascadeAtlasSize(sunResolution(), sunCascades()),
                           true,
+                          capacity,
                       )
                 : typedShadowVs(
                       surface,
                       cascadeLayout,
                       cascadeAtlasSize(sunResolution(), sunCascades()),
                       true,
+                      capacity,
                   ),
             fragment: clip
                 ? ((varying ? varyingShadowFs(surface) : clipShadowFs(surface)) as never)
@@ -2028,7 +2039,11 @@ const stubReceiver = (cfg: Configurable) => cfg.with(pointShadowSlot, pointShado
 
 /** the point/cascade shadow-atlas pipelines' emitted vs+fs WGSL for one `Surface` — device-free because
  * `typedShadowVs`/`typedShadowFs` are pure resolve inputs. */
-export function shadowWgsl(surface: AnySurface, variant = 0): { point: string; cascade: string } {
+export function shadowWgsl(
+    surface: AnySurface,
+    capacity: number,
+    variant = 0,
+): { point: string; cascade: string } {
     const resolved = typedVariant(surface, variant);
     const clip = resolved.blend === "clip";
     const varying = !!resolved.varyings && Object.keys(resolved.varyings).length > 0;
@@ -2037,11 +2052,20 @@ export function shadowWgsl(surface: AnySurface, variant = 0): { point: string; c
             clip
                 ? [
                       varying
-                          ? varyingShadowVs(resolved, pointLayout, pointAtlasSize(), false)
-                          : clipShadowVs(resolved, pointLayout, pointAtlasSize(), false),
+                          ? varyingShadowVs(
+                                resolved,
+                                pointLayout,
+                                pointAtlasSize(),
+                                false,
+                                capacity,
+                            )
+                          : clipShadowVs(resolved, pointLayout, pointAtlasSize(), false, capacity),
                       varying ? varyingShadowFs(resolved) : clipShadowFs(resolved),
                   ]
-                : [typedShadowVs(resolved, pointLayout, pointAtlasSize(), false), typedShadowFs],
+                : [
+                      typedShadowVs(resolved, pointLayout, pointAtlasSize(), false, capacity),
+                      typedShadowFs,
+                  ],
             { names: "strict", config: stubReceiver },
         ),
         cascade: tgpu.resolve(
@@ -2053,12 +2077,14 @@ export function shadowWgsl(surface: AnySurface, variant = 0): { point: string; c
                                 cascadeLayout,
                                 cascadeAtlasSize(sunResolution(), sunCascades()),
                                 true,
+                                capacity,
                             )
                           : clipShadowVs(
                                 resolved,
                                 cascadeLayout,
                                 cascadeAtlasSize(sunResolution(), sunCascades()),
                                 true,
+                                capacity,
                             ),
                       varying ? varyingShadowFs(resolved) : clipShadowFs(resolved),
                   ]
@@ -2068,6 +2094,7 @@ export function shadowWgsl(surface: AnySurface, variant = 0): { point: string; c
                           cascadeLayout,
                           cascadeAtlasSize(sunResolution(), sunCascades()),
                           true,
+                          capacity,
                       ),
                       typedShadowFs,
                   ],
@@ -2308,14 +2335,14 @@ export function knownVariants(
     return [...variants];
 }
 
-export async function preparePipelines(): Promise<void> {
+export async function preparePipelines(capacity: number): Promise<void> {
     // force each typed pipeline's memo at warm (`root.unwrap` runs the resolve + the sync
     // `createRenderPipeline`) — typegpu defers both to first use, which would otherwise land mid-frame
     // on the first draw and hide a resolution/validation error until then (the force-compile-at-warm
     // lock)
     for (const surface of Surfaces) {
         if (surface.specialize) continue;
-        const t = compileVariant(surface);
+        const t = compileVariant(surface, capacity);
         for (const p of [t.color, t.transparent, t.point, t.cascade, ...t.prepass.values()]) {
             if (p) Compute.root.unwrap(p);
         }

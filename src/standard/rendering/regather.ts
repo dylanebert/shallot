@@ -11,15 +11,15 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { DrawIndexedIndirect } from "../../core/rendering";
-import { Compute, capacity } from "../../engine";
+import { Compute } from "../../engine";
 
 // the re-gather packs each instance's (eid, dense combo index) into one u32 in the re-gathered list — eid in
-// the low COMBO_SHIFT bits, the combo above. The list rides the surface's `eids` binding lane (the heaviest
-// surfaces sit at the 10-storage ceiling, so the combo can't get its own binding). COMBO_SHIFT
-// holds the whole eid range (`capacity`), leaving 32 − COMBO_SHIFT bits for the combo (≫ the combo caps).
-// The packer (Pass B below) and the atlas VS that unpacks it (sear's point/cascade pipelines) share these.
-export const COMBO_SHIFT = Math.ceil(Math.log2(capacity));
-export const EID_MASK = (1 << COMBO_SHIFT) - 1;
+// the low bits, the combo above. The exact split follows the owning world's capacity; Pass B and the atlas
+// vertex stages use the same layout.
+export function eidPacking(capacity: number): { comboShift: number; eidMask: number } {
+    const comboShift = Math.ceil(Math.log2(capacity));
+    return { comboShift, eidMask: 2 ** comboShift - 1 };
+}
 
 // one DrawIndexedIndirect record per casting mesh, written by Pass A: instanceCount = Σ combo
 // survivors, firstInstance = the mesh's base into the re-gathered list. Stride derived from the schema
@@ -36,6 +36,8 @@ let _bLayout: GPUBindGroupLayout | null = null;
 
 let _aWgsl: string | null = null;
 let _bWgsl: string | null = null;
+let _pipelineDevice: GPUDevice | null = null;
+let _pipelineCapacity = 0;
 
 /** Pass A's exact compiled source, exposed lazily for the device-free indirect-record contract test. */
 export const regatherArgsWgsl = (): string =>
@@ -77,7 +79,7 @@ fn main() {
 }`,
     }));
 
-const regatherEidsWgsl = (): string =>
+const regatherEidsWgsl = (comboShift: number): string =>
     (_bWgsl ??= tgpu.resolve({
         names: "strict",
         externals: { DrawIndexedIndirect },
@@ -112,15 +114,23 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
     let dst = shadowArgs[i].firstInstance + off; // the mesh's run base + the combo's within-run offset
     for (var k = 0u; k < cnt; k = k + 1u) {
-        shadowEids[dst + k] = packedEids[src + k] | (c << ${COMBO_SHIFT}u);
+        shadowEids[dst + k] = packedEids[src + k] | (c << ${comboShift}u);
     }
 }`,
     }));
 
 /** compile the shared A/B re-gather pipelines once (idempotent): called from `prepareSear`, folded into its
  * warm `Promise.all`. Every {@link Regather} instance binds against these singleton layouts. */
-export async function prepareRegather(device: GPUDevice): Promise<void> {
-    if (_aPipe) return;
+export async function prepareRegather(device: GPUDevice, capacity: number): Promise<void> {
+    if (_aPipe && _pipelineDevice === device && _pipelineCapacity === capacity) return;
+    _aPipe = null;
+    _bPipe = null;
+    _aLayout = null;
+    _bLayout = null;
+    _aWgsl = null;
+    _bWgsl = null;
+    _pipelineDevice = device;
+    _pipelineCapacity = capacity;
     // Pass A — one thread: for each casting mesh, sum its per-combo culled counts (the spine's drawArgs at
     // each combo slot), exclusive-prefix the totals into per-mesh run bases, and write one DrawIndexedIndirect
     // record (instanceCount = the sum, firstInstance = the base; the static indexCount/firstIndex from any
@@ -175,7 +185,8 @@ export async function prepareRegather(device: GPUDevice): Promise<void> {
         ],
     });
     const aWgsl = regatherArgsWgsl();
-    const bWgsl = regatherEidsWgsl();
+    const { comboShift } = eidPacking(capacity);
+    const bWgsl = regatherEidsWgsl(comboShift);
 
     const [a, b] = await Promise.all([
         device.createComputePipelineAsync({
@@ -214,7 +225,7 @@ export interface Regather {
     /** lazily allocate the packed list (sized `maxCombos × capacity`, the provably-safe bound: each combo
      * view slot holds ≤ capacity culled eids). Fires the `onAlloc` callback registered via
      * {@link Regather.reset} (sear rebuilds the bind groups that bind this lane). Idempotent once allocated. */
-    ensure(maxCombos: number): void;
+    ensure(maxCombos: number, capacity: number): void;
     /** preflight the largest batch before recording any run into an encoder. A run never reallocates this
      * shared output: earlier GPU commands in the same unsubmitted encoder must keep the buffer they captured. */
     reserve(maxDraws: number): void;
@@ -245,6 +256,8 @@ export interface Regather {
  * compiled once via {@link prepareRegather} before {@link Regather.run}. */
 export function createRegather(label: string): Regather {
     let _eids: GPUBuffer | null = null;
+    let _eidCapacity = 0;
+    let _eidCombos = 0;
     let _args: GPUBuffer | null = null;
     let _argsCap = 0;
     let _meta: GPUBuffer[] = [];
@@ -383,8 +396,11 @@ export function createRegather(label: string): Regather {
     return {
         eids: () => _eids,
         args: () => _args,
-        ensure(maxCombos: number): void {
-            if (_eids) return;
+        ensure(maxCombos: number, capacity: number): void {
+            if (_eids && _eidCapacity === capacity && _eidCombos >= maxCombos) return;
+            _eids?.destroy();
+            _eidCapacity = capacity;
+            _eidCombos = maxCombos;
             _eids = Compute.device.createBuffer({
                 label: `sear-${label}-regather-eids`,
                 size: maxCombos * capacity * 4,
@@ -450,6 +466,8 @@ export function createRegather(label: string): Regather {
             // State left behind so a fresh State rebuilds its own
             _eids?.destroy();
             _eids = null;
+            _eidCapacity = 0;
+            _eidCombos = 0;
             _args?.destroy();
             _args = null;
             _argsCap = 0;
@@ -468,6 +486,8 @@ export function createRegather(label: string): Regather {
             for (const buffer of _meta) buffer.destroy();
             for (const buffer of _params) buffer.destroy();
             _eids = null;
+            _eidCapacity = 0;
+            _eidCombos = 0;
             _args = null;
             _argsCap = 0;
             _meta = [];

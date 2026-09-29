@@ -43,7 +43,7 @@ export {
 } from "./reflection";
 export { FIXED_DT, type System, Time } from "./scheduler";
 export { sparse } from "./sparse";
-export { capacity, pixelRatio, State } from "./state";
+export { pixelRatio, State } from "./state";
 export {
     clear,
     entries,
