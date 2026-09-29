@@ -17,6 +17,10 @@ test("binding a component freezes its schema against later mutation", () => {
     expect(() => {
         (Component as Record<string, unknown>).added = sparse(f32);
     }).toThrow();
+    expect(() => {
+        (Component.value as unknown as { type: unknown }).type = vec2;
+    }).toThrow();
+    expect(Object.isFrozen(Component.value)).toBe(true);
 });
 
 test("schema field access reuses cached columns without repeating schema sorts", () => {

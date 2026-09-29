@@ -9,8 +9,9 @@ import {
 
 const SCENE = resolve(import.meta.dir, "../public/scenes/first-person.scene");
 
-// Stage 3 owns the known `Slab.flush` and `Slab.pack` allocations in `src/transitional/slab/index.ts`;
-// keep this claim runnable but quarantined until the steady-upload check replaces them.
+// Stage 4 owns the `Slab.flush`, `Slab.pack`, and `flushWorldSlabs` allocations in
+// `src/transitional/slab/index.ts`, including the upload path's `column.subarray` view.
+// Keep this claim runnable but quarantined until the Stage 4 Slab replacement removes them.
 test.todo("a warm fixed step of the actual first-person GPU-backed gameplay composition allocates no JavaScript heap, so no periodic scavenge follows play", async () => {
     // 6,000 frames: the once-per-escape refit path (`commitRefit`, the fat-AABB write, the tree enlarge)
     // is called about once a frame, so it reaches TurboFan late; at 1,200 it runs Maglev code inside

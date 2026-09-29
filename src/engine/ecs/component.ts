@@ -29,7 +29,10 @@ export function useState(state: { of(component: Component): Record<string, unkno
 export function bindFields(component: Component): void {
     for (const name of Object.keys(component)) {
         const field = component[name];
-        if (isFieldSchema(field)) owners.set(field, { component, name });
+        if (isFieldSchema(field)) {
+            Object.freeze(field);
+            owners.set(field, { component, name });
+        }
     }
     Object.freeze(component);
 }
