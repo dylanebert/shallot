@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import * as d from "typegpu/data";
 import { build, type Plugin } from "../app";
+import { field, u32 } from "../index";
 import type { State } from "./state";
 
 const peerModule = "bun-webgpu";
@@ -8,6 +9,7 @@ const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise
 await setupGlobals();
 
 const UPLOAD_RECORD = d.struct({ value: d.u32, tag: d.u32 });
+const MEMORY_RECORD = d.struct({ world: d.mat4x4f });
 
 function bounded<T>(label: string, promise: PromiseLike<T>, timeout = 5_000): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -694,6 +696,114 @@ test("measure dense table range uploads at 0.1%, 10%, and 100% changed", async (
 
         console.info(
             `[gpu-table-upload-perf] median ms; columns=rows,changed,changedRows,submit,queueCycle\n${results.join("\n")}`,
+        );
+    } finally {
+        app.dispose();
+    }
+}, 10_000);
+
+test("measure dense table GPU memory at 1% and 100% population", async () => {
+    let state!: State;
+    const plugin: Plugin = {
+        name: "TableMemoryProbe",
+        initialize(current) {
+            state = current;
+        },
+    };
+    const app = await build({ defaults: false, plugins: [plugin] });
+
+    try {
+        const { class: adapterClass, identity } = state.gpu.adapter;
+        console.info(`[gpu-table-memory] adapter class=${adapterClass} identity=${identity}`);
+        expect(adapterClass).toBe("real");
+        const device = state.gpu.device;
+        const results: string[] = [];
+        for (const entityCount of [1_000, 10_000, 100_000]) {
+            for (const fraction of [0.01, 1]) {
+                const population = Math.max(1, Math.floor(entityCount * fraction));
+                for (const usesMap of [false, true]) {
+                    const table = state.table(
+                        `table-memory-${entityCount}-${fraction}-${usesMap}`,
+                        MEMORY_RECORD,
+                    );
+                    for (let item = 0; item < population; item++) {
+                        table.acquire(Math.floor((item * entityCount) / population));
+                    }
+                    if (usesMap) table.enableEidLookup();
+                    device.pushErrorScope("validation");
+                    table.upload();
+                    await bounded(
+                        `table memory ${entityCount} ${fraction} ${usesMap} queue completion`,
+                        device.queue.onSubmittedWorkDone(),
+                    );
+                    const error = await bounded(
+                        `table memory ${entityCount} ${fraction} ${usesMap} validation scope`,
+                        device.popErrorScope(),
+                    );
+                    if (error) throw new Error(`table memory setup: ${error.message}`);
+                    const initialMapBytes = table.lastMapUploadBytes;
+                    device.pushErrorScope("validation");
+                    table.upload();
+                    await bounded(
+                        `table memory steady upload ${entityCount} ${fraction} ${usesMap}`,
+                        device.queue.onSubmittedWorkDone(),
+                    );
+                    const steadyError = await bounded(
+                        `table memory steady validation ${entityCount} ${fraction} ${usesMap}`,
+                        device.popErrorScope(),
+                    );
+                    if (steadyError)
+                        throw new Error(`table memory steady upload: ${steadyError.message}`);
+                    expect(table.lastMapUploadBytes).toBe(0);
+                    const records = table.buffer.size;
+                    const active = table.activeRowsBuffer!.size;
+                    const map = table.eidToRowBuffer?.size ?? 0;
+                    results.push(
+                        `${entityCount},${(fraction * 100).toFixed(0)}%,${population},${table.rowBytes},${table.capacity},${records},${active},${map},${records + active + map},${initialMapBytes},${table.lastMapUploadBytes}`,
+                    );
+                }
+            }
+        }
+        console.info(
+            `[gpu-table-memory] allocated GPU bytes; columns=entityRange,population,populated,recordBytes,slotCapacity,records,activeList,eidMap,total,initialMapUpload,steadyMapUpload\n${results.join("\n")}`,
+        );
+    } finally {
+        app.dispose();
+    }
+}, 10_000);
+
+test("measure component setter overhead against direct column writes", async () => {
+    let state!: State;
+    const Setter = { value: field(u32) };
+    const count = 100_000;
+    const plugin: Plugin = {
+        name: "TableSetterCostProbe",
+        components: { Setter },
+        initialize(current) {
+            state = current;
+        },
+    };
+    const app = await build({ defaults: false, capacity: count + 1, plugins: [plugin] });
+
+    try {
+        const { class: adapterClass, identity } = state.gpu.adapter;
+        console.info(`[gpu-table-setter] adapter class=${adapterClass} identity=${identity}`);
+        expect(adapterClass).toBe("real");
+        const eids = Array.from({ length: count }, () => state.create());
+        const value = state.of(Setter).value;
+        const setterTimes: number[] = [];
+        const directTimes: number[] = [];
+        for (let repeat = 0; repeat < 7; repeat++) {
+            let start = performance.now();
+            for (let i = 0; i < count; i++) value.set(eids[i], i + repeat);
+            setterTimes.push(performance.now() - start);
+            const column = value.column;
+            start = performance.now();
+            for (let i = 0; i < count; i++) column[eids[i]] = i + repeat;
+            directTimes.push(performance.now() - start);
+        }
+        console.info(
+            `[gpu-table-setter] median ms per ${count} writes; setter=${median(setterTimes).toFixed(4)} direct-column=${median(directTimes).toFixed(4)} samplesSetter=${setterTimes.map((time) => time.toFixed(3)).join("/")} samplesDirect=${directTimes.map((time) => time.toFixed(3)).join("/")}`,
         );
     } finally {
         app.dispose();
