@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { State, Time } from "../../engine";
-import { Compute, observeDevice } from "../../engine/runtime/gpu";
+import { Compute, observeDevice, withCompute, withComputeAsync } from "../../engine/runtime/gpu";
 import { Mirror, mirror as makeMirror } from "./index";
 
 function restoreProperty(
@@ -21,28 +21,38 @@ async function withGpuMirror(
     const adapter = await navigator.gpu?.requestAdapter();
     if (!adapter) throw new Error("GPU check has no WebGPU adapter");
     const device = await adapter.requestDevice();
-    const deviceDescriptor = Object.getOwnPropertyDescriptor(Compute, "device");
-    const frameDescriptor = Object.getOwnPropertyDescriptor(Compute, "frame");
-    Object.assign(Compute, { device, frame: 0 });
     observeDevice(device, () => {});
-    Mirror.reset();
     const state = new State();
+    const compute = {
+        device,
+        frame: 0,
+        adapter: { class: "test", identity: "test" },
+        root: { unwrap: (buffer: GPUBuffer) => buffer },
+        pending: () => 0,
+        sync: async () => {},
+        buffers: new Map<string, GPUBuffer>(),
+        textures: new Map<string, GPUTexture>(),
+        samplers: new Map<string, GPUSampler>(),
+        typed: new Map<string, unknown>(),
+    };
+    state.attachGpu(compute as unknown as Parameters<State["attachGpu"]>[0], (callback) =>
+        withCompute(compute, callback),
+    );
+    Mirror.reset(state);
     const source = device.createBuffer({
         label: "mirror-contract-source",
         size: 16,
         usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     });
-    const subject = makeMirror(source, { ring: 1 });
+    const subject = withCompute(compute, () => makeMirror(state, source, { ring: 1 }));
     try {
-        await body(state, device, source, subject);
+        await withComputeAsync(compute, () => body(state, device, source, subject));
     } finally {
         subject.dispose();
         source.destroy();
-        Mirror.reset();
+        Mirror.reset(state);
         state.dispose();
         device.destroy();
-        restoreProperty(Compute, "device", deviceDescriptor);
-        restoreProperty(Compute, "frame", frameDescriptor);
     }
 }
 

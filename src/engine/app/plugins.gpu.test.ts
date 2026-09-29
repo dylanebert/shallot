@@ -1,31 +1,77 @@
 import { expect, test } from "bun:test";
+import { resolve } from "node:path";
 import {
+    AmbientLight,
+    attachCanvas,
+    Backgrounds,
+    Camera,
+    DirectionalLight,
+    PointLight,
+    Resolution,
+    Spot,
+    Views,
+    Volumetric,
+} from "../../core/rendering";
+import {
+    Arrow,
     CellsPlugin,
+    cellsGridFor,
+    Fog,
     FogPlugin,
     GltfPlugin,
+    Line,
     LinesPlugin,
     liveSkin,
+    loadGltf,
+    Orbit,
     OrbitOverlayPlugin,
     OrbitPlugin,
+    Outline,
     OutlinePlugin,
     PhysicsProfilePlugin,
+    Player,
     PlayerPlugin,
     ProfilePlugin,
+    placeScene,
     Skin,
     SkinPlugin,
+    Sky,
     SkyPlugin,
+    Sprite,
     SpritePlugin,
+    Text,
     TextPlugin,
+    text,
 } from "../../extras";
-import { Color, DEFAULT_PLUGINS, PartPlugin } from "../../standard";
-import { AudioPlugin } from "../../transitional/audio";
-import { BvhPlugin } from "../../transitional/bvh";
-import { CharacterPlugin } from "../../transitional/character";
-import { MirrorPlugin } from "../../transitional/mirror";
+import {
+    Color,
+    DEFAULT_PLUGINS,
+    Glaze,
+    Part,
+    PartPlugin,
+    Transform,
+    TransformsPlugin,
+} from "../../standard";
+import {
+    Backdrop,
+    cascadeComboEids,
+    Depth,
+    Material,
+    pointComboEids,
+    Sear,
+    Shadow,
+    Tag,
+} from "../../standard/rendering";
+import { AudioPlugin, Listener, Sound } from "../../transitional/audio";
+import { type Bvh, BvhPlugin, createBvh } from "../../transitional/bvh";
+import { Character, CharacterPlugin, pose } from "../../transitional/character";
+import { type Mirror, MirrorPlugin, mirror } from "../../transitional/mirror";
 import {
     Body,
     hash as hashPhysics,
+    Joint,
     PhysicsPlugin,
+    Pose,
     physicsWorld,
     readBody,
     restore as restorePhysics,
@@ -34,8 +80,8 @@ import {
     setVelocity,
     snapshot as snapshotPhysics,
 } from "../../transitional/physics";
-import type { World } from "../../transitional/physics/api";
 import { Compute, type Plugin, type State, Time } from "../index";
+import { withCompute } from "../runtime";
 import { build } from "./index";
 
 const everyPlugin: readonly Plugin[] = [
@@ -65,10 +111,96 @@ const peerModule = "bun-webgpu";
 const peer = (await import(peerModule)) as Record<string, unknown> & {
     setupGlobals(): Promise<void>;
 };
-await peer.setupGlobals();
+await withTimeout("WebGPU global setup", peer.setupGlobals(), 4_000);
+const createCanvasContext = peer.GPUCanvasContextMock as new (
+    canvas: HTMLCanvasElement,
+    width: number,
+    height: number,
+) => GPUCanvasContext;
+if (typeof ResizeObserver === "undefined") {
+    globalThis.ResizeObserver = class {
+        observe() {}
+        disconnect() {}
+    } as unknown as typeof ResizeObserver;
+}
+
+function withTimeout<T>(label: string, promise: PromiseLike<T> | T, timeoutMs: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(
+            () => reject(new Error(`${label} timed out after ${timeoutMs} ms`)),
+            timeoutMs,
+        );
+        Promise.resolve(promise).then(
+            (value) => {
+                clearTimeout(timer);
+                resolve(value);
+            },
+            (error: unknown) => {
+                clearTimeout(timer);
+                reject(new Error(`${label} rejected: ${String(error)}`, { cause: error }));
+            },
+        );
+    });
+}
+
+function watchDevice(device: GPUDevice) {
+    let firstError: string | null = null;
+    const waiters = new Set<(message: string) => void>();
+    const uncaptured = (event: Event) => {
+        event.preventDefault();
+        const error = (event as GPUUncapturedErrorEvent).error;
+        const kind = error.constructor.name || "GPUError";
+        firstError ??= `${kind}: ${error.message}`;
+        for (const reject of waiters) reject(firstError);
+    };
+    device.addEventListener("uncapturederror", uncaptured);
+    return {
+        wait<T>(label: string, promise: PromiseLike<T> | T, timeoutMs = 1_500): Promise<T> {
+            if (firstError)
+                return Promise.reject(new Error(`${label}: uncaptured GPU error: ${firstError}`));
+            return new Promise<T>((resolve, reject) => {
+                const cleanup = () => {
+                    clearTimeout(timer);
+                    waiters.delete(onError);
+                };
+                const onError = (message: string) => {
+                    cleanup();
+                    reject(new Error(`${label}: uncaptured GPU error: ${message}`));
+                };
+                const timer = setTimeout(() => {
+                    cleanup();
+                    reject(new Error(`${label} timed out after ${timeoutMs} ms`));
+                }, timeoutMs);
+                waiters.add(onError);
+                Promise.resolve(promise).then(
+                    (value) => {
+                        cleanup();
+                        if (firstError)
+                            reject(new Error(`${label}: uncaptured GPU error: ${firstError}`));
+                        else resolve(value);
+                    },
+                    (error: unknown) => {
+                        cleanup();
+                        reject(new Error(`${label} rejected: ${String(error)}`, { cause: error }));
+                    },
+                );
+            });
+        },
+        check(label: string): void {
+            if (firstError) throw new Error(`${label}: uncaptured GPU error: ${firstError}`);
+        },
+        dispose(): void {
+            device.removeEventListener("uncapturederror", uncaptured);
+        },
+    };
+}
 
 async function trackedDevice() {
-    const adapter = await navigator.gpu.requestAdapter();
+    const adapter = await withTimeout(
+        "Dawn adapter request",
+        navigator.gpu.requestAdapter(),
+        1_500,
+    );
     if (!adapter) throw new Error("Dawn adapter unavailable");
     const requiredLimits: Record<string, number> = { maxStorageBuffersPerShaderStage: 10 };
     for (const limit of [
@@ -79,10 +211,15 @@ async function trackedDevice() {
     ] as const) {
         if (adapter.limits[limit] === 0) requiredLimits[limit] = 0;
     }
-    const device = await adapter.requestDevice({
-        requiredFeatures: ["bgra8unorm-storage", "rg11b10ufloat-renderable", "timestamp-query"],
-        requiredLimits,
-    });
+    const device = await withTimeout(
+        "Dawn device request",
+        adapter.requestDevice({
+            requiredFeatures: ["bgra8unorm-storage", "rg11b10ufloat-renderable", "timestamp-query"],
+            requiredLimits,
+        }),
+        1_500,
+    );
+    const watch = watchDevice(device);
     const live = new Set<GPUBuffer | GPUTexture>();
     const createBuffer = device.createBuffer.bind(device);
     const createTexture = device.createTexture.bind(device);
@@ -114,7 +251,7 @@ async function trackedDevice() {
             },
         },
     });
-    return { device, live };
+    return { device, live, watch };
 }
 
 function addBody(state: State, y: number): number {
@@ -138,102 +275,306 @@ function addSpring(state: State, a: number, b: number): void {
     spring.rest.set(eid, 1);
 }
 
-function skinSeedPlugin(): Plugin {
+function addJoint(state: State, a: number, b: number): void {
+    const eid = state.create();
+    state.add(eid, Joint);
+    const joint = state.of(Joint);
+    joint.a.set(eid, a);
+    joint.b.set(eid, b);
+}
+
+function expectStateViews(state: State, eids: number[]): void {
+    expect(eids.length).toBeGreaterThan(0);
+    expect(withCompute(state.gpu, () => eids.every((eid) => Views.get(eid) !== undefined))).toBe(
+        true,
+    );
+}
+
+async function stepGpuWorld(
+    state: State,
+    label: string,
+    tracked: Awaited<ReturnType<typeof trackedDevice>>,
+): Promise<void> {
+    state.step(Time.FIXED_DT);
+    await tracked.watch.wait(
+        `${label} frame submission`,
+        tracked.device.queue.onSubmittedWorkDone(),
+    );
+    tracked.watch.check(`${label} frame submission`);
+}
+
+async function waitForMirrorMap(mirror: Mirror): Promise<void> {
+    const deadline = Date.now() + 1_000;
+    while (!mirror.snapshot) {
+        if (Date.now() >= deadline)
+            throw new Error("Mirror mapAsync did not produce a snapshot in 1000 ms");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+}
+
+interface IsolationResources {
+    camera: number;
+    actor: number;
+    mirror: Mirror | null;
+    bvh: Bvh | null;
+    gltfInstances: number[];
+}
+
+const isolationKey = Symbol("gpu-isolation");
+const createIsolationResources = (): IsolationResources => ({
+    camera: -1,
+    actor: -1,
+    mirror: null,
+    bvh: null,
+    gltfInstances: [],
+});
+
+function featurePlugin(): Plugin {
     return {
-        name: "GpuIsolationSkinSeed",
-        dependencies: [PartPlugin, SkinPlugin],
+        name: "GpuIsolationFeatureSeed",
+        dependencies: [
+            PartPlugin,
+            SkinPlugin,
+            MirrorPlugin,
+            TransformsPlugin,
+            GltfPlugin,
+            SkyPlugin,
+        ],
         initialize(state) {
-            const eid = state.create();
-            state.add(eid, Color);
-            state.add(eid, Skin);
+            const resources = state.resource(isolationKey, createIsolationResources);
+            let context: GPUCanvasContext;
+            const canvas = {
+                width: 32,
+                height: 24,
+                style: { imageRendering: "auto" },
+                getContext(kind: string) {
+                    return kind === "webgpu" ? context : null;
+                },
+                getBoundingClientRect() {
+                    return { width: 32, height: 24 };
+                },
+            } as unknown as HTMLCanvasElement;
+            context = new createCanvasContext(canvas, canvas.width, canvas.height);
+
+            const camera = state.create();
+            resources.camera = camera;
+            state.add(camera, Transform);
+            state.add(camera, Camera);
+            state.add(camera, Resolution);
+            state.add(camera, Sear);
+            state.add(camera, Tag);
+            state.add(camera, Depth);
+            state.add(camera, Backdrop);
+            state.add(camera, Glaze);
+            state.add(camera, Orbit);
+            state.add(camera, Listener);
+            Transform.pos.set(camera, 0, 4, 12, 0);
+            Backdrop.name.set(camera, Backgrounds.id("sky") ?? 0);
+            attachCanvas(camera, canvas, state);
+
+            const ambient = state.create();
+            state.add(ambient, AmbientLight);
+            const sun = state.create();
+            state.add(sun, DirectionalLight);
+            state.add(sun, Shadow);
+            state.add(sun, Volumetric);
+            const point = state.create();
+            state.add(point, Transform);
+            state.add(point, PointLight);
+            state.add(point, Spot);
+            state.add(point, Shadow);
+            state.add(point, Volumetric);
+            Transform.pos.set(point, 1, 2, 1, 0);
+
+            const sky = state.create();
+            state.add(sky, Sky);
+            const fog = state.create();
+            state.add(fog, Fog);
+
+            const part = state.create();
+            state.add(part, Transform);
+            state.add(part, Part);
+            state.add(part, Color);
+            state.add(part, Material);
+            state.add(part, Outline);
+            state.add(part, Skin);
+            Transform.pos.set(part, 0, 1, 0, 0);
+            Color.rgba.set(part, 0.8, 0.25, 0.1, 1);
+            Material.params.set(part, 0.1, 0.6, 0, 1);
             const skin = liveSkin(state);
-            Skin.anim.x.set(eid, skin.alloc(eid, 1, state.stamp(eid)));
+            Skin.anim.x.set(part, skin.alloc(part, 1, state.stamp(part)));
             skin.flush(Compute.device);
+
+            const line = state.create();
+            state.add(line, Transform);
+            state.add(line, Line);
+            state.add(line, Arrow);
+            Transform.pos.set(line, -1, 0, 0, 0);
+
+            const sprite = state.create();
+            state.add(sprite, Transform);
+            state.add(sprite, Sprite);
+            Transform.pos.set(sprite, 1, 0, 0, 0);
+
+            const label = state.create();
+            state.add(label, Transform);
+            state.add(label, Text);
+            Transform.pos.set(label, 0, 2, 0, 0);
+            Text.content.set(label, text("isolation"));
+
+            const sound = state.create();
+            state.add(sound, Sound);
+
+            const actor = state.create();
+            resources.actor = actor;
+            state.add(actor, Body);
+            state.add(actor, Character);
+            state.add(actor, Player);
+            Body.shape.set(actor, ShapeKind.Capsule);
+            Body.pos.set(actor, 0, 2, 2, 0);
+            Body.halfExtents.set(actor, 0, 0.6, 0, 0.35);
+            Body.mass.set(actor, 0);
+            Player.camera.set(actor, camera);
+
+            const transforms = Compute.buffers.get("transforms");
+            if (!transforms) throw new Error("Transforms did not publish their buffer");
+            resources.mirror = mirror(state, transforms);
+        },
+        async warm(state) {
+            const resources = state.resource(isolationKey, createIsolationResources);
+            const imported = await loadGltf(
+                state,
+                resolve(import.meta.dir, "../../transitional/gltf/fixtures/box-meshopt.glb"),
+            );
+            resources.gltfInstances = placeScene(state, imported);
+            const device = Compute.device;
+            const bvh = await createBvh(device, 2);
+            device.queue.writeBuffer(
+                bvh.prims,
+                0,
+                new Float32Array([0, 0, 0, 0, 1, 1, 1, 0, 2, 0, 0, 0, 3, 1, 1, 0]),
+            );
+            device.queue.writeBuffer(bvh.count, 0, new Uint32Array([2]));
+            const encoder = device.createCommandEncoder({ label: "gpu-isolation-bvh" });
+            bvh.build(encoder);
+            device.queue.submit([encoder.finish()]);
+            resources.bvh = bvh;
+        },
+        dispose(state) {
+            const resources = state.resource(isolationKey, createIsolationResources);
+            resources.mirror?.dispose();
+            resources.mirror = null;
+            resources.bvh?.destroy();
+            resources.bvh = null;
         },
     };
 }
 
-test("every exported plugin isolates two live worlds through snapshot, restore and disposal", async () => {
+async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
     const firstDevice = await trackedDevice();
-    const secondDevice = await trackedDevice();
-    const seed = skinSeedPlugin();
+    const secondDevice = sharedDevice ? firstDevice : await trackedDevice();
+    const seed = featurePlugin();
     let first: Awaited<ReturnType<typeof build>> | undefined;
     let second: Awaited<ReturnType<typeof build>> | undefined;
-    let firstWorld: World | null = null;
-    let saved: Uint8Array | undefined;
     try {
-        first = await build({
-            defaults: false,
-            plugins: [...everyPlugin, seed],
-            device: firstDevice.device,
-        });
+        first = await firstDevice.watch.wait(
+            "first world build",
+            build({
+                defaults: false,
+                plugins: [...everyPlugin, seed],
+                device: firstDevice.device,
+            }),
+            1_500,
+        );
+        const firstFeatures = first.state.resource(isolationKey, createIsolationResources);
         const firstA = addBody(first.state, 2);
         const firstB = addBody(first.state, 3);
         addSpring(first.state, firstA, firstB);
+        addJoint(first.state, firstA, firstB);
+        Body.pos.y.set(firstFeatures.actor, 4);
 
-        let armed = false;
-        let peerState: State | undefined;
-        const firstSnapshot = { hash: 0n, body: null as ReturnType<typeof readBody> };
-        const probe: Plugin = {
-            name: "GpuIsolationPhysicsProbe",
-            systems: [
-                {
-                    name: "GpuIsolationPhysicsProbe",
-                    group: "fixed",
-                    update(state) {
-                        if (!armed || state !== peerState) return;
-                        armed = false;
-                        const peerBody = readBody(state, peerBodyEid);
-                        const peerHash = hashPhysics(state);
-                        expect(readBody(first!.state, firstA)).toEqual(firstSnapshot.body);
-                        expect(hashPhysics(first!.state)).toBe(firstSnapshot.hash);
-
-                        firstWorld = physicsWorld(first!.state);
-                        saved = snapshotPhysics(first!.state);
-                        expect(() => restorePhysics(state, saved!)).toThrow(
-                            "physics: unknown world snapshot",
-                        );
-                        setVelocity(first!.state, firstA, 7, 0, 0);
-                        expect(readBody(first!.state, firstA)?.vel[0]).toBeCloseTo(7);
-                        restorePhysics(first!.state, saved!);
-
-                        expect(hashPhysics(first!.state)).toBe(firstSnapshot.hash);
-                        expect(readBody(first!.state, firstA)).toEqual(firstSnapshot.body);
-                        expect(hashPhysics(state)).toBe(peerHash);
-                        expect(readBody(state, peerBodyEid)).toEqual(peerBody);
-                        expect(physicsWorld(first!.state)?.getCounters().jointCount).toBe(1);
-                        expect(physicsWorld(state)?.getCounters().jointCount).toBe(1);
-                    },
-                },
-            ],
-        };
-        second = await build({
-            defaults: false,
-            plugins: [...everyPlugin, seed, probe],
-            device: secondDevice.device,
-        });
+        second = await secondDevice.watch.wait(
+            "second world build",
+            build({
+                defaults: false,
+                plugins: [...everyPlugin, seed],
+                device: secondDevice.device,
+            }),
+            1_500,
+        );
+        const secondFeatures = second.state.resource(isolationKey, createIsolationResources);
         const peerA = addBody(second.state, 20);
-        const peerBodyEid = addBody(second.state, 21);
-        addSpring(second.state, peerA, peerBodyEid);
-        peerState = second.state;
+        const peerB = addBody(second.state, 21);
+        addSpring(second.state, peerA, peerB);
+        addJoint(second.state, peerA, peerB);
+        Body.pos.y.set(secondFeatures.actor, 8);
 
-        for (let i = 0; i < 8; i++) {
-            first.state.step(Time.FIXED_DT);
-            second.state.step(Time.FIXED_DT);
+        await stepGpuWorld(first.state, "first world", firstDevice);
+        await stepGpuWorld(second.state, "second world", secondDevice);
+        await firstDevice.watch.wait(
+            "first-world Mirror mapAsync",
+            waitForMirrorMap(firstFeatures.mirror!),
+        );
+        await secondDevice.watch.wait(
+            "second-world Mirror mapAsync",
+            waitForMirrorMap(secondFeatures.mirror!),
+        );
+        firstDevice.watch.check("first world GPU work");
+        secondDevice.watch.check("second world GPU work");
+        expect(physicsWorld(first.state)?.getCounters().jointCount).toBe(2);
+        expect(physicsWorld(second.state)?.getCounters().jointCount).toBe(2);
+        const firstHash = hashPhysics(first.state);
+        const firstBody = readBody(first.state, firstA);
+        if (!firstBody) throw new Error("first Physics body did not become live");
+        const siblingHash = hashPhysics(second.state);
+        const siblingBody = readBody(second.state, peerA);
+        const saved = snapshotPhysics(first.state);
+        setVelocity(first.state, firstA, 7, 0, 0);
+        expect(readBody(first.state, firstA)?.vel[0]).toBeCloseTo(7);
+        restorePhysics(first.state, saved);
+        expect(hashPhysics(first.state)).toBe(firstHash);
+        expect(readBody(first.state, firstA)).toEqual(firstBody);
+        expect(hashPhysics(second.state)).toBe(siblingHash);
+        expect(readBody(second.state, peerA)).toEqual(siblingBody);
+
+        const firstActorPose = [0, 0, 0] as [number, number, number];
+        const secondActorPose = [0, 0, 0] as [number, number, number];
+        expect(pose(first.state, firstFeatures.actor, firstActorPose)).toBe(true);
+        expect(pose(second.state, secondFeatures.actor, secondActorPose)).toBe(true);
+        expect(firstActorPose[1]).not.toBe(secondActorPose[1]);
+        expect(firstFeatures.gltfInstances.length).toBeGreaterThan(0);
+        expect(secondFeatures.gltfInstances.length).toBeGreaterThan(0);
+        expect(firstFeatures.bvh).not.toBeNull();
+        expect(secondFeatures.bvh).not.toBeNull();
+        expect(firstFeatures.mirror?.allocated).toBeGreaterThan(0);
+        expect(secondFeatures.mirror?.allocated).toBeGreaterThan(0);
+        expectStateViews(first.state, cascadeComboEids(first.state));
+        expectStateViews(second.state, cascadeComboEids(second.state));
+        expectStateViews(first.state, pointComboEids(first.state));
+        expectStateViews(second.state, pointComboEids(second.state));
+        expect([...first.state.query([Pose])].length).toBeGreaterThan(0);
+        expect([...second.state.query([Pose])].length).toBeGreaterThan(0);
+        expect(
+            withCompute(first.state.gpu, () => cellsGridFor(firstFeatures.camera)),
+        ).toBeDefined();
+        expect(
+            withCompute(second.state.gpu, () => cellsGridFor(secondFeatures.camera)),
+        ).toBeDefined();
+
+        for (const key of ["skinData", "spriteData", "textGlyphs", "lineSegments", "sky"]) {
+            const a = first.state.gpu.buffers.get(key);
+            const b = second.state.gpu.buffers.get(key);
+            expect(a).toBeDefined();
+            expect(b).toBeDefined();
+            expect(a).not.toBe(b);
         }
-        expect(physicsWorld(first.state)?.getCounters().jointCount).toBe(1);
-        expect(physicsWorld(second.state)?.getCounters().jointCount).toBe(1);
-        firstSnapshot.hash = hashPhysics(first.state);
-        firstSnapshot.body = readBody(first.state, firstA);
-        if (!firstSnapshot.body) throw new Error("first Physics body did not become live");
-
-        armed = true;
-        second.state.step(Time.FIXED_DT);
-        expect(armed).toBe(false);
 
         const peerHashBeforeDispose = hashPhysics(second.state);
         const peerBodyBeforeDispose = readBody(second.state, peerA);
-        const peerResources = new Set(secondDevice.live);
+        const peerResources = new Set<GPUBuffer | GPUTexture>([
+            ...second.state.gpu.buffers.values(),
+            ...second.state.gpu.textures.values(),
+        ]);
         const peerRegistries = {
             buffers: [...second.state.gpu.buffers],
             textures: [...second.state.gpu.textures],
@@ -252,20 +593,29 @@ test("every exported plugin isolates two live worlds through snapshot, restore a
         expect(hashPhysics(second.state)).toBe(peerHashBeforeDispose);
         expect(readBody(second.state, peerA)).toEqual(peerBodyBeforeDispose);
         expect(secondDevice.live.has(skinData as GPUBuffer)).toBe(true);
-        second.state.step(Time.FIXED_DT);
-        expect(readBody(second.state, peerA)?.pos[1]).toBeLessThan(
-            peerBodyBeforeDispose?.pos[1] ?? 0,
-        );
-
-        const oldWorld = firstWorld as unknown as {
-            restore(snapshot: Uint8Array): void;
-        } | null;
-        expect(oldWorld).not.toBeNull();
-        expect(() => oldWorld!.restore(saved!)).toThrow("physics: unknown world snapshot");
+        await stepGpuWorld(second.state, "second world after sibling disposal", secondDevice);
+        expect(readBody(second.state, peerA)).not.toEqual(peerBodyBeforeDispose);
     } finally {
-        second?.dispose();
-        first?.dispose();
+        try {
+            second?.dispose();
+            first?.dispose();
+        } finally {
+            firstDevice.watch.dispose();
+            firstDevice.device.destroy();
+            if (!sharedDevice) {
+                secondDevice.watch.dispose();
+                secondDevice.device.destroy();
+            }
+        }
     }
     expect(firstDevice.live.size).toBe(0);
-    expect(secondDevice.live.size).toBe(0);
-}, 60_000);
+    if (!sharedDevice) expect(secondDevice.live.size).toBe(0);
+}
+
+test("plugin-owned components and GPU paths stay isolated on a shared device", async () => {
+    await exerciseIsolationPair(true);
+}, 2_000);
+
+test("plugin-owned components and GPU paths stay isolated on separate devices", async () => {
+    await exerciseIsolationPair(false);
+}, 2_000);

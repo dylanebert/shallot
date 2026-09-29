@@ -227,12 +227,12 @@ export const cellFragment = tgpu
     .$name("cellsFs");
 
 interface DrawState {
-    pipeline: TgpuRenderPipeline<d.Vec4f> | null;
+    pipelines: Map<GPUTextureFormat, TgpuRenderPipeline<d.Vec4f>>;
     paramsBuffer: ReturnType<typeof allocParams> | null;
 }
 
 const drawStateKey = Symbol("shallot.cells-draw");
-const createDrawState = (): DrawState => ({ pipeline: null, paramsBuffer: null });
+const createDrawState = (): DrawState => ({ pipelines: new Map(), paramsBuffer: null });
 const drawState = () => worldResource(drawStateKey, createDrawState);
 
 export function initializeDrawState(state: State): void {
@@ -255,27 +255,30 @@ function paramsBuffer() {
     return state.paramsBuffer;
 }
 
-/** the draw pipeline, over `Render.format` (the offscreen's HDR format — `view.framebuffer` targets
- *  match it exactly, `core/rendering/view.ts`'s `offscreen()`). Memoized; a re-adopted device needs a
- *  fresh one ({@link resetDrawPipeline}). @internal */
-export function drawPipeline(): TgpuRenderPipeline<d.Vec4f> {
+/** the draw pipeline, keyed by the current framebuffer format: scene-transform effects may redirect a
+ *  view to an rgba16float scratch instead of the renderer's `Render.format`. @internal */
+export function drawPipeline(
+    format: GPUTextureFormat = Render.format,
+): TgpuRenderPipeline<d.Vec4f> {
     const state = drawState();
-    if (state.pipeline) return state.pipeline;
-    state.pipeline = Compute.root
+    let pipeline = state.pipelines.get(format);
+    if (pipeline) return pipeline;
+    pipeline = Compute.root
         .createRenderPipeline({
             vertex: cellVertex,
             fragment: cellFragment,
-            targets: { format: Render.format },
+            targets: { format },
             primitive: { topology: "triangle-list", cullMode: "none" },
         })
-        .$name("cells-draw");
-    return state.pipeline;
+        .$name(`cells-draw-${format}`);
+    state.pipelines.set(format, pipeline);
+    return pipeline;
 }
 
 /** drop the memoized draw pipeline + params buffer. @internal */
 export function resetDrawPipeline(): void {
     const state = drawState();
-    state.pipeline = null;
+    state.pipelines.clear();
     state.paramsBuffer?.destroy();
     state.paramsBuffer = null;
 }
@@ -305,6 +308,7 @@ export function drawCells(
     rows: number,
     viewW: number,
     viewH: number,
+    targetFormat: GPUTextureFormat = Render.format,
 ): void {
     const params = paramsBuffer();
     params.write({ cols, rows, viewW, viewH });
@@ -328,7 +332,7 @@ export function drawCells(
             },
         ],
     });
-    drawPipeline()
+    drawPipeline(targetFormat)
         .with(group)
         .with(pass)
         .draw(6, cols * rows);

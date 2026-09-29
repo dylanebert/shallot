@@ -797,6 +797,7 @@ function ensureCascadeAtlas(): void {
  * `forward.ts`'s resolved draw list (`PrepassSystem`), shared with the color pass.
  */
 export function renderPointShadows(
+    state: State,
     frameDraws: { draw: Draw; r: Recorded }[],
     frameCount: number,
     capacity: number,
@@ -843,7 +844,7 @@ export function renderPointShadows(
     Compute.device.queue.writeBuffer(_atlas.pointParams!, 0, _atlas.pointBuf);
     _atlas.pointCleared = false;
     // the per-(caster, face) tile rects (sparse, slot·6 + face) the receiver samples + the VS discards by
-    const tileRects = pointTileRects();
+    const tileRects = pointTileRects(state);
     Compute.device.queue.writeBuffer(
         _atlas.pointTileRects!,
         0,
@@ -854,10 +855,10 @@ export function renderPointShadows(
     // the combo viewProjs the VS projects by + their (caster, face) meta (dense, CPU-side in updatePointShadows).
     // A missing combo view (wiring bug) is skipped — comboViewSlots writes the survivors' slots + original
     // indices so we compact faceVP/comboMeta to the new dense index space the re-gather's combo index uses
-    const combos = pointComboEids();
+    const combos = pointComboEids(state);
     const C = comboViewSlots(combos, _atlas.comboSlots, _atlas.comboIndices);
-    const faceVP = pointFaceVP();
-    const comboMeta = pointComboMeta();
+    const faceVP = pointFaceVP(state);
+    const comboMeta = pointComboMeta(state);
     if (C === combos.length) {
         // no misses — upload the full arrays as before
         Compute.device.queue.writeBuffer(
@@ -997,13 +998,14 @@ export function renderPointShadows(
  * shared with the color pass.
  */
 export function renderCascades(
+    state: State,
     frameDraws: { draw: Draw; r: Recorded }[],
     frameCount: number,
     capacity: number,
 ): void {
     const encoder = Render.encoder;
     if (!encoder || !_atlas.shadowReady) return;
-    const COriginal = cascadeCount();
+    const COriginal = cascadeCount(state);
     if (COriginal === 0) {
         _atlas.sunCasting = false;
         return;
@@ -1016,7 +1018,7 @@ export function renderCascades(
     // faceVP/comboMeta arrays to the new dense index space the re-gather's combo index uses; the rects
     // stay at the original cascade indices (the VS reads `tileRects.rects[meta.x]` where meta.x is the
     // original cascade index, not the dense combo index)
-    const combos = cascadeComboEids();
+    const combos = cascadeComboEids(state);
     const C = comboViewSlots(combos, _atlas.comboSlots, _atlas.comboIndices);
     if (C === 0) {
         _atlas.sunCasting = false;
@@ -1024,8 +1026,8 @@ export function renderCascades(
     }
 
     // upload the per-cascade folded tile viewProjs + meta (compacted to the survivors' dense index space)
-    const vp = cascadeFaceVP();
-    const meta = cascadeMeta();
+    const vp = cascadeFaceVP(state);
+    const meta = cascadeMeta(state);
     if (C === COriginal) {
         Compute.device.queue.writeBuffer(
             _atlas.cascadeVPBuf!,
@@ -1065,7 +1067,7 @@ export function renderCascades(
         );
     }
     // the rects are indexed by the original cascade index (meta.x), not the dense combo index
-    const rects = cascadeTileRects();
+    const rects = cascadeTileRects(state);
     Compute.device.queue.writeBuffer(
         _atlas.cascadeRectsBuf!,
         0,
@@ -1189,10 +1191,10 @@ export function renderCascades(
     // cascade carries its own world texel size (2·cover/resolution) for the normal-offset bias. The params
     // are compacted to the survivors' dense index space (the receiver's cascade index matches the compacted
     // faceVP/comboMeta), reading the original arrays via `_atlas.comboIndices`
-    const recv = cascadeRecvVP();
-    const tileRects = cascadeTileRects();
-    const fars = cascadeFars();
-    const covers = cascadeCovers();
+    const recv = cascadeRecvVP(state);
+    const tileRects = cascadeTileRects(state);
+    const fars = cascadeFars(state);
+    const covers = cascadeCovers(state);
     const res = sunResolution();
     _atlas.paramsF32.fill(0);
     for (let i = 0; i < C; i++) {
@@ -1205,7 +1207,7 @@ export function renderCascades(
         _atlas.paramsF32[base + SUN_PARAMS.cascade.far] = fars[src];
         _atlas.paramsF32[base + SUN_PARAMS.cascade.texelWorld] = (2 * covers[src]) / res;
     }
-    const bias = sunBias();
+    const bias = sunBias(state);
     _atlas.paramsF32[SUN_PARAMS.globals.count] = C;
     _atlas.paramsF32[SUN_PARAMS.globals.overlap] = SunShadows.overlap;
     _atlas.paramsF32[SUN_PARAMS.globals.depthBias] = bias[0];

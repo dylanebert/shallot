@@ -118,7 +118,7 @@ const PlayerSnapshotSystem: System = {
     after: [CharacterSweepSystem],
     update(state: State) {
         for (const eid of state.query(PLAYER_BODIES)) {
-            if (!pose(eid, _pose)) continue; // unregistered (the sweep hasn't built its CharState) — keep the fallback pose
+            if (!pose(state, eid, _pose)) continue; // unregistered (the sweep hasn't built its CharState) — keep the fallback pose
             const x = _pose[0];
             const y = _pose[1];
             const z = _pose[2];
@@ -233,14 +233,14 @@ export const PlayerControlSystem: System = {
             const len = Math.sqrt(lx * lx + lz * lz);
             if (len > 0) {
                 const v = (Player.speed.get(eid) * sprint) / len;
-                move(eid, (lz * sy + lx * cy) * v, (lz * cy - lx * sy) * v);
+                move(state, eid, (lz * sy + lx * cy) * v, (lz * cy - lx * sy) * v);
             } else {
-                move(eid, 0, 0);
+                move(state, eid, 0, 0);
             }
             // one-shot: the press edge, not the held key. A held key refills the jump buffer every
             // frame, re-firing the instant the char re-grounds (a ledge, a landing); the buffer +
             // coyote forgiveness lives in the character pass.
-            if (input.keys.pressed.has("Space")) jump(eid);
+            if (input.keys.pressed.has("Space")) jump(state, eid);
 
             const cam = findCamera(state, eid);
             if (cam < 0) continue;

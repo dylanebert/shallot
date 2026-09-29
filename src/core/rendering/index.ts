@@ -231,6 +231,7 @@ function slotInputsChanged(
 
 function clearTargets(view: ViewSlot): void {
     view.framebuffer = null;
+    view.framebufferFormat = undefined;
     view.present = null;
 }
 
@@ -272,6 +273,9 @@ export const BeginFrameSystem: System = {
             // camera is already in Views, so this is a no-op for it. Retried each frame until mount
             const view = bindCamera(eid, state);
             if (!view) continue;
+            view.framebuffer = null;
+            view.framebufferFormat = undefined;
+            view.present = null;
             // derive the backing store from the display size + the camera's `Resolution` pin before any
             // consumer reads view.width/height (the offscreen + present below, the cluster pack above)
             sizeView(state, eid, view);
@@ -305,6 +309,7 @@ export const BeginFrameSystem: System = {
             // draws into and the composite reads (Render.format / sRGB, decoded to linear on load).
             view.present = texture.createView();
             view.framebuffer = offscreen(eid, view.width, view.height);
+            view.framebufferFormat = Render.format;
             packView(state, eid, view, true, count);
             count++;
         }

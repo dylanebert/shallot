@@ -5,11 +5,13 @@ import {
     hash,
     PhysicsPlugin,
     physicsCounters,
+    physicsWorld,
     readBody,
     restore,
     ShapeKind,
     setVelocity,
     snapshot,
+    type WorldSnapshot,
 } from "@dylanebert/shallot/physics";
 
 const peerModule = "bun-webgpu";
@@ -95,6 +97,53 @@ test("sequential clean physics States and an owner-world snapshot replay one fix
         expect(hash(replay.state)).not.toBe(before);
     } finally {
         replay.app.dispose();
+    }
+});
+
+function droppedSnapshotRefs(state: State): {
+    snapshot: WeakRef<WorldSnapshot>;
+    logical: WeakRef<object>;
+    bytes: WeakRef<Uint8Array>;
+} {
+    const saved = snapshot(state);
+    return {
+        snapshot: new WeakRef(saved),
+        logical: new WeakRef(saved.state as object),
+        bytes: new WeakRef(saved.bytes),
+    };
+}
+
+test("a snapshot restores into a fresh compatible World with an equivalent hash", async () => {
+    const source = await cleanState();
+    const target = await build({ defaults: false, plugins: [PhysicsPlugin] });
+    try {
+        for (let tick = 0; tick < 4; tick++) {
+            setVelocity(source.state, source.body, 1, 0, 0);
+            source.state.step(Time.FIXED_DT);
+        }
+        const saved = snapshot(source.state);
+        const expected = hash(source.state);
+        const targetWorld = physicsWorld(target.state);
+        expect(targetWorld).not.toBeNull();
+        targetWorld!.restore(saved);
+        expect(hash(target.state)).toBe(expected);
+    } finally {
+        target.dispose();
+        source.app.dispose();
+    }
+});
+
+test("snapshot logical state and WASM bytes are collectable after the caller drops them", async () => {
+    const subject = await cleanState();
+    try {
+        const refs = droppedSnapshotRefs(subject.state);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        Bun.gc(true);
+        expect(refs.snapshot.deref()).toBeUndefined();
+        expect(refs.logical.deref()).toBeUndefined();
+        expect(refs.bytes.deref()).toBeUndefined();
+    } finally {
+        subject.app.dispose();
     }
 });
 

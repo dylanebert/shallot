@@ -1157,7 +1157,7 @@ const ShadowCameraSystem: System = {
         // resolved-bind-group cache), no one-frame delay. Idempotent once allocated; the render fns call it
         // again harmlessly
         if (casters > 0 && shadowReady()) pointRegather.ensure(pointCasters() * 6, state.capacity);
-        if (cascadeCount() > 0 && shadowReady())
+        if (cascadeCount(state) > 0 && shadowReady())
             cascadeRegather.ensure(MAX_CASCADES, state.capacity);
     },
 };
@@ -1175,8 +1175,8 @@ const ShadowMapSystem: System = {
     after: [PrepassSystem],
     before: [ColorSystem],
     update(state) {
-        renderPointShadows(_sear.frameDraws, _sear.frameCount, state.capacity);
-        renderCascades(_sear.frameDraws, _sear.frameCount, state.capacity);
+        renderPointShadows(state, _sear.frameDraws, _sear.frameCount, state.capacity);
+        renderCascades(state, _sear.frameDraws, _sear.frameCount, state.capacity);
     },
 };
 
@@ -1306,8 +1306,8 @@ export function createSearPlugin(): Plugin {
             initializeRegatherState(state);
             // a fresh State recreates its own off-screen shadow cameras lazily — drop any eids cached by
             // a prior build so this re-run never aliases recycled entities (the module-scope contract)
-            resetPointShadows();
-            resetCascades();
+            resetPointShadows(state);
+            resetCascades(state);
             initMaterial(state);
             // build the Pbr struct + the emissive tint (Color.rgb * the emissive strength lane) from the
             // f16 material lanes: word x holds (metallic, roughness), word y (emissive, occlusion), each

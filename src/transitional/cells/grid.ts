@@ -88,7 +88,7 @@ const fillKernel = tgpu.computeFn({
 /**
  * a headless cell grid: the GPU-owned buffer plus the dims a fill pass needs, sized `cols * rows *`
  * {@link CELL_BYTES}. Sibling of `extras/text`'s glyph buffer — `buffer` is a plain `TgpuBuffer`, so a
- * caller reads it back through `mirror(grid.buffer)` (`transitional/mirror`), with no cells-owned readback
+ * caller reads it back through `mirror(state, grid.buffer)` (`transitional/mirror`), with no cells-owned readback
  * path.
  */
 export interface CellGrid {

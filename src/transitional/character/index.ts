@@ -13,7 +13,7 @@ import {
     setKinematic,
     setVelocity,
 } from "../physics";
-import { jumped, moves, resetDrive, states } from "./drive";
+import { driveFor, resetDrive } from "./drive";
 import { type CharState, type SweepBody, sweepCharacter } from "./sweep";
 
 // Character — the kinematic capsule controller, the base a higher-level controller (the
@@ -69,12 +69,11 @@ const sigBits = (x: number): number => {
     _sigF32[0] = x;
     return _sigU32[0];
 };
-let charSig = FNV_BASIS;
+
 // the create-stamp each `states` entry was built at. A same-update
 // destroy+create recycling a character's eid with identical tuning hashes to the SAME signature, so folding
 // the stamp into the signature is what makes the realias visible; the per-eid compare in `syncStates` then
 // rebuilds the controller state (a stale pose/velocity kept across the recycle is the bug this closes).
-const stamps = new Map<number, number>();
 
 // query terms held once, so a steady signature mints no array.
 const CHARACTER_TERMS = [Character, Body];
@@ -121,15 +120,16 @@ function buildState(eid: number): CharState {
 // tuning edit; a removed one is dropped. A freshly built State starts with `states` empty, so its first sync
 // takes every pose from the authored Body slab.
 function syncStates(state: State): void {
+    const drive = driveFor(state);
     const sig = signature(state);
-    if (sig === charSig) return;
-    charSig = sig;
+    if (sig === drive.signature) return;
+    drive.signature = sig;
     const seen = new Set<number>();
     for (const eid of state.query([Character, Body])) {
         seen.add(eid);
         const stamp = state.stamp(eid);
-        const st = states.get(eid);
-        if (st && stamps.get(eid) === stamp) {
+        const st = drive.states.get(eid);
+        if (st && drive.stamps.get(eid) === stamp) {
             st.maxSlopeCos = Math.cos(Character.maxSlope.get(eid) * DEG);
             st.jumpSpeed = Character.jumpSpeed.get(eid);
             st.half = Body.halfExtents.y.get(eid);
@@ -138,19 +138,19 @@ function syncStates(state: State): void {
             if (st) {
                 // realias: drive input keyed to the destroyed owner is stale. A fresh spawn keeps
                 // input queued before its first sync.
-                moves.delete(eid);
-                jumped.delete(eid);
+                drive.moves.delete(eid);
+                drive.jumped.delete(eid);
             }
-            states.set(eid, buildState(eid));
-            stamps.set(eid, stamp);
+            drive.states.set(eid, buildState(eid));
+            drive.stamps.set(eid, stamp);
         }
     }
-    for (const eid of [...states.keys()]) {
+    for (const eid of [...drive.states.keys()]) {
         if (!seen.has(eid)) {
-            states.delete(eid);
-            moves.delete(eid);
-            jumped.delete(eid);
-            stamps.delete(eid);
+            drive.states.delete(eid);
+            drive.moves.delete(eid);
+            drive.jumped.delete(eid);
+            drive.stamps.delete(eid);
         }
     }
 }
@@ -247,7 +247,8 @@ function sweepEid(eid: number, st: CharState, state: State): void {
     if (_statics.length !== ns) _statics.length = ns;
     if (_push.length !== np) _push.length = np;
 
-    const m = moves.get(eid);
+    const drive = driveFor(state);
+    const m = drive.moves.get(eid);
     const input = _input;
     input[0] = m ? m[0] : 0;
     input[2] = m ? m[1] : 0;
@@ -264,7 +265,7 @@ function sweepEid(eid: number, st: CharState, state: State): void {
         _pushVel0[3 * i + 2] = v[2];
     }
 
-    sweepCharacter(st, input, _statics, gravity, FIXED_DT, jumped.has(eid), _push);
+    sweepCharacter(st, input, _statics, gravity, FIXED_DT, drive.jumped.has(eid), _push);
 
     // kinematic upload — the swept pose, with the realized velocity (snap excluded) as the explicit
     // velocity so the carry-of-riders + broadphase pad read the swept motion, not the cosmetic ground snap.
@@ -303,9 +304,10 @@ export const CharacterSweepSystem: System = {
     update(state: State) {
         if (!physicsWorld(state)) return;
         syncStates(state);
-        if (states.size === 0) return;
-        states.forEach(sweepEach, state);
-        if (jumped.size !== 0) jumped.clear();
+        const drive = driveFor(state);
+        if (drive.states.size === 0) return;
+        drive.states.forEach(sweepEach, state);
+        if (drive.jumped.size !== 0) drive.jumped.clear();
     },
 };
 
@@ -327,10 +329,8 @@ export const CharacterPlugin: Plugin = {
             }),
         },
     },
-    dispose() {
-        resetDrive();
-        stamps.clear();
-        charSig = FNV_BASIS;
+    dispose(state: State) {
+        resetDrive(state);
     },
 };
 

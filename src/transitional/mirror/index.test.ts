@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { State, Time } from "../../engine";
-import { Compute } from "../../engine/runtime/gpu";
+import { Compute, withCompute, withComputeAsync } from "../../engine/runtime/gpu";
 import { Mirror, mirror as makeMirror } from "./index";
 
 interface PendingMap {
@@ -30,8 +30,6 @@ async function withControlledDevice(
 ): Promise<void> {
     const usage = Object.getOwnPropertyDescriptor(globalThis, "GPUBufferUsage");
     const mapMode = Object.getOwnPropertyDescriptor(globalThis, "GPUMapMode");
-    const deviceDescriptor = Object.getOwnPropertyDescriptor(Compute, "device");
-    const frameDescriptor = Object.getOwnPropertyDescriptor(Compute, "frame");
     const slots: ControlledBuffer[] = [];
     const device = {
         createCommandEncoder() {
@@ -79,19 +77,31 @@ async function withControlledDevice(
         configurable: true,
         value: { READ: 1 },
     });
-    Object.assign(Compute, { device, frame: 0 });
-    Mirror.reset();
     const state = new State();
     const source = { size: 4, label: "controlled-source" } as GPUBuffer;
-    const subject = makeMirror(source, { ring: 2 });
+    const compute = {
+        device,
+        frame: 0,
+        adapter: { class: "test", identity: "test" },
+        root: { unwrap: (buffer: GPUBuffer) => buffer },
+        pending: () => 0,
+        sync: async () => {},
+        buffers: new Map<string, GPUBuffer>(),
+        textures: new Map<string, GPUTexture>(),
+        samplers: new Map<string, GPUSampler>(),
+        typed: new Map<string, unknown>(),
+    };
+    state.attachGpu(compute as unknown as Parameters<State["attachGpu"]>[0], (callback) =>
+        withCompute(compute, callback),
+    );
+    Mirror.reset(state);
+    const subject = withCompute(compute, () => makeMirror(state, source, { ring: 2 }));
     try {
-        await body(state, slots, subject);
+        await withComputeAsync(compute, () => body(state, slots, subject));
     } finally {
         subject.dispose();
         state.dispose();
-        Mirror.reset();
-        restoreProperty(Compute, "device", deviceDescriptor);
-        restoreProperty(Compute, "frame", frameDescriptor);
+        Mirror.reset(state);
         restoreProperty(globalThis, "GPUBufferUsage", usage);
         restoreProperty(globalThis, "GPUMapMode", mapMode);
     }

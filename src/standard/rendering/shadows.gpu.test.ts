@@ -58,20 +58,20 @@ async function sunScene() {
 test("cascade cameras created after a pool rebuild keep a zeroed size and far because the pass reads its inputs as unchanged, so every caster would cull against a degenerate frustum", async () => {
     const { state, main } = await sunScene();
     updateCascades(state, main);
-    const n = cascadeCount();
+    const n = cascadeCount(state);
     expect(n).toBeGreaterThan(0);
-    const covers = Array.from(cascadeCovers().slice(0, n));
-    for (const eid of cascadeComboEids().slice(0, n)) {
+    const covers = Array.from(cascadeCovers(state).slice(0, n));
+    for (const eid of cascadeComboEids(state).slice(0, n)) {
         expect(Camera.size.get(eid)).toBeGreaterThan(0);
         expect(Camera.far.get(eid)).toBeGreaterThan(0);
     }
 
     // the pool is dropped and rebuilt on fresh eids, with every input otherwise identical
     destroyCascades(state);
-    resetCascades();
+    resetCascades(state);
     updateCascades(state, main);
-    expect(cascadeCount()).toBe(n);
-    const rebuilt = cascadeComboEids().slice(0, n);
+    expect(cascadeCount(state)).toBe(n);
+    const rebuilt = cascadeComboEids(state).slice(0, n);
     for (let i = 0; i < n; i++) {
         expect(Camera.size.get(rebuilt[i])).toBeCloseTo(covers[i], 4);
         expect(Camera.far.get(rebuilt[i])).toBeGreaterThan(0);
@@ -81,8 +81,8 @@ test("cascade cameras created after a pool rebuild keep a zeroed size and far be
 test("a cascade camera whose size or far is overwritten between frames keeps the foreign value, so its cull frustum would no longer match the box the atlas renders into its tile", async () => {
     const { state, main } = await sunScene();
     updateCascades(state, main);
-    const n = cascadeCount();
-    const cams = cascadeComboEids().slice(0, n);
+    const n = cascadeCount(state);
+    const cams = cascadeComboEids(state).slice(0, n);
     const size = Camera.size.get(cams[0]);
     const far = Camera.far.get(cams[0]);
 
@@ -105,8 +105,8 @@ test("a cascade camera whose size or far is overwritten between frames keeps the
 test("the cascade pass reuses the boxes it last built after the main camera moves, so the shadow cascades would stay fitted to a pose the camera has left", async () => {
     const { state, main } = await sunScene();
     updateCascades(state, main);
-    const n = cascadeCount();
-    const cams = cascadeComboEids().slice(0, n);
+    const n = cascadeCount(state);
+    const cams = cascadeComboEids(state).slice(0, n);
     const before = cams.map((eid) => [
         Transform.pos.x.get(eid),
         Transform.pos.y.get(eid),

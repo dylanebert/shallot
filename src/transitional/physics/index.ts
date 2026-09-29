@@ -1152,6 +1152,7 @@ export type {
     SoftJointConfig,
     SphericalJointConfig,
     WheelJointConfig,
+    WorldSnapshot,
 } from "./api";
 export { BodyType, CLOCK_SLOTS, JointType, type Profile, type StepClock, zeroProfile } from "./api";
 export { SoftJoint } from "./api/joints";

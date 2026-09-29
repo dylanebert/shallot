@@ -1,15 +1,15 @@
 // Destination: engine; owner: engine-gpu-core.md.
 import { isBuffer, type TgpuBuffer } from "typegpu";
 import type { AnyData } from "typegpu/data";
-import { Compute, type Plugin, type State, type System } from "../../engine";
+import type { Plugin, State, System } from "../../engine";
 import { deviceLost, type LazyAlloc } from "../../engine/runtime";
 
 /** what {@link mirror} reads back: a raw `GPUBuffer` or its typed twin. Mirror is byte-granular either
  *  way — a typed source is unwrapped at construction and the snapshot stays opaque bytes. */
 export type MirrorSource = GPUBuffer | TgpuBuffer<AnyData>;
 
-function unwrap(source: MirrorSource): GPUBuffer {
-    return isBuffer(source) ? Compute.root.unwrap(source) : source;
+function unwrap(state: State, source: MirrorSource): GPUBuffer {
+    return isBuffer(source) ? state.gpu.root.unwrap(source) : source;
 }
 
 /**
@@ -30,16 +30,22 @@ function unwrap(source: MirrorSource): GPUBuffer {
  * hold it across frames expecting it to stay frozen.
  *
  * @example
- * const m = mirror(physics.compactBuffer);
+ * const m = mirror(state, physics.compactBuffer);
  * // each frame: MirrorSystem copies + maps, eventually populating m.snapshot
  * if (m.snapshot) {
  *     const view = new Float32Array(m.snapshot.bytes);
  *     const age = state.time.fixedTick - m.snapshot.fixedTick;
  * }
  */
-export class Mirror<T extends MirrorSource = MirrorSource> {
-    private static _all: Mirror[] = [];
+const mirrorsKey = Symbol("shallot.mirrors");
 
+function mirrorsFor(state: State): Set<Mirror> {
+    return state.resource(mirrorsKey, () => new Set());
+}
+
+export class Mirror<T extends MirrorSource = MirrorSource> {
+    /** the State that owns this mirror's staging ring and snapshot */
+    readonly state: State;
     /** schema-carrying source passed at construction; raw sources remain raw for the WebGPU escape */
     readonly source: T;
     /** byte size of each staging slot and each {@link snapshot} */
@@ -60,13 +66,14 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
     private readonly _raw: GPUBuffer;
     private readonly _device: GPUDevice;
 
-    constructor(source: T, opts?: { ring?: number }) {
+    constructor(state: State, source: T, opts?: { ring?: number }) {
+        this.state = state;
         this.source = source;
-        this._device = Compute.device;
-        this._raw = unwrap(source);
+        this._device = state.gpu.device;
+        this._raw = unwrap(state, source);
         this.size = this._raw.size;
         this._ringSize = opts?.ring ?? 2;
-        Mirror._all.push(this);
+        mirrorsFor(state).add(this);
     }
 
     /** number of staging buffers currently allocated. capped at the ring depth. */
@@ -78,8 +85,7 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
     dispose(): void {
         if (this._disposed) return;
         this._disposed = true;
-        const i = Mirror._all.indexOf(this);
-        if (i !== -1) Mirror._all.splice(i, 1);
+        mirrorsFor(this.state).delete(this);
         this._release();
     }
 
@@ -88,27 +94,30 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
         this._slots.length = 0;
         this._free.length = 0;
         this._owned = null;
+        this.snapshot = null;
     }
 
-    static reset(): void {
-        for (const m of Mirror._all) {
+    static reset(state: State): void {
+        const mirrors = mirrorsFor(state);
+        for (const m of mirrors) {
             m._disposed = true;
             m._release();
         }
-        Mirror._all.length = 0;
+        mirrors.clear();
     }
 
     static flush(state: State): void {
-        if (Mirror._all.length === 0) return;
-        const device = Compute.device;
+        const mirrors = mirrorsFor(state);
+        if (mirrors.size === 0) return;
+        const device = state.gpu.device;
         if (deviceLost(device)) return;
         const fixedTick = state.time.fixedTick;
-        const frame = Compute.frame;
+        const frame = state.gpu.frame;
 
         const encoder = device.createCommandEncoder({ label: "mirror-flush" });
         const pending: { m: Mirror; slot: GPUBuffer }[] = [];
 
-        for (const m of Mirror._all) {
+        for (const m of mirrors) {
             if (m._device !== device) continue;
             let slot = m._free.pop();
             if (!slot) {
@@ -141,7 +150,7 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
             slot.mapAsync(GPUMapMode.READ, 0, m.size).then(
                 () => {
                     if (m._disposed) return;
-                    if (deviceLost(m._device) || m._device !== Compute.device) {
+                    if (m.state.disposed || deviceLost(m._device)) {
                         m.dispose();
                         return;
                     }
@@ -167,7 +176,7 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
                 },
                 () => {
                     if (m._disposed) return;
-                    if (deviceLost(m._device) || m._device !== Compute.device) {
+                    if (m.state.disposed || deviceLost(m._device)) {
                         m.dispose();
                         return;
                     }
@@ -182,8 +191,12 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
 }
 
 /** construct a buffer-level mirror over a raw or typed buffer; registers with {@link MirrorSystem} */
-export function mirror<T extends MirrorSource>(source: T, opts?: { ring?: number }): Mirror<T> {
-    return new Mirror(source, opts);
+export function mirror<T extends MirrorSource>(
+    state: State,
+    source: T,
+    opts?: { ring?: number },
+): Mirror<T> {
+    return new Mirror(state, source, opts);
 }
 
 /**
@@ -208,11 +221,11 @@ export const MirrorPlugin: Plugin = {
     name: "Mirror",
     systems: [MirrorSystem],
 
-    initialize() {
-        Mirror.reset();
+    initialize(state: State) {
+        Mirror.reset(state);
     },
 
-    dispose() {
-        Mirror.reset();
+    dispose(state: State) {
+        Mirror.reset(state);
     },
 };

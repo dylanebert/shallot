@@ -137,6 +137,8 @@ export interface View {
     /** index of this canvas's State-scoped viewport row */
     viewportIndex: number;
     framebuffer: GPUTextureView | null;
+    /** current `framebuffer` format; scene-transform effects may redirect it to a scratch format */
+    framebufferFormat?: GPUTextureFormat;
     present: GPUTextureView | null;
     depth: GPUTextureView | null;
     tag: GPUTexture | null;
@@ -494,12 +496,17 @@ const _scratch = new Proxy(
     },
 );
 
+const SCENE_SCRATCH_FORMAT: GPUTextureFormat = "rgba16float";
+
 function scratchTexture(eid: number, slot: "a" | "b", w: number, h: number): Scratch {
     const texture = Compute.device.createTexture({
         label: `scene-scratch-${eid}-${slot}`,
         size: { width: w, height: h },
-        format: "rgba16float",
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+        format: SCENE_SCRATCH_FORMAT,
+        usage:
+            GPUTextureUsage.STORAGE_BINDING |
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.RENDER_ATTACHMENT,
     });
     return { texture, view: texture.createView() };
 }
@@ -532,6 +539,7 @@ export function sceneTransform(
     const slot: "a" | "b" = read === pair.a?.view ? "b" : "a";
     const scratch = (pair[slot] ??= scratchTexture(eid, slot, view.width, view.height));
     view.framebuffer = scratch.view;
+    view.framebufferFormat = SCENE_SCRATCH_FORMAT;
     return { read, write: scratch.view };
 }
 

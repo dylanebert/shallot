@@ -190,6 +190,7 @@ const CellsSystem: System = {
                 rows,
                 view.width,
                 view.height,
+                view.framebufferFormat ?? Render.format,
             );
         }
     },

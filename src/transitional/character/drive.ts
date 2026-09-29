@@ -1,30 +1,37 @@
+import type { State } from "../../engine";
 import type { CharState } from "./sweep";
 
-// The eid-keyed drive state + its public surface (on the character barrel). The sweep (index.ts) POPULATES `states`
-// (the per-character controller pose) and CONSUMES `moves` / `jumped` each fixed tick; a controller — Player,
-// or a custom one — writes intent through `move` / `jump` and reads the swept result through `pose` /
-// `grounded`. The maps are the shared seam between the drive API and the sweep: module state, cleared by
-// `resetDrive` on dispose (reload-safety). Living in a sibling keeps the drive off the main barrel: it is the character barrel's
-// extension surface, not the `Character`-component happy path.
+/** per-State intent and controller pose shared by the sweep and its callers */
+export interface CharacterDrive {
+    states: Map<number, CharState>;
+    moves: Map<number, [number, number]>;
+    jumped: Set<number>;
+    stamps: Map<number, number>;
+    signature: number;
+}
 
-// the CPU controller state per character eid — the sweep owns it across fixed ticks (pose, velocity, jump
-// timers, grounded). Built from the Body authored fields when a character is first registered; the swept pose
-// then drifts from the Body spawn slab (the controller owns it; the Body slab is only the spawn pose).
-export const states = new Map<number, CharState>();
-// the per-frame drive: the latest horizontal input (persists until changed — a held direction) + the jump
-// requests this tick (a Set so a held/spammed button is one press edge; the buffer/coyote in the sweep gate it).
-export const moves = new Map<number, [number, number]>();
-export const jumped = new Set<number>();
+const driveKey = Symbol("shallot.character");
+
+export function driveFor(state: State): CharacterDrive {
+    return state.resource(driveKey, () => ({
+        states: new Map(),
+        moves: new Map(),
+        jumped: new Set(),
+        stamps: new Map(),
+        signature: -1,
+    }));
+}
 
 /** push a character's per-frame horizontal move input (world x/z velocity), by body eid. Call each fixed tick
  *  it should move; a character given no input idles (gravity still pulls it down while airborne).
  *
  * @example
  * ```
- * move(player, dir[0] * speed, dir[2] * speed);   // each fixed tick
+ * move(state, player, dir[0] * speed, dir[2] * speed);   // each fixed tick
  * ```
  */
-export function move(eid: number, vx: number, vz: number): void {
+export function move(state: State, eid: number, vx: number, vz: number): void {
+    const moves = driveFor(state).moves;
     const m = moves.get(eid);
     if (m) {
         m[0] = vx;
@@ -39,11 +46,11 @@ export function move(eid: number, vx: number, vz: number): void {
  *
  * @example
  * ```
- * if (pressed) jump(player);   // on the press edge, not the held key
+ * if (pressed) jump(state, player);   // on the press edge, not the held key
  * ```
  */
-export function jump(eid: number): void {
-    jumped.add(eid);
+export function jump(state: State, eid: number): void {
+    driveFor(state).jumped.add(eid);
 }
 
 /** read a character's swept pose into `out` (by body eid); returns false (leaving `out` untouched) until the
@@ -53,11 +60,11 @@ export function jump(eid: number): void {
  * @example
  * ```
  * const p: [number, number, number] = [0, 0, 0];
- * if (pose(player, p)) placeModelAt(p);
+ * if (pose(state, player, p)) placeModelAt(p);
  * ```
  */
-export function pose(eid: number, out: [number, number, number]): boolean {
-    const st = states.get(eid);
+export function pose(state: State, eid: number, out: [number, number, number]): boolean {
+    const st = driveFor(state).states.get(eid);
     if (!st) return false;
     out[0] = st.pos[0];
     out[1] = st.pos[1];
@@ -73,11 +80,11 @@ export function pose(eid: number, out: [number, number, number]): boolean {
  * @example
  * ```
  * const p: [number, number, number] = [0, 0, 0];
- * if (pose(player, p) && p[1] < -20) teleport(player, 0, 4, 0);   // fell off — back to the start
+ * if (pose(state, player, p) && p[1] < -20) teleport(state, player, 0, 4, 0);
  * ```
  */
-export function teleport(eid: number, x: number, y: number, z: number): boolean {
-    const st = states.get(eid);
+export function teleport(state: State, eid: number, x: number, y: number, z: number): boolean {
+    const st = driveFor(state).states.get(eid);
     if (!st) return false;
     st.pos[0] = x;
     st.pos[1] = y;
@@ -92,16 +99,19 @@ export function teleport(eid: number, x: number, y: number, z: number): boolean 
  *
  * @example
  * ```
- * anim.set(grounded(player) ? "idle" : "fall");
+ * anim.set(grounded(state, player) ? "idle" : "fall");
  * ```
  */
-export function grounded(eid: number): boolean {
-    return states.get(eid)?.grounded ?? false;
+export function grounded(state: State, eid: number): boolean {
+    return driveFor(state).states.get(eid)?.grounded ?? false;
 }
 
-// clear the drive state (plugin dispose / reload) — the maps are module-level, so a rebuilt State must start clean.
-export function resetDrive(): void {
-    states.clear();
-    moves.clear();
-    jumped.clear();
+/** clear the drive state owned by a disposed or rebuilt State. */
+export function resetDrive(state: State): void {
+    const drive = driveFor(state);
+    drive.states.clear();
+    drive.moves.clear();
+    drive.jumped.clear();
+    drive.stamps.clear();
+    drive.signature = -1;
 }
