@@ -1,5 +1,5 @@
 import type { FieldSchema, Pair, Quad, Single, Type, TypedArray } from "./component";
-import { fields } from "./component";
+import { fields, sameTypeLayout } from "./component";
 
 export type FieldStorage<T extends Type> = T["lanes"] extends 1
     ? Single
@@ -47,13 +47,17 @@ export class WorldField<T extends Type = Type> {
         column.dirty = dirty;
     }
 
-    set(eid: number, values: readonly number[]): void {
+    set(eid: number, x: number, y = 0, z = 0, w = 0): void {
         this.ensure(eid + 1);
         const { array, dirty } = this.#column;
         const base = eid * this.type.lanes;
         const encode = this.type.encode ?? identity;
-        for (let lane = 0; lane < this.type.lanes; lane++)
-            array[base + lane] = encode(values[lane] ?? 0);
+        array[base] = encode(x);
+        if (this.type.lanes >= 2) array[base + 1] = encode(y);
+        if (this.type.lanes === 4) {
+            array[base + 2] = encode(z);
+            array[base + 3] = encode(w);
+        }
         dirty[eid >>> 5] |= 1 << (eid & 31);
     }
 
@@ -124,7 +128,7 @@ export class WorldField<T extends Type = Type> {
                 get gpu() {
                     return field.gpu;
                 },
-                set: (eid: number, value: number) => this.set(eid, [value]),
+                set: (eid: number, value: number) => this.set(eid, value),
                 get: (eid: number) => this.get(eid),
             } as unknown as FieldStorage<T>;
         }
@@ -140,7 +144,7 @@ export class WorldField<T extends Type = Type> {
                 get gpu() {
                     return field.gpu;
                 },
-                set: (eid: number, x: number, y: number) => this.set(eid, [x, y]),
+                set: (eid: number, x: number, y: number) => this.set(eid, x, y),
                 read: (eid: number, out: Float32Array) => this.read(eid, out),
                 x: lane(0),
                 y: lane(1),
@@ -158,7 +162,7 @@ export class WorldField<T extends Type = Type> {
                 return field.gpu;
             },
             set: (eid: number, x: number, y: number, z: number, w: number) =>
-                this.set(eid, [x, y, z, w]),
+                this.set(eid, x, y, z, w),
             read: (eid: number, out: Float32Array) => this.read(eid, out),
             x: lane(0),
             y: lane(1),
@@ -183,16 +187,21 @@ export type ComponentStorage<T> = {
     [K in keyof T]: T[K] extends FieldSchema<infer F> ? FieldStorage<F> : T[K];
 };
 
-export function schemaSignature(component: Record<string, unknown>): string {
-    return fields(component)
-        .map(
-            ({ name, field }) =>
-                `${name}:${field.type.name}:${field.type.lanes}:${field.storage}:${field.name ?? ""}`,
-        )
-        .sort()
-        .join("|");
-}
-
 export function sameSchema(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
-    return schemaSignature(a) === schemaSignature(b);
+    const af = fields(a).sort((left, right) => left.name.localeCompare(right.name));
+    const bf = fields(b).sort((left, right) => left.name.localeCompare(right.name));
+    if (af.length !== bf.length) return false;
+    for (let i = 0; i < af.length; i++) {
+        const left = af[i];
+        const right = bf[i];
+        if (
+            left.name !== right.name ||
+            !sameTypeLayout(left.field.type, right.field.type) ||
+            left.field.storage !== right.field.storage ||
+            left.field.name !== right.field.name
+        ) {
+            return false;
+        }
+    }
+    return true;
 }

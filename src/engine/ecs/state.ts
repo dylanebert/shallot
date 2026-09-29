@@ -13,11 +13,11 @@ import { Identity } from "./identity";
 import { Queries } from "./query";
 import { Scheduler, type System, Time } from "./scheduler";
 import { type ComponentStorage, sameSchema, WorldField } from "./storage";
-import { applyDefaults, getExclusions, getName } from "./traits";
+import { ComponentRegistry } from "./traits";
 
 const INITIAL_CAPACITY = 16;
-/** process-wide entity/GPU reservation, replaced by tables in the tables stage. */
-export let capacity = 65536;
+/** default capacity for legacy fixed-size consumers; each State keeps its own configured value. */
+export const capacity = 65536;
 
 /**
  * render device-pixel ratio for canvas-bound views, fixed at app construction. `"auto"`
@@ -29,18 +29,6 @@ export let capacity = 65536;
  * monitors re-sizes the backing. Set via `build({ pixelRatio })`.
  */
 export const pixelRatio: number | "auto" = "auto";
-
-/**
- * ecs state passed to every system
- * @expand
- * @example
- * const MySystem: System = {
- *     update(state) {
- *         // state passed in every frame
- *     },
- * };
- */
-const _liveStates = new Set<State>();
 
 export interface WorldGpu {
     readonly device: GPUDevice;
@@ -60,7 +48,19 @@ export interface WorldGpu {
     precompiled?: (label: string, start: number, end: number) => void;
 }
 
+/**
+ * ecs state passed to every system
+ * @expand
+ * @example
+ * const MySystem: System = {
+ *     update(state) {
+ *         // state passed in every frame
+ *     },
+ * };
+ */
 export class State {
+    /** this world's component registrations, defaults, exclusions, and reflection data. @internal */
+    readonly registry = new ComponentRegistry();
     private _scheduler = new Scheduler();
     private _entities = new Entities();
     private _components = new Components();
@@ -71,7 +71,10 @@ export class State {
     >();
     private _resources = new Map<PropertyKey, unknown>();
     private _highWater = 1;
+    private _capacity: number;
     private _pixelRatio: number | "auto";
+    private _fieldUploadSeen = false;
+    private _changesClearedAtUpload = false;
     private _identity = new Identity();
     private _disposals: (() => void)[] = [];
     private _controller: AbortController | undefined;
@@ -84,20 +87,12 @@ export class State {
         capacity?: number;
         pixelRatio?: number | "auto";
     }) {
-        if (opts?.capacity !== undefined && opts.capacity !== capacity) {
-            if (!Number.isSafeInteger(opts.capacity) || opts.capacity < 1) {
-                throw new Error(`State: capacity ${opts.capacity} is not a safe integer >= 1`);
-            }
-            if (_liveStates.size > 0) {
-                console.warn(
-                    `State: capacity retune from ${capacity} to ${opts.capacity} while ${_liveStates.size} State(s) are live — ` +
-                        `the module-global is shared across States; set capacity via build({ capacity }) before any State construction`,
-                );
-            }
-            capacity = opts.capacity;
+        const worldCapacity = opts?.capacity ?? capacity;
+        if (!Number.isSafeInteger(worldCapacity) || worldCapacity < 1) {
+            throw new Error(`State: capacity ${worldCapacity} is not a safe integer >= 1`);
         }
+        this._capacity = worldCapacity;
         this._pixelRatio = opts?.pixelRatio ?? "auto";
-        _liveStates.add(this);
     }
 
     /** this world's GPU device, registries, typed handles and frame state. */
@@ -129,9 +124,9 @@ export class State {
         this._gpuResources.add(resource);
     }
 
-    /** the process-wide entity and GPU reservation retained until tables replace capacity. */
+    /** this world's fixed entity and GPU reservation, retained until tables replace capacity. */
     get capacity(): number {
-        return capacity;
+        return this._capacity;
     }
 
     /** render device-pixel ratio fixed to this world's build config. */
@@ -145,6 +140,24 @@ export class State {
         fields: Map<string, WorldField>;
     }> {
         return this._storage.values();
+    }
+
+    /** clear field marks after this world's frame upload point. @internal */
+    clearChanges(): void {
+        for (const entry of this._storage.values()) {
+            for (const field of entry.fields.values()) field.dirty.fill(0);
+        }
+        this._changesClearedAtUpload = true;
+    }
+
+    /** record that this world's field upload point is running. @internal */
+    markFieldUploadPoint(): void {
+        this._fieldUploadSeen = true;
+    }
+
+    /** clear marks only when no earlier upload system did so this frame. @internal */
+    clearChangesIfNeeded(): void {
+        if (!this._fieldUploadSeen && !this._changesClearedAtUpload) this.clearChanges();
     }
 
     /** resolve a component schema to its world-owned columns. Call once at system setup, then retain the result. */
@@ -181,12 +194,15 @@ export class State {
     /** advance one frame */
     step(deltaTime = Time.DEFAULT_DT): void {
         useState(this);
+        this._fieldUploadSeen = false;
+        this._changesClearedAtUpload = false;
         const step = () => this._scheduler.step(this, deltaTime);
         try {
             if (this._withCompute) this._withCompute(step);
             else step();
         } finally {
             useState(this);
+            if (!this._gpu) this.clearChangesIfNeeded();
         }
     }
 
@@ -210,12 +226,12 @@ export class State {
     /** create a new entity, returns its ID */
     create(): number {
         const eid = this._entities.add();
-        if (eid + 1 > capacity) {
+        if (eid + 1 > this._capacity) {
             this._entities.remove(eid);
             throw new Error(
-                `Entity eid ${eid} exceeds configured capacity ${capacity} (slot 0 reserved, so capacity ` +
-                    `admits ${capacity - 1} entities). ` +
-                    `Increase via app build config: { capacity: ${Math.max(eid + 1, capacity * 2)} }.`,
+                `Entity eid ${eid} exceeds configured capacity ${this._capacity} (slot 0 reserved, so capacity ` +
+                    `admits ${this._capacity - 1} entities). ` +
+                    `Increase via app build config: { capacity: ${Math.max(eid + 1, this._capacity * 2)} }.`,
             );
         }
         if (eid + 1 > this._highWater) this._highWater = eid + 1;
@@ -290,12 +306,12 @@ export class State {
      */
     add<T>(eid: number, component: T): void {
         useState(this);
-        const excluded = getExclusions(component as Record<string, unknown>);
+        const excluded = this.registry.getExclusions(component as Component);
         if (excluded) {
             for (const other of excluded) {
                 if (this._components.has(eid, other)) {
-                    const a = getName(component as Record<string, unknown>) ?? "?";
-                    const b = getName(other) ?? "?";
+                    const a = this.registry.getName(component as Component) ?? "?";
+                    const b = this.registry.getName(other) ?? "?";
                     throw new Error(
                         `state.add: cannot attach "${a}" to entity ${eid} — excluded by "${b}"`,
                     );
@@ -305,7 +321,7 @@ export class State {
         this.of(component as Component);
         if (this._components.add(eid, component)) {
             this._queries.onComponentChanged(eid, component, this._components);
-            applyDefaults(this, component as Component, eid);
+            this.registry.applyDefaults(this, component as Component, eid);
         } else {
             console.warn("state.add: component already attached to entity", eid);
         }
@@ -453,7 +469,6 @@ export class State {
     dispose(): void {
         if (this._disposed) return;
         this._disposed = true;
-        _liveStates.delete(this);
         this._controller?.abort();
         // the list now carries user cleanups (a Svelte unmount, an app rAF stop) that throw more readily
         // than engine hooks, and LIFO runs them first — a throw must not skip the remaining callbacks or
@@ -471,6 +486,7 @@ export class State {
         this._queries.clear();
         this._storage.clear();
         this._resources.clear();
+        this.registry.clear();
         for (const resource of this._gpuResources) {
             try {
                 resource.destroy();

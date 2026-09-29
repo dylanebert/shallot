@@ -1,6 +1,6 @@
 import tgpu, { type TgpuBuffer, type TgpuRoot } from "typegpu";
 import { type AnyData, u32 } from "typegpu/data";
-import { useState } from "../ecs/component";
+import { useState } from "../ecs";
 import { type AdapterInfoFacts, type AdapterVerdict, classifyAdapter } from "./adapter";
 import { captureGpuLog } from "./log";
 import { now } from "./platform";

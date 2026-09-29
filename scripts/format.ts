@@ -4,7 +4,6 @@ import type { Node } from "../src";
 
 const { State, parse, stringify, DEFAULT_PLUGINS, LinesPlugin, TextPlugin, AudioPlugin } =
     await import("../src");
-const { register } = await import("../src/engine/ecs");
 const { normalizeAttr } = await import("../src/engine/scene");
 
 // the engine defaults plus the opt-in viz extras that add scene-authorable components,
@@ -15,7 +14,7 @@ const state = new State();
 for (const plugin of PLUGINS) {
     if (plugin.components) {
         for (const [name, component] of Object.entries(plugin.components)) {
-            register(name, component, plugin.traits?.[name]);
+            state.registry.register(name, component, plugin.traits?.[name]);
         }
     }
     if (plugin.systems) {
@@ -35,7 +34,7 @@ function normalizeNodes(nodes: Node[]) {
     for (const node of nodes) {
         for (const attr of node.attrs) {
             if (!attr.value) continue;
-            const normalized = normalizeAttr(attr.name, attr.value);
+            const normalized = normalizeAttr(state, attr.name, attr.value);
             if (normalized !== null) {
                 // a normalization is a parse→format round trip, and a field whose parser needs
                 // runtime state the formatter doesn't have formats back to its default and drops off

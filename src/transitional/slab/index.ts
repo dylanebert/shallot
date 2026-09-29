@@ -371,16 +371,13 @@ export class Slab {
     }
 
     /**
-     * the per-build slab roster: release the prior build's slabs, then walk the
-     * registered components and `alloc` every slab field at the now-fixed
-     * `capacity`, collecting them into `_all` for flush + prepare. Slab lifetime
-     * tracks component registration — a component declared inline (`pos:
-     * slab(vec4)`) is allocated iff its plugin is registered, and `clear()`
-     * (between tests) drops the registry so the next build starts clean.
+     * legacy one-roster collector, retained until stage 4. When given a State it walks that world's
+     * registrations; the no-argument form still resets the legacy roster for older callers.
      */
-    static collect(): void {
+    static collect(state?: State): void {
         Slab.reset();
-        for (const { component } of entries()) {
+        if (!state) return;
+        for (const { component } of entries(state)) {
             for (const field of Object.values(component)) {
                 if (field instanceof Slab) {
                     field.alloc();
@@ -595,7 +592,6 @@ function flushWorldSlabs(state: State): void {
         } else {
             Compute.device.queue.writeBuffer(field.gpu, 0, field.column);
         }
-        dirty.fill(0);
     }
 }
 
@@ -668,7 +664,9 @@ export const SlabSystem: System = {
     group: "draw",
     first: true,
     update(state) {
+        state.markFieldUploadPoint();
         flushWorldSlabs(state);
+        state.clearChanges();
     },
 };
 

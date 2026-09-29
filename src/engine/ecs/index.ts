@@ -10,10 +10,12 @@ export {
     idOf,
     lanes,
     refs,
+    sameTypeLayout,
     srgb8x4,
     u8,
     u16,
     u32,
+    useState,
     vec2,
     vec4,
 } from "./component";

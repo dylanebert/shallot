@@ -61,13 +61,13 @@ function isColor(key: string, traits: Traits | undefined): boolean {
 /**
  * reflect a registered component's field layout by name, or `null` if nothing is registered under it.
  * @example
- * const s = schema("orbit");
+ * const s = schema(state, "orbit");
  * s?.fields.map((f) => f.name); // ["distance", "yaw", "pitch", ...]
  */
-export function schema(name: string): Schema | null {
-    const component = getComponent(name);
+export function schema(state: State, name: string): Schema | null {
+    const component = getComponent(state, name);
     if (!component) return null;
-    const traits = getTraits(name);
+    const traits = getTraits(state, name);
     const defaults = traits?.defaults?.() ?? {};
 
     const handled = new Set<string>();
@@ -129,10 +129,10 @@ export function schema(name: string): Schema | null {
     return { name: kebab(name), fields };
 }
 
-export function schemas(): Schema[] {
+export function schemas(state: State): Schema[] {
     const out: Schema[] = [];
-    for (const { name } of entries()) {
-        const s = schema(name);
+    for (const { name } of entries(state)) {
+        const s = schema(state, name);
         if (s) out.push(s);
     }
     return out;
@@ -140,12 +140,12 @@ export function schemas(): Schema[] {
 
 /** the component names a component requires (its `requires` trait), empty for an unknown component or
  * one with no requirements */
-export function dependencies(name: string): string[] {
-    const traits = getTraits(name);
+export function dependencies(state: State, name: string): string[] {
+    const traits = getTraits(state, name);
     if (!traits?.requires) return [];
     const out: string[] = [];
     for (const req of traits.requires) {
-        const reqName = getName(req);
+        const reqName = getName(state, req);
         if (reqName) out.push(reqName);
     }
     return out;
@@ -153,12 +153,12 @@ export function dependencies(name: string): string[] {
 
 /** the components this one stands in for: an entity carrying it satisfies a `requires` of any of
  * them (`Body` provides `Transform`). empty for an unknown component or one with no `provides` trait */
-export function provides(name: string): string[] {
-    const traits = getTraits(name);
+export function provides(state: State, name: string): string[] {
+    const traits = getTraits(state, name);
     if (!traits?.provides) return [];
     const out: string[] = [];
     for (const p of traits.provides) {
-        const pName = getName(p);
+        const pName = getName(state, p);
         if (pName) out.push(pName);
     }
     return out;
@@ -166,20 +166,20 @@ export function provides(name: string): string[] {
 
 /** true if the component declares the `singleton` trait: one instance per scene (lights, the active
  * camera). reflection metadata, not enforced; false for an unknown component */
-export function isSingleton(name: string): boolean {
-    return getTraits(name)?.singleton ?? false;
+export function isSingleton(state: State, name: string): boolean {
+    return getTraits(state, name)?.singleton ?? false;
 }
 
 /** the component names that may not coexist with this one (the symmetric `excludes` trait); empty for
  * an unknown component or one with no exclusions */
-export function exclusions(name: string): string[] {
-    const component = getComponent(name);
+export function exclusions(state: State, name: string): string[] {
+    const component = getComponent(state, name);
     if (!component) return [];
-    const set = getExclusions(component);
+    const set = getExclusions(state, component);
     if (!set) return [];
     const out: string[] = [];
     for (const other of set) {
-        const otherName = getName(other);
+        const otherName = getName(state, other);
         if (otherName) out.push(otherName);
     }
     return out;
@@ -220,7 +220,7 @@ export function readFields(state: State, component: Component, eid: number): Fie
 export function inspect(state: State, eid: number): EntityData | null {
     if (!state.exists(eid)) return null;
     const components: Record<string, FieldValues> = {};
-    for (const { component, name } of entries()) {
+    for (const { component, name } of entries(state)) {
         if (state.has(eid, component as never)) {
             components[name] = readFields(state, component, eid);
         }
@@ -234,7 +234,7 @@ export function inspect(state: State, eid: number): EntityData | null {
  * find(state, "point-light").length; // how many point lights are in the scene
  */
 export function find(state: State, name: string): EntityData[] {
-    const component = getComponent(name);
+    const component = getComponent(state, name);
     if (!component) return [];
     const out: EntityData[] = [];
     for (const eid of state.query([component as never])) {

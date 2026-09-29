@@ -51,11 +51,15 @@ export function fieldSchema<T extends Type>(
         type,
         storage,
         ...(name === undefined ? {} : { name }),
-        set(eid: number, ...values: number[]) {
-            (bound(descriptor) as { set(eid: number, ...values: number[]): void }).set(
-                eid,
-                ...values,
-            );
+        set(eid: number, x: number, y = 0, z = 0, w = 0) {
+            const storage = bound(descriptor);
+            if (descriptor.type.lanes === 1) {
+                (storage as Single).set(eid, x);
+            } else if (descriptor.type.lanes === 2) {
+                (storage as Pair).set(eid, x, y);
+            } else {
+                (storage as Quad).set(eid, x, y, z, w);
+            }
         },
         get(eid: number) {
             return (bound(descriptor) as Single).get(eid);
@@ -105,9 +109,10 @@ export type TypedArray = Float32Array | Int32Array | Uint32Array | Uint16Array |
  */
 export interface Type<TArray extends TypedArray = TypedArray> {
     /** typed-array constructor used to back CPU storage */
-    readonly ctor: new (
-        length: number,
-    ) => TArray;
+    readonly ctor: {
+        readonly BYTES_PER_ELEMENT: number;
+        new (length: number): TArray;
+    };
     /** scalar = 1, vec2 = 2, vec4 = 4. stride into the backing array per eid */
     readonly lanes: 1 | 2 | 4;
     /** debug label */
@@ -169,6 +174,24 @@ export const entity: Type<Uint32Array> & { readonly lanes: 1 } = {
     name: "entity",
     wgsl: "u32",
 };
+
+/** @internal compare storage and conversion semantics, never a Type's debug label. */
+export function sameTypeLayout(a: Type, b: Type): boolean {
+    if (
+        a.ctor !== b.ctor ||
+        a.ctor.BYTES_PER_ELEMENT !== b.ctor.BYTES_PER_ELEMENT ||
+        a.lanes !== b.lanes ||
+        a.wgsl !== b.wgsl ||
+        a.encode !== b.encode ||
+        a.decode !== b.decode
+    ) {
+        return false;
+    }
+    const ag = a.gpu;
+    const bg = b.gpu;
+    if (ag?.wgsl !== bg?.wgsl || ag?.bytes !== bg?.bytes || ag?.pack !== bg?.pack) return false;
+    return a !== entity && b !== entity ? true : a === b;
+}
 
 /**
  * 8-bit unsigned integer. `slab(u8)` warns and stays CPU-only — WGSL has no

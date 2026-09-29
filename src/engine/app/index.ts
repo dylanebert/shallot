@@ -1,6 +1,15 @@
 /// <reference types="@webgpu/types" />
 
-import { type Component, entries, fields, register, State, type System, type Traits } from "../ecs";
+import {
+    type Component,
+    entries,
+    fields,
+    register,
+    State,
+    type System,
+    sameTypeLayout,
+    type Traits,
+} from "../ecs";
 import {
     type AdapterVerdict,
     Compute,
@@ -196,6 +205,15 @@ const MAX_FRAMES_IN_FLIGHT = 6;
 // the recent rAF-callback intervals the double-fire coalescer's median reads
 const MEDIAN_WINDOW = 20;
 
+const ClearChangeMarksSystem: System = {
+    group: "draw",
+    first: true,
+    name: "clear-component-changes",
+    update(state) {
+        state.clearChangesIfNeeded();
+    },
+};
+
 let _defaultPlugins: readonly Plugin[] = [];
 let _defaultLoading: (() => Loading) | null = null;
 
@@ -297,7 +315,7 @@ async function buildNow(config: Config): Promise<App> {
             const components = plugin.components ?? {};
             const traits = plugin.traits ?? {};
             for (const [name, component] of Object.entries(components)) {
-                register(name, component, traits[name]);
+                register(state, name, component, traits[name]);
                 state.of(component);
             }
             for (const name of Object.keys(traits)) {
@@ -314,7 +332,9 @@ async function buildNow(config: Config): Promise<App> {
 
         // assign every registered component its membership bit now, so the GPU
         // membership mirror's generation count is fixed before any warm sizes it
-        for (const { component } of entries()) {
+        state.addSystem(ClearChangeMarksSystem, "Engine");
+
+        for (const { component } of entries(state)) {
             state.of(component);
             state.membership.bit(component);
         }
@@ -348,7 +368,7 @@ async function buildNow(config: Config): Promise<App> {
             const scene = scenes[i];
             const xml = scene.startsWith("<") ? scene : await readFile(scene);
             const nodes = parse(xml);
-            for (const d of diagnose(nodes)) console.warn(`[shallot] ${d.message}`);
+            for (const d of diagnose(state, nodes)) console.warn(`[shallot] ${d.message}`);
             // the pre-load resolve pass: a plugin whose assets the scene references by name (glTF)
             // imports them here, so every mesh name resolves when `load` applies the attrs
             await preload(nodes, state);
@@ -650,7 +670,7 @@ export async function swap(
         const components = nextPlugin.components ?? {};
         const traits = nextPlugin.traits ?? {};
         for (const [cname, component] of Object.entries(components)) {
-            register(cname, component, traits[cname]);
+            register(state, cname, component, traits[cname]);
             state.of(component);
         }
         const prevSystems = prevPlugin.systems ?? [];
@@ -688,7 +708,7 @@ function shapeDiff(
     const ncKeys = Object.keys(nc).sort();
     if (pcKeys.join(",") !== ncKeys.join(",")) return "component set changed";
     for (const key of ncKeys) {
-        if (fieldSig(pc[key]) !== fieldSig(nc[key])) return `component "${key}" schema changed`;
+        if (!sameComponentSchema(pc[key], nc[key])) return `component "${key}" schema changed`;
     }
     const ps = prev.systems ?? [];
     const ns = next.systems ?? [];
@@ -717,10 +737,23 @@ function shapeDiff(
     return null;
 }
 
-function fieldSig(component: Component): string {
-    return fields(component)
-        .map((f) => `${f.name}:${f.field.type.name}:${f.field.storage}:${f.field.name ?? ""}`)
-        .join(",");
+function sameComponentSchema(a: Component, b: Component): boolean {
+    const af = fields(a);
+    const bf = fields(b);
+    if (af.length !== bf.length) return false;
+    for (let i = 0; i < af.length; i++) {
+        const left = af[i];
+        const right = bf[i];
+        if (
+            left.name !== right.name ||
+            !sameTypeLayout(left.field.type, right.field.type) ||
+            left.field.storage !== right.field.storage ||
+            left.field.name !== right.field.name
+        ) {
+            return false;
+        }
+    }
+    return true;
 }
 
 function systemSig(s: System): string {

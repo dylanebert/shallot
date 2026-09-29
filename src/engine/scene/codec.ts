@@ -26,10 +26,10 @@ export interface LoadResult extends Map<Node, number> {
     readonly dropped: readonly string[];
 }
 
-function lookup(rawName: string): Registered | undefined {
-    const component = getComponent(rawName);
+function lookup(state: State, rawName: string): Registered | undefined {
+    const component = getComponent(state, rawName);
     if (!component) return undefined;
-    return { component, name: kebab(rawName), traits: getTraits(rawName) };
+    return { component, name: kebab(rawName), traits: getTraits(state, rawName) };
 }
 
 interface Ref {
@@ -132,7 +132,7 @@ export function load(nodes: Node[], state: State): LoadResult {
 
     for (const node of nodes) {
         const eid = nodeToEntity.get(node)!;
-        const { componentAttrs, refs, dropped } = categorizeAttrs(node.attrs);
+        const { componentAttrs, refs, dropped } = categorizeAttrs(state, node.attrs);
         droppedAttrs.push(...dropped);
 
         for (const ref of refs) {
@@ -181,7 +181,7 @@ export function readComponent(
     eid: number,
     resolveRef?: (target: number) => string | undefined,
 ): string {
-    const defaults = getTraits(name)?.defaults?.() ?? {};
+    const defaults = getTraits(state, name)?.defaults?.() ?? {};
     const fields = readFields(state, component, eid);
     const merged: Record<string, number | string | readonly number[]> = { ...defaults, ...fields };
     if (resolveRef) {
@@ -192,7 +192,7 @@ export function readComponent(
             if (id !== undefined) merged[field] = `@${id}`;
         }
     }
-    return formatFields(name, merged);
+    return formatFields(state, name, merged);
 }
 
 /**
@@ -238,7 +238,7 @@ export function serialize(state: State, eids?: Iterable<number>): Node[] {
 
     // a ref target that lacks a scene id needs one minted before any node emits, so its @-ref resolves on reload
     for (const eid of list) {
-        for (const { component, traits } of entries()) {
+        for (const { component, traits } of entries(state)) {
             if (traits?.derived) continue;
             if (!state.has(eid, component as never)) continue;
             for (const field of refs(component)) {
@@ -271,7 +271,7 @@ export function serialize(state: State, eids?: Iterable<number>): Node[] {
     const nodes: Node[] = [];
     for (const eid of list) {
         const attrs: Attr[] = [];
-        for (const { component, name, traits } of entries()) {
+        for (const { component, name, traits } of entries(state)) {
             // a derived decoration is a system's runtime state (union-relative ids), never scene truth
             if (traits?.derived) continue;
             if (!state.has(eid, component as never)) continue;
@@ -288,7 +288,7 @@ interface CategorizedAttrs {
     dropped: string[];
 }
 
-function categorizeAttrs(attrs: Attr[]): CategorizedAttrs {
+function categorizeAttrs(state: State, attrs: Attr[]): CategorizedAttrs {
     const componentAttrs: { name: string; value: string; def: Registered }[] = [];
     const refs: Ref[] = [];
     const dropped: string[] = [];
@@ -299,7 +299,7 @@ function categorizeAttrs(attrs: Attr[]): CategorizedAttrs {
             continue;
         }
 
-        const registered = lookup(attr.name);
+        const registered = lookup(state, attr.name);
         if (registered) {
             componentAttrs.push({ name: attr.name, value: attr.value, def: registered });
         } else {
@@ -666,13 +666,14 @@ function parsePropertyString(
  * attribute through this before writing a normalized value back.
  *
  * @example
- * parseFields("transform", "pos: 0 5 0"); // { "pos.x": 0, "pos.y": 5, "pos.z": 0 }
+ * parseFields(state, "transform", "pos: 0 5 0"); // { "pos.x": 0, "pos.y": 5, "pos.z": 0 }
  */
 export function parseFields(
+    state: State,
     componentName: string,
     attrValue: string,
 ): Record<string, number | string> {
-    const registered = lookup(componentName);
+    const registered = lookup(state, componentName);
     if (!registered) {
         throw new Error(`Unknown component "${componentName}"`);
     }
@@ -729,14 +730,15 @@ function normalizeFields(
  * default elide. Pass `{ stripDefaults: false }` to keep every field.
  *
  * @example
- * formatFields("transform", { "pos.x": 0, "pos.y": 5, "pos.z": 0 }); // "pos: 0 5 0"
+ * formatFields(state, "transform", { "pos.x": 0, "pos.y": 5, "pos.z": 0 }); // "pos: 0 5 0"
  */
 export function formatFields(
+    state: State,
     componentName: string,
     fieldsInput: Record<string, number | string | readonly number[]>,
     options?: { stripDefaults?: boolean },
 ): string {
-    const registered = lookup(componentName);
+    const registered = lookup(state, componentName);
     if (!registered) {
         throw new Error(`Unknown component "${componentName}"`);
     }
@@ -873,12 +875,12 @@ function atDefault(value: number, def: number | undefined): boolean {
  * between hand-authored and programmatically-written scenes. Returns null for an empty value, unregistered
  * component, or a value that fails to parse (left untouched).
  */
-export function normalizeAttr(name: string, value: string): string | null {
+export function normalizeAttr(state: State, name: string, value: string): string | null {
     if (!value) return null;
-    if (!getComponent(name)) return null;
+    if (!getComponent(state, name)) return null;
     try {
-        const fields = parseFields(name, value);
-        return formatFields(name, fields);
+        const fields = parseFields(state, name, value);
+        return formatFields(state, name, fields);
     } catch {
         return null;
     }
@@ -909,20 +911,20 @@ export interface Diagnostic {
  * is clean.
  *
  * @example
- * for (const d of diagnose(parse(xml))) console.warn(d.message);
+ * for (const d of diagnose(state, parse(xml))) console.warn(d.message);
  */
-export function diagnose(nodes: Node[]): Diagnostic[] {
+export function diagnose(state: State, nodes: Node[]): Diagnostic[] {
     const results: Diagnostic[] = [];
-    const registered = [...entries()].map((e) => e.name);
+    const registered = [...entries(state)].map((e) => e.name);
     for (const node of nodes) {
         const attrNames = new Set(node.attrs.map((a) => a.name));
         // a component that `provides` X satisfies another's `requires` X on the same entity (Body
         // provides Transform), so fold every attr's provisions into the satisfied set
         const satisfied = new Set(attrNames);
-        for (const name of attrNames) for (const p of provides(name)) satisfied.add(p);
+        for (const name of attrNames) for (const p of provides(state, name)) satisfied.add(p);
         for (const attr of node.attrs) {
             if (attr.value.startsWith("@") && attr.value.length > 1) continue;
-            const reg = getComponent(attr.name);
+            const reg = getComponent(state, attr.name);
             if (!reg) {
                 const suggestion = findClosestMatch(attr.name, registered);
                 const message = suggestion
@@ -931,7 +933,7 @@ export function diagnose(nodes: Node[]): Diagnostic[] {
                 results.push({ node, attr: attr.name, kind: "unregistered", message });
                 continue;
             }
-            if (getTraits(attr.name)?.derived) {
+            if (getTraits(state, attr.name)?.derived) {
                 results.push({
                     node,
                     attr: attr.name,
@@ -939,7 +941,7 @@ export function diagnose(nodes: Node[]): Diagnostic[] {
                     message: `"${attr.name}" is runtime-derived — a system owns it, so the authored value is overwritten`,
                 });
             }
-            for (const reqName of dependencies(attr.name)) {
+            for (const reqName of dependencies(state, attr.name)) {
                 if (!satisfied.has(reqName)) {
                     results.push({
                         node,
@@ -949,7 +951,7 @@ export function diagnose(nodes: Node[]): Diagnostic[] {
                     });
                 }
             }
-            for (const excName of exclusions(attr.name)) {
+            for (const excName of exclusions(state, attr.name)) {
                 if (attrNames.has(excName) && excName > attr.name) {
                     results.push({
                         node,

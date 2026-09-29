@@ -24,7 +24,7 @@ export default async function create(scene: string) {
     });
     const state = app.state;
     // Pose is the composition's one non-Body slab component; the package root does not export it.
-    const pose = getComponent("pose");
+    const pose = getComponent(state, "pose");
     if (!pose) throw new Error("allocation entry: the composition registers no `pose` component");
     let eid = 0;
     return {

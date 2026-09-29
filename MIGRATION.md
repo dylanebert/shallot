@@ -14,7 +14,9 @@ Tests that build an app use `*.gpu.test.ts`; the root Bun test preload applies S
 
 ## Worlds own component and GPU storage
 
-A component field declared with `sparse(type)` or `slab(type)` is a schema, not the world's values. Systems resolve its columns once with `const value = state.of(Value)` and read or write through that result; scene load, defaults, reflection and snapshots use the same State-owned columns. Columns grow geometrically as a world's entity ids rise, within the fixed entity/GPU reservation. The process-wide `capacity` still sizes Slab buffers until tables replace it.
+A component field declared with `sparse(type)` or `slab(type)` is a schema, not the world's values. Systems resolve its columns once with `const value = state.of(Value)` and read or write through that result; scene load, defaults, reflection and snapshots use the same State-owned columns. Columns grow geometrically as a world's entity ids rise, within that world's fixed entity/GPU reservation. `State.capacity`, entity creation, membership mirrors and engine Slab buffers all use the owning State's configured capacity. The exported `capacity` remains only as a legacy default for the old Slab API until tables replace it.
+
+Component registrations, defaults, exclusions and enumeration also belong to the State. Plugin registration during `build()` is unchanged; direct ECS registration and reflection helpers now take the State explicitly, as do scene helpers that interpret registered attrs (`diagnose`, `parseFields`, `formatFields` and `normalizeAttr`). `parse` remains state-free.
 
 Each `State` owns its GPU registries (`buffers`, `textures`, `samplers`, and typed handles) through `state.gpu`, as well as resources created through its tracked device/root. `state.resource(key, create)` is the seam for a module's non-column, per-world state; `state.own(resource)` ties a raw buffer or texture to disposal. Systems and lifecycle hooks can continue to use `Compute` inside their callback; outside one, retain `state.gpu` from the State that owns the resource. Disposing one App releases only its world's GPU allocations and registries.
 

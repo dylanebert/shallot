@@ -62,31 +62,87 @@ interface Entry {
     plan?: DefaultsPlan | null;
 }
 
-const byName = new Map<string, Entry>();
-// keyed by stable component id, so a handle held across any number of reloads
-// resolves the current registration
-const byId = new Map<number, Entry>();
-// derived from the registered traits, keyed by stable component id, never
-// accumulated — rebuilt lazily after any registration so a reload's removed
-// exclude stops being enforced and a stale pre-reload handle resolves the
-// current set through its id
-let exclusions: Map<number, Set<Component>> | null = null;
+export class ComponentRegistry {
+    private readonly _byName = new Map<string, Entry>();
+    // keyed by stable component id, so a handle held across reloads resolves this world's registration
+    private readonly _byId = new Map<number, Entry>();
+    private _exclusions: Map<number, Set<Component>> | null = null;
 
-function buildExclusions(): Map<number, Set<Component>> {
-    const map = new Map<number, Set<Component>>();
-    const link = (id: number, other: Component) => {
-        let set = map.get(id);
-        if (!set) map.set(id, (set = new Set()));
-        set.add(other);
-    };
-    for (const entry of byName.values()) {
-        for (const declared of entry.traits?.excludes ?? []) {
-            const other = byId.get(idOf(declared))?.component ?? declared;
-            link(idOf(entry.component), other);
-            link(idOf(other), entry.component);
-        }
+    /** register a component under a name, with optional traits */
+    register(name: string, component: Component, traits?: Traits): void {
+        const k = kebab(name);
+        const id = intern(component, k);
+        const expanded = traits ? expandEnums(traits) : undefined;
+        const entry: Entry = expanded
+            ? { component, name: k, traits: expanded }
+            : { component, name: k };
+        this._byName.set(k, entry);
+        this._byId.set(id, entry);
+        this._exclusions = null;
     }
-    return map;
+
+    /** components that may not coexist with `component`. Symmetric over all declarations */
+    getExclusions(component: Component): ReadonlySet<Component> | undefined {
+        this._exclusions ??= this.buildExclusions();
+        return this._exclusions.get(idOf(component));
+    }
+
+    /** the registered component handle for a name, or `undefined` if none is registered under it */
+    getComponent(name: string): Component | undefined {
+        return this._byName.get(kebab(name))?.component;
+    }
+
+    /** the parse-time `Traits` registered with a component name, or `undefined` if none */
+    getTraits(name: string): Traits | undefined {
+        return this._byName.get(kebab(name))?.traits;
+    }
+
+    getName(component: Component): string | undefined {
+        return this._byId.get(idOf(component))?.name;
+    }
+
+    /** iterate every component registered in this world with its name and traits */
+    entries(): IterableIterator<Entry> {
+        return this._byName.values();
+    }
+
+    /** write default values into this world's field columns. */
+    applyDefaults(state: State, component: Component, eid: number): void {
+        const entry = this._byId.get(idOf(component));
+        if (!entry) return;
+        let plan = entry.plan;
+        if (plan === undefined) plan = entry.plan = compilePlan(entry);
+        if (!plan) return;
+        const storage = state.of(component) as Record<
+            string,
+            { set(eid: number, ...values: number[]): void }
+        >;
+        for (const { name, values } of plan.fields) storage[name].set(eid, ...values);
+    }
+
+    /** clear registrations owned by this world. */
+    clear(): void {
+        this._byName.clear();
+        this._byId.clear();
+        this._exclusions = null;
+    }
+
+    private buildExclusions(): Map<number, Set<Component>> {
+        const map = new Map<number, Set<Component>>();
+        const link = (id: number, other: Component) => {
+            let set = map.get(id);
+            if (!set) map.set(id, (set = new Set()));
+            set.add(other);
+        };
+        for (const entry of this._byName.values()) {
+            for (const declared of entry.traits?.excludes ?? []) {
+                const other = this._byId.get(idOf(declared))?.component ?? declared;
+                link(idOf(entry.component), other);
+                link(idOf(other), entry.component);
+            }
+        }
+        return map;
+    }
 }
 
 function expandEnums(t: Traits): Traits {
@@ -107,61 +163,18 @@ function expandEnums(t: Traits): Traits {
     return { ...t, parse, format };
 }
 
-/** register a component under a name, with optional traits */
-export function register(name: string, component: Component, traits?: Traits): void {
-    const k = kebab(name);
-    const id = intern(component, k);
-    const expanded = traits ? expandEnums(traits) : undefined;
-    const entry: Entry = expanded
-        ? { component, name: k, traits: expanded }
-        : { component, name: k };
-    byName.set(k, entry);
-    byId.set(id, entry);
-    exclusions = null;
-}
-
-/** components that may not coexist with `component`. Symmetric over all declarations */
-export function getExclusions(component: Component): ReadonlySet<Component> | undefined {
-    exclusions ??= buildExclusions();
-    return exclusions.get(idOf(component));
-}
-
-/** the registered component handle for a name, or `undefined` if none is registered under it */
-export function getComponent(name: string): Component | undefined {
-    return byName.get(kebab(name))?.component;
-}
-
-/** the parse-time `Traits` registered with a component name, or `undefined` if none */
-export function getTraits(name: string): Traits | undefined {
-    return byName.get(kebab(name))?.traits;
-}
-
-export function getName(component: Component): string | undefined {
-    return byId.get(idOf(component))?.name;
-}
-
-/** iterate every registered component with its name and traits */
-export function entries(): IterableIterator<{
-    component: Component;
-    name: string;
-    traits?: Traits;
-}> {
-    return byName.values();
-}
-
-/** write default values into the field columns owned by this world. */
-export function applyDefaults(state: State, component: Component, eid: number): void {
-    const entry = byId.get(idOf(component));
-    if (!entry) return;
-    let plan = entry.plan;
-    if (plan === undefined) plan = entry.plan = compilePlan(entry);
-    if (!plan) return;
-    const storage = state.of(component) as Record<
-        string,
-        { set(eid: number, ...values: number[]): void }
-    >;
-    for (const { name, values } of plan.fields) storage[name].set(eid, ...values);
-}
+/** registration and reflection helpers always resolve through the owning State. */
+export const register = (state: State, name: string, component: Component, traits?: Traits): void =>
+    state.registry.register(name, component, traits);
+export const getExclusions = (state: State, component: Component) =>
+    state.registry.getExclusions(component);
+export const getComponent = (state: State, name: string) => state.registry.getComponent(name);
+export const getTraits = (state: State, name: string) => state.registry.getTraits(name);
+export const getName = (state: State, component: Component) => state.registry.getName(component);
+export const entries = (state: State) => state.registry.entries();
+export const applyDefaults = (state: State, component: Component, eid: number) =>
+    state.registry.applyDefaults(state, component, eid);
+export const clear = (state: State): void => state.registry.clear();
 
 const LANE_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, w: 3 };
 
@@ -225,11 +238,4 @@ function compilePlan(entry: Entry): DefaultsPlan | null {
     return fields.size === 0
         ? null
         : { fields: [...fields].map(([name, values]) => ({ name, values })) };
-}
-
-/** wipe every registration; used between sessions and tests */
-export function clear(): void {
-    byName.clear();
-    byId.clear();
-    exclusions = null;
 }

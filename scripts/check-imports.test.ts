@@ -148,3 +148,40 @@ test("the import boundary resolves TypeScript specifiers, scans each source exte
         ]);
     });
 }, 20_000);
+
+test("the repository engine runtime does not import past the ECS barrel", () => {
+    const root = resolve(import.meta.dir, "..");
+    expect(
+        checkImports(root).filter((red) => red.startsWith("src/engine/runtime/gpu.ts:")),
+    ).toEqual([]);
+}, 20_000);
+
+test("engine runtime imports ECS APIs through the ECS barrel", () => {
+    withFixture((root) => {
+        writeFileSync(
+            resolve(root, "tsconfig.json"),
+            JSON.stringify({
+                compilerOptions: {
+                    module: "ESNext",
+                    moduleResolution: "Bundler",
+                    noEmit: true,
+                },
+                include: ["src"],
+            }),
+        );
+        put(root, "engine/ecs/index.ts", 'export { useState } from "./component";\n');
+        put(root, "engine/ecs/component.ts", "export function useState(): void {}\n");
+        put(
+            root,
+            "engine/runtime/gpu.ts",
+            'import { useState } from "../ecs/component";\nvoid useState;\n',
+        );
+
+        expect(checkImports(root)).toEqual([
+            "src/engine/runtime/gpu.ts:1: import past engine/ecs/index.ts → engine/ecs/component.ts",
+        ]);
+
+        put(root, "engine/runtime/gpu.ts", 'import { useState } from "../ecs";\nvoid useState;\n');
+        expect(checkImports(root)).toEqual([]);
+    });
+}, 20_000);
