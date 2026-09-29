@@ -7,6 +7,8 @@ const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
 
+const UPLOAD_RECORD = d.struct({ value: d.u32, tag: d.u32 });
+
 function bounded<T>(label: string, promise: PromiseLike<T>, timeout = 5_000): Promise<T> {
     return new Promise((resolve, reject) => {
         const timer = setTimeout(
@@ -623,3 +625,77 @@ test("measure struct records against per-field arrays for pose and light", async
         app.dispose();
     }
 }, 5_000);
+
+test("measure dense table range uploads at 0.1%, 10%, and 100% changed", async () => {
+    let state!: State;
+    const plugin: Plugin = {
+        name: "TableUploadCostProbe",
+        initialize(current) {
+            state = current;
+        },
+    };
+    const app = await build({ defaults: false, plugins: [plugin] });
+
+    try {
+        const { class: adapterClass, identity } = state.gpu.adapter;
+        console.info(`[gpu-table-upload-perf] adapter class=${adapterClass} identity=${identity}`);
+        expect(adapterClass).toBe("real");
+        expect(identity.length).toBeGreaterThan(0);
+        const results: string[] = [];
+        const device = state.gpu.device;
+
+        for (const count of [1_000, 10_000, 100_000]) {
+            const table = state.table(`upload-cost-${count}`, UPLOAD_RECORD);
+            for (let eid = 0; eid < count; eid++) table.acquire(eid);
+            table.bytes.fill(0x5a);
+            device.pushErrorScope("validation");
+            table.markRange(0, count);
+            table.upload();
+            await bounded(
+                `writeBuffer ${count} warmup queue completion`,
+                device.queue.onSubmittedWorkDone(),
+            );
+            const warmupError = await bounded(
+                `writeBuffer ${count} warmup validation scope`,
+                device.popErrorScope(),
+            );
+            if (warmupError) throw new Error(`writeBuffer warmup: ${warmupError.message}`);
+            expect(table.lastUploadPath).toBe("writeBuffer");
+
+            for (const fraction of [0.001, 0.1, 1]) {
+                const changed = Math.max(1, Math.floor(count * fraction));
+                const submitTimes: number[] = [];
+                const cycleTimes: number[] = [];
+                for (let sample = 0; sample < 7; sample++) {
+                    device.pushErrorScope("validation");
+                    const start = performance.now();
+                    table.markRange(0, changed);
+                    table.upload();
+                    submitTimes.push(performance.now() - start);
+                    await bounded(
+                        `writeBuffer ${count} rows ${changed} changed sample ${sample + 1} queue completion`,
+                        device.queue.onSubmittedWorkDone(),
+                    );
+                    const error = await bounded(
+                        `writeBuffer ${count} rows ${changed} changed sample ${sample + 1} validation scope`,
+                        device.popErrorScope(),
+                    );
+                    if (error) throw new Error(`writeBuffer upload: ${error.message}`);
+                    if (table.lastUploadPath !== "writeBuffer") {
+                        throw new Error(`writeBuffer requested, got ${table.lastUploadPath}`);
+                    }
+                    cycleTimes.push(performance.now() - start);
+                }
+                results.push(
+                    `${count},${(fraction * 100).toFixed(1)}%,${changed},${median(submitTimes).toFixed(4)},${median(cycleTimes).toFixed(4)}`,
+                );
+            }
+        }
+
+        console.info(
+            `[gpu-table-upload-perf] median ms; columns=rows,changed,changedRows,submit,queueCycle\n${results.join("\n")}`,
+        );
+    } finally {
+        app.dispose();
+    }
+}, 10_000);

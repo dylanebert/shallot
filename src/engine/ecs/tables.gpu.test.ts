@@ -45,7 +45,7 @@ async function stepAndValidate(state: State, label: string): Promise<void> {
 const Record = d.struct({ amount: d.f32, tag: d.u32 });
 const Rows = { amount: field(f32), tag: field(u32) };
 
-test("dense tables choose no upload, mapped scatter, or one full range upload and preserve rows", async () => {
+test("dense tables skip unchanged rows and upload changed ranges with writeBuffer", async () => {
     let state!: State;
     let table!: ReturnType<State["table"]>;
     const plugin: Plugin = {
@@ -53,7 +53,7 @@ test("dense tables choose no upload, mapped scatter, or one full range upload an
         components: { Rows },
         initialize(current) {
             state = current;
-            table = current.table("table-upload-probe", Record, { uploadThreshold: 0.15 });
+            table = current.table("table-upload-probe", Record);
         },
     };
     const app = await build({ defaults: false, plugins: [plugin] });
@@ -76,14 +76,14 @@ test("dense tables choose no upload, mapped scatter, or one full range upload an
     };
     write(eids[0], 17.25);
     table.markRange(slots[0], 1);
-    await stepAndValidate(state, "sparse table scatter");
-    expect(table.lastUploadPath).toBe("scatter");
+    await stepAndValidate(state, "sparse record range upload");
+    expect(table.lastUploadPath).toBe("writeBuffer");
     const sparseRows = await bounded(
-        "probe scattered table rows",
+        "probe sparsely changed table row",
         probeBuffer(state.gpu.device, table.buffer, {
             offset: slots[0] * table.rowBytes,
             size: table.rowBytes,
-            label: "table-scatter-proof",
+            label: "table-range-write-proof",
         }),
     );
     const sparseData = new DataView(sparseRows.bytes);
@@ -92,8 +92,8 @@ test("dense tables choose no upload, mapped scatter, or one full range upload an
 
     for (let i = 1; i < 100; i++) write(eids[i], i + 0.5);
     table.markRange(slots[1], 99);
-    await stepAndValidate(state, "partial table scatter");
-    expect(table.lastUploadPath).toBe("scatter");
+    await stepAndValidate(state, "partial record range upload");
+    expect(table.lastUploadPath).toBe("writeBuffer");
 
     for (let i = 0; i < eids.length; i++) write(eids[i], i + 1000);
     table.markRange(slots[0], eids.length);

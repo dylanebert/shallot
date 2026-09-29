@@ -136,7 +136,7 @@ export class State {
     table<T extends d.AnyWgslData>(
         name: string,
         record: T,
-        options?: GpuTableOptions | number,
+        options?: GpuTableOptions,
     ): GpuTable<T> {
         if (this._tables.has(name)) throw new Error(`State.table: duplicate table "${name}"`);
         const registry = this._gpu?.buffers;

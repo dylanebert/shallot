@@ -2,24 +2,11 @@ import type { TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import type { State } from "./state";
 
-const SCATTER_STAGERS = 3;
-const DEFAULT_UPLOAD_THRESHOLD: number | undefined = undefined;
-
-export type TableUploadPath = "none" | "scatter" | "writeBuffer";
+export type TableUploadPath = "none" | "writeBuffer";
 export interface GpuTableOptions {
-    /** A mapped-staging scatter crossover, enabled only when measured to beat writeBuffer. */
-    uploadThreshold?: number;
     /** No CPU backing or upload path; a GPU pass owns every row write. */
     gpuOnly?: boolean;
 }
-
-type Stager = {
-    readonly buffer: GPUBuffer;
-    readonly epoch: number;
-    available: boolean;
-    mapped(): void;
-    rejected(error: unknown): void;
-};
 
 type Consumer = (buffer: GPUBuffer, generation: number) => void;
 
@@ -30,7 +17,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     readonly rowBytes: number;
     readonly maxRows: number;
     readonly maxEntityRows: number;
-    readonly uploadThreshold: number | undefined;
     readonly gpuOnly: boolean;
     private readonly _state: State;
     private _capacity = 0;
@@ -40,13 +26,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private _dirty = new Uint32Array(0);
     private _buffer!: GPUBuffer;
     private _typed!: TgpuBuffer<d.AnyWgslData>;
-    private _pipeline!: GPUComputePipeline;
-    private _layout!: GPUBindGroupLayout;
-    private _source: GPUBuffer | undefined;
-    private _dirtyGpu: GPUBuffer | undefined;
-    private _bindGroup!: GPUBindGroup;
-    private _stagers: Stager[] = [];
-    private _epoch = 0;
     private _disposed = false;
     private _lastUploadPath: TableUploadPath = "none";
     private _consumers: Consumer[] = [];
@@ -74,15 +53,8 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private _activeGeneration = 0;
     private _activeConsumers: Consumer[] = [];
 
-    constructor(state: State, name: string, record: T, options: GpuTableOptions | number = {}) {
+    constructor(state: State, name: string, record: T, options: GpuTableOptions = {}) {
         if (!name) throw new Error("GpuTable: name must not be empty");
-        const normalized = typeof options === "number" ? { uploadThreshold: options } : options;
-        const threshold = normalized.uploadThreshold ?? DEFAULT_UPLOAD_THRESHOLD;
-        if (threshold !== undefined && !(threshold > 0 && threshold <= 1)) {
-            throw new Error(
-                `GpuTable "${name}": upload threshold must be in (0, 1], got ${threshold}`,
-            );
-        }
         this._state = state;
         this.name = name;
         this.record = record;
@@ -92,8 +64,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                 `GpuTable "${name}": record size ${this.rowBytes} must be a positive multiple of 4 bytes`,
             );
         }
-        this.gpuOnly = normalized.gpuOnly ?? false;
-        this.uploadThreshold = threshold;
+        this.gpuOnly = options.gpuOnly ?? false;
         const device = state.gpu.device;
         const bindingLimit = device.limits.maxStorageBufferBindingSize;
         const bufferLimit = device.limits.maxBufferSize;
@@ -106,7 +77,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         if (!this.gpuOnly) {
             this._bytes = new Uint8Array(0);
         }
-        if (this.uploadThreshold !== undefined) this.createScatterPipeline();
         this._freeRows = new Uint32Array(1);
         this.reserveSlots(1);
         this._activeRows = new Uint32Array(1);
@@ -319,34 +289,18 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     upload(): void {
         if (this._disposed) return;
         this._lastMapUploadBytes = 0;
-        const changed = this.changedRows();
-        if (changed === 0) {
+        if (this.changedRows() === 0) {
             this._lastUploadPath = "none";
         } else {
-            const device = this._state.gpu.device;
-            const highWater = this._addressedRows();
-            if (
-                this.uploadThreshold !== undefined &&
-                changed / Math.max(1, highWater) <= this.uploadThreshold
-            ) {
-                const stager = this.availableStager();
-                if (!stager)
-                    throw new Error(
-                        `GpuTable "${this.name}": mapped scatter staging is unavailable`,
-                    );
-                this.scatter(stager, highWater);
-                this._lastUploadPath = "scatter";
-            } else {
-                if (!this._bytes) throw new Error(`GpuTable "${this.name}" is GPU-only`);
-                device.queue.writeBuffer(
-                    this._buffer,
-                    0,
-                    this._bytes.buffer,
-                    0,
-                    highWater * this.rowBytes,
-                );
-                this._lastUploadPath = "writeBuffer";
-            }
+            if (!this._bytes) throw new Error(`GpuTable "${this.name}" is GPU-only`);
+            this._state.gpu.device.queue.writeBuffer(
+                this._buffer,
+                0,
+                this._bytes.buffer,
+                0,
+                this._highWater * this.rowBytes,
+            );
+            this._lastUploadPath = "writeBuffer";
             this._dirty.fill(0);
         }
         this.uploadMap();
@@ -357,14 +311,10 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     dispose(): void {
         if (this._disposed) return;
         this._disposed = true;
-        this._epoch++;
-        const buffers = [this._buffer, ...this._stagers.map((stager) => stager.buffer)];
-        if (this._source) buffers.push(this._source);
-        if (this._dirtyGpu) buffers.push(this._dirtyGpu);
+        const buffers = [this._buffer];
         if (this._mapBuffer) buffers.push(this._mapBuffer);
         if (this._activeBuffer) buffers.push(this._activeBuffer);
         for (const buffer of buffers) buffer.destroy();
-        this._stagers.length = 0;
         for (const name of [this.name, this.mapName, this.activeName]) {
             if (name && this._state.gpu.buffers.has(name)) this._state.gpu.buffers.delete(name);
             if (name && this._state.gpu.typed.has(name)) this._state.gpu.typed.delete(name);
@@ -385,10 +335,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         );
     }
 
-    private _addressedRows(): number {
-        return this._highWater;
-    }
-
     private changedRows(): number {
         let count = 0;
         for (let i = 0; i < this._dirty.length; i++) {
@@ -399,52 +345,6 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             }
         }
         return count;
-    }
-
-    private createScatterPipeline(): void {
-        const words = this.rowBytes >>> 2;
-        const device = this._state.gpu.device;
-        this._layout = device.createBindGroupLayout({
-            label: `table-${this.name}-scatter-layout`,
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" },
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" },
-                },
-                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-            ],
-        });
-        const module = device.createShaderModule({
-            label: `table-${this.name}-scatter`,
-            code: `
-@group(0) @binding(0) var<storage, read> changed: array<u32>;
-@group(0) @binding(1) var<storage, read> source: array<u32>;
-@group(0) @binding(2) var<storage, read_write> rows: array<u32>;
-@compute @workgroup_size(64)
-fn scatter(@builtin(global_invocation_id) id: vec3<u32>) {
-    let row = id.x;
-    if ((changed[row >> 5u] & (1u << (row & 31u))) == 0u) { return; }
-    let wordsPerRow = ${words}u;
-    for (var word = 0u; word < wordsPerRow; word++) {
-        rows[row * wordsPerRow + word] = source[row * wordsPerRow + word];
-    }
-}`,
-        });
-        const pipelineLayout = device.createPipelineLayout({
-            label: `table-${this.name}-scatter-pipeline-layout`,
-            bindGroupLayouts: [this._layout],
-        });
-        this._pipeline = device.createComputePipeline({
-            label: `table-${this.name}-scatter-pipeline`,
-            layout: pipelineLayout,
-            compute: { module, entryPoint: "scatter" },
-        });
     }
 
     private ensureEntityRows(rows: number): void {
@@ -545,117 +445,10 @@ fn scatter(@builtin(global_invocation_id) id: vec3<u32>) {
             .$usage("storage") as TgpuBuffer<d.AnyWgslData>;
         this._state.gpu.buffers.set(this.name, buffer);
         this._state.gpu.typed.set(this.name, this._typed);
-        this.replaceScatterBuffers();
         this._generation++;
         for (let i = 0; i < this._consumers.length; i++) {
             this._consumers[i](buffer, this._generation);
         }
-    }
-
-    private replaceScatterBuffers(): void {
-        if (this.uploadThreshold === undefined) return;
-        const device = this._state.gpu.device;
-        this._source?.destroy();
-        this._dirtyGpu?.destroy();
-        for (let i = 0; i < this._stagers.length; i++) this._stagers[i].buffer.destroy();
-        const dirtyBytes = Math.max(4, this._dirty.byteLength);
-        const bytes = Math.max(4, this._capacity * this.rowBytes);
-        this._source = device.createBuffer({
-            label: `table-${this.name}-scatter-source`,
-            size: bytes,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-        this._dirtyGpu = device.createBuffer({
-            label: `table-${this.name}-scatter-dirty`,
-            size: dirtyBytes,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-        this._state.own(this._source);
-        this._state.own(this._dirtyGpu);
-        this._bindGroup = device.createBindGroup({
-            label: `table-${this.name}-scatter-bind-group`,
-            layout: this._layout,
-            entries: [
-                { binding: 0, resource: { buffer: this._dirtyGpu } },
-                { binding: 1, resource: { buffer: this._source } },
-                { binding: 2, resource: { buffer: this._buffer } },
-            ],
-        });
-        this._stagers = [];
-        this._epoch++;
-        if (this.uploadThreshold !== undefined) {
-            const epoch = this._epoch;
-            const stageBytes = dirtyBytes + bytes;
-            for (let i = 0; i < SCATTER_STAGERS; i++) {
-                const stager = this.createStager(device, stageBytes, epoch);
-                this._stagers.push(stager);
-                this._state.own(stager.buffer);
-            }
-        }
-    }
-
-    private createStager(device: GPUDevice, size: number, epoch: number): Stager {
-        const stager: Stager = {
-            buffer: device.createBuffer({
-                label: `table-${this.name}-mapped-scatter`,
-                size,
-                usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
-                mappedAtCreation: true,
-            }),
-            epoch,
-            available: true,
-            mapped: () => {
-                if (this._disposed || this._epoch !== stager.epoch) stager.buffer.destroy();
-                else stager.available = true;
-            },
-            rejected: () => {
-                stager.buffer.destroy();
-                if (!this._disposed && this._epoch === stager.epoch) {
-                    this._stagingError = new Error(
-                        `GpuTable "${this.name}" staging mapAsync failed`,
-                    );
-                }
-            },
-        };
-        return stager;
-    }
-
-    private _stagingError: Error | undefined;
-
-    private availableStager(): Stager | undefined {
-        if (this._stagingError) throw this._stagingError;
-        for (let i = 0; i < this._stagers.length; i++) {
-            if (this._stagers[i].available) return this._stagers[i];
-        }
-        return undefined;
-    }
-
-    private scatter(stager: Stager, rows: number): void {
-        const range = stager.buffer.getMappedRange();
-        const dirtyBytes = this._dirty.byteLength;
-        const dirty = new Uint8Array(range, 0, dirtyBytes);
-        const source = new Uint8Array(range, dirtyBytes, this._capacity * this.rowBytes);
-        dirty.set(new Uint8Array(this._dirty.buffer, this._dirty.byteOffset, dirtyBytes));
-        if (this._bytes) source.set(this._bytes);
-        stager.buffer.unmap();
-        const device = this._state.gpu.device;
-        const encoder = device.createCommandEncoder({ label: `table-${this.name}-scatter-upload` });
-        encoder.copyBufferToBuffer(stager.buffer, 0, this._dirtyGpu!, 0, dirtyBytes);
-        encoder.copyBufferToBuffer(
-            stager.buffer,
-            dirtyBytes,
-            this._source!,
-            0,
-            this._capacity * this.rowBytes,
-        );
-        const pass = encoder.beginComputePass({ label: `table-${this.name}-scatter-pass` });
-        pass.setPipeline(this._pipeline);
-        pass.setBindGroup(0, this._bindGroup);
-        pass.dispatchWorkgroups(Math.ceil(rows / 64));
-        pass.end();
-        device.queue.submit([encoder.finish()]);
-        stager.available = false;
-        stager.buffer.mapAsync(GPUMapMode.WRITE).then(stager.mapped, stager.rejected);
     }
 
     private uploadMap(): void {
