@@ -33,7 +33,7 @@ import { materialFns } from "./shade";
 // storage. Declaration order is binding order, so the substrate's three are placed individually rather than
 // spread.
 const liveLayout = surfaceLayout({
-    eids: { type: "storage", element: d.u32 },
+    eids: { type: "storage", element: d.vec4u },
     transforms: { type: "storage", element: Xform },
     skin: { type: "storage", element: d.vec4f },
     materialData: { type: "storage", element: MaterialData },

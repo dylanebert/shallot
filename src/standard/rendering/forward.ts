@@ -1192,7 +1192,7 @@ const ShadowMapSystem: System = {
 // the typed twin of `litBindings`, group 2 (`layout()`'s $idx(2) synthesis) — same four bindings, same
 // element shapes, feeding the typed `default` surface.
 const typedDefaultLayout = typedLayout({
-    eids: { type: "storage", element: d.u32 },
+    eids: { type: "storage", element: d.vec4u },
     transforms: { type: "storage", element: Xform },
 });
 
@@ -1218,7 +1218,7 @@ const typedDefaultFs = tgpu.fn(
 
 // the typed twin of `colorBindings` — `unlit`'s three bindings, no `material` (it never shades).
 const typedColorLayout = typedLayout({
-    eids: { type: "storage", element: d.u32 },
+    eids: { type: "storage", element: d.vec4u },
     transforms: { type: "storage", element: Xform },
 });
 

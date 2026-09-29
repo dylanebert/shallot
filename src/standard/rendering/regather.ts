@@ -14,14 +14,6 @@ import { DrawIndexedIndirect } from "../../core/rendering";
 import { Compute, type State } from "../../engine";
 import { worldResource } from "../../engine/runtime";
 
-// the re-gather packs each instance's (eid, dense combo index) into one u32 in the re-gathered list — eid in
-// the low bits, the combo above. The exact split follows the owning world's capacity; Pass B and the atlas
-// vertex stages use the same layout.
-export function eidPacking(capacity: number): { comboShift: number; eidMask: number } {
-    const comboShift = Math.ceil(Math.log2(capacity));
-    return { comboShift, eidMask: 2 ** comboShift - 1 };
-}
-
 // one DrawIndexedIndirect record per casting mesh, written by Pass A: instanceCount = Σ combo
 // survivors, firstInstance = the mesh's base into the re-gathered list. Stride derived from the schema
 // (a second hand-authored stride is layout drift waiting to happen).
@@ -95,17 +87,17 @@ fn main() {
 }`,
     });
 
-const regatherEidsWgsl = (comboShift: number): string =>
+const regatherEidsWgsl = (): string =>
     tgpu.resolve({
         names: "strict",
         externals: { DrawIndexedIndirect },
         template: /* wgsl */ `
 struct RgParams { draws: u32, combos: u32, pairCount: u32 }
 @group(0) @binding(0) var<storage, read> drawArgs: array<DrawIndexedIndirect>;
-@group(0) @binding(1) var<storage, read> packedEids: array<u32>;
+@group(0) @binding(1) var<storage, read> packedEids: array<vec4u>;
 @group(0) @binding(2) var<storage, read> shadowArgs: array<DrawIndexedIndirect>;
 @group(0) @binding(3) var<storage, read> rgMeta: array<u32>;
-@group(0) @binding(4) var<storage, read_write> shadowEids: array<u32>;
+@group(0) @binding(4) var<storage, read_write> shadowEids: array<vec4u>;
 @group(0) @binding(5) var<uniform> params: RgParams;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -130,7 +122,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
     let dst = shadowArgs[i].firstInstance + off; // the mesh's run base + the combo's within-run offset
     for (var k = 0u; k < cnt; k = k + 1u) {
-        shadowEids[dst + k] = packedEids[src + k] | (c << ${comboShift}u);
+        let instance = packedEids[src + k];
+        shadowEids[dst + k] = vec4u(instance.xyz, c);
     }
 }`,
     });
@@ -173,7 +166,7 @@ export async function prepareRegather(device: GPUDevice, capacity: number): Prom
     });
     // Pass B — one thread per (casting mesh, combo): copy that combo's culled eids from the spine's
     // packedEids region into the mesh's contiguous run at the combo's within-run offset (Σ earlier combos'
-    // counts), packing the dense combo index above the eid. The serial inner copy is the per-(mesh, combo)
+    // counts), setting the payload's combo lane. The serial inner copy is the per-(mesh, combo)
     // count; a per-instance dispatch is the deferred optimization if a mesh ever owns a large
     // per-combo count
     regatherState().bLayout = device.createBindGroupLayout({
@@ -204,8 +197,7 @@ export async function prepareRegather(device: GPUDevice, capacity: number): Prom
         ],
     });
     const aWgsl = regatherArgsWgsl();
-    const { comboShift } = eidPacking(capacity);
-    const bWgsl = regatherEidsWgsl(comboShift);
+    const bWgsl = regatherEidsWgsl();
 
     const [a, b] = await Promise.all([
         device.createComputePipelineAsync({
@@ -235,7 +227,7 @@ export async function prepareRegather(device: GPUDevice, capacity: number): Prom
 /** one shadow atlas's re-gather instance: its own packed list + indirect args + meta, sharing the
  * module-singleton A/B pipelines. The point atlas and the CSM cascade atlas each own one. */
 export interface Regather {
-    /** the re-gathered packed instance list (`(combo << COMBO_SHIFT) | eid`), bound at the consumer
+    /** the re-gathered instance list (`eid, transformSlot, encodedPartSlot, combo`), bound at the consumer
      * pipeline's `eids` lane. `null` until {@link Regather.ensure} allocates it (the first casting frame). */
     eids(): GPUBuffer | null;
     /** the indirect buffer the atlas render pass draws from: one DrawIndexedIndirect record per casting
@@ -422,7 +414,7 @@ export function createRegather(label: string): Regather {
             _eidCombos = maxCombos;
             _eids = Compute.device.createBuffer({
                 label: `sear-${label}-regather-eids`,
-                size: maxCombos * capacity * 4,
+                size: maxCombos * capacity * 16,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             });
             _onAlloc();

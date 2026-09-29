@@ -51,7 +51,7 @@ const VatParams = d
     })
     .$name("VatParams");
 const vatLayout = surfaceLayout({
-    eids: { type: "storage", element: d.u32 },
+    eids: { type: "storage", element: d.vec4u },
     transforms: { type: "storage", element: Xform },
     color: { type: "storage", element: d.u32 },
     skin: { type: "storage", element: d.vec4f },

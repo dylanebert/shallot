@@ -55,7 +55,6 @@ import {
     sunVisibility,
 } from "./engine";
 import type { Recorded } from "./forward";
-import { eidPacking } from "./regather";
 import { sampleSunShadow } from "./shade";
 import { cascadeAtlasSize, pointAtlasSize, sunCascades, sunResolution } from "./shadows";
 
@@ -378,14 +377,15 @@ function typedColorVertex(surface: AnySurface, clip: boolean, suffix = clip ? "C
             let material = d.vec4f(0, 1, 0, 1);
             let xform = identityXform();
             if (instanced) {
-                eid = bound.eids[iid];
-                const partEncoded = bound.partRowMap[eid];
+                const instance = bound.eids[iid];
+                eid = instance.x;
+                const partEncoded = instance.z;
                 if (partEncoded !== 0) {
                     const part = bound.partInputs[partEncoded - 1];
                     color = d.vec4f(part.color);
                     material = d.vec4f(part.material);
                 }
-                xform = Xform(bound.transforms[bound.transformRows[eid] - 1]);
+                xform = Xform(bound.transforms[instance.y]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
                 worldNormal = d.vec3f(xformNormal(xform, worldNormal));
             }
@@ -636,14 +636,15 @@ function typedPrepassVs(surface: AnySurface) {
             let material = d.vec4f(0, 1, 0, 1);
             let xform = identityXform();
             if (instanced) {
-                eid = bound.eids[input.iid];
-                const partEncoded = bound.partRowMap[eid];
+                const instance = bound.eids[input.iid];
+                eid = instance.x;
+                const partEncoded = instance.z;
                 if (partEncoded !== 0) {
                     const part = bound.partInputs[partEncoded - 1];
                     color = d.vec4f(part.color);
                     material = d.vec4f(part.material);
                 }
-                xform = Xform(bound.transforms[bound.transformRows[eid] - 1]);
+                xform = Xform(bound.transforms[instance.y]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
                 worldNormal = d.vec3f(xformNormal(xform, worldNormal));
             }
@@ -720,14 +721,15 @@ function typedTagVs(surface: AnySurface) {
             let material = d.vec4f(0, 1, 0, 1);
             let xform = identityXform();
             if (instanced) {
-                eid = bound.eids[input.iid];
-                const partEncoded = bound.partRowMap[eid];
+                const instance = bound.eids[input.iid];
+                eid = instance.x;
+                const partEncoded = instance.z;
                 if (partEncoded !== 0) {
                     const part = bound.partInputs[partEncoded - 1];
                     color = d.vec4f(part.color);
                     material = d.vec4f(part.material);
                 }
-                xform = Xform(bound.transforms[bound.transformRows[eid] - 1]);
+                xform = Xform(bound.transforms[instance.y]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
                 worldNormal = d.vec3f(xformNormal(xform, worldNormal));
             }
@@ -1052,14 +1054,15 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
     var material = vec4f(0.0, 1.0, 0.0, 1.0);
 ${
     instanced
-        ? `    eid = bound.eids[in.iid];
-    let partEncoded = bound.partRowMap[eid];
+        ? `    let instance = bound.eids[in.iid];
+    eid = instance.x;
+    let partEncoded = instance.z;
     if (partEncoded != 0u) {
         let part = bound.partInputs[partEncoded - 1u];
         color = part.color;
         material = part.material;
     }
-    xform = bound.transforms[bound.transformRows[eid] - 1u];
+    xform = bound.transforms[instance.y];
     world = vec4f(xformPoint(xform, world.xyz), world.w);
     worldNormal = vec3f(xformNormal(xform, worldNormal));
 `
@@ -1691,9 +1694,8 @@ function typedShadowVs(
     shadowGroup: TgpuBindGroupLayout<any>,
     atlas: number,
     cascade: boolean,
-    capacity: number,
+    _capacity: number,
 ) {
-    const { comboShift, eidMask } = eidPacking(capacity);
     const hasVs = !!surface.vs;
     const vsFn = surface.vs;
     const layout = surface.layout.depthVariant;
@@ -1722,18 +1724,18 @@ function typedShadowVs(
             // `typedPrepassVs`'s pinned law
             const localNormal = d.vec3f(0, 0, 1);
             const uv = d.vec2f(0, 0);
-            const packed = bound.eids[input.iid];
-            const eid = packed & eidMask;
-            const combo = packed >>> comboShift;
+            const instance = bound.eids[input.iid];
+            const eid = instance.x;
+            const combo = instance.w;
             let color = d.vec4f(1);
             let material = d.vec4f(0, 1, 0, 1);
-            const partEncoded = bound.partRowMap[eid];
+            const partEncoded = instance.z;
             if (partEncoded !== 0) {
                 const part = bound.partInputs[partEncoded - 1];
                 color = d.vec4f(part.color);
                 material = d.vec4f(part.material);
             }
-            const xform = Xform(bound.transforms[bound.transformRows[eid] - 1]);
+            const xform = Xform(bound.transforms[instance.y]);
             let world = d.vec4f(xformPoint(xform, localPos), 1);
             let worldNormal = d.vec3f(xformNormal(xform, localNormal));
             if (hasVs) {
@@ -1785,9 +1787,8 @@ function typedClipShadowVertex(
     shadowGroup: TgpuBindGroupLayout<any>,
     atlas: number,
     cascade: boolean,
-    capacity: number,
+    _capacity: number,
 ) {
-    const { comboShift, eidMask } = eidPacking(capacity);
     const hasVs = !!surface.vs;
     const vsFn = surface.vs;
     const layout = surface.layout;
@@ -1814,18 +1815,18 @@ function typedClipShadowVertex(
             const localPos = decodePos(v.x, v.y, mq);
             const localNormal = octDecodeNormal(v.z);
             const uv = decodeUv(v.w, mq);
-            const packed = bound.eids[iid];
-            const eid = packed & eidMask;
-            const combo = packed >>> comboShift;
+            const instance = bound.eids[iid];
+            const eid = instance.x;
+            const combo = instance.w;
             let color = d.vec4f(1);
             let material = d.vec4f(0, 1, 0, 1);
-            const partEncoded = bound.partRowMap[eid];
+            const partEncoded = instance.z;
             if (partEncoded !== 0) {
                 const part = bound.partInputs[partEncoded - 1];
                 color = d.vec4f(part.color);
                 material = d.vec4f(part.material);
             }
-            const xform = Xform(bound.transforms[bound.transformRows[eid] - 1]);
+            const xform = Xform(bound.transforms[instance.y]);
             let world = d.vec4f(xformPoint(xform, localPos), 1);
             let worldNormal = d.vec3f(xformNormal(xform, localNormal));
             if (hasVs) {
@@ -1967,9 +1968,8 @@ function varyingShadowVs(
     shadowGroup: TgpuBindGroupLayout<any>,
     atlas: number,
     cascade: boolean,
-    capacity: number,
+    _capacity: number,
 ) {
-    const { comboShift, eidMask } = eidPacking(capacity);
     const varyings = surface.varyings ?? {};
     const keys = Object.keys(varyings);
     if (keys.length !== 1 || !surface.vs) {
@@ -2010,10 +2010,10 @@ function varyingShadowVs(
     let localPos = decodePos(v.x, v.y, mq);
     let localNormal = octDecodeNormal(v.z);
     let uv = decodeUv(v.w, mq);
-    let packed = bound.eids[iid];
-    let eid = packed & ${eidMask}u;
-    let combo = packed >> ${comboShift}u;
-    let partEncoded = bound.partRowMap[eid];
+    let instance = bound.eids[iid];
+    let eid = instance.x;
+    let combo = instance.w;
+    let partEncoded = instance.z;
     var color = vec4f(1.0);
     var material = vec4f(0.0, 1.0, 0.0, 1.0);
     if (partEncoded != 0u) {
@@ -2021,7 +2021,7 @@ function varyingShadowVs(
         color = part.color;
         material = part.material;
     }
-    let xform = bound.transforms[bound.transformRows[eid] - 1u];
+    let xform = bound.transforms[instance.y];
     var world = vec4f(xformPoint(xform, localPos), 1.0);
     var worldNormal = vec3f(xformNormal(xform, localNormal));
 ${

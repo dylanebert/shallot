@@ -77,7 +77,7 @@ import { bakeVat, type GltfVat } from "./vat";
 // variant-invariant — every map-set variant binds the same arrays (an unused one is a 1×1 fallback, never
 // skipped); the `specialize` codegen, not a missing binding, is what drops a sparse-map material's samples.
 const texturedLayout = surfaceLayout({
-    eids: { type: "storage", element: d.u32 },
+    eids: { type: "storage", element: d.vec4u },
     transforms: { type: "storage", element: Xform },
     color: { type: "storage", element: d.u32 },
     materialIndex: { type: "storage", element: d.u32 },

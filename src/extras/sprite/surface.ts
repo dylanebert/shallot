@@ -44,7 +44,7 @@ export const SpriteData = d
 
 const layout = surfaceLayout({
     spriteData: { type: "storage", element: SpriteData },
-    eids: { type: "storage", element: d.u32 },
+    eids: { type: "storage", element: d.vec4u },
     transforms: { type: "storage", element: Xform },
     spriteAtlas: { type: "texture-2d-array" },
     spriteSamp: { type: "sampler" },

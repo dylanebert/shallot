@@ -62,7 +62,7 @@ export const scatterLayout = tgpu
     .bindGroupLayout({
         drawArgs: { storage: d.arrayOf(DrawIndexedIndirect), access: "readonly" },
         counts: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
-        packedEids: { storage: d.arrayOf(d.u32), access: "mutable" },
+        packedEids: { storage: d.arrayOf(d.vec4u), access: "mutable" },
     })
     .$idx(1);
 
@@ -245,7 +245,7 @@ export function scatterKernel(surfaceCount: number) {
             const idx = slot * cullLayout.$.params.pairCount + g.pair;
             const local = std.atomicAdd(scatterLayout.$.counts[idx], 1);
             const target = scatterLayout.$.drawArgs[idx].firstInstance + local;
-            scatterLayout.$.packedEids[target] = g.eid;
+            scatterLayout.$.packedEids[target] = d.vec4u(g.eid, g.transformRow, g.row + 1, 0);
         })
         .$name("partScatter");
 }

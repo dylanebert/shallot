@@ -35,7 +35,7 @@ import {
 // stride derived from the schema (a second hand-authored stride is layout drift waiting to
 // happen).
 const DRAW_ARG_STRIDE = d.sizeOf(DrawIndexedIndirect);
-type U32Buffer = TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag;
+type InstanceBuffer = TgpuBuffer<d.WgslArray<d.Vec4u>> & StorageFlag;
 type AtomicU32Buffer = TgpuBuffer<d.WgslArray<d.Atomic<d.U32>>> & StorageFlag;
 type Vec4fBuffer = TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag;
 type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
@@ -101,7 +101,7 @@ export interface Parts {
     /** `DrawIndexedIndirect` records, slot-major (`slot * pairCount + pair`); null until the first frame's `syncBuffers` */
     drawArgs: DrawBuffer | null;
     /** packed entity identities, one dense list per view slot; null until `warmPart` */
-    packedEids: U32Buffer | null;
+    packedEids: InstanceBuffer | null;
 }
 
 interface PartGpuState {
@@ -438,12 +438,12 @@ function syncBuffers(state: State): void {
             .$name("shallot-part-counts");
     }
 
-    let stalePacked: U32Buffer | null = null;
+    let stalePacked: InstanceBuffer | null = null;
     if (growView || growRows || !Parts.packedEids) {
         stalePacked = Parts.packedEids;
         const listCapacity = _part.viewDim * _part.rowCapacity;
         Parts.packedEids = Compute.root
-            .createBuffer(d.arrayOf(d.u32, listCapacity))
+            .createBuffer(d.arrayOf(d.vec4u, listCapacity))
             .$usage("storage")
             .$name("shallot-packed-eids");
         Compute.buffers.set("eids", Compute.root.unwrap(Parts.packedEids));

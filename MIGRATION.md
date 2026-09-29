@@ -53,6 +53,12 @@ Tables expose a raw record buffer, typed handle, capacity and generation. Subscr
 
 Part and Sear no longer require `SlabPlugin`. Select their plugins directly. Body, Pose and built-in light fields use `field()` columns; do not read their old per-field `.gpu` buffers.
 
+## Instanced surfaces read a row payload, not a list of eids
+
+For a custom typed surface, change the `eids` binding element from `d.u32` to `d.vec4u`. Each instance is `(eid, transformSlot, encodedPartSlot, shadowCombo)`: the Part slot is encoded as `slot + 1`, or zero when absent. Resolve slots while producing the instance list, not in the vertex stage. Shadow regather preserves the first three lanes and writes its combo index in the fourth.
+
+The logical eid still reaches `VsIn.eid` and `ctx.eid`; use those for identity. Part color and material reach the surface context as `ctx.color` and `ctx.material`. The injected `transformRows` and `partRowMap` surface bindings are removed; the vertex stage reads records using the slots in its instance payload.
+
 ## GPU resources and plugin helpers belong to an App
 
 Do not cache one App's buffers, textures, pipelines or bind groups for another App. Keep per-world plugin data in `state.resource(key, create)`. GPU resources created through the State's tracked device or TypeGPU root are released when the App is disposed; use `state.own(resource)` for raw buffers or textures whose disposal the State should own.

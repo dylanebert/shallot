@@ -118,16 +118,8 @@ const verticesDepth = {
     access: "readonly" as const,
     visibility: VS_FS,
 };
-const transformRowsEntry = {
-    storage: d.arrayOf(d.u32),
-    access: "readonly" as const,
-    visibility: VS_FS,
-};
-const partRowMapEntry = {
-    storage: d.arrayOf(d.u32),
-    access: "readonly" as const,
-    visibility: VS_FS,
-};
+/** Per-draw instance: eid, Transform slot, Part slot + 1 (zero if absent), shadow combo. */
+export const InstanceInput = d.vec4u;
 
 /** Dense per-Part fields read by instanced typed surfaces. */
 export const PartInput = d
@@ -150,16 +142,12 @@ const partInputsEntry = {
  *  between them per pass, the same way `uniformWgsl(pass)` does today. */
 export type SurfaceLayout<B extends Record<string, Binding>> = TgpuBindGroupLayout<
     { [K in keyof B]: EntryFor<B[K]> } & {
-        transformRows: typeof transformRowsEntry;
-        partRowMap: typeof partRowMapEntry;
         partInputs: typeof partInputsEntry;
         vertices: typeof verticesColor;
     }
 > & {
     readonly depthVariant: TgpuBindGroupLayout<
         { [K in keyof B]: EntryFor<B[K]> } & {
-            transformRows: typeof transformRowsEntry;
-            partRowMap: typeof partRowMapEntry;
             partInputs: typeof partInputsEntry;
             vertices: typeof verticesDepth;
         }
@@ -184,16 +172,14 @@ function ownEntries<B extends Record<string, Binding>>(
  * bindings (sprite ×6, gltf trios — register the same layout object on each).
  *
  * @example
- * const layout = surfaceLayout({ eids: { type: "storage", element: d.u32 }, transforms: { type: "storage", element: Xform } });
- * const fs = tgpu.fn([fsCtxSchema()], d.vec4f)((ctx) => layout.$.eids[ctx.eid] ? d.vec4f(1) : d.vec4f(0));
+ * const layout = surfaceLayout({ eids: { type: "storage", element: InstanceInput }, transforms: { type: "storage", element: Xform } });
+ * const fs = tgpu.fn([fsCtxSchema()], d.vec4f)((ctx) => ctx.color);
  */
 export function surfaceLayout<B extends Record<string, Binding>>(bindings: B): SurfaceLayout<B> {
     const own = ownEntries(bindings);
     const color = tgpu
         .bindGroupLayout({
             ...own,
-            transformRows: transformRowsEntry,
-            partRowMap: partRowMapEntry,
             partInputs: partInputsEntry,
             vertices: verticesColor,
         })
@@ -201,8 +187,6 @@ export function surfaceLayout<B extends Record<string, Binding>>(bindings: B): S
     const depth = tgpu
         .bindGroupLayout({
             ...own,
-            transformRows: transformRowsEntry,
-            partRowMap: partRowMapEntry,
             partInputs: partInputsEntry,
             vertices: verticesDepth,
         })

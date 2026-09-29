@@ -27,7 +27,7 @@ import {
 import { Compute, formatHex, type Plugin, Registry, type State, type System } from "../../engine";
 import { worldResource } from "../../engine/runtime";
 import { PrepassSystem } from "../../standard/rendering";
-import { Transform, TransformsPlugin } from "../../transitional/transforms";
+import { Transform, TransformsPlugin, transformTable } from "../../transitional/transforms";
 import {
     BUCKETS,
     INITIAL,
@@ -85,7 +85,8 @@ interface SpriteGpuState {
     atlas: GPUTexture | null;
     sampler: GPUSampler | null;
     spriteBuf: (TgpuBuffer<d.WgslArray<typeof SpriteData>> & StorageFlag) | null;
-    eidsBuf: (TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag) | null;
+    eidsBuf: (TgpuBuffer<d.WgslArray<d.Vec4u>> & StorageFlag) | null;
+    instances: Uint32Array<ArrayBuffer>;
     argBuf:
         | (TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
               StorageFlag & { usableAsIndirect: true })
@@ -100,6 +101,7 @@ const createSpriteGpuState = (): SpriteGpuState => ({
     sampler: null,
     spriteBuf: null,
     eidsBuf: null,
+    instances: new Uint32Array(INITIAL * 4),
     argBuf: null,
     quadBase: 0,
     sig: -1,
@@ -143,18 +145,37 @@ function rebuild(state: State, device: GPUDevice): void {
         dataCap * (SPRITE_BYTES / 4),
     );
 
-    if (eids.length * 4 > Compute.root.unwrap(_sprite.eidsBuf!).size) {
+    if (eids.length * 16 > Compute.root.unwrap(_sprite.eidsBuf!).size) {
         const stale = _sprite.eidsBuf!;
         _sprite.eidsBuf = Compute.root
-            .createBuffer(d.arrayOf(d.u32, eids.length))
+            .createBuffer(d.arrayOf(d.vec4u, eids.length))
             .$usage("storage")
             .$name("shallot-sprite-eids");
         const quad = Meshes.get("spriteQuad");
         if (quad) quad.bindings = { ...quad.bindings, eids: _sprite.eidsBuf };
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
     }
+    if (_sprite.instances.length < eids.length * 4)
+        _sprite.instances = new Uint32Array(eids.length * 4);
+    const instances = _sprite.instances;
+    const transforms = transformTable(state);
+    for (let i = 0; i < count; i++) {
+        const eid = eids[i];
+        const row = transforms.rowIndex(eid);
+        if (row < 0) throw new Error(`Sprite ${eid} has no Transform row`);
+        instances[i * 4] = eid;
+        instances[i * 4 + 1] = row;
+        instances[i * 4 + 2] = 0;
+        instances[i * 4 + 3] = 0;
+    }
     if (count > 0)
-        device.queue.writeBuffer(Compute.root.unwrap(_sprite.eidsBuf!), 0, eids, 0, count * 4);
+        device.queue.writeBuffer(
+            Compute.root.unwrap(_sprite.eidsBuf!),
+            0,
+            instances,
+            0,
+            count * 16,
+        );
 
     _sprite.argBuf!.write(
         ranges.map((range) => ({
@@ -303,7 +324,7 @@ export const SpritePlugin: Plugin = {
         Compute.buffers.set("spriteData", Compute.root.unwrap(_sprite.spriteBuf));
         Compute.typed.set("spriteData", _sprite.spriteBuf);
         _sprite.eidsBuf = Compute.root
-            .createBuffer(d.arrayOf(d.u32, INITIAL))
+            .createBuffer(d.arrayOf(d.vec4u, INITIAL))
             .$usage("storage")
             .$name("shallot-sprite-eids");
         const quad = Meshes.get("spriteQuad");
