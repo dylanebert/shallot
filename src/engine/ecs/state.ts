@@ -194,6 +194,12 @@ export class State {
         if (tables.length === 0) this._tablesByComponent.delete(id);
     }
 
+    /** @internal Find the table that owns a current record buffer. */
+    tableForBuffer(buffer: GPUBuffer): GpuTable | undefined {
+        for (const table of this._tables.values()) if (table.buffer === buffer) return table;
+        return undefined;
+    }
+
     /** @internal Upload all declared tables at the head of draw. */
     uploadTables(): void {
         for (const table of this._tables.values()) table.upload();

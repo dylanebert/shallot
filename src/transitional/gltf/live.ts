@@ -9,8 +9,8 @@ import {
     vsPatchSchema,
 } from "../../core/rendering";
 import type { State } from "../../engine";
-import { unpackLdrColor, Xform, xformNormal, xformPoint } from "../../engine/utils";
-import { LIVE_SKIN_VS, SkinParams } from "../skin";
+import { Xform, xformNormal, xformPoint } from "../../engine/utils";
+import { LIVE_SKIN_VS, SkinInput, SkinParams } from "../skin";
 import { MaterialData } from "./palette";
 import { materialFns } from "./shade";
 
@@ -35,9 +35,9 @@ import { materialFns } from "./shade";
 const liveLayout = surfaceLayout({
     eids: { type: "storage", element: d.vec4u, visibility: ["vertex"] },
     transforms: { type: "storage", element: Xform, visibility: ["vertex"] },
-    skin: { type: "storage", element: d.vec4f },
+    skin: { type: "storage", element: SkinInput, visibility: ["vertex"] },
     materialData: { type: "storage", element: MaterialData, visibility: ["fragment"] },
-    skinData: { type: "storage", element: d.vec4u },
+    skinData: { type: "storage", element: d.vec4u, visibility: ["vertex"] },
     albedo0: { type: "texture-2d-array" },
     albedo1: { type: "texture-2d-array" },
     albedo2: { type: "texture-2d-array" },
@@ -49,8 +49,9 @@ const liveLayout = surfaceLayout({
     albedoSamp: { type: "sampler" },
     skinParams: { type: "uniform", struct: SkinParams },
 });
-const LivePatch = vsPatchSchema();
-const LiveCtx = fsCtxSchema();
+const liveVaryings = { materialId: d.f32 };
+const LivePatch = vsPatchSchema(liveVaryings);
+const LiveCtx = fsCtxSchema(liveVaryings);
 // 0.12 removed `layout.bound`; the dereferenced `layout.$.x` throws outside an actual TGSL body ("Direct
 // access to buffer values..."), so a raw-WGSL-string `$uses` external can't bind a per-field value —
 // the whole `$` proxy rides as one external and the WGSL text's own `bound.x` dot chain defers the field
@@ -65,7 +66,7 @@ const liveVs = tgpu
         LivePatch,
     )(/* wgsl */ `(vsIn: VsIn) -> LivePatch {
     let vidx = vsIn.vidx;
-    let eid = vsIn.eid;
+    let skinSlot = vsIn.surfaceData;
     var localPos = vsIn.localPos;
     let localNormal = vsIn.localNormal;
     var world = vsIn.world;
@@ -73,8 +74,8 @@ const liveVs = tgpu
 ${LIVE_SKIN_VS.replace(/\bskinData\b/g, "bound.skinData")
     .replace(/\bskinParams\b/g, "bound.skinParams")
     .replace(/\bskin\b/g, "bound.skin")
-    .replace("let xf = transforms[eid];", "let xf = vsIn.xform;")}
-    return LivePatch(world, worldNormal, vec4f(0.0));
+    .replace("let xf = transforms[transformSlot];", "let xf = vsIn.xform;")}
+    return LivePatch(world, worldNormal, vec4f(0.0), bound.skin[skinSlot - 1u].anim.y);
 }`)
     .$uses({
         VsIn,
@@ -86,17 +87,6 @@ ${LIVE_SKIN_VS.replace(/\bskinData\b/g, "bound.skinData")
     })
     .$name("skinLiveVs");
 
-const liveTint = tgpu
-    .fn(
-        [d.u32],
-        d.vec4f,
-    )((eid) => {
-        "use gpu";
-        const base = d.u32(liveLayout.$.skin[eid].x);
-        return unpackLdrColor(liveLayout.$.skinData[base].x);
-    })
-    .$name("liveTint");
-
 function liveFs(variant: number, mode: "opaque" | "clip" | "blend") {
     const { sampleAlbedo, shadePbr } = materialFns(liveLayout, variant);
     const clip = mode === "clip";
@@ -107,9 +97,9 @@ function liveFs(variant: number, mode: "opaque" | "clip" | "blend") {
             d.vec4f,
         )((ctx) => {
             "use gpu";
-            const mid = d.u32(liveLayout.$.skin[ctx.eid].y);
+            const mid = d.u32(std.round(ctx.materialId));
             const tex = sampleAlbedo(mid, ctx.uv);
-            const tint = liveTint(ctx.eid);
+            const tint = ctx.color;
             const rgb = shadePbr(
                 mid,
                 ctx.uv,
@@ -142,6 +132,7 @@ export function registerLiveSkinSurfaces(state: State): void {
         registerSurface(state, {
             name,
             layout: liveLayout,
+            varyings: liveVaryings,
             fragmentInputs: { uv: true },
             blend,
             vs: liveVs,

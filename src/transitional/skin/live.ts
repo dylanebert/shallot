@@ -2,11 +2,10 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { BeginFrameSystem, Render, RenderPlugin } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, compose, decompose, multiply, vec4 } from "../../engine";
+import { Compute, compose, decompose, field, multiply, vec4 } from "../../engine";
 import { chunk, packColor4, spliceNs } from "../../engine/utils";
 import { PrepassSystem } from "../../standard/rendering";
-import { Color } from "../part";
-import { SlabPlugin, slab } from "../slab";
+import { Color, partTable } from "../part";
 
 // The live joint-palette skinning substrate: a runtime paradigm the engine owns, not an importer's. A live
 // skinned instance is posed each frame by a *producer* — a physics ragdoll, a scripted driver, the glTF
@@ -25,7 +24,7 @@ import { SlabPlugin, slab } from "../slab";
 // the matrix linear-blend skinning `bakeVat` implements — the equivalence gate in the tests pins that.
 
 /**
- * a skinned instance's per-entity animation state. One `slab(vec4)` published as `"skin"` — the CPU side of
+ * a skinned instance's per-entity animation state, uploaded as one dense record in `"skin"` — the CPU side of
  * the {@link skinBindings} `skin` binding — read by whichever skin surface the instance uses. Live
  * joint-palette path: lane x is the palette base (the vec4 index of the instance's block in `skinData`, from
  * {@link liveSkin}), y the material index the surface's shading path reads, z unused, w 0. The glTF
@@ -34,7 +33,19 @@ import { SlabPlugin, slab } from "../slab";
  * on — a `w` of 0 is what makes that system skip a live instance. A producer adds the component to each
  * instance it poses.
  */
-export const Skin = { anim: slab(vec4, "skin") };
+export const Skin = { anim: field(vec4) };
+export const SkinInput = d.struct({ anim: d.vec4f });
+const skinTableKey = Symbol("shallot.skin-table");
+
+/** Dense animation records, referenced by encoded slots in the Part input table. */
+export function skinTable(state: State) {
+    return state.resource(skinTableKey, () => {
+        const table = state.table("skin", SkinInput);
+        table.bindComponent(Skin, { anim: "anim" });
+        partTable(state).bindRowReference(table, "surfaceData");
+        return table;
+    });
+}
 
 /** {@link Skin}'s traits: field defaults, derived (a producer writes the lanes, a scene never authors them).
  *  Shared by every plugin that registers `Skin` — the substrate and the glTF importer register the same
@@ -725,11 +736,12 @@ export const LiveSkinSystem: System = {
  */
 export const SkinPlugin: Plugin = {
     name: "Skin",
-    dependencies: [RenderPlugin, SlabPlugin],
+    dependencies: [RenderPlugin],
     components: { Skin },
     traits: { Skin: skinTraits },
     systems: [LiveSkinSystem],
     initialize(state: State) {
+        skinTable(state);
         liveSkin(state);
     },
     dispose(state: State) {
@@ -750,7 +762,7 @@ const liveTint = tgpu
         [d.u32],
         d.vec4f,
     )(/* wgsl */ `(e: u32) -> vec4f {
-    return unpackLdrColor(skinData[u32(skin[e].x)].x);
+    return unpackLdrColor(skinData[u32(skin[e - 1u].anim.x)].x);
 }`)
     .$name("liveTint");
 
@@ -778,7 +790,7 @@ export const LIVE_SKIN_VS = /* wgsl */ `
     let js = jwElem[jwPair];
     let wt = unpack4x8unorm(jwElem[jwPair + 1u]);
     let joints = vec4<u32>(js & 0xffu, (js >> 8u) & 0xffu, (js >> 16u) & 0xffu, (js >> 24u) & 0xffu);
-    let pbase = u32(skin[eid].x);
+    let pbase = u32(skin[skinSlot - 1u].anim.x);
     var sp = vec3<f32>(0.0);
     var sn = vec3<f32>(0.0);
     for (var k = 0u; k < 4u; k = k + 1u) {
@@ -792,6 +804,6 @@ export const LIVE_SKIN_VS = /* wgsl */ `
         sp += w * xformPoint(jx, localPos);
         sn += w * xformNormal(jx, localNormal);
     }
-    let xf = transforms[eid];
+    let xf = transforms[transformSlot];
     world = vec4<f32>(xformPoint(xf, sp), 1.0);
     worldNormal = xformNormal(xf, normalize(sn));`;

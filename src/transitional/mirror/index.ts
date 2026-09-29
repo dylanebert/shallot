@@ -49,7 +49,7 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
     /** schema-carrying source passed at construction; raw sources remain raw for the WebGPU escape */
     readonly source: T;
     /** byte size of each staging slot and each {@link snapshot} */
-    readonly size: number;
+    get size(): number { return this._raw.size; }
 
     /** latest map-resolved snapshot. `null` until the first map completes. `bytes` is reused across
      *  readbacks (see the class doc) — read it in-frame, don't retain it. */
@@ -63,16 +63,24 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
     private _owned: ArrayBuffer | null = null;
     private _disposed: boolean = false;
 
-    private readonly _raw: GPUBuffer;
+    private _raw: GPUBuffer;
     private readonly _device: GPUDevice;
+    private _generation = 0;
+    private _unsubscribe: (() => void) | undefined;
 
     constructor(state: State, source: T, opts?: { ring?: number }) {
         this.state = state;
         this.source = source;
         this._device = state.gpu.device;
         this._raw = unwrap(state, source);
-        this.size = this._raw.size;
         this._ringSize = opts?.ring ?? 2;
+        const table = state.tableForBuffer(this._raw);
+        if (table) this._unsubscribe = table.subscribe((buffer) => {
+            if (buffer === this._raw) return;
+            this._raw = buffer;
+            this._generation++;
+            this._release();
+        });
         mirrorsFor(state).add(this);
     }
 
@@ -85,6 +93,7 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
     dispose(): void {
         if (this._disposed) return;
         this._disposed = true;
+        this._unsubscribe?.();
         mirrorsFor(this.state).delete(this);
         this._release();
     }
@@ -101,6 +110,7 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
         const mirrors = mirrorsFor(state);
         for (const m of mirrors) {
             m._disposed = true;
+            m._unsubscribe?.();
             m._release();
         }
         mirrors.clear();
@@ -147,9 +157,10 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
         device.queue.submit([encoder.finish()]);
 
         for (const { m, slot } of pending) {
-            slot.mapAsync(GPUMapMode.READ, 0, m.size).then(
+            const generation = m._generation;
+            boundedMap(slot, m.size, `Mirror ${m._raw.label} frame ${frame} readback`).then(
                 () => {
-                    if (m._disposed) return;
+                    if (m._disposed || generation !== m._generation) return;
                     if (m.state.disposed || deviceLost(m._device)) {
                         m.dispose();
                         return;
@@ -174,20 +185,28 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
                         m.snapshot = { fixedTick, frame, bytes: m._owned };
                     }
                 },
-                () => {
-                    if (m._disposed) return;
+                (error: unknown) => {
+                    if (m._disposed || generation !== m._generation) return;
                     if (m.state.disposed || deviceLost(m._device)) {
                         m.dispose();
                         return;
                     }
-                    m._free.push(slot);
-                    console.error(
-                        `Mirror readback (source ${m._raw.label ?? "<unlabeled>"}) mapAsync rejected; this map failed and the slot was recycled — the snapshot may recover on the next flush`,
-                    );
+                    m.dispose();
+                    console.error(`Mirror ${m._raw.label} frame ${frame} readback failed: ${String(error)}`);
                 },
             );
         }
     }
+}
+
+function boundedMap(slot: GPUBuffer, size: number, label: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`${label} timed out after 2000 ms`)), 2000);
+        slot.mapAsync(GPUMapMode.READ, 0, size).then(
+            () => { clearTimeout(timer); resolve(); },
+            (error: unknown) => { clearTimeout(timer); reject(new Error(`${label}: ${String(error)}`)); },
+        );
+    });
 }
 
 /** construct a buffer-level mirror over a raw or typed buffer; registers with {@link MirrorSystem} */

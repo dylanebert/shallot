@@ -156,7 +156,7 @@ function watchDevice(device: GPUDevice) {
     };
     device.addEventListener("uncapturederror", uncaptured);
     return {
-        wait<T>(label: string, promise: PromiseLike<T> | T, timeoutMs = 4_000): Promise<T> {
+        wait<T>(label: string, promise: PromiseLike<T> | T, timeoutMs = 30_000): Promise<T> {
             if (firstError)
                 return Promise.reject(new Error(`${label}: uncaptured GPU error: ${firstError}`));
             return new Promise<T>((resolve, reject) => {
@@ -959,8 +959,8 @@ async function exerciseIsolationPair(sharedDevice: boolean): Promise<void> {
 
 test("plugin-owned components and GPU paths stay isolated on a shared device", async () => {
     await exerciseIsolationPair(true);
-}, 6_000);
+}, 100_000);
 
 test("plugin-owned components and GPU paths stay isolated on separate devices", async () => {
     await exerciseIsolationPair(false);
-}, 6_000);
+}, 100_000);

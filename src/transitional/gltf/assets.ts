@@ -19,15 +19,16 @@ import {
     Surfaces,
     surfaceLayout,
     VERTEX_FLOATS,
+    VsIn,
+    vsPatchSchema,
 } from "../../core/rendering";
 import { Compute, type Plugin, type State, type System } from "../../engine";
 import { readBinary, UnsupportedError } from "../../engine/runtime";
 import type { Node } from "../../engine/scene";
 import { Preloads } from "../../engine/scene";
 import { MeshQuant, Xform } from "../../engine/utils";
-import { Color, Part } from "../part";
-import { LiveSkinSystem, liveSkin, Skin, skinTraits } from "../skin";
-import { SlabPlugin } from "../slab";
+import { Color, Part, partTable } from "../part";
+import { LiveSkinSystem, liveSkin, Skin, skinTable, skinTraits } from "../skin";
 import { Transform } from "../transforms";
 import { isGlb, parseGlb } from "./glb";
 import {
@@ -79,7 +80,6 @@ import { bakeVat, type GltfVat } from "./vat";
 const texturedLayout = surfaceLayout({
     eids: { type: "storage", element: d.vec4u, visibility: ["vertex"] },
     transforms: { type: "storage", element: Xform, visibility: ["vertex"] },
-    materialIndex: { type: "storage", element: d.u32, visibility: ["fragment"] },
     materialData: { type: "storage", element: MaterialData, visibility: ["fragment"] },
     albedo0: { type: "texture-2d-array" },
     albedo1: { type: "texture-2d-array" },
@@ -91,7 +91,13 @@ const texturedLayout = surfaceLayout({
     emissive: { type: "texture-2d-array" },
     albedoSamp: { type: "sampler" },
 });
-const TexturedCtx = fsCtxSchema();
+const texturedVaryings = { materialId: d.f32 };
+const TexturedCtx = fsCtxSchema(texturedVaryings);
+const TexturedPatch = vsPatchSchema(texturedVaryings);
+const texturedVs = tgpu.fn([VsIn], TexturedPatch)((vsIn) => {
+    "use gpu";
+    return { world: vsIn.world, worldNormal: vsIn.worldNormal, clip: d.vec4f(0), materialId: d.f32(vsIn.surfaceData) };
+}).$name("gltfAlbedoVs");
 
 function texturedFs(variant: number, mode: "opaque" | "clip" | "blend") {
     const { sampleAlbedo, shadePbr } = materialFns(texturedLayout, variant);
@@ -103,7 +109,7 @@ function texturedFs(variant: number, mode: "opaque" | "clip" | "blend") {
             d.vec4f,
         )((ctx) => {
             "use gpu";
-            const mid = texturedLayout.$.materialIndex[ctx.eid];
+            const mid = d.u32(std.round(ctx.materialId));
             const tex = sampleAlbedo(mid, ctx.uv);
             const tint = ctx.color;
             const base = std.mul(tex.xyz, tint.xyz);
@@ -130,10 +136,12 @@ export function registerTexturedSurfaces(state: State): void {
         registerSurface(state, {
             name,
             layout: texturedLayout,
+            varyings: texturedVaryings,
             fragmentInputs: { uv: true },
             blend,
+            vs: texturedVs,
             fs: texturedFs(0, mode),
-            specialize: (variant) => ({ fs: texturedFs(variant, mode) }),
+            specialize: (variant) => ({ vs: texturedVs, fs: texturedFs(variant, mode) }),
         });
     }
 }
@@ -1494,7 +1502,7 @@ async function resolveRefs(nodes: Node[], state: State): Promise<void> {
 export const GltfPlugin: Plugin = {
     name: "Gltf",
     components: { Textured, Skin },
-    dependencies: [RenderPlugin, SlabPlugin],
+    dependencies: [RenderPlugin],
     systems: [RouteSystem, SkinSystem, LiveSkinSystem, UnionBuildSystem],
     // the KTX2 transcode picks a family from `device.features` (`target.ts`), and a feature the device
     // never *requested* reads false even on hardware that has it — so every family this importer can
@@ -1513,6 +1521,8 @@ export const GltfPlugin: Plugin = {
     // parse. Publishing the fallbacks at warm would clobber a union an `initialize`-time import already
     // published (both write the same `Compute.textures` names) — so they sit here, before any import.
     initialize(state) {
+        skinTable(state);
+        partTable(state).bindFields(Textured, { surfaceData: "id" });
         gltfWorld(state);
         liveSkin(state);
         registerTexturedSurfaces(state);
