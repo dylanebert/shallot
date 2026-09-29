@@ -621,7 +621,7 @@ function releaseWorldSlabs(state: State): void {
 }
 
 /**
- * typed slab factory: mirrors `sparse(...)` so swapping `sparse(f32)` for
+ * typed slab factory: mirrors `field(...)` so swapping `field(f32)` for
  * `slab(f32)` is a one-token change. Scalar types return a {@link Single};
  * `vec2` returns a {@link Pair}; `vec4` returns a {@link Quad}. Bulk `set`
  * matches the lane count; partial writes go through the lane accessors.

@@ -44,7 +44,7 @@ import {
     Views,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, f32, sparse, vec4 } from "../../engine";
+import { Compute, f32, field, vec4 } from "../../engine";
 import { precompile, worldResource } from "../../engine/runtime";
 import { ColorSystem, DEPTH_FORMAT } from "../../standard/rendering";
 import { GlazeSystem } from "../../transitional/glaze";
@@ -81,11 +81,11 @@ import {
  */
 export const Outline = {
     /** band color, linear rgb (alpha unused in v1) */
-    color: sparse(vec4),
+    color: field(vec4),
     /** band thickness in pixels, clamped to 64 */
-    width: sparse(f32),
+    width: field(f32),
     /** 0 = always-on-top (default); 1 = occlusion-aware, hidden where the object is behind other geometry (needs sear's `Depth` on the camera) */
-    occlude: sparse(f32),
+    occlude: field(f32),
 };
 
 // the seed texture stores the nearest covered-pixel coordinate as an INTEGER pixel index — uint, not

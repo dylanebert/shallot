@@ -1,4 +1,4 @@
-import { f32, sparse, u8 } from "../../engine";
+import { f32, field, u8 } from "../../engine";
 
 // OrbitSmooth holds the displayed yaw/pitch/distance/size, eased toward the authored values each frame
 // (smoothness is the damping), plus the flyActive latch (1 while flying; its falling edge reprojects the
@@ -8,17 +8,17 @@ import { f32, sparse, u8 } from "../../engine";
 // rebuild, so a reload can't desync it from the authored fields. Internal — a sibling export for the
 // overlay and tests, never re-exported from the barrel.
 export const OrbitSmooth = {
-    yaw: sparse(f32),
-    pitch: sparse(f32),
-    distance: sparse(f32),
-    size: sparse(f32),
-    keyYawVelocity: sparse(f32),
-    keyPitchVelocity: sparse(f32),
-    flyActive: sparse(u8),
+    yaw: field(f32),
+    pitch: field(f32),
+    distance: field(f32),
+    size: field(f32),
+    keyYawVelocity: field(f32),
+    keyPitchVelocity: field(f32),
+    flyActive: field(u8),
     // contextual-orbit latch for the orbit button's current drag, a 3-state machine that carries both the
     // previous-button state (the down-edge signal, since mouse buttons expose no pressed-this-frame edge)
     // and the claim decision: 0 idle (button up), 1 suppressed (a picker claimed the press — orbit rotation
     // stays out of the way this drag), 2 active (unclaimed press — orbit as usual). Latched at the down-edge,
     // held for the whole drag, reset to 0 on release.
-    orbitLatch: sparse(u8),
+    orbitLatch: field(u8),
 };

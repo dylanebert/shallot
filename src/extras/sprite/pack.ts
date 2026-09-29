@@ -6,7 +6,7 @@
 // over State — no GPU — so the packing contract is what sprite.test.ts exercises directly.
 
 import * as d from "typegpu/data";
-import { f32, type State, sparse, u32, vec2 } from "../../engine";
+import { f32, field, type State, u32, vec2 } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { Transform } from "../../transitional/transforms";
 import { SpriteData } from "./surface";
@@ -58,25 +58,25 @@ export const SpriteFill = {
  */
 export const Sprite = {
     /** registered image id (see {@link image}); a scene's `image:` resolves the registered name */
-    image: sparse(u32),
+    image: field(u32),
     /** quad size in world units, before the transform's scale */
-    size: sparse(vec2),
+    size: field(vec2),
     /** 0..1 pivot within the quad; 0.5 0.5 centers, 0.5 0 pins the bottom edge to the entity */
-    anchor: sparse(vec2),
+    anchor: field(vec2),
     /** hex sRGB tint multiplied into the texture */
-    color: sparse(f32),
+    color: field(f32),
     /** texture-alpha multiplier; under clip blend it shrinks the cutout, under alpha blend it fades */
-    opacity: sparse(f32),
+    opacity: field(f32),
     /** drawn when nonzero */
-    visible: sparse(f32),
+    visible: field(f32),
     /** billboard orientation, a {@link SpriteBillboard} mode */
-    billboard: sparse(u32),
+    billboard: field(u32),
     /** compositing, a {@link SpriteBlend} mode */
-    blend: sparse(u32),
+    blend: field(u32),
     /** leading fraction of the image shown, 0..1, along {@link fillMode} */
-    fill: sparse(f32),
+    fill: field(f32),
     /** fill direction, a {@link SpriteFill} mode */
-    fillMode: sparse(u32),
+    fillMode: field(u32),
 };
 
 // one sprite instance = the quad-local offset (-size·anchor) + size, the owning eid, the array

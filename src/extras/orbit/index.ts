@@ -3,11 +3,11 @@ import { Camera, CameraMode } from "../../core/rendering";
 import {
     entity,
     f32,
+    field,
     not,
     type Plugin,
     type State,
     type System,
-    sparse,
     u8,
     vec4,
 } from "../../engine";
@@ -43,61 +43,61 @@ export const OrbitPick: { claim?: (x: number, y: number) => boolean } = {};
  */
 export const Orbit = {
     /** horizontal orbit angle around the target, radians */
-    yaw: sparse(f32),
+    yaw: field(f32),
     /** vertical orbit angle, radians; clamped to min/maxPitch */
-    pitch: sparse(f32),
+    pitch: field(f32),
     /** camera distance from the target, world units (perspective zoom) */
-    distance: sparse(f32),
+    distance: field(f32),
     /** orthographic half-height, world units (ortho zoom) */
-    size: sparse(f32),
+    size: field(f32),
     /** lower pitch clamp, radians */
-    minPitch: sparse(f32),
+    minPitch: field(f32),
     /** upper pitch clamp, radians */
-    maxPitch: sparse(f32),
+    maxPitch: field(f32),
     /** closest perspective distance */
-    minDistance: sparse(f32),
+    minDistance: field(f32),
     /** farthest perspective distance */
-    maxDistance: sparse(f32),
+    maxDistance: field(f32),
     /** smallest orthographic size */
-    minSize: sparse(f32),
+    minSize: field(f32),
     /** largest orthographic size */
-    maxSize: sparse(f32),
+    maxSize: field(f32),
     /** follow damping, 0–1; higher snaps to the target pose faster */
-    smoothness: sparse(f32),
+    smoothness: field(f32),
     /** fly look damping, 0–1; higher is snappier; default tighter than orbit so first-person look tracks closely */
-    flySmoothness: sparse(f32),
+    flySmoothness: field(f32),
     /** orbit look speed (yaw/pitch), radians per pixel of mouse drag */
-    sensitivity: sparse(f32),
+    sensitivity: field(f32),
     /** fly look speed (yaw/pitch), radians per pixel; separate so fly look reads calmer than orbit */
-    flySensitivity: sparse(f32),
+    flySensitivity: field(f32),
     /** held-arrow orbit speed, radians per second */
-    keyRate: sparse(f32),
+    keyRate: field(f32),
     /** held-arrow acceleration toward keyRate, radians per second squared */
-    keyAcceleration: sparse(f32),
+    keyAcceleration: field(f32),
     /** released-arrow velocity damping, inverse seconds; higher stops sooner */
-    keyDamping: sparse(f32),
+    keyDamping: field(f32),
     /** zoom factor applied per scroll-wheel notch */
-    zoomSpeed: sparse(f32),
+    zoomSpeed: field(f32),
     /** mouse button that orbits: 0 left, 1 middle, 2 right */
-    orbitButton: sparse(u8),
+    orbitButton: field(u8),
     /** mouse button that pans: 0 left, 1 middle, 2 right */
-    panButton: sparse(u8),
+    panButton: field(u8),
     /** mouse button that flies (hold to look around, WASD/QE to move): 0 left, 1 middle, 2 right */
-    flyButton: sparse(u8),
+    flyButton: field(u8),
     /** pan offset from the orbit target, world units */
-    pan: sparse(vec4),
+    pan: field(vec4),
     /** WASD/QE fly speed, world units per second; scroll while flying adjusts it (clamped to flyMin/flyMax) */
-    flySpeed: sparse(f32),
+    flySpeed: field(f32),
     /** shift-held fly boost multiplier, transient; scales flySpeed while shift is down, never stored */
-    flyBoost: sparse(f32),
+    flyBoost: field(f32),
     /** lower clamp for scroll-adjusted flySpeed, world units per second */
-    flyMin: sparse(f32),
+    flyMin: field(f32),
     /** upper clamp for scroll-adjusted flySpeed, world units per second */
-    flyMax: sparse(f32),
+    flyMax: field(f32),
     /** Free orbits, pans, and zooms; Locked disables all look (orbit rotation and fly look), leaving pan and zoom */
-    mode: sparse(u8),
+    mode: field(u8),
     /** entity to orbit; pan is relative to its position (0 = world origin) */
-    target: sparse(entity),
+    target: field(entity),
 };
 
 function smoothLerp(smoothness: number, dt: number): number {

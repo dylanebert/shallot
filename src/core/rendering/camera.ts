@@ -1,4 +1,4 @@
-import { f32, invert, multiply, orthographic, perspective, sparse, u32 } from "../../engine";
+import { f32, field, invert, multiply, orthographic, perspective, u32 } from "../../engine";
 import { composeTransform, Transform } from "../../transitional/transforms";
 
 /**
@@ -24,19 +24,19 @@ export const CameraMode = {
  */
 export const Camera = {
     /** perspective (0) or orthographic (1) projection, set via the `mode` scene attribute */
-    mode: sparse(u32),
+    mode: field(u32),
     /** field of view in degrees (perspective mode) */
-    fov: sparse(f32),
+    fov: field(f32),
     /** near plane distance */
-    near: sparse(f32),
+    near: field(f32),
     /** far plane distance */
-    far: sparse(f32),
+    far: field(f32),
     /** view size in world units (orthographic mode) */
-    size: sparse(f32),
+    size: field(f32),
     /** render target color as sRGB-encoded hex (e.g. 0x5cbfbf) */
-    clearColor: sparse(u32),
+    clearColor: field(u32),
     /** antialiasing: 1 = 4× MSAA (default), 0 = off (single-sample, crisp, for a pixel-art look) */
-    antialias: sparse(u32),
+    antialias: field(u32),
 };
 
 /**
@@ -53,9 +53,9 @@ export const Camera = {
  */
 export const Resolution = {
     /** render width in pixels; 0 = derive from height to keep the canvas aspect */
-    width: sparse(u32),
+    width: field(u32),
     /** render height in pixels; 0 = derive from width to keep the canvas aspect */
-    height: sparse(u32),
+    height: field(u32),
 };
 
 const _proj = new Float32Array(16);

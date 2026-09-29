@@ -27,7 +27,7 @@ import {
     Views,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, f32, sparse, u32, vec4 } from "../../engine";
+import { Compute, f32, field, u32, vec4 } from "../../engine";
 import { precompile, worldResource } from "../../engine/runtime";
 import { composite, GlazeConfig, initializeCompositeState, WORKGROUP } from "./composite";
 
@@ -105,17 +105,17 @@ const _glaze = new Proxy({} as GlazeState, {
  * ```
  */
 export const Glaze = {
-    exposure: sparse(f32),
-    tonemap: sparse(u32),
-    slope: sparse(vec4),
-    offset: sparse(vec4),
-    power: sparse(vec4),
-    saturation: sparse(f32),
-    vignette: sparse(f32),
-    vignetteInner: sparse(f32),
-    vignetteOuter: sparse(f32),
-    posterize: sparse(f32),
-    dither: sparse(f32),
+    exposure: field(f32),
+    tonemap: field(u32),
+    slope: field(vec4),
+    offset: field(vec4),
+    power: field(vec4),
+    saturation: field(f32),
+    vignette: field(f32),
+    vignetteInner: field(f32),
+    vignetteOuter: field(f32),
+    posterize: field(f32),
+    dither: field(f32),
 };
 
 // One uniform buffer per view slot, not one strided buffer indexed by a dynamic offset: a typegpu bind

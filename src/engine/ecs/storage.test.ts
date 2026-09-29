@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { f32, State, sparse, vec2, vec4 } from "./index";
+import { f32, field, State, vec2, vec4 } from "./index";
 import { WorldField } from "./storage";
 
 test("binding a component freezes its schema against later mutation", () => {
-    const Component = { value: sparse(f32) };
+    const Component = { value: field(f32) };
     const state = new State();
     const second = new State();
     state.registry.register("FrozenComponent", Component);
@@ -15,7 +15,7 @@ test("binding a component freezes its schema against later mutation", () => {
 
     expect(Object.isFrozen(Component)).toBe(true);
     expect(() => {
-        (Component as Record<string, unknown>).added = sparse(f32);
+        (Component as Record<string, unknown>).added = field(f32);
     }).toThrow();
     expect(() => {
         (Component.value as unknown as { type: unknown }).type = vec2;
@@ -24,7 +24,7 @@ test("binding a component freezes its schema against later mutation", () => {
 });
 
 test("schema field access reuses cached columns without repeating schema sorts", () => {
-    const Component = { value: sparse(f32) };
+    const Component = { value: field(f32) };
     const state = new State();
     const eid = state.create();
     state.of(Component);
@@ -52,9 +52,9 @@ test("schema field access reuses cached columns without repeating schema sorts",
 });
 
 test("scalar and vector field writes reach columns without a temporary value array", () => {
-    const Scalar = { value: sparse(f32) };
-    const Pair = { value: sparse(vec2) };
-    const Quad = { value: sparse(vec4) };
+    const Scalar = { value: field(f32) };
+    const Pair = { value: field(vec2) };
+    const Quad = { value: field(vec4) };
     const state = new State();
     const eid = state.create();
     const scalar = state.of(Scalar).value;

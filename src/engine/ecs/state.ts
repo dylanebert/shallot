@@ -1,3 +1,4 @@
+import type * as d from "typegpu/data";
 import {
     bindFields,
     type Component,
@@ -13,6 +14,7 @@ import { Identity } from "./identity";
 import { Queries } from "./query";
 import { Scheduler, type System, Time } from "./scheduler";
 import { type ComponentStorage, sameSchema, WorldField } from "./storage";
+import { GpuTable } from "./table";
 import { ComponentRegistry } from "./traits";
 
 const INITIAL_CAPACITY = 16;
@@ -75,6 +77,7 @@ export class State {
         }
     >();
     private _resources = new Map<PropertyKey, unknown>();
+    private _tables = new Map<string, GpuTable>();
     private _highWater = 1;
     private _capacity: number;
     private _pixelRatio: number | "auto";
@@ -129,7 +132,23 @@ export class State {
         this._gpuResources.add(resource);
     }
 
-    /** this world's fixed entity and GPU reservation, retained until tables replace capacity. */
+    /** Declare one eid-addressed GPU table with a single record layout. */
+    table<T extends d.AnyWgslData>(name: string, record: T, uploadThreshold?: number): GpuTable<T> {
+        if (this._tables.has(name)) throw new Error(`State.table: duplicate table "${name}"`);
+        if (this._gpu?.buffers.has(name)) {
+            throw new Error(`State.table: GPU registry name "${name}" is already in use`);
+        }
+        const table = new GpuTable(this, name, record, uploadThreshold);
+        this._tables.set(name, table);
+        return table;
+    }
+
+    /** @internal Upload all declared tables at the head of draw. */
+    uploadTables(): void {
+        for (const table of this._tables.values()) table.upload();
+    }
+
+    /** Fixed eid reservation retained until capacity-sized consumers move to tables. @deprecated */
     get capacity(): number {
         return this._capacity;
     }
@@ -246,6 +265,12 @@ export class State {
                     `admits ${this._capacity - 1} entities). ` +
                     `Increase via app build config: { capacity: ${Math.max(eid + 1, this._capacity * 2)} }.`,
             );
+        }
+        try {
+            for (const table of this._tables.values()) table.ensure(eid + 1);
+        } catch (error) {
+            this._entities.remove(eid);
+            throw error;
         }
         if (eid + 1 > this._highWater) this._highWater = eid + 1;
         for (const entry of this._storage.values()) {
@@ -498,6 +523,8 @@ export class State {
         else this._scheduler.dispose(this);
         this._queries.clear();
         this._storage.clear();
+        for (const table of this._tables.values()) table.dispose();
+        this._tables.clear();
         this._resources.clear();
         this.registry.clear();
         for (const resource of this._gpuResources) {

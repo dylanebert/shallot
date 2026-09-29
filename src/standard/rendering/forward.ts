@@ -40,7 +40,7 @@ import {
     vsPatchSchema,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, f16x4, laneAlias, sparse, u32, unpackColor } from "../../engine";
+import { Compute, f16x4, field, laneAlias, u32, unpackColor } from "../../engine";
 import { precompile, worldResource } from "../../engine/runtime";
 import { unpackLdrColor, Xform } from "../../engine/utils";
 import { GlazeSystem } from "../../transitional/glaze";
@@ -285,7 +285,7 @@ function initMaterial(state: State): void {
  */
 export const Backdrop = {
     /** the registered background drawn behind the scene (selected by name) */
-    name: sparse(u32),
+    name: field(u32),
 };
 
 // name ↔ Backgrounds-id at scene parse / format, the PartTraits surface pattern (id stored, name authored).

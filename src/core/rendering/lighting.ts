@@ -2,7 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State } from "../../engine";
-import { Compute, f32, sparse, unpackColor, vec4 } from "../../engine";
+import { Compute, f32, field, unpackColor, vec4 } from "../../engine";
 import { worldResource } from "../../engine/runtime";
 import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/utils";
 import { slab } from "../../transitional/slab";
@@ -19,8 +19,8 @@ import { Transform } from "../../transitional/transforms";
  * ```
  */
 export const AmbientLight = {
-    color: sparse(f32),
-    intensity: sparse(f32),
+    color: field(f32),
+    intensity: field(f32),
 };
 
 /**
@@ -35,9 +35,9 @@ export const AmbientLight = {
  * ```
  */
 export const DirectionalLight = {
-    color: sparse(f32),
-    intensity: sparse(f32),
-    direction: sparse(vec4),
+    color: field(f32),
+    intensity: field(f32),
+    direction: field(vec4),
 };
 
 /**

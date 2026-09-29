@@ -9,7 +9,7 @@ import {
     requirePointerLock,
 } from "../../core/input";
 import { Camera, RenderPlugin } from "../../core/rendering";
-import { entity, f32, not, type Plugin, type State, type System, sparse } from "../../engine";
+import { entity, f32, field, not, type Plugin, type State, type System } from "../../engine";
 import { clamp, lerp } from "../../engine/utils";
 import {
     Character,
@@ -65,22 +65,22 @@ const LOOK_REFERENCE_HEIGHT = 1080;
  */
 export const Player = {
     /** look yaw in radians (turn around world Y); set it to face a direction at spawn */
-    yaw: sparse(f32),
+    yaw: field(f32),
     /** look pitch in radians (clamped to ±90°); set it to tilt the view at spawn */
-    pitch: sparse(f32),
+    pitch: field(f32),
     /** walk speed (m/s) the move input is scaled to */
-    speed: sparse(f32),
+    speed: field(f32),
     /** sprint multiplier applied while Shift is held */
-    sprint: sparse(f32),
+    sprint: field(f32),
     /** mouse-look radians per pixel of pointer-lock movement, at a fixed 1080px reference height (the look
      * speed is resolution-independent, so the same mouse motion turns the same angle at any canvas size) */
-    sensitivity: sparse(f32),
+    sensitivity: field(f32),
     /** camera height above the capsule centre (the eye offset) */
-    eyeHeight: sparse(f32),
+    eyeHeight: field(f32),
     /** camera pull-back from the eye: 0 = first-person, > 0 = third-person (scaffolding) */
-    distance: sparse(f32),
+    distance: field(f32),
     /** the linked camera entity (a Camera + Transform); set this or the camera never moves */
-    camera: sparse(entity),
+    camera: field(entity),
 };
 
 /** Pointer-lock reads are State-scoped. */

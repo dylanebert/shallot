@@ -209,6 +209,7 @@ const ClearChangeMarksSystem: System = {
     first: true,
     name: "clear-component-changes",
     update(state) {
+        state.uploadTables();
         state.clearChangesIfNeeded();
     },
 };

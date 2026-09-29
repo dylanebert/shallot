@@ -27,12 +27,12 @@ import {
 import {
     Compute,
     f32,
+    field,
     formatHex,
     type Plugin,
     Registry,
     type State,
     type System,
-    sparse,
     u32,
     vec2,
 } from "../../engine";
@@ -106,19 +106,19 @@ export function text(content: string): number {
  */
 export const Text = {
     /** interned string id (see {@link text}); a scene's `content:` interns the raw string */
-    content: sparse(u32),
+    content: field(u32),
     /** registered font id (see {@link font}); 0 is the default face */
-    font: sparse(u32),
+    font: field(u32),
     /** world height of one em */
-    fontSize: sparse(f32),
+    fontSize: field(f32),
     /** 0..1 opacity multiplier */
-    opacity: sparse(f32),
+    opacity: field(f32),
     /** drawn when nonzero */
-    visible: sparse(f32),
+    visible: field(f32),
     /** 0..1 pivot within the label; 0 0 = bottom-left, 0.5 0.5 centered */
-    anchor: sparse(vec2),
+    anchor: field(vec2),
     /** hex sRGB glyph color */
-    color: sparse(f32),
+    color: field(f32),
 };
 
 // one surface + draw + atlas texture per font. The glyph buffer + sampler are shared (one name each); only

@@ -53,14 +53,14 @@ test("a packed headless app steps on a GPU and refuses without navigator.gpu", a
             join(project, "packed-engine.gpu.test.ts"),
             `import { expect, test } from "bun:test";
 import { build, type Plugin } from "@dylanebert/shallot/app";
-import { f32, sparse, Time } from "@dylanebert/shallot/ecs";
+import { f32, field, Time } from "@dylanebert/shallot/ecs";
 import * as Rendering from "@dylanebert/shallot/rendering";
 import { drainLog, probeTexture } from "@dylanebert/shallot/runtime";
 import { setupGlobals } from "bun-webgpu";
 
 await setupGlobals();
 
-const Ticks = { value: sparse(f32) };
+const Ticks = { value: field(f32) };
 let eid = -1;
 const Counter: Plugin = {
     name: "Counter",

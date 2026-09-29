@@ -1,7 +1,7 @@
 // Destination: core/audio and standard/audio; owner: audio-boundary.md.
 
 import { devices } from "../../core/input";
-import { f32, i32, not, type Plugin, type State, type System, sparse, u8 } from "../../engine";
+import { f32, field, i32, not, type Plugin, type State, type System, u8 } from "../../engine";
 import { composeTransform, Transform, TransformsPlugin } from "../transforms";
 import {
     Audio,
@@ -35,15 +35,15 @@ import { getSample, Samples } from "./sample";
  */
 export const Sound = {
     /** registered instrument or sample name, resolved to an id (a bare sample auto-wraps a sampler) */
-    instrument: sparse(i32),
+    instrument: field(i32),
     /** 0 = one-shot (frees itself when the envelope idles), 1 = loop until the `Sound` is removed */
-    loop: sparse(u8),
+    loop: field(u8),
     /** playback level 0–1, quadratic; firehoses live to the voice */
-    volume: sparse(f32),
+    volume: field(f32),
     /** pitch offset in semitones (oscillator instruments only); firehoses live to the voice */
-    pitch: sparse(f32),
+    pitch: field(f32),
     /** allocated voice handle, managed by the audio system. read-only, don't author */
-    voice: sparse(i32),
+    voice: field(i32),
 };
 
 /** marks the spatial listener entity. its `Transform` orients the FOA + HRTF render */

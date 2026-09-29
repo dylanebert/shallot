@@ -6,7 +6,7 @@ import { Part, PartPlugin, Parts } from "../../transitional/part";
 import { Body, PhysicsPlugin } from "../../transitional/physics";
 import { SlabPlugin, slab } from "../../transitional/slab";
 import { Transform } from "../../transitional/transforms";
-import { Compute, f16x4, f32, type Plugin, type State, sparse, u8 } from "../index";
+import { Compute, f16x4, f32, field, type Plugin, type State, u8 } from "../index";
 import { probeBuffer } from "../runtime";
 import { serialize } from "../scene";
 import { Xform } from "../utils";
@@ -27,7 +27,7 @@ if (typeof ResizeObserver === "undefined") {
     } as unknown as typeof ResizeObserver;
 }
 
-const Value = { amount: sparse(f32) };
+const Value = { amount: field(f32) };
 const resourceKey = Symbol("world-probe");
 const textureKey = Symbol("world-probe-texture");
 const ResourcePlugin = {
@@ -143,14 +143,14 @@ test("live and later worlds keep component columns separate", async () => {
 
 test("component registrations, defaults, exclusions, and scene enumeration belong to each world", async () => {
     const firstComponents = {
-        Value: { amount: sparse(f32) },
-        Blocker: { value: sparse(f32) },
-        Other: { value: sparse(f32) },
+        Value: { amount: field(f32) },
+        Blocker: { value: field(f32) },
+        Other: { value: field(f32) },
     };
     const secondComponents = {
-        Value: { amount: sparse(f32), extra: sparse(f32) },
-        Blocker: { value: sparse(f32) },
-        Other: { value: sparse(f32) },
+        Value: { amount: field(f32), extra: field(f32) },
+        Blocker: { value: field(f32) },
+        Other: { value: field(f32) },
     };
     const firstPlugin = {
         name: "WorldRegistryProbe",
@@ -270,7 +270,7 @@ test("world GPU registries and owned resources are isolated and released on disp
 
 test("frame change marks clear after slab uploads, including fields without GPU uploads", async () => {
     const Changed = {
-        sparse: sparse(f32),
+        sparse: field(f32),
         uploaded: slab(f32, "change-mark-uploaded"),
         unsupported: slab(u8),
     };
@@ -401,7 +401,7 @@ test("built-in capacity readers size both worlds and render and step the top eid
 }, 30_000);
 
 test("reordered component fields swap without rebuilding their world columns", async () => {
-    const firstValue = { x: sparse(f32), y: sparse(f32) };
+    const firstValue = { x: field(f32), y: field(f32) };
     const firstPlugin = { name: "WorldFieldOrderProbe", components: { Value: firstValue } };
     const app = await build({ defaults: false, plugins: [firstPlugin] });
     apps.push(app);
@@ -412,7 +412,7 @@ test("reordered component fields swap without rebuilding their world columns", a
     const beforeX = before.x.column;
     const beforeY = before.y.column;
 
-    const reloadedValue = { y: sparse(f32), x: sparse(f32) };
+    const reloadedValue = { y: field(f32), x: field(f32) };
     const reloaded = { name: "WorldFieldOrderProbe", components: { Value: reloadedValue } };
     expect(await swap(app.state, [firstPlugin], [reloaded])).toEqual({ ok: true });
 
@@ -423,13 +423,13 @@ test("reordered component fields swap without rebuilding their world columns", a
 }, 20_000);
 
 test("a same-named Type with a different array layout forces a rebuild", async () => {
-    const firstValue = { amount: sparse(f32) };
+    const firstValue = { amount: field(f32) };
     const firstPlugin = { name: "WorldTypeLayoutProbe", components: { Value: firstValue } };
     const app = await build({ defaults: false, plugins: [firstPlugin] });
     apps.push(app);
 
     const wordF32 = { ...f32, ctor: Uint32Array };
-    const reloadedValue = { amount: sparse(wordF32) };
+    const reloadedValue = { amount: field(wordF32) };
     const reloaded = {
         name: "WorldTypeLayoutProbe",
         components: { Value: reloadedValue },
@@ -443,13 +443,13 @@ test("a same-named Type with a different array layout forces a rebuild", async (
 }, 20_000);
 
 test("a Type's debug name does not invalidate an identical storage layout", async () => {
-    const firstValue = { amount: sparse(f32) };
+    const firstValue = { amount: field(f32) };
     const firstPlugin = { name: "WorldTypeDebugNameProbe", components: { Value: firstValue } };
     const app = await build({ defaults: false, plugins: [firstPlugin] });
     apps.push(app);
 
     const debugAlias = { ...f32, name: "f32-debug-alias" };
-    const reloadedValue = { amount: sparse(debugAlias) };
+    const reloadedValue = { amount: field(debugAlias) };
     const reloaded = {
         name: "WorldTypeDebugNameProbe",
         components: { Value: reloadedValue },
@@ -458,7 +458,7 @@ test("a Type's debug name does not invalidate an identical storage layout", asyn
 }, 20_000);
 
 test("original, reloaded, and rebuilt component accessors stop rechecking bound schemas", async () => {
-    const originalValue = { amount: sparse(f32) };
+    const originalValue = { amount: field(f32) };
     const originalPlugin = {
         name: "WorldAccessorCacheProbe",
         components: { Value: originalValue },
@@ -468,7 +468,7 @@ test("original, reloaded, and rebuilt component accessors stop rechecking bound 
     const originalEid = first.state.create();
     first.state.add(originalEid, originalValue);
 
-    const reloadedValue = { amount: sparse(f32) };
+    const reloadedValue = { amount: field(f32) };
     const reloadedPlugin = {
         name: "WorldAccessorCacheProbe",
         components: { Value: reloadedValue },
@@ -527,7 +527,7 @@ test("a compatible hot swap reattaches its schema in only the target world", asy
     const secondEid = second.state.entities()[0];
     amount(first.state).set(firstEid, 13);
 
-    const reloadedValue = { amount: sparse(f32) };
+    const reloadedValue = { amount: field(f32) };
     const reloaded = {
         name: "SwappableWorldSchema",
         components: { Value: reloadedValue },
@@ -539,7 +539,7 @@ test("a compatible hot swap reattaches its schema in only the target world", asy
     expect(amount(first.state).get(firstEid)).toBe(13);
     expect(amount(second.state).get(secondEid)).toBe(7);
 
-    const incompatibleValue = { amount: sparse(f32), extra: sparse(f32) };
+    const incompatibleValue = { amount: field(f32), extra: field(f32) };
     const incompatible = {
         name: "SwappableWorldSchema",
         components: { Value: incompatibleValue },

@@ -31,12 +31,12 @@ import {
 import {
     aim,
     f32,
+    field,
     lookAt,
     multiply,
     orthographic,
     perspective,
     type State,
-    sparse,
 } from "../../engine";
 import { composeTransform, Transform } from "../../transitional/transforms";
 
@@ -60,11 +60,11 @@ import { composeTransform, Transform } from "../../transitional/transforms";
  */
 export const Shadow = {
     /** the sun's max shadow distance: the camera view range is split into cascades out to it; raise to shadow farther, lower for finer near texels. Ignored on a point light (coverage is its `range`). */
-    distance: sparse(f32),
+    distance: field(f32),
     /** a small residual depth bias toward the light, covering flat faces dead-on to it the normal offset can't. */
-    depthBias: sparse(f32),
+    depthBias: field(f32),
     /** the primary acne fix: shifts the receiver along its surface normal by this many shadow texels before the depth compare. Raise if acne shows, lower if shadows detach at contact edges. */
-    normalBias: sparse(f32),
+    normalBias: field(f32),
 };
 
 /** the {@link Shadow} field defaults: applied on add, overridden per-attribute. `normalBias` matches

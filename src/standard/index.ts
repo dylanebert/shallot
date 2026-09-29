@@ -53,7 +53,6 @@ export {
     type WheelJointConfig,
     World,
 } from "../transitional/physics";
-export { Slab, SlabPlugin, SlabSystem, slab } from "../transitional/slab";
 export { composeTransform, Transform, TransformsPlugin } from "../transitional/transforms";
 export {
     type LoadingOptions,

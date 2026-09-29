@@ -7,10 +7,10 @@ import {
     entity,
     FIXED_DT,
     f32,
+    field,
     type Plugin,
     type State,
     type System,
-    sparse,
     Time,
     u32,
     vec4,
@@ -113,17 +113,17 @@ export const poseTraits = {
  */
 export const Spring = {
     /** the first body (a `@name` reference). */
-    a: sparse(entity),
+    a: field(entity),
     /** the second body. */
-    b: sparse(entity),
+    b: field(entity),
     /** anchor point on body `a`, in its local frame. */
-    rA: sparse(vec4),
+    rA: field(vec4),
     /** anchor point on body `b`, in its local frame. */
-    rB: sparse(vec4),
+    rB: field(vec4),
     /** pull strength; higher is stiffer. */
-    stiffness: sparse(f32),
+    stiffness: field(f32),
     /** the target distance the spring pulls the anchors toward. */
-    rest: sparse(f32),
+    rest: field(f32),
 };
 
 /**
@@ -142,15 +142,15 @@ export const Spring = {
  */
 export const Joint = {
     /** the first body (a `@name` reference). */
-    a: sparse(entity),
+    a: field(entity),
     /** the second body. */
-    b: sparse(entity),
+    b: field(entity),
     /** the pin's anchor on body `a`, in its local frame. */
-    rA: sparse(vec4),
+    rA: field(vec4),
     /** the pin's anchor on body `b`, in its local frame. */
-    rB: sparse(vec4),
+    rB: field(vec4),
     /** angular lock: `0` (default) leaves rotation free (spherical); `∞` locks orientation (author `stiffness-ang: fixed`). */
-    stiffnessAng: sparse(f32),
+    stiffnessAng: field(f32),
 };
 
 // Authoring metadata for the three components above, shared with any extension solver that registers

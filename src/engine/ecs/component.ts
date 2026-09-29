@@ -199,7 +199,7 @@ export function sameTypeLayout(a: Type, b: Type): boolean {
 
 /**
  * 8-bit unsigned integer. `slab(u8)` warns and stays CPU-only — WGSL has no
- * sub-32-bit storage; pack into u32 manually. `sparse(u8)` works for CPU-only fields.
+ * sub-32-bit storage; pack into u32 manually. `field(u8)` works for CPU-only fields.
  */
 export const u8: Type<Uint8Array> & { readonly lanes: 1 } = {
     ctor: Uint8Array,
@@ -210,7 +210,7 @@ export const u8: Type<Uint8Array> & { readonly lanes: 1 } = {
 
 /**
  * 16-bit unsigned integer. `slab(u16)` warns and stays CPU-only — WGSL has no
- * sub-32-bit storage; pack into u32 manually. `sparse(u16)` works for CPU-only fields.
+ * sub-32-bit storage; pack into u32 manually. `field(u16)` works for CPU-only fields.
  */
 export const u16: Type<Uint16Array> & { readonly lanes: 1 } = {
     ctor: Uint16Array,
@@ -454,7 +454,7 @@ export function sameComponentSchema(a: Component, b: Component): boolean {
 }
 
 /**
- * the fields holding an entity ref: those declared `sparse(entity)` / `slab(entity)`.
+ * the fields holding an entity ref: those declared `field(entity)` / `slab(entity)`.
  * `serialize` reads it to emit each as `@<id>`; the ref-ness lives on the field's type, so it
  * can't drift from a separate list. A sibling of {@link fields}.
  */

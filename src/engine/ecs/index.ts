@@ -20,6 +20,7 @@ export {
     vec2,
     vec4,
 } from "./component";
+export { field } from "./field";
 export { Identity } from "./identity";
 export { and, not, or } from "./query";
 export {
@@ -42,8 +43,8 @@ export {
     snapshot,
 } from "./reflection";
 export { FIXED_DT, type System, Time } from "./scheduler";
-export { sparse } from "./sparse";
 export { pixelRatio, State } from "./state";
+export { GpuTable, type TableUploadPath } from "./table";
 export {
     clear,
     entries,

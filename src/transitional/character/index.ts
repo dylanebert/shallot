@@ -1,5 +1,5 @@
 // Destination: standard/physics; owner: physics-boundary.md.
-import { FIXED_DT, f32, type Plugin, type State, type System, sparse } from "../../engine";
+import { FIXED_DT, f32, field, type Plugin, type State, type System } from "../../engine";
 import {
     Body,
     type BodyStateOut,
@@ -52,11 +52,11 @@ const _worldGravity = { x: 0, y: 0, z: 0 };
  */
 export const Character = {
     /** steepest walkable slope in degrees; a contact flatter than this grounds the character, steeper it slides */
-    maxSlope: sparse(f32),
+    maxSlope: field(f32),
     /** the launch velocity a buffered + grounded {@link jump} sets. 0 disables jumping */
-    jumpSpeed: sparse(f32),
+    jumpSpeed: field(f32),
     /** per-character gravity (negative, snappier than the world for a player). 0 = the configured world gravity */
-    gravity: sparse(f32),
+    gravity: field(f32),
 };
 
 // last-registered signature — re-sync `states` ONLY on a change to the authored set / tuning (the GPU

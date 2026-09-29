@@ -18,7 +18,7 @@ import {
     registerSurface,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, f32, formatHex, sparse, vec4 } from "../../engine";
+import { Compute, f32, field, formatHex, vec4 } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { PrepassSystem } from "../../standard/rendering";
 import { composeTransform, Transform, TransformsPlugin } from "../../transitional/transforms";
@@ -48,15 +48,15 @@ export { arrow, box, segment } from "./segments";
  */
 export const Line = {
     /** line vector from the entity in its local frame, rotated by the transform (`0 1 0` = one unit up) */
-    offset: sparse(vec4),
+    offset: field(vec4),
     /** constant screen width in pixels */
-    thickness: sparse(f32),
+    thickness: field(f32),
     /** hex sRGB color */
-    color: sparse(f32),
+    color: field(f32),
     /** 0..1 opacity multiplier */
-    opacity: sparse(f32),
+    opacity: field(f32),
     /** drawn when nonzero; set to 0 to hide without removing */
-    visible: sparse(f32),
+    visible: field(f32),
 };
 
 /**
@@ -70,11 +70,11 @@ export const Line = {
  */
 export const Arrow = {
     /** a head at the start endpoint when nonzero */
-    start: sparse(f32),
+    start: field(f32),
     /** a head at the end endpoint when nonzero */
-    end: sparse(f32),
+    end: field(f32),
     /** head size relative to the shaft length */
-    size: sparse(f32),
+    size: field(f32),
 };
 
 // the canonical quad: posU.xyz = (t, edge, 0); normalV unused. sear pulls these as localPos, the
