@@ -1,2 +1,2 @@
 stage: 3
-finding: Stage 3 fails: exported LiveSkin holds GPU buffers in a process singleton and SkinPlugin.initialize for a second app destroys the first app's buffer; the checker misses planted Map, WeakMap, closure, Compute singleton, class-static and imported-state cases. Physics restore(state1, snapshot) after building state2 writes state2's WASM memory (separate devices: state2 pose 19.9083 becomes 1.9083).
+finding: Stage 3 fails: checker misses exported singleton LiveSkin and planted Map/WeakMap/closure/Compute/class/import cases; a second Skin world destroys the first's buffer. Physics snapshot restore after building world 2 writes world 2's separate WASM memory (pose 19.9083 to 1.9083); joints.ts constraint caches are also reset globally by any warm/dispose.
