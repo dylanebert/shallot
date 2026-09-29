@@ -67,7 +67,12 @@ export class State {
     private _queries = new Queries();
     private _storage = new Map<
         number,
-        { schema: Component; fields: Map<string, WorldField>; storage: Record<string, unknown> }
+        {
+            schema: Component;
+            schemas: WeakSet<Component>;
+            fields: Map<string, WorldField>;
+            storage: Record<string, unknown>;
+        }
     >();
     private _resources = new Map<PropertyKey, unknown>();
     private _highWater = 1;
@@ -166,13 +171,14 @@ export class State {
         const id = idOf(component);
         const existing = this._storage.get(id);
         if (existing) {
-            if (existing.schema === component) return existing.storage as ComponentStorage<T>;
+            if (existing.schemas.has(component)) return existing.storage as ComponentStorage<T>;
             bindFields(component);
             if (!sameSchema(existing.schema, component)) {
                 throw new Error(
                     `state.of: component schema changed for "${String(id)}"; rebuild this world`,
                 );
             }
+            existing.schemas.add(component);
             return existing.storage as ComponentStorage<T>;
         }
         bindFields(component);
@@ -184,7 +190,12 @@ export class State {
             columns.set(name, column);
             storage[name] = column.bind();
         }
-        this._storage.set(id, { schema: component, fields: columns, storage });
+        this._storage.set(id, {
+            schema: component,
+            schemas: new WeakSet([component]),
+            fields: columns,
+            storage,
+        });
         return storage as ComponentStorage<T>;
     }
 

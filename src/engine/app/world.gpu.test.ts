@@ -345,6 +345,58 @@ test("a Type's debug name does not invalidate an identical storage layout", asyn
     expect(await swap(app.state, [firstPlugin], [reloaded])).toEqual({ ok: true });
 }, 20_000);
 
+test("original, reloaded, and rebuilt component accessors stop rechecking bound schemas", async () => {
+    const originalValue = { amount: sparse(f32) };
+    const originalPlugin = {
+        name: "WorldAccessorCacheProbe",
+        components: { Value: originalValue },
+    };
+    const first = await build({ defaults: false, plugins: [originalPlugin] });
+    apps.push(first);
+    const originalEid = first.state.create();
+    first.state.add(originalEid, originalValue);
+
+    const reloadedValue = { amount: sparse(f32) };
+    const reloadedPlugin = {
+        name: "WorldAccessorCacheProbe",
+        components: { Value: reloadedValue },
+    };
+    expect(await swap(first.state, [originalPlugin], [reloadedPlugin])).toEqual({ ok: true });
+
+    const rebuilt = await build({ defaults: false, plugins: [reloadedPlugin] });
+    apps.push(rebuilt);
+    const rebuiltEid = rebuilt.state.create();
+    rebuilt.state.add(rebuiltEid, reloadedValue);
+
+    const originalSort = Array.prototype.sort;
+    let sortCalls = 0;
+    let originalRead = 0;
+    let reloadedRead = 0;
+    let rebuiltRead = 0;
+    Array.prototype.sort = function <T>(this: T[], compareFn?: (a: T, b: T) => number): T[] {
+        sortCalls++;
+        return originalSort.call(this, compareFn);
+    };
+    try {
+        first.state.of(originalValue);
+        originalValue.amount.set(originalEid, 11);
+        originalRead = originalValue.amount.get(originalEid);
+
+        first.state.of(reloadedValue);
+        reloadedValue.amount.set(originalEid, 22);
+        reloadedRead = reloadedValue.amount.get(originalEid);
+
+        rebuilt.state.of(reloadedValue);
+        reloadedValue.amount.set(rebuiltEid, 33);
+        rebuiltRead = reloadedValue.amount.get(rebuiltEid);
+    } finally {
+        Array.prototype.sort = originalSort;
+    }
+
+    expect([originalRead, reloadedRead, rebuiltRead]).toEqual([11, 22, 33]);
+    expect(sortCalls).toBe(0);
+}, 20_000);
+
 test("a compatible hot swap reattaches its schema in only the target world", async () => {
     const firstPlugin = {
         name: "SwappableWorldSchema",
