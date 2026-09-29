@@ -40,7 +40,19 @@ Record-layout evidence (same adapter, 100k rows; prototypes only, arrays are not
 
 Stage 4 implementation checkpoint (incomplete): Transform/Body poses, point/spot light inputs, and Part surface/color/material data now use dense struct tables. The Part pack reads its active `(eid,row)` list instead of dispatching over an entity range; light compaction does the same. Part and Sear no longer depend on `SlabPlugin`; Physics `Body`/`Pose` and built-in light fields are `field()` columns. `State.capacity`/`Config.capacity` are gone, and the built-in GPU coverage passes for the table-bound Part/Sear and light inputs. Explicit transitional Slab use remains in Skin/glTF and still needs a capless table migration before Slab internals can leave every build path.
 
-A renderer integration decision remains open: typed vertex stages begin with compacted eids and use the opt-in Transform and Part eid maps to load dense records. This preserves the logical `eid` surface contract but performs a map lookup per vertex; Stage 4's map timing was only a diagnostic full-range scan, not this vertex workload. Measure that point-lookup consumer on a named real adapter before treating the cost as settled.
+The architect approved a 16-byte draw payload `(eid, transformSlot, encodedPartSlot, shadowCombo)` to remove per-vertex map loads, retaining Part color/material in the surface context. Production still uses compacted eids and per-vertex Transform/Part map lookups; implementation is paused on the measurement below.
+
+`src/standard/rendering/instance-payload.performance.gpu.test.ts` compares paired payload prototypes on Apple M4 Max / Metal 3, macOS 26.7 (25G229). GPU timestamps cover batches of 128 draws or dispatches; medians use seven samples after two warmups. Both compaction prototypes read the same mapped pose/Part inputs and predicate. Regather copies survivors and writes a shadow combo. Vertex prototypes read 48-byte pose and Part records through independently permuted slots; triangles are outside the viewport to isolate vertex work. These are isolated kernels, not the complete production cull/scan/scatter/regather or an end-to-end scene. Sums below add independently measured medians, not a measured frame.
+
+Second-run medians in microseconds, old/new:
+
+| Instances | Compaction | Regather | Vertex, 6 vertices | Vertex, 36 vertices | Vertex, 240 vertices |
+| --- | --- | --- | --- | --- | --- |
+| 1k | 6.656 / 6.656 | 4.608 / 4.608 | 7.168 / 6.656 | 14.848 / 11.264 | 30.208 / 21.504 |
+| 10k | 2.048 / 2.560 | 1.024 / 1.536 | 12.800 / 12.800 | 30.208 / 30.208 | 194.048 / 194.560 |
+| 100k | 11.264 / 14.336 | 3.584 / 4.608 | 126.464 / 126.464 | 294.400 / 294.912 | 1924.096 / 1923.584 |
+
+At 100k six-vertex instances, the sum increases from 141.312 to 145.408 us (+2.9%); the preceding run measured 140.800 to 145.408 us (+3.3%). At 10k six-vertex instances, the sum increases from 15.872 to 16.896 us; the preceding run measured 16.384 to 16.896 us. This is a warning for quad-like workloads, not proof of an actual scene regression. The 1k measurements vary substantially between runs. Stage 4 stops for the architect to assess the warning before production migration; no removal is claimed by this probe.
 
 The first-person allocation row is no longer a todo. Its latest run fails the zero-allocation claim: the former `readBody` proxy path was removed and the largest `readBody` / `scopedHandle` allocation sites disappeared, but the sampler still attributes steady allocations to `transitional/character` (`update`, `syncStates`, `sweepEid`) and `transitional/physics` (`StepSystem`, `SyncSystem`, worker pool, manifold store). These are outside the table/upload path changed here and remain a Stage 4 gap, not evidence that the check passes. The mock GPU adapter reports no identity; these allocation figures are not real-hardware timing evidence.
 
