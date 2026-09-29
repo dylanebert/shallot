@@ -1,0 +1,2 @@
+stage: 3
+finding: The ownership audit leaves pre-world resources unattributed: track records only when currentWorld exists and assertOwned exempts ownerless resources. I created a buffer on the wrapped device before building either State, then wrote it under the second State; the cross-State write was accepted. Warm allocations are within withComputeAsync and attributed, but import/pre-world allocations can evade this audit.
