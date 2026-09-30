@@ -129,7 +129,7 @@ export function findParent(
 }
 
 /**
- * renders a node tree back to formatted scene XML, the inverse of `parse`. Long entities wrap one
+ * renders a node tree back to formatted scene XML, the inverse of `parseScene`. Long entities wrap one
  * attribute per line; a `stringifyScene(serializeScene(state))` round-trips a live scene to disk.
  *
  * @example

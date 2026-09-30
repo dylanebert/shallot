@@ -51,12 +51,14 @@ const LOOK_REFERENCE_HEIGHT = 1080;
  * ```
  * const body = world.create();
  * world.add(body, Body); world.add(body, Character); world.add(body, Player);   // a capsule, mass 0
- * Body.shape.set(body, ShapeKind.Capsule);
- * Body.halfExtents.set(body, 0, 0.6, 0, 0.3); Body.mass.set(body, 0);
- * Character.jumpSpeed.set(body, 6); Character.gravity.set(body, -30);           // snappy jump/fall
+ * const bodies = world.storage(Body);
+ * const characters = world.storage(Character);
+ * bodies.shape.set(body, ShapeKind.Capsule);
+ * bodies.halfExtents.set(body, 0, 0.6, 0, 0.3); bodies.mass.set(body, 0);
+ * characters.jumpSpeed.set(body, 6); characters.gravity.set(body, -30);         // snappy jump/fall
  * const cam = world.create();
  * world.add(cam, Transform); world.add(cam, Camera); world.add(cam, StandardRenderer);
- * Player.camera.set(body, cam);
+ * world.storage(Player).camera.set(body, cam);
  * ```
  */
 export const Player = {

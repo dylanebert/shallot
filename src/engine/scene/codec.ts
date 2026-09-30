@@ -99,10 +99,10 @@ function findClosestMatch(input: string, candidates: string[]): string | null {
 
 /**
  * builds ECS state from a parsed scene: one entity per node, one component per registered attribute, each
- * entity's scene `id` recorded on `world.identity` (so `serialize` round-trips refs by name). `@name`
+ * entity's scene `id` recorded on `world.identity` (so `serializeScene` round-trips refs by name). `@name`
  * field refs resolve to their target eid in a second pass. Throws on unresolved refs and malformed
  * values, joined into one message; unregistered component attrs are silently dropped. `runApp()` calls
- * this; a custom loader calls `parse` then `load`.
+ * this; a custom loader calls `parseScene` then `loadScene`.
  *
  * @example
  * const map = loadScene(parseScene(xml), world);
@@ -193,14 +193,14 @@ export function readComponent(
 }
 
 /**
- * reads a live `World` back to a node tree, the on-demand inverse of `load`: one node per entity, one
- * attribute per registered component it has. `stringify` the result for the scene text (save /
- * survive-reload), or feed it back to `load` to rebuild. Pay-for-what-you-use, not a per-frame cost.
+ * reads a live `World` back to a node tree, the on-demand inverse of `loadScene`: one node per entity, one
+ * attribute per registered component it has. `stringifyScene` the result for the scene text (save /
+ * survive-reload), or feed it back to `loadScene` to rebuild. Pay-for-what-you-use, not a per-frame cost.
  *
- * By default it serializes the **authored** set — the entities `load` created.
+ * By default it serializes the **authored** set — the entities `loadScene` created.
  * `warm`-derived entities are absent by construction and
  * rebuilt by `warm` on the next build, so a restore never doubles them; pass an
- * explicit `eids` to serialize a different set (entities spawned outside load).
+ * explicit `eids` to serialize a different set (entities spawned outside `loadScene`).
  * Each entity keeps its scene `id`, and a `refs` field round-trips as `@<id>`.
  * A target inside the serialized set that lacks a scene id is minted one; a
  * target outside it resolves to its scene id if it has one, or throws if not
@@ -869,7 +869,7 @@ function atDefault(value: number, def: number | undefined): boolean {
 
 /**
  * normalize a scene attribute value to its canonical form: parse, then re-format the way the live
- * `serialize` path does (`stripDefaults` on, so a field sitting at its trait default elides). The scene
+ * `serializeScene` path does (`stripDefaults` on, so a field sitting at its trait default elides). The scene
  * formatter (`scripts/format.ts`) runs every `.scene` through this, so a formatted file is the same
  * minimal bytes `serializeScene(state)` emits: one canonical form, no divergence
  * between hand-authored and programmatically-written scenes. Returns null for an empty value, unregistered

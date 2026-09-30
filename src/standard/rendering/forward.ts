@@ -955,7 +955,7 @@ function renderColor(
 
     if (!_render.encoder || !view.framebuffer) return;
     // per-camera AA: 4× MSAA when `Camera.antialias` is on (the default the Camera trait seeds), else
-    // single-sample. A scene attribute or a runtime `Camera.antialias.set(eid, 0)` flips it live
+    // single-sample. A scene attribute or a runtime `world.storage(Camera).antialias.set(eid, 0)` flips it live
     const aa = world.storage(Camera).antialias.get(eid) !== 0;
     const packed = world.storage(Camera).clearColor.get(eid);
     if (packed !== _searState.clearPacked) {

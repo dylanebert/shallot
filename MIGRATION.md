@@ -26,14 +26,13 @@ These changes require updates to a 0.9.5 app.
 | `Input`, `Unit`, `units`, `angle`, `degrees`, `radians` | `FieldInput`, `FieldUnit`, `unitInput`, `angleInput`, `degreeUnit`, `radianUnit` |
 | `compose`, `decompose`, `multiply`, `invert` | `composeMat4`, `decomposeMat4`, `multiplyMat4`, `invertMat4` |
 | `quat`, `euler`, `rotate`, `aim` | `eulerToQuat`, `quatToEuler`, `rotateQuatByEuler`, `lookAtRotation` |
-| Root physics `snapshot`, `restore`, `hash` | `snapshotPhysics`, `restorePhysics`, `hashPhysics` |
-| `focus`, `blur`, `composeTransform`, `dependencies` | `focusCanvas`, `blurCanvas`, `composeGlobalTransform`, `requiredComponents` |
+| `composeTransform`, `dependencies` | `composeGlobalTransform`, `requiredComponents` |
 | `state.stamp`, `state.timescale`, `state.swap` | `world.generation`, `world.setTimeScale`, `world.swapSystem` |
 | `PrepassSystem`, `ColorSystem`, `ClusterSystem`, `LightCullSystem` | `RenderPrepassesSystem`, `RenderMeshColorSystem`, `UpdateLightClustersSystem`, `CullLightsSystem` |
-| `CharacterSweepSystem`, `PlayerControlSystem`, `PlayerSnapshotSystem` | `SweepCharactersSystem`, `UpdatePlayerControlSystem`, `SnapshotPlayerPositionSystem` |
-| Physics `StepSystem`, `ConstraintSystem`; `InputResetSystem` | `StepPhysicsSystem`, `SyncPhysicsConstraintsSystem`; `ResetFrameInputSystem` |
+| `CharacterSweepSystem`, `PlayerControlSystem` | `SweepCharactersSystem`, `UpdatePlayerControlSystem` |
+| Physics `StepSystem`, `ConstraintSystem` | `StepPhysicsSystem`, `SyncPhysicsConstraintsSystem` |
 
-Removed without replacement names: `wheel` (use `pointerWheel`), `FIXED_DT` (use `Time.FIXED_DT`), the `pixelRatio` constant (set `AppConfig.pixelRatio`), and the `/ecs` wrappers `register`, `getComponent`, `getTraits`, `getExclusions`, `entries` and `clear` (use `world.registry`).
+Removed without replacement names: the `pixelRatio` constant (set `AppConfig.pixelRatio`), and the `/ecs` wrappers `register`, `getComponent`, `getTraits`, `getExclusions`, `entries` and `clear` (use `world.registry`).
 
 ## Request non-default GPU limits explicitly
 

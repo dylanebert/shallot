@@ -39,9 +39,10 @@ const _worldGravity = { x: 0, y: 0, z: 0 };
  * ```
  * const body = world.create();
  * world.add(body, Body); world.add(body, Character);
- * Body.shape.set(body, ShapeKind.Capsule);
- * Body.halfExtents.set(body, 0, 0.5, 0, 0.3); Body.mass.set(body, 0);
- * Character.jumpSpeed.set(body, 5);   // 0 = no jump
+ * const bodies = world.storage(Body);
+ * bodies.shape.set(body, ShapeKind.Capsule);
+ * bodies.halfExtents.set(body, 0, 0.5, 0, 0.3); bodies.mass.set(body, 0);
+ * world.storage(Character).jumpSpeed.set(body, 5);   // 0 = no jump
  * ```
  */
 export const Character = {

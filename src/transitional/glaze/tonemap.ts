@@ -23,7 +23,7 @@ import { chunk, spliceNs } from "../../engine/utils";
  *
  * @example
  * ```
- * Glaze.tonemap.set(camera, Tonemap.Aces);
+ * world.storage(Glaze).tonemap.set(camera, Tonemap.Aces);
  * ```
  */
 export const Tonemap = {
