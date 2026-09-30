@@ -214,8 +214,8 @@ export function readFields(world: World, component: Component, eid: number): Fie
 /**
  * every component on a live entity with its field values, or `null` if the entity isn't alive.
  * @example
- * const data = inspect(state, eid);
- * data?.components; // { transform: { "pos.x": 0, ... }, orbit: { ... } }
+ * const data = inspect(world, eid);
+ * data?.components; // { transform: { "translation.x": 0, ... }, orbit: { ... } }
  */
 export function inspect(world: World, eid: number): EntityData | null {
     if (!world.exists(eid)) return null;
@@ -231,7 +231,7 @@ export function inspect(world: World, eid: number): EntityData | null {
 /**
  * every live entity carrying the named component, each as `EntityData`; empty for an unknown component.
  * @example
- * find(state, "point-light").length; // how many point lights are in the scene
+ * find(world, "point-light").length; // how many point lights are in the scene
  */
 export function find(world: World, name: string): EntityData[] {
     const component = world.registry.getComponent(name);
@@ -258,7 +258,7 @@ export function snapshot(world: World): EntityData[] {
 /**
  * format an entity's components and field values as a human-readable string, for logging.
  * @example
- * console.log(dump(state, eid));
+ * console.log(dump(world, eid));
  */
 export function dump(world: World, eid: number): string {
     const data = inspect(world, eid);

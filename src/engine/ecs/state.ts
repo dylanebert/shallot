@@ -23,12 +23,12 @@ const INITIAL_CAPACITY = 16;
 export type Resource<T> = { readonly create: (world: World) => T };
 
 /**
- * ecs state passed to every system
+ * ecs world passed to every system
  * @expand
  * @example
  * const MySystem: System = {
  *     update(world) {
- *         // state passed in every frame
+ *         // world passed in every frame
  *     },
  * };
  */
@@ -478,7 +478,7 @@ export class World {
                     const a = this.registry.getName(component as Component) ?? "?";
                     const b = this.registry.getName(other) ?? "?";
                     throw new Error(
-                        `state.add: cannot attach "${a}" to entity ${eid} — excluded by "${b}"`,
+                        `world.add: cannot attach "${a}" to entity ${eid} — excluded by "${b}"`,
                     );
                 }
             }
@@ -504,7 +504,7 @@ export class World {
             this._queries.onComponentChanged(eid, component, this._components);
             this.registry.applyDefaults(this, component as Component, eid);
         } else {
-            console.warn("state.add: component already attached to entity", eid);
+            console.warn("world.add: component already attached to entity", eid);
         }
     }
 
@@ -528,8 +528,9 @@ export class World {
     /**
      * find entities matching component terms
      * @example
-     * for (const eid of state.query([Health, not(Dead)])) {
-     *     Health.current[eid] -= 1;
+     * const health = world.storage(Health);
+     * for (const eid of world.query([Health, not(Dead)])) {
+     *     health.current.set(eid, health.current.get(eid) - 1);
      * }
      */
     query(terms: any[]): Iterable<number> {
@@ -550,7 +551,7 @@ export class World {
             if (count > 1) break;
         }
         if (count > 1) {
-            console.warn("state.only: expected 1 match, found multiple");
+            console.warn("world.only: expected 1 match, found multiple");
         }
         return result;
     }

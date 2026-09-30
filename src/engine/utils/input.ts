@@ -1,8 +1,8 @@
 /**
  * an input widget for a component field. Display-only: the stored value never changes; a
  * widget maps stored↔shown at the authoring boundary so ECS data stays pristine. Declare it in a
- * component's traits (`inputs`) when the default number field isn't the right control: a radianUnit field
- * authored in degreeUnit is an {@link angleInput}. The standard set is small on purpose; add a variant when a
+ * component's traits (`inputs`) when the default number field isn't the right control: a field stored in radians
+ * authored in degrees is an {@link angleInput}. The standard set is small on purpose; add a variant when a
  * field actually needs one.
  */
 export type FieldInput = { kind: "unit"; units: FieldUnit[] };
@@ -20,10 +20,10 @@ export interface FieldUnit {
     from: (shown: number) => number;
 }
 
-/** radianUnit shown as-is: the identity unit, storage's own. */
+/** radians shown as-is: the identity unit, storage's own. */
 export const radianUnit: FieldUnit = { label: "rad", to: (x) => x, from: (x) => x };
 
-/** a radianUnit field shown in degreeUnit. */
+/** a field stored in radians shown in degrees. */
 export const degreeUnit: FieldUnit = {
     label: "deg",
     to: (r) => (r * 180) / Math.PI,
@@ -39,5 +39,5 @@ export const degreeUnit: FieldUnit = {
  */
 export const unitInput = (list: FieldUnit[]): FieldInput => ({ kind: "unit", units: list });
 
-/** a radianUnit field authored in degreeUnit, with a `deg`/`rad` switch: the common angleInput case. */
+/** a field stored in radians authored in degrees, with a `deg`/`rad` switch: the common angleInput case. */
 export const angleInput: FieldInput = unitInput([degreeUnit, radianUnit]);

@@ -130,10 +130,10 @@ export function findParent(
 
 /**
  * renders a node tree back to formatted scene XML, the inverse of `parseScene`. Long entities wrap one
- * attribute per line; a `stringifyScene(serializeScene(state))` round-trips a live scene to disk.
+ * attribute per line; a `stringifyScene(serializeScene(world))` round-trips a live scene to disk.
  *
  * @example
- * const xml = stringifyScene(serializeScene(state));
+ * const xml = stringifyScene(serializeScene(world));
  */
 export function stringifyScene(nodes: SceneNode[]): string {
     const lines: string[] = ["<scene>"];

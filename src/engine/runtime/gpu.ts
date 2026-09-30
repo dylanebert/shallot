@@ -37,7 +37,7 @@ const mb = (bytes: number): string => `${(bytes / (1 << 20)).toFixed(0)} MB`;
 /**
  * extends a `device.createBuffer` / `createTexture` descriptor with the allocator's own declaration that
  * this specific call is a lazily-grown pool entry — a buffer or texture that appears on real GPU
- * backpressure (a readback ring's staging slot, a slab's staging buffer) rather than deterministically
+ * backpressure (a readback ring's staging slot, a GPU table's staging buffer) rather than deterministically
  * for a fixed scenario at fixed params. The allocator is the one thing that knows this, so the mark
  * travels on the descriptor already crossing `ProfilePlugin`'s patched `createBuffer` / `createTexture`
  * seam — never inferred from the label string, which would silently miss the next such pool.
@@ -141,7 +141,7 @@ export interface WorldGpu {
     /** register the just-submitted frame's completion fence; tracks {@link pending}, returns the fence */
     sync(): Promise<void>;
     /**
-     * named GPU buffers published for cross-system lookup. Slabs with a name
+     * named GPU buffers published for cross-system lookup. GPU tables
      * self-register; producers register their static buffers (cube vertices,
      * GlobalTransform rows, …). Consumers (renderers) resolve binding names
      * to buffers at bind-group build time
@@ -187,7 +187,7 @@ export interface WorldGpu {
      * drain — so timing the creation call would report a number that reads like a compile time and
      * isn't one. {@link precompileAll} instead measures each forcer's own `initAsync()` await and
      * reports the resolved span here, called only when at least one element actually awaited an
-     * `initAsync` — an array with none (the sear forcer's already-unwrapped raw pipelines, or `[]`)
+     * `initAsync` — an array with none (the standard renderer's already-unwrapped raw pipelines, or `[]`)
      * never calls this, since reporting a span for a skip would read like a compile that never ran; a
      * `?.` no-op without the plugin means only timing attribution is conditional.
      */
@@ -639,7 +639,7 @@ export function observeDevice(
     }
 }
 
-// the base floor every shallot app needs (the default renderer + slab substrate). It gates device
+// the base floor every shallot app needs (the default renderer + GPU tables). It gates device
 // acquisition before any plugin loads, so **a floor entry earns its place only by being a
 // `DEFAULT_PLUGINS` need** — anything an opt-in plugin uses belongs on that plugin, via
 // `Plugin.features` (required — a missing one throws) or `Plugin.preferredFeatures` (best-effort —
@@ -654,7 +654,7 @@ export const BASE_FEATURES = [
     // a fused postfx composite writes the swapchain from a compute pass; on Mac/Windows the
     // preferred canvas format is bgra8unorm, and a storage view of it needs this feature
     "bgra8unorm-storage",
-    // the default HDR scene offscreen + sear's MSAA color target are rg11b10ufloat:
+    // the default HDR scene offscreen + the standard renderer's MSAA color target are rg11b10ufloat:
     // grants it render-attachment + multisample + resolve. Half the bandwidth of rgba16float at
     // 4× MSAA, on the whole floor (desktop / Steam Deck / recent Android all support it)
     "rg11b10ufloat-renderable",
@@ -849,7 +849,7 @@ function compile({ label, force }: Forcer): unknown {
  * trips Dawn's `DispatchWorkgroups with a workgroup count of 0 is unusual` warning in your own code. The
  * drain classifies the return exhaustively: a typegpu pipeline (compute / render / guarded) is awaited
  * via its `initAsync`; an **array** is awaited element-wise — each entry exposing `initAsync` is
- * awaited, each that doesn't (the sear forcer's already-unwrapped raw pipelines) is skipped, and `[]`
+ * awaited, each that doesn't (the standard renderer's already-unwrapped raw pipelines) is skipped, and `[]`
  * (nothing specializes) awaits nothing; anything else truthy is a labelled throw. A nullish
  * return also throws, because a forcer whose buffers aren't up yet no-ops and hands the compile back to
  * frame one without a word. Allocate inside the thunk if the buffers are late — the drain runs after
@@ -857,7 +857,7 @@ function compile({ label, force }: Forcer): unknown {
  * unique within the build. `options.after` names other queued labels that must drain first. Unknown
  * labels are ignored because the plugin that owns a predecessor may be absent.
  * @example
- * precompile(state, "narrowphase", () => {
+ * precompile(world, "narrowphase", () => {
  *     return bind();
  * }, {
  *     after: ["publish-inputs"],
@@ -902,8 +902,8 @@ export function precompile(
  * (which would silently degrade to the missing-predecessor case). Scope only a factory nothing
  * orders against.
  * @example
- * const scope = precompileScope(state, "radix"); // "radix", then "radix-2", …
- * precompile(state, `${scope}-init`, () => initBound);
+ * const scope = precompileScope(world, "radix"); // "radix", then "radix-2", …
+ * precompile(world, `${scope}-init`, () => initBound);
  */
 export function precompileScope(world: World, prefix: string): string {
     const _precompileState = world.resource(precompileState);
@@ -984,10 +984,10 @@ async function compileBody(
         await (pipeline as { initAsync(): Promise<void> }).initAsync();
         warmed = true;
     } else if (Array.isArray(pipeline)) {
-        // (b) an array is awaited element-wise — the natural generalization of the sear forcer's
+        // (b) an array is awaited element-wise — the natural generalization of the standard renderer's
         // shape is an array of typegpu pipelines, and skipping the whole array unconditionally
         // would silently warm nothing for that caller. Each entry exposing initAsync is awaited;
-        // the sear variant's (standard/rendering/forward.ts) own already-unwrapped raw pipelines expose
+        // the standard renderer's (standard/rendering/forward.ts) own already-unwrapped raw pipelines expose
         // none, so they're skipped element-wise too, same as `[]` when nothing specializes. `warmed`
         // tracks whether any entry actually did — an all-skip array must not report a compile span
         // below, since that's the one still-unwarmed path and the profiler must not call it warm
@@ -1026,9 +1026,9 @@ async function compileBody(
 export const PIPELINE_COMPILE_MEASURE_PREFIX = "shallot:pipeline-compile:";
 
 /**
- * report one forcer's compile timing — {@link state.gpu.precompiled} plus the paired
+ * report one forcer's compile timing — {@link world.gpu.precompiled} plus the paired
  * `performance.measure` entry — once {@link compileBody} has resolved. A forcer that never awaited a
- * real `initAsync` (sear's raw-pipeline array, or `[]`) is not warmed, so nothing is reported;
+ * real `initAsync` (the standard renderer's raw-pipeline array, or `[]`) is not warmed, so nothing is reported;
  * attributing that skip as a compile is the still-unwarmed path reporting warm.
  */
 function reportCompile(
@@ -1211,7 +1211,7 @@ export function stampAdapter(
  * any `features` the active plugins require), throwing {@link UnsupportedError}
  * otherwise. `preferred` features are requested only where the adapter has them
  * (never gating the device). Pass an external device to adopt it as-is; the caller
- * is responsible for feature support. Either way the device is adopted by {@link state.gpu.root}, the
+ * is responsible for feature support. Either way the device is adopted by {@link world.gpu.root}, the
  * TypeGPU handle typed resources are created through — one root belongs to the owning World, even when
  * two Worlds adopt the same device.
  */
@@ -1394,7 +1394,7 @@ async function acquireDevice(
         maxStorageBuffersPerShaderStage: REQUIRED_STORAGE_BUFFERS_PER_STAGE,
     };
     // Older implementations expose the split-stage limits as zero even though the unified limit
-    // governs them. World zero explicitly so their requestDevice wrappers don't substitute the
+    // governs them. Request zero explicitly so their requestDevice wrappers don't substitute the
     // newer spec defaults as impossible requirements.
     for (const limit of [
         "maxStorageBuffersInVertexStage",

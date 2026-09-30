@@ -601,7 +601,7 @@ export interface PluginSwapResult {
  * hot-swap a live `World`'s plugins in place, preserving runtime state. For each
  * plugin (paired by name) it re-registers the components: the stable-id layer
  * reuses their storage and id, so membership, queries, and the GPU firehose
- * (slab buffers, bind groups, pipelines) survive untouched. It swaps each system's
+ * (GPU table buffers, bind groups, pipelines) survive untouched. It swaps each system's
  * behavior onto the live scheduler object (identity + ordering + setup state
  * preserved), and re-runs `initialize` to repopulate module singletons with the
  * reloaded code. A schema / system-set / ordering / dependency / feature change

@@ -208,7 +208,7 @@ export function readComponent(
  * state; GPU buffers and derived entities are rebuilt, not serialized.
  *
  * @example
- * const xml = stringifyScene(serializeScene(state));
+ * const xml = stringifyScene(serializeScene(world));
  */
 export function serializeScene(world: World, eids?: Iterable<number>): SceneNode[] {
     const list = (eids ? [...eids] : [...world.identity.authored]).filter((e) => world.exists(e));
@@ -349,7 +349,7 @@ function applyComponent(
  *
  * - `field = "pos"`, `value = number` — ScalarField, or first lane of a Vector2Field/Vector4Field
  * - `field = "pos"`, `value = number[]` — Vector2Field/Vector4Field bulk lane write
- * - `field = "pos.x"`, `value = number` — single lane of a parent Vector2Field/Vector4Field
+ * - `field = "translation.x"`, `value = number` — single lane of a parent Vector2Field/Vector4Field
  */
 export function setFieldValue(
     world: World,
@@ -473,7 +473,7 @@ function splitProperties(str: string): string[] {
 
 // the dotted lane key (`params.x`) a named axis of an identity-lane alias resolves to (`metallic` →
 // `params.x`). Identity = one axis per lane; non-identity aliases remain positional, but their declared
-// authoring lane count still controls the conversion (for example, Body.quat's three Euler degrees). Drives
+// authoring lane count still controls the conversion (for example, Body.rotation's three Euler degrees). Drives
 // both named parse (here) and named serialize (formatFields).
 function identityLaneKey(
     traits: Traits | undefined,
@@ -661,12 +661,12 @@ function parsePropertyString(
 
 /**
  * parses one component's attribute string into a field-value record, the inverse of `formatFields`. Vector
- * fields expand to dotted lanes (`"pos: 0 5 0"` → `{ "pos.x": 0, "pos.y": 5, "pos.z": 0 }`); an `@name`
+ * fields expand to dotted lanes (`"translation: 0 5 0"` → `{ "translation.x": 0, "translation.y": 5, "translation.z": 0 }`); an `@name`
  * ref stays a string. Throws on an unknown field or malformed value. Scene tooling parses an
  * attribute through this before writing a normalized value back.
  *
  * @example
- * parseFields(state, "transform", "pos: 0 5 0"); // { "pos.x": 0, "pos.y": 5, "pos.z": 0 }
+ * parseFields(world, "transform", "translation: 0 5 0"); // { "translation.x": 0, "translation.y": 5, "translation.z": 0 }
  */
 export function parseFields(
     world: World,
@@ -695,7 +695,7 @@ export function parseFields(
 
 /**
  * expand any array-form values on direct Vector2Field/Vector4Field fields into dotted lane
- * keys. `{ pos: [1, 2, 3, 4] }` → `{ "pos.x": 1, "pos.y": 2, ... }`. Used to
+ * keys. `{ translation: [1, 2, 3, 4] }` → `{ "translation.x": 1, "translation.y": 2, ... }`. Used to
  * normalize the merged-defaults+fields record before formatting
  */
 function normalizeFields(
@@ -726,11 +726,11 @@ function normalizeFields(
 
 /**
  * formats a field-value record into a component's canonical attribute string, the inverse of `parseFields`.
- * Vectors collapse (`{ "pos.x": 1, "pos.y": 2, "pos.z": 3 }` → `"pos: 1 2 3"`) and fields at their trait
+ * Vectors collapse (`{ "translation.x": 1, "translation.y": 2, "translation.z": 3 }` → `"translation: 1 2 3"`) and fields at their trait
  * default elide. Pass `{ stripDefaults: false }` to keep every field.
  *
  * @example
- * formatFields(state, "transform", { "pos.x": 0, "pos.y": 5, "pos.z": 0 }); // "pos: 0 5 0"
+ * formatFields(world, "transform", { "translation.x": 0, "translation.y": 5, "translation.z": 0 }); // "translation: 0 5 0"
  */
 export function formatFields(
     world: World,
@@ -871,7 +871,7 @@ function atDefault(value: number, def: number | undefined): boolean {
  * normalize a scene attribute value to its canonical form: parse, then re-format the way the live
  * `serializeScene` path does (`stripDefaults` on, so a field sitting at its trait default elides). The scene
  * formatter (`scripts/format.ts`) runs every `.scene` through this, so a formatted file is the same
- * minimal bytes `serializeScene(state)` emits: one canonical form, no divergence
+ * minimal bytes `serializeScene(world)` emits: one canonical form, no divergence
  * between hand-authored and programmatically-written scenes. Returns null for an empty value, unregistered
  * component, or a value that fails to parse (left untouched).
  */
@@ -911,7 +911,7 @@ export interface Diagnostic {
  * is clean.
  *
  * @example
- * for (const d of diagnose(state, parseScene(xml))) console.warn(d.message);
+ * for (const d of diagnose(world, parseScene(xml))) console.warn(d.message);
  */
 export function diagnose(world: World, nodes: SceneNode[]): Diagnostic[] {
     const results: Diagnostic[] = [];
@@ -919,7 +919,7 @@ export function diagnose(world: World, nodes: SceneNode[]): Diagnostic[] {
     for (const node of nodes) {
         const attrNames = new Set(node.attrs.map((a) => a.name));
         // a component that `provides` X satisfies another's `requires` X on the same entity (Body
-        // provides Transform), so fold every attr's provisions into the satisfied set
+        // provides GlobalTransform), so fold every attr's provisions into the satisfied set
         const satisfied = new Set(attrNames);
         for (const name of attrNames) for (const p of provides(world, name)) satisfied.add(p);
         for (const attr of node.attrs) {

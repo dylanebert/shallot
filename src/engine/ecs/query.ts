@@ -52,7 +52,7 @@ export const or = makeOp("or");
 
 // A pooled query iterator. The `next` object and its single reused IteratorResult are borrowed from
 // the owning query's free-list and returned to it when the loop completes or breaks, so
-// `for…of state.query([...])` allocates nothing after warmup (V8 doesn't reliably elide the per-loop
+// `for…of world.query([...])` allocates nothing after warmup (V8 doesn't reliably elide the per-loop
 // iterator object). It snapshots count + the live `_dense` reference exactly as a fresh iterator
 // would, so iteration-during-mutation is unchanged: a swap-remove of the current eid still visits
 // every original member once (the swap only overwrites already-visited slots; the snapshotted count

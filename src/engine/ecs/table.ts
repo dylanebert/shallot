@@ -44,7 +44,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     readonly maxRows: number;
     readonly maxEntityRows: number;
     readonly gpuOnly: boolean;
-    private readonly _state: World;
+    private readonly _world: World;
     private _capacity = 0;
     private _highWater = 1;
     private _generation = 0;
@@ -92,7 +92,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
 
     constructor(world: World, name: string, record: T, options: GpuTableOptions = {}) {
         if (!name) throw new Error("GpuTable: name must not be empty");
-        this._state = world;
+        this._world = world;
         this.name = name;
         this.record = record;
         this.rowBytes = d.sizeOf(record);
@@ -203,7 +203,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             );
         }
         if (rows > this.maxRows)
-            this.refuse(this._state.gpu.device.limits.maxStorageBufferBindingSize, rows);
+            this.refuse(this._world.gpu.device.limits.maxStorageBufferBindingSize, rows);
         this._highWater = Math.max(this._highWater, rows);
         if (rows <= this._capacity) return;
         let capacity = Math.max(1, this._capacity);
@@ -254,7 +254,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         }
         const recordFields = record.propTypes as Record<string, d.BaseData>;
         const binding = this.binding(component);
-        this._state.storage(component);
+        this._world.storage(component);
         for (const [recordName, componentName] of Object.entries(fields)) {
             if (!recordFields[recordName]) {
                 throw new Error(`GpuTable "${this.name}": unknown record field "${recordName}"`);
@@ -312,7 +312,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                 lanes,
                 sourceLanes: descriptor.lanes,
                 bytesPerLane,
-                source: this._state.fieldStorage(component, componentName),
+                source: this._world.fieldStorage(component, componentName),
             };
             binding.fields.push(field);
         }
@@ -326,7 +326,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         const binding = this.binding(component);
         if (binding.ownsRows) return;
         binding.ownsRows = true;
-        this._state.bindTableComponent(component, this);
+        this._world.bindTableComponent(component, this);
     }
 
     /** Mirror component presence into a u32 record mask without making that component own a row. */
@@ -345,14 +345,14 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         const binding = { component, recordName, offset, mask };
         this._presenceBindings.push(binding);
         this._presenceUnsubscribes.push(
-            this._state.observeMembership(component, (eid, present) =>
+            this._world.observeMembership(component, (eid, present) =>
                 this.writePresence(eid, binding, present),
             ),
         );
         const active = this._activeRows;
         for (let i = 0; i < this._activeCount; i++) {
             const eid = active[i * 2];
-            this.writePresence(eid, binding, this._state.has(eid, component));
+            this.writePresence(eid, binding, this._world.has(eid, component));
         }
     }
 
@@ -376,7 +376,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         this._boundDirty[this.acquire(eid)] = 1;
         this._membershipCounts.set(eid, (this._membershipCounts.get(eid) ?? 0) + 1);
         for (const presence of this._presenceBindings) {
-            this.writePresence(eid, presence, this._state.has(eid, presence.component));
+            this.writePresence(eid, presence, this._world.has(eid, presence.component));
         }
     }
 
@@ -521,7 +521,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             this._lastUploadSourceOffset = this._lastUploadOffset;
             this._lastUploadSize = (this._dirtyLast - this._dirtyFirst + 1) * this.rowBytes;
             if (packedRange) {
-                this._state.gpu.device.queue.writeBuffer(
+                this._world.gpu.device.queue.writeBuffer(
                     destination,
                     0,
                     this._bytes.buffer,
@@ -529,14 +529,14 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                     this._lastUploadSize,
                 );
             } else if (destination === this._buffer) {
-                this._state.uploadGpuTable(
+                this._world.uploadGpuTable(
                     destination,
                     this._lastUploadOffset,
                     this._bytes.buffer,
                     this._lastUploadSize,
                 );
             } else {
-                this._state.gpu.device.queue.writeBuffer(
+                this._world.gpu.device.queue.writeBuffer(
                     destination,
                     this._lastUploadOffset,
                     this._bytes.buffer,
@@ -557,7 +557,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         if (this._disposed) return;
         this._disposed = true;
         for (const binding of this._componentBindings) {
-            if (binding.ownsRows) this._state.unbindTableComponent(binding.component, this);
+            if (binding.ownsRows) this._world.unbindTableComponent(binding.component, this);
         }
         this._componentBindings.length = 0;
         for (const unsubscribe of this._presenceUnsubscribes) unsubscribe();
@@ -569,8 +569,8 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
         if (this._activeBuffer) buffers.push(this._activeBuffer);
         for (const buffer of buffers) buffer.destroy();
         for (const name of [this.name, this.mapName, this.activeName]) {
-            if (name && this._state.gpu.buffers.has(name)) this._state.gpu.buffers.delete(name);
-            if (name && this._state.gpu.typed.has(name)) this._state.gpu.typed.delete(name);
+            if (name && this._world.gpu.buffers.has(name)) this._world.gpu.buffers.delete(name);
+            if (name && this._world.gpu.typed.has(name)) this._world.gpu.typed.delete(name);
         }
     }
 
@@ -598,7 +598,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             let changed = false;
             for (const binding of this._componentBindings) {
                 // Other producers may acquire rows in this table without this component.
-                if (binding.ownsRows && !this._state.has(eid, binding.component)) continue;
+                if (binding.ownsRows && !this._world.has(eid, binding.component)) continue;
                 for (const field of binding.fields) {
                     if (!seed && (field.source.dirty[eid >>> 5] & (1 << (eid & 31))) === 0)
                         continue;
@@ -637,7 +637,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             throw new RangeError(`GpuTable "${this.name}": invalid entity-map size ${rows}`);
         }
         if (this._mapEnabled && rows > this.maxEntityRows) {
-            this.refuse(this._state.gpu.device.limits.maxStorageBufferBindingSize, rows);
+            this.refuse(this._world.gpu.device.limits.maxStorageBufferBindingSize, rows);
         }
         this._mapHighWater = Math.max(this._mapHighWater, rows);
         if (rows <= this._mapCapacity) return;
@@ -655,27 +655,27 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private replaceMapBuffer(): void {
         if (this._mapCapacity > this.maxEntityRows) {
             this.refuse(
-                this._state.gpu.device.limits.maxStorageBufferBindingSize,
+                this._world.gpu.device.limits.maxStorageBufferBindingSize,
                 this._mapCapacity,
             );
         }
         const registryName = `${this.name}:eid-to-row`;
-        const registered = this._state.gpu.buffers.get(registryName);
+        const registered = this._world.gpu.buffers.get(registryName);
         if (registered && registered !== this._mapBuffer) {
             throw new Error(
                 `GpuTable "${this.name}": GPU registry name "${registryName}" is already in use`,
             );
         }
         const previous = this._mapBuffer;
-        const buffer = this._state.gpu.device.createBuffer({
+        const buffer = this._world.gpu.device.createBuffer({
             label: `table-${this.name}-eid-to-row-g${this._mapGeneration + 1}`,
             size: Math.max(1, this._mapCapacity) * 4,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
         });
-        this._state.own(buffer);
-        if (previous) this._state.retireGpuBuffer(previous);
+        this._world.own(buffer);
+        if (previous) this._world.retireGpuBuffer(previous);
         // Metadata has a complete CPU source; copying the old GPU range would overwrite new marks.
-        this._state.gpu.device.queue.writeBuffer(
+        this._world.gpu.device.queue.writeBuffer(
             buffer,
             0,
             this._eidToRow.buffer,
@@ -683,11 +683,11 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             this._mapHighWater * 4,
         );
         this._mapBuffer = buffer;
-        this._mapTyped = this._state.gpu.root
+        this._mapTyped = this._world.gpu.root
             .createBuffer(d.arrayOf(d.u32, Math.max(1, this._mapCapacity)), buffer)
             .$usage("storage") as TgpuBuffer<d.AnyWgslData>;
-        this._state.gpu.buffers.set(registryName, buffer);
-        this._state.gpu.typed.set(registryName, this._mapTyped);
+        this._world.gpu.buffers.set(registryName, buffer);
+        this._world.gpu.typed.set(registryName, this._mapTyped);
         this._mapGeneration++;
         for (let i = 0; i < this._mapConsumers.length; i++) {
             this._mapConsumers[i](buffer, this._mapGeneration);
@@ -715,23 +715,23 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     }
 
     private replaceRecordBuffer(oldCapacity: number): void {
-        const device = this._state.gpu.device;
+        const device = this._world.gpu.device;
         const previous = oldCapacity > 0 ? this._buffer : undefined;
         const buffer = device.createBuffer({
             label: `table-${this.name}-g${this._generation + 1}`,
             size: this._capacity * this.rowBytes,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
         });
-        this._state.own(buffer);
+        this._world.own(buffer);
         if (previous) {
-            this._state.growGpuBuffer(previous, buffer);
+            this._world.growGpuBuffer(previous, buffer);
         }
         this._buffer = buffer;
-        this._typed = (this._state.gpu.root as any)
+        this._typed = (this._world.gpu.root as any)
             .createBuffer(d.arrayOf(this.record, this._capacity), buffer)
             .$usage("storage") as TgpuBuffer<d.AnyWgslData>;
-        this._state.gpu.buffers.set(this.name, buffer);
-        this._state.gpu.typed.set(this.name, this._typed);
+        this._world.gpu.buffers.set(this.name, buffer);
+        this._world.gpu.typed.set(this.name, this._typed);
         this._generation++;
         for (let i = 0; i < this._consumers.length; i++) {
             this._consumers[i](buffer, this._generation);
@@ -741,7 +741,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private uploadMap(): void {
         if (!this._mapDirty || !this._mapBuffer) return;
         this._lastMapUploadBytes = this._mapHighWater * 4;
-        this._state.gpu.device.queue.writeBuffer(
+        this._world.gpu.device.queue.writeBuffer(
             this._mapBuffer,
             0,
             this._eidToRow.buffer,
@@ -752,17 +752,17 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     }
 
     private replaceActiveBuffer(capacity: number): void {
-        const device = this._state.gpu.device;
+        const device = this._world.gpu.device;
         const previous = this._activeBuffer;
         const buffer = device.createBuffer({
             label: `table-${this.name}-active-g${this._activeGeneration + 1}`,
             size: capacity * d.sizeOf(ACTIVE_ROW),
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
         });
-        this._state.own(buffer);
-        if (previous) this._state.retireGpuBuffer(previous);
+        this._world.own(buffer);
+        if (previous) this._world.retireGpuBuffer(previous);
         if (this._activeCount)
-            this._state.gpu.device.queue.writeBuffer(
+            this._world.gpu.device.queue.writeBuffer(
                 buffer,
                 0,
                 this._activeRows.buffer,
@@ -771,11 +771,11 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             );
         this._activeBuffer = buffer;
         this._activeCapacity = capacity;
-        this._activeTyped = this._state.gpu.root
+        this._activeTyped = this._world.gpu.root
             .createBuffer(d.arrayOf(ACTIVE_ROW, capacity), buffer)
             .$usage("storage") as TgpuBuffer<d.AnyWgslData>;
-        this._state.gpu.buffers.set(`${this.name}:active-rows`, buffer);
-        this._state.gpu.typed.set(`${this.name}:active-rows`, this._activeTyped);
+        this._world.gpu.buffers.set(`${this.name}:active-rows`, buffer);
+        this._world.gpu.typed.set(`${this.name}:active-rows`, this._activeTyped);
         this._activeGeneration++;
         for (let i = 0; i < this._activeConsumers.length; i++) {
             this._activeConsumers[i](buffer, this._activeGeneration);
@@ -811,7 +811,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
     private uploadActiveRows(): void {
         if (!this._activeDirty || !this._activeBuffer) return;
         if (this._activeCount > 0) {
-            this._state.gpu.device.queue.writeBuffer(
+            this._world.gpu.device.queue.writeBuffer(
                 this._activeBuffer,
                 0,
                 this._activeRows.buffer,

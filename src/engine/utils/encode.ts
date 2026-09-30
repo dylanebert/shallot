@@ -315,7 +315,7 @@ export const xformMat = tgpu.fn(
 });
 
 /** WGSL `Xform` + `xformQuat` / `xformPoint` / `xformNormal` / `xformMat`: the decomposed transform
- *  firehose's format and decode. Splice at module scope; sear splices it for every surface, so a surface
+ *  firehose's format and decode. Splice at module scope; the standard renderer splices it for every surface, so a surface
  *  preamble must not redefine `Xform` / `xform*`. */
 export const xformWgsl = chunk("xformWgsl", [xformPoint, xformNormal, xformMat]);
 
@@ -341,7 +341,7 @@ export const linearToSrgb1 = tgpu.fn(
     return select(1.055 * pow(max(c, 0), 1 / 2.4) - 0.055, c * 12.92, c <= 0.0031308);
 });
 
-/** decode an sRGB-packed LDR color (the `color` slab's GPU mirror) to linear rgb + linear alpha.
+/** decode an sRGB-packed LDR color to linear rgb + linear alpha.
  *  @example let c = unpackLdrColor(color[eid]); */
 export const unpackLdrColor = tgpu.fn(
     [d.u32],
@@ -352,7 +352,7 @@ export const unpackLdrColor = tgpu.fn(
     return d.vec4f(srgbToLinear1(v.x), srgbToLinear1(v.y), srgbToLinear1(v.z), v.w);
 });
 
-/** sRGB-encode linear `rgb` + linear `alpha` into a `pack4x8unorm` u32 — the `color` slab's GPU mirror.
+/** sRGB-encode linear `rgb` + linear `alpha` into a `pack4x8unorm` u32.
  *  @example const packed = packLdrColor(vec3f(1, 0, 0), 1); */
 export const packLdrColor = tgpu.fn(
     [d.vec3f, d.f32],
@@ -481,7 +481,7 @@ export const smallest3Wgsl = chunk("smallest3Wgsl", [packQuatSmallest3, unpackQu
 // The hot-path mirrors. Everything above is authored once as TGSL and callable on the CPU, but a
 // typegpu CPU call costs ~270 ns of dispatch plus ~365 ns per vector it builds — ~5 µs for the oct
 // encoder, against ~30 ns hand-written. That is the right price for a unit test and the wrong one for a
-// per-vertex mesh bake or a per-entity slab flush (65k entities × 6.9 µs would be 0.45 s of frame).
+// per-vertex mesh bake or a GPU table upload.
 //
 // So the two hot packers get a plain-JS mirror, over the same lattice primitives, and encode.test.ts
 // pins each against the TGSL function it mirrors across a sweep — bit-identical on the packed word.
@@ -522,7 +522,7 @@ function packSnorm2(x: number, y: number): number {
     return ((snorm16(y) << 16) | snorm16(x)) >>> 0;
 }
 
-/** {@link packLdrColor} over four loose lanes — the `color` slab mirror's per-entity form.
+/** {@link packLdrColor} over four loose lanes.
  *  @example const packed = packColor4(r, g, b, a); */
 export function packColor4(r: number, g: number, b: number, a: number): number {
     return (

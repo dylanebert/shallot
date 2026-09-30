@@ -26,11 +26,11 @@ export class ReadbackPool {
     };
 
     private readonly _device: GPUDevice;
-    private readonly _state: World;
+    private readonly _world: World;
 
     constructor(world: World) {
         this._device = world.gpu.device;
-        this._state = world;
+        this._world = world;
         this._device.addEventListener("uncapturederror", this._onError);
     }
 
@@ -82,8 +82,8 @@ export class ReadbackPool {
                 `${label}: readback size must be a positive multiple of 4 within device.limits.maxBufferSize`,
             );
         }
-        const frame = this._state.gpu.frame;
-        const fixedTick = this._state.time.fixedTick;
+        const frame = this._world.gpu.frame;
+        const fixedTick = this._world.time.fixedTick;
         let slot = this._slots.find((entry) => !entry.busy && entry.buffer.size === size);
         if (!slot) {
             const descriptor: GPUBufferDescriptor & LazyAlloc = {
@@ -120,7 +120,7 @@ export class ReadbackPool {
             const copyTexture = encoder.copyTextureToBuffer?.bind(encoder);
             if (copyBuffer)
                 encoder.copyBufferToBuffer = (source: GPUBuffer, ...args: unknown[]) => {
-                    if (!this._state.owns(source))
+                    if (!this._world.owns(source))
                         throw new Error(
                             `${label}: buffer "${source.label || "unlabeled buffer"}" is not owned by this world`,
                         );
@@ -129,7 +129,7 @@ export class ReadbackPool {
                 };
             if (copyTexture)
                 encoder.copyTextureToBuffer = (source, ...args) => {
-                    if (!this._state.owns(source.texture))
+                    if (!this._world.owns(source.texture))
                         throw new Error(
                             `${label}: texture "${source.texture.label || "unlabeled texture"}" is not owned by this world`,
                         );
@@ -152,7 +152,7 @@ export class ReadbackPool {
             slot.reject = undefined;
             if (slot.buffer.mapState === "mapped") slot.buffer.unmap();
             slot.busy = false;
-            slot.lastFrame = this._state.gpu.frame;
+            slot.lastFrame = this._world.gpu.frame;
             if (this._unusedFrames === 0) this.advance(slot.lastFrame);
         }
     }

@@ -35,7 +35,7 @@ export interface Traits {
     /**
      * default field values, applied on `world.add`. Values are scalars for
      * ScalarField fields and per-lane arrays for direct {@link Vector2Field}/{@link Vector4Field}
-     * fields (`{ pos: [0, 0, 0, 0] }`). Dotted keys (`{ "pos.x": 0 }`)
+     * fields (`{ translation: [0, 0, 0, 0] }`). Dotted keys (`{ "translation.x": 0 }`)
      * address a single lane of a parent Vector2Field/Vector4Field
      */
     defaults?: (world: World) => Record<string, number | readonly number[]>;

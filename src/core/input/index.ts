@@ -541,7 +541,7 @@ function clearTouch(d: DeviceRecord): void {
     d.touch.deltaY = 0;
 }
 
-function releaseAll(_state: World | null, d: DeviceRecord): void {
+function releaseAll(_world: World | null, d: DeviceRecord): void {
     for (const code of [...d.keys.held]) releaseKeyForLegacy(d, code);
     pointerButtonsForRecord(d, 0);
     clearTouch(d);
@@ -949,7 +949,7 @@ export function pointerLockRefusal(world: World): string | null {
 }
 
 const InputSystem: System = {
-    name: "state",
+    name: "input",
     group: "simulation",
     setup(world: World) {
         // The data owner has no host boundary. Producers may be absent even when a DOM is present.

@@ -199,7 +199,7 @@ function copyAspect(
  * and stamp the copy's frame and tick.
  * Returned bytes are owned by this result. Readback is not deterministic simulation input.
  *
- * @example const result = await probeBuffer(state, counters, { encode: runPass });
+ * @example const result = await probeBuffer(world, counters, { encode: runPass });
  */
 export async function probeBuffer(
     owner: ProbeOwner,
@@ -262,7 +262,7 @@ export async function probeBuffer(
  * capture one single-sample, uncompressed color or copyable depth/stencil texture region after an
  * optional encoded trigger. WebGPU row padding is stripped from the owned result.
  *
- * @example const depth = await probeTexture(state, target, { aspect: "depth-only", encode: draw });
+ * @example const depth = await probeTexture(world, target, { aspect: "depth-only", encode: draw });
  */
 export async function probeTexture(
     owner: ProbeOwner,
