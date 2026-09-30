@@ -1,5 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import { attachCanvas, Camera, RenderPlugin } from "../../core/rendering";
+import { attachCanvas, Camera, PointLight, RenderPlugin } from "../../core/rendering";
 import { CanvasContext } from "../app/canvas.fixture";
 import {
     build,
@@ -12,6 +12,15 @@ import {
 } from "../index";
 
 setDefaultTimeout(1000);
+if (typeof ResizeObserver === "undefined") {
+    Object.assign(globalThis, {
+        ResizeObserver: class {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        },
+    });
+}
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
 function attachTestCamera(state: State): void {
@@ -63,7 +72,7 @@ test("catch-up ticks retain the penultimate GlobalTransform and no-tick draws ad
                         group: "fixed",
                         update(state) {
                             const input = state.of(Transform);
-                            const x = state.time.fixedTick * 0.1;
+                            const x = state.time.fixedTick * 10;
                             input.pos.set(eid, x, 2, 3, 0);
                             input.scale.set(eid, x + 1, 1, 1, 0);
                             input.rot.set(eid, 0, 0, 0, state.time.fixedTick % 2 ? -1 : 1);
@@ -88,21 +97,62 @@ test("catch-up ticks retain the penultimate GlobalTransform and no-tick draws ad
         let words = new Float32Array(
             (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
         );
-        expect(words[row * 12]).toBeCloseTo(0.15, 5);
-        expect(words[row * 12 + 8]).toBeCloseTo(1.15, 5);
+        expect(words[row * 12]).toBeCloseTo(15, 5);
+        expect(words[row * 12 + 8]).toBeCloseTo(16, 5);
         expect(words[row * 12 + 7]).toBeCloseTo(1, 5);
-        expect(state.of(GlobalTransform).pos.x.get(eid)).toBeCloseTo(0.2, 7);
-        expect(state.of(GlobalTransform).scale.x.get(eid)).toBeCloseTo(1.2, 7);
+        expect(state.of(GlobalTransform).pos.x.get(eid)).toBeCloseTo(20, 7);
+        expect(state.of(GlobalTransform).scale.x.get(eid)).toBeCloseTo(21, 7);
         state.step(Time.FIXED_DT * 0.25);
         expect(state.time.fixedSteps).toBe(0);
-        expect(state.of(GlobalTransform).pos.x.get(eid)).toBeCloseTo(0.2, 7);
+        expect(state.of(GlobalTransform).pos.x.get(eid)).toBeCloseTo(20, 7);
         words = new Float32Array(
             (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
         );
-        expect(words[row * 12]).toBeCloseTo(0.175, 5);
-        expect(words[row * 12 + 8]).toBeCloseTo(1.175, 5);
+        expect(words[row * 12]).toBeCloseTo(17.5, 5);
+        expect(words[row * 12 + 8]).toBeCloseTo(18.5, 5);
         expect(() => state.globalTransformRuntime!.previous!.bytes).toThrow("GPU-only");
         expect(await bounded(state.gpu.device.popErrorScope())).toBeNull();
+    } finally {
+        app.dispose();
+    }
+});
+
+test("a renderer interpolates GlobalTransform when the scene has no lights", async () => {
+    let eid = -1;
+    const app = await build({
+        defaults: false,
+        plugins: [
+            RenderPlugin,
+            {
+                name: "FastPlacement",
+                systems: [
+                    {
+                        group: "fixed",
+                        update(state) {
+                            if (eid >= 0) Transform.pos.x.set(eid, state.time.fixedTick * 4);
+                        },
+                    },
+                ],
+            },
+        ],
+        setup(state) {
+            eid = state.create();
+            state.add(eid, Transform);
+        },
+    });
+    try {
+        const { state } = app;
+        attachTestCamera(state);
+        expect([...state.query([PointLight])]).toHaveLength(0);
+        const table = globalTransformTable(state);
+        state.step(Time.FIXED_DT);
+        state.step(Time.FIXED_DT * 1.5);
+        const row = table.rowIndex(eid);
+        expect(row).toBeGreaterThanOrEqual(0);
+        const words = new Float32Array(
+            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+        );
+        expect(words[row * 12]).toBeCloseTo(6, 5);
     } finally {
         app.dispose();
     }

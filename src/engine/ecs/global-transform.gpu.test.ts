@@ -332,7 +332,7 @@ test("a newly spawned GlobalTransform producer renders at its placement at half 
     }
 });
 
-test("an authored Transform jump renders at its new placement at half a fixed step", async () => {
+test("an author-marked Transform jump of any size snaps instead of interpolating", async () => {
     const app = await build({ defaults: false, plugins: [RenderPlugin] });
     try {
         const { state } = app;
@@ -341,10 +341,11 @@ test("an authored Transform jump renders at its new placement at half a fixed st
         attachTestCamera(state);
         const table = globalTransformTable(state);
         state.step(Time.FIXED_DT);
-        state.of(Transform).pos.set(eid, 100, 0, 0, 0);
+        state.of(Transform).pos.set(eid, 0.25, 0, 0, 0);
+        state.teleport(eid);
         state.step(Time.FIXED_DT / 2);
         expect(state.time.fixedAlpha).toBeCloseTo(0.5, 5);
-        expect(await renderedX(state, table, eid)).toBeCloseTo(100, 5);
+        expect(await renderedX(state, table, eid)).toBeCloseTo(0.25, 5);
     } finally {
         app.dispose();
     }
