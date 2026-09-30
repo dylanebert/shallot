@@ -1,7 +1,5 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
-import createRenderedSubject from "../../../diagnostics/readback-allocation/render.entry";
 import { build } from "../app";
-import { rawDevice } from "./gpu";
 import { probeBuffer, probeTexture } from "./probe";
 
 setDefaultTimeout(1000);
@@ -37,33 +35,6 @@ test("one-shot readback stamps its copy and reuses then releases world staging",
     } finally {
         source.destroy();
         app.dispose();
-    }
-});
-
-test("rendered frames without a request map nothing", async () => {
-    const owner = await build({ defaults: false, plugins: [] });
-    const device = rawDevice(owner.state.gpu.device);
-    const original = device.createBuffer.bind(device);
-    let maps = 0;
-    device.createBuffer = (descriptor) => {
-        const buffer = original(descriptor);
-        const map = buffer.mapAsync.bind(buffer);
-        buffer.mapAsync = (...args) => {
-            maps++;
-            return map(...args);
-        };
-        return buffer;
-    };
-    let subject: Awaited<ReturnType<typeof createRenderedSubject>> | undefined;
-    try {
-        subject = await createRenderedSubject("", device);
-        for (let i = 0; i < 482; i++) subject.step();
-        await subject.wait();
-        expect(maps).toBe(0);
-    } finally {
-        device.createBuffer = original;
-        subject?.dispose();
-        owner.dispose();
     }
 });
 

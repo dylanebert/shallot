@@ -1,6 +1,6 @@
 import type { LazyAlloc, Plugin, State, System } from "../../engine";
 import { Compute, mountOverlay } from "../../engine";
-import { currentWorld, UnsupportedError } from "../../engine/runtime";
+import { currentWorld } from "../../engine/runtime";
 import { createMeasure, foldIndirect, INDIRECT_FLOOR_US } from "./benchmark";
 import { reorderRows } from "./reorder";
 
@@ -20,6 +20,8 @@ export { PhysicsProfilePlugin, timingClock } from "./physics";
  * @expand
  */
 export interface Profile {
+    /** Whether this device grants the optional GPU timing capability. */
+    readonly gpuTiming: "available" | "requires timestamp-query";
     /** per-system CPU timings for the current frame, in milliseconds */
     readonly cpu: ReadonlyMap<string, number>;
     /** per-pass GPU timings (most recent fully-resolved frame), in milliseconds. Greedy-held for
@@ -129,14 +131,14 @@ const GPU_HOLD_DRAINS = 8;
 // the world's pool owns mapping and staging reuse. Saturation skips a profiling sample, not gameplay.
 const READ_RING = 4;
 
-// the one feature this plugin requires — `ProfilePlugin.features` and `attach`'s guard read the same list,
-// so an acquired device and an adopted one fail on identical terms.
+// GPU timings are optional; CPU timings and resource tracking work without them.
 const TIMESTAMP: readonly GPUFeatureName[] = ["timestamp-query"];
 const profileKey = Symbol("shallot.profile");
 
 // timestamp queries + pipeline-compile timing + live allocation tracking. Each State owns its query set,
 // timestamp results, counters and device hooks; staging belongs to the world pool.
 class ProfileImpl implements Profile {
+    gpuTiming: Profile["gpuTiming"] = "requires timestamp-query";
     readonly cpu = new Map<string, number>();
     readonly gpu = new Map<string, number>();
     readonly gpuTime = new Map<string, number>();
@@ -191,28 +193,22 @@ class ProfileImpl implements Profile {
     private _disposed = false;
 
     attach(device: GPUDevice, capacity = 2048): void {
-        // `ProfilePlugin.features` covers an acquired device, but `requestGPU(externalDevice)` adopts one
-        // as-is — the declaration never reaches it. Guard where the feature is used, the layer every path
-        // crosses: an unguarded query set on a device without it is a raw validation error on
-        // `onuncapturederror` and a profiler silently reporting no spans. Checked before the re-attach
-        // skip, so adopting a featureless device mid-process fails loud too.
-        const missing = TIMESTAMP.filter((f) => !device.features.has(f));
-        if (missing.length > 0)
-            throw new UnsupportedError(
-                "[profile] GPU timing needs a device that granted:",
-                missing,
-            );
         if (this._querySet) return;
-        this._capacity = capacity;
-        this._querySet = device.createQuerySet({ type: "timestamp", count: capacity * 2 });
-        const bytes = capacity * 2 * 8;
-        this._resolveBuffer = device.createBuffer({
-            label: "profile-resolve",
-            size: bytes,
-            usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
-        });
-        for (let i = 0; i < READ_RING; i++) {
-            this._free.push({ bytes: new ArrayBuffer(0), passes: [], count: 0 });
+        this.gpuTiming = device.features.has("timestamp-query")
+            ? "available"
+            : "requires timestamp-query";
+        if (this.gpuTiming === "available") {
+            this._capacity = capacity;
+            this._querySet = device.createQuerySet({ type: "timestamp", count: capacity * 2 });
+            const bytes = capacity * 2 * 8;
+            this._resolveBuffer = device.createBuffer({
+                label: "profile-resolve",
+                size: bytes,
+                usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+            });
+            for (let i = 0; i < READ_RING; i++) {
+                this._free.push({ bytes: new ArrayBuffer(0), passes: [], count: 0 });
+            }
         }
 
         const origCompute = device.createComputePipelineAsync.bind(device);
@@ -1199,11 +1195,7 @@ export const ProfilePlugin: Plugin = {
     name: "Profile",
     systems: [ProfileFrameBeginSystem, ProfileRenderSystem],
     dependencies: [],
-    // the only `createQuerySet` in the engine is this plugin's; every other site passes
-    // `Compute.span?.(...)`, undefined and valid without it. Required, not preferred: an explicitly
-    // added debug plugin that silently reported no GPU spans would be worse than a named throw. This
-    // covers an *acquired* device; `attach` re-checks, for the adopted one this never reaches.
-    features: TIMESTAMP,
+    preferredFeatures: TIMESTAMP,
 
     initialize(state: State) {
         const compute = Compute;

@@ -166,86 +166,94 @@ function cameraPlugin(label: string) {
     };
 }
 
-test("default renderer worlds step independently on a shared and on separate devices", async () => {
-    const makeTrackedDevice = async () => {
-        const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) throw new Error("Dawn adapter unavailable");
-        const requiredLimits: Record<string, number> = { maxStorageBuffersPerShaderStage: 10 };
-        for (const limit of [
-            "maxStorageBuffersInVertexStage",
-            "maxStorageBuffersInFragmentStage",
-            "maxStorageTexturesInVertexStage",
-            "maxStorageTexturesInFragmentStage",
-        ] as const) {
-            if (adapter.limits[limit] === 0) requiredLimits[limit] = 0;
-        }
-        const device = await adapter.requestDevice({
-            requiredFeatures: ["bgra8unorm-storage", "rg11b10ufloat-renderable"],
-            requiredLimits,
-        });
-        const live = new Set<GPUBuffer | GPUTexture>();
-        const createBuffer = device.createBuffer.bind(device);
-        const createTexture = device.createTexture.bind(device);
-        Object.defineProperties(device, {
-            createBuffer: {
-                configurable: true,
-                value: (descriptor: GPUBufferDescriptor) => {
-                    const buffer = createBuffer(descriptor);
-                    live.add(buffer);
-                    const destroy = buffer.destroy.bind(buffer);
-                    buffer.destroy = () => {
-                        if (live.delete(buffer)) destroy();
-                    };
-                    return buffer;
-                },
-            },
-            createTexture: {
-                configurable: true,
-                value: (descriptor: GPUTextureDescriptor) => {
-                    const texture = createTexture(descriptor);
-                    live.add(texture);
-                    const destroy = texture.destroy.bind(texture);
-                    texture.destroy = () => {
-                        if (live.delete(texture)) destroy();
-                    };
-                    return texture;
-                },
-            },
-        });
-        return { device, live };
-    };
-
-    const exercise = async (
-        firstDevice: GPUDevice,
-        secondDevice: GPUDevice,
-        live: Set<GPUBuffer | GPUTexture>,
-    ) => {
-        let first: Awaited<ReturnType<typeof build>> | undefined;
-        let second: Awaited<ReturnType<typeof build>> | undefined;
-        try {
-            first = await build({ plugins: [cameraPlugin("DefaultCameraA")], device: firstDevice });
-            second = await build({
-                plugins: [cameraPlugin("DefaultCameraB")],
-                device: secondDevice,
+for (const sharedDevice of [true, false]) {
+    test(`default renderer worlds step independently on ${sharedDevice ? "a shared device" : "separate devices"}`, async () => {
+        const makeTrackedDevice = async () => {
+            const adapter = await navigator.gpu.requestAdapter();
+            if (!adapter) throw new Error("Dawn adapter unavailable");
+            const requiredLimits: Record<string, number> = { maxStorageBuffersPerShaderStage: 10 };
+            for (const limit of [
+                "maxStorageBuffersInVertexStage",
+                "maxStorageBuffersInFragmentStage",
+                "maxStorageTexturesInVertexStage",
+                "maxStorageTexturesInFragmentStage",
+            ] as const) {
+                if (adapter.limits[limit] === 0) requiredLimits[limit] = 0;
+            }
+            const device = await adapter.requestDevice({
+                requiredFeatures: ["bgra8unorm-storage", "rg11b10ufloat-renderable"],
+                requiredLimits,
             });
-            expect(first.state.gpu.root).not.toBe(second.state.gpu.root);
-            first.state.step(Time.FIXED_DT);
-            second.state.step(Time.FIXED_DT);
-            first.state.step(Time.FIXED_DT);
-        } finally {
-            second?.dispose();
-            first?.dispose();
-        }
-        expect(live.size).toBe(0);
-    };
+            const live = new Set<GPUBuffer | GPUTexture>();
+            const createBuffer = device.createBuffer.bind(device);
+            const createTexture = device.createTexture.bind(device);
+            Object.defineProperties(device, {
+                createBuffer: {
+                    configurable: true,
+                    value: (descriptor: GPUBufferDescriptor) => {
+                        const buffer = createBuffer(descriptor);
+                        live.add(buffer);
+                        const destroy = buffer.destroy.bind(buffer);
+                        buffer.destroy = () => {
+                            if (live.delete(buffer)) destroy();
+                        };
+                        return buffer;
+                    },
+                },
+                createTexture: {
+                    configurable: true,
+                    value: (descriptor: GPUTextureDescriptor) => {
+                        const texture = createTexture(descriptor);
+                        live.add(texture);
+                        const destroy = texture.destroy.bind(texture);
+                        texture.destroy = () => {
+                            if (live.delete(texture)) destroy();
+                        };
+                        return texture;
+                    },
+                },
+            });
+            return { device, live };
+        };
 
-    const shared = await makeTrackedDevice();
-    await exercise(shared.device, shared.device, shared.live);
-    const first = await makeTrackedDevice();
-    const second = await makeTrackedDevice();
-    await exercise(first.device, second.device, first.live);
-    expect(second.live.size).toBe(0);
-}, 1000);
+        const exercise = async (
+            firstDevice: GPUDevice,
+            secondDevice: GPUDevice,
+            live: Set<GPUBuffer | GPUTexture>,
+        ) => {
+            let first: Awaited<ReturnType<typeof build>> | undefined;
+            let second: Awaited<ReturnType<typeof build>> | undefined;
+            try {
+                first = await build({
+                    plugins: [cameraPlugin("DefaultCameraA")],
+                    device: firstDevice,
+                });
+                second = await build({
+                    plugins: [cameraPlugin("DefaultCameraB")],
+                    device: secondDevice,
+                });
+                expect(first.state.gpu.root).not.toBe(second.state.gpu.root);
+                first.state.step(Time.FIXED_DT);
+                second.state.step(Time.FIXED_DT);
+                first.state.step(Time.FIXED_DT);
+            } finally {
+                second?.dispose();
+                first?.dispose();
+            }
+            expect(live.size).toBe(0);
+        };
+
+        const first = await makeTrackedDevice();
+        const second = sharedDevice ? first : await makeTrackedDevice();
+        try {
+            await exercise(first.device, second.device, first.live);
+            expect(second.live.size).toBe(0);
+        } finally {
+            first.device.destroy();
+            if (!sharedDevice) second.device.destroy();
+        }
+    });
+}
 
 test("live Physics apps keep their authored component values and solver worlds isolated", async () => {
     const author = (state: State, y: number) => {
@@ -282,7 +290,7 @@ test("live Physics apps keep their authored component values and solver worlds i
     const secondAfter = readBody(second.state, secondEid);
     expect(secondAfter?.pos[1]).toBeLessThan(20);
     second.dispose();
-}, 100);
+});
 
 test("two live Physics apps keep sibling bodies and hash unchanged when only one steps", async () => {
     const author = (state: State, y: number) => {

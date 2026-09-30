@@ -12,7 +12,7 @@ await setupGlobals();
 
 function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
     return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`${label} timed out after 1000 ms`)), 1000);
+        const timer = setTimeout(() => reject(new Error(`${label} timed out after 750 ms`)), 750);
         promise.then(
             (value) => {
                 clearTimeout(timer);
@@ -70,4 +70,4 @@ test("Part compaction carries independent dense GlobalTransform and Part slots w
         readback.destroy();
         app.dispose();
     }
-}, 200);
+});

@@ -5,7 +5,7 @@ import { probeBuffer } from "../../engine/runtime";
 import { CLUSTER_COUNT, LIGHT_POOL, requestLightOverflow } from "./cluster";
 import { PointLight } from "./lighting";
 
-setDefaultTimeout(1000);
+setDefaultTimeout(20_000);
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
 

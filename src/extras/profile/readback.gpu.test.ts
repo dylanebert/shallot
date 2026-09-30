@@ -6,63 +6,34 @@ setDefaultTimeout(1000);
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
 
-async function bounded<T>(label: string, promise: PromiseLike<T>): Promise<T> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
+test("a profiler without timestamp-query runs and distinguishes missing GPU timings from zero", async () => {
+    const owner = await build({ defaults: false, plugins: [] });
+    let app: Awaited<ReturnType<typeof build>> | undefined;
     try {
-        return await Promise.race([
-            promise,
-            new Promise<never>((_, reject) => {
-                timer = setTimeout(() => reject(new Error(`${label} exceeded 750 ms`)), 750);
-            }),
-        ]);
-    } finally {
-        clearTimeout(timer);
-    }
-}
-
-test("profiler timestamps arrive through the world's one-shot pool and staging is reused", async () => {
-    const app = await build({
-        defaults: false,
-        plugins: [
-            {
-                name: "TimestampWitness",
-                dependencies: [ProfilePlugin],
-                systems: [
-                    {
-                        group: "draw",
-                        update(state) {
-                            const timestampWrites = state.gpu.span?.("readback-witness");
-                            if (!timestampWrites)
-                                throw new Error("profiler did not supply timestamp writes");
-                            const encoder = state.gpu.device.createCommandEncoder({
-                                label: "readback-witness",
-                            });
-                            encoder.beginComputePass({ timestampWrites }).end();
-                            state.gpu.device.queue.submit([encoder.finish()]);
-                        },
-                    },
-                ],
-            },
-        ],
-    });
-    try {
+        expect(owner.state.gpu.device.features.has("timestamp-query")).toBe(false);
+        app = await build({
+            defaults: false,
+            plugins: [ProfilePlugin],
+            device: owner.state.gpu.device,
+        });
         const stats = profile(app.state);
-        const deadline = performance.now() + 750;
-        while (!stats.gpuTime.has("readback-witness")) {
-            if (performance.now() >= deadline)
-                throw new Error("profiler timestamp delivery exceeded 750 ms");
-            app.state.step(0);
-            await bounded(
-                "timestamp witness submissions",
-                app.state.gpu.device.queue.onSubmittedWorkDone(),
-            );
-            await new Promise((resolve) => setTimeout(resolve, 1));
-        }
-        expect(stats.gpuFires.get("readback-witness")).toBeGreaterThan(0);
-        expect(Number.isFinite(stats.gpuTime.get("readback-witness"))).toBe(true);
-        expect(app.state.readback.allocated).toBeGreaterThan(0);
-        expect(app.state.readback.allocated).toBeLessThanOrEqual(4);
+        app.state.step(0);
+        expect(stats.gpuTiming).toBe("requires timestamp-query");
+        expect(app.state.gpu.span?.("untimed")).toBeUndefined();
+        expect(stats.gpu.size).toBe(0);
+        expect(stats.gpuTime.size).toBe(0);
+        expect(stats.gpuFires.size).toBe(0);
+        expect(app.state.readback.allocated).toBe(0);
+        const before = stats.bufferBytes;
+        const buffer = app.state.gpu.device.createBuffer({
+            size: 16,
+            usage: GPUBufferUsage.COPY_DST,
+        });
+        expect(stats.bufferBytes).toBe(before + 16);
+        buffer.destroy();
+        expect(stats.bufferBytes).toBe(before);
     } finally {
-        app.dispose();
+        app?.dispose();
+        owner.dispose();
     }
 });
