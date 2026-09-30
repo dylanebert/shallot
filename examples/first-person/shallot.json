@@ -2,7 +2,6 @@
     "kind": "recipe",
     "description": "Climb a first-person ascent with steps, a lift, and a block perch.",
     "problem": "I want a first-person character to climb a route with a moving lift.",
-    "scene": "scenes/first-person.scene",
     "plugins": {
         "Physics": true,
         "Character": true,

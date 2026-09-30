@@ -13,13 +13,11 @@ export const control = () => {
     controlSink = { frame: 0 };
 };
 
-// Bundled for Node by the allocation row, which passes the scene as XML text since the runtime's
-// file loader is Bun or fetch. Same GPU composition as the demo rows.
-export default async function create(scene: string) {
+// Bundled for Node by the allocation row. Same GPU composition as the demo rows.
+export default async function create() {
     const app = await createApp({
         defaults: false,
         plugins: [PhysicsPlugin, CharacterPlugin, InputPlugin, Demo],
-        scene,
     });
     const world = app.world;
     const global = world.registry.getComponent("global-transform");

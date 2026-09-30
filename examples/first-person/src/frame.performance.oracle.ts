@@ -1,12 +1,17 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import {
+    AmbientLight,
     Camera,
     CharacterPlugin,
+    Color,
     createApp,
+    MeshInstance,
     PhysicsPlugin,
     PlayerPlugin,
+    StandardRenderer,
     Time,
+    Transform,
+    type World,
 } from "@dylanebert/shallot";
 import { attachCanvas } from "@dylanebert/shallot/rendering";
 import { Demo } from "./demo";
@@ -115,23 +120,32 @@ test("report production frame GPU time for first-person and a 10k-instance scene
             return encoder;
         },
     });
-    const firstPerson = readFileSync(
-        new URL("../public/scenes/first-person.scene", import.meta.url),
-        "utf8",
-    );
-    const stress = `<scene><a camera standard-renderer transform="translation: 0 0 90" /><a ambient-light="intensity: 0.8" />${Array.from({ length: 10000 }, (_, i) => `<a mesh-instance transform="translation: ${((i % 100) - 50) * 0.4} ${Math.floor(i / 100 - 50) * 0.4} 0; scale: 0.15 0.15 0.15" color="rgba: 0.3 0.6 0.8" />`).join("")}</scene>`;
+    const stress = (world: World) => {
+        const camera = world.create();
+        world.add(camera, Camera);
+        world.add(camera, StandardRenderer);
+        world.add(camera, Transform, { translation: [0, 0, 90, 0] });
+        const ambient = world.create();
+        world.add(ambient, AmbientLight, { intensity: 0.8 });
+        for (let i = 0; i < 10000; i++) {
+            const eid = world.create();
+            world.add(eid, MeshInstance);
+            world.add(eid, Transform, {
+                translation: [((i % 100) - 50) * 0.4, Math.floor(i / 100 - 50) * 0.4, 0, 0],
+                scale: [0.15, 0.15, 0.15, 1],
+            });
+            world.add(eid, Color, { rgba: [0.3, 0.6, 0.8, 1] });
+        }
+    };
     try {
-        for (const [name, scene] of [
-            ["first-person", firstPerson],
-            ["stress-10k", stress],
-        ] as const) {
+        for (const name of ["first-person", "stress-10k"] as const) {
             const app = await createApp({
                 device,
                 plugins:
                     name === "first-person"
                         ? [PhysicsPlugin, CharacterPlugin, PlayerPlugin, Demo]
                         : [],
-                scene,
+                setup: name === "stress-10k" ? stress : undefined,
             });
             try {
                 const camera = [...app.world.query([Camera])][0];

@@ -1,31 +1,101 @@
 import {
+    AmbientLight,
     Body,
+    Camera,
     Character,
     CharacterPlugin,
+    Color,
+    DirectionalLight,
     InputPlugin,
+    MeshInstance,
     mountOverlay,
     PhysicsPlugin,
+    Player,
     type Plugin,
     pointerLockRefusal,
     pointerLockStatus,
     type Resource,
+    Shadow,
+    ShapeKind,
+    StandardRenderer,
     SweepCharactersSystem,
     type System,
     setKinematic,
+    Transform,
     type World,
 } from "@dylanebert/shallot";
 
-// The built-in Player keeps its default WASD, look, and jump controls. These two Character values make the
-// ascent's step rhythm and lift transfer feel deliberate without replacing the controller.
-function tune(world: World): void {
-    for (const eid of world.query([Character])) {
-        if (world.identity.id(eid) !== "player") continue;
-        world.storage(Character).jumpSpeed.set(eid, 7);
-        world.storage(Character).gravity.set(eid, -30);
-    }
+type Vec4 = readonly [number, number, number, number];
+const GROUND_COLOR = [0.15, 0.19, 0.2, 1] as const;
+const STEP_COLOR = [0.28, 0.34, 0.34, 1] as const;
+const LIFT_COLOR = [0.83, 0.53, 0.24, 1] as const;
+const TOWER_COLOR = [0.34, 0.4, 0.39, 1] as const;
+const PERCH_COLOR = [0.39, 0.45, 0.43, 1] as const;
+
+function block(world: World, at: Vec4, size: Vec4, rgba: Vec4): number {
+    const eid = world.create();
+    world.add(eid, Body, { position: at, halfExtents: size, mass: 0 });
+    world.add(eid, MeshInstance);
+    world.add(eid, Color, { rgba });
+    return eid;
 }
 
-// The scene owns the lift's size and starting height. This role only gives the small trajectory system a
+export const Route: Resource<{ entities: ReturnType<typeof route> | null }> = {
+    create: () => ({ entities: null }),
+};
+
+export function route(world: World) {
+    const ambient = world.create();
+    world.add(ambient, AmbientLight, { color: 0xd6dfdf, intensity: 0.74 });
+    const sun = world.create();
+    world.add(sun, DirectionalLight, {
+        direction: [-0.45, -1, -0.6, 0],
+        color: 0xffe8c7,
+        intensity: 1.1,
+    });
+    world.add(sun, Shadow);
+    const eye = world.create();
+    world.add(eye, Camera);
+    world.add(eye, StandardRenderer);
+    world.add(eye, Transform, { translation: [0, 2.1, 12, 0] });
+    const player = world.create();
+    world.add(player, Body, {
+        position: [0, 1.4, 12, 0],
+        shape: ShapeKind.Capsule,
+        halfExtents: [0, 0.6, 0, 0.3],
+        mass: 0,
+    });
+    // Player keeps its default controls; Character sets the ascent's step rhythm and lift transfer.
+    world.add(player, Character, { jumpSpeed: 7, gravity: -30 });
+    world.add(player, Player, { camera: eye });
+    block(world, [0, 0, -5, 0], [16, 0.5, 26, 0], GROUND_COLOR);
+    const steps = [
+        [
+            [0, 0.75, 3, 0],
+            [3, 0.25, 1.5, 0],
+        ],
+        [
+            [0, 1.25, 0, 0],
+            [3, 0.25, 1.5, 0],
+        ],
+        [
+            [0, 1.75, -3, 0],
+            [3, 0.25, 1.5, 0],
+        ],
+    ] as const satisfies readonly (readonly [Vec4, Vec4])[];
+    for (const [at, size] of steps) block(world, at, size, STEP_COLOR);
+    const lift = block(world, [0, 1.75, -6.5, 0], [3, 0.25, 2, 0], LIFT_COLOR);
+    world.add(lift, Lift);
+    const tower = [
+        [[0.7, 2.5, -10, 0], [2.2, 0.5, 1.2, 0], TOWER_COLOR],
+        [[-0.7, 3.5, -12.3, 0], [1.8, 0.5, 1.2, 0], TOWER_COLOR],
+        [[0.7, 4.5, -14.5, 0], [2.2, 0.5, 1.5, 0], PERCH_COLOR],
+    ] as const satisfies readonly (readonly [Vec4, Vec4, Vec4])[];
+    for (const [at, size, rgba] of tower) block(world, at, size, rgba);
+    return { player, eye, lift };
+}
+
+// The route owns the lift's size and starting height. This role only gives the small trajectory system a
 // declarative target; the lift is the sole moving object in the recipe.
 export const Lift = {};
 
@@ -149,8 +219,11 @@ export const Demo = {
     name: "Demo",
     components: { Lift },
     dependencies: [CharacterPlugin, InputPlugin, PhysicsPlugin],
+    initialize(world: World) {
+        const state = world.resource(Route);
+        state.entities ??= route(world);
+    },
     warm(world: World) {
-        tune(world);
         const bag = stateBag(world);
         bag.liftCount = 0;
         for (const eid of world.query([Lift, Body])) {

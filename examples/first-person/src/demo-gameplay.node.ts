@@ -4,8 +4,6 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import {
     Body,
     CharacterPlugin,
@@ -13,34 +11,47 @@ import {
     Devices,
     InputPlugin,
     PhysicsPlugin,
+    Player,
     PlayerPlugin,
     readBody,
     Time,
+    Transform,
     type World,
 } from "@dylanebert/shallot";
-import { Demo } from "./demo";
+import { Demo, Route } from "./demo";
 
 const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
 
-const SCENE = resolve(import.meta.dir, "../public/scenes/first-person.scene");
-
 async function ascent() {
-    // The CPU rows use the actual manifest-selected scene and local Demo plugin. Player and rendering
+    // The CPU rows use the actual code route and local Demo plugin. Player and rendering
     // remain in the exact-project browser row because those are device-bound defaults.
     return createApp({
         defaults: false,
         plugins: [PhysicsPlugin, CharacterPlugin, InputPlugin, Demo],
-        scene: SCENE,
     });
 }
 
 type Ascent = Awaited<ReturnType<typeof ascent>>;
 
 function entity(app: Ascent, id: string): number {
-    for (const eid of app.world.entities()) if (app.world.identity.id(eid) === id) return eid;
-    throw new Error(`actual ascent scene has no ${id} entity`);
+    const held = app.world.resource(Route).entities;
+    if (held && (id === "player" || id === "eye" || id === "lift")) return held[id];
+    const z = {
+        ground: -5,
+        "step-1": 3,
+        "step-2": 0,
+        "step-3": -3,
+        "tower-1": -10,
+        "tower-2": -12.3,
+        "tower-3": -14.5,
+    }[id];
+    for (const eid of app.world.query([Body])) {
+        if (z !== undefined && Math.abs(app.world.storage(Body).position.z.get(eid) - z) < 0.0001)
+            return eid;
+    }
+    throw new Error(`actual ascent route has no ${id} entity`);
 }
 
 function step(app: Ascent, ticks: number): void {
@@ -165,20 +176,27 @@ test("the actual first-person scene gives the player a tangent spawn, a containe
         const towerGap = upperLiftNear - towerNear;
         if (!(towerGap > 0 && towerGap < 1))
             throw new Error(`lift upper stop was not adjacent to tower: gap=${towerGap}`);
-        const scene = readFileSync(SCENE, "utf8");
-        const playerBlock = scene.match(/id="player"[\s\S]*?\/>/)?.[0] ?? "";
-        if (/\b(speed|sprint|sensitivity|yaw|pitch)\s*:/.test(playerBlock))
-            throw new Error("first-person player entity authors movement/look tuning");
+        const defaults = app.world.create();
+        app.world.add(defaults, Player);
+        const tuning = app.world.storage(Player);
+        for (const field of ["speed", "sprint", "sensitivity", "yaw", "pitch"] as const) {
+            if (tuning[field].get(player) !== tuning[field].get(defaults))
+                throw new Error(`first-person player overrides default ${field}`);
+        }
+        app.world.destroy(defaults);
         // The eye is authored where Player would pose it at spawn: the capsule centre raised by
         // the default eye height, since the player entity authors no tuning of its own.
         const eyeHeight = (
             PlayerPlugin.traits?.Player?.defaults?.(app.world) as { eyeHeight: number } | undefined
         )?.eyeHeight;
         if (eyeHeight === undefined) throw new Error("Player declares no default eyeHeight");
-        const eye = scene
-            .match(/id="eye"[^>]*translation: (\S+) (\S+) ([^;"]+)/)
-            ?.slice(1)
-            .map(Number);
+        const eyeTransform = app.world.storage(Transform).translation;
+        const eyeEid = entity(app, "eye");
+        const eye = [
+            eyeTransform.x.get(eyeEid),
+            eyeTransform.y.get(eyeEid),
+            eyeTransform.z.get(eyeEid),
+        ];
         const spawn = [
             app.world.storage(Body).position.x.get(player),
             app.world.storage(Body).position.y.get(player) + eyeHeight,

@@ -4,15 +4,12 @@ import { CEILING } from "../../../scripts/test-tiers";
 
 setDefaultTimeout(CEILING.node);
 
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
     allocationFailure,
     sampleAllocation,
     windowBytes,
 } from "../../../diagnostics/first-person-allocation/allocation";
-
-const SCENE = resolve(import.meta.dir, "../public/scenes/first-person.scene");
 
 test("a warm fixed step of the actual first-person GPU-backed gameplay composition allocates no JavaScript heap, so no periodic scavenge follows play", async () => {
     // 6,000 frames: the once-per-escape refit path (`commitRefit`, the fat-AABB write, the tree enlarge)
@@ -21,7 +18,6 @@ test("a warm fixed step of the actual first-person GPU-backed gameplay compositi
     const sample = await sampleAllocation(resolve(import.meta.dir, "allocation.entry.ts"), {
         warm: 6000,
         frames: 600,
-        input: readFileSync(SCENE, "utf8"),
     });
     // The entry's control literal, attributed as the windows are, proves the sampler sees subject
     // allocation; without it an empty site set proves nothing.
