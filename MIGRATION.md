@@ -1,100 +1,98 @@
 # Migrating from 0.9.5 to 0.10
 
-Most 0.9.5 game code carries over. These changes break it.
+These changes require updates to a 0.9.5 app.
 
-## `build()` always requires WebGPU
+## Request non-default GPU limits explicitly
 
-Every app now acquires a GPU device during `build()`, or rejects with the acquisition cause. CPU-only compositions no longer build. Supply an already-acquired device with `config.device` when the host owns acquisition; otherwise the engine uses `navigator.gpu`.
-
-Remove `device: "required"` or `device: "optional"` from plugins. `Plugin.device`, `deviceTier`, `DeviceTier` and `resetCompute` are removed without replacements. Calls to `warmPlugins` must supply a `GPUDevice`; its CPU-tier argument is gone.
-
-Device acquisition no longer requests all adapter maxima. If your application needs a non-default device limit, acquire a device with that limit and supply it through `config.device`.
+0.9.5 requested the adapter's maximum limits automatically. The engine now requests default device limits. If your application needs larger buffers or other non-default limits, acquire a device with those limits and pass it through the existing `config.device` option.
 
 ## Resolve component storage from the owning State
 
-Declare component fields with `field(type)`. Resolve their values from the State in each system or lifecycle hook:
+`slab()` and `sparse()` are removed. Declare fields with `field(type)` and resolve their values from the State:
 
 ```ts
+// 0.9.5
+const Health = { value: sparse(f32) };
+Health.value.set(eid, 100);
+```
+
+```ts
+// 0.10
 const Health = { value: field(f32) };
-
-function HealSystem(state: State) {
-    const health = state.of(Health);
-    for (const eid of state.query([Health])) {
-        health.value.set(eid, health.value.get(eid) + 1);
-    }
-}
+const health = state.of(Health);
+health.value.set(eid, 100);
 ```
 
-Declare the complete component schema before using it: the first State to bind a component freezes its object. To change a schema, replace the component object.
+Resolve storage once in a system's setup or a lifecycle hook, then retain it for that world. Declare the complete schema before binding it; to change a schema, replace the component object.
 
-Remove `capacity` from app configuration. `State.capacity` and `Config.capacity` are gone; component columns and GPU tables grow as needed. A GPU table that exceeds its device's buffer limit refuses with the limit in its error.
+Remove `capacity` from `build()` configuration and `new State()` options. The exported global `capacity` is gone; columns and tables grow as needed.
 
-Direct ECS registration and reflection helpers now take the State explicitly. Scene helpers that interpret registered attributes (`diagnose`, `parseFields`, `formatFields` and `normalizeAttr`) do too. `parse` remains state-free.
+Registration and metadata helpers that used global component registrations now take State: `register`, `getComponent` and `schemas`. Scene helpers `diagnose`, `parseFields`, `formatFields` and `normalizeAttr` also take State first.
 
-Multiple Apps can coexist on one or separate devices. Dispose each App when finished. A schema-compatible hot swap retains that App's columns; a changed schema returns `{ ok: false }`, requiring the host to rebuild the App.
+## Component fields no longer expose `.gpu`
 
-## Replace Slab fields with GPU record tables
-
-`slab()`, `sparse()` and `SlabPlugin` are removed. Component fields no longer expose `.gpu` or declare a storage kind. Use `field(type)` for component columns and declare GPU records through the owning State:
+`Slab`, `SlabPlugin` and `SlabSystem` are removed. Remove them from imports and plugin dependencies. Replace per-field GPU buffers with a record table:
 
 ```ts
-const Record = d.struct({ value: d.f32 });
-const table = state.table("values", Record);
-const row = table.acquire(eid);
-// Fill table.bytes with records, then mark the written row range.
-table.markRange(row, 1);
+// 0.9.5
+const Heat = { value: slab(f32, "heat") };
+const gpuValues = Heat.value.gpu;
 ```
 
-Each table has one struct record layout and dense rows. `table.acquire(eid)` returns a slot that stays stable until `table.release(eid)`. Use the compact `activeRowsBuffer` for dispatches rather than scanning entity ids. If a shader starts from an eid, enable the lookup with `table.enableEidLookup()` or `table.subscribeMap(...)`; map entries encode `slot + 1`, with zero meaning absent.
+```ts
+// 0.10
+const Heat = { value: field(f32) };
+const table = state.table("heat", d.struct({ value: d.f32 }));
+table.bindComponent(Heat, { value: "value" });
+const gpuRows = table.buffer;
+```
 
-Fill records in bulk through `table.bytes`, then call `table.markRange(firstRow, count)`. The engine uploads tables at the head of draw; ordinary writes need no manual upload call. Unchanged tables skip upload; changed tables use a range `writeBuffer`.
-
-Tables expose a raw record buffer, typed handle, capacity and generation. Subscribe to record, map or active-list changes and rebuild bind groups when the corresponding buffer changes. Do not retain a buffer across growth without rebinding.
-
-Part and Sear no longer require `SlabPlugin`. Select their plugins directly. Body, Pose and built-in light fields use `field()` columns; do not read their old per-field `.gpu` buffers.
+Change shaders from entity-indexed scalar arrays to struct records addressed by dense row slots. `table.rowIndex(eid)` gives the CPU slot; enable the table's eid lookup when a shader starts from an eid. Rebind when the table's buffer generation changes. Built-in Body, Transform and light fields no longer publish their old per-field `.gpu` buffers either.
 
 ## Instanced surfaces read a row payload, not a list of eids
 
 For a custom typed surface, change the `eids` binding element from `d.u32` to `d.vec4u`. Each instance is `(eid, transformSlot, encodedPartSlot, shadowCombo)`: the Part slot is encoded as `slot + 1`, or zero when absent. Resolve slots while producing the instance list, not in the vertex stage. Shadow regather preserves the first three lanes and writes its combo index in the fourth.
 
-The logical eid still reaches `VsIn.eid` and `ctx.eid`; use those for identity. Part color and material reach the surface context as `ctx.color` and `ctx.material`. The injected `transformRows` and `partRowMap` surface bindings are removed; the vertex stage reads records using the slots in its instance payload.
+The logical eid still reaches `VsIn.eid` and `ctx.eid`; use those for identity.
 
-## glTF, Skin and Cells are removed
+## glTF and Skin are removed
 
-0.10 no longer exports `GltfPlugin`, `SkinPlugin`, `CellsPlugin` or their import, animation, live-skin and ASCII-grid helpers. Remove these plugins from your manifest and imports. They return later as separate packages; there is no replacement in 0.10.
+`GltfPlugin`, `SkinPlugin` and their import, animation and live-skin helpers are no longer exported. Remove these plugins from manifests and imports; there is no replacement in this release line.
 
-The importer-only scene hooks `Preloader`, `Preloads` and `preload` are removed. Load assets in your plugin's `initialize` before the scene is applied.
+The importer scene hooks `Preloader`, `Preloads` and `preload` are removed. Load assets in your plugin's `initialize` before the scene is applied.
 
-The importer's per-mesh shader specialization is also removed: `Surface.specialize`, `Specialize` and `Mesh.variant` are gone. Register separate named surfaces instead. Text's glyph-atlas extension exports used by Cells are removed; the `Text` component and `TextPlugin` remain.
+The importer-only shader specialization is also removed: `Surface.specialize`, `Specialize` and `Mesh.variant` are gone. Register separate named surfaces instead.
 
-## GPU resources and plugin helpers belong to an App
+## GPU registries and plugin helpers take State
 
-Do not cache one App's buffers, textures, pipelines or bind groups for another App. Keep per-world plugin data in `state.resource(key, create)`. GPU resources created through the State's tracked device or TypeGPU root are released when the App is disposed; use `state.own(resource)` for raw buffers or textures whose disposal the State should own.
-
-Access GPU registries through `state.gpu`. `Compute` remains available inside systems and lifecycle callbacks; outside those callbacks, retain the owning State's `state.gpu` rather than using `Compute`.
+Outside systems and lifecycle callbacks, replace access to the process-level `Compute` registries with the owning `state.gpu`. `Compute` still resolves the active world's GPU inside callbacks.
 
 These helpers now take the owning State:
 
-- `profile(state)` replaces process-level `Profile` data.
-- `cascadeCount`, `cascadeComboEids`, `pointComboCount` and `pointComboEids` take State first.
+- `Profile` data becomes `profile(state)`.
+- `cascadeCount()`, `cascadeComboEids()`, `pointComboCount()` and `pointComboEids()` take State first.
 - Character helpers `move`, `jump`, `pose`, `teleport` and `grounded` take State before the entity id.
 
-Each PhysicsPlugin App has its own physics runtime. State-first physics calls operate on that runtime; standalone low-level `World` calls remain available. A `WorldSnapshot` owns detached state and copied kernel bytes. Restore it only into a compatible World; restoring into a fresh World requires that its kernel have no other live World.
+## Replace Mirror with explicit snapshot requests
 
-## GPU readback is one-shot
-
-`Mirror`, `mirror()`, `MirrorSystem` and `MirrorPlugin` are removed, with no continuous replacement. Remove Mirror from manifests and plugin dependencies. Keep counts used to size GPU work on the GPU; request CPU bytes only when needed:
+`Mirror`, `mirror(source)`, `MirrorSystem` and `MirrorPlugin` are removed, with no continuous replacement. Remove Mirror from manifests and plugin dependencies. For a snapshot that an app actually needs, use a one-shot probe:
 
 ```ts
-const result = await probeBuffer(state, counters, { offset: 4, size: 4 });
-const count = new Uint32Array(result.bytes)[0];
+// 0.9.5
+const observation = mirror(counters);
+// MirrorPlugin eventually updates observation.snapshot.bytes.
 ```
 
-Import `probeBuffer` and `probeTexture` from `/runtime`. Both now take the owning State, not a GPUDevice. Results own their bytes and carry `frame` and `fixedTick` from the copy. Staging is shared by the world's requests and released after `state.readback.maxUnusedFrames` idle frames (default 10).
+```ts
+// 0.10
+import { probeBuffer } from "@dylanebert/shallot/runtime";
+const observation = await probeBuffer(state, counters);
+const count = new Uint32Array(observation.bytes)[0];
+```
 
-Deterministic plugins cannot request or read readback bytes in `fixed`. A plugin whose simulation depends on GPU readback must declare `deterministic: false`.
+Existing `probeBuffer(device, source, options)` and `probeTexture(device, source, options)` calls now take the owning State instead of the GPUDevice. The returned bytes remain owned by that result.
 
-The light-pool overflow warning is no longer polled automatically. Use `requestLightOverflow(state)` from `/rendering` for a diagnostic result with `dropped`, `frame` and `fixedTick`. Light culling clamps writes whether or not the diagnostic is requested.
+If a fixed simulation previously consumed Mirror snapshots, declare its plugin `deterministic: false` before feeding it requested readback. Keep counts that only size GPU work on the GPU instead of replacing the old Mirror with per-frame requests.
 
 ## `shallot recipe` is now `shallot add`
 
@@ -106,35 +104,33 @@ bunx shallot recipe first-person
 bunx shallot add first-person
 ```
 
-## The CLI command set changed
+## `shallot run` and `shallot verify` are removed
 
-- `shallot list` and `shallot check` are removed. Run the project's tests with Bun and browser tests with Playwright Test.
-- `shallot workflow` has no replacement; edit the workflow file it wrote yourself.
-- `shallot <verb>` no longer resolves to `shallot-<verb>` on `PATH`; invoke your external command directly.
-- `shallot run` is now `shallot build` followed by `shallot preview`. Preview never rebuilds.
-- `shallot tui` and `shallot verify` are removed without replacement commands.
+Replace `shallot run` with `shallot build` followed by `shallot preview`. Preview never rebuilds. Replace `shallot verify` with the project's own tests.
 
-## `/render/core`, `/sear/core` and `/utils/core` no longer resolve
+## Package imports no longer use `/core` suffixes
 
-Package imports dropped their `/core` suffix, and rendering split in two: `/rendering` for shared renderer capabilities, and `/standard/rendering` for the default mesh renderer.
+Rendering split into `/rendering` for shared capabilities and `/standard/rendering` for the default mesh renderer:
 
 ```ts
 // 0.9.5
 import { FrameGpu } from "@dylanebert/shallot/render/core";
 import { engineLayout, registerSurface, surfaceLayout } from "@dylanebert/shallot/sear/core";
 import { Xform } from "@dylanebert/shallot/utils/core";
+```
 
+```ts
 // 0.10
 import { FrameGpu, registerSurface, surfaceLayout } from "@dylanebert/shallot/rendering";
 import { engineLayout } from "@dylanebert/shallot/standard/rendering";
 import { Xform } from "@dylanebert/shallot/utils";
 ```
 
-Likewise `/ecs/core` is `/ecs`, `/scene/core` is `/scene` and `/physics/core` is `/physics`. The `/src/*` wildcard is gone: use the paths in `package.json` `exports`.
+Likewise `/ecs/core` is `/ecs`, `/scene/core` is `/scene`, `/physics/core` and `/tumble/core` are `/physics`, `/character/core` is `/character` and `/bvh/core` is `/bvh`. The `/src/*` wildcard is gone: use the paths in `package.json` `exports`.
 
 ## `Inputs` is now `devices(state)`
 
-`devices(state)` returns the owning App's keys, mouse, touch and viewport. The default plugins fill it from browser input; a test or replay can fill the same record with `pressKey`, `pointerMove` and the other producers. `setInputEnabled` takes State, and the canvas size moved from `mouse` to `viewport`.
+The owning App's keys, mouse, touch and viewport replace the process-level `Inputs` facade. `setInputEnabled` takes State, and canvas size moved from `mouse` to `viewport`.
 
 ```ts
 // 0.9.5
@@ -142,17 +138,18 @@ if (Inputs.isKeyDown("KeyW")) moveForward();
 if (Inputs.isKeyPressed("Space")) jump();
 const width = Inputs.mouse.canvasWidth;
 setInputEnabled(false);
+```
 
+```ts
 // 0.10
 const input = devices(state);
 if (input.keys.held.has("KeyW")) moveForward();
 if (input.keys.pressed.has("Space")) jump();
 const width = input.viewport.get(input.focused)?.cssWidth ?? 0;
 setInputEnabled(state, false);
-pressKey(state, "KeyW");
 ```
 
-`keys.pressed` holds a press until the next frame. A `fixed` system reads `keys.tickPressed`, which holds it until the next fixed update. Replace `isKeyPressedWithin(code, seconds)` with fixed-tick comparisons:
+In `fixed`, use `keys.tickPressed` instead of the frame-level press. Replace `isKeyPressedWithin(code, seconds)` with fixed-tick comparisons:
 
 ```ts
 const at = input.keys.pressedTick.get("Space");
@@ -167,22 +164,24 @@ Rename the plugin and manifest key from `Tumble` to `Physics`. Read and drive bo
 // 0.9.5
 Physics.backend?.setKinematic(eid, position, rotation);
 const b = Tumble.body(eid);
+```
 
+```ts
 // 0.10
 import { body, setKinematic } from "@dylanebert/shallot/physics";
 setKinematic(state, eid, position, rotation);
 const b = body(state, eid);
 ```
 
-`Tumble.world` is `physicsWorld(state)`, and `readBody(state, eid)` reads a body's pose.
+`Tumble.world` becomes `physicsWorld(state)`.
 
 ## `/avbd` is gone
 
-0.10 ships no AVBD solver. Select the built-in `Physics` plugin instead. The external `shallot-avbd-physics` package no longer provides its `AvbdPlugin`/State facade; its low-level solver remains.
+The engine no longer ships its AVBD solver or `AvbdPlugin`. Select the built-in `PhysicsPlugin` instead.
 
 ## `Tween`, `Sequence` and `/tween/core` are gone
 
-0.10 has no animation plugin. Implement animation in app code.
+There is no animation plugin in this release line. Implement animation in app code.
 
 ## `/document` and edit mode are gone
 
@@ -193,30 +192,43 @@ import { serialize, stringify } from "@dylanebert/shallot";
 const saved = stringify(serialize(state));
 ```
 
-## Browser tests use Playwright Test
+## `/harness` helpers are removed
 
-Configure Playwright in the project, run its own Vite preview with `webServer`, and put Chromium launch flags in `playwright.config.ts`.
+Remove imports of `installHarness`, `HarnessTarget` and `REAL_GPU_LAUNCH`. Drive `build()` and `state.step()` in the project's tests and observe through public ECS and physics reads. Configure the project's browser tests with Playwright Test, its own Vite `webServer` and its own Chromium launch flags.
 
-## TypeGPU below 0.12.6 is too old
+## Vite configuration and project scripts are now the project's
+
+0.9.5's CLI synthesized a Vite configuration for manifest projects. Create a `vite.config.ts` with Shallot's plugin. For an ejected 0.9.5 config, replace its separate TypeGPU plugin (or `typegpuPlugin()`) with this one. Remove the old `CROSS_ORIGIN_ISOLATION` import; the plugin sets those headers:
+
+```ts
+// 0.9.5 ejected config
+import { defineConfig } from "vite";
+import typegpu from "unplugin-typegpu/vite";
+export default defineConfig({ plugins: [typegpu()] });
+```
+
+```ts
+// 0.10
+import { defineConfig } from "vite";
+import { shallot } from "@dylanebert/shallot/vite";
+export default defineConfig({ plugins: [shallot()] });
+```
+
+`shallot dev`, `shallot build` and `shallot preview` now run the project's Vite commands. Add `dev`, `build` and `preview` scripts that run `vite`, `vite build` and `vite preview`; do not make them call the corresponding Shallot command. Native commands add the desktop shell to those project commands.
+
+The peer TypeGPU version has also changed:
 
 ```sh
 bun add typegpu@~0.12.6
 ```
 
-For web, `shallot dev`, `shallot build` and `shallot preview` run the project's Vite commands. Native `dev` and `build` add the desktop shell to the Vite server or build; native `preview` launches that build. Add Shallot's Vite plugin to the project config; it includes the TypeGPU transform, so do not register a separate TypeGPU plugin:
+## Scalar sparse values now use their declared numeric type
 
-```ts
-import { shallot } from "@dylanebert/shallot/vite";
-export default defineConfig({ plugins: [shallot()] });
-```
+0.9.5's scalar `sparse(u8)` stored a JS number: writing 300 read back 300. Its `field(u8)` replacement stores 44. Likewise, scalar `u32` now wraps negatives as unsigned and `f32` rounds to 32-bit precision. Choose an integer type wide enough for the values and account for f32 rounding.
 
-## Component values use their declared numeric type
+## Update the 0.9.5 scaffold's TypeScript types
 
-Replacing `sparse(u8)` with `field(u8)` retains typed writes: 300 becomes 44, `u32` stores negatives as unsigned, and `f32` rounds to 32-bit precision. Declare a type wide enough for your values.
-
-## `tsc` reports missing `ImportMeta.env` or Node types
-
-The 0.9.5 scaffold's `tsconfig.json` lists only WebGPU types. Add Node and Vite's:
+Its `tsconfig.json` listed only WebGPU types. Add Node and Vite's types:
 
 ```sh
 bun add -d @types/node@^26.0.0
