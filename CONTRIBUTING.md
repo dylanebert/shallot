@@ -62,6 +62,7 @@ bun run check                         # static gates; run before every push
 bun run test                          # *.test.ts, including GPU tests on a device
 bun run test --path-ignore-patterns '**/*.gpu.test.ts' # no-device host tier
 bun test gpu.test                     # GPU tier
+bun test $(find ./src ./examples ./scripts ./diagnostics -name '*.node.ts')  # Node tier: full compositions, on a device
 bun test ./diagnostics/first-person-allocation/allocation.oracle.ts # named display oracle (manual)
 bun run test:browser                  # wide browser run; every subject config
 bun test --todo                       # run quarantined test.todo entries, if any
