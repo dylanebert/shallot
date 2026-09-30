@@ -26,9 +26,10 @@ export interface PointerLock {
     refusal: string | null;
 }
 
-/** live mouse state in one device record. Positions and sizes are CSS pixels; deltas accumulate over a
+/** live pointer state in one device record. Positions and sizes are CSS pixels; deltas accumulate over a
  * frame and reset at the draw boundary. */
-export interface Mouse {
+export interface Pointer {
+    readonly lock: PointerLock;
     /** horizontal pointer movement since the last frame, in CSS pixels */
     deltaX: number;
     /** vertical pointer movement since the last frame, in CSS pixels */
@@ -72,12 +73,6 @@ export interface AudioDevice {
     context: AudioContextState;
 }
 
-/** all device-fed facts for one World. Producers below are the single mutation seam used by both the DOM
- * path and headless callers. The record is created lazily, so a World with no DOM still has devices. */
-export interface Pointer extends Mouse {
-    readonly lock: PointerLock;
-}
-
 /** CSS display size and device-pixel ratio for one bound canvas. */
 export interface Viewport {
     cssWidth: number;
@@ -85,12 +80,13 @@ export interface Viewport {
     dpr: number;
 }
 
+/** all device-fed facts for one World. Producers below are the single mutation seam used by both the DOM
+ * path and headless callers. The record is created lazily, so a World with no DOM still has devices. */
 export interface Devices {
     readonly keys: Keys;
     readonly audio: AudioDevice;
     /** pointer facts for the same record */
     readonly pointer: Pointer;
-    readonly mouse: Mouse;
     readonly touch: Touch;
     /** viewport rows keyed by the bound canvas's document/index slot */
     readonly viewport: ReadonlyMap<number, Viewport>;
@@ -180,7 +176,7 @@ export const Devices: import("../../engine").Resource<Devices> = {
 };
 const adapters = new WeakMap<World, BrowserAdapter>();
 
-const DEFAULT_MOUSE: Mouse = {
+const DEFAULT_POINTER: Omit<Pointer, "lock"> = {
     deltaX: 0,
     deltaY: 0,
     scroll: 0,
@@ -198,7 +194,7 @@ const DEFAULT_TOUCH: Touch = { count: 0, pinchDelta: 0, deltaX: 0, deltaY: 0 };
 const DEFAULT_AUDIO: AudioDevice = { context: "none" };
 const DEFAULT_POINTER_LOCK: PointerLock = { status: "unlocked", refusal: null };
 function emptyRecord(): DeviceRecord {
-    const pointer: Pointer = { ...DEFAULT_MOUSE, lock: { ...DEFAULT_POINTER_LOCK } };
+    const pointer: Pointer = { ...DEFAULT_POINTER, lock: { ...DEFAULT_POINTER_LOCK } };
     return {
         keys: {
             held: new Set(),
@@ -210,7 +206,6 @@ function emptyRecord(): DeviceRecord {
         },
         audio: { ...DEFAULT_AUDIO },
         pointer,
-        mouse: pointer,
         touch: { ...DEFAULT_TOUCH },
         viewport: new Map(),
         suspended: false,
@@ -290,8 +285,8 @@ function unit(value: number, size: number): number {
 function updateNormalized(d: DeviceRecord, index: number): void {
     const viewport = d.viewport.get(index);
     if (!viewport) return;
-    d.mouse.normalizedX = unit(d.mouse.x, viewport.cssWidth);
-    d.mouse.normalizedY = unit(d.mouse.y, viewport.cssHeight);
+    d.pointer.normalizedX = unit(d.pointer.x, viewport.cssWidth);
+    d.pointer.normalizedY = unit(d.pointer.y, viewport.cssHeight);
 }
 
 /** Produce a viewport row from an application or test driver. */
@@ -312,25 +307,9 @@ export function resizeViewport(
     if (d.pointerCanvasIndex === index) updateNormalized(d, index);
 }
 
-/** Report a viewport row from a host adapter. The adapter is optional; omission is composition. */
-export function reportViewport(
-    world: World,
-    index: number,
-    width: number,
-    height: number,
-    dpr: number,
-): void {
-    resizeViewport(world, index, width, height, dpr);
-}
-
 /** Produce the audio context state supplied by an application or test driver. */
 export function audioContextState(world: World, context: AudioContextState): void {
     record(world).audio.context = context;
-}
-
-/** Report audio context state from a host adapter. The adapter is optional; omission is composition. */
-export function reportAudioContextState(world: World, context: AudioContextState): void {
-    audioContextState(world, context);
 }
 
 /** Produce a keyboard press. Repeated presses do not retrigger an edge. */
@@ -373,11 +352,11 @@ export function pointerMove(
     const d = record(world);
     if (d.suspended) return;
     const move = typeof x === "number" ? { x, y: y ?? 0, deltaX, deltaY } : x;
-    d.mouse.x = move.x;
-    d.mouse.y = move.y;
-    d.mouse.deltaX += move.deltaX ?? 0;
-    d.mouse.deltaY += move.deltaY ?? 0;
-    if (move.hover !== undefined) d.mouse.hover = move.hover;
+    d.pointer.x = move.x;
+    d.pointer.y = move.y;
+    d.pointer.deltaX += move.deltaX ?? 0;
+    d.pointer.deltaY += move.deltaY ?? 0;
+    if (move.hover !== undefined) d.pointer.hover = move.hover;
     const index =
         (typeof x === "number" ? undefined : move.canvasIndex) ??
         (d.pointerCanvasIndex >= 0 ? d.pointerCanvasIndex : d.focused);
@@ -399,7 +378,7 @@ export function pointerButton(world: World, button: PointerButton, pressed: bool
             : button === 1 || button === "middle"
               ? "middle"
               : "right";
-    d.mouse[name] = d.requireLock && d.pointer.lock.status !== "locked" ? false : pressed;
+    d.pointer[name] = d.requireLock && d.pointer.lock.status !== "locked" ? false : pressed;
 }
 
 /** Produce the DOM `buttons` bitmask. */
@@ -412,7 +391,7 @@ export function pointerButtons(world: World, buttons: number): void {
 /** Produce wheel movement. */
 export function pointerWheel(world: World, delta: number): void {
     const d = record(world);
-    if (!d.suspended) d.mouse.scroll += delta;
+    if (!d.suspended) d.pointer.scroll += delta;
 }
 
 function distance(a: { x: number; y: number }, b: { x: number; y: number }): number {
@@ -523,9 +502,9 @@ export function pointerLockChanged(
 }
 
 function pointerButtonsForRecord(d: DeviceRecord, buttons: number): void {
-    d.mouse.left = (buttons & 1) !== 0;
-    d.mouse.right = (buttons & 2) !== 0;
-    d.mouse.middle = (buttons & 4) !== 0;
+    d.pointer.left = (buttons & 1) !== 0;
+    d.pointer.right = (buttons & 2) !== 0;
+    d.pointer.middle = (buttons & 4) !== 0;
 }
 
 function gatedButtons(d: DeviceRecord, buttons: number): number {
@@ -592,7 +571,7 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
     };
     a.pointerEnter = a.pointerHover;
     a.pointerLeave = () => {
-        if (a.activePointerId === null) d.mouse.hover = false;
+        if (a.activePointerId === null) d.pointer.hover = false;
     };
     a.keyDown = (e) => {
         if (a.disposed || d.suspended) return;
@@ -672,8 +651,8 @@ function createHandlers(a: BrowserAdapter, d: DeviceRecord, world: World): void 
     a.lockMove = (e) => {
         if (d.pointer.lock.status !== "locked") return;
         pointerMove(world, {
-            x: d.mouse.x,
-            y: d.mouse.y,
+            x: d.pointer.x,
+            y: d.pointer.y,
             deltaX: e.movementX,
             deltaY: e.movementY,
             hover: true,
@@ -922,9 +901,9 @@ export function setInputEnabled(world: World, on: boolean): void {
         releaseAll(world, d);
         d.keys.pressed.clear();
         d.keys.tickPressed.clear();
-        d.mouse.deltaX = 0;
-        d.mouse.deltaY = 0;
-        d.mouse.scroll = 0;
+        d.pointer.deltaX = 0;
+        d.pointer.deltaY = 0;
+        d.pointer.scroll = 0;
     }
 }
 
@@ -1021,9 +1000,9 @@ const ResetFrameInputSystem: System = {
         const d = record(world);
         if (d.keys.pressed.size !== 0) d.keys.pressed.clear();
         if (d.keys.released.size !== 0) d.keys.released.clear();
-        d.mouse.deltaX = 0;
-        d.mouse.deltaY = 0;
-        d.mouse.scroll = 0;
+        d.pointer.deltaX = 0;
+        d.pointer.deltaY = 0;
+        d.pointer.scroll = 0;
         d.touch.pinchDelta = 0;
         d.touch.deltaX = 0;
         d.touch.deltaY = 0;

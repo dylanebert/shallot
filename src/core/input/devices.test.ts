@@ -238,11 +238,11 @@ test("the production browser adapter bypasses shared input producers or loses fo
         if (
             !input.keys.held.has("KeyW") ||
             input.focused !== 0 ||
-            input.mouse.x !== 25 ||
-            input.mouse.y !== 34 ||
-            input.mouse.deltaX !== 5 ||
-            input.mouse.deltaY !== 4 ||
-            input.mouse.scroll !== 7 ||
+            input.pointer.x !== 25 ||
+            input.pointer.y !== 34 ||
+            input.pointer.deltaX !== 5 ||
+            input.pointer.deltaY !== 4 ||
+            input.pointer.scroll !== 7 ||
             input.touch.count !== 1 ||
             fixture.captured() !== 1
         )
@@ -250,7 +250,7 @@ test("the production browser adapter bypasses shared input producers or loses fo
 
         fixture.setHidden(true);
         fixture.document.emit("visibilitychange");
-        if (input.keys.held.has("KeyW") || Number(input.touch.count) !== 0 || input.mouse.left)
+        if (input.keys.held.has("KeyW") || Number(input.touch.count) !== 0 || input.pointer.left)
             throw new Error("visibility did not release captured input");
         world.dispose();
         if (
@@ -493,11 +493,11 @@ test("non-Player browser input requires lock, or Player lock behavior depends on
     world.addSystem(UpdatePlayerControlSystem, "Player");
     world.step(0);
     pointerButton(world, "left", true);
-    if (_devices.mouse.left) throw new Error("Player lock gate did not hold before engagement");
+    if (_devices.pointer.left) throw new Error("Player lock gate did not hold before engagement");
     requestPointerLock(world);
     fixture.emitLockChange();
     pointerButton(world, "left", true);
-    if (!_devices.mouse.left) throw new Error("Player lock gate did not open after engagement");
+    if (!_devices.pointer.left) throw new Error("Player lock gate did not open after engagement");
     world.dispose();
     if (fixture.releaseCount !== 1)
         throw new Error("Player disposal did not release through the adapter");
@@ -591,7 +591,7 @@ test("the browser input producer fails to bind listeners or request pointer lock
     try {
         world.step(0);
         pointerButton(world, "left", true);
-        if (_devices.requireLock || !_devices.mouse.left)
+        if (_devices.requireLock || !_devices.pointer.left)
             throw new Error("non-Player browser input unexpectedly required pointer lock");
         requestPointerLock(world);
         if (listeners === 0 || requested !== 1)
@@ -679,11 +679,16 @@ test("a key press, pointer, wheel or touch fact is lost before the frame's reade
     if (!seen[0]?.held || !seen[0].pressed || seen[0].released)
         throw new Error("press edge was not visible");
     const d = world.resource(Devices);
-    if (d.mouse.x !== 12 || d.mouse.y !== 24 || d.mouse.deltaX !== 0 || d.mouse.scroll !== 0) {
+    if (
+        d.pointer.x !== 12 ||
+        d.pointer.y !== 24 ||
+        d.pointer.deltaX !== 0 ||
+        d.pointer.scroll !== 0
+    ) {
         // frame latches are deliberately cleared at the draw boundary; the reader above observes them.
         throw new Error("frame device deltas were not cleared");
     }
-    if (d.touch.count !== 1 || !d.mouse.left) throw new Error("pointer/touch fact was lost");
+    if (d.touch.count !== 1 || !d.pointer.left) throw new Error("pointer/touch fact was lost");
     releaseKey(world, "KeyW");
     const releaseReader = {
         group: "simulation" as const,
@@ -777,7 +782,7 @@ test("window blur leaves keys or pointer buttons held, or releases them without 
     const input = world.resource(Devices);
     if (input.keys.held.has("KeyW") || !input.keys.released.has("KeyW"))
         throw new Error("blur did not emit a key release edge");
-    if (input.mouse.left) throw new Error("blur left a pointer button held");
+    if (input.pointer.left) throw new Error("blur left a pointer button held");
     world.dispose();
 });
 
@@ -790,7 +795,7 @@ test("hiding the page leaves keys or pointer buttons held, or releases them with
     const input = world.resource(Devices);
     if (input.keys.held.has("KeyA") || !input.keys.released.has("KeyA"))
         throw new Error("hidden visibility did not emit a key release edge");
-    if (input.mouse.right) throw new Error("hidden visibility left a pointer button held");
+    if (input.pointer.right) throw new Error("hidden visibility left a pointer button held");
     world.dispose();
 });
 
@@ -812,7 +817,7 @@ test("pointer-lock exit leaves keys or pointer buttons held, or loses the lock r
         throw new Error("lock refusal was not recorded");
     if (input.keys.held.has("KeyD") || !input.keys.released.has("KeyD"))
         throw new Error("lock exit did not emit a key release edge");
-    if (input.mouse.middle) throw new Error("lock exit left a pointer button held");
+    if (input.pointer.middle) throw new Error("lock exit left a pointer button held");
     world.dispose();
 });
 
@@ -821,10 +826,10 @@ test("a pointer button reads down before a required pointer lock engages", () =>
     const _devices = world.resource(Devices);
     requirePointerLock(world, true);
     pointerButton(world, "left", true);
-    if (_devices.mouse.left) throw new Error("button crossed the lock gate");
+    if (_devices.pointer.left) throw new Error("button crossed the lock gate");
     pointerLockChanged(world, true);
     pointerButton(world, "left", true);
-    if (!_devices.mouse.left) throw new Error("locked button did not engage");
+    if (!_devices.pointer.left) throw new Error("locked button did not engage");
     world.dispose();
 });
 
@@ -836,7 +841,7 @@ test("a suspended World still reads held keys, pointer or touch data, or accepts
     const input = world.resource(Devices);
     if (!input.suspended || input.keys.held.has("KeyS") || !input.keys.released.has("KeyS"))
         throw new Error("suspension did not neutralize the key with an edge");
-    if (input.mouse.left || input.mouse.deltaX !== 0 || input.touch.count !== 0)
+    if (input.pointer.left || input.pointer.deltaX !== 0 || input.touch.count !== 0)
         throw new Error("suspension did not neutralize pointer/touch reads");
     pressKey(world, "KeyQ");
     if (input.keys.held.has("KeyQ")) throw new Error("suspended producer changed the record");
@@ -913,12 +918,12 @@ test("the normalized pointer coordinate uses the World-scoped viewport row after
     resizeViewport(world, 0, 100, 50, 1);
     focusCanvas(world, 0);
     pointerMove(world, 50, 25);
-    if (_devices.mouse.normalizedX !== 0.5 || _devices.mouse.normalizedY !== 0.5)
+    if (_devices.pointer.normalizedX !== 0.5 || _devices.pointer.normalizedY !== 0.5)
         throw new Error("initial normalized pointer coordinate was wrong");
     resizeViewport(world, 0, 200, 100, 1);
     if (
-        world.resource(Devices).mouse.normalizedX !== 0.25 ||
-        world.resource(Devices).mouse.normalizedY !== 0.25
+        world.resource(Devices).pointer.normalizedX !== 0.25 ||
+        world.resource(Devices).pointer.normalizedY !== 0.25
     )
         throw new Error("normalized pointer coordinate did not follow resize");
     world.dispose();

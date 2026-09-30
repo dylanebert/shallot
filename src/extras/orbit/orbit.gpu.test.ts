@@ -51,12 +51,12 @@ test("the public Orbit consumer consumes held, released and neutral pointer fact
             world.storage(Transform).translation.z.get(camera) === initialZ
         )
             throw new Error("Orbit did not produce a camera pose from the supplied drag");
-        if (!_devices.mouse.left) throw new Error("Orbit lost the held button fact");
+        if (!_devices.pointer.left) throw new Error("Orbit lost the held button fact");
 
         pointerButton(world, "left", false);
         world.step(Time.FIXED_DT);
         const releasedYaw = world.storage(Orbit).yaw.get(camera);
-        if (_devices.mouse.left) throw new Error("Orbit retained a released button");
+        if (_devices.pointer.left) throw new Error("Orbit retained a released button");
         world.step(Time.FIXED_DT); // neutral: no stale drag delta may be replayed
         if (world.storage(Orbit).yaw.get(camera) !== releasedYaw)
             throw new Error("Orbit replayed released drag input on a neutral step");

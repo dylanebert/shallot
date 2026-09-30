@@ -124,7 +124,7 @@ function mountControls(world: World): void {
     bag.panel = panel;
 }
 
-// Mouse look states itself on the control it governs, never as a sentence: the MOUSE row is dim until the
+// Pointer look states itself on the control it governs, never as a sentence: the MOUSE row is dim until the
 // pointer locks and brightens when it does, so the affordance and its outcome are one mark. A refusal reads
 // as a struck row, with the browser's reason kept on the title so the cause stays recoverable without copy.
 const controls: System = {

@@ -101,11 +101,11 @@ export function cursorRay(world: World, cam: number): Ray | null {
     if (cam < 0 || !world.has(cam, Camera) || !world.has(cam, GlobalTransform)) return null;
     const global = world.storage(GlobalTransform);
     const input = world.resource(Devices);
-    if (!input.mouse.hover) return null;
+    if (!input.pointer.hover) return null;
     const viewport = input.viewport.get(input.focused);
     return screenToRay(
-        input.mouse.x,
-        input.mouse.y,
+        input.pointer.x,
+        input.pointer.y,
         viewport?.cssWidth ?? 0,
         viewport?.cssHeight ?? 0,
         world.storage(Camera).fov.get(cam),

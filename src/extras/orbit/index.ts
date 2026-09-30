@@ -1,4 +1,4 @@
-import { Devices, InputPlugin, type Mouse } from "../../core/input";
+import { Devices, InputPlugin, type Pointer } from "../../core/input";
 import { Camera, CameraMode } from "../../core/rendering";
 import {
     entity,
@@ -114,10 +114,10 @@ function angleDiff(from: number, to: number): number {
     return diff > Math.PI ? diff - Tau : diff;
 }
 
-function isButton(mouse: Readonly<Mouse>, button: number): boolean {
-    if (button === 0) return mouse.left;
-    if (button === 1) return mouse.middle;
-    return mouse.right;
+function isButton(pointer: Readonly<Pointer>, button: number): boolean {
+    if (button === 0) return pointer.left;
+    if (button === 1) return pointer.middle;
+    return pointer.right;
 }
 
 const OrbitSystem: System = {
@@ -180,7 +180,7 @@ const OrbitSystem: System = {
             const locked = world.storage(Orbit).mode.get(eid) === OrbitMode.Locked;
             const touchCount = input.touch.count;
             // touch overrides the mouse-button read entirely rather than adding to it, while any finger
-            // is down: the first finger's continued capture keeps `mouse.left` synthesized true for the
+            // is down: the first finger's continued capture keeps `pointer.left` synthesized true for the
             // whole gesture (the old incidental path), so reading it during a two-finger pinch/pan would
             // orbit alongside the intended gesture. Gesture count alone decides the mode instead — one
             // finger rotates, two-plus pan, matching three.js OrbitControls' / Babylon's touch map. Fly
@@ -188,15 +188,15 @@ const OrbitSystem: System = {
             const orbitHeld =
                 touchCount > 0
                     ? touchCount === 1
-                    : isButton(input.mouse, world.storage(Orbit).orbitButton.get(eid));
+                    : isButton(input.pointer, world.storage(Orbit).orbitButton.get(eid));
             const panHeld =
                 touchCount > 0
                     ? touchCount >= 2
-                    : isButton(input.mouse, world.storage(Orbit).panButton.get(eid));
+                    : isButton(input.pointer, world.storage(Orbit).panButton.get(eid));
             const flyHeld =
                 touchCount > 0
                     ? false
-                    : isButton(input.mouse, world.storage(Orbit).flyButton.get(eid));
+                    : isButton(input.pointer, world.storage(Orbit).flyButton.get(eid));
             // the held button picks the mode; fly engages only while the fly button is held (hold-to-fly, the
             // Unity/UE scene-view idiom), and orbit/pan win over it. bare WASD/QE never fly, so a gameplay
             // scene owns the movement keys by default — the camera only takes them while fly is held.
@@ -213,15 +213,15 @@ const OrbitSystem: System = {
             let orbitLatch = world.storage(OrbitSmooth).orbitLatch.get(eid);
             if (orbitHeld) {
                 if (orbitLatch === 0)
-                    orbitLatch = OrbitPick.claim?.(input.mouse.x, input.mouse.y) ? 1 : 2;
+                    orbitLatch = OrbitPick.claim?.(input.pointer.x, input.pointer.y) ? 1 : 2;
             } else {
                 orbitLatch = 0;
             }
             const suppressed = orbitLatch === 1;
 
             if (!locked && looking && !suppressed) {
-                yawO -= input.mouse.deltaX * lookSpeed;
-                pitchO = clamp(pitchO + input.mouse.deltaY * lookSpeed, minPitch, maxPitch);
+                yawO -= input.pointer.deltaX * lookSpeed;
+                pitchO = clamp(pitchO + input.pointer.deltaY * lookSpeed, minPitch, maxPitch);
             }
 
             const keyRate = world.storage(Orbit).keyRate.get(eid);
@@ -272,8 +272,8 @@ const OrbitSystem: System = {
                 // two-finger centroid drag while touching; single-pointer capture delta otherwise —
                 // `Touch.deltaX/deltaY` is only ever populated at two fingers (input/index.ts), so this
                 // never reads a stale value.
-                const dragX = touchCount > 0 ? input.touch.deltaX : input.mouse.deltaX;
-                const dragY = touchCount > 0 ? input.touch.deltaY : input.mouse.deltaY;
+                const dragX = touchCount > 0 ? input.touch.deltaX : input.pointer.deltaX;
+                const dragY = touchCount > 0 ? input.touch.deltaY : input.pointer.deltaY;
                 const dx = dragX * worldPerPixel;
                 const dy = dragY * worldPerPixel;
                 panX += dy * upX - dx * rightX;
@@ -282,13 +282,13 @@ const OrbitSystem: System = {
             }
 
             // pinch shares the wheel's geometric zoom step (same distanceScale/sizeScale/zoomSpeed), just
-            // negated: `mouse.scroll`'s own JSDoc states positive = zoom out/away, while `touch.pinchDelta`
+            // negated: `pointer.scroll`'s own JSDoc states positive = zoom out/away, while `touch.pinchDelta`
             // spreading positive means zoom in — so a spread pinch subtracts. Summing them is safe because
             // a two-finger pinch zeroes `flyHeld` (touch overrides the mouse-button read while any finger is
             // down), not because the two inputs can't coexist in the same frame — so combining them into one
             // input is just addition, not a priority choice.
             const pinch = touchCount > 0 ? input.touch.pinchDelta : 0;
-            const zoomInput = input.mouse.scroll - pinch;
+            const zoomInput = input.pointer.scroll - pinch;
             if (zoomInput !== 0) {
                 if (flying) {
                     // flying drives Transform directly, so the orbit distance is invisible — scroll

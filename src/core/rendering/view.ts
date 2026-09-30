@@ -4,7 +4,7 @@ import * as std from "typegpu/std";
 import type { World } from "../../engine";
 import { rawDevice } from "../../engine/runtime";
 import { chunk, spliceNs } from "../../engine/utils";
-import { Devices, reportViewport } from "../input";
+import { Devices, resizeViewport } from "../input";
 import { Camera, Resolution } from "./camera";
 import { Render } from "./render";
 
@@ -280,7 +280,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: Worl
             ? 0
             : Math.max(0, Array.from(document.querySelectorAll("canvas")).indexOf(canvas));
     const dpr = (typeof window === "undefined" ? 1 : window.devicePixelRatio) || 1;
-    if (world) reportViewport(world, viewportIndex, rect.width, rect.height, dpr);
+    if (world) resizeViewport(world, viewportIndex, rect.width, rect.height, dpr);
     const view: View = {
         canvas,
         context,
@@ -305,7 +305,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement, world: Worl
         view.clientWidth = r.width;
         view.clientHeight = r.height;
         const nextDpr = (typeof window === "undefined" ? 1 : window.devicePixelRatio) || 1;
-        if (world) reportViewport(world, viewportIndex, r.width, r.height, nextDpr);
+        if (world) resizeViewport(world, viewportIndex, r.width, r.height, nextDpr);
     });
     view.observer.observe(canvas);
     _views.set(eid, view);

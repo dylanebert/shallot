@@ -172,7 +172,7 @@ Likewise `/ecs/core` is `/ecs`, `/scene/core` is `/scene`, `/physics/core` and `
 
 ## `Inputs` is now `world.resource(Devices)`
 
-The owning App's keys, mouse, touch and viewport replace the process-level `Inputs` facade. `setInputEnabled` takes World, and canvas size moved from `mouse` to `viewport`.
+The owning App's keys, pointer, touch and viewport replace the process-level `Inputs` facade; `Inputs.mouse` is `pointer`. `setInputEnabled` takes World, and canvas size moved from `mouse` to `viewport`.
 
 ```ts
 // 0.9.5

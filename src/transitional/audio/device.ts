@@ -1,9 +1,9 @@
 import loadAudioWasm from "../../../crates/audio/pkg/shallot_audio.js";
 import {
     type AudioDevice,
+    audioContextState,
     type AudioContextState as DeviceAudioContextState,
     Devices,
-    reportAudioContextState,
 } from "../../core/input";
 import type { World } from "../../engine";
 import { byId, getParamPairs, type Instrument } from "./instrument";
@@ -107,7 +107,7 @@ export async function initAudio(world: World): Promise<void> {
 
     const ctx = new AudioContext();
     _audio.ctx = ctx;
-    reportAudioContextState(world, contextState(ctx.state));
+    audioContextState(world, contextState(ctx.state));
     if (ctx.state === "suspended") {
         const resume = () => {
             ctx.resume();
@@ -134,7 +134,7 @@ export async function initAudio(world: World): Promise<void> {
     _audio.onState = () => {
         const _audio = world.resource(Audio);
 
-        reportAudioContextState(world, contextState(ctx.state));
+        audioContextState(world, contextState(ctx.state));
         if (ctx.state === "running" && _audio.wasSuspended) {
             node.port.postMessage({ type: "reset" });
             reconnect(world);
