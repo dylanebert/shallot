@@ -124,6 +124,92 @@ test("catch-up ticks retain the penultimate GlobalTransform and no-tick draws ad
     }
 });
 
+test("a producer spawned during catch-up keeps motion after its spawn tick", async () => {
+    let eid = -1;
+    const app = await build({
+        defaults: false,
+        plugins: [
+            RenderPlugin,
+            {
+                name: "CatchupSpawn",
+                systems: [
+                    {
+                        group: "fixed",
+                        update(state) {
+                            if (eid < 0) {
+                                eid = state.create();
+                                state.add(eid, Transform);
+                            }
+                            Transform.pos.x.set(eid, state.time.fixedTick * 10);
+                        },
+                    },
+                ],
+            },
+        ],
+    });
+    try {
+        const { state } = app;
+        attachTestCamera(state);
+        const table = globalTransformTable(state);
+        state.step(Time.FIXED_DT * 2.5);
+        expect(state.time.fixedTick).toBe(2);
+        expect(state.time.fixedAlpha).toBeCloseTo(0.5, 5);
+        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(20);
+        const words = new Float32Array(
+            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+        );
+        expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(15, 5);
+    } finally {
+        app.dispose();
+    }
+});
+
+test("a teleport on the first catch-up tick keeps later tick motion", async () => {
+    let eid = -1;
+    const app = await build({
+        defaults: false,
+        plugins: [
+            RenderPlugin,
+            {
+                name: "CatchupTeleport",
+                systems: [
+                    {
+                        group: "fixed",
+                        update(state) {
+                            if (state.time.fixedTick === 1) {
+                                Transform.pos.x.set(eid, 100);
+                                state.teleport(eid);
+                            } else {
+                                Transform.pos.x.set(eid, 100 + (state.time.fixedTick - 1) * 10);
+                            }
+                        },
+                    },
+                ],
+            },
+        ],
+        setup(state) {
+            eid = state.create();
+            state.add(eid, Transform);
+            Transform.pos.x.set(eid, 0);
+        },
+    });
+    try {
+        const { state } = app;
+        attachTestCamera(state);
+        const table = globalTransformTable(state);
+        state.step(Time.FIXED_DT * 2.5);
+        expect(state.time.fixedTick).toBe(2);
+        expect(state.time.fixedAlpha).toBeCloseTo(0.5, 5);
+        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(110);
+        const words = new Float32Array(
+            (await bounded(probeBuffer(state, table.buffer, { size: table.buffer.size }))).bytes,
+        );
+        expect(words[table.rowIndex(eid) * 12]).toBeCloseTo(105, 5);
+    } finally {
+        app.dispose();
+    }
+});
+
 test("a renderer interpolates GlobalTransform when the scene has no lights", async () => {
     let eid = -1;
     const app = await build({

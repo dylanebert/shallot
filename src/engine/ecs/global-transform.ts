@@ -65,8 +65,6 @@ export interface GlobalTransformRuntime {
     current?: GpuTable<typeof Xform>;
     previous?: GpuTable<typeof Xform>;
     render?: GpuTable<typeof Xform>;
-    fresh: Uint32Array;
-    freshCount: number;
     enabled: boolean;
     tickCount: number;
     captureIndex: number;
@@ -98,8 +96,6 @@ export function registerGlobalTransform(state: State): void {
 /** @internal Install once before scene/setup authoring. GPU residency waits for a reader. */
 export function initializeGlobalTransform(state: State): void {
     const runtime: GlobalTransformRuntime = {
-        fresh: new Uint32Array(1),
-        freshCount: 0,
         enabled: false,
         tickCount: 0,
         captureIndex: 0,
@@ -209,13 +205,31 @@ export function reconcileGlobalTransformProducers(state: State): void {
     }
 }
 
-function queueFresh(runtime: GlobalTransformRuntime, eid: number): void {
-    if (runtime.freshCount === runtime.fresh.length) {
-        const fresh = new Uint32Array(runtime.fresh.length * 2);
-        fresh.set(runtime.fresh);
-        runtime.fresh = fresh;
+function queueDiscontinuity(runtime: GlobalTransformRuntime, eid: number, phase: number): void {
+    for (let i = 0; i < runtime.discontinuityCount; i++) {
+        if (runtime.discontinuities[i] === eid && runtime.discontinuityPhases[i] === phase) return;
     }
-    runtime.fresh[runtime.freshCount++] = eid;
+    if (runtime.discontinuityCount === runtime.discontinuities.length) {
+        const discontinuities = new Uint32Array(runtime.discontinuities.length * 2);
+        const phases = new Uint8Array(discontinuities.length);
+        discontinuities.set(runtime.discontinuities);
+        phases.set(runtime.discontinuityPhases);
+        runtime.discontinuities = discontinuities;
+        runtime.discontinuityPhases = phases;
+    }
+    runtime.discontinuities[runtime.discontinuityCount] = eid;
+    runtime.discontinuityPhases[runtime.discontinuityCount++] = phase;
+}
+
+function queueFresh(runtime: GlobalTransformRuntime, eid: number): void {
+    queueDiscontinuity(runtime, eid, runtime.captureIndex);
+}
+
+/** @internal Record a teleport at the current fixed-history phase. */
+export function markGlobalTransformDiscontinuity(state: State, eid: number): void {
+    const runtime = state.globalTransformRuntime;
+    if (!runtime?.enabled || !state.has(eid, GlobalTransform)) return;
+    queueDiscontinuity(runtime, eid, runtime.captureIndex);
 }
 
 /** @internal Gather authored placement into the fixed world column without per-row callbacks. */
@@ -359,20 +373,8 @@ export function prepareGlobalTransformFrame(state: State, encoder: GPUCommandEnc
         copyPhase(state, encoder, tick);
     }
     if (runtime.tickCount) copyPhase(state, encoder, runtime.tickCount + 1);
-    for (let i = 0; i < runtime.freshCount; i++) {
-        const row = runtime.current!.rowIndex(runtime.fresh[i]);
-        if (row >= 0)
-            encoder.copyBufferToBuffer(
-                runtime.current!.buffer,
-                row * 48,
-                runtime.previous!.buffer,
-                row * 48,
-                48,
-            );
-    }
     runtime.tickCount = 0;
     runtime.captureIndex = 0;
-    runtime.freshCount = 0;
     runtime.discontinuityCount = 0;
     runtime.ranges.fill(0);
     if (!runtime.current!.count) {

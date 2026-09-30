@@ -1006,6 +1006,7 @@ const SyncSystem: System = {
             runtime.stamps.set(eid, stamp);
             bodySetChanged = true;
             seedGlobalTransform(eid);
+            state.teleport(eid);
         }
         runtime.failed.forEach(dropDespawnedFailure, state);
         const stale = runtime.stale;
