@@ -6,7 +6,7 @@ setDefaultTimeout(CEILING.node);
 
 import * as d from "typegpu/data";
 import { build, type Plugin } from "../app";
-import { f32, field, u32 } from "../index";
+import { f32, u32 } from "../index";
 import { probeBuffer } from "../runtime";
 import type { State } from "./state";
 
@@ -48,7 +48,7 @@ async function stepAndValidate(state: State, label: string): Promise<void> {
 }
 
 const Record = d.struct({ amount: d.f32, tag: d.u32 });
-const Rows = { amount: field(f32), tag: field(u32) };
+const Rows = { amount: f32, tag: u32 };
 
 for (const range of ["unchanged", "sparse", "partial", "full"] as const) {
     test(`dense tables upload ${range} ranges with writeBuffer and skip unchanged rows`, async () => {
@@ -132,8 +132,8 @@ for (const range of ["unchanged", "sparse", "partial", "full"] as const) {
 test("tables combine source fields, optional presence, and several row owners", async () => {
     let state!: State;
     let table!: ReturnType<State["table"]>;
-    const Core = { x: field(f32) };
-    const Optional = { y: field(f32) };
+    const Core = { x: f32 };
+    const Optional = { y: f32 };
     const Flag = {};
     const Record = d.struct({ x: d.f32, y: d.f32, flags: d.u32 });
     const plugin: Plugin = {
@@ -155,8 +155,8 @@ test("tables combine source fields, optional presence, and several row owners", 
     state.add(eid, Core);
     state.add(eid, Optional);
     state.add(eid, Flag);
-    Core.x.set(eid, 4.5);
-    Optional.y.set(eid, 8.25);
+    state.of(Core).x.set(eid, 4.5);
+    state.of(Optional).y.set(eid, 8.25);
     state.step(0);
     const row = table.rowIndex(eid);
     expect(row).toBeGreaterThanOrEqual(0);
@@ -179,7 +179,7 @@ test("tables combine source fields, optional presence, and several row owners", 
 
 test("component fields bulk-upload through a dense struct table and release their slots", async () => {
     let state!: State;
-    const Bound = { x: field(f32), y: field(f32) };
+    const Bound = { x: f32, y: f32 };
     let table!: ReturnType<State["table"]>;
     const plugin: Plugin = {
         name: "BoundTableProbe",

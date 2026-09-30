@@ -226,10 +226,10 @@ test("disposing a Physics build leaves slab or solver state behind, so a sequent
     const author = (state: State) => {
         const eid = state.create();
         state.add(eid, Body);
-        Body.shape.set(eid, ShapeKind.Box);
-        Body.pos.set(eid, 0, 2, 0, 0);
-        Body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
-        Body.mass.set(eid, 1);
+        state.of(Body).shape.set(eid, ShapeKind.Box);
+        state.of(Body).pos.set(eid, 0, 2, 0, 0);
+        state.of(Body).halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
+        state.of(Body).mass.set(eid, 1);
         return eid;
     };
     const stepAndHash = (state: State): bigint => {

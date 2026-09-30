@@ -5,7 +5,6 @@ import {
     entity,
     FIXED_DT,
     f32,
-    field,
     GlobalTransform,
     type Plugin,
     type State,
@@ -75,17 +74,17 @@ export const ShapeKind = { Box: 0, Sphere: 1, Capsule: 2, Hull: 3 } as const;
  */
 export const Body = {
     /** the collider, a `ShapeKind`: `Box` (an OBB of `halfExtents`), `Sphere`, `Capsule` (a segment along local Y inflated by the radius), or `Hull` (a convex polytope registered in `Hulls`). */
-    shape: field(u32),
+    shape: u32,
     /** spawn position; physics owns it after spawn. */
-    pos: field(vec4),
+    pos: vec4,
     /** spawn orientation, authored as euler degrees like `Transform.rot`; physics-owned after spawn. */
-    quat: field(vec4),
+    quat: vec4,
     /** box/AABB half-extents in `xyz`; `w` doubles as the rounding radius (sphere/capsule) or the `Hull` id (a hull has radius 0, so the lane is free). */
-    halfExtents: field(vec4),
+    halfExtents: vec4,
     /** mass in kg; `0` or less marks a static body that never moves. */
-    mass: field(f32),
+    mass: f32,
     /** coulomb friction coefficient: `0` slides freely, higher grips. */
-    friction: field(f32),
+    friction: f32,
 };
 
 /**
@@ -100,17 +99,17 @@ export const Body = {
  */
 export const Spring = {
     /** the first body (a `@name` reference). */
-    a: field(entity),
+    a: entity,
     /** the second body. */
-    b: field(entity),
+    b: entity,
     /** anchor point on body `a`, in its local frame. */
-    rA: field(vec4),
+    rA: vec4,
     /** anchor point on body `b`, in its local frame. */
-    rB: field(vec4),
+    rB: vec4,
     /** pull strength; higher is stiffer. */
-    stiffness: field(f32),
+    stiffness: f32,
     /** the target distance the spring pulls the anchors toward. */
-    rest: field(f32),
+    rest: f32,
 };
 
 /**
@@ -129,15 +128,15 @@ export const Spring = {
  */
 export const Joint = {
     /** the first body (a `@name` reference). */
-    a: field(entity),
+    a: entity,
     /** the second body. */
-    b: field(entity),
+    b: entity,
     /** the pin's anchor on body `a`, in its local frame. */
-    rA: field(vec4),
+    rA: vec4,
     /** the pin's anchor on body `b`, in its local frame. */
-    rB: field(vec4),
+    rB: vec4,
     /** angular lock: `0` (default) leaves rotation free (spherical); `∞` locks orientation (author `stiffness-ang: fixed`). */
-    stiffnessAng: field(f32),
+    stiffnessAng: f32,
 };
 
 // Authoring metadata for the three components above, shared with any extension solver that registers
@@ -256,8 +255,8 @@ function springSignatureInState(state: State): number {
     let h = FNV_BASIS;
     for (const eid of state.query(SPRING_TERMS)) {
         h = fold(h, eid);
-        const a = Spring.a.get(eid);
-        const b = Spring.b.get(eid);
+        const a = state.of(Spring).a.get(eid);
+        const b = state.of(Spring).b.get(eid);
         h = fold(h, a);
         h = fold(h, b);
         // fold the referenced bodies' create-stamps: a same-update realias of an endpoint (destroy+create
@@ -265,14 +264,14 @@ function springSignatureInState(state: State): number {
         // solver joint pins the NEW occupant at the old anchors.
         h = fold(h, state.stamp(a));
         h = fold(h, state.stamp(b));
-        h = fold(h, sigBits(Spring.rA.x.get(eid)));
-        h = fold(h, sigBits(Spring.rA.y.get(eid)));
-        h = fold(h, sigBits(Spring.rA.z.get(eid)));
-        h = fold(h, sigBits(Spring.rB.x.get(eid)));
-        h = fold(h, sigBits(Spring.rB.y.get(eid)));
-        h = fold(h, sigBits(Spring.rB.z.get(eid)));
-        h = fold(h, sigBits(Spring.stiffness.get(eid)));
-        h = fold(h, sigBits(Spring.rest.get(eid)));
+        h = fold(h, sigBits(state.of(Spring).rA.x.get(eid)));
+        h = fold(h, sigBits(state.of(Spring).rA.y.get(eid)));
+        h = fold(h, sigBits(state.of(Spring).rA.z.get(eid)));
+        h = fold(h, sigBits(state.of(Spring).rB.x.get(eid)));
+        h = fold(h, sigBits(state.of(Spring).rB.y.get(eid)));
+        h = fold(h, sigBits(state.of(Spring).rB.z.get(eid)));
+        h = fold(h, sigBits(state.of(Spring).stiffness.get(eid)));
+        h = fold(h, sigBits(state.of(Spring).rest.get(eid)));
     }
     return h;
 }
@@ -289,21 +288,21 @@ function jointSignatureInState(state: State): number {
     let h = FNV_BASIS;
     for (const eid of state.query(JOINT_TERMS)) {
         h = fold(h, eid);
-        const a = Joint.a.get(eid);
-        const b = Joint.b.get(eid);
+        const a = state.of(Joint).a.get(eid);
+        const b = state.of(Joint).b.get(eid);
         h = fold(h, a);
         h = fold(h, b);
         // fold the referenced bodies' create-stamps — see springSignature: a realias of an endpoint must
         // force the re-upload so the solver joint rebinds to the new occupant.
         h = fold(h, state.stamp(a));
         h = fold(h, state.stamp(b));
-        h = fold(h, sigBits(Joint.rA.x.get(eid)));
-        h = fold(h, sigBits(Joint.rA.y.get(eid)));
-        h = fold(h, sigBits(Joint.rA.z.get(eid)));
-        h = fold(h, sigBits(Joint.rB.x.get(eid)));
-        h = fold(h, sigBits(Joint.rB.y.get(eid)));
-        h = fold(h, sigBits(Joint.rB.z.get(eid)));
-        h = fold(h, sigBits(Joint.stiffnessAng.get(eid)));
+        h = fold(h, sigBits(state.of(Joint).rA.x.get(eid)));
+        h = fold(h, sigBits(state.of(Joint).rA.y.get(eid)));
+        h = fold(h, sigBits(state.of(Joint).rA.z.get(eid)));
+        h = fold(h, sigBits(state.of(Joint).rB.x.get(eid)));
+        h = fold(h, sigBits(state.of(Joint).rB.y.get(eid)));
+        h = fold(h, sigBits(state.of(Joint).rB.z.get(eid)));
+        h = fold(h, sigBits(state.of(Joint).stiffnessAng.get(eid)));
     }
     return h;
 }
@@ -320,14 +319,14 @@ export function springDefs(state: State): SpringDef[] {
         const warnings = signatureWarningsFor(state);
         const out: SpringDef[] = [];
         for (const eid of state.query([Spring])) {
-            const stiffness = Spring.stiffness.get(eid);
+            const stiffness = state.of(Spring).stiffness.get(eid);
             // NaN is transparent to comparison-only guards (NaN < 0 is false), so state finiteness explicitly.
             // 0 and ∞ are valid authored values (0 = non-positive → downstream skip; ∞ = rigid) — only negative
             // and NaN are rejected, at the authoring layer so every solver inherits one behavior.
             if (Number.isNaN(stiffness) || stiffness < 0) {
                 if (!warnings.springs.has(eid)) {
                     console.warn(
-                        `[physics] spring (a: ${Spring.a.get(eid)}, b: ${Spring.b.get(eid)}) has negative or NaN stiffness — skipped`,
+                        `[physics] spring (a: ${state.of(Spring).a.get(eid)}, b: ${state.of(Spring).b.get(eid)}) has negative or NaN stiffness — skipped`,
                     );
                     warnings.springs.add(eid);
                 }
@@ -335,12 +334,20 @@ export function springDefs(state: State): SpringDef[] {
             }
             warnings.springs.delete(eid);
             out.push({
-                a: Spring.a.get(eid),
-                b: Spring.b.get(eid),
-                rA: [Spring.rA.x.get(eid), Spring.rA.y.get(eid), Spring.rA.z.get(eid)],
-                rB: [Spring.rB.x.get(eid), Spring.rB.y.get(eid), Spring.rB.z.get(eid)],
+                a: state.of(Spring).a.get(eid),
+                b: state.of(Spring).b.get(eid),
+                rA: [
+                    state.of(Spring).rA.x.get(eid),
+                    state.of(Spring).rA.y.get(eid),
+                    state.of(Spring).rA.z.get(eid),
+                ],
+                rB: [
+                    state.of(Spring).rB.x.get(eid),
+                    state.of(Spring).rB.y.get(eid),
+                    state.of(Spring).rB.z.get(eid),
+                ],
                 stiffness,
-                rest: Spring.rest.get(eid),
+                rest: state.of(Spring).rest.get(eid),
             });
         }
         return out;
@@ -353,14 +360,14 @@ export function jointDefs(state: State): JointDef[] {
         const warnings = signatureWarningsFor(state);
         const out: JointDef[] = [];
         for (const eid of state.query([Joint])) {
-            const stiffnessAng = Joint.stiffnessAng.get(eid);
+            const stiffnessAng = state.of(Joint).stiffnessAng.get(eid);
             // NaN is transparent to comparison-only guards (NaN < 0 is false), so state finiteness explicitly.
             // 0 (spherical) and ∞ (fixed) are valid authored values — only negative and NaN are rejected, at the
             // authoring layer so every solver inherits one behavior.
             if (Number.isNaN(stiffnessAng) || stiffnessAng < 0) {
                 if (!warnings.joints.has(eid)) {
                     console.warn(
-                        `[physics] joint (a: ${Joint.a.get(eid)}, b: ${Joint.b.get(eid)}) has negative or NaN angular stiffness — skipped`,
+                        `[physics] joint (a: ${state.of(Joint).a.get(eid)}, b: ${state.of(Joint).b.get(eid)}) has negative or NaN angular stiffness — skipped`,
                     );
                     warnings.joints.add(eid);
                 }
@@ -368,10 +375,18 @@ export function jointDefs(state: State): JointDef[] {
             }
             warnings.joints.delete(eid);
             out.push({
-                a: Joint.a.get(eid),
-                b: Joint.b.get(eid),
-                rA: [Joint.rA.x.get(eid), Joint.rA.y.get(eid), Joint.rA.z.get(eid)],
-                rB: [Joint.rB.x.get(eid), Joint.rB.y.get(eid), Joint.rB.z.get(eid)],
+                a: state.of(Joint).a.get(eid),
+                b: state.of(Joint).b.get(eid),
+                rA: [
+                    state.of(Joint).rA.x.get(eid),
+                    state.of(Joint).rA.y.get(eid),
+                    state.of(Joint).rA.z.get(eid),
+                ],
+                rB: [
+                    state.of(Joint).rB.x.get(eid),
+                    state.of(Joint).rB.y.get(eid),
+                    state.of(Joint).rB.z.get(eid),
+                ],
                 stiffnessAng,
             });
         }

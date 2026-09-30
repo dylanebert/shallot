@@ -6,7 +6,7 @@
 // over State — no GPU — so the packing contract is what sprite.test.ts exercises directly.
 
 import * as d from "typegpu/data";
-import { f32, field, GlobalTransform, type State, u32, vec2 } from "../../engine";
+import { f32, GlobalTransform, type State, u32, vec2 } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { SpriteData } from "./surface";
 
@@ -57,25 +57,25 @@ export const SpriteFill = {
  */
 export const Sprite = {
     /** registered image id (see {@link image}); a scene's `image:` resolves the registered name */
-    image: field(u32),
+    image: u32,
     /** quad size in world units, before the transform's scale */
-    size: field(vec2),
+    size: vec2,
     /** 0..1 pivot within the quad; 0.5 0.5 centers, 0.5 0 pins the bottom edge to the entity */
-    anchor: field(vec2),
+    anchor: vec2,
     /** hex sRGB tint multiplied into the texture */
-    color: field(f32),
+    color: f32,
     /** texture-alpha multiplier; under clip blend it shrinks the cutout, under alpha blend it fades */
-    opacity: field(f32),
+    opacity: f32,
     /** drawn when nonzero */
-    visible: field(f32),
+    visible: f32,
     /** billboard orientation, a {@link SpriteBillboard} mode */
-    billboard: field(u32),
+    billboard: u32,
     /** compositing, a {@link SpriteBlend} mode */
-    blend: field(u32),
+    blend: u32,
     /** leading fraction of the image shown, 0..1, along {@link fillMode} */
-    fill: field(f32),
+    fill: f32,
     /** fill direction, a {@link SpriteFill} mode */
-    fillMode: field(u32),
+    fillMode: u32,
 };
 
 // one sprite instance = the quad-local offset (-size·anchor) + size, the owning eid, the array
@@ -159,19 +159,19 @@ export function signature(state: State): number {
     const scratch = spritePackState(state);
     let h = 0x811c9dc5 | 0;
     for (const eid of state.query([Sprite, GlobalTransform])) {
-        if (!Sprite.visible.get(eid)) continue;
+        if (!state.of(Sprite).visible.get(eid)) continue;
         h = fold(h, eid);
-        h = fold(h, Sprite.image.get(eid));
-        h = fold(h, fbits(Sprite.size.x.get(eid), scratch));
-        h = fold(h, fbits(Sprite.size.y.get(eid), scratch));
-        h = fold(h, fbits(Sprite.anchor.x.get(eid), scratch));
-        h = fold(h, fbits(Sprite.anchor.y.get(eid), scratch));
-        h = fold(h, Sprite.color.get(eid));
-        h = fold(h, fbits(Sprite.opacity.get(eid), scratch));
-        h = fold(h, Sprite.billboard.get(eid));
-        h = fold(h, Sprite.blend.get(eid));
-        h = fold(h, fbits(Sprite.fill.get(eid), scratch));
-        h = fold(h, Sprite.fillMode.get(eid));
+        h = fold(h, state.of(Sprite).image.get(eid));
+        h = fold(h, fbits(state.of(Sprite).size.x.get(eid), scratch));
+        h = fold(h, fbits(state.of(Sprite).size.y.get(eid), scratch));
+        h = fold(h, fbits(state.of(Sprite).anchor.x.get(eid), scratch));
+        h = fold(h, fbits(state.of(Sprite).anchor.y.get(eid), scratch));
+        h = fold(h, state.of(Sprite).color.get(eid));
+        h = fold(h, fbits(state.of(Sprite).opacity.get(eid), scratch));
+        h = fold(h, state.of(Sprite).billboard.get(eid));
+        h = fold(h, state.of(Sprite).blend.get(eid));
+        h = fold(h, fbits(state.of(Sprite).fill.get(eid), scratch));
+        h = fold(h, state.of(Sprite).fillMode.get(eid));
     }
     return h;
 }
@@ -221,21 +221,21 @@ export function packSprites(state: State): {
 
     let maxEid = -1;
     for (const eid of state.query([Sprite, GlobalTransform])) {
-        if (!Sprite.visible.get(eid)) continue;
-        const w = Sprite.size.x.get(eid);
-        const h = Sprite.size.y.get(eid);
-        const billboard = Math.min(Sprite.billboard.get(eid), 2);
-        const blend = Math.min(Sprite.blend.get(eid), 1);
+        if (!state.of(Sprite).visible.get(eid)) continue;
+        const w = state.of(Sprite).size.x.get(eid);
+        const h = state.of(Sprite).size.y.get(eid);
+        const billboard = Math.min(state.of(Sprite).billboard.get(eid), 2);
+        const blend = Math.min(state.of(Sprite).blend.get(eid), 1);
         if (eid > maxEid) maxEid = eid;
         pack.byBucket[billboard * 2 + blend].push({
             eid,
-            ox: -w * Sprite.anchor.x.get(eid),
-            oy: -h * Sprite.anchor.y.get(eid),
+            ox: -w * state.of(Sprite).anchor.x.get(eid),
+            oy: -h * state.of(Sprite).anchor.y.get(eid),
             w,
             h,
-            layer: Sprite.image.get(eid),
-            color: packColor(Sprite.color.get(eid), Sprite.opacity.get(eid)),
-            fill: packFill(Sprite.fill.get(eid), Sprite.fillMode.get(eid)),
+            layer: state.of(Sprite).image.get(eid),
+            color: packColor(state.of(Sprite).color.get(eid), state.of(Sprite).opacity.get(eid)),
+            fill: packFill(state.of(Sprite).fill.get(eid), state.of(Sprite).fillMode.get(eid)),
         });
     }
 

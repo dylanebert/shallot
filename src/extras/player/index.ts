@@ -9,16 +9,7 @@ import {
     requirePointerLock,
 } from "../../core/input";
 import { Camera, RenderPlugin } from "../../core/rendering";
-import {
-    entity,
-    f32,
-    field,
-    not,
-    type Plugin,
-    type State,
-    type System,
-    Transform,
-} from "../../engine";
+import { entity, f32, not, type Plugin, type State, type System, Transform } from "../../engine";
 import { clamp, lerp } from "../../engine/utils";
 import {
     Character,
@@ -73,22 +64,22 @@ const LOOK_REFERENCE_HEIGHT = 1080;
  */
 export const Player = {
     /** look yaw in radians (turn around world Y); set it to face a direction at spawn */
-    yaw: field(f32),
+    yaw: f32,
     /** look pitch in radians (clamped to ±90°); set it to tilt the view at spawn */
-    pitch: field(f32),
+    pitch: f32,
     /** walk speed (m/s) the move input is scaled to */
-    speed: field(f32),
+    speed: f32,
     /** sprint multiplier applied while Shift is held */
-    sprint: field(f32),
+    sprint: f32,
     /** mouse-look radians per pixel of pointer-lock movement, at a fixed 1080px reference height (the look
      * speed is resolution-independent, so the same mouse motion turns the same angle at any canvas size) */
-    sensitivity: field(f32),
+    sensitivity: f32,
     /** camera height above the capsule centre (the eye offset) */
-    eyeHeight: field(f32),
+    eyeHeight: f32,
     /** camera pull-back from the eye: 0 = first-person, > 0 = third-person (scaffolding) */
-    distance: field(f32),
+    distance: f32,
     /** the linked camera entity (a Camera + Transform); set this or the camera never moves */
-    camera: field(entity),
+    camera: entity,
 };
 
 /** Pointer-lock reads are State-scoped. */
@@ -130,19 +121,21 @@ const PlayerSnapshotSystem: System = {
             const y = _globalTransform[1];
             const z = _globalTransform[2];
             if (state.has(eid, PlayerFollow)) {
-                PlayerFollow.prev.set(
-                    eid,
-                    PlayerFollow.curr.x.get(eid),
-                    PlayerFollow.curr.y.get(eid),
-                    PlayerFollow.curr.z.get(eid),
-                    0,
-                );
+                state
+                    .of(PlayerFollow)
+                    .prev.set(
+                        eid,
+                        state.of(PlayerFollow).curr.x.get(eid),
+                        state.of(PlayerFollow).curr.y.get(eid),
+                        state.of(PlayerFollow).curr.z.get(eid),
+                        0,
+                    );
             } else {
                 // first snapshot: prev == curr, and membership becomes the "initialized" flag
                 state.add(eid, PlayerFollow);
-                PlayerFollow.prev.set(eid, x, y, z, 0);
+                state.of(PlayerFollow).prev.set(eid, x, y, z, 0);
             }
-            PlayerFollow.curr.set(eid, x, y, z, 0);
+            state.of(PlayerFollow).curr.set(eid, x, y, z, 0);
         }
         // drop the follow state when a player is gone (mirrors the derived-state cleanup in orbit)
         for (const eid of state.query(ORPHAN_FOLLOWS)) state.remove(eid, PlayerFollow);
@@ -154,23 +147,35 @@ const PlayerSnapshotSystem: System = {
 function followPos(state: State, eid: number, out: [number, number, number]): void {
     if (state.has(eid, PlayerFollow)) {
         const a = state.time.fixedAlpha;
-        out[0] = lerp(PlayerFollow.prev.x.get(eid), PlayerFollow.curr.x.get(eid), a);
-        out[1] = lerp(PlayerFollow.prev.y.get(eid), PlayerFollow.curr.y.get(eid), a);
-        out[2] = lerp(PlayerFollow.prev.z.get(eid), PlayerFollow.curr.z.get(eid), a);
+        out[0] = lerp(
+            state.of(PlayerFollow).prev.x.get(eid),
+            state.of(PlayerFollow).curr.x.get(eid),
+            a,
+        );
+        out[1] = lerp(
+            state.of(PlayerFollow).prev.y.get(eid),
+            state.of(PlayerFollow).curr.y.get(eid),
+            a,
+        );
+        out[2] = lerp(
+            state.of(PlayerFollow).prev.z.get(eid),
+            state.of(PlayerFollow).curr.z.get(eid),
+            a,
+        );
         return;
     }
-    out[0] = Body.pos.x.get(eid);
-    out[1] = Body.pos.y.get(eid);
-    out[2] = Body.pos.z.get(eid);
+    out[0] = state.of(Body).pos.x.get(eid);
+    out[1] = state.of(Body).pos.y.get(eid);
+    out[2] = state.of(Body).pos.z.get(eid);
 }
 
 function findCamera(state: State, eid: number): number {
-    const cam = Player.camera.get(eid);
+    const cam = state.of(Player).camera.get(eid);
     if (!cam || !state.has(cam, Camera)) {
         // warn once, latched on the derived PlayerFollow (added by the snapshot system); if it isn't up yet
         // (the character hasn't registered), skip — the next frame with GlobalTransform warns.
-        if (state.has(eid, PlayerFollow) && !PlayerFollow.warned.get(eid)) {
-            PlayerFollow.warned.set(eid, 1);
+        if (state.has(eid, PlayerFollow) && !state.of(PlayerFollow).warned.get(eid)) {
+            state.of(PlayerFollow).warned.set(eid, 1);
             console.warn(
                 `[player] entity ${eid} has Player but Player.camera points at no Camera — set it to a camera eid`,
             );
@@ -212,23 +217,23 @@ export const PlayerControlSystem: System = {
         const input = devices(state);
         const active = inputEnabled(state);
         for (const eid of state.query(PLAYER_BODIES)) {
-            let yaw = Player.yaw.get(eid);
-            let pitch = Player.pitch.get(eid);
+            let yaw = state.of(Player).yaw.get(eid);
+            let pitch = state.of(Player).pitch.get(eid);
             if (active && input.pointer.lock.status === "locked") {
                 // Resolution-independent mouse-look. Pointer-lock movementX/Y is physical mouse motion in CSS
                 // px — independent of canvas size — so the angle per pixel must NOT scale with the canvas.
-                const s = Player.sensitivity.get(eid) / LOOK_REFERENCE_HEIGHT;
+                const s = state.of(Player).sensitivity.get(eid) / LOOK_REFERENCE_HEIGHT;
                 yaw -= input.pointer.deltaX * s;
                 pitch = clamp(pitch - input.pointer.deltaY * s, -MAX_PITCH, MAX_PITCH);
-                Player.yaw.set(eid, yaw);
-                Player.pitch.set(eid, pitch);
+                state.of(Player).yaw.set(eid, yaw);
+                state.of(Player).pitch.set(eid, pitch);
             }
 
             const cy = Math.cos(yaw);
             const sy = Math.sin(yaw);
             const sprint =
                 input.keys.held.has("ShiftLeft") || input.keys.held.has("ShiftRight")
-                    ? Player.sprint.get(eid)
+                    ? state.of(Player).sprint.get(eid)
                     : 1;
 
             let lx = 0;
@@ -239,7 +244,7 @@ export const PlayerControlSystem: System = {
             if (input.keys.held.has("KeyD")) lx += 1;
             const len = Math.sqrt(lx * lx + lz * lz);
             if (len > 0) {
-                const v = (Player.speed.get(eid) * sprint) / len;
+                const v = (state.of(Player).speed.get(eid) * sprint) / len;
                 move(state, eid, (lz * sy + lx * cy) * v, (lz * cy - lx * sy) * v);
             } else {
                 move(state, eid, 0, 0);
@@ -258,14 +263,16 @@ export const PlayerControlSystem: System = {
             const fx = -cp * sy;
             const fy = Math.sin(pitch);
             const fz = -cp * cy;
-            const dist = Player.distance.get(eid);
-            Transform.pos.set(
-                cam,
-                _pos[0] - fx * dist,
-                _pos[1] + Player.eyeHeight.get(eid) - fy * dist,
-                _pos[2] - fz * dist,
-                1,
-            );
+            const dist = state.of(Player).distance.get(eid);
+            state
+                .of(Transform)
+                .pos.set(
+                    cam,
+                    _pos[0] - fx * dist,
+                    _pos[1] + state.of(Player).eyeHeight.get(eid) - fy * dist,
+                    _pos[2] - fz * dist,
+                    1,
+                );
             setLook(cam, yaw, pitch);
         }
 

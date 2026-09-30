@@ -25,15 +25,15 @@ export function bodyCandidates(
         if (!live) continue;
         out.push({
             eid,
-            shape: Body.shape.get(eid),
+            shape: state.of(Body).shape.get(eid),
             pos: live.pos,
             quat: live.quat,
             half: [
-                Body.halfExtents.x.get(eid),
-                Body.halfExtents.y.get(eid),
-                Body.halfExtents.z.get(eid),
+                state.of(Body).halfExtents.x.get(eid),
+                state.of(Body).halfExtents.y.get(eid),
+                state.of(Body).halfExtents.z.get(eid),
             ],
-            radius: Body.halfExtents.w.get(eid),
+            radius: state.of(Body).halfExtents.w.get(eid),
         });
     }
     return out;
@@ -52,7 +52,7 @@ export function grabHit(
 ): RayHit | null {
     if (!ray) return null;
     const hit = raycast(ray, bodyCandidates(state, read, exclude), maxDist);
-    return hit && Body.mass.get(hit.eid) > 0 ? hit : null;
+    return hit && state.of(Body).mass.get(hit.eid) > 0 ? hit : null;
 }
 
 /** a world point in the held body's local frame (rB for the grab joint): conj(quat) · (point − pos), or
@@ -104,8 +104,8 @@ export function cursorRay(state: State, cam: number): Ray | null {
         input.mouse.y,
         viewport?.cssWidth ?? 0,
         viewport?.cssHeight ?? 0,
-        Camera.fov.get(cam),
-        Camera.near.get(cam),
+        state.of(Camera).fov.get(cam),
+        state.of(Camera).near.get(cam),
         [global.pos.x.get(cam), global.pos.y.get(cam), global.pos.z.get(cam)],
         [
             global.quat.x.get(cam),

@@ -44,7 +44,7 @@ import {
     Views,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, f32, field, GlobalTransform, vec4 } from "../../engine";
+import { Compute, f32, GlobalTransform, vec4 } from "../../engine";
 import { precompile, worldResource } from "../../engine/runtime";
 import { ColorSystem, DEPTH_FORMAT } from "../../standard/rendering";
 import { GlazeSystem } from "../../transitional/glaze";
@@ -80,11 +80,11 @@ import {
  */
 export const Outline = {
     /** band color, linear rgb (alpha unused in v1) */
-    color: field(vec4),
+    color: vec4,
     /** band thickness in pixels, clamped to 64 */
-    width: field(f32),
+    width: f32,
     /** 0 = always-on-top (default); 1 = occlusion-aware, hidden where the object is behind other geometry (needs sear's `Depth` on the camera) */
-    occlude: field(f32),
+    occlude: f32,
 };
 
 // the seed texture stores the nearest covered-pixel coordinate as an INTEGER pixel index — uint, not
@@ -383,7 +383,7 @@ const OutlineSystem: System = {
         if (!globalTransforms) return;
 
         ensureInstances(eids.length);
-        const byMesh = groupByMesh(eids, (eid) => Part.mesh.get(eid));
+        const byMesh = groupByMesh(eids, (eid) => state.of(Part).mesh.get(eid));
         const groups: Group[] = [];
         let cursor = 0;
         let maxWidth = 1;
@@ -396,12 +396,12 @@ const OutlineSystem: System = {
             for (const eid of group) {
                 outlineState().eidsStaging[cursor] = eid;
                 const o = cursor * 8;
-                outlineState().attrStaging[o] = Outline.color.x.get(eid);
-                outlineState().attrStaging[o + 1] = Outline.color.y.get(eid);
-                outlineState().attrStaging[o + 2] = Outline.color.z.get(eid);
-                outlineState().attrStaging[o + 3] = Outline.color.w.get(eid);
-                const w = Math.max(0, Math.min(MAX_WIDTH, Outline.width.get(eid)));
-                const occ = Outline.occlude.get(eid);
+                outlineState().attrStaging[o] = state.of(Outline).color.x.get(eid);
+                outlineState().attrStaging[o + 1] = state.of(Outline).color.y.get(eid);
+                outlineState().attrStaging[o + 2] = state.of(Outline).color.z.get(eid);
+                outlineState().attrStaging[o + 3] = state.of(Outline).color.w.get(eid);
+                const w = Math.max(0, Math.min(MAX_WIDTH, state.of(Outline).width.get(eid)));
+                const occ = state.of(Outline).occlude.get(eid);
                 outlineState().attrStaging[o + 4] = w;
                 outlineState().attrStaging[o + 5] = occ;
                 if (w > maxWidth) maxWidth = w;

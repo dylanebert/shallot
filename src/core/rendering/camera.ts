@@ -1,7 +1,6 @@
 import {
     composeTransform,
     f32,
-    field,
     invert,
     multiply,
     orthographic,
@@ -32,19 +31,19 @@ export const CameraMode = {
  */
 export const Camera = {
     /** perspective (0) or orthographic (1) projection, set via the `mode` scene attribute */
-    mode: field(u32),
+    mode: u32,
     /** field of view in degrees (perspective mode) */
-    fov: field(f32),
+    fov: f32,
     /** near plane distance */
-    near: field(f32),
+    near: f32,
     /** far plane distance */
-    far: field(f32),
+    far: f32,
     /** view size in world units (orthographic mode) */
-    size: field(f32),
+    size: f32,
     /** render target color as sRGB-encoded hex (e.g. 0x5cbfbf) */
-    clearColor: field(u32),
+    clearColor: u32,
     /** antialiasing: 1 = 4× MSAA (default), 0 = off (single-sample, crisp, for a pixel-art look) */
-    antialias: field(u32),
+    antialias: u32,
 };
 
 /**
@@ -61,9 +60,9 @@ export const Camera = {
  */
 export const Resolution = {
     /** render width in pixels; 0 = derive from height to keep the canvas aspect */
-    width: field(u32),
+    width: u32,
     /** render height in pixels; 0 = derive from width to keep the canvas aspect */
-    height: field(u32),
+    height: u32,
 };
 
 const _proj = new Float32Array(16);

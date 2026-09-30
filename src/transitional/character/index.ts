@@ -1,5 +1,5 @@
 // Destination: standard/physics; owner: physics-boundary.md.
-import { FIXED_DT, f32, field, type Plugin, type State, type System } from "../../engine";
+import { FIXED_DT, f32, type Plugin, type State, type System } from "../../engine";
 import {
     Body,
     type BodyStateOut,
@@ -45,11 +45,11 @@ const _worldGravity = { x: 0, y: 0, z: 0 };
  */
 export const Character = {
     /** steepest walkable slope in degrees; a contact flatter than this grounds the character, steeper it slides */
-    maxSlope: field(f32),
+    maxSlope: f32,
     /** the launch velocity a buffered + grounded {@link jump} sets. 0 disables jumping */
-    jumpSpeed: field(f32),
+    jumpSpeed: f32,
     /** per-character gravity (negative, snappier than the world for a player). 0 = the configured world gravity */
-    gravity: field(f32),
+    gravity: f32,
 };
 
 // last-registered signature — re-sync `states` ONLY on a change to the authored set / tuning (the GPU
@@ -76,9 +76,9 @@ function signature(state: State): number {
     for (const eid of state.query(CHARACTER_TERMS)) {
         h = fold(h, eid);
         h = fold(h, state.stamp(eid));
-        h = fold(h, sigBits(Character.maxSlope.get(eid)));
-        h = fold(h, sigBits(Character.jumpSpeed.get(eid)));
-        h = fold(h, sigBits(Character.gravity.get(eid)));
+        h = fold(h, sigBits(state.of(Character).maxSlope.get(eid)));
+        h = fold(h, sigBits(state.of(Character).jumpSpeed.get(eid)));
+        h = fold(h, sigBits(state.of(Character).gravity.get(eid)));
     }
     return h;
 }
@@ -125,10 +125,10 @@ function rebuildStates(state: State, drive: ReturnType<typeof driveFor>): void {
         const stamp = state.stamp(eid);
         const st = drive.states.get(eid);
         if (st && drive.stamps.get(eid) === stamp) {
-            st.maxSlopeCos = Math.cos(Character.maxSlope.get(eid) * DEG);
-            st.jumpSpeed = Character.jumpSpeed.get(eid);
-            st.half = Body.halfExtents.y.get(eid);
-            st.radius = Body.halfExtents.w.get(eid);
+            st.maxSlopeCos = Math.cos(state.of(Character).maxSlope.get(eid) * DEG);
+            st.jumpSpeed = state.of(Character).jumpSpeed.get(eid);
+            st.half = state.of(Body).halfExtents.y.get(eid);
+            st.radius = state.of(Body).halfExtents.w.get(eid);
         } else {
             if (st) {
                 // realias: drive input keyed to the destroyed owner is stale. A fresh spawn keeps
@@ -191,13 +191,13 @@ function sweepEid(eid: number, st: CharState, state: State): void {
     let np = 0;
     for (const b of state.query(BODY_TERMS)) {
         if (b === eid) continue; // the character never collides against itself (it IS `start`)
-        const shape = Body.shape.get(b);
+        const shape = state.of(Body).shape.get(b);
         const sb = poolBody(pi++);
         sb.shape = shape;
-        sb.half[0] = Body.halfExtents.x.get(b);
-        sb.half[1] = Body.halfExtents.y.get(b);
-        sb.half[2] = Body.halfExtents.z.get(b);
-        const hw = Body.halfExtents.w.get(b); // a rounding radius (sphere/capsule) OR a hull id (shape 3)
+        sb.half[0] = state.of(Body).halfExtents.x.get(b);
+        sb.half[1] = state.of(Body).halfExtents.y.get(b);
+        sb.half[2] = state.of(Body).halfExtents.z.get(b);
+        const hw = state.of(Body).halfExtents.w.get(b); // a rounding radius (sphere/capsule) OR a hull id (shape 3)
         if (shape === ShapeKind.Hull) {
             sb.radius = 0;
             sb.hull = hullById(hw);
@@ -220,18 +220,18 @@ function sweepEid(eid: number, st: CharState, state: State): void {
         } else {
             // cold start (no live Body state yet): authored Body placement, velocity 0 — correct for the static
             // collision world the character needs from frame 1, and a freshly spawned dynamic hasn't moved.
-            sb.pos[0] = Body.pos.x.get(b);
-            sb.pos[1] = Body.pos.y.get(b);
-            sb.pos[2] = Body.pos.z.get(b);
-            sb.quat[0] = Body.quat.x.get(b);
-            sb.quat[1] = Body.quat.y.get(b);
-            sb.quat[2] = Body.quat.z.get(b);
-            sb.quat[3] = Body.quat.w.get(b);
+            sb.pos[0] = state.of(Body).pos.x.get(b);
+            sb.pos[1] = state.of(Body).pos.y.get(b);
+            sb.pos[2] = state.of(Body).pos.z.get(b);
+            sb.quat[0] = state.of(Body).quat.x.get(b);
+            sb.quat[1] = state.of(Body).quat.y.get(b);
+            sb.quat[2] = state.of(Body).quat.z.get(b);
+            sb.quat[3] = state.of(Body).quat.w.get(b);
             sb.vel[0] = 0;
             sb.vel[1] = 0;
             sb.vel[2] = 0;
         }
-        if (Body.mass.get(b) > 0) {
+        if (state.of(Body).mass.get(b) > 0) {
             _pushEids[np] = b;
             _push[np++] = sb;
         } else {
@@ -246,7 +246,7 @@ function sweepEid(eid: number, st: CharState, state: State): void {
     const input = _input;
     input[0] = m ? m[0] : 0;
     input[2] = m ? m[1] : 0;
-    const g = Character.gravity.get(eid);
+    const g = state.of(Character).gravity.get(eid);
     const gravity =
         g !== 0 ? g : (physicsWorld(state)?.getGravity(_worldGravity).y ?? Physics.gravity);
 

@@ -39,10 +39,10 @@ test("the public Player controller consumes held, released and neutral input to 
         const state = app.state;
         const floor = state.create();
         state.add(floor, Body);
-        Body.shape.set(floor, ShapeKind.Box);
-        Body.pos.set(floor, 0, 0, 0, 0);
-        Body.halfExtents.set(floor, 4, 0.5, 4, 0);
-        Body.mass.set(floor, 0);
+        state.of(Body).shape.set(floor, ShapeKind.Box);
+        state.of(Body).pos.set(floor, 0, 0, 0, 0);
+        state.of(Body).halfExtents.set(floor, 4, 0.5, 4, 0);
+        state.of(Body).mass.set(floor, 0);
 
         const camera = state.create();
         state.add(camera, Camera);
@@ -52,40 +52,42 @@ test("the public Player controller consumes held, released and neutral input to 
         state.add(player, Body);
         state.add(player, Character);
         state.add(player, Player);
-        Body.shape.set(player, ShapeKind.Capsule);
-        Body.pos.set(player, 0, 1.3, 0, 0);
-        Body.halfExtents.set(player, 0, 0.5, 0, 0.3);
-        Body.mass.set(player, 0);
-        Player.speed.set(player, 6);
-        Player.sprint.set(player, 1);
-        Player.sensitivity.set(player, 1.5);
-        Player.camera.set(player, camera);
-        Character.jumpSpeed.set(player, 7);
-        Character.gravity.set(player, -30);
+        state.of(Body).shape.set(player, ShapeKind.Capsule);
+        state.of(Body).pos.set(player, 0, 1.3, 0, 0);
+        state.of(Body).halfExtents.set(player, 0, 0.5, 0, 0.3);
+        state.of(Body).mass.set(player, 0);
+        state.of(Player).speed.set(player, 6);
+        state.of(Player).sprint.set(player, 1);
+        state.of(Player).sensitivity.set(player, 1.5);
+        state.of(Player).camera.set(player, camera);
+        state.of(Character).jumpSpeed.set(player, 7);
+        state.of(Character).gravity.set(player, -30);
 
         // Establish the floor contact before the supplied jump edge arrives.
         state.step(Time.FIXED_DT);
         const initial = readBody(state, player);
         if (!initial) throw new Error("Player body did not enter the CPU physics world");
-        const initialYaw = Player.yaw.get(player);
-        const initialPitch = Player.pitch.get(player);
+        const initialYaw = state.of(Player).yaw.get(player);
+        const initialPitch = state.of(Player).pitch.get(player);
 
         pointerLockChanged(state, true);
         pointerMove(state, 0, 0, 12, -4);
         pressKey(state, "KeyW");
         pressKey(state, "Space");
         state.step(Time.FIXED_DT);
-        const lookScale = Player.sensitivity.get(player) / 1080;
-        if (Math.abs(Player.yaw.get(player) - (initialYaw - 12 * lookScale)) > 0.000001)
+        const lookScale = state.of(Player).sensitivity.get(player) / 1080;
+        if (Math.abs(state.of(Player).yaw.get(player) - (initialYaw - 12 * lookScale)) > 0.000001)
             throw new Error("Player did not consume the supplied locked look sensitivity");
-        if (Math.abs(Player.pitch.get(player) - (initialPitch + 4 * lookScale)) > 0.000001)
+        if (
+            Math.abs(state.of(Player).pitch.get(player) - (initialPitch + 4 * lookScale)) > 0.000001
+        )
             throw new Error("Player did not consume the supplied vertical look sensitivity");
         const expectedYaw = initialYaw - 12 * lookScale;
         const expectedPitch = initialPitch + 4 * lookScale;
         const halfYaw = expectedYaw * 0.5;
         const halfPitch = expectedPitch * 0.5;
         const expectedCameraY = Math.sin(halfYaw) * Math.cos(halfPitch);
-        if (Math.abs(Transform.rot.y.get(camera) - expectedCameraY) > 0.000001)
+        if (Math.abs(state.of(Transform).rot.y.get(camera) - expectedCameraY) > 0.000001)
             throw new Error("Player did not apply look to the public camera Transform.rot");
         if (!devices(state).keys.held.has("KeyW"))
             throw new Error("Player lost the held move fact");

@@ -2,7 +2,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State } from "../../engine";
-import { Compute, f32, field, GlobalTransform, unpackColor, vec4 } from "../../engine";
+import { Compute, f32, GlobalTransform, unpackColor, vec4 } from "../../engine";
 import { worldResource } from "../../engine/runtime";
 import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/utils";
 
@@ -17,8 +17,8 @@ import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/
  * ```
  */
 export const AmbientLight = {
-    color: field(f32),
-    intensity: field(f32),
+    color: f32,
+    intensity: f32,
 };
 
 /**
@@ -33,9 +33,9 @@ export const AmbientLight = {
  * ```
  */
 export const DirectionalLight = {
-    color: field(f32),
-    intensity: field(f32),
-    direction: field(vec4),
+    color: f32,
+    intensity: f32,
+    direction: vec4,
 };
 
 /**
@@ -53,14 +53,14 @@ export const DirectionalLight = {
  */
 export const PointLight = {
     /** the light's hex sRGB color (e.g. 0xffd9a0) */
-    color: field(f32),
+    color: f32,
     /** linear brightness multiplier */
-    intensity: field(f32),
+    intensity: f32,
     /** the distance (metres) the falloff smoothly reaches zero at: the cull cutoff */
-    range: field(f32),
+    range: f32,
     /** the physical source radius (metres): a soft sphere, not a point. Larger softens the near-field
      * bulb and widens the specular highlight; 0.01 reproduces the old bare-filament hotspot */
-    radius: field(f32),
+    radius: f32,
 };
 
 /**
@@ -77,9 +77,9 @@ export const PointLight = {
  */
 export const Spot = {
     /** the cone's inner half-angle (degrees, axis→edge): full brightness inside it */
-    inner: field(f32),
+    inner: f32,
     /** the cone's outer half-angle (degrees, axis→edge): dark past it, smooth between inner and outer */
-    outer: field(f32),
+    outer: f32,
 };
 
 /**
@@ -187,7 +187,7 @@ export function writeLighting(state: State): void {
 
     const ambient = state.only(AMBIENT_TERMS);
     if (ambient >= 0) {
-        const packed = AmbientLight.color.get(ambient);
+        const packed = state.of(AmbientLight).color.get(ambient);
         if (packed !== lightingResources().ambientPacked) {
             const rgb = unpackColor(packed);
             lightingResources().ambientRgb[0] = rgb.r;
@@ -198,14 +198,14 @@ export function writeLighting(state: State): void {
         s[0] = lightingResources().ambientRgb[0];
         s[1] = lightingResources().ambientRgb[1];
         s[2] = lightingResources().ambientRgb[2];
-        s[3] = AmbientLight.intensity.get(ambient);
+        s[3] = state.of(AmbientLight).intensity.get(ambient);
     }
 
     const dir = state.only(SUN_TERMS);
     if (dir >= 0) {
-        const dx = DirectionalLight.direction.x.get(dir);
-        const dy = DirectionalLight.direction.y.get(dir);
-        const dz = DirectionalLight.direction.z.get(dir);
+        const dx = state.of(DirectionalLight).direction.x.get(dir);
+        const dy = state.of(DirectionalLight).direction.y.get(dir);
+        const dz = state.of(DirectionalLight).direction.z.get(dir);
         const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (len < 1e-4) {
             s[5] = -1; // degenerate direction → straight down
@@ -214,7 +214,7 @@ export function writeLighting(state: State): void {
             s[5] = dy / len;
             s[6] = dz / len;
         }
-        const packed = DirectionalLight.color.get(dir);
+        const packed = state.of(DirectionalLight).color.get(dir);
         if (packed !== lightingResources().sunPacked) {
             const rgb = unpackColor(packed);
             lightingResources().sunRgb[0] = rgb.r;
@@ -222,7 +222,7 @@ export function writeLighting(state: State): void {
             lightingResources().sunRgb[2] = rgb.b;
             lightingResources().sunPacked = packed;
         }
-        const i = DirectionalLight.intensity.get(dir);
+        const i = state.of(DirectionalLight).intensity.get(dir);
         s[8] = lightingResources().sunRgb[0] * i;
         s[9] = lightingResources().sunRgb[1] * i;
         s[10] = lightingResources().sunRgb[2] * i;

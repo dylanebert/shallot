@@ -555,8 +555,8 @@ function featurePlugin(subject: Plugin): Plugin {
             state.add(camera, Glaze);
             state.add(camera, Orbit);
             state.add(camera, Listener);
-            Transform.pos.set(camera, 0, 4, 12, 0);
-            Backdrop.name.set(camera, Backgrounds.id("sky") ?? 0);
+            state.of(Transform).pos.set(camera, 0, 4, 12, 0);
+            state.of(Backdrop).name.set(camera, Backgrounds.id("sky") ?? 0);
             attachCanvas(camera, canvas, state);
 
             const ambient = state.create();
@@ -577,7 +577,7 @@ function featurePlugin(subject: Plugin): Plugin {
                 state.add(point, Spot);
                 state.add(point, Shadow);
                 state.add(point, Volumetric);
-                Transform.pos.set(point, 1, 2, 1, 0);
+                state.of(Transform).pos.set(point, 1, 2, 1, 0);
             }
 
             const sky = state.create();
@@ -593,27 +593,28 @@ function featurePlugin(subject: Plugin): Plugin {
             state.add(part, Color);
             state.add(part, Material);
             state.add(part, Outline);
-            Transform.pos.set(part, 0, 1, 0, 0);
-            Color.rgba.set(part, 0.8, 0.25, 0.1, 1);
-            Material.params.set(part, 0.1, 0.6, 0, 1);
+            state.of(Transform).pos.set(part, 0, 1, 0, 0);
+            state.of(Color).rgba.set(part, 0.8, 0.25, 0.1, 1);
+            state.of(Material).params.set(part, 0.1, 0.6, 0, 1);
 
             const line = state.create();
             state.add(line, Transform);
             state.add(line, Line);
             state.add(line, Arrow);
-            Transform.pos.set(line, -1, 0, 0, 0);
+            state.of(Transform).pos.set(line, -1, 0, 0, 0);
 
             const sprite = state.create();
             state.add(sprite, Transform);
             state.add(sprite, Sprite);
-            Transform.pos.set(sprite, 1, 0, 0, 0);
+            state.of(Transform).pos.set(sprite, 1, 0, 0, 0);
 
             const label = state.create();
             state.add(label, Transform);
             state.add(label, Text);
-            Transform.pos.set(label, 0, 2, 0, 0);
-            if (uses(subject, TextPlugin)) Text.font.set(label, font(ISOLATION_FONT, "isolation"));
-            Text.content.set(label, text("isolation"));
+            state.of(Transform).pos.set(label, 0, 2, 0, 0);
+            if (uses(subject, TextPlugin))
+                state.of(Text).font.set(label, font(ISOLATION_FONT, "isolation"));
+            state.of(Text).content.set(label, text("isolation"));
 
             const sound = state.create();
             state.add(sound, Sound);
@@ -623,11 +624,11 @@ function featurePlugin(subject: Plugin): Plugin {
             state.add(actor, Body);
             state.add(actor, Character);
             state.add(actor, Player);
-            Body.shape.set(actor, ShapeKind.Capsule);
-            Body.pos.set(actor, 0, 2, 2, 0);
-            Body.halfExtents.set(actor, 0, 0.6, 0, 0.35);
-            Body.mass.set(actor, 0);
-            Player.camera.set(actor, camera);
+            state.of(Body).shape.set(actor, ShapeKind.Capsule);
+            state.of(Body).pos.set(actor, 0, 2, 2, 0);
+            state.of(Body).halfExtents.set(actor, 0, 0.6, 0, 0.35);
+            state.of(Body).mass.set(actor, 0);
+            state.of(Player).camera.set(actor, camera);
 
             const globalTransforms = Compute.buffers.get("global-transform-interpolated");
             if (!globalTransforms)
@@ -693,11 +694,11 @@ function authorIsolationContent(
     addSpring(state, a, b);
     addJoint(state, a, b);
     withCompute(state.gpu, () => {
-        Body.pos.y.set(resources.actor, content.actorY);
-        Camera.clearColor.set(resources.camera, content.clearColor);
-        Sky.zenith.set(resources.sky, content.skyZenith);
-        Sky.horizon.set(resources.sky, content.skyHorizon);
-        Color.rgba.set(resources.part, ...content.color);
+        state.of(Body).pos.y.set(resources.actor, content.actorY);
+        state.of(Camera).clearColor.set(resources.camera, content.clearColor);
+        state.of(Sky).zenith.set(resources.sky, content.skyZenith);
+        state.of(Sky).horizon.set(resources.sky, content.skyHorizon);
+        state.of(Color).rgba.set(resources.part, ...content.color);
     });
     return a;
 }

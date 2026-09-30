@@ -17,7 +17,7 @@ import {
     Surfaces,
 } from "../../core/rendering";
 import type { Registry, State, System } from "../../engine";
-import { Compute, field, GlobalTransform, globalTransformTable, u32, vec4 } from "../../engine";
+import { Compute, GlobalTransform, globalTransformTable, u32, vec4 } from "../../engine";
 import { precompile, worldResource } from "../../engine/runtime";
 import {
     CullParams,
@@ -55,15 +55,15 @@ type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
  * ```
  */
 export const Part = {
-    surface: field(u32),
-    mesh: field(u32),
+    surface: u32,
+    mesh: u32,
 };
 
 /**
  * per-entity base color, authored and stored as linear RGBA in its Part table record. Alpha is reserved for transparency.
  */
 export const Color = {
-    rgba: field(vec4),
+    rgba: vec4,
 };
 
 // Pack is cull → count → scan → scatter, run per active view: count tallies the
@@ -191,7 +191,7 @@ export function initializePartState(state: State): void {
     table.bindComponent(Part, { surface: "surface", mesh: "mesh" });
     table.bindFields(Color, { color: "rgba" });
     const seedMissingColor = (eid: number) => {
-        if (!state.has(eid, Color)) Color.rgba.set(eid, 1, 0, 1, 1);
+        if (!state.has(eid, Color)) state.of(Color).rgba.set(eid, 1, 0, 1, 1);
     };
     const removeMissingColorDefault = state.observeMembership(Part, (eid, present) => {
         if (present) seedMissingColor(eid);

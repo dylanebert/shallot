@@ -35,7 +35,7 @@ function attachTestCamera(state: import("../../engine").State): void {
     const camera = state.create();
     state.add(camera, Transform);
     state.add(camera, Camera);
-    Transform.pos.set(camera, 0, 0, 5, 0);
+    state.of(Transform).pos.set(camera, 0, 0, 5, 0);
     attachCanvas(camera, canvas, state);
 }
 

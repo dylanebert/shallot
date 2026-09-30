@@ -1,7 +1,7 @@
 import type { TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
-import type { Component, FieldSchema, TypedArray } from "./component";
-import { idOf, isFieldSchema } from "./component";
+import type { Component, Type, TypedArray } from "./component";
+import { idOf, isType } from "./component";
 import type { State } from "./state";
 
 export type TableUploadPath = "none" | "writeBuffer";
@@ -264,8 +264,8 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                     `GpuTable "${this.name}": record field "${recordName}" is already bound`,
                 );
             }
-            const descriptor = component[componentName] as FieldSchema;
-            if (!isFieldSchema(descriptor)) {
+            const descriptor = component[componentName] as Type;
+            if (!isType(descriptor)) {
                 throw new Error(
                     `GpuTable "${this.name}": component field "${componentName}" is not a field schema`,
                 );
@@ -273,11 +273,11 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             const recordType = recordFields[recordName];
             const recordTypeName = (recordType as unknown as { type: string }).type;
             const format =
-                descriptor.type.ctor === Float32Array
+                descriptor.ctor === Float32Array
                     ? "f"
-                    : descriptor.type.ctor === Int32Array
+                    : descriptor.ctor === Int32Array
                       ? "i"
-                      : descriptor.type.ctor === Uint32Array
+                      : descriptor.ctor === Uint32Array
                         ? "u"
                         : null;
             const expectedFormat =
@@ -291,14 +291,14 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
             const lanes =
                 (recordType as unknown as { componentCount?: number }).componentCount ?? 1;
             const bytesPerLane = d.sizeOf(recordType as d.AnyWgslData) / lanes;
-            const sourceBytesPerLane = descriptor.type.ctor.BYTES_PER_ELEMENT;
+            const sourceBytesPerLane = descriptor.ctor.BYTES_PER_ELEMENT;
             if (
                 format === null ||
                 format !== expectedFormat ||
                 sourceBytesPerLane !== bytesPerLane ||
-                descriptor.type.lanes < lanes ||
-                descriptor.type.encode !== undefined ||
-                descriptor.type.decode !== undefined
+                descriptor.lanes < lanes ||
+                descriptor.encode !== undefined ||
+                descriptor.decode !== undefined
             ) {
                 throw new Error(
                     `GpuTable "${this.name}": component field "${componentName}" does not match record field "${recordName}"`,
@@ -310,7 +310,7 @@ export class GpuTable<T extends d.AnyWgslData = d.AnyWgslData> {
                 componentName,
                 offset,
                 lanes,
-                sourceLanes: descriptor.type.lanes,
+                sourceLanes: descriptor.lanes,
                 bytesPerLane,
                 source: this._state.fieldStorage(component, componentName),
             };

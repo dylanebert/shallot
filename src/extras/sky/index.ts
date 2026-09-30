@@ -7,7 +7,7 @@
 
 import { BeginFrameSystem, RenderPlugin, registerBackground } from "../../core/rendering";
 import type { Plugin, System } from "../../engine";
-import { Compute, f32, field, formatHex } from "../../engine";
+import { Compute, f32, formatHex } from "../../engine";
 import { worldResource } from "../../engine/runtime";
 import { ColorSystem, SearPlugin } from "../../standard/rendering";
 import { packSky } from "./pack";
@@ -28,33 +28,33 @@ import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
  */
 export const Sky = {
     /** hex sRGB color overhead, at the zenith (e.g. 0x89b6e9) */
-    zenith: field(f32),
+    zenith: f32,
     /** hex sRGB color at the horizon, blended up toward `zenith` */
-    horizon: field(f32),
+    horizon: f32,
     /** bright band strength right at the horizon line [0,1] (0 = none) */
-    band: field(f32),
+    band: f32,
     /** hex sRGB tint of the sun glow + disk (the sun's *position* follows the directional light) */
-    sunColor: field(f32),
+    sunColor: f32,
     /** sun disk size [0,1]: larger paints a bigger disk */
-    sunSize: field(f32),
+    sunSize: f32,
     /** sun glow strength around the disk [0,1] (0 = no glow) */
-    sunGlow: field(f32),
+    sunGlow: f32,
     /** hex sRGB cloud color */
-    cloudColor: field(f32),
+    cloudColor: f32,
     /** cloud coverage [0,1]: how much of the sky the clouds fill (0 = clear) */
-    cloudCoverage: field(f32),
+    cloudCoverage: f32,
     /** cloud opacity / thickness [0,1] */
-    cloudDensity: field(f32),
+    cloudDensity: f32,
     /** cloud layer height: scales the projected cloud size (larger = higher, smaller clouds) */
-    cloudHeight: field(f32),
+    cloudHeight: f32,
     /** star brightness [0,1] (0 = no stars) */
-    starIntensity: field(f32),
+    starIntensity: f32,
     /** star density [0,1]: more stars in the grid */
-    starAmount: field(f32),
+    starAmount: f32,
     /** hex sRGB haze color the horizon fades toward */
-    hazeColor: field(f32),
+    hazeColor: f32,
     /** horizon haze strength [0,1] (0 = none) */
-    hazeDensity: field(f32),
+    hazeDensity: f32,
 };
 
 interface SkyState {

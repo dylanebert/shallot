@@ -24,11 +24,11 @@ async function stepFalling(plugins: Plugin[]) {
     const { state } = live;
     const eid = state.create();
     state.add(eid, Body);
-    Body.shape.set(eid, ShapeKind.Box);
-    Body.halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
-    Body.pos.set(eid, 0, 5, 0, 0);
-    Body.quat.set(eid, 0, 0, 0, 1);
-    Body.mass.set(eid, 1);
+    state.of(Body).shape.set(eid, ShapeKind.Box);
+    state.of(Body).halfExtents.set(eid, 0.5, 0.5, 0.5, 0);
+    state.of(Body).pos.set(eid, 0, 5, 0, 0);
+    state.of(Body).quat.set(eid, 0, 0, 0, 1);
+    state.of(Body).mass.set(eid, 1);
     for (let i = 0; i < 10; i++) state.step(1 / 60);
     const world = physicsWorld(state);
     if (!world) throw new Error("inconclusive: physics world did not warm");

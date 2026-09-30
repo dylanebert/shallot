@@ -1,6 +1,6 @@
 import tgpu, { type TgpuBuffer, type TgpuRoot } from "typegpu";
 import { type AnyData, u32 } from "typegpu/data";
-import { type Resource, useState } from "../ecs";
+import type { Resource } from "../ecs";
 import { type AdapterInfoFacts, type AdapterVerdict, classifyAdapter } from "./adapter";
 import { captureGpuLog } from "./log";
 import { now } from "./platform";
@@ -204,25 +204,16 @@ export function releaseCompute(world: object): void {
     if (activeCompute?.world === world) activeCompute = undefined;
 }
 
-function activateState(compute: Compute | undefined): void {
-    const world = compute?.world as
-        | { of(component: Record<string, unknown>): Record<string, unknown> }
-        | undefined;
-    if (world) useState(world);
-}
-
 /** Run one lifecycle/system callback against its world's compute context. */
 export function withCompute<T>(compute: object, callback: () => T): T {
     const previous = activeCompute;
     activeCompute = compute as Compute;
-    activateState(activeCompute);
     try {
         return callback();
     } finally {
         activeCompute = (previous?.world as { disposed?: boolean } | undefined)?.disposed
             ? undefined
             : previous;
-        activateState(activeCompute);
     }
 }
 
@@ -233,14 +224,12 @@ export async function withComputeAsync<T>(
 ): Promise<T> {
     const previous = activeCompute;
     activeCompute = compute as Compute;
-    activateState(activeCompute);
     try {
         return await callback();
     } finally {
         activeCompute = (previous?.world as { disposed?: boolean } | undefined)?.disposed
             ? undefined
             : previous;
-        activateState(activeCompute);
     }
 }
 

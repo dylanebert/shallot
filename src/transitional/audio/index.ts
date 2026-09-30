@@ -4,7 +4,6 @@ import { devices } from "../../core/input";
 import {
     composeTransform,
     f32,
-    field,
     GlobalTransform,
     i32,
     not,
@@ -46,15 +45,15 @@ import { getSample, Samples } from "./sample";
  */
 export const Sound = {
     /** registered instrument or sample name, resolved to an id (a bare sample auto-wraps a sampler) */
-    instrument: field(i32),
+    instrument: i32,
     /** 0 = one-shot (frees itself when the envelope idles), 1 = loop until the `Sound` is removed */
-    loop: field(u8),
+    loop: u8,
     /** playback level 0–1, quadratic; firehoses live to the voice */
-    volume: field(f32),
+    volume: f32,
     /** pitch offset in semitones (oscillator instruments only); firehoses live to the voice */
-    pitch: field(f32),
+    pitch: f32,
     /** allocated voice handle, managed by the audio system. read-only, don't author */
-    voice: field(i32),
+    voice: i32,
 };
 
 /** marks the spatial listener entity. its `Transform` orients the FOA + HRTF render */
@@ -169,15 +168,15 @@ function steal(state: State): void {
     let victim = -1;
     let oldest = Number.POSITIVE_INFINITY;
     for (const eid of state.query([Sound, Voiced])) {
-        if (Sound.loop.get(eid) === 1) continue;
-        const gen = Sound.voice.get(eid) >>> 7;
+        if (state.of(Sound).loop.get(eid) === 1) continue;
+        const gen = state.of(Sound).voice.get(eid) >>> 7;
         if (gen < oldest) {
             oldest = gen;
             victim = eid;
         }
     }
     if (victim < 0) return;
-    free(Sound.voice.get(victim));
+    free(state.of(Sound).voice.get(victim));
     state.destroy(victim);
 }
 
@@ -196,11 +195,13 @@ function admit(state: State, name: string, policy: Required<SfxPolicy>, id: numb
         let victim = -1;
         let best = Number.POSITIVE_INFINITY;
         for (const eid of state.query([Sound])) {
-            if (Sound.instrument.get(eid) !== id) continue;
+            if (state.of(Sound).instrument.get(eid) !== id) continue;
             count++;
             if (!state.has(eid, Voiced)) continue;
             const key =
-                policy.steal === "quietest" ? Sound.volume.get(eid) : Sound.voice.get(eid) >>> 7;
+                policy.steal === "quietest"
+                    ? state.of(Sound).volume.get(eid)
+                    : state.of(Sound).voice.get(eid) >>> 7;
             if (key < best) {
                 best = key;
                 victim = eid;
@@ -230,7 +231,7 @@ const SoundSystem: System = {
         // a loop stopped (Sound removed, Voiced kept): gate off, free after the
         // release tail. sparse fields survive remove, so Sound.voice still reads
         for (const eid of [...state.query([Voiced, not(Sound)])]) {
-            const handle = Sound.voice.get(eid);
+            const handle = state.of(Sound).voice.get(eid);
             gate(handle, 0);
             watchIdle(handle, () => free(handle));
             state.remove(eid, Voiced);
@@ -241,14 +242,14 @@ const SoundSystem: System = {
         const hasListener = listenerEid >= 0;
 
         for (const eid of [...state.query([Sound, not(Voiced)])]) {
-            const loop = Sound.loop.get(eid);
+            const loop = state.of(Sound).loop.get(eid);
             if (!ctxRunning) {
                 // suspended (no user gesture): drop one-shots so they don't burst
                 // on resume; loops stay pending until the context runs
                 if (loop === 0) state.destroy(eid);
                 continue;
             }
-            const id = Sound.instrument.get(eid);
+            const id = state.of(Sound).instrument.get(eid);
             if (id < 0) continue;
             let handle = alloc();
             if (handle < 0) {
@@ -273,21 +274,21 @@ const SoundSystem: System = {
                     if (state.exists(eid)) state.destroy(eid);
                 });
             }
-            Sound.voice.set(eid, handle);
+            state.of(Sound).voice.set(eid, handle);
             state.add(eid, Voiced);
         }
 
         for (const eid of state.query([Sound, Voiced])) {
-            const inst = byId(Sound.instrument.get(eid));
+            const inst = byId(state.of(Sound).instrument.get(eid));
             if (!inst) continue;
-            const handle = Sound.voice.get(eid);
+            const handle = state.of(Sound).voice.get(eid);
             if (inst.volumeOffsets.length > 0) {
-                const v = Sound.volume.get(eid);
+                const v = state.of(Sound).volume.get(eid);
                 const level = v * v * inst.baseVolume;
                 for (const off of inst.volumeOffsets) setParam(handle, off, level);
             }
             if (inst.pitchEntries.length > 0) {
-                const semis = Sound.pitch.get(eid);
+                const semis = state.of(Sound).pitch.get(eid);
                 for (const pe of inst.pitchEntries) {
                     const freq = noteFreq(pe.baseFreq, pe.octave, semis + pe.semitone, pe.fine);
                     setParam(handle, pe.offset, freq);
@@ -300,11 +301,11 @@ const SoundSystem: System = {
         if (hasListener) {
             const m = composeTransform(listenerEid, _m);
             for (const eid of state.query([Sound, Voiced, GlobalTransform])) {
-                const dx = GlobalTransform.pos.x.get(eid) - m[12];
-                const dy = GlobalTransform.pos.y.get(eid) - m[13];
-                const dz = GlobalTransform.pos.z.get(eid) - m[14];
+                const dx = state.of(GlobalTransform).pos.x.get(eid) - m[12];
+                const dy = state.of(GlobalTransform).pos.y.get(eid) - m[13];
+                const dz = state.of(GlobalTransform).pos.z.get(eid) - m[14];
                 const p = polar(dx, dy, dz, m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
-                addSpatial(Sound.voice.get(eid), p.azimuth, p.elevation, p.distance);
+                addSpatial(state.of(Sound).voice.get(eid), p.azimuth, p.elevation, p.distance);
             }
             flushSpatial();
         }
@@ -337,12 +338,12 @@ export function play(
     if (policy && !admit(state, name, policy, id)) return -1;
     const eid = state.create();
     state.add(eid, Sound);
-    Sound.instrument.set(eid, id);
-    Sound.loop.set(eid, opts?.loop ? 1 : 0);
-    if (opts?.volume !== undefined) Sound.volume.set(eid, opts.volume);
+    state.of(Sound).instrument.set(eid, id);
+    state.of(Sound).loop.set(eid, opts?.loop ? 1 : 0);
+    if (opts?.volume !== undefined) state.of(Sound).volume.set(eid, opts.volume);
     if (opts?.pos) {
         state.add(eid, Transform);
-        Transform.pos.set(eid, opts.pos[0], opts.pos[1], opts.pos[2], 0);
+        state.of(Transform).pos.set(eid, opts.pos[0], opts.pos[1], opts.pos[2], 0);
     }
     return eid;
 }

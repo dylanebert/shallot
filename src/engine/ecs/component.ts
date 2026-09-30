@@ -4,93 +4,25 @@ import type { Entity } from "./entity";
 /** SoA component schema: each field names a type; worlds own the columns. */
 export type Component = Record<string, unknown>;
 
-const FIELD = Symbol("component field");
-
-/** A component field's immutable schema. It carries no entity data or GPU handle. */
-export interface FieldSchema<T extends Type = Type> {
-    readonly [FIELD]: true;
-    readonly type: T;
-}
-
-export type SchemaField<T extends Type> = FieldSchema<T> &
-    (T["lanes"] extends 1 ? Single : T["lanes"] extends 2 ? Pair : Quad);
-
-let activeState: { of(component: Component): Record<string, unknown> } | undefined;
-const owners = new WeakMap<FieldSchema, { component: Component; name: string }>();
-
-/** @internal Set the world used by legacy component handles during an engine callback. */
-export function useState(state: { of(component: Component): Record<string, unknown> }): void {
-    activeState = state;
-}
-
-/** @internal Bind a schema's field handles to the component that declares them. */
-export function bindFields(component: Component): void {
-    for (const name of Object.keys(component)) {
-        const field = component[name];
-        if (isFieldSchema(field)) {
-            Object.freeze(field);
-            owners.set(field, { component, name });
-        }
+/** @internal Freeze a component's shared declarations, never its world's storage. */
+export function freezeComponent(component: Component): void {
+    for (const value of Object.values(component)) {
+        if (isType(value)) Object.freeze(value);
     }
     Object.freeze(component);
 }
 
-function bound(field: FieldSchema): Single | Pair | Quad {
-    const owner = owners.get(field);
-    if (!owner || !activeState) throw new Error("Component fields require state.of(Component)");
-    return activeState.of(owner.component)[owner.name] as Single | Pair | Quad;
-}
-
-/** create a schema descriptor; values and columns remain owned by its State. @internal */
-export function fieldSchema<T extends Type>(type: T): SchemaField<T> {
-    let descriptor!: SchemaField<T>;
-    descriptor = {
-        [FIELD]: true as const,
-        type,
-        write(eids: Uint32Array, source: TypedArray) {
-            bound(descriptor).write(eids, source);
-        },
-        set(eid: number, x: number, y = 0, z = 0, w = 0) {
-            const storage = bound(descriptor);
-            if (descriptor.type.lanes === 1) {
-                (storage as Single).set(eid, x);
-            } else if (descriptor.type.lanes === 2) {
-                (storage as Pair).set(eid, x, y);
-            } else {
-                (storage as Quad).set(eid, x, y, z, w);
-            }
-        },
-        get get() {
-            return (bound(descriptor) as Single).get;
-        },
-        read(eid: number, out: Float32Array) {
-            return (bound(descriptor) as Pair | Quad).read(eid, out);
-        },
-        get x(): Single {
-            return (bound(descriptor) as Pair | Quad).x;
-        },
-        get y(): Single {
-            return (bound(descriptor) as Pair | Quad).y;
-        },
-        get z(): Single {
-            return (bound(descriptor) as Quad).z;
-        },
-        get w(): Single {
-            return (bound(descriptor) as Quad).w;
-        },
-        get column() {
-            return (bound(descriptor) as Single | Pair | Quad).column;
-        },
-        markChanged(eid: number) {
-            bound(descriptor).markChanged(eid);
-        },
-    };
-    return descriptor;
-}
-
-/** true for a field descriptor, not a world-bound column. @internal */
-export function isFieldSchema(value: unknown): value is FieldSchema {
-    return !!value && typeof value === "object" && (value as FieldSchema)[FIELD] === true;
+/** @internal Recognize a bare CPU storage type, not a world-bound field handle. */
+export function isType(value: unknown): value is Type {
+    if (!value || typeof value !== "object") return false;
+    const type = value as Type;
+    return (
+        typeof type.ctor === "function" &&
+        typeof type.ctor.BYTES_PER_ELEMENT === "number" &&
+        (type.lanes === 1 || type.lanes === 2 || type.lanes === 4) &&
+        typeof type.name === "string" &&
+        (type.wgsl === null || typeof type.wgsl === "string")
+    );
 }
 
 /** typed-array element backing for component columns. */
@@ -398,7 +330,7 @@ export interface Quad {
  * report as `Single` (1), not their parent's lane count
  */
 export function lanes(value: unknown): 0 | 1 | 2 | 4 {
-    if (isFieldSchema(value)) return value.type.lanes;
+    if (isType(value)) return value.lanes;
     if (!value || typeof value !== "object") return 0;
     const v = value as Record<string, unknown>;
     if (typeof v.set !== "function") return 0;
@@ -416,11 +348,11 @@ export function lanes(value: unknown): 0 | 1 | 2 | 4 {
  * reflection reader, or a schema walk. Keys with no typed layout (a GPU-buffer getter)
  * report {@link lanes} 0 and are skipped.
  */
-export function fields(component: Component): { name: string; field: FieldSchema }[] {
-    const out: { name: string; field: FieldSchema }[] = [];
+export function fields(component: Component): { name: string; field: Type }[] {
+    const out: { name: string; field: Type }[] = [];
     for (const name of Object.keys(component)) {
         const field = component[name];
-        if (isFieldSchema(field)) out.push({ name, field });
+        if (isType(field)) out.push({ name, field });
     }
     return out;
 }
@@ -433,7 +365,7 @@ export function sameComponentSchema(a: Component, b: Component): boolean {
     for (let i = 0; i < af.length; i++) {
         const left = af[i];
         const right = bf[i];
-        if (left.name !== right.name || !sameTypeLayout(left.field.type, right.field.type)) {
+        if (left.name !== right.name || !sameTypeLayout(left.field, right.field)) {
             return false;
         }
     }
@@ -441,14 +373,14 @@ export function sameComponentSchema(a: Component, b: Component): boolean {
 }
 
 /**
- * the fields holding an entity ref: those declared `field(entity)`.
+ * the fields holding an entity ref: those declared with the bare `entity` type.
  * `serialize` reads it to emit each as `@<id>`; the ref-ness lives on the field's type, so it
  * can't drift from a separate list. A sibling of {@link fields}.
  */
 export function refs(component: Component): string[] {
     const out: string[] = [];
     for (const name of Object.keys(component)) {
-        if (isFieldSchema(component[name]) && component[name].type === entity) out.push(name);
+        if (component[name] === entity) out.push(name);
     }
     return out;
 }

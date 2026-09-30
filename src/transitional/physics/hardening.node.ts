@@ -36,12 +36,12 @@ function addBody(
 ): number {
     const eid = state.create();
     state.add(eid, Body);
-    Body.shape.set(eid, data.shape);
-    Body.halfExtents.set(eid, ...data.halfExtents);
-    Body.pos.set(eid, data.pos[0], data.pos[1], data.pos[2], 0);
-    Body.quat.set(eid, ...(data.quat ?? [0, 0, 0, 1]));
-    Body.mass.set(eid, data.mass);
-    Body.friction.set(eid, data.friction ?? 0.5);
+    state.of(Body).shape.set(eid, data.shape);
+    state.of(Body).halfExtents.set(eid, ...data.halfExtents);
+    state.of(Body).pos.set(eid, data.pos[0], data.pos[1], data.pos[2], 0);
+    state.of(Body).quat.set(eid, ...(data.quat ?? [0, 0, 0, 1]));
+    state.of(Body).mass.set(eid, data.mass);
+    state.of(Body).friction.set(eid, data.friction ?? 0.5);
     return eid;
 }
 

@@ -22,7 +22,7 @@ import {
     Views,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, f32, field, formatHex, u32 } from "../../engine";
+import { Compute, f32, formatHex, u32 } from "../../engine";
 import { precompile, worldResource } from "../../engine/runtime";
 import {
     ColorSystem,
@@ -53,25 +53,25 @@ import { fogKernel, fogLayout0, fogLayout1 } from "./pipeline";
  */
 export const Fog = {
     /** base extinction coefficient: how fast the scene fades into haze with distance (0 = clear) */
-    density: field(f32),
+    density: f32,
     /** hex sRGB haze color the scene fades toward (e.g. 0xb5c4d8) */
-    color: field(f32),
+    color: f32,
     /** absorbed fraction of extinction [0,1]; the rest scatters (the scattering albedo for light shafts) */
-    absorption: field(f32),
+    absorption: f32,
     /** in-scatter strength: how brightly light shafts glow in the haze */
-    scattering: field(f32),
+    scattering: f32,
     /** Henyey-Greenstein anisotropy [-1,1]: 0 even glow, →1 forward (bright halo toward a light) */
-    anisotropy: field(f32),
+    anisotropy: f32,
     /** world height where density equals `density`: the base of the height falloff */
-    heightBase: field(f32),
+    heightBase: f32,
     /** exponential density falloff per world unit above `heightBase` (0 = uniform haze, no height fog) */
-    heightFalloff: field(f32),
+    heightFalloff: f32,
     /** raymarch step count along each pixel's ray (clamped to 256); more = smoother, costlier */
-    steps: field(u32),
+    steps: u32,
     /** per-pixel step jitter [0,1] that breaks march banding into noise (0 = fixed midpoint sampling) */
-    jitter: field(f32),
+    jitter: f32,
     /** overall multiplier on in-scatter brightness */
-    scatterIntensity: field(f32),
+    scatterIntensity: f32,
 };
 
 interface FogState {

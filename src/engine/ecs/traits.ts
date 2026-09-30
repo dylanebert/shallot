@@ -1,6 +1,6 @@
 import type { Alias, Input } from "../utils";
 import type { Component } from "./component";
-import { idOf, intern, isFieldSchema, lanes } from "./component";
+import { idOf, intern, isType, lanes } from "./component";
 import { kebab } from "./reflection";
 import type { State } from "./state";
 
@@ -202,7 +202,7 @@ function compilePlan(entry: Entry): DefaultsPlan | null {
             const width = lanes(target);
             const lane = LANE_INDEX[key.slice(dot + 1)];
             if (
-                !isFieldSchema(target) ||
+                !isType(target) ||
                 (width !== 2 && width !== 4) ||
                 lane === undefined ||
                 lane >= width
@@ -223,7 +223,7 @@ function compilePlan(entry: Entry): DefaultsPlan | null {
         }
 
         const target = schema[key];
-        if (!isFieldSchema(target)) {
+        if (!isType(target)) {
             throw new Error(
                 `defaults key "${key}" on component "${entry.name}" does not match a typed field`,
             );

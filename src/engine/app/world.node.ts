@@ -5,7 +5,7 @@ import { CEILING } from "../../../scripts/test-tiers";
 setDefaultTimeout(CEILING.node);
 
 import * as d from "typegpu/data";
-import { Compute, f32, field, type State } from "../index";
+import { Compute, f32, type State } from "../index";
 import { serialize } from "../scene";
 import { build, swap } from "./index";
 
@@ -13,7 +13,7 @@ const peerModule = "bun-webgpu";
 const { setupGlobals } = (await import(peerModule)) as { setupGlobals(): Promise<void> };
 await setupGlobals();
 
-const Value = { amount: field(f32) };
+const Value = { amount: f32 };
 const resourceKey = {
     create: () => Compute.device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE }),
 };
@@ -94,14 +94,14 @@ test("live and later worlds keep component columns separate", async () => {
 
 test("component registrations, defaults, exclusions, and scene enumeration belong to each world", async () => {
     const firstComponents = {
-        Value: { amount: field(f32) },
-        Blocker: { value: field(f32) },
-        Other: { value: field(f32) },
+        Value: { amount: f32 },
+        Blocker: { value: f32 },
+        Other: { value: f32 },
     };
     const secondComponents = {
-        Value: { amount: field(f32), extra: field(f32) },
-        Blocker: { value: field(f32) },
-        Other: { value: field(f32) },
+        Value: { amount: f32, extra: f32 },
+        Blocker: { value: f32 },
+        Other: { value: f32 },
     };
     const firstPlugin = {
         name: "WorldRegistryProbe",
@@ -220,7 +220,7 @@ test("world GPU registries and owned resources are isolated and released on disp
 });
 
 test("frame change marks clear at the world upload point", async () => {
-    const Changed = { sparse: field(f32), uploaded: field(f32) };
+    const Changed = { sparse: f32, uploaded: f32 };
     const plugin = { name: "WorldChangeMarkProbe", components: { Changed } };
     const app = await build({ defaults: false, plugins: [plugin] });
     apps.push(app);
@@ -256,7 +256,7 @@ test("frame change marks clear at the world upload point", async () => {
 });
 
 test("entity ids and component columns grow without a configured capacity", async () => {
-    const Grow = { value: field(f32) };
+    const Grow = { value: f32 };
     const plugin = { name: "WorldGrowthProbe", components: { Grow } };
     const app = await build({ defaults: false, plugins: [plugin] });
     apps.push(app);
@@ -270,7 +270,7 @@ test("entity ids and component columns grow without a configured capacity", asyn
 });
 
 test("reordered component fields swap without rebuilding their world columns", async () => {
-    const firstValue = { x: field(f32), y: field(f32) };
+    const firstValue = { x: f32, y: f32 };
     const firstPlugin = { name: "WorldFieldOrderProbe", components: { Value: firstValue } };
     const app = await build({ defaults: false, plugins: [firstPlugin] });
     apps.push(app);
@@ -281,7 +281,7 @@ test("reordered component fields swap without rebuilding their world columns", a
     const beforeX = before.x.column;
     const beforeY = before.y.column;
 
-    const reloadedValue = { y: field(f32), x: field(f32) };
+    const reloadedValue = { y: f32, x: f32 };
     const reloaded = { name: "WorldFieldOrderProbe", components: { Value: reloadedValue } };
     expect(await swap(app.state, [firstPlugin], [reloaded])).toEqual({ ok: true });
 
@@ -292,13 +292,13 @@ test("reordered component fields swap without rebuilding their world columns", a
 });
 
 test("a same-named Type with a different array layout forces a rebuild", async () => {
-    const firstValue = { amount: field(f32) };
+    const firstValue = { amount: f32 };
     const firstPlugin = { name: "WorldTypeLayoutProbe", components: { Value: firstValue } };
     const app = await build({ defaults: false, plugins: [firstPlugin] });
     apps.push(app);
 
     const wordF32 = { ...f32, ctor: Uint32Array };
-    const reloadedValue = { amount: field(wordF32) };
+    const reloadedValue = { amount: wordF32 };
     const reloaded = {
         name: "WorldTypeLayoutProbe",
         components: { Value: reloadedValue },
@@ -312,13 +312,13 @@ test("a same-named Type with a different array layout forces a rebuild", async (
 });
 
 test("a Type's debug name does not invalidate an identical storage layout", async () => {
-    const firstValue = { amount: field(f32) };
+    const firstValue = { amount: f32 };
     const firstPlugin = { name: "WorldTypeDebugNameProbe", components: { Value: firstValue } };
     const app = await build({ defaults: false, plugins: [firstPlugin] });
     apps.push(app);
 
     const debugAlias = { ...f32, name: "f32-debug-alias" };
-    const reloadedValue = { amount: field(debugAlias) };
+    const reloadedValue = { amount: debugAlias };
     const reloaded = {
         name: "WorldTypeDebugNameProbe",
         components: { Value: reloadedValue },
@@ -327,7 +327,7 @@ test("a Type's debug name does not invalidate an identical storage layout", asyn
 });
 
 test("original, reloaded, and rebuilt component accessors stop rechecking bound schemas", async () => {
-    const originalValue = { amount: field(f32) };
+    const originalValue = { amount: f32 };
     const originalPlugin = {
         name: "WorldAccessorCacheProbe",
         components: { Value: originalValue },
@@ -337,7 +337,7 @@ test("original, reloaded, and rebuilt component accessors stop rechecking bound 
     const originalEid = first.state.create();
     first.state.add(originalEid, originalValue);
 
-    const reloadedValue = { amount: field(f32) };
+    const reloadedValue = { amount: f32 };
     const reloadedPlugin = {
         name: "WorldAccessorCacheProbe",
         components: { Value: reloadedValue },
@@ -396,7 +396,7 @@ test("a compatible hot swap reattaches its schema in only the target world", asy
     const secondEid = second.state.entities()[0];
     amount(first.state).set(firstEid, 13);
 
-    const reloadedValue = { amount: field(f32) };
+    const reloadedValue = { amount: f32 };
     const reloaded = {
         name: "SwappableWorldSchema",
         components: { Value: reloadedValue },
@@ -408,7 +408,7 @@ test("a compatible hot swap reattaches its schema in only the target world", asy
     expect(amount(first.state).get(firstEid)).toBe(13);
     expect(amount(second.state).get(secondEid)).toBe(7);
 
-    const incompatibleValue = { amount: field(f32), extra: field(f32) };
+    const incompatibleValue = { amount: f32, extra: f32 };
     const incompatible = {
         name: "SwappableWorldSchema",
         components: { Value: incompatibleValue },

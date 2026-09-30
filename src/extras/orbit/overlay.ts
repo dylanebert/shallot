@@ -90,7 +90,7 @@ const OrbitOverlaySystem: System = {
         // first flying camera in query order owns the readout — one shared HUD, like the profile overlay
         let flying = 0;
         for (const eid of state.query([Orbit, OrbitSmooth])) {
-            if (OrbitSmooth.flyActive.get(eid) === 1) {
+            if (state.of(OrbitSmooth).flyActive.get(eid) === 1) {
                 flying = eid;
                 break;
             }
@@ -101,7 +101,7 @@ const OrbitOverlaySystem: System = {
             return;
         }
 
-        const speed = Orbit.flySpeed.get(flying);
+        const speed = state.of(Orbit).flySpeed.get(flying);
         const input = devices(state);
         const shift = input.keys.held.has("ShiftLeft") || input.keys.held.has("ShiftRight");
         const elapsed = state.time.elapsed;
@@ -128,7 +128,7 @@ const OrbitOverlaySystem: System = {
             _overlay = createOverlay(canvas, state);
             _overlayCanvas = canvas;
         }
-        _overlay.set(speed, Orbit.flyBoost.get(flying), shift, visible);
+        _overlay.set(speed, state.of(Orbit).flyBoost.get(flying), shift, visible);
     },
 };
 

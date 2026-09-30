@@ -12,7 +12,7 @@ import {
 import { build } from "../app";
 import { CanvasContext } from "../app/canvas.fixture";
 import * as engine from "../index";
-import { field, globalTransformTable, probeBuffer, Transform, u32 } from "../index";
+import { globalTransformTable, probeBuffer, Transform, u32 } from "../index";
 import type { System } from "./scheduler";
 import { Time } from "./scheduler";
 
@@ -29,7 +29,7 @@ if (typeof ResizeObserver === "undefined") {
 const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
 
-const SpawnedPlacement = { marker: field(u32) };
+const SpawnedPlacement = { marker: u32 };
 
 function bounded<T>(promise: PromiseLike<T>): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -209,7 +209,7 @@ test("Body to Transform keeps its GlobalTransform row for a same-frame producer 
         state.step(Time.FIXED_DT);
         expect(table.rowIndex(eid)).toBe(row);
         expect(state.has(eid, GlobalTransform)).toBe(true);
-        expect(GlobalTransform.pos.x.get(eid)).toBe(42);
+        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(42);
     } finally {
         app.dispose();
     }
@@ -229,7 +229,7 @@ test("Transform to Body keeps its GlobalTransform row for a same-frame producer 
         state.step(Time.FIXED_DT);
         expect(table.rowIndex(eid)).toBe(row);
         expect(state.has(eid, GlobalTransform)).toBe(true);
-        expect(GlobalTransform.pos.x.get(eid)).toBe(42);
+        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(42);
     } finally {
         app.dispose();
     }
@@ -252,7 +252,7 @@ test("Body to Transform keeps its GlobalTransform row when handover crosses a fi
         state.step(Time.FIXED_DT);
         expect(table.rowIndex(eid)).toBe(row);
         expect(state.has(eid, GlobalTransform)).toBe(true);
-        expect(GlobalTransform.pos.x.get(eid)).toBe(42);
+        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(42);
     } finally {
         app.dispose();
     }
@@ -275,7 +275,7 @@ test("Transform to Body keeps its GlobalTransform row when handover crosses a fi
         state.step(Time.FIXED_DT);
         expect(table.rowIndex(eid)).toBe(row);
         expect(state.has(eid, GlobalTransform)).toBe(true);
-        expect(GlobalTransform.pos.x.get(eid)).toBe(42);
+        expect(state.of(GlobalTransform).pos.x.get(eid)).toBe(42);
     } finally {
         app.dispose();
     }
@@ -315,7 +315,7 @@ test("a newly spawned GlobalTransform producer renders at its placement at half 
                             if (spawned >= 0) return;
                             spawned = state.create();
                             state.add(spawned, SpawnedPlacement);
-                            GlobalTransform.pos.set(spawned, 100, 0, 0, 0);
+                            state.of(GlobalTransform).pos.set(spawned, 100, 0, 0, 0);
                         },
                     },
                 ],

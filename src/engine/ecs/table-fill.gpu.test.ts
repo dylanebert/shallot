@@ -2,11 +2,11 @@ import { expect, setDefaultTimeout, test } from "bun:test";
 import * as d from "typegpu/data";
 import { gpuApps } from "../../../scripts/gpu.fixture";
 import { CEILING } from "../../../scripts/test-tiers";
-import { f32, field, vec2 } from "../index";
+import { f32, vec2 } from "../index";
 import { probeBuffer } from "../runtime";
 
 setDefaultTimeout(CEILING.gpu);
-const Rows = { amount: field(f32), vector: field(vec2) };
+const Rows = { amount: f32, vector: vec2 };
 const subjects = gpuApps(import.meta.path, [
     {
         defaults: false,

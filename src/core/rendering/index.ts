@@ -213,11 +213,11 @@ function slotInputsChanged(
     _frame.viewKeyNext[2] = shading ? 1 : 0;
     _frame.viewKeyNext[3] = view.width;
     _frame.viewKeyNext[4] = view.height;
-    _frame.viewKeyNext[5] = Camera.mode.get(eid);
-    _frame.viewKeyNext[6] = Camera.fov.get(eid);
-    _frame.viewKeyNext[7] = Camera.size.get(eid);
-    _frame.viewKeyNext[8] = Camera.near.get(eid);
-    _frame.viewKeyNext[9] = Camera.far.get(eid);
+    _frame.viewKeyNext[5] = state.of(Camera).mode.get(eid);
+    _frame.viewKeyNext[6] = state.of(Camera).fov.get(eid);
+    _frame.viewKeyNext[7] = state.of(Camera).size.get(eid);
+    _frame.viewKeyNext[8] = state.of(Camera).near.get(eid);
+    _frame.viewKeyNext[9] = state.of(Camera).far.get(eid);
     _frame.viewKeyNext.set(_frame.camWorld, 10);
     const at = slot * VIEW_KEY_FLOATS;
     let changed = false;

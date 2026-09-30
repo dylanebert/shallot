@@ -141,7 +141,7 @@ test("a producer spawned during catch-up keeps motion after its spawn tick", asy
                                 eid = state.create();
                                 state.add(eid, Transform);
                             }
-                            Transform.pos.x.set(eid, state.time.fixedTick * 10);
+                            state.of(Transform).pos.x.set(eid, state.time.fixedTick * 10);
                         },
                     },
                 ],
@@ -178,10 +178,12 @@ test("a teleport on the first catch-up tick keeps later tick motion", async () =
                         group: "fixed",
                         update(state) {
                             if (state.time.fixedTick === 1) {
-                                Transform.pos.x.set(eid, 100);
+                                state.of(Transform).pos.x.set(eid, 100);
                                 state.teleport(eid);
                             } else {
-                                Transform.pos.x.set(eid, 100 + (state.time.fixedTick - 1) * 10);
+                                state
+                                    .of(Transform)
+                                    .pos.x.set(eid, 100 + (state.time.fixedTick - 1) * 10);
                             }
                         },
                     },
@@ -191,7 +193,7 @@ test("a teleport on the first catch-up tick keeps later tick motion", async () =
         setup(state) {
             eid = state.create();
             state.add(eid, Transform);
-            Transform.pos.x.set(eid, 0);
+            state.of(Transform).pos.x.set(eid, 0);
         },
     });
     try {
@@ -223,7 +225,8 @@ test("a renderer interpolates GlobalTransform when the scene has no lights", asy
                     {
                         group: "fixed",
                         update(state) {
-                            if (eid >= 0) Transform.pos.x.set(eid, state.time.fixedTick * 4);
+                            if (eid >= 0)
+                                state.of(Transform).pos.x.set(eid, state.time.fixedTick * 4);
                         },
                     },
                 ],

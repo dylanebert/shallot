@@ -27,7 +27,7 @@ import {
     Views,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, f32, field, u32, vec4 } from "../../engine";
+import { Compute, f32, u32, vec4 } from "../../engine";
 import { precompile, worldResource } from "../../engine/runtime";
 import { composite, GlazeConfig, initializeCompositeState, WORKGROUP } from "./composite";
 
@@ -105,17 +105,17 @@ const _glaze = new Proxy({} as GlazeState, {
  * ```
  */
 export const Glaze = {
-    exposure: field(f32),
-    tonemap: field(u32),
-    slope: field(vec4),
-    offset: field(vec4),
-    power: field(vec4),
-    saturation: field(f32),
-    vignette: field(f32),
-    vignetteInner: field(f32),
-    vignetteOuter: field(f32),
-    posterize: field(f32),
-    dither: field(f32),
+    exposure: f32,
+    tonemap: u32,
+    slope: vec4,
+    offset: vec4,
+    power: vec4,
+    saturation: f32,
+    vignette: f32,
+    vignetteInner: f32,
+    vignetteOuter: f32,
+    posterize: f32,
+    dither: f32,
 };
 
 // One uniform buffer per view slot, not one strided buffer indexed by a dynamic offset: a typegpu bind
@@ -175,17 +175,32 @@ function uploadConfig(state: State, eid: number, slot: number): void {
         return;
     }
     buffer.write({
-        exposure: Glaze.exposure.get(eid),
-        vignetteStrength: Glaze.vignette.get(eid),
-        vignetteInner: Glaze.vignetteInner.get(eid),
-        vignetteOuter: Glaze.vignetteOuter.get(eid),
-        posterizeBands: Glaze.posterize.get(eid),
-        ditherStrength: Glaze.dither.get(eid),
-        tonemapMode: Glaze.tonemap.get(eid),
-        saturation: Glaze.saturation.get(eid),
-        slope: [Glaze.slope.x.get(eid), Glaze.slope.y.get(eid), Glaze.slope.z.get(eid), 0],
-        offset: [Glaze.offset.x.get(eid), Glaze.offset.y.get(eid), Glaze.offset.z.get(eid), 0],
-        power: [Glaze.power.x.get(eid), Glaze.power.y.get(eid), Glaze.power.z.get(eid), 0],
+        exposure: state.of(Glaze).exposure.get(eid),
+        vignetteStrength: state.of(Glaze).vignette.get(eid),
+        vignetteInner: state.of(Glaze).vignetteInner.get(eid),
+        vignetteOuter: state.of(Glaze).vignetteOuter.get(eid),
+        posterizeBands: state.of(Glaze).posterize.get(eid),
+        ditherStrength: state.of(Glaze).dither.get(eid),
+        tonemapMode: state.of(Glaze).tonemap.get(eid),
+        saturation: state.of(Glaze).saturation.get(eid),
+        slope: [
+            state.of(Glaze).slope.x.get(eid),
+            state.of(Glaze).slope.y.get(eid),
+            state.of(Glaze).slope.z.get(eid),
+            0,
+        ],
+        offset: [
+            state.of(Glaze).offset.x.get(eid),
+            state.of(Glaze).offset.y.get(eid),
+            state.of(Glaze).offset.z.get(eid),
+            0,
+        ],
+        power: [
+            state.of(Glaze).power.x.get(eid),
+            state.of(Glaze).power.y.get(eid),
+            state.of(Glaze).power.z.get(eid),
+            0,
+        ],
     });
 }
 

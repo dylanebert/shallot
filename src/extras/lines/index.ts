@@ -18,15 +18,7 @@ import {
     registerSurface,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import {
-    Compute,
-    composeTransform,
-    f32,
-    field,
-    formatHex,
-    GlobalTransform,
-    vec4,
-} from "../../engine";
+import { Compute, composeTransform, f32, formatHex, GlobalTransform, vec4 } from "../../engine";
 import { packColor } from "../../engine/utils";
 import { PrepassSystem } from "../../standard/rendering";
 import {
@@ -55,15 +47,15 @@ export { arrow, box, segment } from "./segments";
  */
 export const Line = {
     /** line vector from the entity in its local frame, rotated by the transform (`0 1 0` = one unit up) */
-    offset: field(vec4),
+    offset: vec4,
     /** constant screen width in pixels */
-    thickness: field(f32),
+    thickness: f32,
     /** hex sRGB color */
-    color: field(f32),
+    color: f32,
     /** 0..1 opacity multiplier */
-    opacity: field(f32),
+    opacity: f32,
     /** drawn when nonzero; set to 0 to hide without removing */
-    visible: field(f32),
+    visible: f32,
 };
 
 /**
@@ -77,11 +69,11 @@ export const Line = {
  */
 export const Arrow = {
     /** a head at the start endpoint when nonzero */
-    start: field(f32),
+    start: f32,
     /** a head at the end endpoint when nonzero */
-    end: field(f32),
+    end: f32,
     /** head size relative to the shaft length */
-    size: field(f32),
+    size: f32,
 };
 
 // the canonical quad: posU.xyz = (t, edge, 0); normalV unused. sear pulls these as localPos, the
@@ -100,24 +92,24 @@ const _m = new Float32Array(16);
 // (scene annotations) — the immediate API is the scale path
 function expandRetained(state: State): void {
     for (const eid of state.query([Line, GlobalTransform])) {
-        if (!Line.visible.get(eid)) continue;
+        if (!state.of(Line).visible.get(eid)) continue;
         composeTransform(eid, _m);
-        const ox = Line.offset.x.get(eid);
-        const oy = Line.offset.y.get(eid);
-        const oz = Line.offset.z.get(eid);
+        const ox = state.of(Line).offset.x.get(eid);
+        const oy = state.of(Line).offset.y.get(eid);
+        const oz = state.of(Line).offset.z.get(eid);
         const sx = _m[12];
         const sy = _m[13];
         const sz = _m[14];
         const ex = sx + _m[0] * ox + _m[4] * oy + _m[8] * oz;
         const ey = sy + _m[1] * ox + _m[5] * oy + _m[9] * oz;
         const ez = sz + _m[2] * ox + _m[6] * oy + _m[10] * oz;
-        const w = Line.thickness.get(eid);
-        const c = packColor(Line.color.get(eid), Line.opacity.get(eid));
+        const w = state.of(Line).thickness.get(eid);
+        const c = packColor(state.of(Line).color.get(eid), state.of(Line).opacity.get(eid));
         push(sx, sy, sz, ex, ey, ez, w, c);
         if (state.has(eid, Arrow)) {
-            const size = Arrow.size.get(eid);
-            if (Arrow.end.get(eid)) head(ex, ey, ez, sx, sy, sz, size, w, c);
-            if (Arrow.start.get(eid)) head(sx, sy, sz, ex, ey, ez, size, w, c);
+            const size = state.of(Arrow).size.get(eid);
+            if (state.of(Arrow).end.get(eid)) head(ex, ey, ez, sx, sy, sz, size, w, c);
+            if (state.of(Arrow).start.get(eid)) head(sx, sy, sz, ex, ey, ez, size, w, c);
         }
     }
 }

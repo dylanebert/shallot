@@ -16,11 +16,11 @@ test("render light inputs upload as active dense table rows", async () => {
         const eid = state.create();
         state.add(eid, Transform);
         state.add(eid, PointLight);
-        Transform.pos.set(eid, 2, 3, 4, 0);
-        PointLight.color.set(eid, 0xffd9a0);
-        PointLight.intensity.set(eid, 2.5);
-        PointLight.range.set(eid, 7);
-        PointLight.radius.set(eid, 0.25);
+        state.of(Transform).pos.set(eid, 2, 3, 4, 0);
+        state.of(PointLight).color.set(eid, 0xffd9a0);
+        state.of(PointLight).intensity.set(eid, 2.5);
+        state.of(PointLight).range.set(eid, 7);
+        state.of(PointLight).radius.set(eid, 0.25);
 
         state.gpu.device.pushErrorScope("validation");
         state.step(0);

@@ -367,8 +367,8 @@ export function sizeView(state: State, eid: number, view: View): void {
     const ratio =
         state.pixelRatio === "auto" ? Math.min(Math.max(viewport.dpr, 1), 2) : state.pixelRatio;
     const pinned = state.has(eid, Resolution);
-    const resW = pinned ? Resolution.width.get(eid) | 0 : 0;
-    const resH = pinned ? Resolution.height.get(eid) | 0 : 0;
+    const resW = pinned ? state.of(Resolution).width.get(eid) | 0 : 0;
+    const resH = pinned ? state.of(Resolution).height.get(eid) | 0 : 0;
     let inputs = _sizeInputs.get(view);
     if (
         inputs &&

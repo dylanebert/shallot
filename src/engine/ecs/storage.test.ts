@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { fieldSchema, type Pair, type Quad, type Single } from "./component";
-import { f32, field, State, vec2, vec4 } from "./index";
+import { type Pair, type Quad, type Single } from "./component";
+import { f32, State, vec2, vec4 } from "./index";
 import { WorldField } from "./storage";
 
 test("bulk field writes copy typed rows, preserve other rows, publish scalar-equivalent marks and refuse mismatches", () => {
-    const column = new WorldField(field(vec4), 16);
+    const column = new WorldField(vec4, 16);
     const storage = column.bind();
     storage.set(3, 9, 8, 7, 6);
     column.dirty.fill(0);
@@ -24,7 +24,7 @@ test("bulk field writes copy typed rows, preserve other rows, publish scalar-equ
 });
 
 test("binding a component freezes its schema against later mutation", () => {
-    const Component = { value: field(f32) };
+    const Component = { value: f32 };
     const state = new State();
     const second = new State();
     state.registry.register("FrozenComponent", Component);
@@ -36,16 +36,16 @@ test("binding a component freezes its schema against later mutation", () => {
 
     expect(Object.isFrozen(Component)).toBe(true);
     expect(() => {
-        (Component as Record<string, unknown>).added = field(f32);
+        (Component as Record<string, unknown>).added = f32;
     }).toThrow();
     expect(() => {
-        (Component.value as unknown as { type: unknown }).type = vec2;
+        (Component.value as unknown as { lanes: number }).lanes = 2;
     }).toThrow();
     expect(Object.isFrozen(Component.value)).toBe(true);
 });
 
 test("schema field access reuses cached columns without repeating schema sorts", () => {
-    const Component = { value: field(f32) };
+    const Component = { value: f32 };
     const state = new State();
     const eid = state.create();
     state.of(Component);
@@ -59,10 +59,10 @@ test("schema field access reuses cached columns without repeating schema sorts",
         return originalSort.call(this, compareFn);
     };
     try {
-        Component.value.set(eid, 11);
-        first = Component.value.get(eid);
-        Component.value.set(eid, 12);
-        second = Component.value.get(eid);
+        state.of(Component).value.set(eid, 11);
+        first = state.of(Component).value.get(eid);
+        state.of(Component).value.set(eid, 12);
+        second = state.of(Component).value.get(eid);
     } finally {
         Array.prototype.sort = originalSort;
         state.dispose();
@@ -72,10 +72,34 @@ test("schema field access reuses cached columns without repeating schema sorts",
     expect(sortCalls).toBe(0);
 });
 
+test("resolving another world's storage cannot redirect retained or newly resolved fields", () => {
+    const Component = { value: f32 };
+    const a = new State();
+    const b = new State();
+    const eid = a.create();
+    expect(b.create()).toBe(eid);
+    const av = a.of(Component).value;
+    av.set(eid, 11);
+    b.of(Component).value.set(eid, 22);
+    expect(av.get(eid)).toBe(11);
+    expect(a.of(Component).value.get(eid)).toBe(11);
+    expect(b.of(Component).value.get(eid)).toBe(22);
+    expect("get" in Component.value).toBe(false);
+    a.dispose();
+    b.dispose();
+});
+
+// These declarations have metadata only; tsc must reject deleted schema-bound access.
+if (false) {
+    const Component = { value: f32 };
+    // @ts-expect-error resolve entity data through state.of(Component), not its declaration.
+    Component.value.get(1);
+}
+
 test("scalar and vector field writes reach columns without a temporary value array", () => {
-    const Scalar = { value: field(f32) };
-    const Pair = { value: field(vec2) };
-    const Quad = { value: field(vec4) };
+    const Scalar = { value: f32 };
+    const Pair = { value: vec2 };
+    const Quad = { value: vec4 };
     const state = new State();
     const eid = state.create();
     const scalar = state.of(Scalar).value;
@@ -102,7 +126,7 @@ test("scalar and vector field writes reach columns without a temporary value arr
 
 for (const type of [f32, vec2, vec4] as const) {
     test(`${type.name} retained handles publish exactly the written eids across growth and raw writes require markChanged`, () => {
-        const column = new WorldField(fieldSchema(type), 16);
+        const column = new WorldField(type, 16);
         const handle = column.bind() as Single | Pair | Quad;
         const lane = "x" in handle ? handle.x : handle;
         const replaced = handle.column;

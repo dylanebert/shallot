@@ -32,7 +32,6 @@ import {
     aim,
     composeTransform,
     f32,
-    field,
     GlobalTransform,
     lookAt,
     multiply,
@@ -62,11 +61,11 @@ import {
  */
 export const Shadow = {
     /** the sun's max shadow distance: the camera view range is split into cascades out to it; raise to shadow farther, lower for finer near texels. Ignored on a point light (coverage is its `range`). */
-    distance: field(f32),
+    distance: f32,
     /** a small residual depth bias toward the light, covering flat faces dead-on to it the normal offset can't. */
-    depthBias: field(f32),
+    depthBias: f32,
     /** the primary acne fix: shifts the receiver along its surface normal by this many shadow texels before the depth compare. Raise if acne shows, lower if shadows detach at contact edges. */
-    normalBias: field(f32),
+    normalBias: f32,
 };
 
 /** the {@link Shadow} field defaults: applied on add, overridden per-attribute. `normalBias` matches
@@ -540,7 +539,7 @@ function createCascadeCamera(state: State): number {
     const eid = state.create();
     state.add(eid, Transform);
     state.add(eid, Camera);
-    Camera.mode.set(eid, CameraMode.Orthographic);
+    state.of(Camera).mode.set(eid, CameraMode.Orthographic);
     attachView(eid);
     return eid;
 }
@@ -618,19 +617,19 @@ export function updateCascades(state: State, main: number): void {
         return;
     }
     const resolution = sunResolution();
-    const maxDist = Math.max(1e-3, Shadow.distance.get(light));
-    shadow.sunBias[0] = Shadow.depthBias.get(light);
-    shadow.sunBias[1] = Shadow.normalBias.get(light);
-    _sunDir[0] = DirectionalLight.direction.x.get(light);
-    _sunDir[1] = DirectionalLight.direction.y.get(light);
-    _sunDir[2] = DirectionalLight.direction.z.get(light);
+    const maxDist = Math.max(1e-3, state.of(Shadow).distance.get(light));
+    shadow.sunBias[0] = state.of(Shadow).depthBias.get(light);
+    shadow.sunBias[1] = state.of(Shadow).normalBias.get(light);
+    _sunDir[0] = state.of(DirectionalLight).direction.x.get(light);
+    _sunDir[1] = state.of(DirectionalLight).direction.y.get(light);
+    _sunDir[2] = state.of(DirectionalLight).direction.z.get(light);
     const view = Views.get(main);
     const aspect = view && view.height > 0 ? view.width / view.height : 1;
     composeTransform(main, _cascWorld);
-    const mode = Camera.mode.get(main);
-    const fov = Camera.fov.get(main);
-    const size = Camera.size.get(main);
-    const near = Math.max(1e-3, Camera.near.get(main));
+    const mode = state.of(Camera).mode.get(main);
+    const fov = state.of(Camera).fov.get(main);
+    const size = state.of(Camera).size.get(main);
+    const near = Math.max(1e-3, state.of(Camera).near.get(main));
     // ortho cameras get one footprint box; perspective gets N depth slices
     const ortho = mode === CameraMode.Orthographic;
     const n = ortho ? 1 : sunCascades();
@@ -666,8 +665,8 @@ export function updateCascades(state: State, main: number): void {
             const cam = shadow.cascadeEids[i];
             if (cam === undefined) continue;
             if (
-                Camera.size.get(cam) !== shadow.cascadeCover[i] ||
-                Camera.far.get(cam) !== shadow.cascadeDepth[i]
+                state.of(Camera).size.get(cam) !== shadow.cascadeCover[i] ||
+                state.of(Camera).far.get(cam) !== shadow.cascadeDepth[i]
             ) {
                 changed = true;
                 break;
@@ -1096,7 +1095,7 @@ function createComboCamera(state: State): number {
     const eid = state.create();
     state.add(eid, Transform);
     state.add(eid, Camera);
-    Camera.mode.set(eid, CameraMode.Perspective);
+    state.of(Camera).mode.set(eid, CameraMode.Perspective);
     attachView(eid);
     return eid;
 }
@@ -1224,18 +1223,18 @@ export function updatePointShadows(state: State, main: number, frames: PointShad
     const shadow = shadows(state);
     const cap = pointCasters();
     const atlas = pointAtlasSize();
-    const cx = main >= 0 ? GlobalTransform.pos.x.get(main) : 0;
-    const cy = main >= 0 ? GlobalTransform.pos.y.get(main) : 0;
-    const cz = main >= 0 ? GlobalTransform.pos.z.get(main) : 0;
+    const cx = main >= 0 ? state.of(GlobalTransform).pos.x.get(main) : 0;
+    const cy = main >= 0 ? state.of(GlobalTransform).pos.y.get(main) : 0;
+    const cz = main >= 0 ? state.of(GlobalTransform).pos.z.get(main) : 0;
     let candCount = 0;
     for (const light of state.query(POINT_CASTER_TERMS)) {
-        const range = PointLight.range.get(light);
+        const range = state.of(PointLight).range.get(light);
         if (range <= 0) continue;
-        const dx = GlobalTransform.pos.x.get(light) - cx;
-        const dy = GlobalTransform.pos.y.get(light) - cy;
-        const dz = GlobalTransform.pos.z.get(light) - cz;
+        const dx = state.of(GlobalTransform).pos.x.get(light) - cx;
+        const dy = state.of(GlobalTransform).pos.y.get(light) - cy;
+        const dz = state.of(GlobalTransform).pos.z.get(light) - cz;
         const distSq = main >= 0 ? Math.max(dx * dx + dy * dy + dz * dz, 1) : 1;
-        const score = (PointLight.intensity.get(light) * range * range) / distSq;
+        const score = (state.of(PointLight).intensity.get(light) * range * range) / distSq;
         // an incumbent (cast last frame) ranks with the hysteresis margin so a sub-margin challenger can't
         // evict it — the set stays put under small camera moves, killing the shadow flicker
         const rank = shadow.lastCasters.has(light)
@@ -1291,13 +1290,13 @@ export function updatePointShadows(state: State, main: number, frames: PointShad
         f.slot = slot;
         f.score = c.score;
         f.tilePx = MIN_TILE;
-        f.pos[0] = GlobalTransform.pos.x.get(c.light);
-        f.pos[1] = GlobalTransform.pos.y.get(c.light);
-        f.pos[2] = GlobalTransform.pos.z.get(c.light);
+        f.pos[0] = state.of(GlobalTransform).pos.x.get(c.light);
+        f.pos[1] = state.of(GlobalTransform).pos.y.get(c.light);
+        f.pos[2] = state.of(GlobalTransform).pos.z.get(c.light);
         f.near = c.range / 1000;
         f.far = c.range;
-        f.depthBias = Shadow.depthBias.get(c.light);
-        f.normalBias = Shadow.normalBias.get(c.light);
+        f.depthBias = state.of(Shadow).depthBias.get(c.light);
+        f.normalBias = state.of(Shadow).normalBias.get(c.light);
         f.spot = state.has(c.light, Spot);
         f.fwd[0] = 0;
         f.fwd[1] = 0;
@@ -1361,11 +1360,11 @@ export function updatePointShadows(state: State, main: number, frames: PointShad
         f.tilePx = rect ? rect[2] * atlas : MIN_TILE;
         if (f.spot) {
             const b = spotBasis(
-                GlobalTransform.quat.x.get(f.light),
-                GlobalTransform.quat.y.get(f.light),
-                GlobalTransform.quat.z.get(f.light),
-                GlobalTransform.quat.w.get(f.light),
-                Spot.outer.get(f.light),
+                state.of(GlobalTransform).quat.x.get(f.light),
+                state.of(GlobalTransform).quat.y.get(f.light),
+                state.of(GlobalTransform).quat.z.get(f.light),
+                state.of(GlobalTransform).quat.w.get(f.light),
+                state.of(Spot).outer.get(f.light),
                 f.tilePx,
             );
             f.fwd = b.fwd;

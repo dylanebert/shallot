@@ -1,4 +1,4 @@
-import type { FieldSchema, Pair, Quad, Single, Type, TypedArray } from "./component";
+import type { Pair, Quad, Single, Type, TypedArray } from "./component";
 import { sameComponentSchema } from "./component";
 
 export type FieldStorage<T extends Type> = T["lanes"] extends 1
@@ -8,7 +8,7 @@ export type FieldStorage<T extends Type> = T["lanes"] extends 1
       : Quad;
 
 type Column = {
-    schema: FieldSchema;
+    schema: Type;
     array: TypedArray;
     dirty: Uint32Array;
 };
@@ -19,11 +19,11 @@ export class WorldField<T extends Type = Type> {
     readonly #column: Column;
     readonly #writeRows = new WeakMap<TypedArray, Map<number, TypedArray[]>>();
 
-    constructor(schema: FieldSchema<T>, initialCapacity: number) {
-        this.type = schema.type;
+    constructor(schema: T, initialCapacity: number) {
+        this.type = schema;
         this.#column = {
             schema,
-            array: new schema.type.ctor(initialCapacity * schema.type.lanes),
+            array: new schema.ctor(initialCapacity * schema.lanes),
             dirty: new Uint32Array((initialCapacity + 31) >>> 5),
         };
     }
@@ -203,7 +203,7 @@ function identity(value: number): number {
 }
 
 export type ComponentStorage<T> = {
-    [K in keyof T]: T[K] extends FieldSchema<infer F> ? FieldStorage<F> : T[K];
+    [K in keyof T]: T[K] extends Type ? FieldStorage<T[K]> : T[K];
 };
 
 export function sameSchema(a: Record<string, unknown>, b: Record<string, unknown>): boolean {

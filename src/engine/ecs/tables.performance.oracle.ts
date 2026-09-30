@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import * as d from "typegpu/data";
 import { build, type Plugin } from "../app";
-import { field, u32 } from "../index";
+import { u32 } from "../index";
 import type { State } from "./state";
 
 const peerModule = "bun-webgpu";
@@ -775,7 +775,7 @@ test("measure dense table GPU memory at 1% and 100% population", async () => {
 
 test("measure component setter overhead against direct column writes", async () => {
     let state!: State;
-    const Setter = { value: field(u32) };
+    const Setter = { value: u32 };
     const count = 100_000;
     const plugin: Plugin = {
         name: "TableSetterCostProbe",

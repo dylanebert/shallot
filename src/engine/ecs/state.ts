@@ -1,14 +1,12 @@
 import type * as d from "typegpu/data";
 import { ReadbackPool, releaseCompute } from "../runtime";
 import {
-    bindFields,
+    freezeComponent,
     type Component,
     Components,
-    type FieldSchema,
     fields,
     idOf,
     type Membership,
-    useState,
 } from "./component";
 import { Entities } from "./entity";
 import {
@@ -365,7 +363,6 @@ export class State {
      * not their `column` arrays: growth replaces arrays, while accessors remain valid.
      * Setters and bulk `write` publish frame-scoped field marks for table upload. */
     of<T extends Component>(component: T): ComponentStorage<T> {
-        useState(this);
         const id = idOf(component);
         const existing = this._storage.get(id);
         if (existing) {
@@ -375,15 +372,15 @@ export class State {
                     `state.of: component schema changed for "${String(id)}"; rebuild this world`,
                 );
             }
-            bindFields(component);
+            freezeComponent(component);
             existing.schemas.add(component);
             return existing.storage as ComponentStorage<T>;
         }
-        bindFields(component);
+        freezeComponent(component);
         const columns = new Map<string, WorldField>();
         const storage: Record<string, unknown> = {};
         for (const { name, field } of fields(component)) {
-            const column = new WorldField(field as FieldSchema, INITIAL_CAPACITY);
+            const column = new WorldField(field, INITIAL_CAPACITY);
             column.ensure(this._highWater);
             columns.set(name, column);
             storage[name] = column.bind();
@@ -404,7 +401,6 @@ export class State {
 
     /** advance one frame */
     step(deltaTime = Time.DEFAULT_DT): void {
-        useState(this);
         this._fieldUploadSeen = false;
         this._changesClearedAtUpload = false;
         this._stepInput.deltaTime = deltaTime;
@@ -416,7 +412,6 @@ export class State {
             stepped = true;
         } finally {
             this._stepping = false;
-            useState(this);
             if (!this._gpu) this.clearChangesIfNeeded();
             if (this._gpu && stepped) {
                 this._gpu.frame++;
@@ -522,10 +517,9 @@ export class State {
      * implementing the `Single` contract): dirty tracking falls out automatically.
      * @example
      * state.add(eid, Health);
-     * Health.current.set(eid, 100);
+     * state.of(Health).current.set(eid, 100);
      */
     add<T>(eid: number, component: T): void {
-        useState(this);
         const excluded = this.registry.getExclusions(component as Component);
         if (excluded) {
             for (const other of excluded) {

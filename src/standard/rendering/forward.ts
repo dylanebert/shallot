@@ -40,7 +40,7 @@ import {
     vsPatchSchema,
 } from "../../core/rendering";
 import type { Plugin, State, System } from "../../engine";
-import { Compute, field, laneAlias, u32, unpackColor, vec4 } from "../../engine";
+import { Compute, laneAlias, u32, unpackColor, vec4 } from "../../engine";
 import { worldResource } from "../../engine/runtime";
 import { Xform } from "../../engine/utils";
 import { GlazeSystem } from "../../transitional/glaze";
@@ -244,7 +244,7 @@ export const Depth = {};
  */
 export const Material = {
     /** the four PBR lanes `(metallic, roughness, emissive, occlusion)`, authored named via the `material` attribute (`material="metallic: 1; roughness: 0.2"`). */
-    params: field(vec4),
+    params: vec4,
 };
 
 const MATERIAL_FLAT: [number, number, number, number] = [0, 1, 0, 1];
@@ -260,7 +260,7 @@ const MaterialTraits = {
 function initMaterial(state: State): void {
     partTable(state).bindFields(Material, { material: "params" });
     const seedMissingMaterial = (eid: number) => {
-        if (!state.has(eid, Material)) Material.params.set(eid, ...MATERIAL_FLAT);
+        if (!state.has(eid, Material)) state.of(Material).params.set(eid, ...MATERIAL_FLAT);
     };
     const removeMissingMaterialDefault = state.observeMembership(Part, (eid, present) => {
         if (present) seedMissingMaterial(eid);
@@ -292,7 +292,7 @@ function initMaterial(state: State): void {
  */
 export const Backdrop = {
     /** the registered background drawn behind the scene (selected by name) */
-    name: field(u32),
+    name: u32,
 };
 
 // name ↔ Backgrounds-id at scene parse / format, the PartTraits surface pattern (id stored, name authored).
@@ -829,7 +829,7 @@ function renderPrepass(
 type BackdropPick = { bg: Background; ct: CompiledBackground };
 function backdrop(state: State, eid: number): BackdropPick | null {
     if (!state.has(eid, Backdrop)) return null;
-    const id = Backdrop.name.get(eid);
+    const id = state.of(Backdrop).name.get(eid);
     const name = Backgrounds.name(id);
     const bg = name ? Backgrounds.get(name) : undefined;
     if (!bg) return null;

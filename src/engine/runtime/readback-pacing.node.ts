@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { CEILING } from "../../../scripts/test-tiers";
 import { build, swap } from "../app";
-import { field, snapshot, u32 } from "../ecs";
+import { snapshot, u32 } from "../ecs";
 import { probeBuffer } from "./probe";
 
 setDefaultTimeout(CEILING.node);
@@ -9,7 +9,7 @@ const peer = "bun-webgpu";
 await (await import(peer)).setupGlobals();
 
 test("a deterministic composition hashes identically under two frame pacings with requested readback active", async () => {
-    const Counter = { value: field(u32) };
+    const Counter = { value: u32 };
     async function run(dt: number, frames: number) {
         let eid = 0;
         let source!: GPUBuffer;

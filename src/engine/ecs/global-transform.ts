@@ -3,21 +3,20 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { eulerAlias, Xform } from "../utils";
 import { type Component, idOf, vec4 } from "./component";
-import { field } from "./field";
 import type { State } from "./state";
 import type { ComponentStorage } from "./storage";
 import type { GpuTable } from "./table";
 
 /** Authored world placement. A simulated body excludes this producer. There is no hierarchy. */
-export const Transform = { pos: field(vec4), rot: field(vec4), scale: field(vec4) };
+export const Transform = { pos: vec4, rot: vec4, scale: vec4 };
 /** Derived fixed-tick world placement, never scene-authored. Gameplay and physics queries
  * read this, never Transform. Exactly one component provides it per entity through traits;
  * rendering reads `globalTransformTable(state)` instead of these fixed-tick columns. */
 export const GlobalTransform = {
-    pos: field(vec4),
-    quat: field(vec4),
-    scale: field(vec4),
-    vel: field(vec4),
+    pos: vec4,
+    quat: vec4,
+    scale: vec4,
+    vel: vec4,
 };
 export const globalTransformTraits = {
     derived: true,
@@ -403,9 +402,9 @@ export function prepareGlobalTransformFrame(state: State, encoder: GPUCommandEnc
     }
 }
 
-/** Compose fixed-tick GlobalTransform for CPU camera and query readers. */
-export function composeTransform(eid: number, out: Float32Array): Float32Array {
-    const { pos, quat: rot, scale } = GlobalTransform;
+/** Compose this State's fixed-tick GlobalTransform for CPU camera and query readers. */
+export function composeTransform(state: State, eid: number, out: Float32Array): Float32Array {
+    const { pos, quat: rot, scale } = state.of(GlobalTransform);
     const px = pos.x.get(eid),
         py = pos.y.get(eid),
         pz = pos.z.get(eid);

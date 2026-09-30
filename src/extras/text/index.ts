@@ -27,7 +27,6 @@ import {
 import {
     Compute,
     f32,
-    field,
     formatHex,
     GlobalTransform,
     type Plugin,
@@ -106,19 +105,19 @@ export function text(content: string): number {
  */
 export const Text = {
     /** interned string id (see {@link text}); a scene's `content:` interns the raw string */
-    content: field(u32),
+    content: u32,
     /** registered font id (see {@link font}); 0 is the default face */
-    font: field(u32),
+    font: u32,
     /** world height of one em */
-    fontSize: field(f32),
+    fontSize: f32,
     /** 0..1 opacity multiplier */
-    opacity: field(f32),
+    opacity: f32,
     /** drawn when nonzero */
-    visible: field(f32),
+    visible: f32,
     /** 0..1 pivot within the label; 0 0 = bottom-left, 0.5 0.5 centered */
-    anchor: field(vec2),
+    anchor: vec2,
     /** hex sRGB glyph color */
-    color: field(f32),
+    color: f32,
 };
 
 // one surface + draw + atlas texture per font. The glyph buffer + sampler are shared (one name each); only
@@ -312,15 +311,15 @@ function fold(h: number, x: number): number {
 function signature(state: State): number {
     let h = 0x811c9dc5 | 0;
     for (const eid of state.query([Text, GlobalTransform])) {
-        if (!Text.visible.get(eid)) continue;
+        if (!state.of(Text).visible.get(eid)) continue;
         h = fold(h, eid);
-        h = fold(h, Text.content.get(eid));
-        h = fold(h, Text.font.get(eid));
-        h = fold(h, fbits(Text.fontSize.get(eid)));
-        h = fold(h, fbits(Text.anchor.x.get(eid)));
-        h = fold(h, fbits(Text.anchor.y.get(eid)));
-        h = fold(h, Text.color.get(eid));
-        h = fold(h, fbits(Text.opacity.get(eid)));
+        h = fold(h, state.of(Text).content.get(eid));
+        h = fold(h, state.of(Text).font.get(eid));
+        h = fold(h, fbits(state.of(Text).fontSize.get(eid)));
+        h = fold(h, fbits(state.of(Text).anchor.x.get(eid)));
+        h = fold(h, fbits(state.of(Text).anchor.y.get(eid)));
+        h = fold(h, state.of(Text).color.get(eid));
+        h = fold(h, fbits(state.of(Text).opacity.get(eid)));
     }
     return h;
 }
@@ -345,18 +344,18 @@ function rebuild(state: State, device: GPUDevice): void {
     for (let i = 0; i < _text.atlases.length; i++) _text.byFont[i].length = 0;
 
     for (const eid of state.query([Text, GlobalTransform])) {
-        if (!Text.visible.get(eid)) continue;
-        const content = Content.name(Text.content.get(eid));
+        if (!state.of(Text).visible.get(eid)) continue;
+        const content = Content.name(state.of(Text).content.get(eid));
         if (!content) continue;
-        let fontId = Text.font.get(eid);
+        let fontId = state.of(Text).font.get(eid);
         if (!_text.atlases[fontId]) fontId = 0;
         const atlas = _text.atlases[fontId];
         if (!atlas) continue;
         ensureString(atlas, content);
-        const layout = layoutText(content, atlas, Text.fontSize.get(eid));
-        const ox = -layout.width * Text.anchor.x.get(eid);
-        const oy = -layout.height * Text.anchor.y.get(eid);
-        const color = packColor(Text.color.get(eid), Text.opacity.get(eid));
+        const layout = layoutText(content, atlas, state.of(Text).fontSize.get(eid));
+        const ox = -layout.width * state.of(Text).anchor.x.get(eid);
+        const oy = -layout.height * state.of(Text).anchor.y.get(eid);
+        const color = packColor(state.of(Text).color.get(eid), state.of(Text).opacity.get(eid));
         for (const g of layout.glyphs) {
             _text.byFont[fontId].push({
                 eid,
