@@ -2,13 +2,46 @@
 
 These changes require updates to a 0.9.5 app.
 
+## Renamed exports
+
+0.10 renames these 0.9.5 names, with no compatibility aliases:
+
+| 0.9.5 | 0.10 |
+|---|---|
+| `State`, and `state` in examples | `World`, `world` |
+| `Compute` | `world.gpu` |
+| Physics `World` | `PhysicsWorld` |
+| `Single`, `Pair`, `Quad`, field `Type` | `ScalarField`, `Vector2Field`, `Vector4Field`, `FieldType` |
+| `Transform.pos`, `.rot` | `translation`, `rotation` |
+| `Body.pos`, `.quat` | `position`, `rotation` |
+| `Part` / scene `part` | `MeshInstance` / `mesh-instance` |
+| `Sear` / `sear`, `Depth`, `Tag`, `Backdrop` | `StandardRenderer` / `standard-renderer`, `DepthPrepass`, `PickingPrepass`, `CameraBackground` |
+| `TAG_FORMAT`, `TAG_NONE`, `TagFn`, `view.tag` | `PICKING_ID_FORMAT`, `PICKING_ID_NONE`, `PickingIdFn`, `view.pickingId` |
+| `BgCtx`, `BgFn`, `BgLayout` | `BackgroundContext`, `BackgroundFn`, `BackgroundLayout` |
+| GPU `View` schema; `/rendering` `linearToSrgb` | `ViewUniforms`; `linearToSrgb3` |
+| `mesh`, `image`, `font`, `text` | `registerMesh`, `registerImage`, `registerFont`, `internText` |
+| `segment`, `box`, `arrow` | `drawLine`, `drawWireBox`, `drawArrow` |
+| `build`, `run`, `Config`, `swap`, `SwapResult` | `createApp`, `runApp`, `AppConfig`, `swapPlugins`, `PluginSwapResult` |
+| `Node`, `Attr`, `parse`, `load`, `serialize`, `stringify`, `normalizeAttr` | `SceneNode`, `SceneAttribute`, `parseScene`, `loadScene`, `serializeScene`, `stringifyScene`, `normalizeAttribute` |
+| `Input`, `Unit`, `units`, `angle`, `degrees`, `radians` | `FieldInput`, `FieldUnit`, `unitInput`, `angleInput`, `degreeUnit`, `radianUnit` |
+| `compose`, `decompose`, `multiply`, `invert` | `composeMat4`, `decomposeMat4`, `multiplyMat4`, `invertMat4` |
+| `quat`, `euler`, `rotate`, `aim` | `eulerToQuat`, `quatToEuler`, `rotateQuatByEuler`, `lookAtRotation` |
+| Root physics `snapshot`, `restore`, `hash` | `snapshotPhysics`, `restorePhysics`, `hashPhysics` |
+| `focus`, `blur`, `composeTransform`, `dependencies` | `focusCanvas`, `blurCanvas`, `composeGlobalTransform`, `requiredComponents` |
+| `state.stamp`, `state.timescale`, `state.swap` | `world.generation`, `world.setTimeScale`, `world.swapSystem` |
+| `PrepassSystem`, `ColorSystem`, `ClusterSystem`, `LightCullSystem` | `RenderPrepassesSystem`, `RenderMeshColorSystem`, `UpdateLightClustersSystem`, `CullLightsSystem` |
+| `CharacterSweepSystem`, `PlayerControlSystem`, `PlayerSnapshotSystem` | `SweepCharactersSystem`, `UpdatePlayerControlSystem`, `SnapshotPlayerPositionSystem` |
+| Physics `StepSystem`, `ConstraintSystem`; `InputResetSystem` | `StepPhysicsSystem`, `SyncPhysicsConstraintsSystem`; `ResetFrameInputSystem` |
+
+Removed without replacement names: `wheel` (use `pointerWheel`), `FIXED_DT` (use `Time.FIXED_DT`), the `pixelRatio` constant (set `AppConfig.pixelRatio`), and the `/ecs` wrappers `register`, `getComponent`, `getTraits`, `getExclusions`, `entries` and `clear` (use `world.registry`).
+
 ## Request non-default GPU limits explicitly
 
 0.9.5 requested the adapter's maximum limits automatically. The engine now requests default device limits. If your application needs larger buffers or other non-default limits, acquire a device with those limits and pass it through the existing `config.device` option.
 
-## Resolve component storage from the owning State
+## Resolve component storage from the owning World
 
-`slab()` and `sparse()` are removed. Declare bare field types and resolve their values from the State:
+`slab()` and `sparse()` are removed. Declare bare field types and resolve their values from the World:
 
 ```ts
 // 0.9.5
@@ -19,15 +52,15 @@ Health.value.set(eid, 100);
 ```ts
 // 0.10
 const Health = { value: f32 };
-const health = state.of(Health);
+const health = world.storage(Health);
 health.value.set(eid, 100);
 ```
 
 Resolve storage once in a system's setup or a lifecycle hook, then retain it for that world. Declare the complete schema before binding it; to change a schema, replace the component object.
 
-Remove `capacity` from `build()` configuration and `new State()` options. The exported global `capacity` is gone; columns and tables grow as needed.
+Remove `capacity` from `createApp()` configuration and `new World()` options. The exported global `capacity` is gone; columns and tables grow as needed.
 
-Registration and metadata helpers that used global component registrations now take State: `register`, `getComponent` and `schemas`. Scene helpers `diagnose`, `parseFields`, `formatFields` and `normalizeAttr` also take State first.
+Scene helpers `diagnose`, `parseFields`, `formatFields` and `normalizeAttribute` take World first.
 
 ## Component fields no longer expose `.gpu`
 
@@ -42,7 +75,7 @@ const gpuValues = Heat.value.gpu;
 ```ts
 // 0.10
 const Heat = { value: f32 };
-const table = state.table("heat", d.struct({ value: d.f32 }));
+const table = world.table("heat", d.struct({ value: d.f32 }));
 table.bindComponent(Heat, { value: "value" });
 const gpuRows = table.buffer;
 ```
@@ -51,7 +84,7 @@ Change shaders from entity-indexed scalar arrays to struct records addressed by 
 
 ## Authored Transform and world GlobalTransform are separate
 
-`Transform` remains authored placement. The engine derives `GlobalTransform` for each `Transform` or physics `Body` entity; do not add `TransformsPlugin`. Those producers exclude each other, and `Body` satisfies rendering requirements for `GlobalTransform`. Read world placement through `state.of(GlobalTransform)`, not `Transform`. `GlobalTransform` is engine-derived, cannot be authored in a scene, and has no hierarchy.
+`Transform` remains authored placement. The engine derives `GlobalTransform` for each `Transform` or physics `Body` entity; do not add `TransformsPlugin`. Those producers exclude each other, and `Body` satisfies rendering requirements for `GlobalTransform`. Read world placement through `world.storage(GlobalTransform)`, not `Transform`. `GlobalTransform` is engine-derived, cannot be authored in a scene, and has no hierarchy.
 
 The renderer interpolates previous and current fixed-tick `GlobalTransform` into GPU-only `global-transform-interpolated` rows. It records history copies and interpolation in the renderer's frame submission. Without an interpolated-row reader, the composition does no GlobalTransform GPU work.
 
@@ -59,7 +92,7 @@ Custom typed surfaces change their instance binding from `transforms` to `global
 
 ## Instanced surfaces read a row payload, not a list of eids
 
-For a custom typed surface, change the `eids` binding element from `d.u32` to `d.vec4u`. Each instance is `(eid, globalTransformSlot, encodedPartSlot, shadowCombo)`: the Part slot is encoded as `slot + 1`, or zero when absent. Resolve slots while producing the instance list, not in the vertex stage. Shadow regather preserves the first three lanes and writes its combo index in the fourth.
+For a custom typed surface, change the `eids` binding element from `d.u32` to `d.vec4u`. Each instance is `(eid, globalTransformSlot, encodedMeshInstanceSlot, shadowCombo)`: the MeshInstance slot is encoded as `slot + 1`, or zero when absent. Resolve slots while producing the instance list, not in the vertex stage. Shadow regather preserves the first three lanes and writes its combo index in the fourth.
 
 The logical eid still reaches `VsIn.eid` and `ctx.eid`; use those for identity.
 
@@ -71,15 +104,15 @@ The importer scene hooks `Preloader`, `Preloads` and `preload` are removed. Load
 
 The importer-only shader specialization is also removed: `Surface.specialize`, `Specialize` and `Mesh.variant` are gone. Register separate named surfaces instead.
 
-## GPU registries and plugin helpers take State
+## GPU registries and plugin helpers use the owning World
 
-Replace the process-level `Compute` registries with the owning `state.gpu`. Helpers needing GPU state receive the owning State explicitly.
+Replace the process-level `Compute` registries with the owning `world.gpu`. Helpers needing GPU state receive the owning World explicitly.
 
-These helpers now take the owning State:
+These helpers use the owning World:
 
-- `Profile` data is read with `state.resource(Profile)`.
-- `cascadeCount()`, `cascadeComboEids()`, `pointComboCount()` and `pointComboEids()` take State first.
-- Character helpers `move`, `jump`, `globalTransform`, `teleport` and `grounded` take State before the entity id.
+- `Profile` data is read with `world.resource(Profile)`.
+- `cascadeCount()`, `cascadeComboEids()`, `pointComboCount()` and `pointComboEids()` take World first.
+- Character helpers `move`, `jump`, `globalTransform`, `teleport` and `grounded` take World before the entity id.
 
 ## Replace Mirror with explicit snapshot requests
 
@@ -94,13 +127,13 @@ const observation = mirror(counters);
 ```ts
 // 0.10
 import { probeBuffer } from "@dylanebert/shallot/runtime";
-const observation = await probeBuffer(state, counters);
+const observation = await probeBuffer(world, counters);
 const count = new Uint32Array(observation.bytes)[0];
 ```
 
-Existing `probeBuffer(device, source, options)` and `probeTexture(device, source, options)` calls now take the owning State instead of the GPUDevice. The returned bytes remain owned by that result.
+Existing `probeBuffer(device, source, options)` and `probeTexture(device, source, options)` calls now take the owning World instead of the GPUDevice. The returned bytes remain owned by that result.
 
-Requests accept only buffers and textures owned by their State. Allocate through `state.gpu.device` or `state.gpu.root`; register an external allocation intended solely for this world with `state.own(resource)` before probing it. Do not request another world's resource, even on a shared device. Keep counts that only size GPU work on the GPU instead of replacing the old Mirror with per-frame requests.
+Requests accept only buffers and textures owned by their World. Allocate through `world.gpu.device` or `world.gpu.root`; register an external allocation intended solely for this world with `world.own(resource)` before probing it. Do not request another world's resource, even on a shared device. Keep counts that only size GPU work on the GPU instead of replacing the old Mirror with per-frame requests.
 
 ## `shallot recipe` is now `shallot add`
 
@@ -136,9 +169,9 @@ import { Xform } from "@dylanebert/shallot/utils";
 
 Likewise `/ecs/core` is `/ecs`, `/scene/core` is `/scene`, `/physics/core` and `/tumble/core` are `/physics`, `/character/core` is `/character` and `/bvh/core` is `/bvh`. The `/src/*` wildcard is gone: use the paths in `package.json` `exports`.
 
-## `Inputs` is now `state.resource(Devices)`
+## `Inputs` is now `world.resource(Devices)`
 
-The owning App's keys, mouse, touch and viewport replace the process-level `Inputs` facade. `setInputEnabled` takes State, and canvas size moved from `mouse` to `viewport`.
+The owning App's keys, mouse, touch and viewport replace the process-level `Inputs` facade. `setInputEnabled` takes World, and canvas size moved from `mouse` to `viewport`.
 
 ```ts
 // 0.9.5
@@ -150,23 +183,23 @@ setInputEnabled(false);
 
 ```ts
 // 0.10
-const input = state.resource(Devices);
+const input = world.resource(Devices);
 if (input.keys.held.has("KeyW")) moveForward();
 if (input.keys.pressed.has("Space")) jump();
 const width = input.viewport.get(input.focused)?.cssWidth ?? 0;
-setInputEnabled(state, false);
+setInputEnabled(world, false);
 ```
 
 In `fixed`, use `keys.tickPressed` instead of the frame-level press. Replace `isKeyPressedWithin(code, seconds)` with fixed-tick comparisons:
 
 ```ts
 const at = input.keys.pressedTick.get("Space");
-if (at !== undefined && state.time.fixedTick - at < 6) jump();
+if (at !== undefined && world.time.fixedTick - at < 6) jump();
 ```
 
 ## `Tumble` is now `Physics`, and `Physics.backend` is gone
 
-Rename the plugin and manifest key from `Tumble` to `Physics`. Read and drive bodies through State-first functions from `/physics`:
+Rename the plugin and manifest key from `Tumble` to `Physics`. Read and drive bodies through World-first functions from `/physics`:
 
 ```ts
 // 0.9.5
@@ -177,11 +210,11 @@ const b = Tumble.body(eid);
 ```ts
 // 0.10
 import { body, setKinematic } from "@dylanebert/shallot/physics";
-setKinematic(state, eid, position, rotation);
-const b = body(state, eid);
+setKinematic(world, eid, position, rotation);
+const b = body(world, eid);
 ```
 
-`Tumble.world` becomes `physicsWorld(state)`.
+`Tumble.world` becomes `physicsWorld(world)`.
 
 ## `/avbd` is gone
 
@@ -196,13 +229,13 @@ There is no animation plugin in this release line. Implement animation in app co
 `Document`, `History`, `Session` and `ReadbackSystem` are removed, with no replacement for undo, redo or editor sessions. Remove `State.mode`, the app's `mode` option and `annotations.mode`: every system always runs. Saving and loading scenes still works:
 
 ```ts
-import { serialize, stringify } from "@dylanebert/shallot";
-const saved = stringify(serialize(state));
+import { serializeScene, stringifyScene } from "@dylanebert/shallot";
+const saved = stringifyScene(serializeScene(world));
 ```
 
 ## `/harness` helpers are removed
 
-Remove imports of `installHarness`, `HarnessTarget` and `REAL_GPU_LAUNCH`. Drive `build()` and `state.step()` in the project's tests and observe through public ECS and physics reads. Configure the project's browser tests with Playwright Test, its own Vite `webServer` and its own Chromium launch flags.
+Remove imports of `installHarness`, `HarnessTarget` and `REAL_GPU_LAUNCH`. Drive `createApp()` and `world.step()` in the project's tests and observe through public ECS and physics reads. Configure the project's browser tests with Playwright Test, its own Vite `webServer` and its own Chromium launch flags.
 
 ## Vite configuration and project scripts are now the project's
 

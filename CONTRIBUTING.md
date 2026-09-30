@@ -8,9 +8,9 @@ For modifying the engine; for using it, see the [README](README.md). API details
 
 - Every built app requires WebGPU. Acquire the composition's required capabilities, grant preferred features where available, and refuse with the cause; never forward adapter maxima.
 - Each build acquires a device unless supplied `config.device`. Apps may share that device; each owns its world storage and allocations. Builds serialize registration and warm-up; completed apps coexist. Disposing one releases its resources, not the device or a sibling's data.
-- Components declare fields, not storage or GPU residency. Each world owns eid-indexed typed columns that double to cover the entity high-water mark and never shrink during play. Resolve accessors once with `state.of(Component)`; growth replaces arrays, not accessors. Compatible hot reload reuses storage; incompatible schemas require rebuilding.
+- Components declare fields, not storage or GPU residency. Each world owns eid-indexed typed columns that double to cover the entity high-water mark and never shrink during play. Resolve accessors once with `world.storage(Component)`; growth replaces arrays, not accessors. Compatible hot reload reuses storage; incompatible schemas require rebuilding.
 - Field changes are frame-scoped: all consuming tables read them at upload before they clear; later writes reach the next frame. Raw column writes publish only after `markChanged(eid)` on the owning field or lane; setters and bulk writes mark automatically. There are no per-component change ticks.
-- Keep plugin state in `state.resource`, not module globals, and use `state.gpu`. Its context and TypeGPU root own buffers and textures automatically; register other GPU allocations with `state.own` and other cleanup with `state.onDispose`. Field, resource and GPU access resolves through the State passed to the callback.
+- Keep plugin state in `world.resource`, not module globals, and use `world.gpu`. Its context and TypeGPU root own buffers and textures automatically; register other GPU allocations with `world.own` and other cleanup with `world.onDispose`. Field, resource and GPU access resolves through the World passed to the callback.
 
 ### GPU tables
 

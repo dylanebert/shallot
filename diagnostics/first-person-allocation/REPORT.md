@@ -1,5 +1,7 @@
 # First-person allocation diagnosis — stage 1
 
+System names below use the current vocabulary; measurements and historical source positions are unchanged.
+
 ## Verdict
 
 The landed `c6a7fc16` baseline is still red under the pinned Node child runtime. The red is in the stepped CPU subject path, not the sampler's control path. Bounded controls localize the steady allocation to the `Character` fixed-step path (the path is necessary for the red), with the smallest plausible ownership boundary at the Character/physics kinematic-upload seam. The exact allocating operation is **not proved**: the harness reports the run caller, `stepChunk`, rather than a Character or physics source line.
@@ -69,7 +71,7 @@ The committed diagnostic entries are scratch subjects only; they do not alter th
 | `noopStep` | Same build and scene; returned `step()` does no work | `0 B`, no sites | The sampler/control and build alone do not produce the steady red; the stepped subject path is required. |
 | `knownSubjectAllocation` | Same baseline step, plus one live `{ frame: 0 }` object assigned in the subject's `step()` | `134400 B`, `1800` samples, still only `stepChunk ...:140` | Positive control: a known subject allocation is detected. The extra `19200 B` is not attributed to its source line, so the `stepChunk` label is a caller bucket, not an owner proof. |
 | `noCharacterSystem` | Same scene and physics/input composition, but the Character plugin's fixed system is removed | `0 B`, no sites | The steady red requires the Character fixed-step path. Warm-window tiering bytes are present but do not survive the A/A gate. |
-| `noPhysicsStep` | Same Character path and warmed physics world, but only `StepSystem` is removed | `369600 B`, `3600` samples, `stepChunk ...:140` | Character-side work still allocates without the solver step. This rules out assigning the red solely to the physics solver step, but does not identify the individual Character/FFI operation. |
+| `noPhysicsStep` | Same Character path and warmed physics world, but only `StepPhysicsSystem` is removed | `369600 B`, `3600` samples, `stepChunk ...:140` | Character-side work still allocates without the solver step. This rules out assigning the red solely to the physics solver step, but does not identify the individual Character/FFI operation. |
 | `empty` scene | Same landed composition and sampler, no authored entities | `0 B`, no sites | The red needs the authored subject state, rather than being a fixed per-call sampler artifact. |
 | `character` scene | Same landed composition, reduced input containing one Character+Body and no ground | `115200 B`, `1200` samples, `stepChunk ...:140` | A single Character+Body is sufficient; the full route and its extra static geometry are not needed for the baseline-sized red. |
 
@@ -90,7 +92,7 @@ It does **not** say that `allocation-sampler.mjs:140` allocates. The known-subje
 The relevant source-side boundary is:
 
 ```text
-CharacterSweepSystem.update
+SweepCharactersSystem.update
   -> sweepEach / sweepEid
   -> sweepCharacter
   -> setKinematic
@@ -107,7 +109,7 @@ CharacterSweepSystem.update
 - The selected reproduction read `115200 B` at `stepChunk`; an identical later invocation read `230400 B` at the same site.
 - Three steady windows agree within each captured baseline run, and the A/A site remains the sampler caller.
 - A no-op subject is steady-zero; a known subject literal is detected and increases the total; both facts use the same sampler and control mechanism.
-- Removing Character's fixed system makes the A/A window empty. Retaining Character while removing only the physics `StepSystem` remains red.
+- Removing Character's fixed system makes the A/A window empty. Retaining Character while removing only the physics `StepPhysicsSystem` remains red.
 - A minimal one-Character scene is sufficient for the baseline-sized steady red.
 
 ### Inferred
